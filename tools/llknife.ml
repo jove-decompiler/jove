@@ -1,0 +1,353 @@
+open Llvm
+
+module Action = struct
+  type t =
+    | None
+    | Rename_function
+    | Replace_calls_with_ret
+    | Extricate_call_operand
+    | Only_external
+    | Only_external_regex
+    | Make_external_regex
+    | Make_defined_globals_weak
+    | Promote_call_operand_pointee_to_global
+    | Change_fn_def_to_decl_regex
+    | Delete_global_ctors
+    | Remove_noinline_attr_regex
+    | Set_global_constant_regex
+end
+
+let main () =
+  let ifp = ref "" in
+  let ofp = ref "" in
+
+  let a = ref Action.None in
+
+  let args = ref [||] in
+
+  Arg.parse
+    [
+      ("-i", Arg.Set_string ifp,
+       "Specify input LLVM bitcode file");
+
+      ("-o", Arg.Set_string ofp,
+       "Specify output LLVM bitcode file");
+
+      ("--rename-function", Arg.Unit (fun () -> a := Action.Rename_function),
+       "Renames function");
+
+      ("--replace-calls-with-return", Arg.Unit (fun () -> a := Action.Replace_calls_with_ret),
+       "Replaces calls from to with return const_null");
+
+      ("--extricate-call-operand", Arg.Unit (fun () -> a := Action.Extricate_call_operand),
+       "Creates a global variable of the desired symbol, assigned to the operand prior to the given calls from to");
+
+      ("--promote-call-operand-pointee-to-global", Arg.Unit (fun () -> a := Action.Promote_call_operand_pointee_to_global),
+       "Creates a global variable of the desired symbol, of the pointee type to the given operand prior to the given calls from to");
+
+      ("--only-external", Arg.Unit (fun () -> a := Action.Only_external),
+       "Sets linkage of all globals to internal except for the provided list, which are made external");
+
+      ("--only-external-regex", Arg.Unit (fun () -> a := Action.Only_external_regex),
+       "Sets linkage of all globals to internal except for those matching regex");
+
+      ("--make-external-regex", Arg.Unit (fun () -> a := Action.Make_external_regex),
+       "Sets linkage of all globals matching regex to external");
+
+      ("--remove-noinline-attr-regex", Arg.Unit (fun () -> a := Action.Remove_noinline_attr_regex),
+       "Removes the noinline attribute on all functions matching the regex");
+
+      ("--set-global-constant-regex", Arg.Unit (fun () -> a := Action.Set_global_constant_regex),
+       "Sets globals to be constant on all globals matching the regex");
+
+      ("--change-fn-def-to-decl-regex", Arg.Unit (fun () -> a := Action.Change_fn_def_to_decl_regex),
+       "Turns function definitions into declarations");
+      
+      ("--delete-global-ctors", Arg.Unit (fun () -> a := Action.Delete_global_ctors),
+       "Deletes all global ctors");
+
+      ("--make-defined-globals-weak", Arg.Unit (fun () -> a := Action.Make_defined_globals_weak),
+       "Sets linkage of all defined globals to be weak")
+    ]
+    (fun anonarg -> args := Array.append !args [|anonarg|])
+    "usage: llknife -i input -o output [--rename-function before after] [--replace-calls-with-return caller callee] [--extricate-call-operand caller callee operand_index new_global_symbol] [--only-external symbol symbol ...]";
+
+  (*
+   * validate arguments
+   *)
+  if !ifp = "" || not (Sys.file_exists !ifp) || !ofp = "" then
+    assert false;
+
+  (match !a with
+   | Action.None -> assert false
+   | Action.Rename_function -> assert (Array.length !args = 2)
+   | Action.Replace_calls_with_ret -> assert (Array.length !args = 2)
+   | Action.Extricate_call_operand -> assert (Array.length !args = 4)
+   | Action.Make_defined_globals_weak -> assert (Array.length !args = 0)
+   | Action.Delete_global_ctors -> assert (Array.length !args = 0)
+   | Action.Make_external_regex -> assert (Array.length !args = 1)
+   | Action.Remove_noinline_attr_regex -> assert (Array.length !args = 1)
+   | Action.Set_global_constant_regex -> assert (Array.length !args = 1)
+   | Action.Only_external_regex -> assert (Array.length !args = 1)
+   | Action.Change_fn_def_to_decl_regex -> assert (Array.length !args = 1)
+   | Action.Promote_call_operand_pointee_to_global -> assert (Array.length !args = 4)
+   | Action.Only_external -> () (* variable number of arguments *)
+  );
+
+  (*
+   * LLVM initialization
+   *)
+  let llctx = create_context () in
+
+  (*
+   * parse input
+   *)
+  let llm = Llvm_bitreader.parse_bitcode llctx (MemoryBuffer.of_file !ifp) in
+
+  (*
+   * helpful functions
+   *)
+  let llvm_function_of_symbol sym = BatOption.get (lookup_function sym llm) in
+  let sscan = Scanf.sscanf in
+  let id = fun x -> x in
+  let beginswith s' s =
+    let sl = String.length s in
+    let s'l = String.length s' in
+    sl >= s'l && s' = (String.sub s 0 s'l)
+  in
+  let llvm_globals llm = fold_left_globals (fun res llg -> llg::res) [] llm in
+  let llvm_functions llm = fold_left_functions (fun res llf -> llf::res) [] llm in
+
+  (*
+   * execute requested action
+   *)
+  (match !a with
+   | Action.None -> ()
+
+   | Action.Rename_function ->
+     set_value_name (!args).(1) (llvm_function_of_symbol (!args).(0))
+
+   | Action.Replace_calls_with_ret ->
+     let caller = llvm_function_of_symbol (!args).(0) in
+     let callee = llvm_function_of_symbol (!args).(1) in
+
+     let calls =
+       fold_left_uses (fun res llu ->
+         let instr = user llu in
+         if classify_value instr = ValueKind.Instruction Opcode.Call &&
+            (block_parent (instr_parent instr)) = caller then
+           instr::res
+         else
+           res
+       ) [] callee
+     in
+
+     List.iter (fun call ->
+       replace_all_uses_with call (undef (type_of call));
+
+       let term' = block_terminator (instr_parent call) in
+       match term' with
+       | Some term ->
+         let b = builder_before llctx term in
+         let caller_ty = element_type (type_of caller) in
+         let ret_ty = return_type caller_ty in
+
+         if ret_ty = (void_type llctx) then
+           ignore (build_ret_void b)
+         else
+           ignore (build_ret (const_null ret_ty) b);
+
+         (* deleting the terminator could change whether the function is noreturn *)
+         remove_function_attr caller Attribute.Noreturn;
+         delete_instruction term
+       | _ -> ();
+     ) calls;
+
+     List.iter delete_instruction calls;
+
+   | Action.Extricate_call_operand ->
+     let caller = llvm_function_of_symbol (!args).(0) in
+     let callee = llvm_function_of_symbol (!args).(1) in
+     let opidx  = sscan (!args).(2) "%d" id in
+     let gvsym  = (!args).(3) in
+
+     (* get type for new global *)
+     let callee_ty = element_type (type_of callee) in
+     let gvty = (param_types callee_ty).(opidx) in
+
+     (* create global *)
+     let gv = define_global gvsym (const_null gvty) llm in
+     set_linkage Linkage.External gv;
+
+     (* get list of calls from given caller *)
+     let calls =
+       fold_left_uses (fun res llu ->
+         let instr = user llu in
+         if classify_value instr = ValueKind.Instruction Opcode.Call &&
+            (block_parent (instr_parent instr)) = caller then
+           instr::res
+         else
+           res
+       ) [] callee
+     in
+
+     (* assign operands to global *)
+     List.iter (fun call ->
+       let b = builder_before llctx call in
+       ignore (build_store (operand call opidx) gv b)
+     ) calls;
+
+   | Action.Only_external ->
+     iter_globals (fun llgl ->
+       if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
+         set_linkage Linkage.Internal llgl
+     ) llm;
+     iter_functions (fun llf ->
+       if not (is_declaration llf) && not (is_intrinsic llf) then
+         set_linkage Linkage.Internal llf
+     ) llm;
+
+     let llfs' = Array.map (fun sym -> lookup_function sym llm) !args in
+     let llgs' = Array.map (fun sym -> lookup_global sym llm) !args in
+
+     let llfs = List.filter (fun llf' -> llf' <> None) (Array.to_list llfs') in
+     let llgs = List.filter (fun llg' -> llg' <> None) (Array.to_list llgs') in
+
+     List.iter
+       (set_linkage Linkage.External)
+       (List.map BatOption.get (llfs@llgs))
+
+   | Action.Change_fn_def_to_decl_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_functions (fun llf ->
+       if Str.string_match r (value_name llf) 0 &&
+          Array.length (basic_blocks llf) != 0 then
+         delete_function_body llf
+     ) llm
+
+   | Action.Make_external_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_functions (fun llf ->
+       if Str.string_match r (value_name llf) 0 then
+         set_linkage Linkage.External llf
+     ) llm
+
+   | Action.Remove_noinline_attr_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_functions (fun llf ->
+       if Str.string_match r (value_name llf) 0 then
+         remove_function_attr llf Attribute.Noinline
+     ) llm
+
+   | Action.Set_global_constant_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_globals (fun llg ->
+       if Str.string_match r (value_name llg) 0 then
+         set_global_constant true llg
+     ) llm
+
+   | Action.Only_external_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_globals (fun llgl ->
+       if not (is_declaration llgl) &&
+          not (beginswith "llvm." (value_name llgl)) &&
+          not (Str.string_match r (value_name llgl) 0) then
+         set_linkage Linkage.Internal llgl
+     ) llm;
+
+     iter_functions (fun llf ->
+       if not (is_declaration llf) &&
+          not (is_intrinsic llf) &&
+          not (Str.string_match r (value_name llf) 0) then
+         set_linkage Linkage.Internal llf
+     ) llm
+
+   | Action.Make_defined_globals_weak ->
+     iter_globals (fun llgl ->
+       if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
+         set_linkage Linkage.Weak llgl
+     ) llm;
+     iter_functions (fun llf ->
+       if not (is_declaration llf) then
+         set_linkage Linkage.Weak llf
+     ) llm
+
+   | Action.Delete_global_ctors ->
+     let ctrs_gl' = lookup_global "llvm.global_ctors" llm in
+     if ctrs_gl' <> None then
+       delete_global (BatOption.get ctrs_gl')
+
+   | Action.Promote_call_operand_pointee_to_global ->
+     let caller = llvm_function_of_symbol (!args).(0) in
+     let callee = llvm_function_of_symbol (!args).(1) in
+     let opidx  = sscan (!args).(2) "%d" id in
+     let gvsym  = (!args).(3) in
+
+     (* get type for new global *)
+     let callee_ty = element_type (type_of callee) in
+     let gvty = element_type (param_types callee_ty).(opidx) in
+
+     (* create global *)
+     let gv = define_global gvsym (const_null gvty) llm in
+     set_linkage Linkage.External gv;
+
+     (* get list of calls from given caller *)
+     let calls =
+       fold_left_uses (fun res llu ->
+         let instr = user llu in
+         if classify_value instr = ValueKind.Instruction Opcode.Call &&
+            (block_parent (instr_parent instr)) = caller then
+           instr::res
+         else
+           res
+       ) [] callee
+     in
+
+     assert (calls <> []);
+     let lcl = operand (List.hd calls) opidx in
+     replace_all_uses_with lcl gv;
+
+     let casts =
+       fold_left_uses (fun res llu ->
+         let instr = user llu in
+         if classify_value instr = ValueKind.Instruction Opcode.BitCast then
+           instr::res
+         else
+           res
+       ) [] gv in
+
+     let lifetimecalls =
+       List.fold_left (fun res' cast ->
+         res' @ (fold_left_uses (fun res llu ->
+           let instr = user llu in
+           if classify_value instr = ValueKind.Instruction Opcode.Call &&
+              beginswith "llvm.lifetime." (value_name (operand instr ((num_operands instr) - 1))) then
+             instr::res
+           else
+             res
+         ) [] cast)
+       ) [] casts in
+     List.iter delete_instruction lifetimecalls
+  );
+
+  (*
+   * verify result
+   *)
+  let err' = Llvm_analysis.verify_module llm in
+  match err' with
+    | Some err -> print_endline err
+    | _ -> ();
+
+  (*
+   * write result
+   *)
+  assert (Llvm_bitwriter.write_bitcode_file llm !ofp);
+
+  (*
+   * LLVM clean-up
+   *)
+  dispose_module llm;
+  dispose_context llctx;
+;;
+
+main ()
