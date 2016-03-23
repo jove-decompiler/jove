@@ -12,6 +12,7 @@ module Action = struct
     | Make_defined_globals_weak
     | Promote_call_operand_pointee_to_global
     | Change_fn_def_to_decl_regex
+    | Make_fn_into_stub_regex
     | Delete_global_ctors
     | Remove_noinline_attr_regex
     | Set_global_constant_regex
@@ -62,6 +63,9 @@ let main () =
 
       ("--change-fn-def-to-decl-regex", Arg.Unit (fun () -> a := Action.Change_fn_def_to_decl_regex),
        "Turns function definitions into declarations");
+
+      ("--make-fn-into-stub-regex", Arg.Unit (fun () -> a := Action.Make_fn_into_stub_regex),
+       "Replaces function definitions with empty stubs that return 0 or void");
       
       ("--delete-global-ctors", Arg.Unit (fun () -> a := Action.Delete_global_ctors),
        "Deletes all global ctors");
@@ -90,6 +94,7 @@ let main () =
    | Action.Set_global_constant_regex -> assert (Array.length !args = 1)
    | Action.Only_external_regex -> assert (Array.length !args = 1)
    | Action.Change_fn_def_to_decl_regex -> assert (Array.length !args = 1)
+   | Action.Make_fn_into_stub_regex -> assert (Array.length !args = 1)
    | Action.Promote_call_operand_pointee_to_global -> assert (Array.length !args = 4)
    | Action.Only_external -> () (* variable number of arguments *)
   );
@@ -223,6 +228,27 @@ let main () =
        if Str.string_match r (value_name llf) 0 &&
           Array.length (basic_blocks llf) != 0 then
          delete_function_body llf
+     ) llm
+
+   | Action.Make_fn_into_stub_regex ->
+     let r = Str.regexp (!args).(0) in
+     iter_functions (fun llf ->
+       if Str.string_match r (value_name llf) 0 &&
+          Array.length (basic_blocks llf) != 0 then (
+         delete_function_body llf;
+
+         let bb = append_block llctx "stub" llf in
+
+         let b = builder_at_end llctx bb in
+
+         let llf_ty = element_type (type_of llf) in
+         let ret_ty = return_type llf_ty in
+
+         if ret_ty = (void_type llctx) then
+           ignore (build_ret_void b)
+         else
+           ignore (build_ret (const_null ret_ty) b);
+       )
      ) llm
 
    | Action.Make_external_regex ->

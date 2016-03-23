@@ -1,146 +1,5 @@
 #include "cpu.h"
 #include "tcg.h"
-#include <libgen.h>
-#include "qemutcg.h"
-
-static const uint8_t* code;
-
-#if defined(TARGET_I386)
-void x86_cpu_register_types(void);
-#elif defined(TARGET_ARM)
-void arm_cpu_register_types(void);
-#elif defined(TARGET_AARCH64)
-void aarch64_cpu_register_types(void);
-#endif
-void register_types(void);
-void qdev_register_types(void);
-void cpu_register_types(void);
-
-void libqemutcg_init(void) {
-  const char *cpu_model;
-  CPUState *cpu;
-  CPUArchState *env;
-
-  register_module_init(register_types, MODULE_INIT_QOM);
-  register_module_init(qdev_register_types, MODULE_INIT_QOM);
-  register_module_init(cpu_register_types, MODULE_INIT_QOM);
-#if defined(TARGET_I386)
-  register_module_init(x86_cpu_register_types, MODULE_INIT_QOM);
-#elif defined(TARGET_ARM)
-  register_module_init(arm_cpu_register_types, MODULE_INIT_QOM);
-#elif defined(TARGET_AARCH64)
-  register_module_init(aarch64_cpu_register_types, MODULE_INIT_QOM);
-#endif
-
-  module_call_init(MODULE_INIT_QOM);
-
-#if defined(TARGET_I386)
-#ifdef TARGET_X86_64
-  cpu_model = "qemu64";
-#else
-  cpu_model = "qemu32";
-#endif
-#else
-  cpu_model = "any";
-#endif
-  tcg_context_init(&tcg_ctx);
-
-  /* NOTE: we need to init the CPU at this stage to get
-     qemu_host_page_size */
-  cpu = cpu_init(cpu_model);
-  if (!cpu)
-    exit(22);
-  env = cpu->env_ptr;
-  cpu_reset(cpu);
-
-  tcg_prologue_init(&tcg_ctx);
-
-#if defined(TARGET_I386)
-    env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
-    env->hflags |= HF_PE_MASK | HF_CPL_MASK;
-    if (env->features[FEAT_1_EDX] & CPUID_SSE) {
-        env->cr[4] |= CR4_OSFXSR_MASK;
-        env->hflags |= HF_OSFXSR_MASK;
-    }
-#ifndef TARGET_ABI32
-    /* enable 64 bit mode if possible */
-    if (!(env->features[FEAT_8000_0001_EDX] & CPUID_EXT2_LM))
-        exit(23);
-    env->cr[4] |= CR4_PAE_MASK;
-    env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
-    env->hflags |= HF_LMA_MASK;
-#endif
-
-    /* flags setup : we activate the IRQs by default as in user mode */
-    env->eflags |= IF_MASK;
-
-#elif defined(TARGET_AARCH64)
-    {
-        if (!(arm_feature(env, ARM_FEATURE_AARCH64)))
-            exit(24);
-    }
-#elif defined(TARGET_ARM)
-    {
-        // XXX TODO
-#if 0
-        /* Enable BE8.  */
-        if (EF_ARM_EABI_VERSION(info->elf_flags) >= EF_ARM_EABI_VER4
-            && (info->elf_flags & EF_ARM_BE8)) {
-            env->bswap_code = 1;
-        }
-#endif
-    }
-#else
-#error unsupported target CPU
-#endif
-}
-
-void libqemutcg_set_code(const uint8_t* p) {
-  code = p;
-}
-
-void libqemutcg_translate(unsigned off) {
-  target_ulong pc = off;
-  CPUArchState *env = first_cpu->env_ptr;
-
-#if defined(TARGET_ARM)
-  env->pc = pc;
-#elif defined(TARGET_I386)
-  env->eip = pc;
-#else
-#error "unsupported architecture"
-#endif
-
-  target_ulong cs_base;
-  int flags;
-  int cflags = 0;
-  cpu_get_tb_cpu_state(env, &pc, &cs_base, &flags);
-
-  TranslationBlock tb;
-  tb.pc = pc;
-  tb.tc_ptr = tcg_ctx.code_gen_ptr;
-  tb.cs_base = cs_base;
-  tb.flags = flags;
-  tb.cflags = cflags;
-
-  tcg_func_start(&tcg_ctx);
-
-  gen_intermediate_code(env, &tb);
-
-  qemu_log_set_file(stdout);
-  tcg_dump_ops(&tcg_ctx);
-}
-
-static const char *tcg_type_nm_map[] = {"i32", "i64", "count"};
-
-void libqemutcg_test(void) {
-  printf("tcg globals:\n");
-  for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
-    TCGTemp* ts = &tcg_ctx.temps[i];
-    printf("%s %s\n", tcg_type_nm_map[ts->type], ts->name);
-  }
-  printf("end of tcg globals\n");
-}
 
 /*
  * Generate inline load/store functions for all MMU modes (typically
@@ -221,55 +80,55 @@ void cpu_stb_data_ra(struct CPUState *env, target_ulong ptr, uint32_t v,
                      uintptr_t retaddr);
 
 /*
- * implementations of load/store functions
+ * implementations
  */
 
 uint32_t cpu_ldub_data(struct CPUState *env, target_ulong ptr) {
-  return ldub_p(ptr + code);
+  return ldub_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 int cpu_ldsb_data(struct CPUState *env, target_ulong ptr) {
-  return ldsb_p(ptr + code);
+  return ldsb_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_lduw_data(struct CPUState *env, target_ulong ptr) {
-  return lduw_le_p(ptr + code);
+  return lduw_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 int cpu_ldsw_data(struct CPUState *env, target_ulong ptr) {
-  return ldsw_le_p(ptr + code);
+  return ldsw_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_ldl_data(struct CPUState *env, target_ulong ptr) {
-  return ldl_le_p(ptr + code);
+  return ldl_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint64_t cpu_ldq_data(struct CPUState *env, target_ulong ptr) {
-  return ldq_le_p(ptr + code);
+  return ldq_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_ldub_code(struct CPUState *env, target_ulong ptr) {
-  return ldub_p(ptr + code);
+  return ldub_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 int cpu_ldsb_code(struct CPUState *env, target_ulong ptr) {
-  return ldsb_p(ptr + code);
+  return ldsb_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_lduw_code(struct CPUState *env, target_ulong ptr) {
-  return lduw_le_p(ptr + code);
+  return lduw_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 int cpu_ldsw_code(struct CPUState *env, target_ulong ptr) {
-  return ldsw_le_p(ptr + code);
+  return ldsw_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_ldl_code(struct CPUState *env, target_ulong ptr) {
-  return ldl_le_p(ptr + code);
+  return ldl_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint64_t cpu_ldq_code(struct CPUState *env, target_ulong ptr) {
-  return ldq_le_p(ptr + code);
+  return ldq_le_p(((void *)((unsigned long)(target_ulong)(ptr))));
 }
 
 uint32_t cpu_ldub_data_ra(struct CPUState *env, target_ulong ptr,
@@ -334,6 +193,7 @@ int cpu_ldsw_code_ra(struct CPUState *env, target_ulong ptr,
 
 void *tlb_vaddr_to_host(struct CPUState *env, target_ulong addr,
                         int access_type, int mmu_idx) {
+  return ((void *)((uintptr_t)addr));
 }
 
 void cpu_stq_data(struct CPUState *env, target_ulong ptr, uint64_t v) {}

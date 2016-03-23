@@ -1,18 +1,32 @@
 include config.mk
 
-SOS      := $(patsubst %,$(build_dir)/lib%2llvm.so,$(qemutcg_archs))
-EXAMPLES := $(patsubst examples/%.cpp,$(build_dir)/%,$(wildcard examples/*.cpp))
+TRANS_OBJ := $(patsubst %,$(build_dir)/trans-obj-%,$(qemutcg_archs))
+LIBS      := $(patsubst %,$(build_dir)/lib%2llvm.so,$(qemutcg_archs))
+EXAMPLES  := $(patsubst examples/%.cpp,$(build_dir)/%,$(wildcard examples/*.cpp))
 
-all: $(SOS) $(EXAMPLES)
+all: $(TRANS_OBJ)
 
-define TARGET_template =
-$(build_dir)/lib$(1)2llvm.so: $(build_dir)/qemutcg.c $(build_dir)/qemustub.weak.bc $(build_dir)/qemuutil.weak.bc
+define TRANSOBJ_template =
+$(build_dir)/trans-obj-$(1): $(build_dir)/trans-obj.cpp $(build_dir)/libqemutcg-$(1).bc
+	$(llvm_dir)/bin/clang++ -o $$@ -O1 -g $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lglib-2.0 -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
+endef
+$(foreach targ,$(qemutcg_archs),$(eval $(call TRANSOBJ_template,$(targ))))
+
+#
+# QEMU linker flags
+#
+
+#LDFLAGS -Wl,-z,relro -Wl,-z,now -pie -m64 -flto -fno-inline
+#LIBS -lpixman-1 -lutil -lnuma -lbluetooth -lncursesw -lvdeplug -luuid -lSDL -lpthread -lX11 -lnettle -lgnutls -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lfontconfig -lfreetype -lX11 -llzo2 -lsnappy -lseccomp -lfdt -lcacard -lglib-2.0 -lusb-1.0 -lusbredirparser -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt
+
+
+define LIB_template =
+$(build_dir)/libqemutcg-$(1).bc: $(build_dir)/qemutcg.c
 	@$$(MAKE) -C $(build_dir)/qemu/$(1)-softmmu -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
+$(foreach targ,$(qemutcg_archs),$(eval $(call LIB_template,$(targ))))
 
-$(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_template,$(targ))))
-
-LLVMLIBSDIR  := $(llvm_build_dir)/lib/ocaml
+LLVMLIBSDIR  := $(llvm_dir)/lib/ocaml
 
 OCAMLLIBNAMES := nums \
                  str
@@ -31,51 +45,54 @@ OCAMLLIBS    := $(patsubst %,$(ocaml_dir)/%.cmxa,$(OCAMLLIBNAMES))
 LLVMLLIBS    := $(patsubst %,$(LLVMLIBSDIR)/%.cmxa,$(LLVMLIBNAMES))
 OPAMLIBS     := $(patsubst %,$(opam_libs_dir)/%.cmxa,$(OPAMLIBNAMES))
 
-$(build_dir)/llknife: $(build_dir)/llknife.ml
-	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	@ocamlopt -o $@ -absname -g -thread $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
-
-$(build_dir)/qemustub.weak.bc: $(build_dir)/llknife
-	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemustub.bc -o $@
-
-$(build_dir)/qemuutil.weak.bc: $(build_dir)/llknife
-	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemuutil.bc -o $@
-
-$(build_dir)/%: examples/%.cpp
-	@echo CC $(notdir $@ $<)
-	@$(llvm_build_dir)/bin/clang++ -o $@ -ldl -lboost_filesystem -lboost_system -O3 $<
-
-.PHONY: configure
-configure:
-	if [ -d "build" ]; then rm -rf build/* ; fi
-	mkdir -p $(patsubst %,build/qemu/%-softmmu,$(qemutcg_archs))
+$(build_dir):
+	mkdir $@
 	for f in $$(find . -type f -iname '*.ml'); do \
 	  BNM=$$(basename $$f) ; \
-	  echo ln -sr $f build/$$BNM ; \
-	  ln -sr $$f build/$$BNM ; \
+	  echo ln -sr $f $(build_dir)/$$BNM ; \
+	  ln -sr $$f $(build_dir)/$$BNM ; \
 	done
 	for f in $$(find . -type f -iname '*.c'); do \
 	  BNM=$$(basename $$f) ; \
-	  echo ln -sr $$f build/$$BNM ; \
-	  ln -sr $$f build/$$BNM ; \
+	  echo ln -sr $$f $(build_dir)/$$BNM ; \
+	  ln -sr $$f $(build_dir)/$$BNM ; \
 	done
 	for f in $$(find . -type f -iname '*.cpp'); do \
 	  BNM=$$(basename $$f) ; \
-	  echo ln -sr $$f build/$$BNM ; \
-	  ln -sr $$f build/$$BNM ; \
+	  echo ln -sr $$f $(build_dir)/$$BNM ; \
+	  ln -sr $$f $(build_dir)/$$BNM ; \
 	done
-	mkdir build/qemuutil
-	mkdir build/qemustub
-	cp $(qemu_build_dir)/libqemuutil.a build/qemuutil/
-	cp $(qemu_build_dir)/libqemustub.a build/qemustub/
-	cd build/qemuutil/ && ar x libqemuutil.a
-	cd build/qemustub/ && ar x libqemustub.a
-	rm build/qemuutil/libqemuutil.a
-	rm build/qemustub/libqemustub.a
-	$(llvm_build_dir)/bin/llvm-link -o build/qemuutil.bc build/qemuutil/*
-	$(llvm_build_dir)/bin/llvm-link -o build/qemustub.bc build/qemustub/*
+	cp -r $(qemu_dir) $(qemu_build_dir)
+	mkdir $(build_dir)/qemuutil
+	mkdir $(build_dir)/qemustub
+	cp $(qemu_build_dir)/libqemuutil.a $(build_dir)/qemuutil/
+	cp $(qemu_build_dir)/libqemustub.a $(build_dir)/qemustub/
+	cd $(build_dir)/qemuutil/ && ar x libqemuutil.a
+	cd $(build_dir)/qemustub/ && ar x libqemustub.a
+	rm $(build_dir)/qemuutil/libqemuutil.a
+	rm $(build_dir)/qemustub/libqemustub.a
+	$(llvm_dir)/bin/llvm-link -o $(build_dir)/qemuutil.bc $(build_dir)/qemuutil/*
+	$(llvm_dir)/bin/llvm-link -o $(build_dir)/qemustub.bc $(build_dir)/qemustub/*
 	rm -r build/qemuutil
 	rm -r build/qemustub
+
+.PHONY: $(build_dir)/llknife
+$(build_dir)/llknife: | $(build_dir)
+	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
+	ocamlopt -o $@ -absname -g -thread $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $(build_dir)/llknife.ml
+
+$(build_dir)/%: examples/%.cpp
+	@echo CC $(notdir $@ $<)
+	@$(llvm_dir)/bin/clang++ -o $@ -ldl -lboost_filesystem -lboost_system -O3 $<
+
+.PHONY: configure
+configure: $(build_dir)/llknife
+	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemustub.bc -o $(build_dir)/qemustub.weak.bc
+	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemuutil.bc -o $(build_dir)/qemuutil.weak.bc
+	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
+	  echo $${bc} ; \
+	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st.*\)\|\(tlb_vaddr_to_host\)' ; \
+	done
 
 .PHONY: clean
 clean:
