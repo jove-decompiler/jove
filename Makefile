@@ -8,13 +8,15 @@ all: $(TRANS_OBJ)
 
 define TRANSOBJ_template =
 $(build_dir)/trans-obj-$(1): $(build_dir)/trans-obj.cpp $(build_dir)/libqemutcg-$(1).bc
-	$(llvm_dir)/bin/clang++ -o $$@ -O1 -g $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lglib-2.0 -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
+	$(llvm_dir)/bin/clang++ -o $$@ -O1 -g $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lpixman-1 -lfdt -lm -lutil -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TRANSOBJ_template,$(targ))))
 
 #
 # QEMU linker flags
 #
+
+# -lpixman-1 -lfdt -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt -lutil
 
 #LDFLAGS -Wl,-z,relro -Wl,-z,now -pie -m64 -flto -fno-inline
 #LIBS -lpixman-1 -lutil -lnuma -lbluetooth -lncursesw -lvdeplug -luuid -lSDL -lpthread -lX11 -lnettle -lgnutls -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lfontconfig -lfreetype -lX11 -llzo2 -lsnappy -lseccomp -lfdt -lcacard -lglib-2.0 -lusb-1.0 -lusbredirparser -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt
@@ -91,7 +93,7 @@ configure: $(build_dir)/llknife
 	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemuutil.bc -o $(build_dir)/qemuutil.weak.bc
 	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
 	  echo $${bc} ; \
-	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st.*\)\|\(tlb_vaddr_to_host\)' ; \
+	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' ; \
 	done
 
 .PHONY: clean

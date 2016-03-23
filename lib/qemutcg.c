@@ -16,44 +16,40 @@ void register_types(void);
 void qdev_register_types(void);
 void cpu_register_types(void);
 
+static MachineState *current_machine;
+static MachineClass *machine_class;
+
 void libqemutcg_init(void) {
   const char *cpu_model;
-  CPUState *cpu;
   CPUArchState *env;
 
-  register_module_init(register_types, MODULE_INIT_QOM);
-  register_module_init(qdev_register_types, MODULE_INIT_QOM);
-  register_module_init(cpu_register_types, MODULE_INIT_QOM);
-#if defined(TARGET_I386)
-  register_module_init(x86_cpu_register_types, MODULE_INIT_QOM);
-#elif defined(TARGET_ARM)
-  register_module_init(arm_cpu_register_types, MODULE_INIT_QOM);
-#elif defined(TARGET_AARCH64)
-  register_module_init(aarch64_cpu_register_types, MODULE_INIT_QOM);
-#endif
-
   module_call_init(MODULE_INIT_QOM);
-
+  module_call_init(MODULE_INIT_MACHINE);
+  machine_class = find_default_machine();
+  current_machine = MACHINE(object_new(object_class_get_name(OBJECT_CLASS(machine_class))));
+  current_machine->cpu_model = cpu_model;
+  current_machine->ram_size = machine_class->default_ram_size;
+  current_machine->maxram_size = machine_class->default_ram_size;
+  current_machine->ram_slots = 0;
+  current_machine->boot_order = machine_class->default_boot_order;
 #if defined(TARGET_I386)
 #ifdef TARGET_X86_64
-  cpu_model = "qemu64";
+  current_machine->cpu_model = "qemu64";
 #else
-  cpu_model = "qemu32";
+  current_machine->cpu_model = "qemu32";
 #endif
-#else
-  cpu_model = "any";
+#elif defined(TARGET_AARCH64) || defined(TARGET_ARM)
+  current_machine->cpu_model = NULL;
 #endif
+
   tcg_context_init(&tcg_ctx);
-
-  /* NOTE: we need to init the CPU at this stage to get
-     qemu_host_page_size */
-  cpu = cpu_init(cpu_model);
-  if (!cpu)
-    exit(22);
-  env = cpu->env_ptr;
-  cpu_reset(cpu);
-
   tcg_prologue_init(&tcg_ctx);
+
+#if defined(TARGET_I386)
+  env = 
+#elif defined(TARGET_AARCH64)
+  current_machine->cpu_model = NULL;
+#endif
 
 #if defined(TARGET_I386)
     env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
@@ -334,6 +330,7 @@ int cpu_ldsw_code_ra(struct CPUState *env, target_ulong ptr,
 
 void *tlb_vaddr_to_host(struct CPUState *env, target_ulong addr,
                         int access_type, int mmu_idx) {
+  return NULL;
 }
 
 void cpu_stq_data(struct CPUState *env, target_ulong ptr, uint64_t v) {}

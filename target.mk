@@ -7,7 +7,7 @@ _QEMU_TARGET := $(_TARGET_NAME)-softmmu
 include $(qemu_build_dir)/$(_QEMU_TARGET)/Makefile
 
 _INCLUDES := -I$(qemu_build_dir) -I$(qemu_build_dir)/$(_QEMU_TARGET) -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) $(QEMU_INCLUDES)
-_CFLAGS   := $(QEMU_CFLAGS) -DNEED_CPU_H
+_CFLAGS   := $(CFLAGS) $(QEMU_CFLAGS) -DNEED_CPU_H
 
 #
 # build library (QEMU bitcode + C file)
@@ -69,13 +69,13 @@ $(build_dir)/qemu-$(_TARGET_NAME).4.bc: $(build_dir)/qemu-$(_TARGET_NAME).3.bc
 	$(build_dir)/llknife -o $@ -i $< --remove-noinline-attr-regex '\(.*qemu_loglevel.*\)\|\(bswap.*\)\|\(lshift.*\)'
 
 $(build_dir)/qemu-$(_TARGET_NAME).3.bc: $(build_dir)/qemu-$(_TARGET_NAME).2.bc
-	$(build_dir)/llknife -o $@ -i $< --delete-global-ctors
+	cp $< $@
 
 $(build_dir)/qemu-$(_TARGET_NAME).2.bc: $(build_dir)/qemu-$(_TARGET_NAME).1.bc
-	$(build_dir)/llknife -o $@ -i $< --make-external-regex '\(arm_cpu_register_types\)\|\(x86_cpu_register_types\)\|\(aarch64_cpu_register_types\)\|\(cpu_register_types\)\|\(qdev_register_types\)\|\(register_types\)\|\(module_call_init\)\|\(register_module_init\)'
+	$(build_dir)/llknife -o $@ -i $< --make-external-regex 'module_call_init'
 
 $(build_dir)/qemu-$(_TARGET_NAME).1.bc: $(build_dir)/qemu-$(_TARGET_NAME).0.bc
-	$(build_dir)/llknife -o $@ -i $< --make-fn-into-stub-regex '\(helper_set_dr\)\|\(helper_iret.*\)\|\(helper_lcall_.*\)\|\(helper_vm.*\)\|\(helper_ljmp_protected\)\|\(x86_st.*_phys\)\|\(x86_ld.*_phys\)\|\(address_space_.*\)'
+	$(build_dir)/llknife -o $@ -i $< --make-fn-into-stub-regex '\(helper_set_dr\)\|\(helper_iret.*\)\|\(helper_lcall_.*\)\|\(helper_vm.*\)\|\(vm_stop\)\|\(pause_all_vcpus\)\|\(qemu_system_suspend_request\)\|\(helper_ljmp_protected\)\|\(x86_st.*_phys\)\|\(x86_ld.*_phys\)\|\(address_space_.*\)'
 
 $(build_dir)/qemu-$(_TARGET_NAME).0.bc:
 	@echo BCLINK $@ $(sort $(notdir $@ $(patsubst %,$(qemu_build_dir)/$(_QEMU_TARGET)/%,$(all-obj-y)) $(build_dir)/qemustub.weak.bc $(build_dir)/qemuutil.weak.bc))
