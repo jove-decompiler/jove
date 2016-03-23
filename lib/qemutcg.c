@@ -2,6 +2,7 @@
 #include "tcg.h"
 #include <libgen.h>
 #include "qemutcg.h"
+#include "hw/boards.h"
 
 static const uint8_t* code;
 
@@ -16,18 +17,13 @@ void register_types(void);
 void qdev_register_types(void);
 void cpu_register_types(void);
 
-static MachineState *current_machine;
 static MachineClass *machine_class;
 
 void libqemutcg_init(void) {
-  const char *cpu_model;
-  CPUArchState *env;
-
   module_call_init(MODULE_INIT_QOM);
   module_call_init(MODULE_INIT_MACHINE);
   machine_class = find_default_machine();
   current_machine = MACHINE(object_new(object_class_get_name(OBJECT_CLASS(machine_class))));
-  current_machine->cpu_model = cpu_model;
   current_machine->ram_size = machine_class->default_ram_size;
   current_machine->maxram_size = machine_class->default_ram_size;
   current_machine->ram_slots = 0;
@@ -41,16 +37,12 @@ void libqemutcg_init(void) {
 #elif defined(TARGET_AARCH64) || defined(TARGET_ARM)
   current_machine->cpu_model = NULL;
 #endif
+  machine_class->init(current_machine);
 
   tcg_context_init(&tcg_ctx);
   tcg_prologue_init(&tcg_ctx);
 
-#if defined(TARGET_I386)
-  env = 
-#elif defined(TARGET_AARCH64)
-  current_machine->cpu_model = NULL;
-#endif
-
+#if 0
 #if defined(TARGET_I386)
     env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
     env->hflags |= HF_PE_MASK | HF_CPL_MASK;
@@ -66,9 +58,6 @@ void libqemutcg_init(void) {
     env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
     env->hflags |= HF_LMA_MASK;
 #endif
-
-    /* flags setup : we activate the IRQs by default as in user mode */
-    env->eflags |= IF_MASK;
 
 #elif defined(TARGET_AARCH64)
     {
@@ -88,6 +77,7 @@ void libqemutcg_init(void) {
     }
 #else
 #error unsupported target CPU
+#endif
 #endif
 }
 
