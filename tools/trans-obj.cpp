@@ -59,13 +59,12 @@ int main(int argc, char** argv) {
     cerr << "error: section not found for given address " << hex << va << endl;
     return 1;
   }
-
   unsigned sectidx = (*sectit).second - 1;
-  unsigned sectoff = va - (*sectit).first.lower();
 
   libqemutcg_init();
-  libqemutcg_set_code(sectdata[sectidx].data());
-  libqemutcg_translate(sectoff);
+  libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
+  cout << "libqemutcg_translate(" << hex << va << ")" << endl;
+  libqemutcg_translate(va);
   libqemutcg_test();
 
   return 0;
@@ -138,8 +137,6 @@ void verify_arch(const ObjectFile* Obj) {
   archty = Triple::ArchType::arm;
 #elif defined(LIB_QEMU_TCG_ARCH_aarch64)
   archty = Triple::ArchType::aarch64;
-#else
-#error "unknown architecture"
 #endif
 
   if (Obj->getArch() != archty) {
@@ -173,7 +170,8 @@ void build_section_data_map_from_elf(
 #endif
 
     sectdata.push_back(errorOrDefault(Elf->getSectionContents(&Shdr)));
-    sectaddrmap.add(make_pair(intervl, i++));
+    sectaddrmap.add(make_pair(intervl, i));
+    ++i;
   }
 }
 

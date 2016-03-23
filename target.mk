@@ -2,7 +2,7 @@ include config.mk
 
 libqemutcg_all: $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/helpers-$(_TARGET_NAME).bc
 
-_QEMU_TARGET := $(_TARGET_NAME)-softmmu
+_QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
 include $(qemu_build_dir)/$(_QEMU_TARGET)/Makefile
 
@@ -69,10 +69,10 @@ $(build_dir)/qemu-$(_TARGET_NAME).4.bc: $(build_dir)/qemu-$(_TARGET_NAME).3.bc
 	$(build_dir)/llknife -o $@ -i $< --remove-noinline-attr-regex '\(.*qemu_loglevel.*\)\|\(bswap.*\)\|\(lshift.*\)'
 
 $(build_dir)/qemu-$(_TARGET_NAME).3.bc: $(build_dir)/qemu-$(_TARGET_NAME).2.bc
-	cp $< $@
+	$(build_dir)/llknife -o $@ -i $< --delete-global-ctors
 
 $(build_dir)/qemu-$(_TARGET_NAME).2.bc: $(build_dir)/qemu-$(_TARGET_NAME).1.bc
-	$(build_dir)/llknife -o $@ -i $< --make-external-regex 'module_call_init'
+	$(build_dir)/llknife -o $@ -i $< --make-external-regex '\(do_qemu_init_aarch64_cpu_register_types\)\|\(do_qemu_init_arm_cpu_register_types\)\|\(do_qemu_init_container_register_types\)\|\(do_qemu_init_cpu_register_types\)\|\(do_qemu_init_fw_path_provider_register_types\)\|\(do_qemu_init_hotplug_handler_register_types\)\|\(do_qemu_init_irq_register_types\)\|\(do_qemu_init_nmi_register_types\)\|\(do_qemu_init_qdev_register_types\)\|\(do_qemu_init_x86_cpu_register_types\)\|\(init_get_clock\)\|\(object_do_qemu_init_register_types\)\|\(object_interfaces_do_qemu_init_register_types\)\|\(qemu_thread_atexit_init\)\|\(rcu_init\)'
 
 $(build_dir)/qemu-$(_TARGET_NAME).1.bc: $(build_dir)/qemu-$(_TARGET_NAME).0.bc
 	$(build_dir)/llknife -o $@ -i $< --make-fn-into-stub-regex '\(helper_set_dr\)\|\(helper_iret.*\)\|\(helper_lcall_.*\)\|\(helper_vm.*\)\|\(vm_stop\)\|\(pause_all_vcpus\)\|\(qemu_system_suspend_request\)\|\(helper_ljmp_protected\)\|\(x86_st.*_phys\)\|\(x86_ld.*_phys\)\|\(address_space_.*\)'

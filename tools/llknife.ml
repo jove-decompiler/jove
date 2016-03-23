@@ -16,6 +16,7 @@ module Action = struct
     | Delete_global_ctors
     | Remove_noinline_attr_regex
     | Set_global_constant_regex
+    | Make_external_and_rename_regex
 end
 
 let main () =
@@ -69,6 +70,9 @@ let main () =
       
       ("--delete-global-ctors", Arg.Unit (fun () -> a := Action.Delete_global_ctors),
        "Deletes all global ctors");
+      
+      ("--make-external-and-rename-regex", Arg.Unit (fun () -> a := Action.Make_external_and_rename_regex),
+       "Makes functions matching regex to be external linkage and rename to be prefixed by source file's base name");
 
       ("--make-defined-globals-weak", Arg.Unit (fun () -> a := Action.Make_defined_globals_weak),
        "Sets linkage of all defined globals to be weak")
@@ -89,6 +93,7 @@ let main () =
    | Action.Extricate_call_operand -> assert (Array.length !args = 4)
    | Action.Make_defined_globals_weak -> assert (Array.length !args = 0)
    | Action.Delete_global_ctors -> assert (Array.length !args = 0)
+   | Action.Make_external_and_rename_regex -> assert (Array.length !args = 1)
    | Action.Make_external_regex -> assert (Array.length !args = 1)
    | Action.Remove_noinline_attr_regex -> assert (Array.length !args = 1)
    | Action.Set_global_constant_regex -> assert (Array.length !args = 1)
@@ -120,6 +125,7 @@ let main () =
     let s'l = String.length s' in
     sl >= s'l && s' = (String.sub s 0 s'l)
   in
+  let spr = Printf.sprintf in
   let llvm_globals llm = fold_left_globals (fun res llg -> llg::res) [] llm in
   let llvm_functions llm = fold_left_functions (fun res llf -> llf::res) [] llm in
 
@@ -302,6 +308,16 @@ let main () =
      let ctrs_gl' = lookup_global "llvm.global_ctors" llm in
      if ctrs_gl' <> None then
        delete_global (BatOption.get ctrs_gl')
+
+   | Action.Make_external_and_rename_regex ->
+     let prefix = Filename.chop_extension (Filename.basename !ifp) in
+     let r = Str.regexp (!args).(0) in
+     iter_functions (fun llf ->
+       if Str.string_match r (value_name llf) 0 then (
+         set_linkage Linkage.External llf;
+         set_value_name (spr "%s_%s" prefix (value_name llf)) llf
+       )
+     ) llm
 
    | Action.Promote_call_operand_pointee_to_global ->
      let caller = llvm_function_of_symbol (!args).(0) in

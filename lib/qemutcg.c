@@ -2,99 +2,126 @@
 #include "tcg.h"
 #include <libgen.h>
 #include "qemutcg.h"
-#include "hw/boards.h"
 
 static const uint8_t* code;
+static unsigned long code_pc;
+
+void object_do_qemu_init_register_types(void);
+void object_interfaces_do_qemu_init_register_types(void);
+void do_qemu_init_cpu_register_types(void);
+void do_qemu_init_container_register_types(void);
+void do_qemu_init_fw_path_provider_register_types(void);
+void do_qemu_init_hotplug_handler_register_types(void);
+void do_qemu_init_irq_register_types(void);
+void do_qemu_init_nmi_register_types(void);
+void do_qemu_init_qdev_register_types(void);
+void init_get_clock(void);
+void qemu_thread_atexit_init(void);
+void rcu_init(void);
 
 #if defined(TARGET_I386)
-void x86_cpu_register_types(void);
+void do_qemu_init_x86_cpu_register_types(void);
 #elif defined(TARGET_ARM)
-void arm_cpu_register_types(void);
-#elif defined(TARGET_AARCH64)
-void aarch64_cpu_register_types(void);
+void do_qemu_init_arm_cpu_register_types(void);
+#if defined(TARGET_AARCH64)
+void do_qemu_init_aarch64_cpu_register_types(void);
 #endif
-void register_types(void);
-void qdev_register_types(void);
-void cpu_register_types(void);
-
-static MachineClass *machine_class;
+#endif
 
 void libqemutcg_init(void) {
+  const char *cpu_model;
+  CPUState *cpu;
+  CPUArchState *env;
+
+  object_do_qemu_init_register_types();
+  object_interfaces_do_qemu_init_register_types();
+  do_qemu_init_cpu_register_types();
+  do_qemu_init_container_register_types();
+  do_qemu_init_fw_path_provider_register_types();
+  do_qemu_init_hotplug_handler_register_types();
+  do_qemu_init_irq_register_types();
+  do_qemu_init_nmi_register_types();
+  do_qemu_init_qdev_register_types();
+  init_get_clock();
+  qemu_thread_atexit_init();
+  rcu_init();
+
+#if defined(TARGET_I386)
+  do_qemu_init_x86_cpu_register_types();
+#elif defined(TARGET_ARM)
+  do_qemu_init_arm_cpu_register_types();
+#if defined(TARGET_AARCH64)
+  do_qemu_init_aarch64_cpu_register_types();
+#endif
+#endif
+
   module_call_init(MODULE_INIT_QOM);
-  module_call_init(MODULE_INIT_MACHINE);
-  machine_class = find_default_machine();
-  current_machine = MACHINE(object_new(object_class_get_name(OBJECT_CLASS(machine_class))));
-  current_machine->ram_size = machine_class->default_ram_size;
-  current_machine->maxram_size = machine_class->default_ram_size;
-  current_machine->ram_slots = 0;
-  current_machine->boot_order = machine_class->default_boot_order;
+
 #if defined(TARGET_I386)
 #ifdef TARGET_X86_64
-  current_machine->cpu_model = "qemu64";
+  cpu_model = "qemu64";
 #else
-  current_machine->cpu_model = "qemu32";
+  cpu_model = "qemu32";
 #endif
-#elif defined(TARGET_AARCH64) || defined(TARGET_ARM)
-  current_machine->cpu_model = NULL;
+#else
+  cpu_model = "any";
 #endif
-  machine_class->init(current_machine);
 
-  tcg_context_init(&tcg_ctx);
-  tcg_prologue_init(&tcg_ctx);
+  tcg_exec_init(0);
 
-#if 0
+  /* NOTE: we need to init the CPU at this stage to get
+          qemu_host_page_size */
+  cpu = cpu_init(cpu_model);
+  if (!cpu)
+    exit(22);
+  env = cpu->env_ptr;
+  cpu_reset(cpu);
+
+
 #if defined(TARGET_I386)
-    env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
-    env->hflags |= HF_PE_MASK | HF_CPL_MASK;
-    if (env->features[FEAT_1_EDX] & CPUID_SSE) {
-        env->cr[4] |= CR4_OSFXSR_MASK;
-        env->hflags |= HF_OSFXSR_MASK;
-    }
+  env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
+  env->hflags |= HF_PE_MASK | HF_CPL_MASK;
+  if (env->features[FEAT_1_EDX] & CPUID_SSE) {
+    env->cr[4] |= CR4_OSFXSR_MASK;
+    env->hflags |= HF_OSFXSR_MASK;
+  }
 #ifndef TARGET_ABI32
-    /* enable 64 bit mode if possible */
-    if (!(env->features[FEAT_8000_0001_EDX] & CPUID_EXT2_LM))
-        exit(23);
-    env->cr[4] |= CR4_PAE_MASK;
-    env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
-    env->hflags |= HF_LMA_MASK;
+  /* enable 64 bit mode if possible */
+  if (!(env->features[FEAT_8000_0001_EDX] & CPUID_EXT2_LM))
+    exit(23);
+  env->cr[4] |= CR4_PAE_MASK;
+  env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
+  env->hflags |= HF_LMA_MASK;
 #endif
-
-#elif defined(TARGET_AARCH64)
-    {
-        if (!(arm_feature(env, ARM_FEATURE_AARCH64)))
-            exit(24);
-    }
+  /* flags setup : we activate the IRQs by default as in user mode */
+  env->eflags |= IF_MASK;
+  memset(env->segs, 0, sizeof(env->segs));
 #elif defined(TARGET_ARM)
-    {
-        // XXX TODO
-#if 0
-        /* Enable BE8.  */
-        if (EF_ARM_EABI_VERSION(info->elf_flags) >= EF_ARM_EABI_VER4
-            && (info->elf_flags & EF_ARM_BE8)) {
-            env->bswap_code = 1;
-        }
-#endif
-    }
-#else
-#error unsupported target CPU
+  memset(env->regs, 0, sizeof(env->regs));
+  // XXX TODO BE8 if ELF flags has EF_ARM_BE8
+#if defined(TARGET_AARCH64)
+  if (!(arm_feature(env, ARM_FEATURE_AARCH64)) || !env->aarch64)
+    exit(24);
+
+  memset(env->xregs, 0, sizeof(env->xregs));
 #endif
 #endif
 }
 
-void libqemutcg_set_code(const uint8_t* p) {
+void libqemutcg_set_code(const uint8_t* p, unsigned long pc) {
   code = p;
+  code_pc = pc;
 }
 
-void libqemutcg_translate(unsigned off) {
-  target_ulong pc = off;
+void libqemutcg_translate(unsigned long _pc) {
+  target_ulong pc = _pc;
+
   CPUArchState *env = first_cpu->env_ptr;
 
-#if defined(TARGET_ARM)
+#if defined(TARGET_ARM) || defined(TARGET_AARCH64)
   env->pc = pc;
 #elif defined(TARGET_I386)
   env->eip = pc;
-#else
-#error "unsupported architecture"
 #endif
 
   target_ulong cs_base;
@@ -211,51 +238,51 @@ void cpu_stb_data_ra(struct CPUState *env, target_ulong ptr, uint32_t v,
  */
 
 uint32_t cpu_ldub_data(struct CPUState *env, target_ulong ptr) {
-  return ldub_p(ptr + code);
+  return ldub_p((ptr - code_pc) + code);
 }
 
 int cpu_ldsb_data(struct CPUState *env, target_ulong ptr) {
-  return ldsb_p(ptr + code);
+  return ldsb_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_lduw_data(struct CPUState *env, target_ulong ptr) {
-  return lduw_le_p(ptr + code);
+  return lduw_le_p((ptr - code_pc) + code);
 }
 
 int cpu_ldsw_data(struct CPUState *env, target_ulong ptr) {
-  return ldsw_le_p(ptr + code);
+  return ldsw_le_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_ldl_data(struct CPUState *env, target_ulong ptr) {
-  return ldl_le_p(ptr + code);
+  return ldl_le_p((ptr - code_pc) + code);
 }
 
 uint64_t cpu_ldq_data(struct CPUState *env, target_ulong ptr) {
-  return ldq_le_p(ptr + code);
+  return ldq_le_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_ldub_code(struct CPUState *env, target_ulong ptr) {
-  return ldub_p(ptr + code);
+  return ldub_p((ptr - code_pc) + code);
 }
 
 int cpu_ldsb_code(struct CPUState *env, target_ulong ptr) {
-  return ldsb_p(ptr + code);
+  return ldsb_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_lduw_code(struct CPUState *env, target_ulong ptr) {
-  return lduw_le_p(ptr + code);
+  return lduw_le_p((ptr - code_pc) + code);
 }
 
 int cpu_ldsw_code(struct CPUState *env, target_ulong ptr) {
-  return ldsw_le_p(ptr + code);
+  return ldsw_le_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_ldl_code(struct CPUState *env, target_ulong ptr) {
-  return ldl_le_p(ptr + code);
+  return ldl_le_p((ptr - code_pc) + code);
 }
 
 uint64_t cpu_ldq_code(struct CPUState *env, target_ulong ptr) {
-  return ldq_le_p(ptr + code);
+  return ldq_le_p((ptr - code_pc) + code);
 }
 
 uint32_t cpu_ldub_data_ra(struct CPUState *env, target_ulong ptr,

@@ -8,7 +8,7 @@ all: $(TRANS_OBJ)
 
 define TRANSOBJ_template =
 $(build_dir)/trans-obj-$(1): $(build_dir)/trans-obj.cpp $(build_dir)/libqemutcg-$(1).bc
-	$(llvm_dir)/bin/clang++ -o $$@ -O1 -g $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lpixman-1 -lfdt -lm -lutil -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
+	$(llvm_dir)/bin/clang++ -o $$@ -O1 -g $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lglib-2.0 -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TRANSOBJ_template,$(targ))))
 
@@ -24,7 +24,7 @@ $(foreach targ,$(qemutcg_archs),$(eval $(call TRANSOBJ_template,$(targ))))
 
 define LIB_template =
 $(build_dir)/libqemutcg-$(1).bc: $(build_dir)/qemutcg.c
-	@$$(MAKE) -C $(build_dir)/qemu/$(1)-softmmu -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
+	@$$(MAKE) -C $(build_dir)/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call LIB_template,$(targ))))
 
@@ -95,6 +95,11 @@ configure: $(build_dir)/llknife
 	  echo $${bc} ; \
 	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' ; \
 	done
+	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
+	  echo $${bc} ; \
+	  $(build_dir)/llknife -o $${bc} -i $${bc} --make-external-and-rename-regex 'do_qemu_init_register_types' ; \
+	done
+	
 
 .PHONY: clean
 clean:
