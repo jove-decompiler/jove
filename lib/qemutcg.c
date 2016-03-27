@@ -4,7 +4,7 @@
 #include "qemutcg.h"
 
 static const uint8_t* code;
-static unsigned long code_pc;
+static target_ulong code_pc;
 
 void object_do_qemu_init_register_types(void);
 void object_interfaces_do_qemu_init_register_types(void);
@@ -118,8 +118,10 @@ void libqemutcg_translate(unsigned long _pc) {
 
   CPUArchState *env = first_cpu->env_ptr;
 
-#if defined(TARGET_ARM) || defined(TARGET_AARCH64)
+#if defined(TARGET_AARCH64)
   env->pc = pc;
+#elif defined(TARGET_ARM)
+  env->regs[15] = pc;
 #elif defined(TARGET_I386)
   env->eip = pc;
 #endif

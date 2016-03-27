@@ -62,6 +62,7 @@ int main(int argc, char** argv) {
   unsigned sectidx = (*sectit).second - 1;
 
   libqemutcg_init();
+  cout << "libqemutcg_set_code(..., " << hex << (*sectit).first.lower() << endl;
   libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
   cout << "libqemutcg_translate(" << hex << va << ")" << endl;
   libqemutcg_translate(va);
@@ -147,7 +148,7 @@ void verify_arch(const ObjectFile* Obj) {
 
 template <class T> T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   if (!Val) {
-    cerr << "error: " << Val.getError().message() << endl;
+    cerr << "warning: " << Val.getError().message() << endl;
     return Default;
   }
 
@@ -165,8 +166,8 @@ void build_section_data_map_from_elf(
             Shdr.sh_addr, Shdr.sh_addr + Shdr.sh_size);
 
 #if 0
-    cout << '[' << hex << Shdr.sh_addr << ", " << Shdr.sh_addr + Shdr.sh_size
-         << ')' << endl;
+    cout << errorOrDefault(Elf->getSectionName(&Shdr)).str() << '[' << hex << Shdr.sh_addr
+         << ", " << Shdr.sh_addr + Shdr.sh_size << ')' << endl;
 #endif
 
     sectdata.push_back(errorOrDefault(Elf->getSectionContents(&Shdr)));

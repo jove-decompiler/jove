@@ -14,7 +14,7 @@ _CFLAGS   := $(CFLAGS) $(QEMU_CFLAGS) -DNEED_CPU_H
 #
 
 $(build_dir)/libqemutcg-$(_TARGET_NAME).bc: $(build_dir)/libqemutcg-$(_TARGET_NAME).1.bc
-	$(llvm_dir)/bin/opt -o $@ -O3 -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+	$(llvm_dir)/bin/opt -o $@ -globaldce $<
 
 $(build_dir)/libqemutcg-$(_TARGET_NAME).1.bc: $(build_dir)/libqemutcg-$(_TARGET_NAME).0.bc
 	$(build_dir)/llknife -o $@ -i $< --only-external-regex 'libqemutcg_.*'
@@ -25,7 +25,7 @@ $(build_dir)/libqemutcg-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).
 
 $(build_dir)/qemutcg-$(_TARGET_NAME).bc: $(build_dir)/qemutcg.c
 	@echo BC $(notdir $@ $^)
-	$(CC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	$(CC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 #
 # helper bitcode
