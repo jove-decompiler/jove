@@ -196,15 +196,31 @@ void *tlb_vaddr_to_host(struct CPUState *env, target_ulong addr,
   return ((void *)((uintptr_t)addr));
 }
 
-void cpu_stq_data(struct CPUState *env, target_ulong ptr, uint64_t v) {}
+void cpu_stq_data(struct CPUState *env, target_ulong ptr, uint64_t v) {
+  stq_le_p(((void *)((unsigned long)(target_ulong)(ptr))), v);
+}
+void cpu_stw_data(struct CPUState *env, target_ulong ptr, uint32_t v) {
+  stw_le_p(((void *)((unsigned long)(target_ulong)(ptr))), v);
+}
+void cpu_stb_data(struct CPUState *env, target_ulong ptr, uint32_t v) {
+  stb_p(((void *)((unsigned long)(target_ulong)(ptr))), v);
+}
+void cpu_stl_data(struct CPUState *env, target_ulong ptr, uint32_t v) {
+  stl_le_p(((void *)((unsigned long)(target_ulong)(ptr))), v);
+}
 void cpu_stq_data_ra(struct CPUState *env, target_ulong ptr, uint64_t v,
-                     uintptr_t retaddr) {}
-void cpu_stl_data(struct CPUState *env, target_ulong ptr, uint32_t v) {}
+                     uintptr_t retaddr) {
+  cpu_stq_data(env, ptr, v);
+}
 void cpu_stl_data_ra(struct CPUState *env, target_ulong ptr, uint32_t v,
-                     uintptr_t retaddr) {}
-void cpu_stw_data(struct CPUState *env, target_ulong ptr, uint32_t v) {}
+                     uintptr_t retaddr) {
+  cpu_stl_data(env, ptr, v);
+}
 void cpu_stw_data_ra(struct CPUState *env, target_ulong ptr, uint32_t v,
-                     uintptr_t retaddr) {}
-void cpu_stb_data(struct CPUState *env, target_ulong ptr, uint32_t v) {}
+                     uintptr_t retaddr) {
+  cpu_stw_data(env, ptr, v);
+}
 void cpu_stb_data_ra(struct CPUState *env, target_ulong ptr, uint32_t v,
-                     uintptr_t retaddr) {}
+                     uintptr_t retaddr) {
+  cpu_stb_data(env, ptr, v);
+}

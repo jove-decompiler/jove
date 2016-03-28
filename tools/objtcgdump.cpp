@@ -66,7 +66,6 @@ int main(int argc, char** argv) {
   libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
   cout << "libqemutcg_translate(" << hex << va << ")" << endl;
   libqemutcg_translate(va);
-  libqemutcg_test();
 
   return 0;
 }
@@ -138,6 +137,8 @@ void verify_arch(const ObjectFile* Obj) {
   archty = Triple::ArchType::arm;
 #elif defined(LIB_QEMU_TCG_ARCH_aarch64)
   archty = Triple::ArchType::aarch64;
+#elif defined(LIB_QEMU_TCG_ARCH_mipsel)
+  archty = Triple::ArchType::mipsel;
 #endif
 
   if (Obj->getArch() != archty) {

@@ -26,6 +26,8 @@ void do_qemu_init_arm_cpu_register_types(void);
 #if defined(TARGET_AARCH64)
 void do_qemu_init_aarch64_cpu_register_types(void);
 #endif
+#elif defined(TARGET_MIPS)
+void do_qemu_init_mips_cpu_register_types(void);
 #endif
 
 void libqemutcg_init(void) {
@@ -53,15 +55,21 @@ void libqemutcg_init(void) {
 #if defined(TARGET_AARCH64)
   do_qemu_init_aarch64_cpu_register_types();
 #endif
+#elif defined(TARGET_MIPS)
+  do_qemu_init_mips_cpu_register_types();
 #endif
 
   module_call_init(MODULE_INIT_QOM);
 
-#if defined(TARGET_I386)
-#ifdef TARGET_X86_64
+#if defined(TARGET_X86_64)
   cpu_model = "qemu64";
-#else
+#elif defined(TARGET_I386)
   cpu_model = "qemu32";
+#elif defined(TARGET_MIPS)
+#if defined(TARGET_ABI_MIPSN32) || defined(TARGET_ABI_MIPSN64)
+  cpu_model = "5KEf";
+#else
+  cpu_model = "24Kf";
 #endif
 #else
   cpu_model = "any";
@@ -76,7 +84,6 @@ void libqemutcg_init(void) {
     exit(22);
   env = cpu->env_ptr;
   cpu_reset(cpu);
-
 
 #if defined(TARGET_I386)
   env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
@@ -105,6 +112,8 @@ void libqemutcg_init(void) {
 
   memset(env->xregs, 0, sizeof(env->xregs));
 #endif
+#elif defined(TARGET_MIPS)
+  memset(env->active_tc.gpr, 0, sizeof(env->active_tc.gpr));
 #endif
 }
 
@@ -124,6 +133,8 @@ void libqemutcg_translate(unsigned long _pc) {
   env->regs[15] = pc;
 #elif defined(TARGET_I386)
   env->eip = pc;
+#elif defined(TARGET_MIPS)
+  env->active_tc.PC = pc;
 #endif
 
   target_ulong cs_base;
@@ -148,13 +159,11 @@ void libqemutcg_translate(unsigned long _pc) {
 
 static const char *tcg_type_nm_map[] = {"i32", "i64", "count"};
 
-void libqemutcg_test(void) {
-  printf("tcg globals:\n");
+void libqemutcg_dump_globals(void) {
   for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
     TCGTemp* ts = &tcg_ctx.temps[i];
     printf("%s %s\n", tcg_type_nm_map[ts->type], ts->name);
   }
-  printf("end of tcg globals\n");
 }
 
 /*

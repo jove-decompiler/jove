@@ -1,16 +1,23 @@
 include config.mk
 
-TRANS_OBJ := $(patsubst %,$(build_dir)/trans-obj-%,$(qemutcg_archs))
-LIBS      := $(patsubst %,$(build_dir)/lib%2llvm.so,$(qemutcg_archs))
-EXAMPLES  := $(patsubst examples/%.cpp,$(build_dir)/%,$(wildcard examples/*.cpp))
+TCGGLOBALS := $(patsubst %,$(build_dir)/tcgglobals-%,$(qemutcg_archs))
+OBJTCGDUMP := $(patsubst %,$(build_dir)/objtcgdump-%,$(qemutcg_archs))
+LIBS       := $(patsubst %,$(build_dir)/lib%2llvm.so,$(qemutcg_archs))
+EXAMPLES   := $(patsubst examples/%.cpp,$(build_dir)/%,$(wildcard examples/*.cpp))
 
-all: $(TRANS_OBJ)
+all: $(OBJTCGDUMP) $(TCGGLOBALS)
 
-define TRANSOBJ_template =
-$(build_dir)/trans-obj-$(1): $(build_dir)/trans-obj.cpp $(build_dir)/libqemutcg-$(1).bc
+define OBJTCGDUMP_template =
+$(build_dir)/objtcgdump-$(1): $(build_dir)/objtcgdump.cpp $(build_dir)/libqemutcg-$(1).bc
 	$(llvm_dir)/bin/clang++ -o $$@ -O0 -g -fno-inline $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lglib-2.0 -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
 endef
-$(foreach targ,$(qemutcg_archs),$(eval $(call TRANSOBJ_template,$(targ))))
+$(foreach targ,$(qemutcg_archs),$(eval $(call OBJTCGDUMP_template,$(targ))))
+
+define TCGGLOBALS_template =
+$(build_dir)/tcgglobals-$(1): $(build_dir)/tcgglobals.cpp $(build_dir)/libqemutcg-$(1).bc
+	$(llvm_dir)/bin/clang++ -o $$@ -O0 -g -fno-inline $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ -lglib-2.0 -pthread
+endef
+$(foreach targ,$(qemutcg_archs),$(eval $(call TCGGLOBALS_template,$(targ))))
 
 #
 # QEMU linker flags
