@@ -9,10 +9,10 @@ struct complex_t {
   complex_part_t imag;
 };
 
-struct complex_t cn_add(struct complex_t a, struct complex_t b);
-struct complex_t cn_sub(struct complex_t a, struct complex_t b);
-struct complex_t cn_mul(struct complex_t a, struct complex_t b);
-struct complex_t cn_div(struct complex_t a, struct complex_t b);
+__attribute__ ((noinline)) struct complex_t cn_add(struct complex_t a, struct complex_t b);
+__attribute__ ((noinline)) struct complex_t cn_sub(struct complex_t a, struct complex_t b);
+__attribute__ ((noinline)) struct complex_t cn_mul(struct complex_t a, struct complex_t b);
+__attribute__ ((noinline)) struct complex_t cn_div(struct complex_t a, struct complex_t b);
 
 int main(int argc, char **argv) {
   if (argc != 6) {
