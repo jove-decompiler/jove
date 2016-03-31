@@ -1,35 +1,36 @@
 #include <config-target.h>
-#include <llvm/Object/Binary.h>
-#include <llvm/Object/ObjectFile.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/ADT/Triple.h>
-//#include <llvm/ADT/ArrayRef.h>
-#include <string>
-#include <sstream>
-#include <cstdint>
-#include <tuple>
-#include <iostream>
-#include <boost/program_options.hpp>
-#include <boost/icl/interval_map.hpp>
 #include "qemutcg.h"
+#include "obj2llvmdump_c.h"
+#include "mc.h"
+#include <llvm/ADT/Triple.h>
+#include <llvm/Object/Binary.h>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Object/ObjectFile.h>
+//#include <llvm/ADT/ArrayRef.h>
+#include <boost/icl/interval_map.hpp>
+#include <boost/program_options.hpp>
+#include <cstdint>
+#include <iostream>
+#include <sstream>
+#include <string>
+#include <tuple>
 
 using namespace std;
 using namespace llvm;
-using namespace llvm::object;
+using namespace object;
 namespace po = boost::program_options;
 
 namespace trans_obj {
 static tuple<string, uint64_t> parse_command_line_arguments(int argc,
                                                             char **argv);
-void verify_arch(const ObjectFile*);
-void print_obj_info(const ObjectFile*);
-void build_section_data_map(
-    const ObjectFile*,
-    vector<ArrayRef<uint8_t>> &sectdata,
+static void verify_arch(const ObjectFile *);
+static void print_obj_info(const ObjectFile *);
+static void build_section_data_map(
+    const ObjectFile *, vector<ArrayRef<uint8_t>> &sectdata,
     boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   string bfp;
   uint64_t va;
 
@@ -63,8 +64,12 @@ int main(int argc, char** argv) {
   unsigned sectidx = (*sectit).second - 1;
 
   libqemutcg_init();
+  libmc_init(Obj);
+
   libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
   libqemutcg_translate(va);
+
+  obj2llvmdump_print_ops();
 
   return 0;
 }
@@ -81,12 +86,10 @@ static tuple<string, uint64_t> parse_command_line_arguments(int argc,
     desc.add_options()
       ("help,h", "produce help message")
 
-      ("input,i", po::value<string>(&bfp),
-       "specify input file path")
+      ("input,i", po::value<string>(&bfp), "specify input file path")
 
       ("virtual-address,v", po::value<string>(&va_s),
-       "specify virtual address of basic block to translate to TCG")
-    ;
+      "specify virtual address of basic block to translate to TCG");
 
     po::positional_options_description p;
     p.add("input", -1);
@@ -108,7 +111,7 @@ static tuple<string, uint64_t> parse_command_line_arguments(int argc,
     exit(1);
   }
 
-  uint64_t va;   
+  uint64_t va;
   stringstream ss;
   ss << std::hex << va_s;
   ss >> va;
@@ -116,16 +119,15 @@ static tuple<string, uint64_t> parse_command_line_arguments(int argc,
   return make_tuple(bfp, va);
 }
 
-void print_obj_info(const ObjectFile* Obj) {
+void print_obj_info(const ObjectFile *Obj) {
   cout << "File: " << Obj->getFileName().str() << "\n";
   cout << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cout << "Arch: "
-         << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
-         << "\n";
-  cout << "AddressSize: " << (8*Obj->getBytesInAddress()) << "bit\n";
+  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
+       << "\n";
+  cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
 }
 
-void verify_arch(const ObjectFile* Obj) {
+void verify_arch(const ObjectFile *Obj) {
   Triple::ArchType archty;
 
 #if defined(TARGET_AARCH64)
@@ -199,5 +201,4 @@ void build_section_data_map(
     exit(1);
   }
 }
-
 }

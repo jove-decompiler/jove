@@ -67,10 +67,10 @@ let main () =
 
       ("--make-fn-into-stub-regex", Arg.Unit (fun () -> a := Action.Make_fn_into_stub_regex),
        "Replaces function definitions with empty stubs that return 0 or void");
-      
+
       ("--delete-global-ctors", Arg.Unit (fun () -> a := Action.Delete_global_ctors),
        "Deletes all global ctors");
-      
+
       ("--make-external-and-rename-regex", Arg.Unit (fun () -> a := Action.Make_external_and_rename_regex),
        "Makes functions matching regex to be external linkage and rename to be prefixed by source file's base name");
 
@@ -144,35 +144,35 @@ let main () =
 
      let calls =
        fold_left_uses (fun res llu ->
-         let instr = user llu in
-         if classify_value instr = ValueKind.Instruction Opcode.Call &&
-            (block_parent (instr_parent instr)) = caller then
-           instr::res
-         else
-           res
-       ) [] callee
+           let instr = user llu in
+           if classify_value instr = ValueKind.Instruction Opcode.Call &&
+              (block_parent (instr_parent instr)) = caller then
+             instr::res
+           else
+             res
+         ) [] callee
      in
 
      List.iter (fun call ->
-       replace_all_uses_with call (undef (type_of call));
+         replace_all_uses_with call (undef (type_of call));
 
-       let term' = block_terminator (instr_parent call) in
-       match term' with
-       | Some term ->
-         let b = builder_before llctx term in
-         let caller_ty = element_type (type_of caller) in
-         let ret_ty = return_type caller_ty in
+         let term' = block_terminator (instr_parent call) in
+         match term' with
+         | Some term ->
+           let b = builder_before llctx term in
+           let caller_ty = element_type (type_of caller) in
+           let ret_ty = return_type caller_ty in
 
-         if ret_ty = (void_type llctx) then
-           ignore (build_ret_void b)
-         else
-           ignore (build_ret (const_null ret_ty) b);
+           if ret_ty = (void_type llctx) then
+             ignore (build_ret_void b)
+           else
+             ignore (build_ret (const_null ret_ty) b);
 
-         (* deleting the terminator could change whether the function is noreturn *)
-         remove_function_attr caller Attribute.Noreturn;
-         delete_instruction term
-       | _ -> ();
-     ) calls;
+           (* deleting the terminator could change whether the function is noreturn *)
+           remove_function_attr caller Attribute.Noreturn;
+           delete_instruction term
+         | _ -> ();
+       ) calls;
 
      List.iter delete_instruction calls;
 
@@ -193,30 +193,30 @@ let main () =
      (* get list of calls from given caller *)
      let calls =
        fold_left_uses (fun res llu ->
-         let instr = user llu in
-         if classify_value instr = ValueKind.Instruction Opcode.Call &&
-            (block_parent (instr_parent instr)) = caller then
-           instr::res
-         else
-           res
-       ) [] callee
+           let instr = user llu in
+           if classify_value instr = ValueKind.Instruction Opcode.Call &&
+              (block_parent (instr_parent instr)) = caller then
+             instr::res
+           else
+             res
+         ) [] callee
      in
 
      (* assign operands to global *)
      List.iter (fun call ->
-       let b = builder_before llctx call in
-       ignore (build_store (operand call opidx) gv b)
-     ) calls;
+         let b = builder_before llctx call in
+         ignore (build_store (operand call opidx) gv b)
+       ) calls;
 
    | Action.Only_external ->
      iter_globals (fun llgl ->
-       if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
-         set_linkage Linkage.Internal llgl
-     ) llm;
+         if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
+           set_linkage Linkage.Internal llgl
+       ) llm;
      iter_functions (fun llf ->
-       if not (is_declaration llf) && not (is_intrinsic llf) then
-         set_linkage Linkage.Internal llf
-     ) llm;
+         if not (is_declaration llf) && not (is_intrinsic llf) then
+           set_linkage Linkage.Internal llf
+       ) llm;
 
      let llfs' = Array.map (fun sym -> lookup_function sym llm) !args in
      let llgs' = Array.map (fun sym -> lookup_global sym llm) !args in
@@ -231,52 +231,56 @@ let main () =
    | Action.Change_fn_def_to_decl_regex ->
      let r = Str.regexp (!args).(0) in
      iter_functions (fun llf ->
-       if Str.string_match r (value_name llf) 0 &&
-          Array.length (basic_blocks llf) != 0 then
-         delete_function_body llf
-     ) llm
+         if Str.string_match r (value_name llf) 0 &&
+            Array.length (basic_blocks llf) != 0 then
+           delete_function_body llf
+       ) llm
 
    | Action.Make_fn_into_stub_regex ->
      let r = Str.regexp (!args).(0) in
      iter_functions (fun llf ->
-       if Str.string_match r (value_name llf) 0 &&
-          Array.length (basic_blocks llf) != 0 then (
-         delete_function_body llf;
+         if Str.string_match r (value_name llf) 0 &&
+            Array.length (basic_blocks llf) != 0 then (
+           delete_function_body llf;
 
-         let bb = append_block llctx "stub" llf in
+           let bb = append_block llctx "stub" llf in
 
-         let b = builder_at_end llctx bb in
+           let b = builder_at_end llctx bb in
 
-         let llf_ty = element_type (type_of llf) in
-         let ret_ty = return_type llf_ty in
+           let llf_ty = element_type (type_of llf) in
+           let ret_ty = return_type llf_ty in
 
-         if ret_ty = (void_type llctx) then
-           ignore (build_ret_void b)
-         else
-           ignore (build_ret (const_null ret_ty) b);
-       )
-     ) llm
+           if ret_ty = (void_type llctx) then
+             ignore (build_ret_void b)
+           else
+             ignore (build_ret (const_null ret_ty) b);
+         )
+       ) llm
 
    | Action.Make_external_regex ->
      let r = Str.regexp (!args).(0) in
+     iter_globals (fun llgl ->
+         if Str.string_match r (value_name llgl) 0 then
+           set_linkage Linkage.External llgl
+       ) llm;
      iter_functions (fun llf ->
-       if Str.string_match r (value_name llf) 0 then
-         set_linkage Linkage.External llf
-     ) llm
+         if Str.string_match r (value_name llf) 0 then
+           set_linkage Linkage.External llf
+       ) llm
 
    | Action.Remove_noinline_attr_regex ->
      let r = Str.regexp (!args).(0) in
      iter_functions (fun llf ->
-       if Str.string_match r (value_name llf) 0 then
-         remove_function_attr llf Attribute.Noinline
-     ) llm
+         if Str.string_match r (value_name llf) 0 then
+           remove_function_attr llf Attribute.Noinline
+       ) llm
 
    | Action.Set_global_constant_regex ->
      let r = Str.regexp (!args).(0) in
      iter_globals (fun llg ->
-       if Str.string_match r (value_name llg) 0 then
-         set_global_constant true llg
-     ) llm
+         if Str.string_match r (value_name llg) 0 then
+           set_global_constant true llg
+       ) llm
 
    | Action.Only_external_regex ->
      let r = Str.regexp (!args).(0) in
@@ -300,13 +304,13 @@ let main () =
 
    | Action.Make_defined_globals_weak ->
      iter_globals (fun llgl ->
-       if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
-         set_linkage Linkage.Weak llgl
-     ) llm;
+         if not (is_declaration llgl) && not (beginswith "llvm." (value_name llgl)) then
+           set_linkage Linkage.Weak llgl
+       ) llm;
      iter_functions (fun llf ->
-       if not (is_declaration llf) then
-         set_linkage Linkage.Weak llf
-     ) llm
+         if not (is_declaration llf) then
+           set_linkage Linkage.Weak llf
+       ) llm
 
    | Action.Delete_global_ctors ->
      let ctrs_gl' = lookup_global "llvm.global_ctors" llm in
@@ -317,11 +321,11 @@ let main () =
      let prefix = Filename.chop_extension (Filename.basename !ifp) in
      let r = Str.regexp (!args).(0) in
      iter_functions (fun llf ->
-       if Str.string_match r (value_name llf) 0 then (
-         set_linkage Linkage.External llf;
-         set_value_name (spr "%s_%s" prefix (value_name llf)) llf
-       )
-     ) llm
+         if Str.string_match r (value_name llf) 0 then (
+           set_linkage Linkage.External llf;
+           set_value_name (spr "%s_%s" prefix (value_name llf)) llf
+         )
+       ) llm
 
    | Action.Promote_call_operand_pointee_to_global ->
      let caller = llvm_function_of_symbol (!args).(0) in
@@ -340,13 +344,13 @@ let main () =
      (* get list of calls from given caller *)
      let calls =
        fold_left_uses (fun res llu ->
-         let instr = user llu in
-         if classify_value instr = ValueKind.Instruction Opcode.Call &&
-            (block_parent (instr_parent instr)) = caller then
-           instr::res
-         else
-           res
-       ) [] callee
+           let instr = user llu in
+           if classify_value instr = ValueKind.Instruction Opcode.Call &&
+              (block_parent (instr_parent instr)) = caller then
+             instr::res
+           else
+             res
+         ) [] callee
      in
 
      assert (calls <> []);
@@ -355,24 +359,24 @@ let main () =
 
      let casts =
        fold_left_uses (fun res llu ->
-         let instr = user llu in
-         if classify_value instr = ValueKind.Instruction Opcode.BitCast then
-           instr::res
-         else
-           res
-       ) [] gv in
-
-     let lifetimecalls =
-       List.fold_left (fun res' cast ->
-         res' @ (fold_left_uses (fun res llu ->
            let instr = user llu in
-           if classify_value instr = ValueKind.Instruction Opcode.Call &&
-              beginswith "llvm.lifetime." (value_name (operand instr ((num_operands instr) - 1))) then
+           if classify_value instr = ValueKind.Instruction Opcode.BitCast then
              instr::res
            else
              res
-         ) [] cast)
-       ) [] casts in
+         ) [] gv in
+
+     let lifetimecalls =
+       List.fold_left (fun res' cast ->
+           res' @ (fold_left_uses (fun res llu ->
+               let instr = user llu in
+               if classify_value instr = ValueKind.Instruction Opcode.Call &&
+                  beginswith "llvm.lifetime." (value_name (operand instr ((num_operands instr) - 1))) then
+                 instr::res
+               else
+                 res
+             ) [] cast)
+         ) [] casts in
      List.iter delete_instruction lifetimecalls
   );
 
@@ -381,19 +385,19 @@ let main () =
    *)
   let err' = Llvm_analysis.verify_module llm in
   match err' with
-    | Some err -> print_endline err
-    | _ -> ();
+  | Some err -> print_endline err
+  | _ -> ();
 
   (*
    * write result
    *)
-  assert (Llvm_bitwriter.write_bitcode_file llm !ofp);
+    assert (Llvm_bitwriter.write_bitcode_file llm !ofp);
 
   (*
    * LLVM clean-up
    *)
-  dispose_module llm;
-  dispose_context llctx;
+    dispose_module llm;
+    dispose_context llctx;
 ;;
 
 main ()

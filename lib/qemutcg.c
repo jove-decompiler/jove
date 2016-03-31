@@ -85,24 +85,27 @@ void libqemutcg_init(void) {
   env = cpu->env_ptr;
   cpu_reset(cpu);
 
-#if defined(TARGET_I386)
+#if defined(TARGET_X86_64)
   env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
-  env->hflags |= HF_PE_MASK | HF_CPL_MASK;
   if (env->features[FEAT_1_EDX] & CPUID_SSE) {
     env->cr[4] |= CR4_OSFXSR_MASK;
     env->hflags |= HF_OSFXSR_MASK;
   }
-#ifndef TARGET_ABI32
-  /* enable 64 bit mode if possible */
-  if (!(env->features[FEAT_8000_0001_EDX] & CPUID_EXT2_LM))
-    exit(23);
+  memset(env->segs, 0, sizeof(env->segs));
+
   env->cr[4] |= CR4_PAE_MASK;
   env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
-  env->hflags |= HF_LMA_MASK;
-#endif
-  /* flags setup : we activate the IRQs by default as in user mode */
+  env->hflags |= HF_LMA_MASK | HF_CS64_MASK | HF_CPL_MASK;
   env->eflags |= IF_MASK;
+#elif defined(TARGET_I386)
+  env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
+  if (env->features[FEAT_1_EDX] & CPUID_SSE) {
+    env->cr[4] |= CR4_OSFXSR_MASK;
+    env->hflags |= HF_OSFXSR_MASK;
+  }
   memset(env->segs, 0, sizeof(env->segs));
+
+  env->hflags |= HF_CS32_MASK | HF_SS32_MASK | HF_PE_MASK | HF_CPL_MASK;
 #elif defined(TARGET_ARM)
   memset(env->regs, 0, sizeof(env->regs));
   // XXX TODO BE8 if ELF flags has EF_ARM_BE8
@@ -158,9 +161,6 @@ void libqemutcg_translate(unsigned long _pc) {
    */
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
-
-  qemu_log_set_file(stdout);
-  tcg_dump_ops(&tcg_ctx);
 }
 
 static const char *tcg_type_nm_map[] = {"i32", "i64", "count"};

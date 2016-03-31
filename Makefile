@@ -71,14 +71,12 @@ $(build_dir)/llknife: | $(build_dir)
 
 .PHONY: configure
 configure: $(build_dir)/llknife
-	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemustub.bc -o $(build_dir)/qemustub.weak.bc
-	$(build_dir)/llknife --make-defined-globals-weak -i $(build_dir)/qemuutil.bc -o $(build_dir)/qemuutil.weak.bc
 	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
-	  echo $${bc} ; \
+	  echo llknife $${bc} ; \
 	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' ; \
 	done
 	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
-	  echo $${bc} ; \
+	  echo llknife $${bc} ; \
 	  $(build_dir)/llknife -o $${bc} -i $${bc} --make-external-and-rename-regex 'do_qemu_init_register_types' ; \
 	done
 	
