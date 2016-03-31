@@ -1,41 +1,20 @@
 include config.mk
 
-TCGGLOBALS := $(patsubst %,$(build_dir)/tcgglobals-%,$(qemutcg_archs))
-OBJTCGDUMP := $(patsubst %,$(build_dir)/objtcgdump-%,$(qemutcg_archs))
-LIBS       := $(patsubst %,$(build_dir)/lib%2llvm.so,$(qemutcg_archs))
-EXAMPLES   := $(patsubst examples/%.cpp,$(build_dir)/%,$(wildcard examples/*.cpp))
+.PHONY: all_targets
+all_targets: $(patsubst %,target_%,$(qemutcg_archs))
 
-all: $(OBJTCGDUMP) $(TCGGLOBALS)
-
-define OBJTCGDUMP_template =
-$(build_dir)/objtcgdump-$(1): $(build_dir)/objtcgdump.cpp $(build_dir)/libqemutcg-$(1).bc
-	$(llvm_dir)/bin/clang++ -o $$@ -O0 -g -fno-inline $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ $(shell $(llvm_dir)/bin/llvm-config --libs object) $(shell $(llvm_dir)/bin/llvm-config --ldflags --system-libs) -lglib-2.0 -I $(boost_dir)/include -L $(boost_dir)/lib -Wl,-Bstatic -lboost_system -lboost_program_options -Wl,-Bdynamic
+define TARGET_TEMPLATE =
+.PHONY: target_$(1)
+target_$(1):
+	@$$(MAKE) -C $(build_dir)/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
-$(foreach targ,$(qemutcg_archs),$(eval $(call OBJTCGDUMP_template,$(targ))))
-
-define TCGGLOBALS_template =
-$(build_dir)/tcgglobals-$(1): $(build_dir)/tcgglobals.cpp $(build_dir)/libqemutcg-$(1).bc
-	$(llvm_dir)/bin/clang++ -o $$@ -O0 -g -fno-inline $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -I $(include_dir) -D LIB_QEMU_TCG_ARCH_$(1) $$^ -lglib-2.0 -pthread
-endef
-$(foreach targ,$(qemutcg_archs),$(eval $(call TCGGLOBALS_template,$(targ))))
-
-#
-# QEMU linker flags
-#
+$(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 
 # -lpixman-1 -lfdt -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt -lutil
-
 #LDFLAGS -Wl,-z,relro -Wl,-z,now -pie -m64 -flto -fno-inline
 #LIBS -lpixman-1 -lutil -lnuma -lbluetooth -lncursesw -lvdeplug -luuid -lSDL -lpthread -lX11 -lnettle -lgnutls -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lfontconfig -lfreetype -lX11 -llzo2 -lsnappy -lseccomp -lfdt -lcacard -lglib-2.0 -lusb-1.0 -lusbredirparser -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt
 
-
-define LIB_template =
-$(build_dir)/libqemutcg-$(1).bc: $(build_dir)/qemutcg.c
-	@$$(MAKE) -C $(build_dir)/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
-endef
-$(foreach targ,$(qemutcg_archs),$(eval $(call LIB_template,$(targ))))
-
-LLVMLIBSDIR  := $(llvm_dir)/lib/ocaml
+LLVMLIBSDIR  := $(llvm_nonflto_dir)/lib/ocaml
 
 OCAMLLIBNAMES := nums \
                  str
@@ -88,11 +67,7 @@ $(build_dir):
 .PHONY: $(build_dir)/llknife
 $(build_dir)/llknife: | $(build_dir)
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $(build_dir)/llknife.ml
-
-$(build_dir)/%: examples/%.cpp
-	@echo CC $(notdir $@ $<)
-	@$(llvm_dir)/bin/clang++ -o $@ -ldl -lboost_filesystem -lboost_system -O3 $<
+	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $(build_dir)/llknife.ml
 
 .PHONY: configure
 configure: $(build_dir)/llknife

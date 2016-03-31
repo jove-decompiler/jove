@@ -1,6 +1,7 @@
+#include <config-target.h>
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/ObjectFile.h>
-#include "llvm/Object/ELFObjectFile.h"
+#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/ADT/Triple.h>
 //#include <llvm/ADT/ArrayRef.h>
 #include <string>
@@ -62,9 +63,7 @@ int main(int argc, char** argv) {
   unsigned sectidx = (*sectit).second - 1;
 
   libqemutcg_init();
-  cout << "libqemutcg_set_code(..., " << hex << (*sectit).first.lower() << endl;
   libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
-  cout << "libqemutcg_translate(" << hex << va << ")" << endl;
   libqemutcg_translate(va);
 
   return 0;
@@ -118,26 +117,26 @@ static tuple<string, uint64_t> parse_command_line_arguments(int argc,
 }
 
 void print_obj_info(const ObjectFile* Obj) {
-  cerr << "File: " << Obj->getFileName().str() << "\n";
-  cerr << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cerr << "Arch: "
+  cout << "File: " << Obj->getFileName().str() << "\n";
+  cout << "Format: " << Obj->getFileFormatName().str() << "\n";
+  cout << "Arch: "
          << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
          << "\n";
-  cerr << "AddressSize: " << (8*Obj->getBytesInAddress()) << "bit\n";
+  cout << "AddressSize: " << (8*Obj->getBytesInAddress()) << "bit\n";
 }
 
 void verify_arch(const ObjectFile* Obj) {
   Triple::ArchType archty;
 
-#if defined(LIB_QEMU_TCG_ARCH_x86_64)
-  archty = Triple::ArchType::x86_64;
-#elif defined(LIB_QEMU_TCG_ARCH_i386)
-  archty = Triple::ArchType::x86;
-#elif defined(LIB_QEMU_TCG_ARCH_arm)
-  archty = Triple::ArchType::arm;
-#elif defined(LIB_QEMU_TCG_ARCH_aarch64)
+#if defined(TARGET_AARCH64)
   archty = Triple::ArchType::aarch64;
-#elif defined(LIB_QEMU_TCG_ARCH_mipsel)
+#elif defined(TARGET_ARM)
+  archty = Triple::ArchType::arm;
+#elif defined(TARGET_X86_64)
+  archty = Triple::ArchType::x86_64;
+#elif defined(TARGET_I386)
+  archty = Triple::ArchType::x86;
+#elif defined(TARGET_MIPS)
   archty = Triple::ArchType::mipsel;
 #endif
 

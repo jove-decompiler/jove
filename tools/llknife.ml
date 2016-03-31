@@ -280,19 +280,23 @@ let main () =
 
    | Action.Only_external_regex ->
      let r = Str.regexp (!args).(0) in
-     iter_globals (fun llgl ->
-       if not (is_declaration llgl) &&
-          not (beginswith "llvm." (value_name llgl)) &&
-          not (Str.string_match r (value_name llgl) 0) then
-         set_linkage Linkage.Internal llgl
-     ) llm;
 
      iter_functions (fun llf ->
-       if not (is_declaration llf) &&
-          not (is_intrinsic llf) &&
-          not (Str.string_match r (value_name llf) 0) then
-         set_linkage Linkage.Internal llf
-     ) llm
+         if not (is_declaration llf) &&
+            not (is_intrinsic llf) &&
+            not (Str.string_match r (value_name llf) 0) then
+           set_linkage Linkage.Internal llf
+       ) llm;
+     iter_globals (fun llgl ->
+         if not (is_declaration llgl) &&
+            not (beginswith "llvm." (value_name llgl)) &&
+            not (Str.string_match r (value_name llgl) 0) then
+           set_linkage Linkage.Internal llgl
+       ) llm;
+     iter_aliases (fun lla ->
+         if not (Str.string_match r (value_name lla) 0) then
+           set_linkage Linkage.Internal lla
+       ) llm;
 
    | Action.Make_defined_globals_weak ->
      iter_globals (fun llgl ->
