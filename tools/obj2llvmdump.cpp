@@ -99,6 +99,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
   cout << "size " << dec << size << endl;
 #endif
 
+  const MCInstrInfo *MII = libmc_instrinfo();
   const MCRegisterInfo *MRI = libmc_reginfo();
   if (MIA) {
     if (MIA->isReturn(Inst)) {
@@ -125,10 +126,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
       cout << "Target: 0x" << hex << target << endl;
     }
   } else {
-    const MCInstrInfo *MII = libmc_instrinfo();
     const MCInstrDesc &Desc = MII->get(Inst.getOpcode());
-    cout << MII->getName(Inst.getOpcode()) << endl;
-
     if (Desc.isReturn()) {
       cout << "Return" << endl;
     } else if (Desc.isBranch()) {
@@ -147,10 +145,28 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
     }
   }
 
+  /* Architecture-specific notes: identifying returns from function calls
+   *
+   * MIPS:
+   * The 'JR' "Jump Register" instruction is used to transfer control to the
+   * callee's return address. This instruction "[executes] the instruction
+   * following the jump, in the branch delay slot, before jumping." Therefore we
+   * must consider the second-to-last instruction which was translated to
+   * identify that this is an exit basic block.
+   *
+   * ARMv7 (thumb):
+   * The 'bx' "Branch Exchange" instruction is used to transfer control to the
+   * callee's return address. It is a general-purpose Indirect Branch
+   * instruction, so we must determine whether the register being used is 'lr'
+   * (the "Link register") to know decisively whether this is an exit basic
+   * block.
+   *
+   **/
+  cout << '\'' << MII->getName(Inst.getOpcode()) << '\'' << endl;
   for (const MCOperand &opr : Inst) {
-    if (opr.isReg()) {
-      cout << "REG " << MRI->getName(opr.getReg()) << endl;
-    }
+    if (opr.isReg() && opr.getReg() != 0 /* NoRegister */)
+      cout << "REG " << dec << '(' << opr.getReg() << ')' << ':'
+           << '\'' << MRI->getName(opr.getReg()) << '\'' << endl;
   }
 }
 

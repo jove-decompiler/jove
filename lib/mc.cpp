@@ -134,7 +134,7 @@ uint64_t libmc_disas(MCInst &Inst, const void *code, uint64_t addr) {
   ArrayRef<uint8_t> coderef(static_cast<const uint8_t*>(code), max_instr_len);
 
   raw_null_ostream nullos;
-  if (!DisAsm->getInstruction(Inst, instrlen, coderef, addr, errs(), errs())) {
+  if (!DisAsm->getInstruction(Inst, instrlen, coderef, addr, nullos, nullos)) {
     errs().flush();
     exit(34);
   }
@@ -173,7 +173,7 @@ const Target *getTarget(const ObjectFile *Obj) {
   std::string Error;
   const Target *TheTarget = TargetRegistry::lookupTarget("", TheTriple, Error);
   if (!TheTarget)
-    report_fatal_error("can't find target: " + Error);
+    exit(35);
 
   // Update the triple name and return the found target.
   TripleName = TheTriple.getTriple();
