@@ -134,13 +134,17 @@ $(build_dir)/qemu-$(_TARGET_NAME).7.bc: $(build_dir)/qemu-$(_TARGET_NAME).6.bc
 # runtime helpers
 #
 
-$(build_dir)/runtime-helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).2.bc
+$(build_dir)/runtime-helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).3.bc
 	@echo OPT $(notdir $@ $^)
-	@$(llvm_dir)/bin/opt -o $@ -O3 -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+	@$(llvm_dir)/bin/opt -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+
+$(build_dir)/runtime-helpers-$(_TARGET_NAME).3.bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).2.bc
+	@echo KNIFE $(notdir $@ $^)
+	@$(build_dir)/llknife -o $@ -i $< --remove-noinline-attr-regex '.*'
 
 $(build_dir)/runtime-helpers-$(_TARGET_NAME).2.bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).1.bc
 	@echo LLKNIFE $(notdir $@ $^)
-	@$(build_dir)/llknife -o $@ -i $< --change-fn-def-to-decl-regex '\(helper_.*mmu\)\|\(raise_interrupt.*\)\|\(raise_exception.*\)'
+	@$(build_dir)/llknife -o $@ -i $< --change-fn-def-to-decl-regex '\(helper_.*mmu\)\|\(raise_interrupt.*\)'
 
 $(build_dir)/runtime-helpers-$(_TARGET_NAME).1.bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -152,7 +156,7 @@ $(build_dir)/runtime-helpers-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_N
 
 $(build_dir)/runtime_ldst_helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime_ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 #
 # process QEMU bitcode
@@ -180,7 +184,7 @@ $(build_dir)/qemu-$(_TARGET_NAME).2.bc: $(build_dir)/qemu-$(_TARGET_NAME).1.bc
 
 $(build_dir)/qemu-$(_TARGET_NAME).1.bc: $(build_dir)/qemu-$(_TARGET_NAME).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
-	@$(build_dir)/llknife -o $@ -i $< --make-fn-into-stub-regex '\(print_insn_arm_a64\)\|\(print_insn_thumb1\)\|\(print_insn_arm\)\|\(helper_set_dr\)\|\(helper_iret.*\)\|\(helper_lcall_.*\)\|\(helper_vm.*\)\|\(vm_stop\)\|\(pause_all_vcpus\)\|\(qemu_system_suspend_request\)\|\(helper_ljmp_protected\)\|\(x86_st.*_phys\)\|\(x86_ld.*_phys\)\|\(address_space_.*\)'
+	@$(build_dir)/llknife -o $@ -i $< --make-fn-into-stub-regex '\(print_insn_arm_a64\)\|\(print_insn_thumb1\)\|\(print_insn_arm\)\|\(helper_set_dr\)\|\(helper_iret.*\)\|\(helper_lcall_.*\)\|\(helper_lret.*\)\|\(helper_lldt\)\|\(helper_hlt\)\|\(helper_pause\)\|\(helper_lock\)\|\(helper_lock_init\)\|\(helper_unlock\)\|\(helper_ltr\)\|\(helper_debug\)\|\(helper_mwait\)\|\(helper_sysret\)\|\(helper_verw\)\|\(helper_lar\)\|\(helper_verr\)\|\(helper_lsl\)\|\(helper_load_seg\)\|\(helper_sysenter\)\|\(helper_syscall\)\|\(helper_cpuid\)\|\(helper_sysexit\)\|\(helper_check_io[bwl]\)\|\(helper_out[bwl]\)\|\(helper_in[bwl]\)\|\(helper_vm.*\)\|\(vm_stop\)\|\(pause_all_vcpus\)\|\(qemu_system_suspend_request\)\|\(helper_ljmp_protected\)\|\(x86_st.*_phys\)\|\(x86_ld.*_phys\)\|\(address_space_.*\)\|\(raise_exception.*\)\|\(raise_interrupt.*\)\|\(helper_raise_interrupt\)\|\(helper_wfi\)\|\(helper_cpsr_write\)\|\(helper_.*_msr\)\|\(helper.*_mrs\)\|\(helper_exception_return\)'
 
 $(build_dir)/qemu-$(_TARGET_NAME).0.bc:
 	@echo BCLINK $(notdir $@ $^ qemustub.bc qemuutil.bc)

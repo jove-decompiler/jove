@@ -254,6 +254,8 @@ let main () =
              ignore (build_ret_void b)
            else
              ignore (build_ret (const_null ret_ty) b);
+
+           remove_function_attr llf Attribute.Noreturn
          )
        ) llm
 

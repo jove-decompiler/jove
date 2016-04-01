@@ -95,7 +95,7 @@ void libqemutcg_init(void) {
 
   env->cr[4] |= CR4_PAE_MASK;
   env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
-  env->hflags |= HF_LMA_MASK | HF_CS64_MASK | HF_CPL_MASK;
+  env->hflags |= HF_LMA_MASK | HF_CS32_MASK | HF_CS64_MASK | HF_SS32_MASK | HF_PE_MASK | HF_CPL_MASK;
   env->eflags |= IF_MASK;
 #elif defined(TARGET_I386)
   env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
@@ -105,15 +105,19 @@ void libqemutcg_init(void) {
   }
   memset(env->segs, 0, sizeof(env->segs));
 
-  env->hflags |= HF_CS32_MASK | HF_SS32_MASK | HF_PE_MASK | HF_CPL_MASK;
+  env->hflags |= HF_CS32_MASK | HF_PE_MASK | HF_CPL_MASK;
 #elif defined(TARGET_ARM)
   memset(env->regs, 0, sizeof(env->regs));
-  // XXX TODO BE8 if ELF flags has EF_ARM_BE8
+  // XXX TODO enable BE8 based on ELF flags (has EF_ARM_BE8)
+  // XXX TODO enable thumb based on ELF flags
+  cpsr_write(env, CPSR_T, 0xffffffff);
 #if defined(TARGET_AARCH64)
   if (!(arm_feature(env, ARM_FEATURE_AARCH64)) || !env->aarch64)
     exit(24);
 
   memset(env->xregs, 0, sizeof(env->xregs));
+#else
+  env->thumb = 1;
 #endif
 #elif defined(TARGET_MIPS)
   memset(env->active_tc.gpr, 0, sizeof(env->active_tc.gpr));
@@ -168,6 +172,6 @@ static const char *tcg_type_nm_map[] = {"i32", "i64", "count"};
 void libqemutcg_dump_globals(void) {
   for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
     TCGTemp* ts = &tcg_ctx.temps[i];
-    printf("%s %s\n", tcg_type_nm_map[ts->type], ts->name);
+    printf("%s %s %u\n", tcg_type_nm_map[ts->type], ts->name, (unsigned)ts->mem_offset);
   }
 }

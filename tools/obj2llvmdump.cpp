@@ -2,10 +2,11 @@
 #include "qemutcg.h"
 #include "obj2llvmdump_c.h"
 #include "mc.h"
+#include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/ADT/Triple.h>
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Object/ObjectFile.h>
+#include <llvm/MC/MCRegisterInfo.h>
 //#include <llvm/ADT/ArrayRef.h>
 #include <boost/icl/interval_map.hpp>
 #include <boost/program_options.hpp>
@@ -28,6 +29,8 @@ static void print_obj_info(const ObjectFile *);
 static void build_section_data_map(
     const ObjectFile *, vector<ArrayRef<uint8_t>> &sectdata,
     boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap);
+static void translate_bb(uint64_t addr, const uint8_t* sectdata,
+                         uint64_t sectstart);
 }
 
 int main(int argc, char **argv) {
@@ -50,7 +53,9 @@ int main(int argc, char **argv) {
   }
 
   trans_obj::verify_arch(Obj);
+#if 0
   trans_obj::print_obj_info(Obj);
+#endif
 
   vector<ArrayRef<uint8_t>> sectdata;
   boost::icl::interval_map<uint64_t, unsigned> sectaddrmap;
@@ -67,17 +72,89 @@ int main(int argc, char **argv) {
   libmc_init(Obj);
 
   libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
-  libqemutcg_translate(va);
-
-  obj2llvmdump_print_ops();
+  trans_obj::translate_bb(va, sectdata.at(sectidx).data(),
+                          (*sectit).first.lower());
 
   return 0;
 }
 
 namespace trans_obj {
 
-static tuple<string, uint64_t> parse_command_line_arguments(int argc,
-                                                            char **argv) {
+void translate_bb(uint64_t addr, const uint8_t* sectdata,
+                  uint64_t sectstart) {
+  libqemutcg_translate(addr);
+  obj2llvmdump_print_ops();
+
+  //
+  // output branch type
+  //
+  uint64_t last_instr_addr = obj2llvmdump_last_tcg_op_addr();
+  MCInst Inst;
+  const MCInstrAnalysis *MIA = libmc_instranalyzer();
+  uint64_t size = libmc_analyze_instr(
+      Inst, sectdata + (last_instr_addr - sectstart), last_instr_addr);
+
+#if 0
+  cout << "addr " << hex << last_instr_addr << endl;
+  cout << "size " << dec << size << endl;
+#endif
+
+  const MCRegisterInfo *MRI = libmc_reginfo();
+  if (MIA) {
+    if (MIA->isReturn(Inst)) {
+      cout << "Return" << endl;
+    } else if (MIA->isBranch(Inst)) {
+      cout << "Branch" << endl;
+      if (MIA->isConditionalBranch(Inst)) {
+        cout << "Conditional Branch" << endl;
+      }
+      if (MIA->isUnconditionalBranch(Inst)) {
+        cout << "Unconditional Branch" << endl;
+      }
+      if (MIA->isIndirectBranch(Inst)) {
+        cout << "Indirect Branch" << endl;
+      }
+    } else if (MIA->isCall(Inst)) {
+      cout << "Call" << endl;
+    }
+
+    if (MIA->isConditionalBranch(Inst) || MIA->isUnconditionalBranch(Inst) ||
+        MIA->isCall(Inst)) {
+      uint64_t target;
+      MIA->evaluateBranch(Inst, last_instr_addr, size, target);
+      cout << "Target: 0x" << hex << target << endl;
+    }
+  } else {
+    const MCInstrInfo *MII = libmc_instrinfo();
+    const MCInstrDesc &Desc = MII->get(Inst.getOpcode());
+    cout << MII->getName(Inst.getOpcode()) << endl;
+
+    if (Desc.isReturn()) {
+      cout << "Return" << endl;
+    } else if (Desc.isBranch()) {
+      cout << "Branch" << endl;
+      if (Desc.isConditionalBranch()) {
+        cout << "Conditional Branch" << endl;
+      }
+      if (Desc.isUnconditionalBranch()) {
+        cout << "Unconditional Branch" << endl;
+      }
+      if (Desc.isIndirectBranch()) {
+        cout << "Indirect Branch" << endl;
+      }
+    } else if (Desc.isCall()) {
+      cout << "Call" << endl;
+    }
+  }
+
+  for (const MCOperand &opr : Inst) {
+    if (opr.isReg()) {
+      cout << "REG " << MRI->getName(opr.getReg()) << endl;
+    }
+  }
+}
+
+tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
   string bfp;
   string va_s;
 

@@ -14,6 +14,8 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/COFF.h>
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/replace.hpp>
 #include <iostream>
 
 using namespace std;
@@ -85,14 +87,21 @@ void libmc_init(const ObjectFile *Obj) {
   MII = TheTarget->createMCInstrInfo();
   if (!MII)
     exit(32);
+
   MOFI = new MCObjectFileInfo;
   Ctx = new MCContext(AsmInfo, MRI, MOFI);
+
   DisAsm = TheTarget->createMCDisassembler(*STI, *Ctx);
+  if (!DisAsm)
+    exit(33);
+
+  /* may be null for unsupported targets */
   MIA = TheTarget->createMCInstrAnalysis(MII);
+
   IP = TheTarget->createMCInstPrinter(
       Triple(TripleName), AsmInfo->getAssemblerDialect(), *AsmInfo, *MII, *MRI);
   if (!IP)
-    exit(33);
+    exit(35);
 
   IP->setPrintImmHex(true);
 }
@@ -113,7 +122,8 @@ char* libmc_instr_asm(const void *code, uint64_t addr, char* out) {
     IP->printInst(&MI, CvtOS, "", *STI);
   }
 
-  cout << Str << endl;
+  boost::algorithm::trim(Str);
+  boost::algorithm::replace_all(Str, "\t", " ");
   strcpy(out, Str.c_str());
 
   return out;
@@ -123,32 +133,41 @@ uint64_t libmc_disas(MCInst &Inst, const void *code, uint64_t addr) {
   uint64_t instrlen;
   ArrayRef<uint8_t> coderef(static_cast<const uint8_t*>(code), max_instr_len);
 
-  if (!DisAsm->getInstruction(Inst, instrlen, coderef, addr, errs(),
-                              errs()))
+  raw_null_ostream nullos;
+  if (!DisAsm->getInstruction(Inst, instrlen, coderef, addr, errs(), errs())) {
+    errs().flush();
     exit(34);
+  }
 
   return instrlen;
 }
 
+uint64_t libmc_analyze_instr(MCInst &Instr, const void *code,
+                                           uint64_t addr) {
+  return libmc_disas(Instr, code, addr);
+}
+
+const MCInstrAnalysis *libmc_instranalyzer() { return MIA; }
+
+const MCInstrInfo *libmc_instrinfo() { return MII; }
+
+const MCRegisterInfo *libmc_reginfo() { return MRI; }
+
 const Target *getTarget(const ObjectFile *Obj) {
   // Figure out the target triple.
   llvm::Triple TheTriple("unknown-unknown-unknown");
-  if (TripleName.empty()) {
-    if (Obj) {
-      TheTriple.setArch(Triple::ArchType(Obj->getArch()));
-      // TheTriple defaults to ELF, and COFF doesn't have an environment:
-      // the best we can do here is indicate that it is mach-o.
-      if (Obj->isMachO())
-        TheTriple.setObjectFormat(Triple::MachO);
 
-      if (Obj->isCOFF()) {
-        const auto COFFObj = dyn_cast<COFFObjectFile>(Obj);
-        if (COFFObj->getArch() == Triple::thumb)
-          TheTriple.setTriple("thumbv7-windows");
-      }
-    }
-  } else
-    TheTriple.setTriple(Triple::normalize(TripleName));
+  if (Obj->getArch() != Triple::arm)
+    TheTriple.setArch(Triple::ArchType(Obj->getArch()));
+  else
+    TheTriple.setTriple("thumbv7-unknown-unknown");
+
+  if (Obj->isELF())
+    TheTriple.setObjectFormat(Triple::ELF);
+  if (Obj->isCOFF())
+    TheTriple.setObjectFormat(Triple::COFF);
+  if (Obj->isMachO())
+    TheTriple.setObjectFormat(Triple::MachO);
 
   // Get the target specific parser.
   std::string Error;

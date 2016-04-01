@@ -64,10 +64,13 @@ $(build_dir):
 	rm -r build/qemuutil
 	rm -r build/qemustub
 
-.PHONY: $(build_dir)/llknife
-$(build_dir)/llknife: | $(build_dir)
+$(build_dir)/llknife: $(build_dir)/llknife.ml | $(build_dir)
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $(build_dir)/llknife.ml
+	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+
+$(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml | $(build_dir)
+	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
+	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
 configure: $(build_dir)/llknife
@@ -79,12 +82,10 @@ configure: $(build_dir)/llknife
 	  echo llknife $${bc} ; \
 	  $(build_dir)/llknife -o $${bc} -i $${bc} --make-external-and-rename-regex 'do_qemu_init_register_types' ; \
 	done
-	
+
+.PHONY: build-tools
+build-tools: $(build_dir)/llknife $(build_dir)/transform-helpers
 
 .PHONY: clean
 clean:
 	rm -rf build
-
-.PHONY: tidy
-tidy:
-	find . -not -regex ".*.git.*" -type d -empty -print
