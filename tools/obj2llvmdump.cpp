@@ -162,6 +162,18 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
    * block.
    *
    **/
+
+  /* Architecture-specific notes: identifying function calls
+   *
+   * MIPS:
+   * The 'JAL' "Jump and Link" instruction is used to transfer control to the
+   * callee and store a return address in the '$31' "Link Register" (by
+   * convention). This instruction "[executes] the instruction following the
+   * jump, in the branch delay slot, before jumping." Therefore we must consider
+   * the second-to-last instruction which was translated to identify the
+   * presence of a function call.
+   *
+   **/
   cout << '\'' << MII->getName(Inst.getOpcode()) << '\'' << endl;
   for (const MCOperand &opr : Inst) {
     if (opr.isReg() && opr.getReg() != 0 /* NoRegister */)
