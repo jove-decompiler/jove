@@ -64,7 +64,7 @@ $(build_dir):
 	rm -r build/qemuutil
 	rm -r build/qemustub
 
-$(build_dir)/llknife: $(build_dir)/llknife.ml | $(build_dir)
+$(build_dir)/llknife: $(build_dir)/llknife.ml
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
 	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
@@ -73,7 +73,7 @@ $(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml | $(build_dir)
 	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
-configure: $(build_dir)/llknife
+configure: $(build_dir) | $(build_dir)/llknife
 	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
 	  echo llknife $${bc} ; \
 	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' ; \

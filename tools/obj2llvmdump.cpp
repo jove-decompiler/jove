@@ -71,7 +71,8 @@ int main(int argc, char **argv) {
   libqemutcg_init();
   libmc_init(Obj);
 
-  libqemutcg_set_code(sectdata.at(sectidx).data(), (*sectit).first.lower());
+  libqemutcg_set_code(sectdata.at(sectidx).data(), sectdata.at(sectidx).size(),
+                      (*sectit).first.lower());
   trans_obj::translate_bb(va, sectdata.at(sectidx).data(),
                           (*sectit).first.lower());
 
@@ -193,8 +194,13 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
 
       ("input,i", po::value<string>(&bfp), "specify input file path")
 
+#if 0
+      ("sections,d", po::value<string>(&va_s),
+      "translates all executable sections")
+#endif
+
       ("virtual-address,v", po::value<string>(&va_s),
-      "specify virtual address of basic block to translate to TCG");
+      "specify virtual address of basic block to translate");
 
     po::positional_options_description p;
     p.add("input", -1);

@@ -1,7 +1,6 @@
 #if 0
 #define NDEBUG
 #endif
-//#define PONYALLVMTRUNK
 
 #include <tuple>
 #include <array>
@@ -193,7 +192,6 @@ public:
   typedef typename array<T, ponyaCPUStateSize>::iterator iterator;
 
   iterator begin() {
-    return mapping.begin();
   }
 
   iterator end() {
@@ -388,20 +386,13 @@ struct PonyaHelper : public Helper {
   ponya_tcg_global_unordered_set promotedInputs;
   ponya_tcg_global_unordered_set promotedOutputs;
 
-  PonyaHelper()
-    : passesCPUStateArg(false), isCPUStateArgNew(false)
-  {
-  }
-  PonyaHelper(Function*)
-    : Helper(f), passesCPUStateArg(false), isCPUStateArgNew(false)
-  {}
+  PonyaHelper() : passesCPUStateArg(false), isCPUStateArgNew(false) {}
+  PonyaHelper(Function *)
+      : Helper(f), passesCPUStateArg(false), isCPUStateArgNew(false) {}
 
-  bool doesAccessCPUState() {
-    return passesCPUStateArg;
-  }
+  bool doesAccessCPUState() { return passesCPUStateArg; }
 
-  HELPER_TYPE getType()
-  { return PONYA_HELPER; }
+  HELPER_TYPE getType() { return PONYA_HELPER; }
 };
 
 //

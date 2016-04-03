@@ -4,6 +4,7 @@
 #include "qemutcg.h"
 
 extern const uint8_t* code;
+extern unsigned long code_len;
 extern target_ulong code_pc;
 
 void object_do_qemu_init_register_types(void);
@@ -124,9 +125,11 @@ void libqemutcg_init(void) {
 #endif
 }
 
-void libqemutcg_set_code(const uint8_t* p, unsigned long pc) {
+void libqemutcg_set_code(const uint8_t *p, unsigned long len,
+                         unsigned long pc) {
   code = p;
   code_pc = pc;
+  code_len = len;
 }
 
 void libqemutcg_translate(unsigned long _pc) {

@@ -156,7 +156,7 @@ $(build_dir)/runtime-helpers-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_N
 
 $(build_dir)/runtime_ldst_helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime_ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -Wall -O3 -I $(include_dir) $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 #
 # process QEMU bitcode

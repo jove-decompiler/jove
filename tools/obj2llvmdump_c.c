@@ -44,7 +44,7 @@ void obj2llvmdump_print_ops() {
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
       if (oi != s->gen_first_op_idx)
-        printf("::\n");
+        printf(":\n"); /* empty row */
       if (a > code_pc)
         printf("%s", libmc_instr_asm((a - code_pc) + code, a, asmbuf));
 
