@@ -40,7 +40,7 @@ int main(int argc, char **argv) {
   tie(bfp, va) = trans_obj::parse_command_line_arguments(argc, argv);
 
   ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(bfp);
-  if (std::error_code EC = BinaryOrErr.getError()) {
+  if (error_code EC = BinaryOrErr.getError()) {
     cerr << "error: " << EC.message() << endl;
     return 1;
   }
@@ -224,7 +224,7 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
 
   uint64_t va;
   stringstream ss;
-  ss << std::hex << va_s;
+  ss << hex << va_s;
   ss >> va;
 
   return make_tuple(bfp, va);
