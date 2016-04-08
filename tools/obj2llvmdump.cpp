@@ -6,6 +6,7 @@
 #include <llvm/ADT/Triple.h>
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Object/COFF.h>
 #include <llvm/MC/MCRegisterInfo.h>
 //#include <llvm/ADT/ArrayRef.h>
 #include <boost/icl/interval_map.hpp>
@@ -215,11 +216,11 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
         !vm.count("virtual-address")) {
       cout << "Usage: trans-obj-<arch> {--virtual-address,-v} va object\n";
       cout << desc;
-      exit(0);
+      abort();
     }
   } catch (exception &e) {
     cerr << e.what() << endl;
-    exit(1);
+    abort();
   }
 
   uint64_t va;
@@ -255,7 +256,7 @@ void verify_arch(const ObjectFile *Obj) {
 
   if (Obj->getArch() != archty) {
     cerr << "error: architecture mismatch (run trans-obj-<arch>)" << endl;
-    exit(1);
+    abort();
   }
 }
 
@@ -272,8 +273,9 @@ template <typename ELFT>
 void build_section_data_map_from_elf(
     const ELFFile<ELFT> *Elf, vector<ArrayRef<uint8_t>> &sectdata,
     boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap) {
-  unsigned i = 1;
+  unsigned SectionNumber = 0;
   for (const auto &Shdr : Elf->sections()) {
+    ++SectionNumber;
     boost::icl::discrete_interval<uint64_t> intervl =
         boost::icl::discrete_interval<uint64_t>::right_open(
             Shdr.sh_addr, Shdr.sh_addr + Shdr.sh_size);
@@ -284,8 +286,40 @@ void build_section_data_map_from_elf(
 #endif
 
     sectdata.push_back(errorOrDefault(Elf->getSectionContents(&Shdr)));
-    sectaddrmap.add(make_pair(intervl, i));
-    ++i;
+    sectaddrmap.add(make_pair(intervl, SectionNumber));
+  }
+}
+
+void build_section_data_map_from_coff(
+    const COFFObjectFile *COFF, vector<ArrayRef<uint8_t>> &sectdata,
+    boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap) {
+  unsigned SectionNumber = 0;
+  for (const auto &Shdr : COFF->sections()) {
+    ++SectionNumber;
+    const coff_section *S = COFF->getCOFFSection(Shdr);
+
+    if (S->Characteristics & COFF::IMAGE_SCN_CNT_UNINITIALIZED_DATA)
+      continue;
+
+    uint64_t RVA = S->VirtualAddress;
+    uint64_t VA = COFF->getImageBase() + RVA;
+    boost::icl::discrete_interval<uint64_t> intervl =
+        boost::icl::discrete_interval<uint64_t>::right_open(
+            VA, VA + COFF->getSectionSize(S));
+
+#if 1
+    StringRef SectNm;
+    if (COFF->getSectionName(S, SectNm))
+      abort();
+    cout << SectNm.str() << " : " << '[' << hex << intervl.lower() << ", "
+         << intervl.upper() << ')' << endl;
+#endif
+
+    ArrayRef<uint8_t> SectContents;
+    if (COFF->getSectionContents(S, SectContents))
+      abort();
+    sectdata.push_back(SectContents);
+    sectaddrmap.add(make_pair(intervl, SectionNumber));
   }
 }
 
@@ -307,9 +341,13 @@ void build_section_data_map(
                                       sectaddrmap);
     else
       abort();
+  } else if (Obj->isCOFF()) {
+    const COFFObjectFile *COFFObj = dyn_cast<COFFObjectFile>(Obj);
+    assert(COFFObj);
+    build_section_data_map_from_coff(COFFObj, sectdata, sectaddrmap);
   } else {
     cerr << "error: object file type unimplemented" << endl;
-    exit(1);
+    abort();
   }
 }
 }
