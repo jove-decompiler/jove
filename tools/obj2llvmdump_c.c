@@ -39,18 +39,18 @@ void obj2llvmdump_print_ops() {
 #if 0
       printf(" " TARGET_FMT_lx, a);
 
-      printf(":%d", (int)(s->gen_first_op_idx - code_pc));
-      printf(":%s", libmc_instr_asm((s->gen_first_op_idx - code_pc) + code,
+      printf("|%d", (int)(s->gen_first_op_idx - code_pc));
+      printf("|%s", libmc_instr_asm((s->gen_first_op_idx - code_pc) + code,
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
       if (oi != s->gen_first_op_idx)
-        printf(":\n"); /* empty row */
+        printf("|\n"); /* empty row */
       if (a > code_pc)
         printf("%s", libmc_instr_asm((a - code_pc) + code, a, asmbuf));
 
       continue;
     } else {
-      printf(":");
+      printf("|");
 
       if (c == INDEX_op_call) {
         /* variable number of arguments */
