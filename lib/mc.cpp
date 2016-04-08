@@ -98,8 +98,14 @@ void libmc_init(const ObjectFile *Obj) {
   /* may be null for unsupported targets */
   MIA = TheTarget->createMCInstrAnalysis(MII);
 
-  IP = TheTarget->createMCInstPrinter(
-      Triple(TripleName), AsmInfo->getAssemblerDialect(), *AsmInfo, *MII, *MRI);
+  IP = TheTarget->createMCInstPrinter(Triple(TripleName),
+#ifdef TARGET_I386
+                                      1, // intel asm
+#else
+                                      AsmInfo->getAssemblerDialect(),
+#endif
+                                      *AsmInfo, *MII, *MRI);
+
   if (!IP)
     exit(35);
 
