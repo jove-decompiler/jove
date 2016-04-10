@@ -1,7 +1,6 @@
-#if 0
-#define NDEBUG
-#endif
+#include "translator.h"
 
+#if 0
 #include <tuple>
 #include <array>
 #include <libgen.h>
@@ -40,16 +39,6 @@
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 
-#include "tcg-llvm.h"
-#include "OrcDynamicJIT.h"
-
-extern "C" {
-#include "config-target.h"
-#include "tcg.h"
-#include "panda_plugin.h"
-#include "panda/panda_common.h"
-}
-
 using std::array;
 using std::tuple;
 using std::tie;
@@ -69,122 +58,74 @@ using std::endl;
 using std::ostringstream;
 using std::error_code;
 using std::fill;
+#endif
 
 using namespace llvm;
 using namespace llvm::object;
+#if 0
 using namespace llvm::legacy;
+#endif
 
 //
 // Macros
 //
-#define __PONYA_NO_LOG
-#include "ponya.h"
+#if 0
 #define PONYA_OFFSETOF(type, member) ((size_t) &(((type*)0)->member))
+#endif
 
-//
-// Constants
-//
-static const size_t ponyaCPUStateSize = sizeof(CPUX86State);
-static const size_t ponyaCPUStateNBRegs = CPU_NB_REGS;
-static const uint64_t _ponya_tcg_cpu_env = 0;
-#if !defined(NDEBUG) || defined(CONFIG_PONYA)
-#if defined(TARGET_I386)
-#ifdef TARGET_X86_64
-#define PONYA_TGS_WORD PONYA_TGS_64
-static const char* reg_idx_name[] = {
-  "rax",
-  "rcx",
-  "rdx",
-  "rbx",
-  "rsp",
-  "rbp",
-  "rsi",
-  "rdi",
-  "r8",
-  "r9",
-  "r10",
-  "r11",
-  "r12",
-  "r13",
-  "r14",
-  "r15",
-  "rip"};
-#else
-#define PONYA_TGS_WORD PONYA_TGS_32
-static const char* reg_idx_name[] = {
-  "eax",
-  "ecx",
-  "edx",
-  "ebx",
-  "esp",
-  "ebp",
-  "esi",
-  "edi"};
-#endif
-#endif
-#endif
+namespace jove {
 
 //
 // Types & data structures
 //
-typedef uint64_t (*tcg_tc_ptr_t)(void*);
-typedef uint32_t ponya_tcg_global_size_t;
-typedef uint32_t ponya_tcg_global_offset_t;
+#if 0
+typedef uint32_t tcg_global_size_t;
+typedef uint32_t tcg_global_offset_t;
 
-enum PONYA_TCG_GLOBAL_SIZE_t {
+enum tcg_global_size_t {
   PONYA_TGS_32, /* = TCG_TYPE_I32 = 0 */
   PONYA_TGS_64, /* = TCG_TYPE_I64 = 1 */
   PONYA_TGS_16,
   PONYA_TGS_8
 };
 
-struct ponya_tcg_global_t {
-  ponya_tcg_global_size_t   size;
-  ponya_tcg_global_offset_t offs;
+struct tcg_global_t {
+  tcg_global_size_t   size;
+  tcg_global_offset_t offs;
 
-  ponya_tcg_global_t() {}
-  ponya_tcg_global_t(ponya_tcg_global_size_t size,
-    ponya_tcg_global_offset_t offs) : size(size), offs(offs)
+  tcg_global_t() {}
+  tcg_global_t(tcg_global_size_t size,
+    tcg_global_offset_t offs) : size(size), offs(offs)
   {}
 };
 
-static const char* string_of_tcg_global_size[] = {
-  "uint32_t",
-  "uint64_t",
-  "uint16_t",
-  "uint8_t"
+static const char *string_of_tcg_global_size[] = {"u32", "u64", "u16", "u8"};
+
+static const unsigned bits_of_ponya_tcg_global_size[] = {32, 64, 16, 8};
+
+static const uint64_t g[] = {
+    0xdeadbeef,   // 0
+    PONYA_TGS_8,  // 1
+    PONYA_TGS_16, // 2
+    0xdeadbeef,   // 3
+    PONYA_TGS_32, // 4
+    0xdeadbeef,   // 5
+    0xdeadbeef,   // 6
+    0xdeadbeef,   // 7
+    PONYA_TGS_64  // 8
 };
 
-static const unsigned bits_of_ponya_tcg_global_size[] = {
-  32,
-  64,
-  16,
-  8
-};
-
-static const uint64_t ponya_tcg_global_size_of_byte_count[] = {
-  0xdeadbeef,   // 0
-  PONYA_TGS_8,  // 1
-  PONYA_TGS_16, // 2
-  0xdeadbeef,   // 3
-  PONYA_TGS_32, // 4
-  0xdeadbeef,   // 5
-  0xdeadbeef,   // 6
-  0xdeadbeef,   // 7
-  PONYA_TGS_64  // 8
-};
-
-static ponya_tcg_global_size_t ponyaTCGGlobalSizeOfTCGType(TCGType ty) {
-  return static_cast<ponya_tcg_global_size_t>(ty);
+static tcg_global_size_t tcg_global_size_of_tcg_type(TCGType ty) {
+  return static_cast<tcg_global_size_t>(ty);
 }
 
-static bool isPonyaGlobalSizeGreater(ponya_tcg_global_size_t lhs,
-  ponya_tcg_global_size_t rhs) {
+static bool isGlobalSizeGreater(tcg_global_size_t lhs,
+  tcg_global_size_t rhs) {
   return lhs > rhs;
 }
 
 template <typename T>
-class ponya_tcg_global_map {
+class tcg_global_map {
   array<T, ponyaCPUStateSize> mapping;
 
 public:
@@ -198,38 +139,38 @@ public:
     return mapping.end();
   }
 
-  T& operator[](ponya_tcg_global_t gl) {
+  T& operator[](tcg_global_t gl) {
     return mapping[gl.offs];
   }
 
-  const T& operator[](ponya_tcg_global_t gl) const {
+  const T& operator[](tcg_global_t gl) const {
     return mapping[gl.offs];
   }
 };
 
-class ponya_tcg_global_unordered_set {
+class tcg_global_unordered_set {
   array<bool, ponyaCPUStateSize> mem;
-  list<ponya_tcg_global_t> lst;
-  ponya_tcg_global_map<list<ponya_tcg_global_t>::iterator> lst_its;
+  list<tcg_global_t> lst;
+  tcg_global_map<list<tcg_global_t>::iterator> lst_its;
 
 public:
-  typedef list<ponya_tcg_global_t>::iterator iterator;
-  typedef list<ponya_tcg_global_t>::const_iterator const_iterator;
+  typedef list<tcg_global_t>::iterator iterator;
+  typedef list<tcg_global_t>::const_iterator const_iterator;
 
-  ponya_tcg_global_unordered_set() {
+  tcg_global_unordered_set() {
     fill(mem.begin(), mem.end(), false);
   }
 
-  ponya_tcg_global_unordered_set(const ponya_tcg_global_unordered_set& s) {
+  tcg_global_unordered_set(const tcg_global_unordered_set& s) {
     fill(mem.begin(), mem.end(), false);
     operator=(s);
   }
 
-  void operator=(const ponya_tcg_global_unordered_set& rhs) {
+  void operator=(const tcg_global_unordered_set& rhs) {
     clear();
 
     for (auto it = rhs.begin(); it != rhs.end(); ++it) {
-      const ponya_tcg_global_t& gl = *it;
+      const tcg_global_t& gl = *it;
 
       lst.push_back(gl);
       auto gl_it = lst.end();
@@ -262,18 +203,18 @@ public:
     lst.clear();
   }
 
-  bool exists(ponya_tcg_global_t gl) const {
+  bool exists(tcg_global_t gl) const {
     return mem[gl.offs];
   }
 
-  void add(ponya_tcg_global_t gl) {
+  void add(tcg_global_t gl) {
     if (!exists(gl)) {
       lst.push_back(gl);
       auto it = lst.end();
       --it;
       lst_its[gl] = it;
       mem[gl.offs] = true;
-    } else if (isPonyaGlobalSizeGreater(gl.size, (*lst_its[gl]).size)) {
+    } else if (isGlobalSizeGreater(gl.size, (*lst_its[gl]).size)) {
       /* if the size of the given local is greater than the existing global's
        * size, replace the existing global's size */
       (*lst_its[gl]).size = gl.size;
@@ -281,10 +222,10 @@ public:
   }
 };
 
-static ponya_tcg_global_unordered_set ponya_tcg_global_unordered_set_union(
-    const ponya_tcg_global_unordered_set& x,
-    const ponya_tcg_global_unordered_set& y) {
-  ponya_tcg_global_unordered_set res(x);
+static tcg_global_unordered_set ponya_tcg_global_unordered_set_union(
+    const tcg_global_unordered_set& x,
+    const tcg_global_unordered_set& y) {
+  tcg_global_unordered_set res(x);
 
   for (auto it = y.begin(); it != y.end(); ++it)
     res.add(*it);
@@ -292,7 +233,7 @@ static ponya_tcg_global_unordered_set ponya_tcg_global_unordered_set_union(
   return res;
 }
 
-class ponya_tcg_local_unordered_set {
+class tcg_local_unordered_set {
   bitset<TCG_MAX_TEMPS> mem;
   vector<uint32_t> lst;
 
@@ -381,10 +322,10 @@ struct PonyaHelperSimple : public Helper {
 struct PonyaHelper : public Helper {
   bool passesCPUStateArg;
   bool isCPUStateArgNew;
-  ponya_tcg_global_unordered_set ref;
-  ponya_tcg_global_unordered_set mod;
-  ponya_tcg_global_unordered_set promotedInputs;
-  ponya_tcg_global_unordered_set promotedOutputs;
+  tcg_global_unordered_set ref;
+  tcg_global_unordered_set mod;
+  tcg_global_unordered_set promotedInputs;
+  tcg_global_unordered_set promotedOutputs;
 
   PonyaHelper() : passesCPUStateArg(false), isCPUStateArgNew(false) {}
   PonyaHelper(Function *)
@@ -396,56 +337,10 @@ struct PonyaHelper : public Helper {
 };
 
 //
-// Globals
+// translator methods
 //
-#ifdef CONFIG_LLVM
-extern CPUState *env;
-#endif
-
-extern "C" {
-  TCGLLVMContext* tcg_llvm_ctx = 0;
-
-  /* These data is accessible from generated code */
-  TCGLLVMRuntime tcg_llvm_runtime = {
-      0, 0, {0,0,0}
-      , 0, 0
-  };
-}
-
-extern "C" {
-  bool __ponyaDumpModAndAbort = false;
-}
 
 class TCGLLVMContextPrivate {
-  friend TCGLLVMContext;
-
-  //
-  // fields initialized before translation
-  //
-  LLVMContext& llctx;
-
-  // always set to initial module
-  unique_ptr<Module> initial_llm;
-
-#ifndef CONFIG_PONYA
-  // module for each Function
-  Module *tb_llm;
-#endif
-
-  // at first is set to initial module, then each tb_llvm if in panda mode
-  Module* llm;
-
-#ifndef CONFIG_PONYA
-  /* JIT engine */
-  unique_ptr<ponya::OrcDynamicJIT> orcdynlljit;
-#endif
-
-  /* global function pass manager */
-  legacy::FunctionPassManager* fpm;
-
-  /* our target machine */
-  TargetMachine* tm;
-
   /* our data layout */
   const DataLayout* dl;
 
@@ -453,10 +348,10 @@ class TCGLLVMContextPrivate {
   FunctionType* fty;
 
   /* TCG globals GEP indices */
-  ponya_tcg_global_map<vector<Value*> > tcg_glb_gep_idxs;
+  tcg_global_map<vector<Value*> > tcg_glb_gep_idxs;
 
   /* TCG global symbols */
-  ponya_tcg_global_map<const char*> tcg_glb_syms;
+  tcg_global_map<const char*> tcg_glb_syms;
 
   /* table with load mmu functions:
    * __ldb_mmu, __ldw_mmu, __ldl_mmu, __ldq_mmu, __ldq_mmu */
@@ -517,19 +412,19 @@ class TCGLLVMContextPrivate {
   Function* llf;
 
   /* TCG globals which are tcg_inputs (i.e. ref) */
-  ponya_tcg_global_unordered_set tcg_inputs;
+  tcg_global_unordered_set tcg_inputs;
 
   /* TCG globals which are tcg_outputs (i.e. mod) */
-  ponya_tcg_global_unordered_set tcg_outputs;
+  tcg_global_unordered_set tcg_outputs;
 
   /* union of TCG inputs and TCG outputs */
-  ponya_tcg_global_unordered_set tcg_globals;
+  tcg_global_unordered_set tcg_globals;
 
   /* TCG locals */
-  ponya_tcg_local_unordered_set tcg_locals;
+  tcg_local_unordered_set tcg_locals;
 
   /* llvm locals of TCG globals */
-  ponya_tcg_global_map<AllocaInst*> tcg_glb_vals;
+  tcg_global_map<AllocaInst*> tcg_glb_vals;
 
   /* llvm locals of TCG locals */
   array<AllocaInst*, TCG_MAX_TEMPS> tcg_lcl_vals;
@@ -545,10 +440,10 @@ class TCGLLVMContextPrivate {
 
   /* llvm locals corresponding to TCG global outputs which specify whether
    * their local versions have been modified */
-  ponya_tcg_global_map<AllocaInst*> tcg_glb_vals_mod;
+  tcg_global_map<AllocaInst*> tcg_glb_vals_mod;
 
   /* TCG global GEP's */
-  ponya_tcg_global_map<Value*> tcg_glb_cpu_st_ptrs;
+  tcg_global_map<Value*> tcg_glb_cpu_st_ptrs;
 
 #ifndef CONFIG_PONYA
   /* function return value (next TB) */
@@ -732,7 +627,7 @@ public:
     }
   }
 
-  Value* ponyaCPUStGEPForTCGGlobal(ponya_tcg_global_t gl) {
+  Value* ponyaCPUStGEPForTCGGlobal(tcg_global_t gl) {
     vector<Value*>& indices = tcg_glb_gep_idxs[gl];
 
     if (indices.empty())
@@ -767,7 +662,7 @@ public:
   }
 
   /* given a global, returns a llvm local corresponding to it */
-  Value* getValueOfGlobal(ponya_tcg_global_t gl) {
+  Value* getValueOfGlobal(tcg_global_t gl) {
     Value* ptr = b.CreatePointerCast(tcg_glb_vals[gl],
       intPtrType(bits_of_ponya_tcg_global_size[gl.size]));
     Value* res = b.CreateLoad(ptr);
@@ -812,8 +707,8 @@ public:
       TCGTemp *ts = &tcg_ctx.temps[idx];
       assert(!ts->fixed_reg);
 
-      ponya_tcg_global_t gl;
-      gl.size = ponyaTCGGlobalSizeOfTCGType(ts->type);
+      tcg_global_t gl;
+      gl.size = tcg_global_size_of_tcg_type(ts->type);
       gl.offs = ts->mem_offset;
 
       return getValueOfGlobal(gl);
@@ -836,8 +731,8 @@ public:
       TCGTemp *ts = &tcg_ctx.temps[idx];
       assert(!ts->fixed_reg);
 
-      ponya_tcg_global_t gl;
-      gl.size = ponyaTCGGlobalSizeOfTCGType(ts->type);
+      tcg_global_t gl;
+      gl.size = tcg_global_size_of_tcg_type(ts->type);
       gl.offs = ts->mem_offset;
 
       setValueOfGlobal(gl, v);
@@ -848,7 +743,7 @@ public:
   }
 
   /* given a global, stores a value to the llvm local corresponding to it */
-  void setValueOfGlobal(ponya_tcg_global_t gl, Value* v) {
+  void setValueOfGlobal(tcg_global_t gl, Value* v) {
     assert(tcg_outputs.exists(gl));
 
     b.CreateStore(ConstantInt::get(intType(1), 1), tcg_glb_vals_mod[gl]);
@@ -862,7 +757,7 @@ public:
         intPtrType(bits_of_ponya_tcg_global_size[gl.size])));
   }
 
-  Value* getCPUStatePtrOfGlobal(ponya_tcg_global_t gl) {
+  Value* getCPUStatePtrOfGlobal(tcg_global_t gl) {
     Value* ptr = ponyaCPUStGEPForTCGGlobal(gl);
     if (ptr) {
       Type* base_ty = cast<SequentialType>(ptr->getType())->getElementType();
@@ -922,7 +817,7 @@ public:
     vector<Value*>::iterator index,
     uint64_t byte_offset) const;
 
-  ponya_tcg_global_offset_t byteOffsetOfGEPIndices(Type* base_ty,
+  tcg_global_offset_t byteOffsetOfGEPIndices(Type* base_ty,
       vector<Value*>& indices) const;
 
   void setCPUStateSize(size_t s);
@@ -1174,18 +1069,6 @@ public:
 #endif
 };
 
-extern const char *qemu_loc;
-
-static const char* _helper_fp = nullptr;
-
-extern "C" {
-  void ocaml_set_helper_fp(const char* hlp_fp);
-}
-
-void ocaml_set_helper_fp(const char* hlp_fp) {
-  _helper_fp = hlp_fp;
-}
-
 #ifndef CONFIG_PONYA
 static string get_program_dir() {
   char buff[1024];
@@ -1198,48 +1081,6 @@ static string get_program_dir() {
 }
 #endif
 
-static uint64_t fnSize;
-
-#if 0
-class FunctionInfoJITEventListener : public JITEventListener {
-  string sym;
-  uint64_t& out_size;
-
-public:
-  FunctionInfoJITEventListener(const string& sym, uint64_t& out_size)
-    : sym(sym), out_size(out_size) {}
-
-  void NotifyObjectEmitted(const ObjectFile &Obj,
-      const RuntimeDyld::LoadedObjectInfo &L) override {
-    OwningBinary<ObjectFile> DebugObjOwner = L.getObjectForDebug(Obj);
-    const ObjectFile &DebugObj = *DebugObjOwner.getBinary();
-
-    for (symbol_iterator I = DebugObj.symbol_begin(),
-                         E = DebugObj.symbol_end();
-                         I != E; ++I) {
-      SymbolRef::Type SymType;
-      if (!I->getType(SymType) && SymType == SymbolRef::ST_Function) {
-        StringRef Name;
-        uint64_t Size;
-
-        if (!I->getName(Name) && Name == sym && !I->getSize(Size)) {
-          *out_size = Size;
-
-          // XXX DBG
-#if 0
-          cout << "size of generated " << sym << " is " << dec << Size << endl;
-#endif
-
-          return;
-        }
-      }
-    }
-
-    assert(false && "FunctionInfoJITEventListener could not find fn symbol");
-  }
-};
-#endif
-
 static void diagnosticHandler(const DiagnosticInfo &DI, void *Context) {
   string ErrStorage;
   {
@@ -1250,6 +1091,15 @@ static void diagnosticHandler(const DiagnosticInfo &DI, void *Context) {
   qemu_log("%s\n", ErrStorage.c_str());
   abort();
 }
+
+#endif
+
+translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
+    : O(O), C(C), M(M), DL(M.getDataLayout()) {}
+
+translator::~translator() {}
+
+#if 0
 
 TCGLLVMContextPrivate::TCGLLVMContextPrivate()
   : llctx(getGlobalContext()),
@@ -1362,7 +1212,7 @@ TCGLLVMContextPrivate::TCGLLVMContextPrivate()
   llm = initial_llm.get();
 
   // get datalayout
-  dl = &llm->getDataLayout();
+  dl = &;
 
   // get alias scopes
   NamedMDNode* scope_list_nmdn = llm->getNamedMetadata("ponya_alias_scope_list");
@@ -1697,8 +1547,8 @@ void TCGLLVMContextPrivate::registerHelperFunction(Function& f)
 #if 0
             cerr << "    " << dec << sizeCI->getZExtValue() << ' ' << offCI->getZExtValue() << endl;
 #endif
-            ph->promotedInputs.add(ponya_tcg_global_t(
-              ponya_tcg_global_size_of_byte_count[sizeCI->getZExtValue()],
+            ph->promotedInputs.add(tcg_global_t(
+              g[sizeCI->getZExtValue()],
               offCI->getZExtValue()));
           }
           break; }
@@ -1731,8 +1581,8 @@ void TCGLLVMContextPrivate::registerHelperFunction(Function& f)
 #if 0
             cerr << "    " << dec << sizeCI->getZExtValue() << ' ' << offCI->getZExtValue() << endl;
 #endif
-            ph->promotedOutputs.add(ponya_tcg_global_t(
-              ponya_tcg_global_size_of_byte_count[sizeCI->getZExtValue()],
+            ph->promotedOutputs.add(tcg_global_t(
+              g[sizeCI->getZExtValue()],
               offCI->getZExtValue()));
           }
           break; }
@@ -1779,7 +1629,7 @@ void TCGLLVMContextPrivate::registerHelperFunction(Function& f)
 #endif
 
             for (unsigned off = beg; off < end; ++off)
-              ph->ref.add(ponya_tcg_global_t(PONYA_TGS_8, off));
+              ph->ref.add(tcg_global_t(PONYA_TGS_8, off));
           }
 
           Metadata* modM = mdn->getOperand(2);
@@ -1810,7 +1660,7 @@ void TCGLLVMContextPrivate::registerHelperFunction(Function& f)
             unsigned end = endCI->getZExtValue();
 
             for (unsigned off = beg; off < end; ++off)
-              ph->mod.add(ponya_tcg_global_t(PONYA_TGS_8, off));
+              ph->mod.add(tcg_global_t(PONYA_TGS_8, off));
 
             /* XXX DBG */
 #if 0
@@ -1880,7 +1730,7 @@ void TCGLLVMContextPrivate::setCPUStateSize(size_t s)
 
 void TCGLLVMContextPrivate::cpuStateField(uint64_t off, const char* sym)
 {
-  tcg_glb_syms[ponya_tcg_global_t(PONYA_TGS_8, off)] = sym;
+  tcg_glb_syms[tcg_global_t(PONYA_TGS_8, off)] = sym;
 }
 
 void TCGLLVMContextPrivate::fillTCGExtTempOffToGEPIndicesMapSub(Type* ty,
@@ -1916,7 +1766,7 @@ void TCGLLVMContextPrivate::fillTCGExtTempOffToGEPIndicesMapSub(Type* ty,
         byte_count == 2 ||
         byte_count == 4 ||
         byte_count == 8) {
-      ponya_tcg_global_size_t size = ponya_tcg_global_size_of_byte_count[byte_count];
+      tcg_global_size_t size = g[byte_count];
       out[size].push_back(indices);
     } else {
       assert(false);
@@ -1959,7 +1809,7 @@ uint64_t TCGLLVMContextPrivate::byteOffsetOfGEPIndicesSub(Type* ty,
   return true;                 
 }
 
-ponya_tcg_global_offset_t TCGLLVMContextPrivate::byteOffsetOfGEPIndices(Type* base_ty,
+tcg_global_offset_t TCGLLVMContextPrivate::byteOffsetOfGEPIndices(Type* base_ty,
    vector<Value*>& indices) const {
   assert(indices.begin() != indices.end() &&
          "Must provide nonempty indices");
@@ -1977,24 +1827,20 @@ void TCGLLVMContextPrivate::fillTCGExtTempOffToGEPIndicesMap()
       starting_indices, elt_indices_by_size);
   }
 
-  for (ponya_tcg_global_size_t size = 0; size < 4; ++size) {
+  for (tcg_global_size_t size = 0; size < 4; ++size) {
     for (auto it = elt_indices_by_size[size].begin();
          it != elt_indices_by_size[size].end(); ++it) {
       vector<Value*>& indices = *it;
 
-      ponya_tcg_global_offset_t off = byteOffsetOfGEPIndices(cpu_state_ty, indices);
+      tcg_global_offset_t off = byteOffsetOfGEPIndices(cpu_state_ty, indices);
 
       // these are really for cpu_state_ptr_ty
       indices.insert(indices.begin(), ConstantInt::get(wordType(), 0));
-      tcg_glb_gep_idxs[ponya_tcg_global_t(size, off)] = indices;
+      tcg_glb_gep_idxs[tcg_global_t(size, off)] = indices;
     }
   }
 }
 
-/*
- * rwhelan: This now just calls the helper functions for whole system mode, and
- * we take care of the logging in there.  For user mode, we log in the IR.
- */
 Value* TCGLLVMContextPrivate::generateQemuMemOp(bool ld, Value *value, Value *addr, int mem_index, int bits)
 {
   assert(addr->getType() == intType(TARGET_LONG_BITS));
@@ -2143,7 +1989,7 @@ int TCGLLVMContextPrivate::generateOperation(int opc, const TCGArg *args)
         cerr << "warning: passing TCG CPU field for " << helperName << endl;
 
         /* CPU state field pointer */
-        ponya_tcg_global_t gl;
+        tcg_global_t gl;
         gl.size = PONYA_TGS_8; /* XXX doesn't matter */
         gl.offs = arg - TCG_MAX_TEMPS;
 
@@ -2482,7 +2328,7 @@ int TCGLLVMContextPrivate::generateOperation(int opc, const TCGArg *args)
   /* load/store (ponya) */
 #define __LD_OP_EXT_PONYA(opc_name, memBits, regBits, signE)\
   case opc_name: {\
-    ponya_tcg_global_t src = ponya_tcg_global_t(PONYA_TGS_ ## memBits, args[2]);\
+    tcg_global_t src = ponya_tcg_global_t(PONYA_TGS_ ## memBits, args[2]);\
     Value* v = getValueOfGlobal(src);\
     Value* new_v = b.Create ## signE ## Ext(v, intType(regBits));\
     setValueOfTCGArg(args[0], new_v);\
@@ -2490,7 +2336,7 @@ int TCGLLVMContextPrivate::generateOperation(int opc, const TCGArg *args)
 
 #define __ST_OP_EXT_PONYA(opc_name, memBits, regBits)\
   case opc_name: {\
-    ponya_tcg_global_t dst = ponya_tcg_global_t(PONYA_TGS_ ## memBits, args[2]);\
+    tcg_global_t dst = ponya_tcg_global_t(PONYA_TGS_ ## memBits, args[2]);\
     setValueOfGlobal(dst, b.CreateTrunc(getValueOfTCGArg(args[0]), intType(memBits)));\
   } break;
 
@@ -2841,8 +2687,8 @@ void TCGLLVMContextPrivate::ponyaComputeOverApproxTCGInputsAndOutputs(TCGContext
       TCGTemp *ts = &tcg_ctx.temps[idx];\
       assert(!ts->fixed_reg);\
       \
-      ponya_tcg_global_t gl;\
-      gl.size = ponyaTCGGlobalSizeOfTCGType(ts->type);\
+      tcg_global_t gl;\
+      gl.size = tcg_global_size_of_tcg_type(ts->type);\
       gl.offs = ts->mem_offset;\
       \
       tcg_inputs.add(gl);\
@@ -2861,8 +2707,8 @@ void TCGLLVMContextPrivate::ponyaComputeOverApproxTCGInputsAndOutputs(TCGContext
       TCGTemp *ts = &tcg_ctx.temps[idx];\
       assert(!ts->fixed_reg);\
       \
-      ponya_tcg_global_t gl;\
-      gl.size = ponyaTCGGlobalSizeOfTCGType(ts->type);\
+      tcg_global_t gl;\
+      gl.size = tcg_global_size_of_tcg_type(ts->type);\
       gl.offs = ts->mem_offset;\
       \
       tcg_outputs.add(gl);\
@@ -2874,7 +2720,7 @@ void TCGLLVMContextPrivate::ponyaComputeOverApproxTCGInputsAndOutputs(TCGContext
 
 #define PONYA_ST(NEW_OP, SIZE) do {\
     if (args[1] == _ponya_tcg_cpu_env) {\
-      tcg_outputs.add(ponya_tcg_global_t(PONYA_TGS_ ## SIZE, args[2]));\
+      tcg_outputs.add(tcg_global_t(PONYA_TGS_ ## SIZE, args[2]));\
       gen_opc_buf[opc_index] = (NEW_OP);\
     }\
   } while (0)
@@ -2882,7 +2728,7 @@ void TCGLLVMContextPrivate::ponyaComputeOverApproxTCGInputsAndOutputs(TCGContext
 #define PONYA_LD(NEW_OP, SIZE) do {\
     PONYA_OARG(args[0]);\
     if (args[1] == _ponya_tcg_cpu_env) {\
-      tcg_inputs.add(ponya_tcg_global_t(PONYA_TGS_ ## SIZE, args[2]));\
+      tcg_inputs.add(tcg_global_t(PONYA_TGS_ ## SIZE, args[2]));\
       gen_opc_buf[opc_index] = (NEW_OP);\
     }\
   } while (0)
@@ -3281,24 +3127,13 @@ void TCGLLVMContextPrivate::ponyaInitTranslationFunction(const TCGContext *s,
   // don't inline!
   llf->addAttribute(AttributeSet::FunctionIndex, Attribute::NoInline);
 }
+#endif
 
-extern "C" {
-extern int _mc2tcg_br_type;
-extern target_ulong _mc2tcg_call_dst;
-extern target_ulong _mc2tcg_call_ret_addr;
-extern target_ulong _mc2tcg_uncond_jmp_dst;
-extern target_ulong _mc2tcg_cond_jmp_dst0;
-extern target_ulong _mc2tcg_cond_jmp_dst1;
-extern target_ulong _mc2tcg_int_ret_addr;
-extern target_ulong _mc2tcg_repz_ret_addr;
-extern int _mc2tcg_initing_temps; /* XXX */
+void translator::translate(address_t a)
+{
 }
 
-// XXX
-extern "C" {
-  void _ponya_log_disas(void*, unsigned long);
-}
-
+#if 0
 void TCGLLVMContextPrivate::generateCode(void* cpu_st, TCGContext *s, TranslationBlock *tb)
 {
   // XXX DBG
@@ -3425,7 +3260,7 @@ void TCGLLVMContextPrivate::generateCode(void* cpu_st, TCGContext *s, Translatio
     break;
   case PONYA_IND_JMP:
     b.CreateCall(llf_ponyaIndirectJump,
-                 getValueOfGlobal(ponya_tcg_global_t(
+                 getValueOfGlobal(tcg_global_t(
                      PONYA_TGS_64, PONYA_OFFSETOF(CPUX86State, eip))));
     break;
   case PONYA_RET: {
@@ -3539,665 +3374,5 @@ void TCGLLVMContextPrivate::generateCode(void* cpu_st, TCGContext *s, Translatio
   catch_dirty = false;
 #endif
 }
-
-void TCGLLVMContextPrivate::generateUnreachableCode(TranslationBlock *tb)
-{
-  // compute symbol for new function
-  string f_sym;
-  {
-    ostringstream fName;
-    fName << "0x" << hex << tb->pc;
-
-    f_sym = fName.str();
-  }
-
-  // create the llvm function to be executed. it may have been already
-  // declared
-  if ((llf = llm->getFunction(f_sym))) {
-    ponyalogassert(llf->isDeclaration() && "translation llvm fn already "
-        "defined");
-    llf->setLinkage(Function::ExternalLinkage);
-  } else {
-    llf = Function::Create(fty, GlobalValue::ExternalLinkage, f_sym, llm);
-  }
-  llf->addAttribute(AttributeSet::FunctionIndex, Attribute::AlwaysInline);
-
-  tb->llvm_function = llf;
-
-  // set function argument attributes
-#ifdef CONFIG_PONYA
-  {
-    Function::arg_iterator param_it = llf->arg_begin();
-    Argument *res_arg = param_it++;
-    Argument *st_arg = param_it++;
-
-    res_arg->setName("result");
-    st_arg->setName("state");
-
-    ponyaAddAttributeToArgument(res_arg, Attribute::NonNull);
-    ponyaAddAttributeToArgument(st_arg, Attribute::NonNull);
-
-    ponyaAddAttributeToArgument(res_arg, Attribute::NoAlias);
-    ponyaAddAttributeToArgument(st_arg, Attribute::NoAlias);
-
-    ponyaAddAttributeToArgument(st_arg, Attribute::ByVal);
-  }
-#else
-  {
-    Function::arg_iterator param_it = llf->arg_begin();
-    Argument* cpu_st_arg = param_it++;
-    ponyaAddAttributeToArgument(cpu_st_arg, Attribute::NoAlias);
-    ponyaAddAttributeToArgument(cpu_st_arg, Attribute::NonNull);
-  }
-#endif
-
-  // create entry & exit block
-  BasicBlock* entryBlock = BasicBlock::Create(llctx, "", llf);
-  b.SetInsertPoint(entryBlock);
-
-  // create unreachable, and we're done!
-  b.CreateUnreachable();
-}
-
-void TCGLLVMContextPrivate::logLLVMBeforeOpt()
-{
-  if (qemu_loglevel_mask(CPU_LOG_PONYA_INPUTS)) {
-    qemu_log("Ponya inputs:\n");
-    for (auto it = tcg_inputs.begin(); it != tcg_inputs.end(); ++it) {
-      ostringstream oss;
-      oss <<
-        string_of_tcg_global_size[(*it).size] << " 0x" <<
-         hex << (*it).offs << " = " <<
-         dec << (*it).offs << '\n';
-
-      qemu_log("%s", oss.str().c_str());
-    }
-    qemu_log("\n");
-  }
-
-  if (qemu_loglevel_mask(CPU_LOG_PONYA_OUTPUTS)) {
-    qemu_log("Ponya outputs:\n");
-    for (auto it = tcg_outputs.begin(); it != tcg_outputs.end(); ++it) {
-      ostringstream oss;
-      oss <<
-        string_of_tcg_global_size[(*it).size] << " 0x" <<
-         hex << (*it).offs << " = " <<
-         dec << (*it).offs << '\n';
-
-      qemu_log("%s", oss.str().c_str());
-    }
-    qemu_log("\n");
-  }
-
-  if (qemu_loglevel_mask(CPU_LOG_LLVM_PONYA_IR)) {
-    string buff;
-    raw_string_ostream sos(buff);
-    llf->print(sos);
-    sos.flush();
-
-    qemu_log("TCG-LLVM IR (unoptimized):\n%s\n", buff.c_str());
-  }
-}
-
-bool TCGLLVMContextPrivate::verify() {
-  string buff;
-  bool invalid;
-
-  {
-    raw_string_ostream sos(buff);
-    invalid = verifyModule(*llm, &sos);
-  }
-
-  if (invalid)
-    qemu_log("invalid module '%s'\n", buff.c_str());
-
-  return invalid;
-}
-
-bool TCGLLVMContextPrivate::verifyOther() {
-#ifndef CONFIG_PONYA
-  ponyalogassert(func___gxx_personality_v0);
-#endif
-  return false;
-}
-
-bool TCGLLVMContextPrivate::verifyFunc() {
-  string buff;
-  bool invalid;
-
-  {
-    raw_string_ostream sos(buff);
-    invalid = verifyFunction(*llf, &sos);
-  }
-
-  if (invalid) {
-    qemu_log("invalid function '%s'\n", buff.c_str());
-
-    // try to print it
-    string llf_str;
-    {
-      raw_string_ostream sos2(llf_str);
-      llf->print(sos2);
-    }
-    qemu_log("%s", llf_str.c_str());
-  }
-
-  return invalid;
-}
-
-void TCGLLVMContextPrivate::logLLVM(TranslationBlock* tb)
-{
-  if (qemu_loglevel_mask(CPU_LOG_LLVM_EXEC_IR)) {
-    string buff;
-    raw_string_ostream sos(buff);
-#ifdef CONFIG_PONYA
-    llf->print(sos);
-#else
-    llm->print(sos, nullptr);
-#endif
-    sos.flush();
-
-    qemu_log("TCG-LLVM IR (optimized):\n%s\n", buff.c_str());
-  }
-
-  if (qemu_loglevel_mask(CPU_LOG_LLVM_BC)) {
-    if (verifyModule(*llm, &errs())) {
-      errs().flush();
-      cerr << "verifying module failed" << endl;
-      assert(false);
-    }
-    std::error_code Error;
-
-    ostringstream fName;
-    fName << "/tmp/" << hex << tb->pc << ".bc";
-    raw_fd_ostream outfile(fName.str(), Error, sys::fs::F_None);
-    WriteBitcodeToFile(llm, outfile);
-  }
-}
-
-/***********************************/
-/* External interface for C++ code */
-
-TCGLLVMContext::TCGLLVMContext()
-        : m_private(new TCGLLVMContextPrivate)
-{
-  m_private->verify();
-}
-
-TCGLLVMContext::~TCGLLVMContext()
-{
-  abort();
-  delete m_private;
-}
-
-legacy::FunctionPassManager* TCGLLVMContext::getFunctionPassManager() const
-{
-  abort();
-}
-
-void TCGLLVMContext::deleteExecutionEngine()
-{
-  abort();
-}
-
-LLVMContext& TCGLLVMContext::getLLVMContext()
-{
-  abort();
-}
-
-Module* TCGLLVMContext::getModule()
-{
-#ifdef CONFIG_PONYA
-  return m_private->llm;
-#else
-  abort();
 #endif
 }
-
-ExecutionEngine* TCGLLVMContext::getExecutionEngine()
-{
-  abort();
-}
-
-void TCGLLVMContext::generateCode(TCGContext *s, void* cpu_st, TranslationBlock *tb)
-{
-  tb->tcg_llvm_context = this;
-  m_private->generateCode(cpu_st, s, tb);
-}
-
-void TCGLLVMContext::generateUnreachableCode(struct TranslationBlock *tb) {
-  tb->tcg_llvm_context = this;
-  m_private->generateUnreachableCode(tb);
-}
-
-void TCGLLVMContext::writeModule(const char *path) {
-#if 0
-  string Error;
-  raw_ostream *outfile;
-  outfile = new raw_fd_ostream(path, Error, sys::fs::F_None);
-  if (verifyModule(*getModule())) {
-      fprintf(stderr, "verifying module failed");
-      exit(1);
-  }
-  WriteBitcodeToFile(getModule(), *outfile);
-  delete outfile;
-#endif
-}
-
-bool TCGLLVMContext::verify() {
-  ponyalogassert(m_private);
-  return m_private->verify();
-}
-
-bool TCGLLVMContext::verifyOther() {
-  ponyalogassert(m_private);
-  return m_private->verifyOther();
-}
-
-void TCGLLVMContext::setCPUStateSize(size_t s)
-{
-  if (m_private)
-    m_private->setCPUStateSize(s);
-}
-
-void TCGLLVMContext::setCPUStateNBRegs(size_t n)
-{
-  assert(ponyaCPUStateNBRegs == n);
-}
-
-void TCGLLVMContext::cpuStateField(uint64_t off, const char* sym)
-{
-  if (m_private)
-    m_private->cpuStateField(off, sym);
-}
-
-void TCGLLVMContext::finishedTranslation() {
-  // for ponya: global dce
-  legacy::PassManager MPM_;
-  MPM_.add(createGlobalDCEPass());
-  MPM_.run(*getModule());
-}
-
-#if 0
-void TCGLLVMContext::writeBitcodeToStdout() {
-  // for ponya: global dce
-  {
-    legacy::PassManager MPM_;
-    MPM_.add(createGlobalDCEPass());
-    MPM_.run(*getModule());
-  }
-
-  if (verifyModule(*getModule(), &errs())) {
-    errs() << "\n(verifying llvm module failed)\n";
-    abort();
-  }
-  WriteBitcodeToFile(getModule(), outs());
-  outs().flush();
-}
-#endif
-
-bool TCGLLVMContext::hasTranslatedBasicBlock(uint64_t pc)
-{
-  abort();
-
-  ostringstream fName;
-  fName << hex << pc;
-
-  return getModule()->getFunction(fName.str()) != NULL;
-}
-
-/*****************************/
-/* Functions for QEMU c code */
-
-TCGLLVMContext* tcg_llvm_initialize()
-{
-  return (tcg_llvm_ctx = new TCGLLVMContext);
-}
-
-void tcg_llvm_destroy(){
-  abort();
-
-  if (tcg_llvm_ctx){
-    delete tcg_llvm_ctx;
-    tcg_llvm_ctx = NULL;
-  }
-}
-
-void tcg_llvm_verify() {
-  ponyalogassert(tcg_llvm_ctx);
-  ponyalogassert(!tcg_llvm_ctx->verify());
-}
-
-void tcg_llvm_verify_other() {
-  ponyalogassert(tcg_llvm_ctx);
-  ponyalogassert(!tcg_llvm_ctx->verifyOther());
-}
-
-void ponya_set_cpu_state_nb_regs(size_t nb)
-{
-  if (tcg_llvm_ctx)
-    tcg_llvm_ctx->setCPUStateNBRegs(nb);
-}
-
-void ponya_set_cpu_state_size(size_t s)
-{
-  if (tcg_llvm_ctx)
-    tcg_llvm_ctx->setCPUStateSize(s);
-}
-
-void ponya_cpu_state_field(uint64_t off, const char* sym)
-{
-  if (tcg_llvm_ctx)
-    tcg_llvm_ctx->cpuStateField(off, sym);
-}
-
-void ponya_set_tcg_cpu_env(uint64_t cpu_env_idx)
-{
-  if (tcg_llvm_ctx)
-    assert(_ponya_tcg_cpu_env == cpu_env_idx);
-}
-
-#if 0
-#define PONYA_PROFILE_GEN
-#define PONYA_PROFILE_EXEC
-#define PONYA_PROFILE_FREE
-#endif
-
-void tcg_llvm_gen_code(TCGLLVMContext *l, void* cpu_st, TCGContext *s, TranslationBlock *tb)
-{
-#ifdef PONYA_PROFILE_GEN
-  static double gen_cycles = 0.0;
-  static double gen_bytes = 0.0;
-  static unsigned gen_called_count = 0;
-  static unsigned gen_returned_count = 0;
-  static time_t count = time(NULL);
-
-  if (time(NULL) - count >= 3) {
-    count = time(NULL);
-
-    double gen_cycles_per_byte = gen_cycles / (gen_bytes * 1000.0);
-
-    cerr << "G " << hex << tb->pc << ' ' <<
-      dec << gen_called_count << ' ' <<
-      gen_returned_count << ' ' <<
-      std::fixed << std::setprecision(10) << gen_cycles_per_byte << endl;
-    cerr.flush();
-
-    gen_cycles = 0.0;
-    gen_bytes = 1.0 /* XXX */;
-  }
-  ++gen_called_count;
-
-  uint32_t cycles_begin_low, cycles_begin_high,
-           cycles_end_low, cycles_end_high;
-
-  __asm__ __volatile__ (
-    "CPUID\n"
-    "RDTSC\n"
-    "mov %%edx, %0\n"
-    "mov %%eax, %1\n"
-    : "=r" (cycles_begin_high), "=r" (cycles_begin_low)
-    :
-    : "%rax", "%rbx", "%rcx", "%rdx"
-  );
-
-  /***********************************/
-  /*call the function to measure here*/
-  /***********************************/
-#endif
-
-  l->generateCode(s, cpu_st, tb);
-
-#ifdef PONYA_PROFILE_GEN
-  __asm__ __volatile__ (
-    "RDTSCP\n"
-    "mov %%edx, %0\n"
-    "mov %%eax, %1\n"
-    "CPUID\n"
-    : "=r" (cycles_end_high), "=r" (cycles_end_low)
-    :
-    : "%rax", "%rbx", "%rcx", "%rdx"
-  );
-
-  uint64_t begin = (((uint64_t)cycles_begin_high << 32) | cycles_begin_low);
-  uint64_t end = (((uint64_t)cycles_end_high << 32) | cycles_end_low);
-
-  gen_cycles += (double)(end - begin);
-  gen_bytes  += (double)tb->size;
-  ++gen_returned_count;
-#endif
-}
-
-void tcg_llvm_gen_unreachable_code(struct TCGLLVMContext *l,
-                                   struct TranslationBlock *tb) {
-  l->generateUnreachableCode(tb);
-}
-
-extern "C" {
-  extern bool __ponyaHelperLand;
-}
-
-uintptr_t tcg_llvm_qemu_tb_exec(void *env1, TranslationBlock *tb)
-{
-  qemu_log("\ncalling tb->llvm_tc_ptr...\n");
-
-  tcg_llvm_runtime.last_tb = tb;
-  __ponyaHelperLand = true;
-#ifdef PONYA_PROFILE_EXEC
-  static double exec_cycles = 0.0;
-  static double exec_bytes = 0.0;
-  static unsigned exec_called_count = 0;
-  static unsigned exec_returned_count = 0;
-  static time_t count = time(NULL);
-
-  if (time(NULL) - count >= 3) {
-    count = time(NULL);
-
-    double exec_cycles_per_mc_byte = exec_cycles / exec_bytes;
-    cerr << "E " << hex << tb->pc << ' ' <<
-      dec << exec_called_count << ' ' <<
-      dec << exec_returned_count << " (" <<
-      dec << exec_called_count - exec_returned_count << ") " <<
-      std::fixed << std::setprecision(10) << exec_cycles_per_mc_byte << endl;
-    cerr.flush();
-
-    exec_cycles = 0.0;
-    exec_bytes = 1.0 /* XXX */;
-  }
-  ++exec_called_count;
-
-  uint32_t cycles_begin_low, cycles_begin_high,
-           cycles_end_low, cycles_end_high;
-
-  __asm__ __volatile__ (
-    "CPUID\n"
-    "RDTSC\n"
-    "mov %%edx, %0\n"
-    "mov %%eax, %1\n"
-    : "=r" (cycles_begin_high), "=r" (cycles_begin_low)
-    :
-    : "%rax", "%rbx", "%rcx", "%rdx"
-  );
-
-  /***********************************/
-  /*call the function to measure here*/
-  /***********************************/
-#endif
-
-  uint64_t res = ((tcg_tc_ptr_t)tb->llvm_tc_ptr)(env1);
-
-#ifdef PONYA_PROFILE_EXEC
-  __asm__ __volatile__ (
-    "RDTSCP\n"
-    "mov %%edx, %0\n"
-    "mov %%eax, %1\n"
-    "CPUID\n"
-    : "=r" (cycles_end_high), "=r" (cycles_end_low)
-    :
-    : "%rax", "%rbx", "%rcx", "%rdx"
-  );
-
-  uint64_t begin = (((uint64_t)cycles_begin_high << 32) | cycles_begin_low);
-  uint64_t end = (((uint64_t)cycles_end_high << 32) | cycles_end_low);
-
-  exec_cycles += (double)(end - begin);
-  exec_bytes  += (double)tb->size;
-  ++exec_returned_count;
-#endif
-  __ponyaHelperLand = false;
-
-  qemu_log("tb->llvm_tc_ptr returned\n");
-  return res;
-}
-
-void tcg_llvm_tb_free(TranslationBlock *tb)
-{
-#ifdef PONYA_PROFILE_FREE
-  static uint64_t free_count = 0;
-  static time_t count = time(NULL);
-#endif
-
-  if (tb->llvm_function) {
-#if 0
-    delete tb->llvm_jit;
-    delete tb->llvm_jit_event_listener;
-#endif
-    qemu_log("tcg_llvm_tb_free on %#lx\n", static_cast<uint64_t>(tb->pc));
-
-    tb->llvm_function = NULL;
-    tb->llvm_tc_ptr = NULL;
-
-#ifdef PONYA_PROFILE_FREE
-    if (time(NULL) - count >= 3) {
-      count = time(NULL);
-
-      cerr << "F " << hex << tb->pc << ' ' <<
-        dec << free_count << endl;
-      cerr.flush();
-    }
-#endif
-  }
-}
-
-void tcg_llvm_tb_alloc(TranslationBlock *tb)
-{
-  tb->tcg_llvm_context = NULL;
-  tb->llvm_function = NULL;
-}
-
-int tcg_llvm_search_last_pc(TranslationBlock *tb, uintptr_t searched_pc)
-{
-  assert(tb->llvm_function && tb == tcg_llvm_runtime.last_tb);
-  return env->last_opc_index;
-}
-
-const char* tcg_llvm_get_func_name(TranslationBlock *tb)
-{
-  static char buf[500];
-  if (tb->llvm_function) {
-    strncpy(buf, tb->llvm_function->getName().str().c_str(), sizeof(buf));
-  } else {
-    buf[0] = 0;
-  }
-  return buf;
-}
-
-void tcg_llvm_write_module(TCGLLVMContext *l, char *path){
-  l->writeModule(path);
-}
-
-#ifdef CONFIG_PONYA
-static const char* br_type_name_tbl[] = {
-  "call",
-  "ret",
-  "jmp",
-  "jcc",
-  "jmp*",
-  "call*",
-  "int",
-  "exception",
-  "rep",
-  "hlt",
-  "unreachable"
-};
-
-extern "C" {
-const char* ocaml_qemu_version();
-const char* ocaml_llvm_version();
-void ocaml_compute_mc_branch_string(char* out);
-void ocaml_write_bitcode_to_stdout(void);
-int ocaml_has_translated_basic_block(uint64_t pc);
-void* ocaml_llvm_module(void);
-void ocaml_finished_translation(void);
-}
-
-int ocaml_has_translated_basic_block(uint64_t pc) {
-  return (int)tcg_llvm_ctx->hasTranslatedBasicBlock(pc);
-}
-
-void ocaml_write_bitcode_to_stdout(void) {
-  ponyalogassert(false);
-}
-
-void ocaml_finished_translation(void) {
-  tcg_llvm_ctx->finishedTranslation();
-}
-
-const char* ocaml_qemu_version() {
-  return QEMU_VERSION;
-}
-
-const char* ocaml_llvm_version() {
-  return LLVM_VERSION_STRING;
-}
-
-void* ocaml_llvm_module(void) {
-  return (void*)tcg_llvm_ctx->getModule();
-}
-
-void ocaml_compute_mc_branch_string(char* out)
-{
-  ostringstream oss;
-  oss << br_type_name_tbl[_mc2tcg_br_type];
-
-  switch (_mc2tcg_br_type) {
-    case PONYA_CALL:
-      oss << ' ' << hex << "0x" << _mc2tcg_call_dst << ' ' << "0x" << _mc2tcg_call_ret_addr;
-      break;
-    case PONYA_RET:
-      break;
-    case PONYA_UNCOND_JMP:
-      oss << ' ' << hex << "0x" << _mc2tcg_uncond_jmp_dst;
-      break;
-    case PONYA_COND_JMP:
-      oss << ' ' << hex << "0x" << _mc2tcg_cond_jmp_dst0 << ' ' << "0x" << _mc2tcg_cond_jmp_dst1;
-      break;
-    case PONYA_IND_JMP:
-      break;
-    case PONYA_IND_CALL:
-      oss << ' ' << hex << "0x" << _mc2tcg_call_ret_addr;
-      break;
-    case PONYA_INTERRUPT:
-      oss << ' ' << hex << "0x" << _mc2tcg_int_ret_addr;
-      break;
-    case PONYA_EXCEPTION:
-      break;
-    case PONYA_UNREACHABLE:
-      break;
-    case PONYA_REP:
-      oss << ' ' << hex << "0x" << _mc2tcg_repz_ret_addr;
-      break;
-    case PONYA_HLT:
-      break;
-    case 0xdead:
-      cerr << "unimplemented branch type in i386/translate.c";
-    default:
-      cerr << "bug in i386/translate.c";
-      exit(1);
-  }
-
-  string s = oss.str();
-  s.copy(out, s.size());
-  out[s.size()] = '\0';
-}
-#endif

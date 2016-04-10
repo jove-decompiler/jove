@@ -169,12 +169,3 @@ void libqemutcg_translate(unsigned long _pc) {
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 }
-
-static const char *tcg_type_nm_map[] = {"i32", "i64", "count"};
-
-void libqemutcg_dump_globals(void) {
-  for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
-    TCGTemp* ts = &tcg_ctx.temps[i];
-    printf("%s %s %u\n", tcg_type_nm_map[ts->type], ts->name, (unsigned)ts->mem_offset);
-  }
-}

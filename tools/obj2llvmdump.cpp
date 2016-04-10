@@ -307,7 +307,7 @@ void build_section_data_map_from_coff(
         boost::icl::discrete_interval<uint64_t>::right_open(
             VA, VA + COFF->getSectionSize(S));
 
-#if 1
+#if 0
     StringRef SectNm;
     if (COFF->getSectionName(S, SectNm))
       abort();

@@ -5,7 +5,7 @@ all_targets: $(patsubst %,target_%,$(qemutcg_archs))
 
 define TARGET_TEMPLATE =
 .PHONY: target_$(1)
-target_$(1):
+target_$(1): $(build_dir)/transform-helpers $(build_dir)/llknife
 	@$$(MAKE) -C $(build_dir)/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
@@ -21,7 +21,8 @@ OCAMLLIBNAMES := nums \
 LLVMLIBNAMES  := llvm llvm_bitreader llvm_bitwriter llvm_analysis
 OPAMLIBNAMES  := batteries/batteries \
                  zarith/zarith \
-                 stdint/stdint
+                 stdint/stdint \
+				 ocamlgraph/graph
 
 INCLUDES     := -I $(ocaml_dir) \
                 -I $(LLVMLIBSDIR) \
