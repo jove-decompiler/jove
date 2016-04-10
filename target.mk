@@ -165,9 +165,9 @@ $(build_dir)/qemu-$(_TARGET_NAME).7.bc: $(build_dir)/qemu-$(_TARGET_NAME).6.bc
 #
 # runtime helpers
 #
-$(build_dir)/runtime-helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).4.bc $(build_dir)/transform-helpers
+$(build_dir)/runtime-helpers-$(_TARGET_NAME).bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).4.bc $(build_dir)/transform-helpers $(build_dir)/tcgglobals-$(_TARGET_NAME)
 	@echo TRANSFORMHELPERS $(notdir $@ $^)
-	@$(build_dir)/transform-helpers -o $@ -i $< --arch $(_TARGET_NAME)
+	$(build_dir)/transform-helpers -o $@ -i $< --arch $(_TARGET_NAME) $$($(build_dir)/tcgglobals-$(_TARGET_NAME) | xargs)
 
 $(build_dir)/runtime-helpers-$(_TARGET_NAME).4.bc: $(build_dir)/runtime-helpers-$(_TARGET_NAME).3.bc
 	@echo OPT $(notdir $@ $^)
