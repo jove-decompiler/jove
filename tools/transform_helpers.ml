@@ -453,6 +453,14 @@ let main () =
         res@[res']
       ) [] topol' in
 
+  List.iter2 (fun llf tcgglgeps ->
+      print_string (value_name llf);
+      TCGGlobalMap.iter (fun k _ ->
+          print_string (spr " %s" (TCGGlobal.name k))
+        ) tcgglgeps;
+      print_string "\n";
+    ) topol' fntcggaccesses;
+
   (*
    * verify result
    *)
