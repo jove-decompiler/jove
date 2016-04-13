@@ -1,4 +1,5 @@
 #include <config-target.h>
+#include "binary.h"
 #include "qemutcg.h"
 #include "obj2llvmdump_c.h"
 #include "mc.h"
@@ -22,23 +23,20 @@ using namespace llvm;
 using namespace object;
 namespace po = boost::program_options;
 
-namespace trans_obj {
+namespace obj2llvm {
 static tuple<string, uint64_t> parse_command_line_arguments(int argc,
                                                             char **argv);
 static void verify_arch(const ObjectFile *);
 static void print_obj_info(const ObjectFile *);
-static void build_section_data_map(
-    const ObjectFile *, vector<ArrayRef<uint8_t>> &sectdata,
-    boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap);
 static void translate_bb(uint64_t addr, const uint8_t* sectdata,
                          uint64_t sectstart);
 }
 
 int main(int argc, char **argv) {
   string bfp;
-  uint64_t va;
+  uint64_t a;
 
-  tie(bfp, va) = trans_obj::parse_command_line_arguments(argc, argv);
+  tie(bfp, a) = obj2llvm::parse_command_line_arguments(argc, argv);
 
   ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(bfp);
   if (error_code EC = BinaryOrErr.getError()) {
@@ -47,40 +45,35 @@ int main(int argc, char **argv) {
   }
 
   Binary &Binary = *BinaryOrErr.get().getBinary();
-  ObjectFile *Obj = dyn_cast<ObjectFile>(&Binary);
-  if (!Obj) {
+  ObjectFile *O = dyn_cast<ObjectFile>(&Binary);
+  if (!O) {
     cerr << "error: provided file is not object" << endl;
     return 1;
   }
 
-  trans_obj::verify_arch(Obj);
-#if 0
-  trans_obj::print_obj_info(Obj);
-#endif
+  obj2llvm::verify_arch(O);
+  obj2llvm::print_obj_info(O);
 
-  vector<ArrayRef<uint8_t>> sectdata;
-  boost::icl::interval_map<uint64_t, unsigned> sectaddrmap;
-  trans_obj::build_section_data_map(Obj, sectdata, sectaddrmap);
+  boost::icl::interval_map<jove::address_t, jove::section_number_t> addrspace;
+  jove::address_to_section_map_of_binary(*O, addrspace);
 
-  auto sectit = sectaddrmap.find(va);
-  if (sectit == sectaddrmap.end()) {
-    cerr << "error: section not found for given address " << hex << va << endl;
-    return 1;
-  }
-  unsigned sectidx = (*sectit).second - 1;
+  auto sectit = addrspace.find(a);
+  if (sectit == addrspace.end())
+    exit(45);
+
+  ArrayRef<uint8_t> contents = jove::section_contents_of_binary(*O, (*sectit).second);
 
   libqemutcg_init();
-  libmc_init(Obj);
+  libmc_init(O);
 
-  libqemutcg_set_code(sectdata.at(sectidx).data(), sectdata.at(sectidx).size(),
+  libqemutcg_set_code(contents.data(), contents.size(),
                       (*sectit).first.lower());
-  trans_obj::translate_bb(va, sectdata.at(sectidx).data(),
-                          (*sectit).first.lower());
+  obj2llvm::translate_bb(a, contents.data(), (*sectit).first.lower());
 
   return 0;
 }
 
-namespace trans_obj {
+namespace obj2llvm {
 
 void translate_bb(uint64_t addr, const uint8_t* sectdata,
                   uint64_t sectstart) {
@@ -104,6 +97,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
   const MCInstrInfo *MII = libmc_instrinfo();
   const MCRegisterInfo *MRI = libmc_reginfo();
   if (MIA) {
+    cout << "MCInstrAnalysis" << endl;
     if (MIA->isReturn(Inst)) {
       cout << "Return" << endl;
     } else if (MIA->isBranch(Inst)) {
@@ -129,6 +123,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
     }
   } else {
     const MCInstrDesc &Desc = MII->get(Inst.getOpcode());
+    cout << "MCInstrDesc" << endl;
     if (Desc.isReturn()) {
       cout << "Return" << endl;
     } else if (Desc.isBranch()) {
@@ -186,7 +181,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
 
 tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
   string bfp;
-  string va_s;
+  string a_s;
 
   try {
     po::options_description desc("Allowed options");
@@ -196,11 +191,11 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
       ("input,i", po::value<string>(&bfp), "specify input file path")
 
 #if 0
-      ("sections,d", po::value<string>(&va_s),
+      ("sections,d", po::value<string>(&a_s),
       "translates all executable sections")
 #endif
 
-      ("virtual-address,v", po::value<string>(&va_s),
+      ("virtual-address,v", po::value<string>(&a_s),
       "specify virtual address of basic block to translate");
 
     po::positional_options_description p;
@@ -214,7 +209,7 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
 
     if (vm.count("help") || !vm.count("input") ||
         !vm.count("virtual-address")) {
-      cout << "Usage: trans-obj-<arch> {--virtual-address,-v} va object\n";
+      cout << "Usage: trans-obj-<arch> {--virtual-address,-v} object\n";
       cout << desc;
       abort();
     }
@@ -223,23 +218,23 @@ tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
     abort();
   }
 
-  uint64_t va;
+  uint64_t a;
   stringstream ss;
-  ss << hex << va_s;
-  ss >> va;
+  ss << hex << a_s;
+  ss >> a;
 
-  return make_tuple(bfp, va);
+  return make_tuple(bfp, a);
 }
 
-void print_obj_info(const ObjectFile *Obj) {
-  cout << "File: " << Obj->getFileName().str() << "\n";
-  cout << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
+void print_obj_info(const ObjectFile *O) {
+  cout << "File: " << O->getFileName().str() << "\n";
+  cout << "Format: " << O->getFileFormatName().str() << "\n";
+  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)O->getArch())
        << "\n";
-  cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
+  cout << "AddressSize: " << (8 * O->getBytesInAddress()) << "bit\n";
 }
 
-void verify_arch(const ObjectFile *Obj) {
+void verify_arch(const ObjectFile *O) {
   Triple::ArchType archty;
 
 #if defined(TARGET_AARCH64)
@@ -254,100 +249,10 @@ void verify_arch(const ObjectFile *Obj) {
   archty = Triple::ArchType::mipsel;
 #endif
 
-  if (Obj->getArch() != archty) {
+  if (O->getArch() != archty) {
     cerr << "error: architecture mismatch (run trans-obj-<arch>)" << endl;
     abort();
   }
 }
 
-template <class T> T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
-  if (!Val) {
-    cerr << "warning: " << Val.getError().message() << endl;
-    return Default;
-  }
-
-  return *Val;
-}
-
-template <typename ELFT>
-void build_section_data_map_from_elf(
-    const ELFFile<ELFT> *Elf, vector<ArrayRef<uint8_t>> &sectdata,
-    boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap) {
-  unsigned SectionNumber = 0;
-  for (const auto &Shdr : Elf->sections()) {
-    ++SectionNumber;
-    boost::icl::discrete_interval<uint64_t> intervl =
-        boost::icl::discrete_interval<uint64_t>::right_open(
-            Shdr.sh_addr, Shdr.sh_addr + Shdr.sh_size);
-
-#if 0
-    cout << errorOrDefault(Elf->getSectionName(&Shdr)).str() << '[' << hex << Shdr.sh_addr
-         << ", " << Shdr.sh_addr + Shdr.sh_size << ')' << endl;
-#endif
-
-    sectdata.push_back(errorOrDefault(Elf->getSectionContents(&Shdr)));
-    sectaddrmap.add(make_pair(intervl, SectionNumber));
-  }
-}
-
-void build_section_data_map_from_coff(
-    const COFFObjectFile *COFF, vector<ArrayRef<uint8_t>> &sectdata,
-    boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap) {
-  unsigned SectionNumber = 0;
-  for (const auto &Shdr : COFF->sections()) {
-    ++SectionNumber;
-    const coff_section *S = COFF->getCOFFSection(Shdr);
-
-    if (S->Characteristics & COFF::IMAGE_SCN_CNT_UNINITIALIZED_DATA)
-      continue;
-
-    uint64_t RVA = S->VirtualAddress;
-    uint64_t VA = COFF->getImageBase() + RVA;
-    boost::icl::discrete_interval<uint64_t> intervl =
-        boost::icl::discrete_interval<uint64_t>::right_open(
-            VA, VA + COFF->getSectionSize(S));
-
-#if 0
-    StringRef SectNm;
-    if (COFF->getSectionName(S, SectNm))
-      abort();
-    cout << SectNm.str() << " : " << '[' << hex << intervl.lower() << ", "
-         << intervl.upper() << ')' << endl;
-#endif
-
-    ArrayRef<uint8_t> SectContents;
-    if (COFF->getSectionContents(S, SectContents))
-      abort();
-    sectdata.push_back(SectContents);
-    sectaddrmap.add(make_pair(intervl, SectionNumber));
-  }
-}
-
-void build_section_data_map(
-    const ObjectFile *Obj, vector<ArrayRef<uint8_t>> &sectdata,
-    boost::icl::interval_map<uint64_t, unsigned> &sectaddrmap) {
-  if (Obj->isELF()) {
-    if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(Obj))
-      build_section_data_map_from_elf(ELFObj->getELFFile(), sectdata,
-                                      sectaddrmap);
-    else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(Obj))
-      build_section_data_map_from_elf(ELFObj->getELFFile(), sectdata,
-                                      sectaddrmap);
-    else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(Obj))
-      build_section_data_map_from_elf(ELFObj->getELFFile(), sectdata,
-                                      sectaddrmap);
-    else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(Obj))
-      build_section_data_map_from_elf(ELFObj->getELFFile(), sectdata,
-                                      sectaddrmap);
-    else
-      abort();
-  } else if (Obj->isCOFF()) {
-    const COFFObjectFile *COFFObj = dyn_cast<COFFObjectFile>(Obj);
-    assert(COFFObj);
-    build_section_data_map_from_coff(COFFObj, sectdata, sectaddrmap);
-  } else {
-    cerr << "error: object file type unimplemented" << endl;
-    abort();
-  }
-}
 }

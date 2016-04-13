@@ -42,7 +42,7 @@ $(build_dir)/jove-init-$(_TARGET_NAME).1.bc: $(build_dir)/jove-init-$(_TARGET_NA
 	@echo LLKNIFE $(notdir $@ $^)
 	@$(build_dir)/llknife -o $@ -i $< --only-external-regex 'main'
 
-$(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/jove-init-$(_TARGET_NAME).bc $(build_dir)/jove-init-c-$(_TARGET_NAME).bc $(build_dir)/translator-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc
+$(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/jove-init-$(_TARGET_NAME).bc $(build_dir)/jove-init-c-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
 
@@ -74,7 +74,7 @@ $(build_dir)/obj2llvmdump-$(_TARGET_NAME).1.bc: $(build_dir)/obj2llvmdump-$(_TAR
 	@echo LLKNIFE $(notdir $@ $^)
 	@$(build_dir)/llknife -o $@ -i $< --only-external-regex 'main'
 
-$(build_dir)/obj2llvmdump-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump_c-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc
+$(build_dir)/obj2llvmdump-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump_c-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc $(build_dir)/elf-binary-$(_TARGET_NAME).bc $(build_dir)/coff-binary-$(_TARGET_NAME).bc
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
 
@@ -93,6 +93,16 @@ $(build_dir)/mc-$(_TARGET_NAME).bc: $(build_dir)/mc.cpp
 	@echo CLANG++ $(notdir $@ $^)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
+#
+# binary
+#
+$(build_dir)/elf-binary-$(_TARGET_NAME).bc: $(build_dir)/elf_binary.cpp
+	@echo CLANG++ $(notdir $@ $^)
+	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+
+$(build_dir)/coff-binary-$(_TARGET_NAME).bc: $(build_dir)/coff_binary.cpp
+	@echo CLANG++ $(notdir $@ $^)
+	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # tcgglobals

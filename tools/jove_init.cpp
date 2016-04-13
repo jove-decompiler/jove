@@ -1,8 +1,6 @@
-#include "translator.h"
+#include <llvm/IR/Module.h>
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/ADT/Triple.h>
-#include <llvm/Object/Binary.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <boost/icl/interval_map.hpp>
 #include <boost/program_options.hpp>
@@ -12,6 +10,8 @@
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <llvm/Object/ObjectFile.h>
+#include <llvm/Object/Binary.h>
 
 using namespace std;
 using namespace llvm;
@@ -23,6 +23,12 @@ namespace jove {
 static tuple<fs::path, fs::path, bool>
 parse_command_line_arguments(int argc, char **argv);
 static OwningBinary<Binary>&& parse_binary(const fs::path&);
+
+static Function* JoveJumpToBBFn;
+static void createExportedFunctions();
+static void createExportedVariables();
+static void createThreadLocalVariables();
+static void createSectionData();
 }
 
 int main(int argc, char **argv) {
@@ -44,13 +50,33 @@ int main(int argc, char **argv) {
   unique_ptr<Module> M = make_unique<Module>(ifp.stem().string(), *C);
 
   //
-  // initialize translator
+  // create JIT declarations
   //
-  jove::translator T(*O, *C, *M);
+
+  // declare stub for indirect jumps
+  jove::JoveJumpToBBFn = Function::Create(
+      FunctionType::get(IntegerType::get(*C, 64), false),
+      GlobalValue::ExternalLinkage, "_jove_jump_to_basic_block", M.get());
 
   //
-  // translate every exported function
+  // create definitions for exported functions
   //
+  jove::createExportedFunctions();
+
+  //
+  // create definitions for exported global variables
+  //
+  jove::createExportedVariables();
+
+  //
+  // create definitions for thread-local global variables
+  //
+  jove::createThreadLocalVariables();
+
+  //
+  // create section data, taking into account relocations
+  //
+  jove::createSectionData();
 
   return 0;
 }
@@ -152,4 +178,9 @@ void print_obj_info(const ObjectFile *Obj) {
        << "\n";
   cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
 }
+
+void createExportedFunctions() {}
+void createExportedVariables() {}
+void createThreadLocalVariables() {}
+void createSectionData() {}
 }
