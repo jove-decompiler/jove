@@ -7,12 +7,15 @@
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <glib.h>
 
 using namespace llvm;
 using namespace object;
 using namespace std;
 
 extern "C" {
+GHashTable* translator_tcg_helpers();
+
 void translator_tcg_helper(jove::translator *, uint64_t addr, const char *name);
 void translator_enumerate_tcg_helpers(jove::translator *);
 }
@@ -26,15 +29,15 @@ namespace jove {
 
 static const uint8_t runtime_helpers_bitcode_data[] = {
 #if defined(TARGET_AARCH64)
-#include "runtime-helpers-aarch64.h"
+#include "runtime_helpers-aarch64.cpp"
 #elif defined(TARGET_ARM)
-#include "runtime-helpers-arm.h"
+#include "runtime_helpers-arm.cpp"
 #elif defined(TARGET_X86_64)
-#include "runtime-helpers-x86_64.h"
+#include "runtime_helpers-x86_64.cpp"
 #elif defined(TARGET_I386)
-#include "runtime-helpers-i386.h"
+#include "runtime_helpers-i386.cpp"
 #elif defined(TARGET_MIPS)
-#include "runtime-helpers-mipsel.h"
+#include "runtime_helpers-mipsel.cpp"
 #endif
 };
 
@@ -47,7 +50,21 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
                         sizeof(runtime_helpers_bitcode_data)),
               "", false),
           C))),
-      HelperM(*_HelperM) {
+      HelperM(*_HelperM),
+      tcg_globals{{
+#if defined(TARGET_AARCH64)
+#include "tcg_globals-aarch64.cpp"
+#elif defined(TARGET_ARM)
+#include "tcg_globals-arm.cpp"
+#elif defined(TARGET_X86_64)
+#include "tcg_globals-x86_64.cpp"
+#elif defined(TARGET_I386)
+#include "tcg_globals-i386.cpp"
+#elif defined(TARGET_MIPS)
+#include "tcg_globals-mipsel.cpp"
+#endif
+      }}
+{
   //
   // init TCG translator
   //
@@ -87,6 +104,7 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
       GlobalValue::ExternalLinkage, "___jove_indirect_call", &M);
 }
 
+#if 0
 void translator::tcg_helper(uintptr_t addr, const char *name) {
   for (tcg::helper_t &h : tcg_helpers) {
     h.addr = addr;
@@ -99,6 +117,35 @@ void translator::tcg_helper(uintptr_t addr, const char *name) {
 }
 
 void translator::init_helpers() { translator_enumerate_tcg_helpers(this); }
+#endif
+
+void translator::init_helpers() {
+  /* XXX */
+  typedef struct TCGHelperInfo {
+    void *func;
+    const char *name;
+    unsigned flags;
+    unsigned sizemask;
+  } TCGHelperInfo;
+  /* XXX */
+
+  GHashTable* helpers = translator_tcg_helpers();
+  GHashTableIter iter;
+  gpointer key, value;
+
+  g_hash_table_iter_init(&iter, helpers);
+  unsigned i = 0;
+  while (g_hash_table_iter_next(&iter, &key, &value)) {
+    TCGHelperInfo* h = static_cast<TCGHelperInfo*>(value);
+
+    tcg_helpers[i].addr = reinterpret_cast<uintptr_t>(h->func);
+    tcg_helpers[i].nm = h->name;
+    tcg_helpers[i].llf = HelperM.getFunction(h->name);
+    assert(tcg_helpers[i].llf);
+
+    ++i;
+  }
+}
 
 tuple<Function *, Function *> translator::translate(address_t a) {
   //

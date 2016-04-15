@@ -71,7 +71,7 @@ $(build_dir)/llknife: $(build_dir)/llknife.ml
 
 $(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml | $(build_dir)
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
 configure: $(build_dir) | $(build_dir)/llknife

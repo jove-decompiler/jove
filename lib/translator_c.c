@@ -1,5 +1,11 @@
 #include <tcg.h>
 
+GHashTable* translator_tcg_helpers(void);
+
+GHashTable* translator_tcg_helpers() {
+  return tcg_ctx.helpers;
+}
+
 struct translator;
 void translator_enumerate_tcg_helpers(struct translator*);
 void translator_tcg_helper(struct translator*, uintptr_t addr, const char* name);

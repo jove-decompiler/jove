@@ -1,12 +1,12 @@
 include config.mk
 
-jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime-helpers-$(_TARGET_NAME).h
+jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).h
 
 _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
 include $(qemu_build_dir)/$(_QEMU_TARGET)/Makefile
 
-_INCLUDES := -I$(qemu_build_dir) -I$(qemu_build_dir)/$(_QEMU_TARGET) -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) $(QEMU_INCLUDES)
+_INCLUDES := -I$(build_dir) -I$(qemu_build_dir) -I$(qemu_build_dir)/$(_QEMU_TARGET) -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) $(QEMU_INCLUDES)
 _CFLAGS   := $(CFLAGS) $(QEMU_CFLAGS) -DNEED_CPU_H
 _CXXFLAGS := $(CXXFLAGS) $(QEMU_CXXFLAGS) -DNEED_CPU_H
 
@@ -50,17 +50,17 @@ $(build_dir)/jove-init-c-$(_TARGET_NAME).bc: $(build_dir)/jove_init_c.c
 	@echo CLANG $(notdir $@ $^)
 	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
-$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp
-	@echo CLANG++ $(notdir $@ $^)
+$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp
+	@echo CLANG++ $(notdir $@ $<)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 $(build_dir)/translator_c-$(_TARGET_NAME).bc: $(build_dir)/translator_c.c
 	@echo CLANG $(notdir $@ $^)
 	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
-$(build_dir)/translator-$(_TARGET_NAME).bc: $(build_dir)/translator.cpp $(build_dir)/runtime-helpers-$(_TARGET_NAME).h $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp
+$(build_dir)/translator-$(_TARGET_NAME).bc: $(build_dir)/translator.cpp $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/tcg_globals-$(_TARGET_NAME).cpp
 	@echo CLANG++ $(notdir $@ $<)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) $$(pkg-config --cflags glib-2.0) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # obj2llvmdump
@@ -111,6 +111,10 @@ $(build_dir)/coff-binary-$(_TARGET_NAME).bc: $(build_dir)/coff_binary.cpp
 #
 # tcgdefs
 #
+$(build_dir)/tcg_globals-$(_TARGET_NAME).cpp: $(build_dir)/tcgdefs-$(_TARGET_NAME)
+	@echo TCGDEFS $(notdir $@ $^)
+	@$(build_dir)/tcgdefs-$(_TARGET_NAME) gblsdef > $@
+
 $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp: $(build_dir)/tcgdefs-$(_TARGET_NAME)
 	@echo TCGDEFS $(notdir $@ $^)
 	@$(build_dir)/tcgdefs-$(_TARGET_NAME) > $@
@@ -206,7 +210,7 @@ $(build_dir)/qemu-$(_TARGET_NAME).7.bc: $(build_dir)/qemu-$(_TARGET_NAME).6.bc
 #
 # runtime helpers
 #
-$(build_dir)/runtime-helpers-$(_TARGET_NAME).h: $(build_dir)/runtime-helpers-$(_TARGET_NAME).bc
+$(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp: $(build_dir)/runtime-helpers-$(_TARGET_NAME).bc
 	@echo XXD -include $(notdir $@ $^)
 	@xxd -include < $< > $@
 

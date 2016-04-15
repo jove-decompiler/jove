@@ -1,6 +1,7 @@
 #pragma once
 #include "types.h"
 #include <array>
+#include <boost/graph/adjacency_list.hpp>
 #include <boost/icl/interval_map.hpp>
 #include <config-target.h>
 #include <inttypes.h>
@@ -11,7 +12,6 @@
 #include <tuple>
 #include <unordered_map>
 #include <vector>
-#include <boost/graph/adjacency_list.hpp>
 
 #if defined(TARGET_AARCH64)
 #include "tcgdefs-aarch64.hpp"
@@ -26,7 +26,6 @@
 #endif
 
 namespace jove {
-
 namespace tcg {
 
 struct Op;
@@ -58,7 +57,7 @@ class translator {
   const llvm::DataLayout &DL;
 
   std::unique_ptr<llvm::Module> _HelperM;
-  llvm::Module& HelperM;
+  llvm::Module &HelperM;
 
   boost::icl::interval_map<address_t, section_number_t> addrspace;
 
@@ -75,20 +74,19 @@ class translator {
 
   std::unordered_map<uintptr_t, tcg::helper_t *> tcg_helper_addr_map;
 
+  struct basic_block_t {
+    address_t addr;
+
+    const tcg::Op *tcg_ops;
+    const tcg::Arg *tcg_args;
+  };
+
   struct basicblock_or_tcgglobal_t {
     bool isbb;
 
     union {
-      struct {
-        address_t addr;
-
-        const tcg::Op *tcg_ops;
-        const tcg::Arg *tcg_args;
-      } bb;
-
-      struct {
-        unsigned tcg_gbl_idx;
-      } tcggbl;
+      basic_block_t bb;
+      unsigned tcg_gbl_idx;
     };
   };
 
