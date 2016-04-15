@@ -1,3 +1,6 @@
+#include "binary.h"
+#include "translator.h"
+#include <config-target.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/ADT/Triple.h>
@@ -13,6 +16,8 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Object/Binary.h>
 
+#define JOVEDBG
+
 using namespace std;
 using namespace llvm;
 using namespace object;
@@ -22,61 +27,84 @@ namespace fs = boost::filesystem;
 namespace jove {
 static tuple<fs::path, fs::path, bool>
 parse_command_line_arguments(int argc, char **argv);
-static OwningBinary<Binary>&& parse_binary(const fs::path&);
 
-static Function* JoveJumpToBBFn;
+static void verify_arch(const ObjectFile *);
+static void print_obj_info(const ObjectFile *);
+
+static ObjectFile *O;
+static LLVMContext *C;
+static Module *M;
+static translator *T;
+
 static void createExportedFunctions();
 static void createExportedVariables();
 static void createThreadLocalVariables();
 static void createSectionData();
 }
 
+using namespace jove;
+
 int main(int argc, char **argv) {
   fs::path ifp, ofp;
   bool static_mode;
 
-  tie(ifp, ofp, static_mode) = jove::parse_command_line_arguments(argc, argv);
+  tie(ifp, ofp, static_mode) = parse_command_line_arguments(argc, argv);
 
   //
   // parse binary
   //
-  OwningBinary<Binary> B(jove::parse_binary(ifp));
-  ObjectFile *O = cast<ObjectFile>(B.getBinary());
+  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(ifp.string());
+  if (error_code EC = BinaryOrErr.getError()) {
+    cerr << "error: " << EC.message() << endl;
+    exit(1);
+  }
+
+  O = dyn_cast<ObjectFile>(BinaryOrErr.get().getBinary());
+  if (!O) {
+    cerr << "error: provided file is not object" << endl;
+    exit(1);
+  }
+
+  verify_arch(O);
+
+#ifdef JOVEDBG
+  print_obj_info(O);
+#endif
 
   //
   // create bitcode
   //
-  unique_ptr<LLVMContext> C(make_unique<LLVMContext>());
-  unique_ptr<Module> M = make_unique<Module>(ifp.stem().string(), *C);
+  unique_ptr<LLVMContext> _C(make_unique<LLVMContext>());
+  C = _C.get();
+
+  unique_ptr<Module> _M = make_unique<Module>(ifp.stem().string(), *C);
+  M = _M.get();
 
   //
-  // create JIT declarations
+  // initialize translator
   //
-
-  // declare stub for indirect jumps
-  jove::JoveJumpToBBFn = Function::Create(
-      FunctionType::get(IntegerType::get(*C, 64), false),
-      GlobalValue::ExternalLinkage, "_jove_jump_to_basic_block", M.get());
+  unique_ptr<translator> _T = make_unique<translator>(*O, *C, *M);
+  T = _T.get();
 
   //
   // create definitions for exported functions
   //
-  jove::createExportedFunctions();
+  createExportedFunctions();
 
   //
   // create definitions for exported global variables
   //
-  jove::createExportedVariables();
+  createExportedVariables();
 
   //
   // create definitions for thread-local global variables
   //
-  jove::createThreadLocalVariables();
+  createThreadLocalVariables();
 
   //
   // create section data, taking into account relocations
   //
-  jove::createSectionData();
+  createSectionData();
 
   return 0;
 }
@@ -125,31 +153,6 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc, char **ar
   return make_tuple(ifp, ofp, static_mode);
 }
 
-static void verify_arch(const ObjectFile *);
-static void print_obj_info(const ObjectFile *);
-
-static OwningBinary<Binary>&& parse_binary(const fs::path& fp) {
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(fp.string());
-  if (error_code EC = BinaryOrErr.getError()) {
-    cerr << "error: " << EC.message() << endl;
-    exit(1);
-  }
-
-  ObjectFile* O = dyn_cast<ObjectFile>(BinaryOrErr.get().getBinary());
-  if (!O) {
-    cerr << "error: provided file is not object" << endl;
-    exit(1);
-  }
-
-  verify_arch(O);
-
-#ifdef JOVEDBG
-  print_obj_info(O);
-#endif
-
-  return move(BinaryOrErr.get());
-}
-
 void verify_arch(const ObjectFile *Obj) {
   Triple::ArchType archty;
 
@@ -171,6 +174,7 @@ void verify_arch(const ObjectFile *Obj) {
   }
 }
 
+#ifdef JOVEDBG
 void print_obj_info(const ObjectFile *Obj) {
   cout << "File: " << Obj->getFileName().str() << "\n";
   cout << "Format: " << Obj->getFileFormatName().str() << "\n";
@@ -178,8 +182,15 @@ void print_obj_info(const ObjectFile *Obj) {
        << "\n";
   cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
 }
+#endif
 
-void createExportedFunctions() {}
+void createExportedFunctions() {
+  vector<symbol_t> syms;
+  exported_functions_of_binary(*O, syms);
+  for (const symbol_t &s : syms) {
+    cout << s.name << ' ' << hex << s.addr << endl;
+  }
+}
 void createExportedVariables() {}
 void createThreadLocalVariables() {}
 void createSectionData() {}

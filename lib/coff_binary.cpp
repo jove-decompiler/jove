@@ -6,6 +6,22 @@ using namespace object;
 
 namespace jove {
 
+void exported_functions_of_coff_binary(const llvm::object::ObjectFile &O,
+                                       std::vector<symbol_t> &res) {
+  const COFFObjectFile *COFF = cast<COFFObjectFile>(&O);
+
+  for (const ExportDirectoryEntryRef &E : COFF->export_directories()) {
+    StringRef Name;
+    E.getSymbolName(Name);
+
+    uint32_t RVA;
+    E.getExportRVA(RVA);
+    uint64_t VA = COFF->getImageBase() + RVA;
+
+    res.push_back({VA, Name.str()});
+  }
+}
+
 ArrayRef<uint8_t>
 section_contents_of_coff_binary(const llvm::object::ObjectFile &O,
                                 section_number_t S) {

@@ -1,5 +1,6 @@
 #include "elf_binary.h"
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Object/ELF.h>
 
 using namespace llvm;
 using namespace object;
@@ -8,6 +9,50 @@ namespace jove {
 
 template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   return Val ? *Val : Default;
+}
+
+template <typename ELFT>
+void exported_functions_of_elf(const ELFFile<ELFT> *ELF,
+                               std::vector<symbol_t> & res) {
+  typedef typename ELFFile<ELFT>::Elf_Shdr Elf_Shdr;
+  typedef typename ELFFile<ELFT>::Elf_Sym Elf_Sym;
+
+  const Elf_Shdr *DotSymtabSec = nullptr; // Symbol table section.
+
+  for (const Elf_Shdr &Sec : ELF->sections()) {
+    if (Sec.sh_type == ELF::SHT_SYMTAB) {
+      DotSymtabSec = &Sec;
+      break;
+    }
+  }
+
+  if (!DotSymtabSec)
+    return;
+
+  StringRef StrTable =
+      errorOrDefault(ELF->getStringTableForSymtab(*DotSymtabSec));
+
+  for (const Elf_Sym &Sym : ELF->symbols(DotSymtabSec)) {
+    StringRef SymbolName = errorOrDefault(Sym.getName(StrTable));
+    if (Sym.getType() == ELF::STT_FUNC && !Sym.isUndefined() &&
+        (Sym.getBinding() == ELF::STB_GLOBAL ||
+         Sym.getBinding() == ELF::STB_WEAK))
+      res.push_back({Sym.st_value, SymbolName.str()});
+  }
+}
+
+void exported_functions_of_elf_binary(const llvm::object::ObjectFile & O,
+                                      std::vector<symbol_t> & res) {
+  if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(&O))
+    exported_functions_of_elf(ELFObj->getELFFile(), res);
+  else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(&O))
+    exported_functions_of_elf(ELFObj->getELFFile(), res);
+  else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(&O))
+    exported_functions_of_elf(ELFObj->getELFFile(), res);
+  else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(&O))
+    exported_functions_of_elf(ELFObj->getELFFile(), res);
+  else
+    exit(94);
 }
 
 template <typename ELFT>

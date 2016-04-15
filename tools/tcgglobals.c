@@ -7,11 +7,11 @@ static void dump_tcg_globals(void) {
   for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
     TCGTemp* ts = &tcg_ctx.temps[i];
     printf("type: %s name: %s reg: %u mem_reg: %u fixed_reg: %u mem_coherent: "
-           "%u mem_allocated: %u mem_offset: %u\n",
+           "%u mem_allocated: %u mem_offset: %u val: %u\n",
            tcg_type_nm_map[ts->type], ts->name, (unsigned)ts->reg,
            (unsigned)ts->mem_reg, (unsigned)ts->fixed_reg,
            (unsigned)ts->mem_coherent, (unsigned)ts->mem_allocated,
-           (unsigned)ts->mem_offset);
+           (unsigned)ts->mem_offset, (unsigned)ts->val);
   }
 }
 
@@ -35,7 +35,11 @@ static void print_tcg_globals(void) {
 
 int main(int argc, char** argv) {
   libqemutcg_init();
-  print_tcg_globals();
+
+  if (argc > 1)
+    dump_tcg_globals();
+  else
+    print_tcg_globals();
 
   return 0;
 }

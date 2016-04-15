@@ -132,7 +132,7 @@ void libqemutcg_set_code(const uint8_t *p, unsigned long len,
   code_len = len;
 }
 
-void libqemutcg_translate(unsigned long _pc) {
+unsigned libqemutcg_translate(unsigned long _pc) {
   target_ulong pc = _pc;
 
   CPUArchState *env = first_cpu->env_ptr;
@@ -168,4 +168,6 @@ void libqemutcg_translate(unsigned long _pc) {
    */
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
+
+  return tb.size;
 }

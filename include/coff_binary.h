@@ -5,6 +5,9 @@
 #include <boost/icl/interval_map.hpp>
 
 namespace jove {
+void exported_functions_of_coff_binary(const llvm::object::ObjectFile &,
+                                       std::vector<symbol_t> &);
+
 void address_to_section_map_of_coff_binary(
     const llvm::object::ObjectFile &,
     boost::icl::interval_map<address_t, section_number_t> &);

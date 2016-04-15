@@ -8,6 +8,16 @@
 
 namespace jove {
 
+static void exported_functions_of_binary(const llvm::object::ObjectFile &O,
+                                         std::vector<symbol_t> &res) {
+  if (O.isELF())
+    exported_functions_of_elf_binary(O, res);
+  else if (O.isCOFF())
+    exported_functions_of_coff_binary(O, res);
+  else
+    exit(78);
+}
+
 static void address_to_section_map_of_binary(
     const llvm::object::ObjectFile &O,
     boost::icl::interval_map<address_t, section_number_t> &res) {

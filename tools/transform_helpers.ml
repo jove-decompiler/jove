@@ -15,9 +15,11 @@ let llvm_globals llm = fold_left_globals (fun res llg -> llg::res) [] llm
 let llvm_functions llm = fold_left_functions (fun res llf -> llf::res) [] llm
 let numbered l = List.mapi (fun i elem -> (i, elem)) l
 let pe = print_endline
-let fst3 (x, _, _) = x
-let snd3 (_, x, _) = x
-let thd3 (_, _, x) = x
+let fst4 (x, _, _, _) = x
+let snd4 (_, x, _, _) = x
+let thd4 (_, _, x, _) = x
+let fth4 (_, _, _, x) = x
+
 let rec range i j = if i >= j then [] else i :: (range (i+1) j)
 let tuple_of_list3 l = (List.nth l 0, List.nth l 1, List.nth l 2)
 
@@ -297,20 +299,21 @@ end
 
 module TCGGlobal =
 struct
-  type t = lltype * int * string
+  type t = lltype * int * int * string
 
-  let ty = fst3
-  let offset = snd3
-  let name = thd3
+  let ty = fst4
+  let idx = snd4
+  let offset = thd4
+  let name = fth4
 
   let hash tcggbl =
-    Hashtbl.hash (offset tcggbl)
+    Hashtbl.hash (idx tcggbl)
 
   let compare tcggbl1 tcggbl2 =
-    Pervasives.compare (offset tcggbl1) (offset tcggbl2)
+    Pervasives.compare (idx tcggbl1) (idx tcggbl2)
 
   let equal tcggbl1 tcggbl2 =
-    offset tcggbl1 = offset tcggbl2
+    idx tcggbl1 = idx tcggbl2
 end
 
 module TCGGlobalMap = Map.Make(TCGGlobal)
@@ -333,15 +336,15 @@ struct
          llctx
          (Array.append [|const_int (i8_type llctx) (to_int hmd)|] mdn))
 
-  let add_input llf off =
+  let add_input llf idx =
     let llm = global_parent llf in
     let llctx = module_context llm in
-    add llctx llm llf Inputs [|const_int (i32_type llctx) off|]
+    add llctx llm llf Inputs [|const_int (i32_type llctx) idx|]
 
-  let add_output llf off =
+  let add_output llf idx =
     let llm = global_parent llf in
     let llctx = module_context llm in
-    add llctx llm llf Outputs [|const_int (i32_type llctx) off|]
+    add llctx llm llf Outputs [|const_int (i32_type llctx) idx|]
 end
 
 let main () =
@@ -377,7 +380,7 @@ let main () =
   if !ifp = "" || not (Sys.file_exists !ifp) || !ofp = "" then
     assert false;
 
-  let tcgglbll = List.map (fun (ty_s, off_s, nm) ->
+  let tcgglbll = List.mapi (fun idx (ty_s, off_s, nm) ->
       let ty =
         match ty_s with
         | "I32" -> i32_type llctx
@@ -385,7 +388,7 @@ let main () =
         | _ -> assert false
       in
       let off = sscan off_s "%d" id in
-      (ty, off, nm)
+      (ty, idx, off, nm)
     ) (List.map tuple_of_list3 (split 3 !args)) in
 
   (*
@@ -634,12 +637,12 @@ let main () =
 
             if inp then (
               print_string (spr " < %s" (TCGGlobal.name tcggbl));
-              HelperMetadata.add_input llf' (TCGGlobal.offset tcggbl)
+              HelperMetadata.add_input llf' (TCGGlobal.idx tcggbl)
             );
 
             if out then (
               print_string (spr " > %s" (TCGGlobal.name tcggbl));
-              HelperMetadata.add_output llf' (TCGGlobal.offset tcggbl)
+              HelperMetadata.add_output llf' (TCGGlobal.idx tcggbl)
             );
 
             (*

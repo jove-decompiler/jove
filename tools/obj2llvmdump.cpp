@@ -18,6 +18,8 @@
 #include <string>
 #include <tuple>
 
+using namespace jove;
+
 using namespace std;
 using namespace llvm;
 using namespace object;
@@ -77,7 +79,7 @@ namespace obj2llvm {
 
 void translate_bb(uint64_t addr, const uint8_t* sectdata,
                   uint64_t sectstart) {
-  libqemutcg_translate(addr);
+  address_t na = addr + libqemutcg_translate(addr);
   obj2llvmdump_print_ops();
 
   //
@@ -85,17 +87,19 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
   //
   uint64_t last_instr_addr = obj2llvmdump_last_tcg_op_addr();
   MCInst Inst;
-  const MCInstrAnalysis *MIA = libmc_instranalyzer();
   uint64_t size = libmc_analyze_instr(
       Inst, sectdata + (last_instr_addr - sectstart), last_instr_addr);
+
+  const MCInstrInfo *MII = libmc_instrinfo();
+  const MCRegisterInfo *MRI = libmc_reginfo();
+  const MCInstrDesc &Desc = MII->get(Inst.getOpcode());
+  const MCInstrAnalysis *MIA = libmc_instranalyzer();
 
 #if 0
   cout << "addr " << hex << last_instr_addr << endl;
   cout << "size " << dec << size << endl;
 #endif
 
-  const MCInstrInfo *MII = libmc_instrinfo();
-  const MCRegisterInfo *MRI = libmc_reginfo();
   if (MIA) {
     cout << "MCInstrAnalysis" << endl;
     if (MIA->isReturn(Inst)) {
@@ -122,7 +126,6 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
       cout << "Target: 0x" << hex << target << endl;
     }
   } else {
-    const MCInstrDesc &Desc = MII->get(Inst.getOpcode());
     cout << "MCInstrDesc" << endl;
     if (Desc.isReturn()) {
       cout << "Return" << endl;
@@ -177,6 +180,7 @@ void translate_bb(uint64_t addr, const uint8_t* sectdata,
       cout << "REG " << dec << '(' << opr.getReg() << ')' << ':'
            << '\'' << MRI->getName(opr.getReg()) << '\'' << endl;
   }
+  cout << "Next instruction: 0x" << hex << na << endl;
 }
 
 tuple<string, uint64_t> parse_command_line_arguments(int argc, char **argv) {
