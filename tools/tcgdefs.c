@@ -15,18 +15,18 @@ static void print_tcg_globals_definition(void) {
     // fixed_reg = 1
     //
 
-    if (ts->fixed_reg)
-      continue;
-
-    printf("{%s, %u, \"%s\"}%s\n", tcg_global_enum_map[ts->type],
-           (unsigned)ts->mem_offset, ts->name,
+    printf("{%s, %u, \"%s\"}%s\n",
+           ts->fixed_reg ? tcg_global_enum_map[2]
+                         : tcg_global_enum_map[ts->type],
+           ts->fixed_reg ? 0xdead : (unsigned)ts->mem_offset,
+           ts->name,
            i + 1 == tcg_ctx.nb_globals ? "" : ",");
   }
 }
 
 static unsigned num_globals(void) {
   // don't include CPUState pointer
-  return tcg_ctx.nb_globals - 1;
+  return tcg_ctx.nb_globals;
 }
 
 static unsigned num_helpers(void) { return g_hash_table_size(tcg_ctx.helpers); }

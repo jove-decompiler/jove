@@ -1,6 +1,6 @@
 include config.mk
 
-jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).h
+jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp
 
 _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 

@@ -7,6 +7,7 @@
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/IR/Constants.h>
 #include <glib.h>
 
 using namespace llvm;
@@ -104,46 +105,80 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
       GlobalValue::ExternalLinkage, "___jove_indirect_call", &M);
 }
 
-#if 0
-void translator::tcg_helper(uintptr_t addr, const char *name) {
-  for (tcg::helper_t &h : tcg_helpers) {
-    h.addr = addr;
-    h.nm = name;
-    h.llf = HelperM.getFunction(name);
-    assert(h.llf);
-
-    // parse metadata for given helper to get inputs & outputs
-  }
-}
-
-void translator::init_helpers() { translator_enumerate_tcg_helpers(this); }
-#endif
+enum HELPER_METADATA_TYPE {
+  HMT_INPUT,
+  HMT_OUTPUT,
+};
 
 void translator::init_helpers() {
-  /* XXX */
+  /* XXX QEMUVERSIONDEPENDENT */
   typedef struct TCGHelperInfo {
     void *func;
     const char *name;
     unsigned flags;
     unsigned sizemask;
   } TCGHelperInfo;
-  /* XXX */
+  /* XXX QEMUVERSIONDEPENDENT */
 
-  GHashTable* helpers = translator_tcg_helpers();
+  GHashTable *helpers = translator_tcg_helpers();
+
   GHashTableIter iter;
   gpointer key, value;
-
   g_hash_table_iter_init(&iter, helpers);
-  unsigned i = 0;
+
+  int i = -1;
   while (g_hash_table_iter_next(&iter, &key, &value)) {
-    TCGHelperInfo* h = static_cast<TCGHelperInfo*>(value);
+    ++i;
+
+    TCGHelperInfo *h = static_cast<TCGHelperInfo *>(value);
 
     tcg_helpers[i].addr = reinterpret_cast<uintptr_t>(h->func);
     tcg_helpers[i].nm = h->name;
     tcg_helpers[i].llf = HelperM.getFunction(h->name);
     assert(tcg_helpers[i].llf);
 
-    ++i;
+    //
+    // parse LLVM metadata for helper
+    //
+    NamedMDNode *nmdn = HelperM.getNamedMetadata(h->name);
+    if (!nmdn)
+      continue;
+
+    for (unsigned i = 0; i < nmdn->getNumOperands(); ++i) {
+      MDNode *mdn = nmdn->getOperand(i);
+      assert(mdn->getNumOperands() == 2);
+
+      HELPER_METADATA_TYPE hm_ty;
+      {
+        Metadata *M = mdn->getOperand(0);
+        assert(isa<ConstantAsMetadata>(M));
+        ConstantAsMetadata *CAsM = cast<ConstantAsMetadata>(M);
+        Constant *C = CAsM->getValue();
+        assert(isa<ConstantInt>(C));
+        ConstantInt *CI = cast<ConstantInt>(C);
+        hm_ty = static_cast<HELPER_METADATA_TYPE>(CI->getZExtValue());
+      }
+
+      unsigned tcggbl_idx;
+      {
+        Metadata *M = mdn->getOperand(1);
+        assert(isa<ConstantAsMetadata>(M));
+        ConstantAsMetadata *CAsM = cast<ConstantAsMetadata>(M);
+        Constant *C = CAsM->getValue();
+        assert(isa<ConstantInt>(C));
+        ConstantInt *CI = cast<ConstantInt>(C);
+        tcggbl_idx = CI->getZExtValue();
+      }
+
+      switch (hm_ty) {
+      case HMT_INPUT:
+        tcg_helpers[i].inglb.set(tcggbl_idx);
+        break;
+      case HMT_OUTPUT:
+        tcg_helpers[i].outglb.set(tcggbl_idx);
+        break;
+      }
+    }
   }
 }
 

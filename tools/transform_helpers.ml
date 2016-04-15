@@ -388,7 +388,7 @@ let main () =
         | _ -> assert false
       in
       let off = sscan off_s "%d" id in
-      (ty, idx, off, nm)
+      (ty, idx + 1, off, nm)
     ) (List.map tuple_of_list3 (split 3 !args)) in
 
   (*

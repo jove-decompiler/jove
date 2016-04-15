@@ -45,7 +45,7 @@ struct helper_t {
   uintptr_t addr;
   const char *nm;
   llvm::Function *llf;
-  global_set_t inregs, outregs;
+  global_set_t inglb, outglb;
 };
 }
 
