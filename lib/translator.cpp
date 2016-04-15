@@ -191,17 +191,51 @@ tuple<Function *, Function *> translator::translate(address_t a) {
     exit(45);
 
   ArrayRef<uint8_t> contents = section_contents_of_binary(O, (*sectit).second);
-
   libqemutcg_set_code(contents.data(), contents.size(),
                       (*sectit).first.lower());
   //
   // translate to TCG code
   //
-  address_t succ_a = a + libqemutcg_translate(a);
-
   Function *FnThunk = nullptr;
   Function *Fn = nullptr;
 
+  functions_to_translate = queue<address_t>();
+
+  function_t f;
+  f[boost::graph_bundle].entry_point = a;
+
+  translate_function(f);
+
   return make_tuple(FnThunk, Fn);
 }
+
+void translator::translate_function(function_t& f) {
+  //
+  // recursive descent
+  //
+  translate_basic_block(f, f[boost::graph_bundle].entry_point);
+}
+
+static tuple<address_t, unique_ptr<tcg::Op[]>, unique_ptr<tcg::Arg[]>>
+translate_to_tcg(address_t a) {
+  address_t succ_a = a + libqemutcg_translate(a);
+
+  unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
+  unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
+
+  libqemutcg_copy_ops(ops.get());
+  libqemutcg_copy_params(params.get());
+
+  return make_tuple(succ_a, move(ops), move(params));
+}
+
+void translator::translate_basic_block(function_t& f, address_t a) {
+  auto v = boost::add_vertex(f);
+  f[v].addr = a;
+
+  address_t succ_a;
+
+  tie(a, f[v].tcg_ops, f[v].tcg_args) = translate_to_tcg(a);
+}
+
 }

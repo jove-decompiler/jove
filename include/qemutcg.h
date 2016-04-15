@@ -11,6 +11,10 @@ void libqemutcg_init(void);
 void libqemutcg_set_code(const uint8_t *p, unsigned long len, unsigned long pc);
 unsigned libqemutcg_translate(unsigned long pc);
 void libqemutcg_dump_globals(void);
+unsigned libqemutcg_max_ops(void);
+unsigned libqemutcg_max_params(void);
+void libqemutcg_copy_ops(void*);
+void libqemutcg_copy_params(void*);
 
 #ifdef __cplusplus
 }

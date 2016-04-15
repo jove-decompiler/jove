@@ -171,3 +171,42 @@ unsigned libqemutcg_translate(unsigned long _pc) {
 
   return tb.size;
 }
+
+unsigned libqemutcg_max_ops() {
+  return OPC_BUF_SIZE;
+}
+
+unsigned libqemutcg_max_params() {
+  return OPPARAM_BUF_SIZE;
+}
+
+void libqemutcg_copy_ops(void* dst) {
+  //
+  // determine the max index which is used
+  //
+
+  int oi = tcg_ctx.gen_first_op_idx;
+  for (;;) {
+    TCGOp *op = &tcg_ctx.gen_op_buf[oi];
+    if (op->next < 0)
+      break;
+    oi = op->next;
+  }
+
+  memcpy(dst, tcg_ctx.gen_op_buf, (oi + 1) * sizeof(TCGOp));
+}
+
+void libqemutcg_copy_params(void* dst) {
+  //
+  // determine the max index which is used
+  //
+  int oi = tcg_ctx.gen_first_op_idx;
+  TCGOp *op;
+  do {
+    op = &tcg_ctx.gen_op_buf[oi];
+    oi = op->next;
+  } while (oi >= 0);
+
+  memcpy(dst, tcg_ctx.gen_op_buf,
+         (op->args + tcg_op_defs[op->opc].nb_args + 1) * sizeof(TCGArg));
+}
