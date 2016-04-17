@@ -13,8 +13,11 @@ unsigned libqemutcg_translate(unsigned long pc);
 void libqemutcg_dump_globals(void);
 unsigned libqemutcg_max_ops(void);
 unsigned libqemutcg_max_params(void);
+unsigned libqemutcg_first_op_index(void);
 void libqemutcg_copy_ops(void*);
 void libqemutcg_copy_params(void*);
+void libqemutcg_print_ops(void);
+uint64_t libqemutcg_last_tcg_op_addr(void);
 
 #ifdef __cplusplus
 }

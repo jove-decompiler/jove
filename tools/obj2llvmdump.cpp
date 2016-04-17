@@ -80,12 +80,12 @@ namespace obj2llvm {
 void translate_bb(uint64_t addr, const uint8_t* sectdata,
                   uint64_t sectstart) {
   address_t na = addr + libqemutcg_translate(addr);
-  obj2llvmdump_print_ops();
+  libqemutcg_print_ops();
 
   //
   // output branch type
   //
-  uint64_t last_instr_addr = obj2llvmdump_last_tcg_op_addr();
+  uint64_t last_instr_addr = libqemutcg_last_tcg_op_addr();
   MCInst Inst;
   uint64_t size = libmc_analyze_instr(
       Inst, sectdata + (last_instr_addr - sectstart), last_instr_addr);

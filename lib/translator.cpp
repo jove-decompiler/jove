@@ -8,6 +8,7 @@
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Constants.h>
+#include <boost/format.hpp>
 #include <glib.h>
 
 using namespace llvm;
@@ -27,6 +28,56 @@ void translator_tcg_helper(jove::translator *T, uintptr_t addr,
 }
 
 namespace jove {
+
+namespace tcg {
+/* XXX QEMUVERSIONDEPENDENT */
+enum Opcode {
+#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_##name,
+#include "tcg-opc.h"
+#undef DEF
+  NB_OPS,
+};
+
+struct Op {
+  Opcode opc : 8;
+
+  /* The number of out and in parameter for a call.  */
+  unsigned callo : 2;
+  unsigned calli : 6;
+
+  /* Index of the arguments for this op, or -1 for zero-operand ops.  */
+  signed args : 16;
+
+  /* Index of the prex/next op, or -1 for the end of the list.  */
+  signed prev : 16;
+  signed next : 16;
+};
+
+struct ArgConstraint;
+
+struct OpDef {
+  const char *name;
+  uint8_t nb_oargs, nb_iargs, nb_cargs, nb_args;
+  uint8_t flags;
+  ArgConstraint *args_ct;
+  int *sorted_args;
+#if defined(CONFIG_DEBUG_TCG)
+  int used;
+#endif
+};
+
+constexpr Arg TCG_CALL_DUMMY_ARG = -1;
+constexpr Arg TCG_FIRST_GLOBAL_IDX = 1;
+constexpr Arg TCG_CPU_STATE_ARG = 0;
+static bool is_arg_global(Arg a) {
+  return a != TCG_CPU_STATE_ARG && a != TCG_CALL_DUMMY_ARG &&
+         a < tcg::num_globals;
+}
+}
+extern "C" {
+extern tcg::OpDef tcg_op_defs[];
+}
+/* XXX QEMUVERSIONDEPENDENT */
 
 static const uint8_t runtime_helpers_bitcode_data[] = {
 #if defined(TARGET_AARCH64)
@@ -133,8 +184,11 @@ void translator::init_helpers() {
     TCGHelperInfo *h = static_cast<TCGHelperInfo *>(value);
 
     tcg_helpers[i].addr = reinterpret_cast<uintptr_t>(h->func);
+    tcg_helper_addr_map[tcg_helpers[i].addr] = &tcg_helpers[i];
     tcg_helpers[i].nm = h->name;
-    tcg_helpers[i].llf = HelperM.getFunction(h->name);
+    tcg_helpers[i].llf =
+        HelperM.getFunction((boost::format("helper_%s") % h->name).str());
+    printf("%s\n", h->name);
     assert(tcg_helpers[i].llf);
 
     //
@@ -216,26 +270,100 @@ void translator::translate_function(function_t& f) {
   translate_basic_block(f, f[boost::graph_bundle].entry_point);
 }
 
-static tuple<address_t, unique_ptr<tcg::Op[]>, unique_ptr<tcg::Arg[]>>
+static tuple<address_t, unsigned, unique_ptr<tcg::Op[]>, unique_ptr<tcg::Arg[]>>
 translate_to_tcg(address_t a) {
   address_t succ_a = a + libqemutcg_translate(a);
 
   unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
   unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
 
+  unsigned first_tcg_op_idx = libqemutcg_first_op_index();
+
   libqemutcg_copy_ops(ops.get());
   libqemutcg_copy_params(params.get());
 
-  return make_tuple(succ_a, move(ops), move(params));
+  return make_tuple(succ_a, first_tcg_op_idx, move(ops), move(params));
 }
 
 void translator::translate_basic_block(function_t& f, address_t a) {
-  auto v = boost::add_vertex(f);
-  f[v].addr = a;
+  basic_block_t bb = boost::add_vertex(f);
+  f[bb].addr = a;
 
   address_t succ_a;
 
-  tie(a, f[v].tcg_ops, f[v].tcg_args) = translate_to_tcg(a);
+  tie(a, f[bb].first_tcg_op_idx, f[bb].tcg_ops, f[bb].tcg_args) =
+      translate_to_tcg(a);
+
+  calculate_defs_and_uses(f[bb]);
+
+  for (tcg::Arg a = tcg::TCG_FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
+#if 0
+    f[bb].defs
+    f[bb].uses
+#endif
+  }
+}
+
+void translator::calculate_defs_and_uses(basic_block_properties_t &bbprop) {
+  tcg::global_set_t &defs = bbprop.defs;
+  tcg::global_set_t &uses = bbprop.uses;
+
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  const tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    op = &ops[oi];
+    const tcg::Opcode c = op->opc;
+    const tcg::OpDef *def = &tcg_op_defs[c];
+    const tcg::Arg *args = &params[op->args];
+
+    int nb_iargs = 0;
+    int nb_oargs = 0;
+
+    tcg::global_set_t iglb, oglb;
+
+    switch (c) {
+    case tcg::INDEX_op_discard:
+      continue;
+    case tcg::INDEX_op_call:
+      nb_iargs = op->calli;
+      nb_oargs = op->callo;
+
+      if (c == tcg::INDEX_op_call) {
+        //
+        // take into account extra inputs and/or outputs by our version of the
+        // helpers
+        //
+        tcg::helper_t *h = tcg_helper_addr_map[args[nb_oargs + nb_iargs]];
+        iglb = h->inglb;
+        oglb = h->outglb;
+      }
+      break;
+    default:
+      nb_iargs = def->nb_iargs;
+      nb_oargs = def->nb_oargs;
+      break;
+    }
+
+    for (int i = 0; i < nb_iargs; i++) {
+      tcg::Arg a = args[nb_oargs + i];
+      if (!tcg::is_arg_global(a))
+        continue;
+
+      iglb.set(a);
+    }
+
+    for (int i = 0; i < nb_oargs; i++) {
+      tcg::Arg a = args[i];
+      if (!tcg::is_arg_global(a))
+        continue;
+
+      oglb.set(a);
+    }
+
+    uses |= (iglb & (~defs));
+    defs |= oglb;
+  }
 }
 
 }

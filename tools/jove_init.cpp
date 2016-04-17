@@ -189,6 +189,7 @@ void createExportedFunctions() {
   exported_functions_of_binary(*O, syms);
   for (const symbol_t &s : syms) {
     cout << s.name << ' ' << hex << s.addr << endl;
+    T->translate(s.addr);
   }
 }
 void createExportedVariables() {}
