@@ -1,3 +1,4 @@
+#include <config-host.h>
 #include "translator.h"
 #include "binary.h"
 #include "mc.h"
@@ -9,6 +10,8 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Constants.h>
 #include <boost/format.hpp>
+#include <boost/graph/dominator_tree.hpp>
+#include <boost/graph/filtered_graph.hpp>
 #include <glib.h>
 
 using namespace llvm;
@@ -66,11 +69,11 @@ struct OpDef {
 #endif
 };
 
-constexpr Arg TCG_CALL_DUMMY_ARG = -1;
-constexpr Arg TCG_FIRST_GLOBAL_IDX = 1;
-constexpr Arg TCG_CPU_STATE_ARG = 0;
+constexpr Arg CALL_DUMMY_ARG = -1;
+constexpr Arg FIRST_GLOBAL_IDX = 1;
+constexpr Arg CPU_STATE_ARG = 0;
 static bool is_arg_global(Arg a) {
-  return a != TCG_CPU_STATE_ARG && a != TCG_CALL_DUMMY_ARG &&
+  return a != CPU_STATE_ARG && a != CALL_DUMMY_ARG &&
          a < tcg::num_globals;
 }
 }
@@ -103,6 +106,19 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
               "", false),
           C))),
       HelperM(*_HelperM),
+      FnAttr(AttributeSet::get(C, AttributeSet::FunctionIndex,
+                               Attribute::NoInline)),
+      FnThunkTy(FunctionType::get(Type::getVoidTy(C), false)),
+      FnThunkAttr(
+          AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
+
+      IndirectJumpFn(Function::Create(
+          FunctionType::get(Type::getVoidTy(C), false),
+          GlobalValue::ExternalLinkage, "___jove_indirect_jump", &M)),
+      IndirectCallFn(Function::Create(
+          FunctionType::get(Type::getVoidTy(C), false),
+          GlobalValue::ExternalLinkage, "___jove_indirect_call", &M)),
+
       tcg_globals{{
 #if defined(TARGET_AARCH64)
 #include "tcg_globals-aarch64.cpp"
@@ -115,8 +131,7 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
 #elif defined(TARGET_MIPS)
 #include "tcg_globals-mipsel.cpp"
 #endif
-      }}
-{
+      }} {
   //
   // init TCG translator
   //
@@ -140,20 +155,6 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
   //
   // initialize needed Module types
   //
-  FnAttr =
-      AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::NoInline);
-
-  FnThunkTy = FunctionType::get(Type::getVoidTy(C), false);
-  FnThunkAttr =
-      AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked);
-
-  IndirectJumpFn = Function::Create(
-      FunctionType::get(Type::getVoidTy(C), false),
-      GlobalValue::ExternalLinkage, "___jove_indirect_jump", &M);
-
-  IndirectCallFn = Function::Create(
-      FunctionType::get(Type::getVoidTy(C), false),
-      GlobalValue::ExternalLinkage, "___jove_indirect_call", &M);
 }
 
 enum HELPER_METADATA_TYPE {
@@ -188,7 +189,6 @@ void translator::init_helpers() {
     tcg_helpers[i].nm = h->name;
     tcg_helpers[i].llf =
         HelperM.getFunction((boost::format("helper_%s") % h->name).str());
-    printf("%s\n", h->name);
     assert(tcg_helpers[i].llf);
 
     //
@@ -244,64 +244,231 @@ tuple<Function *, Function *> translator::translate(address_t a) {
   if (sectit == addrspace.end())
     exit(45);
 
-  ArrayRef<uint8_t> contents = section_contents_of_binary(O, (*sectit).second);
-  libqemutcg_set_code(contents.data(), contents.size(),
-                      (*sectit).first.lower());
+  sectstart = (*sectit).first.lower();
+  sectdata = section_contents_of_binary(O, (*sectit).second);
+  libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
+
   //
   // translate to TCG code
   //
   Function *FnThunk = nullptr;
   Function *Fn = nullptr;
 
+  translated_basic_blocks.clear();
   functions_to_translate = queue<address_t>();
 
   function_t f;
   f[boost::graph_bundle].entry_point = a;
 
-  translate_function(f);
+  basic_block_t entry = translate_function(f);
+
+  unordered_map<basic_block_t, basic_block_t> idoms;
+  lengauer_tarjan_dominator_tree(
+      f, entry, boost::associative_property_map<
+                    unordered_map<basic_block_t, basic_block_t>>(idoms));
+
+#if 0
+  for (const auto& dompair : idoms) {
+    printf("%#lx dominates %#lx\n", f[dompair.second].addr,
+           f[dompair.first].addr);
+  }
+#endif
+
+  for (const auto& dompair : idoms)
+    f[boost::add_edge(dompair.second, dompair.first, f).first].dom = true;
+
+  struct dom_edges {
+    translator::function_t *f;
+
+    dom_edges() {}
+    dom_edges(translator::function_t *f) : f(f) {}
+
+    bool operator()(const control_flow_t &e) const {
+      translator::function_t &_f = *f;
+      return _f[e].dom;
+    }
+  };
+
+  dom_edges e_filter(&f);
+  typedef boost::filtered_graph<function_t, dom_edges> domtree_t;
+  domtree_t domtree(f, e_filter);
+
+  struct dfs_visitor : public boost::default_dfs_visitor {
+    domtree_t& f;
+    basic_block_t entry;
+    unordered_map<basic_block_t, basic_block_t> &idoms;
+
+    dfs_visitor(domtree_t &f, basic_block_t entry,
+                unordered_map<basic_block_t, basic_block_t> &idoms)
+        : f(f), entry(entry), idoms(idoms) {}
+
+    void discover_vertex(basic_block_t bb, const domtree_t &) const {
+      domtree_t::in_edge_iterator ei, eie;
+      tie(ei, eie) = in_edges(bb, f);
+      if (ei == eie) // root vertex
+        return;
+
+      basic_block_t idom = boost::source(*ei, f);
+
+      tcg::global_set_t &uses_a = f[idom].uses;
+      tcg::global_set_t &defs_a = f[idom].defs;
+
+      tcg::global_set_t &uses_b = f[bb].uses;
+      tcg::global_set_t &defs_b = f[bb].defs;
+
+      uses_b = uses_a | (uses_b & (~defs_a));
+      defs_b |= defs_a;
+    }
+
+    void finish_vertex(basic_block_t bb, const domtree_t &) const {
+      domtree_t::out_edge_iterator ei, eie;
+      tie(ei, eie) = out_edges(bb, f);
+      if (ei != eie)
+        return;
+
+      //
+      // leaf vertex
+      //
+      tcg::global_set_t &uses = f[bb].uses;
+      tcg::global_set_t &defs = f[bb].defs;
+
+      f[entry].uses |= uses;
+      f[entry].defs |= defs;
+    }
+  };
+
+  dfs_visitor vis(domtree, entry, idoms);
+  boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
+
+  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
+    if (domtree[entry].defs.test(a))
+      printf("DEF: %s\n", tcg_globals[a].nm);
+
+  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
+    if (domtree[entry].uses.test(a))
+      printf("USE: %s\n", tcg_globals[a].nm);
 
   return make_tuple(FnThunk, Fn);
 }
 
-void translator::translate_function(function_t& f) {
+translator::basic_block_t translator::translate_function(function_t& f) {
   //
   // recursive descent
   //
-  translate_basic_block(f, f[boost::graph_bundle].entry_point);
+  return translate_basic_block(f, f[boost::graph_bundle].entry_point);
 }
 
-static tuple<address_t, unsigned, unique_ptr<tcg::Op[]>, unique_ptr<tcg::Arg[]>>
-translate_to_tcg(address_t a) {
-  address_t succ_a = a + libqemutcg_translate(a);
+static tuple<address_t, address_t, unsigned, unique_ptr<tcg::Op[]>,
+             unique_ptr<tcg::Arg[]>>
+translate_to_tcg(address_t addr) {
+  address_t succ_addr = addr + libqemutcg_translate(addr);
+#if 0
+  libqemutcg_print_ops();
+#endif
 
   unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
   unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
 
   unsigned first_tcg_op_idx = libqemutcg_first_op_index();
+  uint64_t last_instr_addr = libqemutcg_last_tcg_op_addr();
 
   libqemutcg_copy_ops(ops.get());
   libqemutcg_copy_params(params.get());
 
-  return make_tuple(succ_a, first_tcg_op_idx, move(ops), move(params));
+  return make_tuple(last_instr_addr, succ_addr, first_tcg_op_idx, move(ops),
+                    move(params));
 }
 
-void translator::translate_basic_block(function_t& f, address_t a) {
+translator::basic_block_t translator::translate_basic_block(function_t &f,
+                                                            address_t addr) {
+  auto bb_it = translated_basic_blocks.find(addr);
+  if (bb_it != translated_basic_blocks.end())
+    return (*bb_it).second;
+
   basic_block_t bb = boost::add_vertex(f);
-  f[bb].addr = a;
+  f[bb].addr = addr;
+  translated_basic_blocks.insert(make_pair(addr, bb));
 
-  address_t succ_a;
+  address_t last_instr_addr, succ_addr;
 
-  tie(a, f[bb].first_tcg_op_idx, f[bb].tcg_ops, f[bb].tcg_args) =
-      translate_to_tcg(a);
+  tie(last_instr_addr, succ_addr, f[bb].first_tcg_op_idx, f[bb].tcg_ops,
+      f[bb].tcg_args) = translate_to_tcg(addr);
 
   calculate_defs_and_uses(f[bb]);
 
-  for (tcg::Arg a = tcg::TCG_FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
 #if 0
-    f[bb].defs
-    f[bb].uses
-#endif
+  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
+    if (f[bb].defs.test(a))
+      printf("DEF: %s\n", tcg_globals[a].nm);
+
+    if (f[bb].uses.test(a))
+      printf("USE: %s\n", tcg_globals[a].nm);
   }
+#endif
+
+  MCInst Inst;
+  uint64_t size = libmc_analyze_instr(
+      Inst, sectdata.data() + (last_instr_addr - sectstart), last_instr_addr);
+
+  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
+  const MCInstrAnalysis *MIA = libmc_instranalyzer();
+  assert(MIA); /* only available on ARM & X86 */
+
+#if 0
+  if (MIA->isConditionalBranch(Inst) || MIA->isUnconditionalBranch(Inst) ||
+      MIA->isCall(Inst))
+#endif
+
+  uint64_t target;
+  bool has_target = MIA->evaluateBranch(Inst, last_instr_addr, size, target);
+
+#if 0
+  printf("MCInstrAnalysis (%lu bytes)\n", size);
+  if (MIA->isReturn(Inst))
+    printf("Return\n");
+  if (MIA->isBranch(Inst))
+    printf("Branch\n");
+  if (MIA->isConditionalBranch(Inst))
+    printf("Conditional Branch\n");
+  if (MIA->isUnconditionalBranch(Inst))
+    printf("Unconditional Branch\n");
+  if (MIA->isIndirectBranch(Inst))
+    printf("Indirect Branch\n");
+  if (MIA->isCall(Inst)) {
+    printf("Call\n");
+    if (!has_target)
+      printf("IndirectCall\n");
+  }
+  if (has_target)
+    printf("Target: 0x%lx\n", target);
+
+  printf("MCInstrDesc\n");
+  if (Desc.isReturn())
+    printf("Return\n");
+  if (Desc.isBranch())
+    printf("Branch\n");
+  if (Desc.isConditionalBranch())
+    printf("Conditional Branch\n");
+  if (Desc.isUnconditionalBranch())
+    printf("Unconditional Branch\n");
+  if (Desc.isIndirectBranch())
+    printf("Indirect Branch\n");
+  if (Desc.isCall())
+    printf("Call\n");
+#endif
+
+  if (MIA->isReturn(Inst)) {
+  } else if (MIA->isConditionalBranch(Inst)) {
+    boost::add_edge(bb, translate_basic_block(f, target), f);
+    boost::add_edge(bb, translate_basic_block(f, succ_addr), f);
+  } else if (MIA->isUnconditionalBranch(Inst)) {
+    boost::add_edge(bb, translate_basic_block(f, target), f);
+  } else if (MIA->isIndirectBranch(Inst)) {
+  } else if (MIA->isCall(Inst)) {
+    boost::add_edge(bb, translate_basic_block(f, succ_addr), f);
+  }
+
+  return bb;
 }
 
 void translator::calculate_defs_and_uses(basic_block_properties_t &bbprop) {
@@ -324,6 +491,9 @@ void translator::calculate_defs_and_uses(basic_block_properties_t &bbprop) {
 
     switch (c) {
     case tcg::INDEX_op_discard:
+      if (tcg::is_arg_global(args[0]))
+        defs.reset(args[0]);
+
       continue;
     case tcg::INDEX_op_call:
       nb_iargs = op->calli;

@@ -103,7 +103,8 @@ void libqemutcg_init(void) {
 
   env->cr[4] |= CR4_PAE_MASK;
   env->efer |= MSR_EFER_LMA | MSR_EFER_LME;
-  env->hflags |= HF_LMA_MASK | HF_CS32_MASK | HF_CS64_MASK | HF_SS32_MASK | HF_PE_MASK | HF_CPL_MASK;
+  env->hflags |= HF_LMA_MASK | HF_CS32_MASK | HF_CS64_MASK | HF_SS32_MASK |
+                 HF_PE_MASK | HF_CPL_MASK;
   env->eflags |= IF_MASK;
 #elif defined(TARGET_I386)
   env->cr[0] = CR0_PG_MASK | CR0_WP_MASK | CR0_PE_MASK;
@@ -191,11 +192,25 @@ unsigned libqemutcg_first_op_index() {
   return tcg_ctx.gen_first_op_idx;
 }
 
+#ifndef max
+#define max(a,b) ((a) > (b) ? (a) : (b))
+#endif
+
 void libqemutcg_copy_ops(void* dst) {
   //
   // determine the max index which is used
   //
 
+  int oi = tcg_ctx.gen_first_op_idx;
+  int max_oi = oi;
+  TCGOp *op;
+  do {
+    op = &tcg_ctx.gen_op_buf[oi];
+    oi = op->next;
+    max_oi = max(max_oi, oi);
+  } while (oi >= 0);
+
+#if 0
   int oi = tcg_ctx.gen_first_op_idx;
   for (;;) {
     TCGOp *op = &tcg_ctx.gen_op_buf[oi];
@@ -203,8 +218,9 @@ void libqemutcg_copy_ops(void* dst) {
       break;
     oi = op->next;
   }
+#endif
 
-  memcpy(dst, tcg_ctx.gen_op_buf, (oi + 1) * sizeof(TCGOp));
+  memcpy(dst, tcg_ctx.gen_op_buf, (max_oi + 1) * sizeof(TCGOp));
 }
 
 void libqemutcg_copy_params(void* dst) {
@@ -212,17 +228,18 @@ void libqemutcg_copy_params(void* dst) {
   // determine the max index which is used
   //
   int oi = tcg_ctx.gen_first_op_idx;
+  int max_args_idx = 0;
   TCGOp *op;
   do {
     op = &tcg_ctx.gen_op_buf[oi];
     oi = op->next;
+    max_args_idx = max(max_args_idx, op->args + tcg_op_defs[op->opc].nb_args);
   } while (oi >= 0);
 
-  memcpy(dst, tcg_ctx.gen_op_buf,
-         (op->args + tcg_op_defs[op->opc].nb_args + 1) * sizeof(TCGArg));
+  memcpy(dst, tcg_ctx.gen_opparam_buf, (max_args_idx + 1) * sizeof(TCGArg));
 }
 
-void libqemutcg_print_ops() {
+void libqemutcg_print_ops(void) {
   TCGContext *const s = &tcg_ctx;
   char buf[128];
   char asmbuf[128];
@@ -255,9 +272,11 @@ void libqemutcg_print_ops() {
       printf("|%s", libmc_instr_asm((s->gen_first_op_idx - code_pc) + code,
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
+
       if (oi != s->gen_first_op_idx)
-        printf("|\n"); /* empty row */
-      if (a > code_pc)
+        printf("|\n"); /* make empty row */
+
+      if (a >= code_pc)
         printf("%s", libmc_instr_asm((a - code_pc) + code, a, asmbuf));
 
       continue;
@@ -274,15 +293,17 @@ void libqemutcg_print_ops() {
         printf("%s %s,$0x%" TCG_PRIlx ",$%d", def->name,
                tcg_find_helper(s, args[nb_oargs + nb_iargs]),
                args[nb_oargs + nb_iargs + 1], nb_oargs);
-        for (i = 0; i < nb_oargs; i++) {
+
+        for (i = 0; i < nb_oargs; i++)
           printf(",%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[i]));
-        }
+
         for (i = 0; i < nb_iargs; i++) {
           TCGArg arg = args[nb_oargs + i];
           const char *t = "<dummy>";
-          if (arg != TCG_CALL_DUMMY_ARG) {
+
+          if (arg != TCG_CALL_DUMMY_ARG)
             t = tcg_get_arg_str_idx(s, buf, sizeof(buf), arg);
-          }
+
           printf(",%s", t);
         }
       } else {
@@ -369,7 +390,7 @@ void libqemutcg_print_ops() {
   }
 }
 
-uint64_t libqemutcg_last_tcg_op_addr() {
+uint64_t libqemutcg_last_tcg_op_addr(void) {
   uint64_t res = 0xdeadbeef;
   TCGContext *const s = &tcg_ctx;
   TCGOp *op;

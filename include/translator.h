@@ -83,16 +83,23 @@ public:
     address_t entry_point;
   };
 
-  typedef boost::adjacency_list<boost::vecS,              /* OutEdgeList */
-                                boost::vecS,              /* VertexList */
-                                boost::bidirectionalS,    /* Directed */
-                                basic_block_properties_t, /* VertexProperties */
-                                boost::no_property,       /* EdgeProperties */
-                                function_properties_t,    /* GraphProperties */
-                                boost::vecS               /* EdgeList */
+  struct control_flow_properties_t {
+    bool dom;
+
+    control_flow_properties_t() : dom(false) {}
+  };
+
+  typedef boost::adjacency_list<boost::vecS,               /* OutEdgeList */
+                                boost::vecS,               /* VertexList */
+                                boost::bidirectionalS,     /* Directed */
+                                basic_block_properties_t,  /* VertexProperties */
+                                control_flow_properties_t, /* EdgeProperties */
+                                function_properties_t,     /* GraphProperties */
+                                boost::vecS                /* EdgeList */
                                 >
       function_t;
   typedef function_t::vertex_descriptor basic_block_t;
+  typedef function_t::edge_descriptor control_flow_t;
 private:
   llvm::object::ObjectFile &O;
 
@@ -118,11 +125,15 @@ private:
 
   std::unordered_map<uintptr_t, tcg::helper_t *> tcg_helper_addr_map;
 
+  std::unordered_map<address_t, basic_block_t> translated_basic_blocks;
   std::queue<address_t> functions_to_translate;
 
+  llvm::ArrayRef<uint8_t> sectdata;
+  address_t sectstart;
+
   void init_helpers();
-  void translate_function(function_t&);
-  void translate_basic_block(function_t&, address_t);
+  basic_block_t translate_function(function_t&);
+  basic_block_t translate_basic_block(function_t&, address_t);
   void calculate_defs_and_uses(basic_block_properties_t &);
 
 public:

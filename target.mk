@@ -32,7 +32,7 @@ endif
 
 $(build_dir)/jove-init-$(_TARGET_NAME): $(build_dir)/jove-init-$(_TARGET_NAME).2.bc
 	@echo CLANG++ $(notdir $@ $^)
-	$(llvm_dir)/bin/clang++ -o $@ $< -O3 -flto -fPIC $(shell $(llvm_dir)/bin/llvm-config --libs object $(llvm_arch)) $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -L $(boost_dir)/lib -lboost_system -lboost_program_options -lboost_filesystem
+	@$(llvm_dir)/bin/clang++ -o $@ $< -O3 -flto -fPIC $(shell $(llvm_dir)/bin/llvm-config --libs object $(llvm_arch)) $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -L $(boost_dir)/lib -lboost_system -lboost_program_options -lboost_filesystem
 
 $(build_dir)/jove-init-$(_TARGET_NAME).2.bc: $(build_dir)/jove-init-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)
@@ -42,13 +42,9 @@ $(build_dir)/jove-init-$(_TARGET_NAME).1.bc: $(build_dir)/jove-init-$(_TARGET_NA
 	@echo LLKNIFE $(notdir $@ $^)
 	@$(build_dir)/llknife -o $@ -i $< --only-external-regex 'main'
 
-$(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/jove-init-$(_TARGET_NAME).bc $(build_dir)/jove-init-c-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc $(build_dir)/elf-binary-$(_TARGET_NAME).bc $(build_dir)/coff-binary-$(_TARGET_NAME).bc $(build_dir)/translator-$(_TARGET_NAME).bc $(build_dir)/translator_c-$(_TARGET_NAME).bc
+$(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/jove-init-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc $(build_dir)/elf-binary-$(_TARGET_NAME).bc $(build_dir)/coff-binary-$(_TARGET_NAME).bc $(build_dir)/translator-$(_TARGET_NAME).bc $(build_dir)/translator_c-$(_TARGET_NAME).bc
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
-
-$(build_dir)/jove-init-c-$(_TARGET_NAME).bc: $(build_dir)/jove_init_c.c
-	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 $(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp
 	@echo CLANG++ $(notdir $@ $<)
@@ -78,13 +74,9 @@ $(build_dir)/obj2llvmdump-$(_TARGET_NAME).1.bc: $(build_dir)/obj2llvmdump-$(_TAR
 	@echo LLKNIFE $(notdir $@ $^)
 	@$(build_dir)/llknife -o $@ -i $< --only-external-regex 'main'
 
-$(build_dir)/obj2llvmdump-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump_c-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc $(build_dir)/elf-binary-$(_TARGET_NAME).bc $(build_dir)/coff-binary-$(_TARGET_NAME).bc
+$(build_dir)/obj2llvmdump-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc $(build_dir)/mc-$(_TARGET_NAME).bc $(build_dir)/elf-binary-$(_TARGET_NAME).bc $(build_dir)/coff-binary-$(_TARGET_NAME).bc
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
-
-$(build_dir)/obj2llvmdump_c-$(_TARGET_NAME).bc: $(build_dir)/obj2llvmdump_c.c
-	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc: $(build_dir)/obj2llvmdump.cpp
 	@echo CLANG++ $(notdir $@ $^)
