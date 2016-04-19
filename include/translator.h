@@ -36,11 +36,33 @@
 #define TCG_TARGET_REG_BITS 32
 typedef int32_t tcg_target_long;
 typedef uint32_t tcg_target_ulong;
+#define TCG_PRIlx PRIx32
+#define TCG_PRIld PRId32
 #elif UINTPTR_MAX == UINT64_MAX
 #define TCG_TARGET_REG_BITS 64
 typedef int64_t tcg_target_long;
 typedef uint64_t tcg_target_ulong;
+#define TCG_PRIlx PRIx64
+#define TCG_PRIld PRId64
 #endif
+#define TARGET_LONG_SIZE (TARGET_LONG_BITS / 8)
+/* target_ulong is the type of a virtual address */
+#if TARGET_LONG_SIZE == 4
+typedef int32_t target_long;
+typedef uint32_t target_ulong;
+#define TARGET_FMT_lx "%08x"
+#define TARGET_FMT_ld "%d"
+#define TARGET_FMT_lu "%u"
+#elif TARGET_LONG_SIZE == 8
+typedef int64_t target_long;
+typedef uint64_t target_ulong;
+#define TARGET_FMT_lx "%016" PRIx64
+#define TARGET_FMT_ld "%" PRId64
+#define TARGET_FMT_lu "%" PRIu64
+#else
+#error TARGET_LONG_SIZE undefined
+#endif
+
 
 namespace jove {
 namespace tcg {
@@ -77,6 +99,7 @@ public:
 
     tcg::global_set_t uses;
     tcg::global_set_t defs;
+    tcg::global_set_t dead;
   };
 
   struct function_properties_t {
@@ -145,5 +168,8 @@ public:
   // given an entry point, translates to an LLVM function and its counterpart
   // thunk (for untranslated-code to use)
   std::tuple<llvm::Function *, llvm::Function *> translate(address_t);
+
+  void print_tcg_ops(std::ostream &out,
+                     const basic_block_properties_t &bbprop) const;
 };
 }
