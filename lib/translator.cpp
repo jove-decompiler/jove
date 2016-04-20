@@ -15,6 +15,7 @@
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <boost/range/adaptor/reversed.hpp>
 
 using namespace llvm;
 using namespace object;
@@ -422,6 +423,8 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
   Function *FnThunk = nullptr;
   Function *Fn = nullptr;
 
+  parentMap.clear();
+  verticesByDFNum.clear();
   translated_basic_blocks.clear();
   functions_to_translate = queue<address_t>();
 
@@ -436,20 +439,58 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
                           graphviz_edge_prop_writer(), graphviz_prop_writer());
   }
 
-  unordered_map<basic_block_t, basic_block_t> idoms;
-  lengauer_tarjan_dominator_tree(
-      f, entry, boost::associative_property_map<
-                    unordered_map<basic_block_t, basic_block_t>>(idoms));
+  //
+  // liveness analysis to compute inputs
+  //
 
+  //
+  // worklist algorithm
+  //
+
+  // iterate vertices in reverse topological order since this is a backwards-
+  // flow data analysis
+  bool change;
+  do {
+    change = false;
+
+    for (basic_block_t bb : boost::adaptors::reverse(verticesByDFNum)) {
+      auto eit_pair = boost::out_edges(bb, f);
+      tcg::global_set_t live_in_before = f[bb].live_in;
+
+      f[bb].live_out =
+          accumulate(eit_pair.first, eit_pair.second, tcg::global_set_t(),
+                     [&](tcg::global_set_t glbl, control_flow_t cf) {
+                       return glbl | f[boost::target(cf, f)].live_in;
+                     });
+      f[bb].live_in =
+          f[bb].uses | (f[bb].live_out & (~f[bb].defs | ~f[bb].dead));
+
+      change = change || (live_in_before != f[bb].live_in);
+    }
+  } while (change);
+
+  vector<basic_block_t> idoms(boost::num_vertices(f),
+                              boost::graph_traits<function_t>::null_vertex());
 #if 0
-  for (const auto& dompair : idoms) {
-    printf("%#lx dominates %#lx\n", f[dompair.second].addr,
-           f[dompair.first].addr);
-  }
+  boost::lengauer_tarjan_dominator_tree(
+      f, entry, boost::make_iterator_property_map(
+                    idoms.begin(), boost::get(boost::vertex_index, f)));
+#else
+  boost::lengauer_tarjan_dominator_tree_without_dfs(
+      f, entry, boost::get(boost::vertex_index, f),
+      boost::get(boost::vertex_index, f),
+      boost::make_iterator_property_map(parentMap.begin(),
+                                        boost::get(boost::vertex_index, f)),
+      verticesByDFNum, boost::make_iterator_property_map(
+                           idoms.begin(), boost::get(boost::vertex_index, f)));
 #endif
 
-  for (const auto& dompair : idoms)
-    f[boost::add_edge(dompair.second, dompair.first, f).first].dom = true;
+  for (auto i : boost::irange<unsigned>(0, idoms.size())) {
+    if (idoms[i] == boost::graph_traits<function_t>::null_vertex())
+      continue;
+
+    f[boost::add_edge(idoms[i], i, f).first].dom = true;
+  }
 
   struct dom_edges {
     translator::function_t *f;
@@ -477,11 +518,9 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
   struct dfs_visitor : public boost::default_dfs_visitor {
     domtree_t& f;
     basic_block_t entry;
-    unordered_map<basic_block_t, basic_block_t> &idoms;
 
-    dfs_visitor(domtree_t &f, basic_block_t entry,
-                unordered_map<basic_block_t, basic_block_t> &idoms)
-        : f(f), entry(entry), idoms(idoms) {}
+    dfs_visitor(domtree_t &f, basic_block_t entry)
+        : f(f), entry(entry) {}
 
     void discover_vertex(basic_block_t bb, const domtree_t &) const {
       domtree_t::in_edge_iterator ei, eie;
@@ -519,7 +558,7 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
     }
   };
 
-  dfs_visitor vis(domtree, entry, idoms);
+  dfs_visitor vis(domtree, entry);
   boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
 
   cout << '<';
@@ -537,46 +576,19 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
   return make_tuple(FnThunk, Fn);
 }
 
-translator::basic_block_t translator::translate_function(function_t& f) {
-  //
-  // recursive descent
-  //
-  return translate_basic_block(f, f[boost::graph_bundle].entry_point);
-}
-
 static tuple<address_t, address_t, unsigned, unique_ptr<tcg::Op[]>,
              unique_ptr<tcg::Arg[]>>
-translate_to_tcg(address_t addr) {
-  address_t succ_addr = addr + libqemutcg_translate(addr);
-#if 0
-  libqemutcg_print_ops();
-#endif
-
-  unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
-  unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
-
-  unsigned first_tcg_op_idx = libqemutcg_first_op_index();
-  uint64_t last_instr_addr = libqemutcg_last_tcg_op_addr();
-
-  libqemutcg_copy_ops(ops.get());
-  libqemutcg_copy_params(params.get());
-
-  return make_tuple(last_instr_addr, succ_addr, first_tcg_op_idx, move(ops),
-                    move(params));
-}
+translate_to_tcg(address_t addr);
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-  auto bb_it = translated_basic_blocks.find(addr);
-  if (bb_it != translated_basic_blocks.end())
-    return (*bb_it).second;
-
   basic_block_t bb = boost::add_vertex(f);
   f[bb].addr = addr;
   translated_basic_blocks.insert(make_pair(addr, bb));
+  parentMap.resize(boost::num_vertices(f));
+  verticesByDFNum.push_back(bb);
 
   address_t last_instr_addr, succ_addr;
-
   tie(last_instr_addr, succ_addr, f[bb].first_tcg_op_idx, f[bb].tcg_ops,
       f[bb].tcg_args) = translate_to_tcg(addr);
 
@@ -596,19 +608,15 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   uint64_t size = libmc_analyze_instr(
       Inst, sectdata.data() + (last_instr_addr - sectstart), last_instr_addr);
 
-  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
   const MCInstrAnalysis *MIA = libmc_instranalyzer();
   assert(MIA); /* only available on ARM & X86 */
-
-#if 0
-  if (MIA->isConditionalBranch(Inst) || MIA->isUnconditionalBranch(Inst) ||
-      MIA->isCall(Inst))
-#endif
 
   uint64_t target;
   bool has_target = MIA->evaluateBranch(Inst, last_instr_addr, size, target);
 
 #if 0
+  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
+
   printf("MCInstrAnalysis (%lu bytes)\n", size);
   if (MIA->isReturn(Inst))
     printf("Return\n");
@@ -643,18 +651,59 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     printf("Call\n");
 #endif
 
+  auto control_flow_to = [&](address_t dst_addr) -> void {
+    auto bb_it = translated_basic_blocks.find(dst_addr);
+    if (bb_it != translated_basic_blocks.end()) {
+      f[boost::add_edge(bb, (*bb_it).second, f).first].back_edge = true;
+      return;
+    }
+
+    basic_block_t succ_bb = translate_basic_block(f, dst_addr);
+    boost::add_edge(bb, succ_bb, f);
+
+    parentMap[boost::get(boost::vertex_index, f)[succ_bb]] = bb;
+  };
+
   if (MIA->isReturn(Inst)) {
   } else if (MIA->isConditionalBranch(Inst)) {
-    boost::add_edge(bb, translate_basic_block(f, target), f);
-    boost::add_edge(bb, translate_basic_block(f, succ_addr), f);
+    control_flow_to(target);
+    control_flow_to(succ_addr);
   } else if (MIA->isUnconditionalBranch(Inst)) {
-    boost::add_edge(bb, translate_basic_block(f, target), f);
+    control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
   } else if (MIA->isCall(Inst)) {
-    boost::add_edge(bb, translate_basic_block(f, succ_addr), f);
+    control_flow_to(succ_addr);
   }
 
   return bb;
+}
+
+translator::basic_block_t translator::translate_function(function_t& f) {
+  //
+  // recursive descent
+  //
+  return translate_basic_block(f, f[boost::graph_bundle].entry_point);
+}
+
+tuple<address_t, address_t, unsigned, unique_ptr<tcg::Op[]>,
+      unique_ptr<tcg::Arg[]>>
+translate_to_tcg(address_t addr) {
+  address_t succ_addr = addr + libqemutcg_translate(addr);
+#if 0
+  libqemutcg_print_ops();
+#endif
+
+  unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
+  unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
+
+  unsigned first_tcg_op_idx = libqemutcg_first_op_index();
+  uint64_t last_instr_addr = libqemutcg_last_tcg_op_addr();
+
+  libqemutcg_copy_ops(ops.get());
+  libqemutcg_copy_params(params.get());
+
+  return make_tuple(last_instr_addr, succ_addr, first_tcg_op_idx, move(ops),
+                    move(params));
 }
 
 static void libqemutcg_print_ops(const tcg::Op *ops, const tcg::Arg *params);

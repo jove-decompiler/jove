@@ -91,25 +91,33 @@ struct helper_t {
 class translator {
 public:
   struct basic_block_properties_t {
+    int index;
+
     address_t addr;
 
     unsigned first_tcg_op_idx;
     std::unique_ptr<tcg::Op[]> tcg_ops;
     std::unique_ptr<tcg::Arg[]> tcg_args;
 
+    // for computing inputs & outputs
     tcg::global_set_t uses;
     tcg::global_set_t defs;
     tcg::global_set_t dead;
+
+    tcg::global_set_t live_in;
+    tcg::global_set_t live_out;
   };
 
   struct function_properties_t {
     address_t entry_point;
+
+    tcg::global_set_t inputs, outputs;
   };
 
   struct control_flow_properties_t {
-    bool dom;
+    bool dom, back_edge;
 
-    control_flow_properties_t() : dom(false) {}
+    control_flow_properties_t() : dom(false), back_edge(false) {}
   };
 
   typedef boost::adjacency_list<boost::vecS,               /* OutEdgeList */
@@ -150,6 +158,16 @@ private:
 
   std::unordered_map<address_t, basic_block_t> translated_basic_blocks;
   std::queue<address_t> functions_to_translate;
+
+  // contains basic blocks in depth first search order. if we access this
+  // vector sequentially, it's equivalent to access vertices by depth first
+  // search order.
+  // on discover vertex
+  std::vector<basic_block_t> verticesByDFNum;
+
+  // the predecessor map records the parent of the depth first search tree
+  // on tree edge
+  std::vector<basic_block_t> parentMap;
 
   llvm::ArrayRef<uint8_t> sectdata;
   address_t sectstart;

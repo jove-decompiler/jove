@@ -113,7 +113,7 @@ namespace jove {
 
 tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc, char **argv) {
   string ifp, ofp;
-  bool static_mode, dynamic_mode;
+  bool static_mode = false, dynamic_mode = false;
 
   try {
     po::options_description desc("Allowed options");
