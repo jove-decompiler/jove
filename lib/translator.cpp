@@ -151,7 +151,6 @@ extern "C" {
 extern tcg::OpDef tcg_op_defs[];
 struct TCGContext;
 extern TCGContext tcg_ctx;
-char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size, int idx);
 const char *tcg_find_helper(TCGContext *s, uintptr_t val);
 extern const char *const cond_name[];
 extern const char *const ldst_name[];
@@ -319,8 +318,9 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
   function_t& f = translate_function(addr);
 
   while (!functions_to_translate.empty()) {
-    translate_function(functions_to_translate.front());
+    address_t f_addr = functions_to_translate.front();
     functions_to_translate.pop();
+    translate_function(f_addr);
   }
 
   return make_tuple(f[boost::graph_bundle].llf,
@@ -338,6 +338,8 @@ translator::function_t& translator::translate_function(address_t addr) {
     else
       function_table[addr].reset(new function_t);
   }
+
+  cout << hex << addr << endl;
 
   //
   // initialize function
@@ -366,9 +368,17 @@ translator::function_t& translator::translate_function(address_t addr) {
 
   //
   // conduct a recursive descent of the function, and translate each basic block
-  // into QEMU TCG intermediate
+  // into QEMU TCG intermediate code
   //
-  translate_basic_block(f, addr);
+  if (translate_basic_block(f, addr) ==
+      boost::graph_traits<function_t>::null_vertex()) {
+    cout << '<';
+    cout << endl;
+
+    cout << '>';
+    cout << endl;
+    return f;
+  }
 
 #if 1
   write_function_graphviz(f);
@@ -526,33 +536,93 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-  basic_block_t bb = boost::add_vertex(f);
-  f[bb].addr = addr;
+  MCInst Inst;
+  uint64_t size;
 
-  translated_basic_blocks.insert(make_pair(addr, bb));
+  //
+  // if the first instruction has an invalid encoding, then we assume it is
+  // unreachable and do not create a basic block for this address
+  //
+  if (!libmc_analyze_instr(Inst, size,
+                           sectdata.data() + (addr - sectstart),
+                           addr))
+    return boost::graph_traits<function_t>::null_vertex();
+
+  //
+  // perform the translation from machine code to TCG intermediate code for one
+  // basic block
+  //
+  address_t succ_addr = addr + libqemutcg_translate(addr);
+  address_t last_instr_addr = libqemutcg_last_tcg_op_addr();
+
+  //
+  // if the last instruction in the basic block has an invalid encoding, then
+  // we assume it is unreachable and do not create a basic block for this
+  // address
+  //
+  if (!libmc_analyze_instr(Inst, size,
+                           sectdata.data() + (last_instr_addr - sectstart),
+                           last_instr_addr))
+    return boost::graph_traits<function_t>::null_vertex();
+
+  //
+  // prepare data structures for new basic block
+  //
+  basic_block_t bb = boost::add_vertex(f);
+  translated_basic_blocks[addr] = bb;
   parentMap.resize(boost::num_vertices(f));
   verticesByDFNum.push_back(bb);
 
-  address_t succ_addr = addr + libqemutcg_translate(addr);
+  //
+  // fill basic block properties
+  //
+  f[bb].addr = addr;
   f[bb].first_tcg_op_idx = libqemutcg_first_op_index();
-
   f[bb].tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
   f[bb].tcg_args.reset(new tcg::Arg[libqemutcg_max_params()]);
-
   libqemutcg_copy_ops(f[bb].tcg_ops.get());
   libqemutcg_copy_params(f[bb].tcg_args.get());
 
-  address_t last_instr_addr = libqemutcg_last_tcg_op_addr();
-  MCInst Inst;
-  uint64_t size = libmc_analyze_instr(
-      Inst, sectdata.data() + (last_instr_addr - sectstart), last_instr_addr);
+#ifdef JOVEDBG
+  cout << "############################# translate_basic_block "
+          "#############################"
+       << endl;
+  print_tcg_ops(cout, f[bb]);
 
-  const MCInstrAnalysis *MIA = libmc_instranalyzer();
-  assert(MIA); /* only available on ARM & X86 */
+  static const char *OperandTypeNames[] = {
+      "OPERAND_UNKNOWN", "OPERAND_IMMEDIATE", "OPERAND_REGISTER",
+      "OPERAND_MEMORY",  "OPERAND_PCREL",     "OPERAND_FIRST_TARGET"};
+  cout << "OPERANDS FOR LAST INSTRUCTION" << endl;
+  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+    cout << OperandTypeNames
+                [libmc_instrinfo()->get(Inst.getOpcode()).OpInfo[i].OperandType]
+         << ' ';
+  }
+  cout << endl;
+  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+    const MCOperand& op = Inst.getOperand(i);
+    if (!op.isValid())
+      cout << "INVALID";
+    else if (op.isReg())
+      cout << "REG";
+    else if (op.isImm())
+      cout << "IMM";
+    else if (op.isFPImm())
+      cout << "FPImm";
+    else if (op.isExpr())
+      cout << "EXPR";
+    else if (op.isInst())
+      cout << "INST";
 
-  uint64_t target;
-  MIA->evaluateBranch(Inst, last_instr_addr, size, target);
+    cout << ' ';
+  }
+  cout << endl;
+#endif
 
+  //
+  // conduct analysis of last instruction (the terminator of the block) and
+  // (recursively) descend into branch targets, translating basic blocks
+  //
   auto control_flow_to = [&](address_t dst_addr) -> void {
     auto bb_it = translated_basic_blocks.find(dst_addr);
     if (bb_it != translated_basic_blocks.end()) {
@@ -561,19 +631,108 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     }
 
     basic_block_t succ_bb = translate_basic_block(f, dst_addr);
-    boost::add_edge(bb, succ_bb, f);
-
-    parentMap[boost::get(boost::vertex_index, f)[succ_bb]] = bb;
+    if (succ_bb != boost::graph_traits<function_t>::null_vertex()) {
+      boost::add_edge(bb, succ_bb, f);
+      parentMap[boost::get(boost::vertex_index, f)[succ_bb]] = bb;
+    }
   };
+
+#if defined(TARGET_AARCH64)
+  auto aarch64_evaluateUnconditionalBranch = [&](uint64_t& target) -> void {
+    assert(Inst.getNumOperands() == 1);
+    assert(Inst.getOperand(0).isImm());
+
+#ifdef JOVEDBG
+    cout << "aarch64_evaluateUnconditionalBranch imm: " << dec
+         << Inst.getOperand(0).getImm() << endl;
+#endif
+
+    target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
+                                   static_cast<int64_t>(last_instr_addr));
+  };
+
+  auto aarch64_evaluateConditionalBranch = [&](uint64_t& target) -> void {
+    assert(Inst.getNumOperands() == 2);
+    assert(Inst.getOperand(1).isImm());
+
+#ifdef JOVEDBG
+    cout << "aarch64_evaluateConditionalBranch imm: " << dec
+         << Inst.getOperand(1).getImm() << endl;
+#endif
+
+    target = static_cast<uint64_t>(4*Inst.getOperand(1).getImm() +
+                                   static_cast<int64_t>(last_instr_addr));
+  };
+
+  auto aarch64_evaluateCall = [&](uint64_t& target) -> bool {
+    if (Inst.getNumOperands() != 1 || !Inst.getOperand(0).isImm())
+      return false;
+
+#ifdef JOVEDBG
+    cout << "aarch64_evaluateCall imm: " << dec << Inst.getOperand(0).getImm()
+         << endl;
+#endif
+    target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
+                                   static_cast<int64_t>(last_instr_addr));
+    return true;
+  };
+#endif
+
+  const MCInstrAnalysis *MIA = libmc_instranalyzer();
+  unique_ptr<MCInstrAnalysis> _MIA;
+  if (!MIA) {
+    _MIA.reset(new MCInstrAnalysis(libmc_instrinfo()));
+    MIA = _MIA.get();
+  }
 
   if (MIA->isReturn(Inst)) {
   } else if (MIA->isConditionalBranch(Inst)) {
+    uint64_t target;
+#if defined(TARGET_X86_64)
+    assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
+#elif defined(TARGET_AARCH64)
+    aarch64_evaluateConditionalBranch(target);
+#endif
+
+#ifdef JOVEDBG
+    cout << "CONDITIONAL BRANCH TARGET: " << hex << last_instr_addr << " -> "
+         << target << endl;
+#endif
+
     control_flow_to(target);
     control_flow_to(succ_addr);
   } else if (MIA->isUnconditionalBranch(Inst)) {
+    uint64_t target;
+#if defined(TARGET_X86_64)
+    assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
+#elif defined(TARGET_AARCH64)
+    aarch64_evaluateUnconditionalBranch(target);
+#endif
+
+#ifdef JOVEDBG
+    cout << "UNCONDITIONAL BRANCH TARGET: " << hex << last_instr_addr << " -> "
+         << target << endl;
+#endif
+
     control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
   } else if (MIA->isCall(Inst)) {
+    bool is_indirect;
+    uint64_t target;
+#if defined(TARGET_X86_64)
+    is_indirect = !MIA->evaluateBranch(Inst, last_instr_addr, size, target);
+#elif defined(TARGET_AARCH64)
+    is_indirect = !aarch64_evaluateCall(target);
+#endif
+    if (!is_indirect) {
+#ifdef JOVEDBG
+      cout << "CALL TARGET: " << hex << last_instr_addr << " -> " << target
+           << endl;
+#endif
+
+      functions_to_translate.push(target);
+    }
+
     control_flow_to(succ_addr);
   }
 
@@ -617,7 +776,14 @@ void translator::compute_basic_block_defs_and_uses(
         // take into account extra inputs and/or outputs by our version of the
         // helpers
         //
-        tcg::helper_t *h = tcg_helper_addr_map[args[nb_oargs + nb_iargs]];
+        auto h_addr = args[nb_oargs + nb_iargs];
+        auto h_it = tcg_helper_addr_map.find(h_addr);
+        if (h_it == tcg_helper_addr_map.end()) {
+          cerr << "warning: bad call to tcg helper" << endl;
+          continue;
+        }
+
+        tcg::helper_t *h = (*h_it).second;
         iglb = h->inglb;
         oglb = h->outglb;
       }
@@ -652,6 +818,13 @@ void translator::compute_basic_block_defs_and_uses(
 
 void translator::print_tcg_ops(ostream &out,
                                const basic_block_properties_t &bbprop) const {
+  auto string_of_tcg_arg = [&](tcg::Arg a) -> string {
+    if (a < tcg::num_globals)
+      return tcg_globals[a].nm;
+    else
+      return (boost::format("tmp_%d") % static_cast<int>(a)).str();
+  };
+
   char buf[128];
   char asmbuf[128];
 
@@ -682,9 +855,11 @@ void translator::print_tcg_ops(ostream &out,
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
 
-      out << endl << "0x" << hex << a << endl;
-      out << libmc_instr_asm(sectdata.data() + (a - sectstart), a, asmbuf)
-          << endl << endl;
+      out << endl
+          << "0x" << hex << a << "    "
+          << libmc_instr_asm(sectdata.data() + (a - sectstart), a, asmbuf)
+          << endl
+          << endl;
 
       continue;
     } else {
@@ -700,15 +875,14 @@ void translator::print_tcg_ops(ostream &out,
                 args[nb_oargs + nb_iargs + 1] % nb_oargs);
 
         for (i = 0; i < nb_oargs; i++)
-          out << (boost::format(",%s") %
-                  tcg_get_arg_str_idx(&tcg::tcg_ctx, buf, sizeof(buf), args[i]));
+          out << (boost::format(",%s") % string_of_tcg_arg(args[i]));
 
         for (i = 0; i < nb_iargs; i++) {
           tcg::Arg arg = args[nb_oargs + i];
-          const char *t = "<dummy>";
+          string t("<dummy>");
 
           if (arg != tcg::CALL_DUMMY_ARG)
-            t = tcg_get_arg_str_idx(&tcg::tcg_ctx, buf, sizeof(buf), arg);
+            t = string_of_tcg_arg(arg);
 
           out << (boost::format(",%s") % t);
         }
@@ -724,13 +898,13 @@ void translator::print_tcg_ops(ostream &out,
           if (k != 0) {
             out << ',';
           }
-          out << tcg_get_arg_str_idx(&tcg::tcg_ctx, buf, sizeof(buf), args[k++]);
+          out << string_of_tcg_arg(args[k++]);
         }
         for (i = 0; i < nb_iargs; i++) {
           if (k != 0) {
             out << ",";
           }
-          out << tcg_get_arg_str_idx(&tcg::tcg_ctx, buf, sizeof(buf), args[k++]);
+          out << string_of_tcg_arg(args[k++]);
         }
         switch (c) {
         case tcg::INDEX_op_brcond_i32:

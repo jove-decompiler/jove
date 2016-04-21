@@ -34,7 +34,8 @@ static MCInstPrinter *IP;
 
 static string TripleName;
 static const Target *getTarget(const ObjectFile *Obj = nullptr);
-static uint64_t libmc_disas(MCInst &MI, const void *code, uint64_t addr);
+static bool libmc_disas(MCInst &MI, uint64_t &size, const void *code,
+                        uint64_t addr);
 static const unsigned max_instr_len = 24;
 
 void libmc_init(const ObjectFile *Obj) {
@@ -114,43 +115,43 @@ void libmc_init(const ObjectFile *Obj) {
 
 unsigned libmc_instr_opc(const void *code, uint64_t addr) {
   MCInst MI;
-  libmc_disas(MI, code, addr);
+  uint64_t size;
+  libmc_disas(MI, size, code, addr);
   return MI.getOpcode();
 }
 
 char* libmc_instr_asm(const void *code, uint64_t addr, char* out) {
   MCInst MI;
-  libmc_disas(MI, code, addr);
+  uint64_t size;
 
-  string Str;
-  {
-    raw_string_ostream CvtOS(Str);
-    IP->printInst(&MI, CvtOS, "", *STI);
+  if (libmc_disas(MI, size, code, addr)) {
+    string Str;
+    {
+      raw_string_ostream CvtOS(Str);
+      IP->printInst(&MI, CvtOS, "", *STI);
+    }
+
+    boost::algorithm::trim(Str);
+    boost::algorithm::replace_all(Str, "\t", " ");
+    strcpy(out, Str.c_str());
+  } else {
+    strcpy(out, "<bad encoding>");
   }
-
-  boost::algorithm::trim(Str);
-  boost::algorithm::replace_all(Str, "\t", " ");
-  strcpy(out, Str.c_str());
 
   return out;
 }
 
-uint64_t libmc_disas(MCInst &Inst, const void *code, uint64_t addr) {
-  uint64_t instrlen;
-  ArrayRef<uint8_t> coderef(static_cast<const uint8_t*>(code), max_instr_len);
+bool libmc_disas(MCInst &Inst, uint64_t &size, const void *code,
+                 uint64_t addr) {
+  ArrayRef<uint8_t> coderef(static_cast<const uint8_t *>(code), max_instr_len);
 
   raw_null_ostream nullos;
-  if (!DisAsm->getInstruction(Inst, instrlen, coderef, addr, nullos, nullos)) {
-    errs().flush();
-    exit(34);
-  }
-
-  return instrlen;
+  return DisAsm->getInstruction(Inst, size, coderef, addr, nullos, nullos);
 }
 
-uint64_t libmc_analyze_instr(MCInst &Instr, const void *code,
-                                           uint64_t addr) {
-  return libmc_disas(Instr, code, addr);
+bool libmc_analyze_instr(MCInst &Instr, uint64_t &size, const void *code,
+                         uint64_t addr) {
+  return libmc_disas(Instr, size, code, addr);
 }
 
 const MCInstrAnalysis *libmc_instranalyzer() { return MIA; }
