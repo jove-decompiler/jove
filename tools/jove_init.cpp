@@ -187,10 +187,12 @@ void print_obj_info(const ObjectFile *Obj) {
 void createExportedFunctions() {
   vector<symbol_t> syms;
   exported_functions_of_binary(*O, syms);
-  for (const symbol_t &s : syms) {
-    //cout << s.name << ' ' << hex << s.addr << endl;
-    T->translate(s.addr);
-  }
+
+  vector<address_t> addrs(syms.size());
+  transform(syms.begin(), syms.end(), addrs.begin(),
+            [](const symbol_t &s) { return s.addr; });
+
+  T->translate(addrs);
 }
 void createExportedVariables() {}
 void createThreadLocalVariables() {}

@@ -312,19 +312,94 @@ void translator::init_helpers() {
   }
 }
 
-tuple<Function *, Function *> translator::translate(address_t addr) {
-  functions_to_translate = queue<address_t>();
+tuple<Function *, Function *>
+translator::translate(const std::vector<address_t> &addrs) {
+  vector<address_t> functions_translated;
 
-  function_t& f = translate_function(addr);
+  functions_to_translate = queue<address_t>();
+  for (address_t addr : addrs)
+    functions_to_translate.push(addr);
 
   while (!functions_to_translate.empty()) {
-    address_t f_addr = functions_to_translate.front();
+    address_t addr = functions_to_translate.front();
     functions_to_translate.pop();
-    translate_function(f_addr);
+
+    translate_function(addr);
+
+    functions_translated.push_back(addr);
   }
 
-  return make_tuple(f[boost::graph_bundle].llf,
-                    f[boost::graph_bundle].thunk_llf);
+  //
+  // compute return values for functions encountered
+  //
+  for (address_t addr : functions_translated) {
+    function_t& f = *function_table[addr];
+    compute_returned(f);
+
+#if 1
+    cout << hex << addr << endl;
+
+    cout << 'I';
+    tcg::global_set_t all = f[boost::graph_bundle].params |
+                            f[boost::graph_bundle].returned |
+                            f[boost::graph_bundle].outputs;
+
+    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
+      if (!all.test(a))
+        continue;
+
+      if (f[boost::graph_bundle].params.test(a))
+        cout << ' ' << tcg_globals[a].nm;
+      else
+        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
+    }
+    cout << endl;
+
+    cout << 'R';
+    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
+      if (!all.test(a))
+        continue;
+
+      if (f[boost::graph_bundle].returned.test(a))
+        cout << ' ' << tcg_globals[a].nm;
+      else
+        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
+    }
+    cout << endl;
+
+    cout << 'O';
+    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
+      if (!all.test(a))
+        continue;
+
+      if (f[boost::graph_bundle].outputs.test(a))
+        cout << ' ' << tcg_globals[a].nm;
+      else
+        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
+    }
+    cout << endl;
+#endif
+  }
+
+  //
+  // write graphviz files for control-flow graphs
+  //
+#if 1
+  for (address_t addr : functions_translated) {
+    function_t& f = *function_table[addr];
+    write_function_graphviz(f);
+  }
+#endif
+
+  //
+  // translate functions to llvm
+  //
+  for (address_t addr : boost::adaptors::reverse(functions_translated)) {
+    function_t& f = *function_table[addr];
+    translate_function_llvm(f);
+  }
+
+  return make_tuple(nullptr, nullptr);
 }
 
 translator::function_t& translator::translate_function(address_t addr) {
@@ -338,8 +413,6 @@ translator::function_t& translator::translate_function(address_t addr) {
     else
       function_table[addr].reset(new function_t);
   }
-
-  cout << hex << addr << endl;
 
   //
   // initialize function
@@ -380,33 +453,10 @@ translator::function_t& translator::translate_function(address_t addr) {
     return f;
   }
 
-#if 1
-  write_function_graphviz(f);
-#endif
-
   //
   // determine parameters for function
   //
   compute_params(f);
-
-  //
-  // determine return values for function (and other outputs to cpu state)
-  //
-  compute_returned(f);
-
-#if 1
-  cout << '<';
-  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
-    if (f[boost::graph_bundle].params.test(a))
-      cout << ' ' << tcg_globals[a].nm;
-  cout << endl;
-
-  cout << '>';
-  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
-    if (f[boost::graph_bundle].outputs.test(a))
-      cout << ' ' << tcg_globals[a].nm;
-  cout << endl;
-#endif
 
   return f;
 }
@@ -447,6 +497,11 @@ void translator::compute_params(function_t& f) {
 }
 
 void translator::compute_returned(function_t& f) {
+  //
+  // compute outputs by constructing the dominator tree for the function's
+  // control-flow graph and follow the data-flow for generated outputs, which
+  // are killed by globals marked as 'dead' by basic blocks
+  //
   basic_block_t entry = *boost::vertices(f).first;
 
   vector<basic_block_t> idoms(boost::num_vertices(f),
@@ -528,10 +583,28 @@ void translator::compute_returned(function_t& f) {
   };
 
   //
-  // determine outputs
+  // compute outputs
   //
   dfs_visitor vis(domtree);
   boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
+
+  //
+  // compute returned set of globals for f. it is equal to
+  //
+  // (              ∪ (OUT[B]                 ) ∩ OUTPUTS(f)
+  // ∀ caller basic blocks B
+  //
+  const auto &calls = callers[f[boost::graph_bundle].entry_point];
+  tcg::global_set_t X =
+      accumulate(calls.begin(), calls.end(), tcg::global_set_t(),
+                 [&](tcg::global_set_t res, const caller_t &caller) {
+                   function_t &caller_f = *caller.first;
+                   return res | caller_f[caller.second].live_out;
+                 });
+
+  f[boost::graph_bundle].returned = X.any()
+                                        ? (X & f[boost::graph_bundle].outputs)
+                                        : f[boost::graph_bundle].outputs;
 }
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
@@ -583,42 +656,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   libqemutcg_copy_ops(f[bb].tcg_ops.get());
   libqemutcg_copy_params(f[bb].tcg_args.get());
 
-#ifdef JOVEDBG
-  cout << "############################# translate_basic_block "
-          "#############################"
-       << endl;
-  print_tcg_ops(cout, f[bb]);
-
-  static const char *OperandTypeNames[] = {
-      "OPERAND_UNKNOWN", "OPERAND_IMMEDIATE", "OPERAND_REGISTER",
-      "OPERAND_MEMORY",  "OPERAND_PCREL",     "OPERAND_FIRST_TARGET"};
-  cout << "OPERANDS FOR LAST INSTRUCTION" << endl;
-  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-    cout << OperandTypeNames
-                [libmc_instrinfo()->get(Inst.getOpcode()).OpInfo[i].OperandType]
-         << ' ';
-  }
-  cout << endl;
-  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-    const MCOperand& op = Inst.getOperand(i);
-    if (!op.isValid())
-      cout << "INVALID";
-    else if (op.isReg())
-      cout << "REG";
-    else if (op.isImm())
-      cout << "IMM";
-    else if (op.isFPImm())
-      cout << "FPImm";
-    else if (op.isExpr())
-      cout << "EXPR";
-    else if (op.isInst())
-      cout << "INST";
-
-    cout << ' ';
-  }
-  cout << endl;
-#endif
-
   //
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
@@ -642,11 +679,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     assert(Inst.getNumOperands() == 1);
     assert(Inst.getOperand(0).isImm());
 
-#ifdef JOVEDBG
-    cout << "aarch64_evaluateUnconditionalBranch imm: " << dec
-         << Inst.getOperand(0).getImm() << endl;
-#endif
-
     target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
                                    static_cast<int64_t>(last_instr_addr));
   };
@@ -654,11 +686,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   auto aarch64_evaluateConditionalBranch = [&](uint64_t& target) -> void {
     assert(Inst.getNumOperands() == 2);
     assert(Inst.getOperand(1).isImm());
-
-#ifdef JOVEDBG
-    cout << "aarch64_evaluateConditionalBranch imm: " << dec
-         << Inst.getOperand(1).getImm() << endl;
-#endif
 
     target = static_cast<uint64_t>(4*Inst.getOperand(1).getImm() +
                                    static_cast<int64_t>(last_instr_addr));
@@ -668,10 +695,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     if (Inst.getNumOperands() != 1 || !Inst.getOperand(0).isImm())
       return false;
 
-#ifdef JOVEDBG
-    cout << "aarch64_evaluateCall imm: " << dec << Inst.getOperand(0).getImm()
-         << endl;
-#endif
     target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
                                    static_cast<int64_t>(last_instr_addr));
     return true;
@@ -694,11 +717,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     aarch64_evaluateConditionalBranch(target);
 #endif
 
-#ifdef JOVEDBG
-    cout << "CONDITIONAL BRANCH TARGET: " << hex << last_instr_addr << " -> "
-         << target << endl;
-#endif
-
     control_flow_to(target);
     control_flow_to(succ_addr);
   } else if (MIA->isUnconditionalBranch(Inst)) {
@@ -707,11 +725,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
 #elif defined(TARGET_AARCH64)
     aarch64_evaluateUnconditionalBranch(target);
-#endif
-
-#ifdef JOVEDBG
-    cout << "UNCONDITIONAL BRANCH TARGET: " << hex << last_instr_addr << " -> "
-         << target << endl;
 #endif
 
     control_flow_to(target);
@@ -725,12 +738,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     is_indirect = !aarch64_evaluateCall(target);
 #endif
     if (!is_indirect) {
-#ifdef JOVEDBG
-      cout << "CALL TARGET: " << hex << last_instr_addr << " -> " << target
-           << endl;
-#endif
-
       functions_to_translate.push(target);
+      callers[target].push_back({&f, bb});
     }
 
     control_flow_to(succ_addr);
@@ -1047,6 +1056,67 @@ void translator::write_function_graphviz(function_t &f) {
       (boost::format("%lx.dot") % f[boost::graph_bundle].entry_point).str());
   boost::write_graphviz(of, f, graphviz_label_writer<function_t>(*this, f),
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
+}
+
+void translator::explode_tcg_global_set(vector<const tcg::global_t *> &out,
+                                        tcg::global_set_t glbs) {
+  static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
+                "unsigned long long must be 64-bits");
+
+  constexpr unsigned long long mask_no_bit_table[64] = {
+      ~(1ULL >> 0),  ~(1ULL >> 1),  ~(1ULL >> 2),  ~(1ULL >> 3),
+      ~(1ULL >> 4),  ~(1ULL >> 5),  ~(1ULL >> 6),  ~(1ULL >> 7),
+      ~(1ULL >> 8),  ~(1ULL >> 9),  ~(1ULL >> 10), ~(1ULL >> 11),
+      ~(1ULL >> 12), ~(1ULL >> 13), ~(1ULL >> 14), ~(1ULL >> 15),
+      ~(1ULL >> 16), ~(1ULL >> 17), ~(1ULL >> 18), ~(1ULL >> 19),
+      ~(1ULL >> 20), ~(1ULL >> 21), ~(1ULL >> 22), ~(1ULL >> 23),
+      ~(1ULL >> 24), ~(1ULL >> 25), ~(1ULL >> 26), ~(1ULL >> 27),
+      ~(1ULL >> 28), ~(1ULL >> 29), ~(1ULL >> 30), ~(1ULL >> 31),
+      ~(1ULL >> 32), ~(1ULL >> 33), ~(1ULL >> 34), ~(1ULL >> 35),
+      ~(1ULL >> 36), ~(1ULL >> 37), ~(1ULL >> 38), ~(1ULL >> 39),
+      ~(1ULL >> 40), ~(1ULL >> 41), ~(1ULL >> 42), ~(1ULL >> 43),
+      ~(1ULL >> 44), ~(1ULL >> 45), ~(1ULL >> 46), ~(1ULL >> 47),
+      ~(1ULL >> 48), ~(1ULL >> 49), ~(1ULL >> 50), ~(1ULL >> 51),
+      ~(1ULL >> 52), ~(1ULL >> 53), ~(1ULL >> 54), ~(1ULL >> 55),
+      ~(1ULL >> 56), ~(1ULL >> 57), ~(1ULL >> 58), ~(1ULL >> 59),
+      ~(1ULL >> 60), ~(1ULL >> 61), ~(1ULL >> 62), ~(1ULL >> 63)};
+
+  if (glbs.none())
+    return;
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x) + 1;
+    x <<= pos;
+    idx += pos;
+    out.push_back(&tcg_globals[idx-1]);
+  } while (x);
+}
+
+void translator::translate_function_llvm(function_t& f) {
+  //
+  // build function type
+  //
+  auto return_type = [&]() -> Type* {
+    if (f[boost::graph_bundle].returned.none())
+      return Type::getVoidTy(C);
+
+    vector<const tcg::global_t*> returned;
+    returned.reserve(tcg::num_globals);
+    explode_tcg_global_set(returned, f[boost::graph_bundle].returned);
+
+    Type* retTy = StructType::get(LLVMContext &Context, ArrayRef<Type*> Elements, bool isPacked = false);
+  };
+
+  FunctionType* ty = FunctionType::get(Type *Result,
+                                                      ArrayRef<Type*> Params, bool isVarArg);
+
+
+  //
+  // create function
+  //
+  llf = Function::Create(fty, GlobalValue::ExternalLinkage, (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), M);
 }
 
 }

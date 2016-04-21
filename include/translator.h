@@ -216,9 +216,10 @@ private:
   address_t sectstart;
 
   std::unordered_map<address_t, std::unique_ptr<function_t>> function_table;
-  std::unordered_map<address_t,
-                     std::vector<std::pair<function_t *, basic_block_t>>>
-      callers;
+
+  typedef std::pair<function_t *, basic_block_t> caller_t;
+  typedef std::unordered_map<address_t, std::vector<caller_t>> callers_t;
+  callers_t callers;
 
   void init_helpers();
   function_t& translate_function(address_t);
@@ -230,6 +231,10 @@ private:
   
   void compute_returned(function_t&);
 
+  void explode_tcg_global_set(std::vector<const tcg::global_t *> &,
+                              tcg::global_set_t);
+  void translate_function_llvm(function_t &f);
+
 public:
   translator(llvm::object::ObjectFile &, llvm::LLVMContext &, llvm::Module &);
   ~translator() {}
@@ -238,7 +243,8 @@ public:
 
   // given an entry point, translates to an LLVM function and its counterpart
   // thunk (for untranslated-code to use)
-  std::tuple<llvm::Function *, llvm::Function *> translate(address_t);
+  std::tuple<llvm::Function *, llvm::Function *>
+  translate(const std::vector<address_t> &);
 
   void print_tcg_ops(std::ostream &out,
                      const basic_block_properties_t &bbprop) const;
