@@ -37,28 +37,6 @@ namespace jove {
 
 namespace tcg {
 /* XXX QEMUVERSIONDEPENDENT */
-enum Opcode {
-#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_##name,
-#include "tcg-opc.h"
-#undef DEF
-  NB_OPS,
-};
-
-struct Op {
-  Opcode opc : 8;
-
-  /* The number of out and in parameter for a call.  */
-  unsigned callo : 2;
-  unsigned calli : 6;
-
-  /* Index of the arguments for this op, or -1 for zero-operand ops.  */
-  signed args : 16;
-
-  /* Index of the prex/next op, or -1 for the end of the list.  */
-  signed prev : 16;
-  signed next : 16;
-};
-
 struct ArgConstraint;
 
 struct OpDef {
