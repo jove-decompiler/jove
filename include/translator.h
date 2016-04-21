@@ -106,12 +106,32 @@ public:
 
     tcg::global_set_t live_in;
     tcg::global_set_t live_out;
+
+    tcg::global_set_t outputs;
   };
 
   struct function_properties_t {
     address_t entry_point;
 
-    tcg::global_set_t inputs, outputs;
+    //
+    // the set of TCG globals which are provided as parameters
+    //
+    tcg::global_set_t params;
+
+    //
+    // the set of TCG globals which are written to the CPUState, and not
+    // returned.
+    //
+    tcg::global_set_t outputs;
+
+    //
+    // the set of TCG globals which are returned. this is affected by the
+    // liveness analysis of callers of this function
+    //
+    tcg::global_set_t returned;
+
+    llvm::Function* thunk_llf;
+    llvm::Function* llf;
   };
 
   struct control_flow_properties_t {
@@ -172,10 +192,20 @@ private:
   llvm::ArrayRef<uint8_t> sectdata;
   address_t sectstart;
 
+  std::unordered_map<address_t, std::unique_ptr<function_t>> function_table;
+  std::unordered_map<address_t,
+                     std::vector<std::pair<function_t *, basic_block_t>>>
+      callers;
+
   void init_helpers();
-  basic_block_t translate_function(function_t&);
+  function_t& translate_function(address_t);
   basic_block_t translate_basic_block(function_t&, address_t);
-  void calculate_defs_and_uses(basic_block_properties_t &);
+  void write_function_graphviz(function_t &);
+
+  void compute_basic_block_defs_and_uses(basic_block_properties_t &);
+  void compute_params(function_t&);
+  
+  void compute_returned(function_t&);
 
 public:
   translator(llvm::object::ObjectFile &, llvm::LLVMContext &, llvm::Module &);

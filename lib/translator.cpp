@@ -335,120 +335,106 @@ void translator::init_helpers() {
   }
 }
 
-template <typename Graph> struct graphviz_label_writer {
-  translator& t;
-  const Graph &g;
-  graphviz_label_writer(translator& t, const Graph &g) : t(t), g(g) {}
-
-  template <class VertexOrEdge>
-  void operator()(std::ostream &out, const VertexOrEdge &v) const {
-    std::string s;
-
-    {
-      ostringstream oss;
-      t.print_tcg_ops(oss, g[v]);
-      s = oss.str();
-    }
-
-    s.reserve(2 * s.size());
-
-    boost::replace_all(s, "\\", "\\\\");
-    boost::replace_all(s, "\r\n", "\\l");
-    boost::replace_all(s, "\n", "\\l");
-    boost::replace_all(s, "\"", "\\\"");
-    boost::replace_all(s, "{", "\\{");
-    boost::replace_all(s, "}", "\\}");
-    boost::replace_all(s, "|", "\\|");
-    boost::replace_all(s, "|", "\\|");
-    boost::replace_all(s, "<", "\\<");
-    boost::replace_all(s, ">", "\\>");
-    boost::replace_all(s, "(", "\\(");
-    boost::replace_all(s, ")", "\\)");
-    boost::replace_all(s, ",", "\\,");
-    boost::replace_all(s, ";", "\\;");
-    boost::replace_all(s, ":", "\\:");
-    boost::replace_all(s, " ", "\\ ");
-
-    out << "[label=\"";
-    out << s;
-    out << "\"]";
-  }
-};
-
-struct graphviz_edge_prop_writer {
-  template <class Edge>
-  void operator()(ostream &out, const Edge &e) const {
-    static const char *edge_type_styles[] = {
-        "solid", "dashed", /*"invis"*/ "dotted"
-    };
-
-    out << "[style=\"" << edge_type_styles[0] << "\"]";
-  }
-};
-
-struct graphviz_prop_writer {
-  void operator()(ostream &out) const {
-    out << "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "\n"
-           "node [\n"
-           "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "shape = \"record\"\n"
-           "]\n"
-           "\n"
-           "edge [\n"
-           "fontname = \"Courier\"\n"
-           "fontsize = 10\n"
-           "]\n"
-           "\n";
-  }
-};
-
 tuple<Function *, Function *> translator::translate(address_t addr) {
-  //
-  // find section containing address
-  //
-  auto sectit = addrspace.find(addr);
-  if (sectit == addrspace.end())
-    exit(45);
+  functions_to_translate = queue<address_t>();
 
-  sectstart = (*sectit).first.lower();
-  sectdata = section_contents_of_binary(O, (*sectit).second);
-  libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
+  function_t& f = translate_function(addr);
+
+  while (!functions_to_translate.empty()) {
+    translate_function(functions_to_translate.front());
+    functions_to_translate.pop();
+  }
+
+  return make_tuple(f[boost::graph_bundle].llf,
+                    f[boost::graph_bundle].thunk_llf);
+}
+
+translator::function_t& translator::translate_function(address_t addr) {
+  //
+  // check to see if function was already translated
+  //
+  {
+    auto f_it = function_table.find(addr);
+    if (f_it != function_table.end())
+      return *(*f_it).second;
+    else
+      function_table[addr].reset(new function_t);
+  }
 
   //
-  // translate to TCG code
+  // initialize function
   //
-  Function *FnThunk = nullptr;
-  Function *Fn = nullptr;
+  function_t& f = *function_table[addr];
+  f[boost::graph_bundle].entry_point = addr;
 
+  //
+  // initialize data structures used during translation of a function
+  //
   parentMap.clear();
   verticesByDFNum.clear();
   translated_basic_blocks.clear();
-  functions_to_translate = queue<address_t>();
 
-  function_t f;
-  f[boost::graph_bundle].entry_point = addr;
-
-  basic_block_t entry = translate_function(f);
-
+  //
+  // identify section containing function for access to instruction bytes
+  //
   {
-    ofstream of((boost::format("%lx.dot") % addr).str());
-    boost::write_graphviz(of, f, graphviz_label_writer<function_t>(*this, f),
-                          graphviz_edge_prop_writer(), graphviz_prop_writer());
+    auto sectit = addrspace.find(addr);
+    assert(sectit != addrspace.end());
+
+    sectstart = (*sectit).first.lower();
+    sectdata = section_contents_of_binary(O, (*sectit).second);
   }
+  libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
 
   //
-  // liveness analysis to compute inputs
+  // conduct a recursive descent of the function, and translate each basic block
+  // into QEMU TCG intermediate
   //
+  translate_basic_block(f, addr);
+
+#if 1
+  write_function_graphviz(f);
+#endif
 
   //
-  // worklist algorithm
+  // determine parameters for function
   //
+  compute_params(f);
 
-  // iterate vertices in reverse topological order since this is a backwards-
-  // flow data analysis
+  //
+  // determine return values for function (and other outputs to cpu state)
+  //
+  compute_returned(f);
+
+#if 1
+  cout << '<';
+  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
+    if (f[boost::graph_bundle].params.test(a))
+      cout << ' ' << tcg_globals[a].nm;
+  cout << endl;
+
+  cout << '>';
+  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
+    if (f[boost::graph_bundle].outputs.test(a))
+      cout << ' ' << tcg_globals[a].nm;
+  cout << endl;
+#endif
+
+  return f;
+}
+
+void translator::compute_params(function_t& f) {
+  //
+  // compute defs and uses for each basic block in preparation for liveness
+  // analysis
+  //
+  for (basic_block_t bb : verticesByDFNum)
+    compute_basic_block_defs_and_uses(f[bb]);
+
+  //
+  // conduct data-flow analysis via iterative worklist algorithm. we iterate in
+  // reverse-preorder since this is a backwards data-flow analysis
+  //
   bool change;
   do {
     change = false;
@@ -463,19 +449,20 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
                        return glbl | f[boost::target(cf, f)].live_in;
                      });
       f[bb].live_in =
-          f[bb].uses | (f[bb].live_out & (~f[bb].defs | ~f[bb].dead));
+          f[bb].uses | (f[bb].live_out & ~(f[bb].defs | f[bb].dead));
 
-      change = change || (live_in_before != f[bb].live_in);
+      change = change || live_in_before != f[bb].live_in;
     }
   } while (change);
 
+  f[boost::graph_bundle].params = f[*boost::vertices(f).first].live_in;
+}
+
+void translator::compute_returned(function_t& f) {
+  basic_block_t entry = *boost::vertices(f).first;
+
   vector<basic_block_t> idoms(boost::num_vertices(f),
                               boost::graph_traits<function_t>::null_vertex());
-#if 0
-  boost::lengauer_tarjan_dominator_tree(
-      f, entry, boost::make_iterator_property_map(
-                    idoms.begin(), boost::get(boost::vertex_index, f)));
-#else
   boost::lengauer_tarjan_dominator_tree_without_dfs(
       f, entry, boost::get(boost::vertex_index, f),
       boost::get(boost::vertex_index, f),
@@ -483,7 +470,6 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
                                         boost::get(boost::vertex_index, f)),
       verticesByDFNum, boost::make_iterator_property_map(
                            idoms.begin(), boost::get(boost::vertex_index, f)));
-#endif
 
   for (auto i : boost::irange<unsigned>(0, idoms.size())) {
     if (idoms[i] == boost::graph_traits<function_t>::null_vertex())
@@ -508,39 +494,39 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
   typedef boost::filtered_graph<function_t, dom_edges> domtree_t;
   domtree_t domtree(f, e_filter);
 
+#if 0
   {
-    ofstream of((boost::format("%lx.domtree.dot") % addr).str());
+    ofstream of(
+        (boost::format("%lx.domtree.dot") % f[boost::graph_bundle].entry_point)
+            .str());
     boost::write_graphviz(of, domtree,
                           graphviz_label_writer<domtree_t>(*this, domtree),
                           graphviz_edge_prop_writer(), graphviz_prop_writer());
   }
+#endif
 
   struct dfs_visitor : public boost::default_dfs_visitor {
-    domtree_t& f;
-    basic_block_t entry;
+    domtree_t &f;
 
-    dfs_visitor(domtree_t &f, basic_block_t entry)
-        : f(f), entry(entry) {}
+    dfs_visitor(domtree_t &f) : f(f) {}
 
     void discover_vertex(basic_block_t bb, const domtree_t &) const {
       domtree_t::in_edge_iterator ei, eie;
       tie(ei, eie) = in_edges(bb, f);
-      if (ei == eie) // root vertex
+      if (ei == eie) { // root vertex
+        f[bb].outputs = f[bb].defs;
         return;
+      }
 
+      // immediate dominator is unique
       basic_block_t idom = boost::source(*ei, f);
+      tcg::global_set_t &outs_a = f[idom].outputs;
 
-      tcg::global_set_t &uses_a = f[idom].uses;
-      tcg::global_set_t &defs_a = f[idom].defs;
-      tcg::global_set_t &dead_a = f[idom].dead;
-
-      tcg::global_set_t &uses_b = f[bb].uses;
       tcg::global_set_t &defs_b = f[bb].defs;
       tcg::global_set_t &dead_b = f[bb].dead;
+      tcg::global_set_t &outs_b = f[bb].outputs;
 
-      uses_b = uses_a | (uses_b & ~defs_a & ~dead_a);
-      dead_b |= (dead_a & ~defs_b);
-      defs_b |= defs_a;
+      outs_b = defs_b | outs_a & ~dead_b;
     }
 
     void finish_vertex(basic_block_t bb, const domtree_t &) const {
@@ -549,61 +535,36 @@ tuple<Function *, Function *> translator::translate(address_t addr) {
       if (ei != eie) // non-leaf vertex
         return;
 
-      tcg::global_set_t &uses = f[bb].uses;
-      tcg::global_set_t &defs = f[bb].defs;
-
-      // XXX put this information elsewhere?
-      f[entry].uses |= uses;
-      f[entry].defs |= defs;
+      f[boost::graph_bundle].outputs |= f[bb].outputs;
     }
   };
 
-  dfs_visitor vis(domtree, entry);
+  //
+  // determine outputs
+  //
+  dfs_visitor vis(domtree);
   boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
-
-  cout << '<';
-  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
-    if (domtree[entry].uses.test(a))
-      cout << ' ' << tcg_globals[a].nm;
-  cout << endl;
-
-  cout << '>';
-  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a)
-    if (domtree[entry].defs.test(a))
-      cout << ' ' << tcg_globals[a].nm;
-  cout << endl;
-
-  return make_tuple(FnThunk, Fn);
 }
-
-static tuple<address_t, address_t, unsigned, unique_ptr<tcg::Op[]>,
-             unique_ptr<tcg::Arg[]>>
-translate_to_tcg(address_t addr);
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
   basic_block_t bb = boost::add_vertex(f);
   f[bb].addr = addr;
+
   translated_basic_blocks.insert(make_pair(addr, bb));
   parentMap.resize(boost::num_vertices(f));
   verticesByDFNum.push_back(bb);
 
-  address_t last_instr_addr, succ_addr;
-  tie(last_instr_addr, succ_addr, f[bb].first_tcg_op_idx, f[bb].tcg_ops,
-      f[bb].tcg_args) = translate_to_tcg(addr);
+  address_t succ_addr = addr + libqemutcg_translate(addr);
+  f[bb].first_tcg_op_idx = libqemutcg_first_op_index();
 
-  calculate_defs_and_uses(f[bb]);
+  f[bb].tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
+  f[bb].tcg_args.reset(new tcg::Arg[libqemutcg_max_params()]);
 
-#if 0
-  for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
-    if (f[bb].defs.test(a))
-      printf("DEF: %s\n", tcg_globals[a].nm);
+  libqemutcg_copy_ops(f[bb].tcg_ops.get());
+  libqemutcg_copy_params(f[bb].tcg_args.get());
 
-    if (f[bb].uses.test(a))
-      printf("USE: %s\n", tcg_globals[a].nm);
-  }
-#endif
-
+  address_t last_instr_addr = libqemutcg_last_tcg_op_addr();
   MCInst Inst;
   uint64_t size = libmc_analyze_instr(
       Inst, sectdata.data() + (last_instr_addr - sectstart), last_instr_addr);
@@ -612,44 +573,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   assert(MIA); /* only available on ARM & X86 */
 
   uint64_t target;
-  bool has_target = MIA->evaluateBranch(Inst, last_instr_addr, size, target);
-
-#if 0
-  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
-
-  printf("MCInstrAnalysis (%lu bytes)\n", size);
-  if (MIA->isReturn(Inst))
-    printf("Return\n");
-  if (MIA->isBranch(Inst))
-    printf("Branch\n");
-  if (MIA->isConditionalBranch(Inst))
-    printf("Conditional Branch\n");
-  if (MIA->isUnconditionalBranch(Inst))
-    printf("Unconditional Branch\n");
-  if (MIA->isIndirectBranch(Inst))
-    printf("Indirect Branch\n");
-  if (MIA->isCall(Inst)) {
-    printf("Call\n");
-    if (!has_target)
-      printf("IndirectCall\n");
-  }
-  if (has_target)
-    printf("Target: 0x%lx\n", target);
-
-  printf("MCInstrDesc\n");
-  if (Desc.isReturn())
-    printf("Return\n");
-  if (Desc.isBranch())
-    printf("Branch\n");
-  if (Desc.isConditionalBranch())
-    printf("Conditional Branch\n");
-  if (Desc.isUnconditionalBranch())
-    printf("Unconditional Branch\n");
-  if (Desc.isIndirectBranch())
-    printf("Indirect Branch\n");
-  if (Desc.isCall())
-    printf("Call\n");
-#endif
+  MIA->evaluateBranch(Inst, last_instr_addr, size, target);
 
   auto control_flow_to = [&](address_t dst_addr) -> void {
     auto bb_it = translated_basic_blocks.find(dst_addr);
@@ -678,37 +602,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   return bb;
 }
 
-translator::basic_block_t translator::translate_function(function_t& f) {
-  //
-  // recursive descent
-  //
-  return translate_basic_block(f, f[boost::graph_bundle].entry_point);
-}
-
-tuple<address_t, address_t, unsigned, unique_ptr<tcg::Op[]>,
-      unique_ptr<tcg::Arg[]>>
-translate_to_tcg(address_t addr) {
-  address_t succ_addr = addr + libqemutcg_translate(addr);
-#if 0
-  libqemutcg_print_ops();
-#endif
-
-  unique_ptr<tcg::Op[]> ops(new tcg::Op[libqemutcg_max_ops()]);
-  unique_ptr<tcg::Arg[]> params(new tcg::Arg[libqemutcg_max_params()]);
-
-  unsigned first_tcg_op_idx = libqemutcg_first_op_index();
-  uint64_t last_instr_addr = libqemutcg_last_tcg_op_addr();
-
-  libqemutcg_copy_ops(ops.get());
-  libqemutcg_copy_params(params.get());
-
-  return make_tuple(last_instr_addr, succ_addr, first_tcg_op_idx, move(ops),
-                    move(params));
-}
-
-static void libqemutcg_print_ops(const tcg::Op *ops, const tcg::Arg *params);
-
-void translator::calculate_defs_and_uses(basic_block_properties_t &bbprop) {
+void translator::compute_basic_block_defs_and_uses(
+    basic_block_properties_t &bbprop) {
   tcg::global_set_t &defs = bbprop.defs;
   tcg::global_set_t &uses = bbprop.uses;
   tcg::global_set_t &dead = bbprop.dead;
@@ -923,4 +818,83 @@ void translator::print_tcg_ops(ostream &out,
     out << endl;
   }
 }
+
+template <typename Graph> struct graphviz_label_writer {
+  translator& t;
+  const Graph &g;
+  graphviz_label_writer(translator& t, const Graph &g) : t(t), g(g) {}
+
+  template <class VertexOrEdge>
+  void operator()(std::ostream &out, const VertexOrEdge &v) const {
+    std::string s;
+
+    {
+      ostringstream oss;
+      t.print_tcg_ops(oss, g[v]);
+      s = oss.str();
+    }
+
+    s.reserve(2 * s.size());
+
+    boost::replace_all(s, "\\", "\\\\");
+    boost::replace_all(s, "\r\n", "\\l");
+    boost::replace_all(s, "\n", "\\l");
+    boost::replace_all(s, "\"", "\\\"");
+    boost::replace_all(s, "{", "\\{");
+    boost::replace_all(s, "}", "\\}");
+    boost::replace_all(s, "|", "\\|");
+    boost::replace_all(s, "|", "\\|");
+    boost::replace_all(s, "<", "\\<");
+    boost::replace_all(s, ">", "\\>");
+    boost::replace_all(s, "(", "\\(");
+    boost::replace_all(s, ")", "\\)");
+    boost::replace_all(s, ",", "\\,");
+    boost::replace_all(s, ";", "\\;");
+    boost::replace_all(s, ":", "\\:");
+    boost::replace_all(s, " ", "\\ ");
+
+    out << "[label=\"";
+    out << s;
+    out << "\"]";
+  }
+};
+
+struct graphviz_edge_prop_writer {
+  template <class Edge>
+  void operator()(ostream &out, const Edge &e) const {
+    static const char *edge_type_styles[] = {
+        "solid", "dashed", /*"invis"*/ "dotted"
+    };
+
+    out << "[style=\"" << edge_type_styles[0] << "\"]";
+  }
+};
+
+struct graphviz_prop_writer {
+  void operator()(ostream &out) const {
+    out << "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "\n"
+           "node [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "shape = \"record\"\n"
+           "]\n"
+           "\n"
+           "edge [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "]\n"
+           "\n";
+  }
+};
+
+
+void translator::write_function_graphviz(function_t &f) {
+  ofstream of(
+      (boost::format("%lx.dot") % f[boost::graph_bundle].entry_point).str());
+  boost::write_graphviz(of, f, graphviz_label_writer<function_t>(*this, f),
+                        graphviz_edge_prop_writer(), graphviz_prop_writer());
+}
+
 }
