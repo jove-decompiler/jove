@@ -114,8 +114,6 @@ struct helper_t {
 class translator {
 public:
   struct basic_block_properties_t {
-    int index;
-
     address_t addr;
 
     unsigned first_tcg_op_idx;
@@ -231,8 +229,7 @@ private:
   
   void compute_returned(function_t&);
 
-  void explode_tcg_global_set(std::vector<const tcg::global_t *> &,
-                              tcg::global_set_t);
+  void explode_tcg_global_set(std::vector<tcg::Arg> &, tcg::global_set_t);
   void translate_function_llvm(function_t &f);
 
 public:

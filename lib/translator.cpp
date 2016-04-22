@@ -339,10 +339,17 @@ translator::translate(const std::vector<address_t> &addrs) {
 #if 1
     cout << hex << addr << endl;
 
-    cout << 'I';
+    cout << '<';
     tcg::global_set_t all = f[boost::graph_bundle].params |
                             f[boost::graph_bundle].returned |
                             f[boost::graph_bundle].outputs;
+
+    vector<tcg::Arg> params;
+    glbv.reserve(tcg::num_globals);
+    explode_tcg_global_set(glbv, f[boost::graph_bundle].params);
+
+    for (auto g : params)
+        cout << ' ' << tcg_globals[g].nm;
 
     for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
       if (!all.test(a))
@@ -355,7 +362,7 @@ translator::translate(const std::vector<address_t> &addrs) {
     }
     cout << endl;
 
-    cout << 'R';
+    cout << '>';
     for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
       if (!all.test(a))
         continue;
@@ -367,7 +374,7 @@ translator::translate(const std::vector<address_t> &addrs) {
     }
     cout << endl;
 
-    cout << 'O';
+    cout << '≥';
     for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
       if (!all.test(a))
         continue;
@@ -1058,7 +1065,7 @@ void translator::write_function_graphviz(function_t &f) {
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
 }
 
-void translator::explode_tcg_global_set(vector<const tcg::global_t *> &out,
+void translator::explode_tcg_global_set(vector<tcg::Arg> &out,
                                         tcg::global_set_t glbs) {
   static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
                 "unsigned long long must be 64-bits");
@@ -1090,7 +1097,7 @@ void translator::explode_tcg_global_set(vector<const tcg::global_t *> &out,
     int pos = ffsll(x) + 1;
     x <<= pos;
     idx += pos;
-    out.push_back(&tcg_globals[idx-1]);
+    out.push_back(idx-1);
   } while (x);
 }
 
@@ -1098,25 +1105,38 @@ void translator::translate_function_llvm(function_t& f) {
   //
   // build function type
   //
-  auto return_type = [&]() -> Type* {
-    if (f[boost::graph_bundle].returned.none())
-      return Type::getVoidTy(C);
+  auto types_of_tcg_global_set = [&](vector<Type *> tys,
+                                     tcg::global_set_t glbs) -> void {
+    if (glbs.none())
+      return;
 
-    vector<const tcg::global_t*> returned;
-    returned.reserve(tcg::num_globals);
-    explode_tcg_global_set(returned, f[boost::graph_bundle].returned);
+    vector<tcg::Arg> glbv;
+    glbv.reserve(tcg::num_globals);
+    explode_tcg_global_set(glbv, glbs);
 
-    Type* retTy = StructType::get(LLVMContext &Context, ArrayRef<Type*> Elements, bool isPacked = false);
+    tys.resize(glbv.size());
+    transform(glbv.begin(), glbv.end(), tys.begin(), [&](tcg::Arg g) {
+      return IntegerType::get(C,
+                              tcg_globals[g].ty == tcg::GLOBAL_I32 ? 32 : 64);
+    });
   };
 
-  FunctionType* ty = FunctionType::get(Type *Result,
-                                                      ArrayRef<Type*> Params, bool isVarArg);
+  vector<Type*> param_tys;
+  vector<Type*> return_tys;
 
+  types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
+  types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
+
+  FunctionType *ty =
+      FunctionType::get(StructType::get(C, ArrayRef<Type *>(return_tys)),
+                        ArrayRef<Type *>(param_tys), false);
 
   //
   // create function
   //
-  llf = Function::Create(fty, GlobalValue::ExternalLinkage, (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), M);
+  Function *llf = Function::Create(
+      ty, GlobalValue::ExternalLinkage,
+      (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
 }
 
 }
