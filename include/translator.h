@@ -91,6 +91,59 @@ struct Op {
   signed next : 16;
 };
 typedef tcg_target_ulong Arg;
+
+enum Type {
+    TYPE_I32,
+    TYPE_I64,
+    TYPE_COUNT, /* number of different types */
+
+    /* An alias for the size of the host register.  */
+#if TCG_TARGET_REG_BITS == 32
+    TYPE_REG = TYPE_I32,
+#else
+    TYPE_REG = TYPE_I64,
+#endif
+
+    /* An alias for the size of the native pointer.  */
+#if UINTPTR_MAX == UINT32_MAX
+    TYPE_PTR = TYPE_I32,
+#else
+    TYPE_PTR = TYPE_I64,
+#endif
+
+    /* An alias for the size of the target "long", aka register.  */
+#if TARGET_LONG_BITS == 64
+    TYPE_TL = TYPE_I64,
+#else
+    TYPE_TL = TYPE_I32,
+#endif
+};
+
+enum TempVal {
+    TEMP_VAL_DEAD,
+    TEMP_VAL_REG,
+    TEMP_VAL_MEM,
+    TEMP_VAL_CONST,
+};
+
+struct Tmp {
+    unsigned int reg:8;
+    unsigned int mem_reg:8;
+    TempVal val_type:8;
+    Type base_type:8;
+    Type type:8;
+    unsigned int fixed_reg:1;
+    unsigned int mem_coherent:1;
+    unsigned int mem_allocated:1;
+    unsigned int temp_local:1; /* If true, the temp is saved across
+                                  basic blocks. Otherwise, it is not
+                                  preserved across basic blocks. */
+    unsigned int temp_allocated:1; /* never used for code gen */
+
+    tcg_target_long val;
+    intptr_t mem_offset;
+    const char *name;
+};
 /* XXX QEMUVERSIONDEPENDENT */
 
 enum GLOBAL_TYPE { GLOBAL_I32, GLOBAL_I64, UNDEFINED };
@@ -102,6 +155,9 @@ struct global_t {
 };
 
 typedef std::bitset<num_globals> global_set_t;
+
+constexpr unsigned longest_word_bits = sizeof(unsigned long long)*8;
+typedef std::bitset<longest_word_bits> temp_set_t;
 
 struct helper_t {
   uintptr_t addr;
@@ -119,6 +175,8 @@ public:
     unsigned first_tcg_op_idx;
     std::unique_ptr<tcg::Op[]> tcg_ops;
     std::unique_ptr<tcg::Arg[]> tcg_args;
+    std::unique_ptr<tcg::Tmp[]> tcg_tmps;
+    unsigned num_tmps;
 
     // for computing inputs & outputs
     tcg::global_set_t uses;
@@ -129,6 +187,8 @@ public:
     tcg::global_set_t live_out;
 
     tcg::global_set_t outputs;
+
+    llvm::BasicBlock* llbb;
   };
 
   struct function_properties_t {
@@ -140,8 +200,7 @@ public:
     tcg::global_set_t params;
 
     //
-    // the set of TCG globals which are written to the CPUState, and not
-    // returned.
+    // the set of TCG globals which are written to
     //
     tcg::global_set_t outputs;
 
@@ -226,11 +285,17 @@ private:
 
   void compute_basic_block_defs_and_uses(basic_block_properties_t &);
   void compute_params(function_t&);
-  
+ 
   void compute_returned(function_t&);
 
-  void explode_tcg_global_set(std::vector<tcg::Arg> &, tcg::global_set_t);
+  void explode_tcg_global_set(std::vector<unsigned> &, tcg::global_set_t);
+  void explode_tcg_temp_set(std::vector<unsigned> &, tcg::temp_set_t);
   void translate_function_llvm(function_t &f);
+  void translate_llvm(const std::vector<address_t> &);
+  std::pair<tcg::temp_set_t, tcg::global_set_t>
+  compute_tcg_temps_and_globals_used(basic_block_properties_t &);
+
+  std::array<llvm::Value*, tcg::max_temps> tcg_arg_to_llv_m;
 
 public:
   translator(llvm::object::ObjectFile &, llvm::LLVMContext &, llvm::Module &);

@@ -1,8 +1,8 @@
+#include "qemutcg.h"
 #include "cpu.h"
 #include "tcg.h"
 #include "mc.h"
 #include <libgen.h>
-#include "qemutcg.h"
 
 char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size, int idx);
 const char *tcg_find_helper(TCGContext *s, uintptr_t val);
@@ -188,6 +188,10 @@ unsigned libqemutcg_max_params() {
   return OPPARAM_BUF_SIZE;
 }
 
+unsigned libqemutcg_num_tmps() {
+  return tcg_ctx.nb_temps;
+}
+
 unsigned libqemutcg_first_op_index() {
   return tcg_ctx.gen_first_op_idx;
 }
@@ -237,6 +241,12 @@ void libqemutcg_copy_params(void* dst) {
   } while (oi >= 0);
 
   memcpy(dst, tcg_ctx.gen_opparam_buf, (max_args_idx + 1) * sizeof(TCGArg));
+}
+
+void libqemutcg_copy_tmps(void* dst) {
+  memcpy(((uint8_t *)dst) + tcg_ctx.nb_globals * sizeof(TCGTemp),
+         tcg_ctx.temps + tcg_ctx.nb_globals,
+         (tcg_ctx.nb_temps - tcg_ctx.nb_globals) * sizeof(TCGTemp));
 }
 
 void libqemutcg_print_ops(void) {

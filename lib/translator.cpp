@@ -15,6 +15,7 @@
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/IR/IRBuilder.h>
 #include <boost/range/adaptor/reversed.hpp>
 
 using namespace llvm;
@@ -76,6 +77,10 @@ constexpr Arg CPU_STATE_ARG = 0;
 
 static bool is_arg_global(Arg a) {
   return a != CPU_STATE_ARG && a != CALL_DUMMY_ARG && a < tcg::num_globals;
+}
+
+static bool is_arg_temp(Arg a) {
+  return a >= tcg::num_globals && a != CALL_DUMMY_ARG;
 }
 
 enum MemOp {
@@ -339,7 +344,7 @@ translator::translate(const std::vector<address_t> &addrs) {
 #if 1
     cout << hex << addr << endl;
 
-    vector<tcg::Arg> params, returned, outputs;
+    vector<unsigned> params, returned, outputs;
 
     explode_tcg_global_set(params, f[boost::graph_bundle].params);
     explode_tcg_global_set(returned, f[boost::graph_bundle].returned);
@@ -375,6 +380,8 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   // translate functions to llvm
   //
+  translate_llvm(functions_translated);
+
   for (address_t addr : boost::adaptors::reverse(functions_translated)) {
     function_t& f = *function_table[addr];
     translate_function_llvm(f);
@@ -623,19 +630,23 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // prepare data structures for new basic block
   //
   basic_block_t bb = boost::add_vertex(f);
+  f[bb].addr = addr;
   translated_basic_blocks[addr] = bb;
   parentMap.resize(boost::num_vertices(f));
   verticesByDFNum.push_back(bb);
 
   //
-  // fill basic block properties
+  // copy TCG translation data structures to basic block properties
   //
-  f[bb].addr = addr;
   f[bb].first_tcg_op_idx = libqemutcg_first_op_index();
   f[bb].tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
   f[bb].tcg_args.reset(new tcg::Arg[libqemutcg_max_params()]);
+  f[bb].tcg_tmps.reset(new tcg::Tmp[libqemutcg_num_tmps()]);
   libqemutcg_copy_ops(f[bb].tcg_ops.get());
   libqemutcg_copy_params(f[bb].tcg_args.get());
+  libqemutcg_copy_tmps(f[bb].tcg_tmps.get());
+
+  cout << "NUM TMPS: " << dec << libqemutcg_num_tmps() << endl;
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
@@ -1054,29 +1065,8 @@ void translator::write_function_graphviz(function_t &f) {
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
 }
 
-void translator::explode_tcg_global_set(vector<tcg::Arg> &out,
+void translator::explode_tcg_global_set(vector<unsigned> &out,
                                         tcg::global_set_t glbs) {
-  static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
-                "unsigned long long must be 64-bits");
-
-  constexpr unsigned long long mask_no_bit_table[64] = {
-      ~(1ULL >> 0),  ~(1ULL >> 1),  ~(1ULL >> 2),  ~(1ULL >> 3),
-      ~(1ULL >> 4),  ~(1ULL >> 5),  ~(1ULL >> 6),  ~(1ULL >> 7),
-      ~(1ULL >> 8),  ~(1ULL >> 9),  ~(1ULL >> 10), ~(1ULL >> 11),
-      ~(1ULL >> 12), ~(1ULL >> 13), ~(1ULL >> 14), ~(1ULL >> 15),
-      ~(1ULL >> 16), ~(1ULL >> 17), ~(1ULL >> 18), ~(1ULL >> 19),
-      ~(1ULL >> 20), ~(1ULL >> 21), ~(1ULL >> 22), ~(1ULL >> 23),
-      ~(1ULL >> 24), ~(1ULL >> 25), ~(1ULL >> 26), ~(1ULL >> 27),
-      ~(1ULL >> 28), ~(1ULL >> 29), ~(1ULL >> 30), ~(1ULL >> 31),
-      ~(1ULL >> 32), ~(1ULL >> 33), ~(1ULL >> 34), ~(1ULL >> 35),
-      ~(1ULL >> 36), ~(1ULL >> 37), ~(1ULL >> 38), ~(1ULL >> 39),
-      ~(1ULL >> 40), ~(1ULL >> 41), ~(1ULL >> 42), ~(1ULL >> 43),
-      ~(1ULL >> 44), ~(1ULL >> 45), ~(1ULL >> 46), ~(1ULL >> 47),
-      ~(1ULL >> 48), ~(1ULL >> 49), ~(1ULL >> 50), ~(1ULL >> 51),
-      ~(1ULL >> 52), ~(1ULL >> 53), ~(1ULL >> 54), ~(1ULL >> 55),
-      ~(1ULL >> 56), ~(1ULL >> 57), ~(1ULL >> 58), ~(1ULL >> 59),
-      ~(1ULL >> 60), ~(1ULL >> 61), ~(1ULL >> 62), ~(1ULL >> 63)};
-
   if (glbs.none())
     return;
 
@@ -1085,9 +1075,6 @@ void translator::explode_tcg_global_set(vector<tcg::Arg> &out,
   unsigned long long x = glbs.to_ullong();
   int idx = 0;
   do {
-#if 0
-    cout << "EXPLODE " << hex << x << endl;
-#endif
     int pos = ffsll(x) + 1;
     x >>= pos;
     idx += pos;
@@ -1095,41 +1082,199 @@ void translator::explode_tcg_global_set(vector<tcg::Arg> &out,
   } while (x);
 }
 
+void translator::explode_tcg_temp_set(vector<unsigned> &out,
+                                      tcg::temp_set_t tmps) {
+  if (tmps.none())
+    return;
+
+  out.reserve(tcg::num_globals*2);
+
+  unsigned long long x = tmps.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x) + 1;
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1 + tcg::num_globals);
+  } while (x);
+}
+
+void translator::translate_llvm(const vector<address_t> &addrs) {
+  //
+  // Create prototypes for each function
+  //
+  for (address_t addr : addrs) {
+    function_t &f = *function_table[addr];
+
+    //
+    // build function type
+    //
+    auto types_of_tcg_global_set = [&](vector<Type *> tys,
+                                       tcg::global_set_t glbs) -> void {
+      if (glbs.none())
+        return;
+
+      vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, glbs);
+
+      tys.resize(glbv.size());
+      transform(glbv.begin(), glbv.end(), tys.begin(), [&](unsigned gidx) {
+        return IntegerType::get(
+            C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64);
+      });
+    };
+
+    vector<Type *> param_tys;
+    vector<Type *> return_tys;
+
+    types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
+    types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
+
+    FunctionType *ty =
+        FunctionType::get(StructType::get(C, ArrayRef<Type *>(return_tys)),
+                          ArrayRef<Type *>(param_tys), false);
+
+    //
+    // create function
+    //
+    f[boost::graph_bundle].llf = Function::Create(
+        ty, GlobalValue::ExternalLinkage,
+        (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
+  }
+
+  //
+  // translate TCG -> LLVM for each function
+  //
+  for (address_t addr : addrs) {
+    function_t &f = *function_table[addr];
+    translate_function_llvm(f);
+  }
+}
+
 void translator::translate_function_llvm(function_t& f) {
   //
-  // build function type
+  // the first step in translating TCG to LLVM is creating an LLVM basic block
+  // for each TCG basic block
   //
-  auto types_of_tcg_global_set = [&](vector<Type *> tys,
-                                     tcg::global_set_t glbs) -> void {
-    if (glbs.none())
-      return;
+  boost::graph_traits<function_t>::vertex_iterator vi, vi_end;
+  for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi)
+    f[*vi].llbb =
+        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(),
+                           f[boost::graph_bundle].llf);
 
-    vector<tcg::Arg> glbv;
-    explode_tcg_global_set(glbv, glbs);
+  //
+  // next we computing the set of TCG temps that are used so that we may
+  // create alloca's for each of them at the head of the function
+  //
+  tie(vi, vi_end) = boost::vertices(f);
+  unsigned max_num_temps =
+      accumulate(vi, vi_end, 0u, [&](unsigned res, basic_block_t bb) {
+        return max(res, f[bb].num_tmps);
+      });
 
-    tys.resize(glbv.size());
-    transform(glbv.begin(), glbv.end(), tys.begin(), [&](tcg::Arg g) {
-      return IntegerType::get(C,
-                              tcg_globals[g].ty == tcg::GLOBAL_I32 ? 32 : 64);
-    });
+  if (tcg::longest_word_bits < max_num_temps - tcg::num_globals) {
+    cerr << "can't do fast method for computing set of TCG temps used" << endl;
+    exit(1);
+  }
+
+
+  tcg::temp_set_t tmps_used_s;
+  tcg::global_set_t glb_used_s;
+
+  tie(vi, vi_end) = boost::vertices(f);
+  tie(tmps_used_s, glb_used_s) = accumulate(
+      vi, vi_end, make_pair(tcg::temp_set_t(), tcg::global_set_t()),
+      [&](pair<tcg::temp_set_t, tcg::global_set_t> res,
+          basic_block_t bb) -> pair<tcg::temp_set_t, tcg::global_set_t> {
+        tcg::temp_set_t tmps;
+        tcg::global_set_t glb;
+        tie(tmps, glb) = compute_tcg_temps_and_globals_used(f[bb]);
+
+        return make_pair(res.first | tmps, res.second | glb);
+      });
+
+  vector<unsigned> tmps_used_v;
+  vector<unsigned> glb_used_v;
+
+  explode_tcg_temp_set(tmps_used_v, tmps_used_s);
+  explode_tcg_global_set(glb_used_v, glb_used_s);
+
+  basic_block_t entry = *boost::vertices(f).first;
+
+  IRBuilder<> b(C);
+  b.SetInsertPoint(f[entry].llbb);
+  for (auto tmp : tmps_used_v)
+    b.CreateAlloca(wordType());
+}
+
+pair<tcg::temp_set_t, tcg::global_set_t>
+translator::compute_tcg_temps_and_globals_used(
+    basic_block_properties_t &bbprop) {
+  tcg::temp_set_t tmps_res;
+  tcg::global_set_t glb_res;
+
+  auto arg = [&](tcg::Arg a) -> void {
+    if (a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG) {
+      if (a < tcg::num_globals)
+        glb_res.set(a);
+      else
+        tmps_res.set(a);
+    }
   };
 
-  vector<Type*> param_tys;
-  vector<Type*> return_tys;
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  const tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    op = &ops[oi];
+    const tcg::Opcode c = op->opc;
+    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::Arg *args = &params[op->args];
 
-  types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
-  types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
+    int nb_iargs = 0;
+    int nb_oargs = 0;
 
-  FunctionType *ty =
-      FunctionType::get(StructType::get(C, ArrayRef<Type *>(return_tys)),
-                        ArrayRef<Type *>(param_tys), false);
+    tcg::global_set_t iglb, oglb;
 
-  //
-  // create function
-  //
-  Function *llf = Function::Create(
-      ty, GlobalValue::ExternalLinkage,
-      (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
+    switch (c) {
+    case tcg::INDEX_op_discard:
+      arg(args[0]);
+      continue;
+    case tcg::INDEX_op_call:
+      nb_iargs = op->calli;
+      nb_oargs = op->callo;
+
+      if (c == tcg::INDEX_op_call) {
+        //
+        // take into account extra inputs and/or outputs by our version of the
+        // helpers
+        //
+        auto h_addr = args[nb_oargs + nb_iargs];
+        auto h_it = tcg_helper_addr_map.find(h_addr);
+        if (h_it == tcg_helper_addr_map.end()) {
+          cerr << "warning: bad call to tcg helper" << endl;
+          continue;
+        }
+
+        tcg::helper_t *h = (*h_it).second;
+        iglb = h->inglb;
+        oglb = h->outglb;
+      }
+      break;
+    default:
+      nb_iargs = def->nb_iargs;
+      nb_oargs = def->nb_oargs;
+      break;
+    }
+
+    for (int i = 0; i < nb_iargs; i++)
+      arg(args[nb_oargs + i]);
+
+    for (int i = 0; i < nb_oargs; i++)
+      arg(args[i]);
+  }
+
+  return make_pair(tmps_res, glb_res);
 }
 
 }

@@ -31,6 +31,8 @@ static unsigned num_globals(void) {
 
 static unsigned num_helpers(void) { return g_hash_table_size(tcg_ctx.helpers); }
 
+static unsigned max_temps(void) { return TCG_MAX_TEMPS; }
+
 int main(int argc, char **argv) {
   libqemutcg_init();
 
@@ -43,9 +45,10 @@ int main(int argc, char **argv) {
            "namespace tcg {\n"
            "constexpr unsigned num_globals = %u;\n"
            "constexpr unsigned num_helpers = %u;\n"
+           "constexpr unsigned max_temps = %u;\n"
            "}\n"
            "}",
-           num_globals(), num_helpers());
+           num_globals(), num_helpers(), max_temps());
 
   return 0;
 }
