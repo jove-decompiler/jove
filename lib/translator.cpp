@@ -339,51 +339,25 @@ translator::translate(const std::vector<address_t> &addrs) {
 #if 1
     cout << hex << addr << endl;
 
+    vector<tcg::Arg> params, returned, outputs;
+
+    explode_tcg_global_set(params, f[boost::graph_bundle].params);
+    explode_tcg_global_set(returned, f[boost::graph_bundle].returned);
+    explode_tcg_global_set(outputs, f[boost::graph_bundle].outputs);
+
     cout << '<';
-    tcg::global_set_t all = f[boost::graph_bundle].params |
-                            f[boost::graph_bundle].returned |
-                            f[boost::graph_bundle].outputs;
-
-    vector<tcg::Arg> params;
-    glbv.reserve(tcg::num_globals);
-    explode_tcg_global_set(glbv, f[boost::graph_bundle].params);
-
     for (auto g : params)
-        cout << ' ' << tcg_globals[g].nm;
-
-    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
-      if (!all.test(a))
-        continue;
-
-      if (f[boost::graph_bundle].params.test(a))
-        cout << ' ' << tcg_globals[a].nm;
-      else
-        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
-    }
+      cout << ' ' << tcg_globals[g].nm;
     cout << endl;
 
     cout << '>';
-    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
-      if (!all.test(a))
-        continue;
-
-      if (f[boost::graph_bundle].returned.test(a))
-        cout << ' ' << tcg_globals[a].nm;
-      else
-        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
-    }
+    for (auto g : returned)
+      cout << ' ' << tcg_globals[g].nm;
     cout << endl;
 
-    cout << '≥';
-    for (tcg::Arg a = tcg::FIRST_GLOBAL_IDX; a < tcg::num_globals; ++a) {
-      if (!all.test(a))
-        continue;
-
-      if (f[boost::graph_bundle].outputs.test(a))
-        cout << ' ' << tcg_globals[a].nm;
-      else
-        cout << ' ' << string(strlen(tcg_globals[a].nm), ' ');
-    }
+    cout << '=';
+    for (auto g : outputs)
+      cout << ' ' << tcg_globals[g].nm;
     cout << endl;
 #endif
   }
@@ -1059,9 +1033,24 @@ struct graphviz_prop_writer {
 
 
 void translator::write_function_graphviz(function_t &f) {
+  struct normal_edges {
+    translator::function_t *f;
+
+    normal_edges() {}
+    normal_edges(translator::function_t *f) : f(f) {}
+
+    bool operator()(const control_flow_t &e) const {
+      translator::function_t &_f = *f;
+      return !_f[e].dom;
+    }
+  };
+
+  normal_edges e_filter(&f);
+  boost::filtered_graph<function_t, normal_edges> graph(f, e_filter);
+
   ofstream of(
       (boost::format("%lx.dot") % f[boost::graph_bundle].entry_point).str());
-  boost::write_graphviz(of, f, graphviz_label_writer<function_t>(*this, f),
+  boost::write_graphviz(of, graph, graphviz_label_writer<function_t>(*this, f),
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
 }
 
@@ -1091,11 +1080,16 @@ void translator::explode_tcg_global_set(vector<tcg::Arg> &out,
   if (glbs.none())
     return;
 
+  out.reserve(tcg::num_globals);
+
   unsigned long long x = glbs.to_ullong();
   int idx = 0;
   do {
+#if 0
+    cout << "EXPLODE " << hex << x << endl;
+#endif
     int pos = ffsll(x) + 1;
-    x <<= pos;
+    x >>= pos;
     idx += pos;
     out.push_back(idx-1);
   } while (x);
@@ -1111,7 +1105,6 @@ void translator::translate_function_llvm(function_t& f) {
       return;
 
     vector<tcg::Arg> glbv;
-    glbv.reserve(tcg::num_globals);
     explode_tcg_global_set(glbv, glbs);
 
     tys.resize(glbv.size());
