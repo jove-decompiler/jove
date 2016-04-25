@@ -2,9 +2,12 @@
 #include "translator.h"
 #include <config-target.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Verifier.h>
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/ADT/Triple.h>
 #include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/Support/raw_ostream.h>
+#include <llvm/Bitcode/ReaderWriter.h>
 #include <boost/icl/interval_map.hpp>
 #include <boost/program_options.hpp>
 #include <boost/filesystem/path.hpp>
@@ -32,10 +35,9 @@ static void verify_arch(const ObjectFile *);
 static void print_obj_info(const ObjectFile *);
 
 static ObjectFile *O;
-static LLVMContext *C;
-static Module *M;
-static translator *T;
+static unique_ptr<translator> T;
 
+static void createImportedFunctions();
 static void createExportedFunctions();
 static void createExportedVariables();
 static void createThreadLocalVariables();
@@ -72,19 +74,14 @@ int main(int argc, char **argv) {
 #endif
 
   //
-  // create bitcode
-  //
-  unique_ptr<LLVMContext> _C(make_unique<LLVMContext>());
-  C = _C.get();
-
-  unique_ptr<Module> _M = make_unique<Module>(ifp.stem().string(), *C);
-  M = _M.get();
-
-  //
   // initialize translator
   //
-  unique_ptr<translator> _T = make_unique<translator>(*O, *C, *M);
-  T = _T.get();
+  T.reset(new translator(*O, ifp.stem().string()));
+
+  //
+  // create declarations for imported functions
+  //
+  createImportedFunctions();
 
   //
   // create definitions for exported functions
@@ -105,6 +102,15 @@ int main(int argc, char **argv) {
   // create section data, taking into account relocations
   //
   createSectionData();
+
+  if (verifyModule(T->module(), &errs())) {
+    errs().flush();
+    abort();
+  }
+
+  error_code ec;
+  raw_fd_ostream of(ifp.stem().string() + ".bc", ec, sys::fs::F_RW);
+  WriteBitcodeToFile(&T->module(), of);
 
   return 0;
 }
@@ -184,6 +190,11 @@ void print_obj_info(const ObjectFile *Obj) {
 }
 #endif
 
+void createImportedFunctions() {
+  vector<symbol_t> syms;
+  imported_functions_of_binary(*O, syms);
+}
+
 void createExportedFunctions() {
   vector<symbol_t> syms;
   exported_functions_of_binary(*O, syms);
@@ -193,7 +204,17 @@ void createExportedFunctions() {
             [](const symbol_t &s) { return s.addr; });
 
   T->translate(addrs);
+
+  for (symbol_t s : syms) {
+    Function* llf = T->function_of_addr(s.addr);
+
+    if (!llf)
+      continue;
+
+    llf->setName(s.name);
+  }
 }
+
 void createExportedVariables() {}
 void createThreadLocalVariables() {}
 void createSectionData() {}

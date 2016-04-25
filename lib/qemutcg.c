@@ -192,6 +192,10 @@ unsigned libqemutcg_num_tmps() {
   return tcg_ctx.nb_temps;
 }
 
+unsigned libqemutcg_num_labels() {
+  return tcg_ctx.nb_labels;
+}
+
 unsigned libqemutcg_first_op_index() {
   return tcg_ctx.gen_first_op_idx;
 }
@@ -401,7 +405,7 @@ void libqemutcg_print_ops(void) {
 }
 
 uint64_t libqemutcg_last_tcg_op_addr(void) {
-  uint64_t res = 0xdeadbeef;
+  uint64_t res = 0;
   TCGContext *const s = &tcg_ctx;
   TCGOp *op;
 
@@ -423,4 +427,30 @@ uint64_t libqemutcg_last_tcg_op_addr(void) {
   }
 
   return res;
+}
+
+uint64_t libqemutcg_second_to_last_tcg_op_addr(void) {
+  uint64_t res = 0, last_res = 0;
+  TCGContext *const s = &tcg_ctx;
+  TCGOp *op;
+
+  for (int oi = s->gen_first_op_idx; oi >= 0; oi = op->next) {
+    op = &s->gen_op_buf[oi];
+    TCGOpcode c = op->opc;
+    const TCGArg *args = &s->gen_opparam_buf[op->args];
+
+    if (c == INDEX_op_insn_start) {
+      int i = 0;
+      target_ulong a;
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+      a = ((target_ulong)args[i * 2 + 1] << 32) | args[i * 2];
+#else
+      a = args[i];
+#endif
+      last_res = res;
+      res = a;
+    }
+  }
+
+  return last_res;
 }

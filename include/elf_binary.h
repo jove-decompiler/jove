@@ -6,6 +6,9 @@
 
 namespace jove {
 
+void imported_functions_of_elf_binary(const llvm::object::ObjectFile &,
+                                      std::vector<symbol_t> &);
+
 void exported_functions_of_elf_binary(const llvm::object::ObjectFile &,
                                       std::vector<symbol_t> &);
 

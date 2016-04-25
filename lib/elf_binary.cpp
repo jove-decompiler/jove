@@ -11,6 +11,10 @@ template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   return Val ? *Val : Default;
 }
 
+void imported_functions_of_elf_binary(const llvm::object::ObjectFile &,
+                                      std::vector<symbol_t> &) {
+}
+
 template <typename ELFT>
 void exported_functions_of_elf(const ELFFile<ELFT> *ELF,
                                std::vector<symbol_t> & res) {

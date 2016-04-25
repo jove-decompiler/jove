@@ -8,6 +8,7 @@
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/IRBuilder.h>
 #include <llvm/Object/ObjectFile.h>
 #include <tuple>
 #include <unordered_map>
@@ -164,6 +165,7 @@ struct helper_t {
   const char *nm;
   llvm::Function *llf;
   global_set_t inglb, outglb;
+  std::vector<unsigned> inglbv, outglbv;
 };
 }
 
@@ -177,6 +179,19 @@ public:
     std::unique_ptr<tcg::Arg[]> tcg_args;
     std::unique_ptr<tcg::Tmp[]> tcg_tmps;
     unsigned num_tmps;
+    unsigned num_labels;
+
+    enum TERMINATOR {
+      TERM_UNCONDITIONAL_JUMP,
+      TERM_CONDITIONAL_JUMP,
+      TERM_CALL,
+      TERM_INDIRECT_CALL,
+      TERM_INDIRECT_JUMP,
+      TERM_RETURN,
+      TERM_UNKNOWN /* e.g. HLT, non-control flow instruction */
+    } term;
+
+    address_t callee;
 
     // for computing inputs & outputs
     tcg::global_set_t uses;
@@ -189,6 +204,8 @@ public:
     tcg::global_set_t outputs;
 
     llvm::BasicBlock* llbb;
+    std::vector<llvm::BasicBlock*> lbls;
+    llvm::BasicBlock* exitllbb;
   };
 
   struct function_properties_t {
@@ -209,6 +226,8 @@ public:
     // liveness analysis of callers of this function
     //
     tcg::global_set_t returned;
+
+    tcg::global_set_t used;
 
     llvm::Function* thunk_llf;
     llvm::Function* llf;
@@ -234,14 +253,18 @@ public:
 private:
   llvm::object::ObjectFile &O;
 
-  llvm::LLVMContext &C;
-  llvm::Module &M;
+  llvm::LLVMContext C;
+  llvm::Module M;
   const llvm::DataLayout &DL;
 
   std::unique_ptr<llvm::Module> _HelperM;
   llvm::Module &HelperM;
 
+  llvm::IRBuilder<> b;
+
   boost::icl::interval_map<address_t, section_number_t> addrspace;
+
+  llvm::Type* word_ty;
 
   llvm::AttributeSet FnAttr;
 
@@ -278,10 +301,18 @@ private:
   typedef std::unordered_map<address_t, std::vector<caller_t>> callers_t;
   callers_t callers;
 
+  std::array<llvm::Value*, tcg::max_temps> tcg_tmp_llv_m;
+  std::array<llvm::Value*, tcg::num_globals> tcg_glb_llv_m;
+  llvm::Value* pc_llv;
+  llvm::Value* cpu_state_glb_llv;
+
+  llvm::Type *word_type();
   void init_helpers();
-  function_t& translate_function(address_t);
+  void init_bitcode();
+  bool translate_function(address_t);
   basic_block_t translate_basic_block(function_t&, address_t);
   void write_function_graphviz(function_t &);
+  void prepare_tcg_ops(basic_block_properties_t &bbprop);
 
   void compute_basic_block_defs_and_uses(basic_block_properties_t &);
   void compute_params(function_t&);
@@ -291,15 +322,35 @@ private:
   void explode_tcg_global_set(std::vector<unsigned> &, tcg::global_set_t);
   void explode_tcg_temp_set(std::vector<unsigned> &, tcg::temp_set_t);
   void translate_function_llvm(function_t &f);
-  void translate_llvm(const std::vector<address_t> &);
-  std::pair<tcg::temp_set_t, tcg::global_set_t>
-  compute_tcg_temps_and_globals_used(basic_block_properties_t &);
-
-  std::array<llvm::Value*, tcg::max_temps> tcg_arg_to_llv_m;
+  tcg::global_set_t compute_tcg_globals_used(basic_block_properties_t &);
+  tcg::temp_set_t compute_tcg_temps_used(basic_block_properties_t &);
+  void translate_tcg_to_llvm(function_t &f, basic_block_t bb);
+  void translate_tcg_operation_to_llvm(basic_block_properties_t &,
+                                       const tcg::Op *, const tcg::Arg *);
+  llvm::Value *buildGEP(llvm::Value *BasePtr, llvm::SmallVectorImpl<llvm::Value *> &Indices,
+                        llvm::Twine NamePrefix);
+  llvm::Value *getNaturalGEPWithType(
+      llvm::Value *BasePtr, llvm::Type *Ty, llvm::Type *TargetTy,
+      llvm::SmallVectorImpl<llvm::Value *> &Indices, llvm::Twine NamePrefix);
+  llvm::Value *
+  getNaturalGEPRecursively(llvm::Value *Ptr, llvm::Type *Ty,
+                           llvm::APInt &Offset, llvm::Type *TargetTy,
+                           llvm::SmallVectorImpl<llvm::Value *> &Indices,
+                           llvm::Twine NamePrefix);
+  llvm::Value *getNaturalGEPWithOffset(llvm::Value *Ptr, llvm::APInt Offset,
+                                       llvm::Type *TargetTy,
+                                       llvm::SmallVectorImpl<llvm::Value *> &Indices,
+                                       llvm::Twine NamePrefix);
+  llvm::Value *load_global_from_cpu_state(unsigned gidx);
+  void store_global_to_cpu_state(llvm::Value *gvl, unsigned gidx);
 
 public:
-  translator(llvm::object::ObjectFile &, llvm::LLVMContext &, llvm::Module &);
+  translator(llvm::object::ObjectFile &, const std::string& Nm);
   ~translator() {}
+
+  llvm::Module& module() {
+    return M;
+  }
 
   void tcg_helper(uintptr_t addr, const char *name);
 
@@ -307,6 +358,8 @@ public:
   // thunk (for untranslated-code to use)
   std::tuple<llvm::Function *, llvm::Function *>
   translate(const std::vector<address_t> &);
+
+  llvm::Function* function_of_addr(address_t);
 
   void print_tcg_ops(std::ostream &out,
                      const basic_block_properties_t &bbprop) const;

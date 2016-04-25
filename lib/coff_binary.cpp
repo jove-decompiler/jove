@@ -6,6 +6,10 @@ using namespace object;
 
 namespace jove {
 
+void imported_functions_of_coff_binary(const llvm::object::ObjectFile &,
+                                       std::vector<symbol_t> &) {
+}
+
 void exported_functions_of_coff_binary(const llvm::object::ObjectFile &O,
                                        std::vector<symbol_t> &res) {
   const COFFObjectFile *COFF = cast<COFFObjectFile>(&O);

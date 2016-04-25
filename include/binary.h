@@ -8,6 +8,16 @@
 
 namespace jove {
 
+static void imported_functions_of_binary(const llvm::object::ObjectFile &O,
+                                         std::vector<symbol_t> &res) {
+  if (O.isELF())
+    imported_functions_of_elf_binary(O, res);
+  else if (O.isCOFF())
+    imported_functions_of_coff_binary(O, res);
+  else
+    exit(78);
+}
+
 static void exported_functions_of_binary(const llvm::object::ObjectFile &O,
                                          std::vector<symbol_t> &res) {
   if (O.isELF())

@@ -15,7 +15,7 @@
 #include <llvm/Object/Binary.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
-#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Verifier.h>
 #include <boost/range/adaptor/reversed.hpp>
 
 using namespace llvm;
@@ -72,7 +72,6 @@ struct Label {
 };
 
 constexpr Arg CALL_DUMMY_ARG = -1;
-constexpr Arg FIRST_GLOBAL_IDX = 1;
 constexpr Arg CPU_STATE_ARG = 0;
 
 static bool is_arg_global(Arg a) {
@@ -148,6 +147,23 @@ enum MemOp {
 
   MO_SSIZE = MO_SIZE | MO_SIGN,
 };
+typedef enum {
+    /* non-signed */
+    TCG_COND_NEVER  = 0 | 0 | 0 | 0,
+    TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
+    TCG_COND_EQ     = 8 | 0 | 0 | 0,
+    TCG_COND_NE     = 8 | 0 | 0 | 1,
+    /* signed */
+    TCG_COND_LT     = 0 | 0 | 2 | 0,
+    TCG_COND_GE     = 0 | 0 | 2 | 1,
+    TCG_COND_LE     = 8 | 0 | 2 | 0,
+    TCG_COND_GT     = 8 | 0 | 2 | 1,
+    /* unsigned */
+    TCG_COND_LTU    = 0 | 4 | 0 | 0,
+    TCG_COND_GEU    = 0 | 4 | 0 | 1,
+    TCG_COND_LEU    = 8 | 4 | 0 | 0,
+    TCG_COND_GTU    = 8 | 4 | 0 | 1,
+} TCGCond;
 static Label *arg_label(Arg i) { return (Label *)(uintptr_t)i; }
 typedef uint32_t MemOpIdx;
 static MemOp get_memop(MemOpIdx oi) { return (MemOp)(oi >> 4); }
@@ -177,8 +193,8 @@ static const uint8_t runtime_helpers_bitcode_data[] = {
 #endif
 };
 
-translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
-    : O(O), C(C), M(M), DL(M.getDataLayout()),
+translator::translator(ObjectFile &O, const string &MNm)
+    : O(O), M(MNm, C), DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(
               StringRef(reinterpret_cast<const char *>(
@@ -186,7 +202,13 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
                         sizeof(runtime_helpers_bitcode_data)),
               "", false),
           C))),
-      HelperM(*_HelperM),
+      HelperM(*_HelperM), b(C), word_ty(
+#if defined(TARGET_AARCH64) || defined(TARGET_X86_64)
+                                    IntegerType::get(C, 64)
+#else
+                                    IntegerType::get(C, 32)
+#endif
+                                        ),
       FnAttr(AttributeSet::get(C, AttributeSet::FunctionIndex,
                                Attribute::NoInline)),
       FnThunkTy(FunctionType::get(Type::getVoidTy(C), false)),
@@ -194,10 +216,12 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
           AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
 
       IndirectJumpFn(Function::Create(
-          FunctionType::get(Type::getVoidTy(C), false),
+          FunctionType::get(Type::getVoidTy(C), ArrayRef<Type *>(word_ty),
+                            false),
           GlobalValue::ExternalLinkage, "___jove_indirect_jump", &M)),
       IndirectCallFn(Function::Create(
-          FunctionType::get(Type::getVoidTy(C), false),
+          FunctionType::get(Type::getVoidTy(C), ArrayRef<Type *>(word_ty),
+                            false),
           GlobalValue::ExternalLinkage, "___jove_indirect_call", &M)),
 
       tcg_globals{{
@@ -224,6 +248,11 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
   init_helpers();
 
   //
+  // initialize LLVM bitcode
+  //
+  init_bitcode();
+
+  //
   // init LLVM-MC for machine code analysis
   //
   libmc_init(&O);
@@ -232,10 +261,6 @@ translator::translator(ObjectFile &O, LLVMContext &C, Module &M)
   // build address space mapping to sections
   //
   address_to_section_map_of_binary(O, addrspace);
-
-  //
-  // initialize needed Module types
-  //
 }
 
 enum HELPER_METADATA_TYPE {
@@ -268,19 +293,22 @@ void translator::init_helpers() {
     tcg_helpers[i].addr = reinterpret_cast<uintptr_t>(h->func);
     tcg_helper_addr_map[tcg_helpers[i].addr] = &tcg_helpers[i];
     tcg_helpers[i].nm = h->name;
-    tcg_helpers[i].llf =
-        HelperM.getFunction((boost::format("helper_%s") % h->name).str());
+    string sym = (boost::format("helper_%s") % h->name).str();
+    tcg_helpers[i].llf = HelperM.getFunction(sym);
     assert(tcg_helpers[i].llf);
 
     //
     // parse LLVM metadata for helper
     //
-    NamedMDNode *nmdn = HelperM.getNamedMetadata(h->name);
+    NamedMDNode *nmdn = HelperM.getNamedMetadata(sym);
+
     if (!nmdn)
       continue;
 
-    for (unsigned i = 0; i < nmdn->getNumOperands(); ++i) {
-      MDNode *mdn = nmdn->getOperand(i);
+    tcg_helpers[i].inglbv.reserve(nmdn->getNumOperands());
+    tcg_helpers[i].outglbv.reserve(nmdn->getNumOperands());
+    for (unsigned j = 0; j < nmdn->getNumOperands(); ++j) {
+      MDNode *mdn = nmdn->getOperand(j);
       assert(mdn->getNumOperands() == 2);
 
       HELPER_METADATA_TYPE hm_ty;
@@ -308,13 +336,34 @@ void translator::init_helpers() {
       switch (hm_ty) {
       case HMT_INPUT:
         tcg_helpers[i].inglb.set(tcggbl_idx);
+        tcg_helpers[i].inglbv.push_back(tcggbl_idx);
         break;
       case HMT_OUTPUT:
         tcg_helpers[i].outglb.set(tcggbl_idx);
+        tcg_helpers[i].outglbv.push_back(tcggbl_idx);
         break;
       }
     }
   }
+}
+
+void translator::init_bitcode() {
+  GlobalVariable *rthlp_cpu_state = HelperM.getNamedGlobal("cpu_state");
+  assert(rthlp_cpu_state);
+
+  cpu_state_glb_llv = new GlobalVariable(M, rthlp_cpu_state->getType(), false,
+                                         GlobalValue::ExternalLinkage, nullptr,
+                                         rthlp_cpu_state->getName(), nullptr,
+                                         GlobalValue::GeneralDynamicTLSModel);
+}
+
+llvm::Function *translator::function_of_addr(address_t addr) {
+  auto it = function_table.find(addr);
+  if (it == function_table.end())
+    return nullptr;
+
+  function_t& f = *(*it).second;
+  return f[boost::graph_bundle].llf;
 }
 
 tuple<Function *, Function *>
@@ -329,9 +378,8 @@ translator::translate(const std::vector<address_t> &addrs) {
     address_t addr = functions_to_translate.front();
     functions_to_translate.pop();
 
-    translate_function(addr);
-
-    functions_translated.push_back(addr);
+    if (translate_function(addr))
+      functions_translated.push_back(addr);
   }
 
   //
@@ -378,26 +426,68 @@ translator::translate(const std::vector<address_t> &addrs) {
 #endif
 
   //
-  // translate functions to llvm
+  // in preparation for LLVM translation, create LLVM prototypes for each
+  // function
   //
-  translate_llvm(functions_translated);
+  for (address_t addr : functions_translated) {
+    function_t &f = *function_table[addr];
 
-  for (address_t addr : boost::adaptors::reverse(functions_translated)) {
-    function_t& f = *function_table[addr];
+    //
+    // build function type
+    //
+    auto types_of_tcg_global_set = [&](vector<Type *>& tys,
+                                       tcg::global_set_t glbs) -> void {
+      if (glbs.none())
+        return;
+
+      vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, glbs);
+
+      tys.resize(glbv.size());
+      transform(glbv.begin(), glbv.end(), tys.begin(), [&](unsigned gidx) {
+        return IntegerType::get(
+            C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64);
+      });
+    };
+
+    vector<Type *> param_tys;
+    vector<Type *> return_tys;
+
+    types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
+    types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
+
+    FunctionType *ty = FunctionType::get(
+        return_tys.empty() ? Type::getVoidTy(C)
+                           : StructType::get(C, ArrayRef<Type *>(return_tys)),
+        ArrayRef<Type *>(param_tys), false);
+
+    //
+    // create function
+    //
+    f[boost::graph_bundle].llf = Function::Create(
+        ty, GlobalValue::ExternalLinkage,
+        (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
+  }
+
+  //
+  // translate TCG -> LLVM for each function
+  //
+  for (address_t addr : functions_translated) {
+    function_t &f = *function_table[addr];
     translate_function_llvm(f);
   }
 
   return make_tuple(nullptr, nullptr);
 }
 
-translator::function_t& translator::translate_function(address_t addr) {
+bool translator::translate_function(address_t addr) {
   //
   // check to see if function was already translated
   //
   {
     auto f_it = function_table.find(addr);
     if (f_it != function_table.end())
-      return *(*f_it).second;
+      return false;
     else
       function_table[addr].reset(new function_t);
   }
@@ -432,21 +522,15 @@ translator::function_t& translator::translate_function(address_t addr) {
   // into QEMU TCG intermediate code
   //
   if (translate_basic_block(f, addr) ==
-      boost::graph_traits<function_t>::null_vertex()) {
-    cout << '<';
-    cout << endl;
-
-    cout << '>';
-    cout << endl;
-    return f;
-  }
+      boost::graph_traits<function_t>::null_vertex())
+    return false;
 
   //
   // determine parameters for function
   //
   compute_params(f);
 
-  return f;
+  return true;
 }
 
 void translator::compute_params(function_t& f) {
@@ -597,6 +681,9 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
+  if (addr > sectstart + sectdata.size())
+    return boost::graph_traits<function_t>::null_vertex();
+
   MCInst Inst;
   uint64_t size;
 
@@ -626,11 +713,14 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
                            last_instr_addr))
     return boost::graph_traits<function_t>::null_vertex();
 
+  address_t next_addr = last_instr_addr + size;
+
   //
   // prepare data structures for new basic block
   //
   basic_block_t bb = boost::add_vertex(f);
-  f[bb].addr = addr;
+  basic_block_properties_t& bbprop = f[bb];
+  bbprop.addr = addr;
   translated_basic_blocks[addr] = bb;
   parentMap.resize(boost::num_vertices(f));
   verticesByDFNum.push_back(bb);
@@ -638,15 +728,17 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   //
   // copy TCG translation data structures to basic block properties
   //
-  f[bb].first_tcg_op_idx = libqemutcg_first_op_index();
-  f[bb].tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
-  f[bb].tcg_args.reset(new tcg::Arg[libqemutcg_max_params()]);
-  f[bb].tcg_tmps.reset(new tcg::Tmp[libqemutcg_num_tmps()]);
-  libqemutcg_copy_ops(f[bb].tcg_ops.get());
-  libqemutcg_copy_params(f[bb].tcg_args.get());
-  libqemutcg_copy_tmps(f[bb].tcg_tmps.get());
-
-  cout << "NUM TMPS: " << dec << libqemutcg_num_tmps() << endl;
+  bbprop.first_tcg_op_idx = libqemutcg_first_op_index();
+  bbprop.num_tmps = libqemutcg_num_tmps();
+  bbprop.lbls.reserve(2*libqemutcg_num_labels());
+  bbprop.lbls.resize(libqemutcg_num_labels());
+  bbprop.tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
+  bbprop.tcg_args.reset(new tcg::Arg[libqemutcg_max_params()]);
+  bbprop.tcg_tmps.reset(new tcg::Tmp[libqemutcg_num_tmps()]);
+  libqemutcg_copy_ops(bbprop.tcg_ops.get());
+  libqemutcg_copy_params(bbprop.tcg_args.get());
+  libqemutcg_copy_tmps(bbprop.tcg_tmps.get());
+  prepare_tcg_ops(bbprop);
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
@@ -700,8 +792,14 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     MIA = _MIA.get();
   }
 
+  const MCRegisterInfo &MRI = *libmc_reginfo();
+  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
+
   if (MIA->isReturn(Inst)) {
+    bbprop.term = basic_block_properties_t::TERM_RETURN;
   } else if (MIA->isConditionalBranch(Inst)) {
+    bbprop.term = basic_block_properties_t::TERM_CONDITIONAL_JUMP;
+
     uint64_t target;
 #if defined(TARGET_X86_64)
     assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
@@ -712,6 +810,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     control_flow_to(target);
     control_flow_to(succ_addr);
   } else if (MIA->isUnconditionalBranch(Inst)) {
+    bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
+
     uint64_t target;
 #if defined(TARGET_X86_64)
     assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
@@ -721,6 +821,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
 
     control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
+    bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
+
+    // XXX is indirect jump to a PLT entry?
+    control_flow_to(succ_addr);
   } else if (MIA->isCall(Inst)) {
     bool is_indirect;
     uint64_t target;
@@ -729,12 +833,43 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
 #elif defined(TARGET_AARCH64)
     is_indirect = !aarch64_evaluateCall(target);
 #endif
+
+    bbprop.term = is_indirect ? basic_block_properties_t::TERM_INDIRECT_CALL
+                              : basic_block_properties_t::TERM_CALL;
+
     if (!is_indirect) {
       functions_to_translate.push(target);
       callers[target].push_back({&f, bb});
+      bbprop.callee = target;
     }
 
     control_flow_to(succ_addr);
+  } else {
+    MCInst second_to_lst_inst;
+    address_t second_to_lst_addr = libqemutcg_second_to_last_tcg_op_addr();
+    MCInst succ_inst;
+    if ((libmc_analyze_instr(succ_inst, size,
+                             sectdata.data() + (next_addr - sectstart),
+                             next_addr) &&
+         MIA->isReturn(succ_inst)) ||
+        (second_to_lst_addr &&
+         libmc_analyze_instr(second_to_lst_inst, size,
+                             sectdata.data() + (second_to_lst_addr - sectstart),
+                             second_to_lst_addr) &&
+         MIA->isReturn(second_to_lst_inst))) {
+      bbprop.term = basic_block_properties_t::TERM_RETURN;
+    } else {
+      /* unknown control flow */
+      char asmbuf[0x100];
+      cerr << "warning: mysterious basic block terminator " << endl
+           << "0x" << hex << last_instr_addr << "    "
+           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
+                              last_instr_addr, asmbuf)
+           << endl;
+
+      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
+      control_flow_to(succ_addr);
+    }
   }
 
   return bb;
@@ -768,27 +903,25 @@ void translator::compute_basic_block_defs_and_uses(
       }
 
       continue;
-    case tcg::INDEX_op_call:
+    case tcg::INDEX_op_call: {
       nb_iargs = op->calli;
       nb_oargs = op->callo;
 
-      if (c == tcg::INDEX_op_call) {
-        //
-        // take into account extra inputs and/or outputs by our version of the
-        // helpers
-        //
-        auto h_addr = args[nb_oargs + nb_iargs];
-        auto h_it = tcg_helper_addr_map.find(h_addr);
-        if (h_it == tcg_helper_addr_map.end()) {
-          cerr << "warning: bad call to tcg helper" << endl;
-          continue;
-        }
-
-        tcg::helper_t *h = (*h_it).second;
-        iglb = h->inglb;
-        oglb = h->outglb;
+      //
+      // take into account extra inputs and/or outputs by our version of the
+      // helpers
+      //
+      auto h_addr = args[nb_oargs + nb_iargs];
+      auto h_it = tcg_helper_addr_map.find(h_addr);
+      if (h_it == tcg_helper_addr_map.end()) {
+        cerr << "warning: bad call to tcg helper" << endl;
+        continue;
       }
-      break;
+
+      tcg::helper_t *h = (*h_it).second;
+      iglb = h->inglb;
+      oglb = h->outglb;
+    } break;
     default:
       nb_iargs = def->nb_iargs;
       nb_oargs = def->nb_oargs;
@@ -814,6 +947,71 @@ void translator::compute_basic_block_defs_and_uses(
     uses |= (iglb & ~defs & ~dead);
     defs |= oglb;
     dead &= ~oglb;
+  }
+}
+
+void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    int i, k, nb_oargs, nb_iargs, nb_cargs;
+
+    op = &ops[oi];
+    const tcg::Opcode c = op->opc;
+    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    tcg::Arg *args = &params[op->args];
+
+    if (c == tcg::INDEX_op_insn_start) {
+    } else if (c == tcg::INDEX_op_call) {
+      /* variable number of arguments */
+      nb_oargs = op->callo;
+      nb_iargs = op->calli;
+      nb_cargs = def->nb_cargs;
+    } else {
+      nb_oargs = def->nb_oargs;
+      nb_iargs = def->nb_iargs;
+      nb_cargs = def->nb_cargs;
+
+      k = 0;
+      k += nb_oargs;
+      k += nb_iargs;
+      switch (c) {
+      case tcg::INDEX_op_brcond_i32:
+      case tcg::INDEX_op_setcond_i32:
+      case tcg::INDEX_op_movcond_i32:
+      case tcg::INDEX_op_brcond2_i32:
+      case tcg::INDEX_op_setcond2_i32:
+      case tcg::INDEX_op_brcond_i64:
+      case tcg::INDEX_op_setcond_i64:
+      case tcg::INDEX_op_movcond_i64:
+        ++k;
+        i = 1;
+        break;
+      case tcg::INDEX_op_qemu_ld_i32:
+      case tcg::INDEX_op_qemu_st_i32:
+      case tcg::INDEX_op_qemu_ld_i64:
+      case tcg::INDEX_op_qemu_st_i64:
+        i = 1;
+        break;
+      default:
+        i = 0;
+        break;
+      }
+      switch (c) {
+      case tcg::INDEX_op_set_label:
+      case tcg::INDEX_op_br:
+      case tcg::INDEX_op_brcond_i32:
+      case tcg::INDEX_op_brcond_i64:
+      case tcg::INDEX_op_brcond2_i32:
+        args[k] = tcg::arg_label(args[k])->id;
+        i++, k++;
+        break;
+      default:
+        break;
+      }
+      k += nb_cargs;
+    }
   }
 }
 
@@ -953,8 +1151,7 @@ void translator::print_tcg_ops(ostream &out,
         case tcg::INDEX_op_brcond_i32:
         case tcg::INDEX_op_brcond_i64:
         case tcg::INDEX_op_brcond2_i32:
-          out << (boost::format("%s$L%d") % (k ? "," : "") %
-                  ((int)tcg::arg_label(args[k])->id));
+          out << (boost::format("%s$L%d") % (k ? "," : "") % ((int)args[k]));
           i++, k++;
           break;
         default:
@@ -1042,7 +1239,6 @@ struct graphviz_prop_writer {
   }
 };
 
-
 void translator::write_function_graphviz(function_t &f) {
   struct normal_edges {
     translator::function_t *f;
@@ -1070,14 +1266,21 @@ void translator::explode_tcg_global_set(vector<unsigned> &out,
   if (glbs.none())
     return;
 
+#if 0
+  cout << "explode_tcg_global_set: " << glbs << endl;
+#endif
+
   out.reserve(tcg::num_globals);
 
   unsigned long long x = glbs.to_ullong();
   int idx = 0;
   do {
-    int pos = ffsll(x) + 1;
+    int pos = ffsll(x);
     x >>= pos;
     idx += pos;
+#if 0
+    cout << "explode_tcg_global_set " << dec << idx-1 << endl;
+#endif
     out.push_back(idx-1);
   } while (x);
 }
@@ -1092,80 +1295,59 @@ void translator::explode_tcg_temp_set(vector<unsigned> &out,
   unsigned long long x = tmps.to_ullong();
   int idx = 0;
   do {
-    int pos = ffsll(x) + 1;
+    int pos = ffsll(x);
     x >>= pos;
     idx += pos;
     out.push_back(idx - 1 + tcg::num_globals);
   } while (x);
 }
 
-void translator::translate_llvm(const vector<address_t> &addrs) {
-  //
-  // Create prototypes for each function
-  //
-  for (address_t addr : addrs) {
-    function_t &f = *function_table[addr];
+Type *translator::word_type() {
+  return word_ty;
+}
 
-    //
-    // build function type
-    //
-    auto types_of_tcg_global_set = [&](vector<Type *> tys,
-                                       tcg::global_set_t glbs) -> void {
-      if (glbs.none())
-        return;
+Value* translator::load_global_from_cpu_state(unsigned gidx) {
+  SmallVector<Value *, 4> Indices;
+  Value *ptr = getNaturalGEPWithOffset(
+      tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
+      IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
+      Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+  b.CreateLoad(ptr);
+}
 
-      vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, glbs);
-
-      tys.resize(glbv.size());
-      transform(glbv.begin(), glbv.end(), tys.begin(), [&](unsigned gidx) {
-        return IntegerType::get(
-            C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64);
-      });
-    };
-
-    vector<Type *> param_tys;
-    vector<Type *> return_tys;
-
-    types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
-    types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
-
-    FunctionType *ty =
-        FunctionType::get(StructType::get(C, ArrayRef<Type *>(return_tys)),
-                          ArrayRef<Type *>(param_tys), false);
-
-    //
-    // create function
-    //
-    f[boost::graph_bundle].llf = Function::Create(
-        ty, GlobalValue::ExternalLinkage,
-        (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
-  }
-
-  //
-  // translate TCG -> LLVM for each function
-  //
-  for (address_t addr : addrs) {
-    function_t &f = *function_table[addr];
-    translate_function_llvm(f);
-  }
+void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
+  SmallVector<Value *, 4> Indices;
+  Value *ptr = getNaturalGEPWithOffset(
+      tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
+      IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
+      Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+  b.CreateStore(gvl, ptr);
 }
 
 void translator::translate_function_llvm(function_t& f) {
+  Function *const llf = f[boost::graph_bundle].llf;
+  boost::graph_traits<function_t>::vertex_iterator vi, vi_end;
+
   //
   // the first step in translating TCG to LLVM is creating an LLVM basic block
   // for each TCG basic block
   //
-  boost::graph_traits<function_t>::vertex_iterator vi, vi_end;
-  for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi)
+  for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
     f[*vi].llbb =
-        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(),
-                           f[boost::graph_bundle].llf);
+        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(), llf);
+    f[*vi].exitllbb =
+        BasicBlock::Create(C, (boost::format("E%x") % f[*vi].addr).str(), llf);
+
+    for (unsigned i = 0; i < f[*vi].lbls.size(); ++i)
+      f[*vi].lbls[i] =
+          BasicBlock::Create(C, (boost::format("L%u") % i).str(), llf);
+  }
 
   //
-  // next we computing the set of TCG temps that are used so that we may
+  // next we computing the set of TCG globals that are used so that we may
   // create alloca's for each of them at the head of the function
   //
+#ifndef NJOVEDBG
   tie(vi, vi_end) = boost::vertices(f);
   unsigned max_num_temps =
       accumulate(vi, vi_end, 0u, [&](unsigned res, basic_block_t bb) {
@@ -1176,50 +1358,89 @@ void translator::translate_function_llvm(function_t& f) {
     cerr << "can't do fast method for computing set of TCG temps used" << endl;
     exit(1);
   }
-
-
-  tcg::temp_set_t tmps_used_s;
-  tcg::global_set_t glb_used_s;
+#endif
 
   tie(vi, vi_end) = boost::vertices(f);
-  tie(tmps_used_s, glb_used_s) = accumulate(
-      vi, vi_end, make_pair(tcg::temp_set_t(), tcg::global_set_t()),
-      [&](pair<tcg::temp_set_t, tcg::global_set_t> res,
-          basic_block_t bb) -> pair<tcg::temp_set_t, tcg::global_set_t> {
-        tcg::temp_set_t tmps;
-        tcg::global_set_t glb;
-        tie(tmps, glb) = compute_tcg_temps_and_globals_used(f[bb]);
-
-        return make_pair(res.first | tmps, res.second | glb);
+  tcg::global_set_t glb_used_s = f[boost::graph_bundle].used = accumulate(
+      vi, vi_end, tcg::global_set_t(),
+      [&](tcg::global_set_t res, basic_block_t bb) -> tcg::global_set_t {
+        return res | compute_tcg_globals_used(f[bb]);
       });
 
-  vector<unsigned> tmps_used_v;
   vector<unsigned> glb_used_v;
-
-  explode_tcg_temp_set(tmps_used_v, tmps_used_s);
   explode_tcg_global_set(glb_used_v, glb_used_s);
+ 
+#if 0
+  for (unsigned glbused : glb_used_v)
+    cout << "glbused: " << dec << glbused << endl;
+#endif
 
   basic_block_t entry = *boost::vertices(f).first;
-
-  IRBuilder<> b(C);
   b.SetInsertPoint(f[entry].llbb);
-  for (auto tmp : tmps_used_v)
-    b.CreateAlloca(wordType());
+
+  //
+  // first create an alloca for the program counter
+  //
+  pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
+
+  //
+  // create the Alloca's for globals
+  //
+  for (auto gidx : glb_used_v)
+    tcg_glb_llv_m[gidx] = b.CreateAlloca(
+        IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
+        nullptr, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+
+  //
+  // add the CPUState extern global as the LLVM value for env
+  //
+  tcg_glb_llv_m[tcg::CPU_STATE_ARG] = b.CreateLoad(cpu_state_glb_llv);
+
+  //
+  // initialize tcg global parameter Alloca's
+  //
+  vector<unsigned> glb_params_v;
+  explode_tcg_global_set(glb_params_v, f[boost::graph_bundle].params);
+
+  for_each(boost::make_zip_iterator(
+               boost::make_tuple(glb_params_v.begin(), llf->arg_begin())),
+           boost::make_zip_iterator(
+               boost::make_tuple(glb_params_v.end(), llf->arg_end())),
+           [&](const boost::tuple<unsigned, Argument &> &t) {
+             t.get<1>().setName(tcg_globals[t.get<0>()].nm);
+             b.CreateStore(&t.get<1>(), tcg_glb_llv_m[t.get<0>()]);
+           });
+
+  //
+  // translate each basic block to LLVM, in roughly topological order
+  //
+  tie(vi, vi_end) = boost::vertices(f);
+  for (;;) {
+    translate_tcg_to_llvm(f, *vi);
+    ++vi;
+
+    if (vi == vi_end)
+      break;
+
+    b.SetInsertPoint(f[*vi].llbb);
+  }
+
+#if 0
+  f[boost::graph_bundle].llf->dump();
+#endif
+  if (verifyFunction(*f[boost::graph_bundle].llf, &errs())) {
+    errs().flush();
+    abort();
+  }
 }
 
-pair<tcg::temp_set_t, tcg::global_set_t>
-translator::compute_tcg_temps_and_globals_used(
-    basic_block_properties_t &bbprop) {
-  tcg::temp_set_t tmps_res;
-  tcg::global_set_t glb_res;
+tcg::global_set_t
+translator::compute_tcg_globals_used(basic_block_properties_t &bbprop) {
+  tcg::global_set_t res;
 
   auto arg = [&](tcg::Arg a) -> void {
-    if (a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG) {
-      if (a < tcg::num_globals)
-        glb_res.set(a);
-      else
-        tmps_res.set(a);
-    }
+    if (tcg::is_arg_global(a))
+      res.set(a);
   };
 
   const tcg::Op *ops = bbprop.tcg_ops.get();
@@ -1234,7 +1455,65 @@ translator::compute_tcg_temps_and_globals_used(
     int nb_iargs = 0;
     int nb_oargs = 0;
 
-    tcg::global_set_t iglb, oglb;
+    switch (c) {
+    case tcg::INDEX_op_discard:
+      arg(args[0]);
+      continue;
+    case tcg::INDEX_op_call: {
+      nb_iargs = op->calli;
+      nb_oargs = op->callo;
+
+      //
+      // take into account extra inputs and/or outputs by our version of the
+      // helpers
+      //
+      auto h_addr = args[nb_oargs + nb_iargs];
+      auto h_it = tcg_helper_addr_map.find(h_addr);
+      if (h_it == tcg_helper_addr_map.end()) {
+        cerr << "warning: bad call to tcg helper" << endl;
+        continue;
+      }
+
+      tcg::helper_t *h = (*h_it).second;
+      res |= h->inglb;
+      res |= h->outglb;
+    } break;
+    default:
+      nb_iargs = def->nb_iargs;
+      nb_oargs = def->nb_oargs;
+      break;
+    }
+
+    for (int i = 0; i < nb_iargs; i++)
+      arg(args[nb_oargs + i]);
+
+    for (int i = 0; i < nb_oargs; i++)
+      arg(args[i]);
+  }
+
+  return res;
+}
+
+tcg::temp_set_t
+translator::compute_tcg_temps_used(basic_block_properties_t &bbprop) {
+  tcg::temp_set_t res;
+
+  auto arg = [&](tcg::Arg a) -> void {
+    if (tcg::is_arg_temp(a))
+      res.set(a - tcg::num_globals);
+  };
+
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  const tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    op = &ops[oi];
+    const tcg::Opcode c = op->opc;
+    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::Arg *args = &params[op->args];
+
+    int nb_iargs = 0;
+    int nb_oargs = 0;
 
     switch (c) {
     case tcg::INDEX_op_discard:
@@ -1243,23 +1522,6 @@ translator::compute_tcg_temps_and_globals_used(
     case tcg::INDEX_op_call:
       nb_iargs = op->calli;
       nb_oargs = op->callo;
-
-      if (c == tcg::INDEX_op_call) {
-        //
-        // take into account extra inputs and/or outputs by our version of the
-        // helpers
-        //
-        auto h_addr = args[nb_oargs + nb_iargs];
-        auto h_it = tcg_helper_addr_map.find(h_addr);
-        if (h_it == tcg_helper_addr_map.end()) {
-          cerr << "warning: bad call to tcg helper" << endl;
-          continue;
-        }
-
-        tcg::helper_t *h = (*h_it).second;
-        iglb = h->inglb;
-        oglb = h->outglb;
-      }
       break;
     default:
       nb_iargs = def->nb_iargs;
@@ -1274,7 +1536,992 @@ translator::compute_tcg_temps_and_globals_used(
       arg(args[i]);
   }
 
-  return make_pair(tmps_res, glb_res);
+  return res;
 }
 
+void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
+  basic_block_properties_t& bbprop = f[bb];
+  //
+  // initialize tcg tmp Alloca's
+  //
+  tcg::temp_set_t temps_used_s = compute_tcg_temps_used(bbprop);
+  vector<unsigned> temps_used_v;
+  explode_tcg_temp_set(temps_used_v, temps_used_s);
+  for (auto tmp : temps_used_v) {
+    tcg_tmp_llv_m[tmp] = b.CreateAlloca(
+        IntegerType::get(C,
+                         bbprop.tcg_tmps[tmp].type == tcg::TYPE_I32 ? 32 : 64),
+        nullptr, (boost::format("tmp%u") % static_cast<unsigned>(tmp)).str());
+  }
+
+  //
+  // translate the TCG operations to LLVM instructions
+  //
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  const tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    op = &ops[oi];
+    translate_tcg_operation_to_llvm(bbprop, op, &params[op->args]);
+  }
+
+  //
+  // if there are any basic blocks without a terminator, create a branch from
+  // them to the exit basic block
+  //
+  if (!bbprop.llbb->getTerminator()) {
+    b.SetInsertPoint(bbprop.llbb);
+    b.CreateBr(bbprop.exitllbb);
+  }
+
+  //
+  // if the basic block has at least one successor, then we know its terminator
+  // is a conditional or unconditional jump.
+  //
+  b.SetInsertPoint(bbprop.exitllbb);
+
+  auto on_unconditional_jump = [&](basic_block_t dst) -> void {
+    b.CreateBr(f[dst].llbb);
+  };
+
+  auto on_conditional_jump = [&](basic_block_t dst1,
+                                 basic_block_t dst2) -> void {
+    Value *pc = b.CreateLoad(pc_llv);
+    Value *addr1 = ConstantInt::get(word_type(), f[dst1].addr);
+    b.CreateCondBr(b.CreateICmpEQ(pc, addr1), f[dst1].llbb, f[dst2].llbb);
+  };
+
+  auto on_call = [&](basic_block_t succ) -> void {
+    function_t& callee = *function_table[bbprop.callee];
+    vector<unsigned> glb_params_v;
+    explode_tcg_global_set(glb_params_v, callee[boost::graph_bundle].params);
+
+    vector<Value *> passed(glb_params_v.size());
+    transform(glb_params_v.begin(), glb_params_v.end(), passed.begin(),
+              [&](unsigned gidx) -> Value * {
+                if (f[boost::graph_bundle].used.test(gidx))
+                  return b.CreateLoad(tcg_glb_llv_m[gidx]);
+                else
+                  return load_global_from_cpu_state(gidx);
+              });
+
+    Value *res = b.CreateCall(callee[boost::graph_bundle].llf,
+                              ArrayRef<Value *>(passed));
+
+    vector<unsigned> ret_v;
+    explode_tcg_global_set(ret_v, callee[boost::graph_bundle].returned);
+
+    for (unsigned i = 0; i < ret_v.size(); ++i) {
+      unsigned gidx = ret_v[i];
+      Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
+      if (f[boost::graph_bundle].used.test(gidx))
+        b.CreateStore(gvl, tcg_glb_llv_m[gidx]);
+      else
+        store_global_to_cpu_state(gvl, gidx);
+    }
+
+    b.CreateBr(f[succ].llbb);
+  };
+
+  auto on_indirect_call = [&](basic_block_t succ) -> void {
+    Value *pc = b.CreateLoad(pc_llv);
+    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc));
+    b.CreateBr(f[succ].llbb);
+  };
+
+  auto on_indirect_jump = [&](basic_block_t succ) -> void {
+    Value *pc = b.CreateLoad(pc_llv);
+    b.CreateCall(IndirectJumpFn, ArrayRef<Value*>(pc));
+    // TODO imported functions
+    b.CreateBr(f[succ].llbb);
+  };
+
+  auto on_return = [&](void) -> void {
+    FunctionType *llf_ty = f[boost::graph_bundle].llf->getFunctionType();
+    Type *ret_ty = llf_ty->getReturnType();
+    if (ret_ty == Type::getVoidTy(C)) {
+      b.CreateRetVoid();
+      return;
+    }
+
+    assert(isa<StructType>(ret_ty));
+
+    vector<unsigned> ret_v;
+    explode_tcg_global_set(ret_v, f[boost::graph_bundle].returned);
+
+    assert(ret_v.size() == cast<StructType>(ret_ty)->getNumElements());
+
+    Value *res =
+        accumulate(
+            ret_v.begin(), ret_v.end(), pair<unsigned, Value *>(0u, nullptr),
+            [&](pair<unsigned, Value *> respair, unsigned gidx) {
+              unsigned idx = respair.first;
+              Value *res = respair.second;
+              return make_pair(idx + 1, b.CreateInsertValue(
+                                            res ? res : UndefValue::get(ret_ty),
+                                            b.CreateLoad(tcg_glb_llv_m[gidx]),
+                                            ArrayRef<unsigned>(idx)));
+            })
+            .second;
+    b.CreateRet(res);
+  };
+
+  auto on_unknown = [&](basic_block_t succ) -> void {
+    // for unknown instructions we create a branch checking if the program
+    // counter is either the current basic block's address (in which case we
+    // branch back) or the successor's address (in which case we branch there).
+    // when neither of those cases are true, we create an unreachable
+    if (succ == boost::graph_traits<function_t>::null_vertex()) {
+      BasicBlock *elsellbb =
+          BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
+
+      b.CreateCondBr(b.CreateICmpEQ(b.CreateLoad(pc_llv),
+                                    ConstantInt::get(word_type(), bbprop.addr)),
+                     bbprop.llbb, elsellbb);
+
+      b.SetInsertPoint(elsellbb);
+      b.CreateUnreachable();
+      return;
+    }
+
+    BasicBlock *else1llbb =
+        BasicBlock::Create(C, "unknown1", f[boost::graph_bundle].llf);
+    BasicBlock *else2llbb =
+        BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
+
+    Value *pc = b.CreateLoad(pc_llv);
+    b.CreateCondBr(
+        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
+        f[succ].llbb, else1llbb);
+
+    b.SetInsertPoint(else1llbb);
+    b.CreateCondBr(
+        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), bbprop.addr)),
+        bbprop.llbb, else2llbb);
+
+    b.SetInsertPoint(else2llbb);
+    b.CreateUnreachable();
+  };
+
+  struct normal_edges {
+    translator::function_t *f;
+
+    normal_edges() {}
+    normal_edges(translator::function_t *f) : f(f) {}
+
+    bool operator()(const control_flow_t &e) const {
+      translator::function_t &_f = *f;
+      return !_f[e].dom;
+    }
+  };
+
+  normal_edges e_filter(&f);
+  typedef boost::filtered_graph<function_t, normal_edges> control_flow_graph_t;
+  control_flow_graph_t cfg(f, e_filter);
+
+  boost::graph_traits<control_flow_graph_t>::out_edge_iterator ei, ei_end;
+  tie(ei, ei_end) = boost::out_edges(bb, cfg);
+  switch (bbprop.term) {
+  case basic_block_properties_t::TERM_UNCONDITIONAL_JUMP:
+    on_unconditional_jump(boost::target(*ei++, cfg));
+    break;
+  case basic_block_properties_t::TERM_CONDITIONAL_JUMP: {
+    basic_block_t dst1 = boost::target(*ei++, cfg);
+    basic_block_t dst2 = boost::target(*ei++, cfg);
+    on_conditional_jump(dst1, dst2);
+  } break;
+  case basic_block_properties_t::TERM_CALL:
+    on_call(boost::target(*ei++, cfg));
+    break;
+  case basic_block_properties_t::TERM_INDIRECT_CALL:
+    on_indirect_call(boost::target(*ei++, cfg));
+    break;
+  case basic_block_properties_t::TERM_INDIRECT_JUMP:
+    on_indirect_jump(ei == ei_end
+                         ? boost::graph_traits<function_t>::null_vertex()
+                         : boost::target(*ei++, cfg));
+    break;
+  case basic_block_properties_t::TERM_RETURN:
+    on_return();
+    break;
+  case basic_block_properties_t::TERM_UNKNOWN:
+    on_unknown(ei == ei_end ? boost::graph_traits<function_t>::null_vertex()
+                            : boost::target(*ei++, cfg));
+    break;
+  }
+
+  assert(bbprop.exitllbb->getTerminator());
+  assert(ei == ei_end);
+}
+
+void translator::translate_tcg_operation_to_llvm(
+    basic_block_properties_t &bbprop, const tcg::Op *op, const tcg::Arg *args) {
+  const tcg::Opcode opc = op->opc;
+  const tcg::OpDef &def = tcg::tcg_op_defs[opc];
+
+  auto name = [&](tcg::Arg a) -> string {
+    if (a == tcg::CALL_DUMMY_ARG)
+      return "dummy";
+
+    if (a == tcg::CPU_STATE_ARG)
+      return "env";
+
+    if (a < tcg::num_globals)
+      return tcg_globals[a].nm;
+    else
+      return (boost::format("tmp%u") % static_cast<unsigned>(a)).str();
+  };
+
+  auto set = [&](Value *v, tcg::Arg a) -> void {
+    assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
+    b.CreateStore(v,
+                  a < tcg::num_globals ? tcg_glb_llv_m[a] : tcg_tmp_llv_m[a]);
+  };
+
+  auto get = [&](tcg::Arg a) -> Value * {
+    assert(a != tcg::CALL_DUMMY_ARG);
+
+    Value *res = a < tcg::num_globals ? tcg_glb_llv_m[a] : tcg_tmp_llv_m[a];
+
+    if (a == tcg::CPU_STATE_ARG)
+      return b.CreatePtrToInt(res, word_type());
+
+    return b.CreateLoad(res);
+  };
+
+  auto type = [&](tcg::Arg a) -> Type * {
+    assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
+    return a < tcg::num_globals
+               ? IntegerType::get(C, tcg_globals[a].ty == tcg::GLOBAL_I32 ? 32
+                                                                          : 64)
+               : IntegerType::get(
+                     C, bbprop.tcg_tmps[a].type == tcg::TYPE_I32 ? 32 : 64);
+  };
+
+  auto adjust_type_size = [&](unsigned target, Value *v) -> Value* {
+    if (target == 32 && v->getType() == IntegerType::get(C, 64))
+        v = b.CreateTrunc(v, IntegerType::get(C, target));
+
+    return v;
+  };
+
+  auto cpu_state_gep = [&](unsigned memBits, unsigned offset) -> Value * {
+    SmallVector<Value *, 4> Indices;
+    Value *ptr = getNaturalGEPWithOffset(
+        tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, offset),
+        IntegerType::get(C, memBits), Indices,
+        (boost::format("env+%u") % offset).str());
+    ptr = b.CreatePointerCast(
+        ptr, PointerType::get(IntegerType::get(C, memBits), 0));
+    return ptr;
+  };
+
+  auto cpu_state_load = [&](unsigned memBits, unsigned offset) -> Value * {
+#if defined(TARGET_I386)
+    if (offset >= tcg::cpu_state_segs_offset &&
+        offset < tcg::cpu_state_segs_offset + tcg::cpu_state_segs_size)
+      return ConstantInt::get(IntegerType::get(C, memBits), 0);
+#endif
+
+    return b.CreateLoad(cpu_state_gep(memBits, offset));
+  };
+
+  switch (opc) {
+  case tcg::INDEX_op_insn_start:
+    break;
+
+  case tcg::INDEX_op_discard:
+    set(UndefValue::get(type(args[0])), args[0]);
+    break;
+
+  case tcg::INDEX_op_call: {
+    //
+    // take into account extra inputs and/or outputs by our version of the
+    // helpers
+    //
+    unsigned nb_iargs = op->calli;
+    unsigned nb_oargs = op->callo;
+
+    auto h_addr = args[nb_oargs + nb_iargs];
+    auto h_it = tcg_helper_addr_map.find(h_addr);
+    if (h_it == tcg_helper_addr_map.end())
+      exit(138);
+
+    tcg::helper_t *h = (*h_it).second;
+
+    Function *hlp_llf = cast<Function>(M.getOrInsertFunction(
+        h->llf->getName(), h->llf->getFunctionType(), h->llf->getAttributes()));
+    FunctionType *hlp_llf_ty = hlp_llf->getFunctionType();
+
+    vector<Value *> passed;
+    passed.reserve(nb_iargs + h->inglbv.size());
+
+    if (hlp_llf_ty->getNumParams() != 0) {
+      for (unsigned i = 0; i < nb_iargs; i++) {
+        tcg::Arg arg = args[nb_oargs + i];
+
+        if (arg == tcg::CALL_DUMMY_ARG ||
+            arg == tcg::CPU_STATE_ARG) /* helper functions were transformed to
+                                          not take CPU state */
+          continue;
+
+#if 0
+        cout << "hlpfll arg: " << dec << arg << endl;
+#endif
+        passed.push_back(get(arg));
+      }
+
+      for (auto gidx : h->inglbv)
+        passed.push_back(get(gidx));
+    }
+
+#if 0
+    cout << "nb_iargs = " << dec << nb_iargs << endl;
+    cout << "h->inglbv.size() = " << dec << h->inglbv.size() << endl;
+    hlp_llf->dump();
+#endif
+    assert(passed.size() == hlp_llf_ty->getNumParams());
+    for (unsigned i = 0; i < passed.size(); ++i) {
+      Type *param_ty = hlp_llf_ty->getParamType(i);
+      if (isa<PointerType>(param_ty))
+        passed[i] = b.CreateIntToPtr(passed[i], param_ty);
+    }
+
+    Value *res = b.CreateCall(hlp_llf, ArrayRef<Value *>(passed));
+#if 0
+    res->dump();
+#endif
+
+    if (h->outglbv.size()) {
+      cout << "h->outglbv.size() = " << h->outglbv.size() << endl;
+      for (unsigned i = 0; i < h->outglbv.size(); ++i)
+        cout << "outglb: " << tcg_globals[h->outglbv[i]].nm << endl;
+
+      // return type is a struct
+      assert(isa<StructType>(res->getType()));
+      for (unsigned i = 0; i < nb_oargs; ++i) {
+        unsigned idx = i;
+        set(b.CreateExtractValue(res, ArrayRef<unsigned>(idx)), args[i]);
+      }
+      for (unsigned i = 0; i < h->outglbv.size(); ++i) {
+        unsigned idx = nb_oargs + i;
+        set(b.CreateExtractValue(res, ArrayRef<unsigned>(idx)), h->outglbv[i]);
+      }
+    } else if (nb_oargs) {
+      // return type is a single?
+      if (nb_oargs == 1) {
+        set(res, args[0]);
+      } else {
+        for (unsigned i = 0; i < nb_oargs; ++i) {
+          unsigned idx = i;
+          set(b.CreateExtractValue(res, ArrayRef<unsigned>(idx)), args[i]);
+        }
+      }
+    }
+  } break;
+
+  case tcg::INDEX_op_br:
+    b.CreateBr(bbprop.lbls[args[0]]);
+    break;
+
+#define __OP_BRCOND_C(tcg_cond, cond)                                          \
+  case tcg_cond:                                                               \
+    v = b.CreateICmp##cond(get(args[0]), get(args[1]));                        \
+    break;
+
+#define __OP_BRCOND(opc_name, bits)                                            \
+  case opc_name: {                                                             \
+    Value *v;                                                                  \
+    switch (args[2]) {                                                         \
+      __OP_BRCOND_C(tcg::TCG_COND_EQ, EQ)                                      \
+      __OP_BRCOND_C(tcg::TCG_COND_NE, NE)                                      \
+      __OP_BRCOND_C(tcg::TCG_COND_LT, SLT)                                     \
+      __OP_BRCOND_C(tcg::TCG_COND_GE, SGE)                                     \
+      __OP_BRCOND_C(tcg::TCG_COND_LE, SLE)                                     \
+      __OP_BRCOND_C(tcg::TCG_COND_GT, SGT)                                     \
+      __OP_BRCOND_C(tcg::TCG_COND_LTU, ULT)                                    \
+      __OP_BRCOND_C(tcg::TCG_COND_GEU, UGE)                                    \
+      __OP_BRCOND_C(tcg::TCG_COND_LEU, ULE)                                    \
+      __OP_BRCOND_C(tcg::TCG_COND_GTU, UGT)                                    \
+    default:                                                                   \
+      assert(false);                                                           \
+    }                                                                          \
+    BasicBlock *bb = BasicBlock::Create(                                       \
+        C, (boost::format("l%u") % bbprop.lbls.size()).str(),                  \
+        bbprop.llbb->getParent());                                             \
+    bbprop.lbls.push_back(bb);                                                 \
+    b.CreateCondBr(v, bbprop.lbls[args[3]], bb);                               \
+    b.SetInsertPoint(bb);                                                      \
+  } break;
+
+    __OP_BRCOND(tcg::INDEX_op_brcond_i32, 32)
+    __OP_BRCOND(tcg::INDEX_op_brcond_i64, 64)
+
+#undef __OP_BRCOND_C
+#undef __OP_BRCOND
+
+  case tcg::INDEX_op_set_label:
+    b.SetInsertPoint(bbprop.lbls[args[0]]);
+    break;
+
+  case tcg::INDEX_op_movi_i32:
+    set(ConstantInt::get(IntegerType::get(C, 32), args[1]), args[0]);
+    break;
+
+  case tcg::INDEX_op_mov_i32:
+    // Move operation may perform truncation of the value
+    set(b.CreateTrunc(get(args[1]), IntegerType::get(C, 32)), args[0]);
+    break;
+
+  case tcg::INDEX_op_movi_i64:
+    set(ConstantInt::get(IntegerType::get(C, 64), args[1]), args[0]);
+    break;
+
+  case tcg::INDEX_op_mov_i64:
+    set(get(args[1]), args[0]);
+    break;
+
+/* size extensions */
+#define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
+  case opc_name:                                                               \
+    set(b.Create##signE##Ext(                                                  \
+            b.CreateTrunc(get(args[1]), IntegerType::get(C, truncBits)),       \
+            IntegerType::get(C, opBits)),                                      \
+        args[0]);                                                              \
+    break;
+
+    __EXT_OP(tcg::INDEX_op_ext8s_i32, 8, 32, S)
+    __EXT_OP(tcg::INDEX_op_ext8u_i32, 8, 32, Z)
+    __EXT_OP(tcg::INDEX_op_ext16s_i32, 16, 32, S)
+    __EXT_OP(tcg::INDEX_op_ext16u_i32, 16, 32, Z)
+
+    __EXT_OP(tcg::INDEX_op_ext8s_i64, 8, 64, S)
+    __EXT_OP(tcg::INDEX_op_ext8u_i64, 8, 64, Z)
+    __EXT_OP(tcg::INDEX_op_ext16s_i64, 16, 64, S)
+    __EXT_OP(tcg::INDEX_op_ext16u_i64, 16, 64, Z)
+    __EXT_OP(tcg::INDEX_op_ext32s_i64, 32, 64, S)
+    __EXT_OP(tcg::INDEX_op_ext32u_i64, 32, 64, Z)
+
+#undef __EXT_OP
+
+#define __LD_OP(opc_name, memBits, regBits, signE)                             \
+  case opc_name: {                                                             \
+    Value *v;                                                                  \
+    if (args[1] == tcg::CPU_STATE_ARG) {                                       \
+      v = cpu_state_load(memBits, args[2]);                                    \
+    } else {                                                                   \
+      v = b.CreateAdd(get(args[1]), ConstantInt::get(word_type(), args[2]));   \
+      v = b.CreateIntToPtr(v,                                                  \
+                           PointerType::get(IntegerType::get(C, memBits), 0)); \
+      v = b.CreateLoad(v);                                                     \
+    }                                                                          \
+    set(b.Create##signE##Ext(v, IntegerType::get(C, regBits)), args[0]);       \
+  } break;
+
+/* special case: when we see a st_i64/32 tmp, env, offset where offset points to
+ * to the program counter field, then we store it in our local variable */
+#define __ST_OP(opc_name, memBits, regBits)                                    \
+  case opc_name: {                                                             \
+    Value *valueToStore = get(args[0]);                                        \
+    Value *addr;                                                               \
+    if (args[1] == tcg::CPU_STATE_ARG) {                                       \
+      if (args[2] == tcg::cpu_state_program_counter_offset)                    \
+        addr = pc_llv;                                                         \
+      else                                                                     \
+        addr = cpu_state_gep(memBits, args[2]);                                \
+    } else {                                                                   \
+      addr =                                                                   \
+          b.CreateAdd(get(args[1]), ConstantInt::get(word_type(), args[2]));   \
+      addr = b.CreateIntToPtr(                                                 \
+          addr, PointerType::get(IntegerType::get(C, memBits), 0));            \
+    }                                                                          \
+    b.CreateStore(b.CreateTrunc(valueToStore, IntegerType::get(C, memBits)),   \
+                  addr);                                                       \
+  } break;
+
+    __LD_OP(tcg::INDEX_op_ld8u_i32, 8, 32, Z)
+    __LD_OP(tcg::INDEX_op_ld8s_i32, 8, 32, S)
+    __LD_OP(tcg::INDEX_op_ld16u_i32, 16, 32, Z)
+    __LD_OP(tcg::INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(tcg::INDEX_op_ld_i32, 32, 32, Z)
+
+    __ST_OP(tcg::INDEX_op_st8_i32, 8, 32)
+    __ST_OP(tcg::INDEX_op_st16_i32, 16, 32)
+    __ST_OP(tcg::INDEX_op_st_i32, 32, 32)
+
+    __LD_OP(tcg::INDEX_op_ld8u_i64, 8, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld8s_i64, 8, 64, S)
+    __LD_OP(tcg::INDEX_op_ld16u_i64, 16, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld16s_i64, 16, 64, S)
+    __LD_OP(tcg::INDEX_op_ld32u_i64, 32, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld32s_i64, 32, 64, S)
+    __LD_OP(tcg::INDEX_op_ld_i64, 64, 64, Z)
+
+    __ST_OP(tcg::INDEX_op_st8_i64, 8, 64)
+    __ST_OP(tcg::INDEX_op_st16_i64, 16, 64)
+    __ST_OP(tcg::INDEX_op_st32_i64, 32, 64)
+    __ST_OP(tcg::INDEX_op_st_i64, 64, 64)
+
+#undef __LD_OP
+#undef __ST_OP
+
+#define __ARITH_OP(opc_name, op, bits)                                         \
+  case opc_name: {                                                             \
+    Value *v1 = adjust_type_size(bits, get(args[1]));                          \
+    Value *v2 = adjust_type_size(bits, get(args[2]));                          \
+    assert(v1->getType() == v2->getType());                                    \
+    set(b.Create##op(v1, v2), args[0]);                                        \
+  } break;
+
+#define __ARITH_OP2(opc_name, op, bits)                                        \
+  case opc_name: {                                                             \
+    Value *t1_low = get(args[2]);                                              \
+    Value *t1_high = get(args[3]);                                             \
+    Value *t2_low = get(args[4]);                                              \
+    Value *t2_high = get(args[5]);                                             \
+                                                                               \
+    assert(t1_low->getType() == IntegerType::get(C, bits));                    \
+    assert(t1_high->getType() == IntegerType::get(C, bits));                   \
+    assert(t2_low->getType() == IntegerType::get(C, bits));                    \
+    assert(t2_high->getType() == IntegerType::get(C, bits));                   \
+                                                                               \
+    Value *t1 = b.CreateOr(                                                    \
+        b.CreateShl(b.CreateZExt(t1_high, IntegerType::get(C, bits * 2)),      \
+                    ConstantInt::get(IntegerType::get(C, bits * 2), bits)),    \
+        b.CreateZExt(t1_low, IntegerType::get(C, bits * 2)));                  \
+                                                                               \
+    Value *t2 = b.CreateOr(                                                    \
+        b.CreateShl(b.CreateZExt(t2_high, IntegerType::get(C, bits * 2)),      \
+                    ConstantInt::get(IntegerType::get(C, bits * 2), bits)),    \
+        b.CreateZExt(t2_low, IntegerType::get(C, bits * 2)));                  \
+                                                                               \
+    Value *t0 = b.Create##op(t1, t2);                                          \
+                                                                               \
+    Value *t0_low = b.CreateTrunc(t0, IntegerType::get(C, bits));              \
+    Value *t0_high = b.CreateTrunc(                                            \
+        b.CreateLShr(t0,                                                       \
+                     ConstantInt::get(IntegerType::get(C, bits * 2), bits)),   \
+        IntegerType::get(C, bits));                                            \
+                                                                               \
+    set(t0_low, args[0]);                                                      \
+    set(t0_high, args[1]);                                                     \
+  } break;
+
+#define __ARITH_OP_MUL2(opc_name, signE, bits)                                 \
+  case opc_name: {                                                             \
+    Value *t1 = get(args[2]);                                                  \
+    Value *t2 = get(args[3]);                                                  \
+                                                                               \
+    assert(t1->getType() == IntegerType::get(C, bits));                        \
+    assert(t2->getType() == IntegerType::get(C, bits));                        \
+                                                                               \
+    Value *t0 =                                                                \
+        b.CreateMul(b.Create##signE##Ext(t1, IntegerType::get(C, bits * 2)),   \
+                    b.Create##signE##Ext(t2, IntegerType::get(C, bits * 2)));  \
+                                                                               \
+    Value *t0_low = b.CreateTrunc(t0, IntegerType::get(C, bits));              \
+    Value *t0_high = b.CreateTrunc(                                            \
+        b.CreateLShr(t0,                                                       \
+                     ConstantInt::get(IntegerType::get(C, bits * 2), bits)),   \
+        IntegerType::get(C, bits));                                            \
+                                                                               \
+    set(t0_low, args[0]);                                                      \
+    set(t0_high, args[1]);                                                     \
+  } break;
+
+#define __ARITH_OP_DIV2(opc_name, signE, bits)                                 \
+  case opc_name: {                                                             \
+    Value *v2 = get(args[2]);                                                  \
+    Value *v3 = get(args[3]);                                                  \
+    Value *v4 = get(args[4]);                                                  \
+                                                                               \
+    assert(v2->getType() == IntegerType::get(C, bits));                        \
+    assert(v3->getType() == IntegerType::get(C, bits));                        \
+    assert(v4->getType() == IntegerType::get(C, bits));                        \
+                                                                               \
+    Value *v = b.CreateShl(                                                    \
+        b.CreateZExt(v3, IntegerType::get(C, bits * 2)),                       \
+        b.CreateZExt(ConstantInt::get(IntegerType::get(C, bits), bits),        \
+                     IntegerType::get(C, bits * 2)));                          \
+                                                                               \
+    v = b.CreateOr(v, b.CreateZExt(v2, IntegerType::get(C, bits * 2)));        \
+                                                                               \
+    set(b.CreateTrunc(b.Create##signE##Div(                                    \
+                          v, b.CreateZExt(v4, IntegerType::get(C, bits * 2))), \
+                      IntegerType::get(C, bits)),                              \
+        args[0]);                                                              \
+                                                                               \
+    set(b.CreateTrunc(b.Create##signE##Rem(                                    \
+                          v, b.CreateZExt(v4, IntegerType::get(C, bits * 2))), \
+                      IntegerType::get(C, bits)),                              \
+        args[1]);                                                              \
+                                                                               \
+  } break;
+
+#define __ARITH_OP_ROT(opc_name, op1, op2, bits)                               \
+  case opc_name: {                                                             \
+    Value *v1 = get(args[1]);                                                  \
+    Value *v2 = get(args[2]);                                                  \
+    assert(v1->getType() == IntegerType::get(C, bits));                        \
+    assert(v2->getType() == IntegerType::get(C, bits));                        \
+    Value *v =                                                                 \
+        b.CreateSub(ConstantInt::get(IntegerType::get(C, bits), bits), v2);    \
+    set(b.CreateOr(b.Create##op1(v1, v2), b.Create##op2(v1, v)), args[0]);     \
+  } break;
+
+#define __ARITH_OP_I(opc_name, op, i, bits)                                    \
+  case opc_name: {                                                             \
+    Value *v1 = get(args[1]);                                                  \
+    assert(v1->getType() == IntegerType::get(C, bits));                        \
+    set(b.Create##op(ConstantInt::get(IntegerType::get(C, bits), i), v1),      \
+        args[0]);                                                              \
+  } break;
+
+#define __ARITH_OP_BSWAP(opc_name, sBits, bits)                                \
+  case opc_name: {                                                             \
+    Value *v1 = get(args[1]);                                                  \
+    assert(v1->getType() == IntegerType::get(C, bits));                        \
+    Type *Tys[] = {IntegerType::get(C, sBits)};                                \
+    Function *bswap = Intrinsic::getDeclaration(                               \
+        &M, Intrinsic::bswap, ArrayRef<llvm::Type *>(Tys, 1));                 \
+    Value *v = b.CreateTrunc(v1, IntegerType::get(C, sBits));                  \
+    set(b.CreateZExt(b.CreateCall(bswap, v), IntegerType::get(C, bits)),       \
+        args[0]);                                                              \
+  } break;
+
+    __ARITH_OP(tcg::INDEX_op_add_i32, Add, 32)
+    __ARITH_OP(tcg::INDEX_op_sub_i32, Sub, 32)
+    __ARITH_OP(tcg::INDEX_op_mul_i32, Mul, 32)
+
+    __ARITH_OP(tcg::INDEX_op_div_i32, SDiv, 32)
+    __ARITH_OP(tcg::INDEX_op_divu_i32, UDiv, 32)
+    __ARITH_OP(tcg::INDEX_op_rem_i32, SRem, 32)
+    __ARITH_OP(tcg::INDEX_op_remu_i32, URem, 32)
+    __ARITH_OP_DIV2(tcg::INDEX_op_div2_i32, S, 32)
+    __ARITH_OP_DIV2(tcg::INDEX_op_divu2_i32, U, 32)
+
+    __ARITH_OP(tcg::INDEX_op_and_i32, And, 32)
+    __ARITH_OP(tcg::INDEX_op_or_i32, Or, 32)
+    __ARITH_OP(tcg::INDEX_op_xor_i32, Xor, 32)
+
+    __ARITH_OP(tcg::INDEX_op_shl_i32, Shl, 32)
+    __ARITH_OP(tcg::INDEX_op_shr_i32, LShr, 32)
+    __ARITH_OP(tcg::INDEX_op_sar_i32, AShr, 32)
+
+    __ARITH_OP_ROT(tcg::INDEX_op_rotl_i32, Shl, LShr, 32)
+    __ARITH_OP_ROT(tcg::INDEX_op_rotr_i32, LShr, Shl, 32)
+
+    __ARITH_OP_I(tcg::INDEX_op_not_i32, Xor, (uint64_t)-1, 32)
+    __ARITH_OP_I(tcg::INDEX_op_neg_i32, Sub, 0, 32)
+
+    __ARITH_OP_BSWAP(tcg::INDEX_op_bswap16_i32, 16, 32)
+    __ARITH_OP_BSWAP(tcg::INDEX_op_bswap32_i32, 32, 32)
+
+    __ARITH_OP(tcg::INDEX_op_add_i64, Add, 64)
+    __ARITH_OP(tcg::INDEX_op_sub_i64, Sub, 64)
+    __ARITH_OP(tcg::INDEX_op_mul_i64, Mul, 64)
+
+    __ARITH_OP(tcg::INDEX_op_div_i64, SDiv, 64)
+    __ARITH_OP(tcg::INDEX_op_divu_i64, UDiv, 64)
+    __ARITH_OP(tcg::INDEX_op_rem_i64, SRem, 64)
+    __ARITH_OP(tcg::INDEX_op_remu_i64, URem, 64)
+    __ARITH_OP_DIV2(tcg::INDEX_op_div2_i64, S, 64)
+    __ARITH_OP_DIV2(tcg::INDEX_op_divu2_i64, U, 64)
+
+    __ARITH_OP(tcg::INDEX_op_and_i64, And, 64)
+    __ARITH_OP(tcg::INDEX_op_or_i64, Or, 64)
+    __ARITH_OP(tcg::INDEX_op_xor_i64, Xor, 64)
+
+    __ARITH_OP(tcg::INDEX_op_shl_i64, Shl, 64)
+    __ARITH_OP(tcg::INDEX_op_shr_i64, LShr, 64)
+    __ARITH_OP(tcg::INDEX_op_sar_i64, AShr, 64)
+
+    __ARITH_OP_ROT(tcg::INDEX_op_rotl_i64, Shl, LShr, 64)
+    __ARITH_OP_ROT(tcg::INDEX_op_rotr_i64, LShr, Shl, 64)
+
+    __ARITH_OP_I(tcg::INDEX_op_not_i64, Xor, (uint64_t)-1, 64)
+    __ARITH_OP_I(tcg::INDEX_op_neg_i64, Sub, 0, 64)
+
+    __ARITH_OP_BSWAP(tcg::INDEX_op_bswap16_i64, 16, 64)
+    __ARITH_OP_BSWAP(tcg::INDEX_op_bswap32_i64, 32, 64)
+    __ARITH_OP_BSWAP(tcg::INDEX_op_bswap64_i64, 64, 64)
+
+    __ARITH_OP2(tcg::INDEX_op_add2_i64, Add, 64)
+    __ARITH_OP2(tcg::INDEX_op_sub2_i64, Sub, 64)
+
+    __ARITH_OP_MUL2(tcg::INDEX_op_mulu2_i64, Z, 64)
+    __ARITH_OP_MUL2(tcg::INDEX_op_muls2_i64, S, 64)
+
+#undef __ARITH_OP_BSWAP
+#undef __ARITH_OP_I
+#undef __ARITH_OP_ROT
+#undef __ARITH_OP_DIV2
+#undef __ARITH_OP
+
+#define __OP_QEMU_ST(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    Value *addr = get(args[1]);                                                \
+    addr = b.CreateZExt(addr, word_type());                                    \
+    addr = b.CreateIntToPtr(addr,                                              \
+                            PointerType::get(IntegerType::get(C, bits), 0));   \
+    Value *valueToStore =                                                      \
+        b.CreateIntCast(get(args[0]), IntegerType::get(C, bits), false);       \
+    b.CreateStore(valueToStore, addr);                                         \
+  } break;
+
+#define __OP_QEMU_LD(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    Value *addr = get(args[1]);                                                \
+    addr = b.CreateZExt(addr, word_type());                                    \
+    addr = b.CreateIntToPtr(addr,                                              \
+                            PointerType::get(IntegerType::get(C, bits), 0));   \
+    Value *v = b.CreateLoad(addr);                                             \
+    set(v, args[0]);                                                           \
+  } break;
+
+    __OP_QEMU_ST(tcg::INDEX_op_qemu_st_i32, 32)
+    __OP_QEMU_ST(tcg::INDEX_op_qemu_st_i64, 64)
+
+    __OP_QEMU_LD(tcg::INDEX_op_qemu_ld_i32, 32)
+    __OP_QEMU_LD(tcg::INDEX_op_qemu_ld_i64, 64)
+
+#undef __OP_QEMU_LD
+#undef __OP_QEMU_ST
+
+  case tcg::INDEX_op_exit_tb:
+    b.CreateBr(bbprop.exitllbb);
+    break;
+
+  case tcg::INDEX_op_goto_tb:
+    break;
+
+  case tcg::INDEX_op_deposit_i32: {
+    Value *arg1 = get(args[1]);
+    Value *arg2 = get(args[2]);
+
+    arg2 = b.CreateTrunc(arg2, IntegerType::get(C, 32));
+
+    uint32_t ofs = args[3];
+    uint32_t len = args[4];
+
+    if (ofs == 0 && len == 32) {
+      set(arg2, args[0]);
+      break;
+    }
+
+    uint32_t mask = (1u << len) - 1;
+    Value *t1, *ret;
+    if (ofs + len < 32) {
+      t1 = b.CreateAnd(arg2, APInt(32, mask));
+      t1 = b.CreateShl(t1, APInt(32, ofs));
+    } else {
+      t1 = b.CreateShl(arg2, APInt(32, ofs));
+    }
+
+    ret = b.CreateAnd(arg1, APInt(32, ~(mask << ofs)));
+    ret = b.CreateOr(ret, t1);
+    set(ret, args[0]);
+  } break;
+
+  case tcg::INDEX_op_deposit_i64: {
+    Value *arg1 = get(args[1]);
+    Value *arg2 = get(args[2]);
+    arg2 = b.CreateTrunc(arg2, IntegerType::get(C, 64));
+
+    uint32_t ofs = args[3];
+    uint32_t len = args[4];
+
+    if (0 == ofs && 64 == len) {
+      set(arg2, args[0]);
+      break;
+    }
+
+    uint64_t mask = (1u << len) - 1;
+    Value *t1, *ret;
+
+    if (ofs + len < 64) {
+      t1 = b.CreateAnd(arg2, APInt(64, mask));
+      t1 = b.CreateShl(t1, APInt(64, ofs));
+    } else {
+      t1 = b.CreateShl(arg2, APInt(64, ofs));
+    }
+
+    ret = b.CreateAnd(arg1, APInt(64, ~(mask << ofs)));
+    ret = b.CreateOr(ret, t1);
+    set(ret, args[0]);
+  } break;
+
+  default:
+    cerr << "error: Unhandled TCG operation '" << def.name << "'" << endl;
+    abort();
+    break;
+  }
+}
+
+/// \brief Build a GEP out of a base pointer and indices.
+///
+/// This will return the BasePtr if that is valid, or build a new GEP
+/// instruction using the IRBuilder if GEP-ing is needed.
+Value *translator::buildGEP(Value *BasePtr, SmallVectorImpl<Value *> &Indices,
+                            Twine NamePrefix) {
+  if (Indices.empty())
+    return BasePtr;
+
+  // A single zero index is a no-op, so check for this and avoid building a GEP
+  // in that case.
+  if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
+    return BasePtr;
+
+  return b.CreateInBoundsGEP(nullptr, BasePtr, Indices, NamePrefix);
+}
+
+/// \brief Get a natural GEP off of the BasePtr walking through Ty toward
+/// TargetTy without changing the offset of the pointer.
+///
+/// This routine assumes we've already established a properly offset GEP with
+/// Indices, and arrived at the Ty type. The goal is to continue to GEP with
+/// zero-indices down through type layers until we find one the same as
+/// TargetTy. If we can't find one with the same type, we at least try to use
+/// one with the same size. If none of that works, we just produce the GEP as
+/// indicated by Indices to have the correct offset.
+Value *translator::getNaturalGEPWithType(Value *BasePtr, Type *Ty,
+                                         Type *TargetTy,
+                                         SmallVectorImpl<Value *> &Indices,
+                                         Twine NamePrefix) {
+  if (Ty == TargetTy)
+    return buildGEP(BasePtr, Indices, NamePrefix);
+
+  // Pointer size to use for the indices.
+  unsigned PtrSize = DL.getPointerTypeSizeInBits(BasePtr->getType());
+
+  // See if we can descend into a struct and locate a field with the correct
+  // type.
+  unsigned NumLayers = 0;
+  Type *ElementTy = Ty;
+  do {
+    if (ElementTy->isPointerTy())
+      break;
+
+    if (ArrayType *ArrayTy = dyn_cast<ArrayType>(ElementTy)) {
+      ElementTy = ArrayTy->getElementType();
+      Indices.push_back(b.getIntN(PtrSize, 0));
+    } else if (VectorType *VectorTy = dyn_cast<VectorType>(ElementTy)) {
+      ElementTy = VectorTy->getElementType();
+      Indices.push_back(b.getInt32(0));
+    } else if (StructType *STy = dyn_cast<StructType>(ElementTy)) {
+      if (STy->element_begin() == STy->element_end())
+        break; // Nothing left to descend into.
+      ElementTy = *STy->element_begin();
+      Indices.push_back(b.getInt32(0));
+    } else {
+      break;
+    }
+    ++NumLayers;
+  } while (ElementTy != TargetTy);
+  if (ElementTy != TargetTy)
+    Indices.erase(Indices.end() - NumLayers, Indices.end());
+
+  return buildGEP(BasePtr, Indices, NamePrefix);
+}
+
+/// \brief Recursively compute indices for a natural GEP.
+///
+/// This is the recursive step for getNaturalGEPWithOffset that walks down the
+/// element types adding appropriate indices for the GEP.
+Value *translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
+                                            Type *TargetTy,
+                                            SmallVectorImpl<Value *> &Indices,
+                                            Twine NamePrefix) {
+  if (Offset == 0)
+    return getNaturalGEPWithType(Ptr, Ty, TargetTy, Indices, NamePrefix);
+
+  // We can't recurse through pointer types.
+  if (Ty->isPointerTy())
+    return nullptr;
+
+  // We try to analyze GEPs over vectors here, but note that these GEPs are
+  // extremely poorly defined currently. The long-term goal is to remove GEPing
+  // over a vector from the IR completely.
+  if (VectorType *VecTy = dyn_cast<VectorType>(Ty)) {
+    unsigned ElementSizeInBits = DL.getTypeSizeInBits(VecTy->getScalarType());
+    if (ElementSizeInBits % 8 != 0) {
+      // GEPs over non-multiple of 8 size vector elements are invalid.
+      return nullptr;
+    }
+    APInt ElementSize(Offset.getBitWidth(), ElementSizeInBits / 8);
+    APInt NumSkippedElements = Offset.sdiv(ElementSize);
+    if (NumSkippedElements.ugt(VecTy->getNumElements()))
+      return nullptr;
+    Offset -= NumSkippedElements * ElementSize;
+    Indices.push_back(b.getInt(NumSkippedElements));
+    return getNaturalGEPRecursively(Ptr, VecTy->getElementType(), Offset,
+                                    TargetTy, Indices, NamePrefix);
+  }
+
+  if (ArrayType *ArrTy = dyn_cast<ArrayType>(Ty)) {
+    Type *ElementTy = ArrTy->getElementType();
+    APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
+    APInt NumSkippedElements = Offset.sdiv(ElementSize);
+    if (NumSkippedElements.ugt(ArrTy->getNumElements()))
+      return nullptr;
+
+    Offset -= NumSkippedElements * ElementSize;
+    Indices.push_back(b.getInt(NumSkippedElements));
+    return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
+                                    NamePrefix);
+  }
+
+  StructType *STy = dyn_cast<StructType>(Ty);
+  if (!STy)
+    return nullptr;
+
+  const StructLayout *SL = DL.getStructLayout(STy);
+  uint64_t StructOffset = Offset.getZExtValue();
+  if (StructOffset >= SL->getSizeInBytes())
+    return nullptr;
+  unsigned Index = SL->getElementContainingOffset(StructOffset);
+  Offset -= APInt(Offset.getBitWidth(), SL->getElementOffset(Index));
+  Type *ElementTy = STy->getElementType(Index);
+  if (Offset.uge(DL.getTypeAllocSize(ElementTy)))
+    return nullptr; // The offset points into alignment padding.
+
+  Indices.push_back(b.getInt32(Index));
+  return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
+                                  NamePrefix);
+}
+
+/// \brief Get a natural GEP from a base pointer to a particular offset and
+/// resulting in a particular type.
+///
+/// The goal is to produce a "natural" looking GEP that works with the existing
+/// composite types to arrive at the appropriate offset and element type for
+/// a pointer. TargetTy is the element type the returned GEP should point-to if
+/// possible. We recurse by decreasing Offset, adding the appropriate index to
+/// Indices, and setting Ty to the result subtype.
+///
+/// If no natural GEP can be constructed, this function returns null.
+Value *translator::getNaturalGEPWithOffset(Value *Ptr, APInt Offset,
+                                           Type *TargetTy,
+                                           SmallVectorImpl<Value *> &Indices,
+                                           Twine NamePrefix) {
+  PointerType *Ty = cast<PointerType>(Ptr->getType());
+
+  // Don't consider any GEPs through an i8* as natural unless the TargetTy is
+  // an i8.
+  if (Ty == b.getInt8PtrTy(Ty->getAddressSpace()) && TargetTy->isIntegerTy(8))
+    return nullptr;
+
+  Type *ElementTy = Ty->getElementType();
+  if (!ElementTy->isSized())
+    return nullptr; // We can't GEP through an unsized element.
+  APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
+  if (ElementSize == 0)
+    return nullptr; // Zero-length arrays can't help us build a natural GEP.
+  APInt NumSkippedElements = Offset.sdiv(ElementSize);
+
+  Offset -= NumSkippedElements * ElementSize;
+  Indices.push_back(b.getInt(NumSkippedElements));
+  return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
+                                  NamePrefix);
+}
 }
