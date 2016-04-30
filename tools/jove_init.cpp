@@ -191,20 +191,25 @@ void print_obj_info(const ObjectFile *Obj) {
 #endif
 
 void createImportedFunctions() {
+#if 0
   vector<symbol_t> syms;
   imported_functions_of_binary(*O, syms);
+#endif
 }
 
 void createExportedFunctions() {
-  vector<symbol_t> syms;
-  exported_functions_of_binary(*O, syms);
+  vector<address_t> addrs;
+  for (const symbol_t& sym : T->symbol_table()) {
+    if (!sym.addr || sym.ty != symbol_t::FUNCTION ||
+        sym.bind == symbol_t::NOBINDING)
+      continue;
 
-  vector<address_t> addrs(syms.size());
-  transform(syms.begin(), syms.end(), addrs.begin(),
-            [](const symbol_t &s) { return s.addr; });
+    addrs.push_back(sym.addr);
+  }
 
   T->translate(addrs);
 
+#if 0
   for (symbol_t s : syms) {
     Function* llf = T->function_of_addr(s.addr);
 
@@ -213,6 +218,7 @@ void createExportedFunctions() {
 
     llf->setName(s.name);
   }
+#endif
 }
 
 void createExportedVariables() {}

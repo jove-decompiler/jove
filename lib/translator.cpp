@@ -17,6 +17,7 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Verifier.h>
 #include <boost/range/adaptor/reversed.hpp>
+#include <llvm/Analysis/ConstantFolding.h>
 
 using namespace llvm;
 using namespace object;
@@ -243,24 +244,20 @@ translator::translator(ObjectFile &O, const string &MNm)
   libqemutcg_init();
 
   //
+  // initialize LLVM-MC for machine code analysis
+  //
+  libmc_init(&O);
+
+  //
   // initialize helpers
   //
   init_helpers();
 
   //
-  // initialize LLVM bitcode
+  // initialize data structures and modify the bitcode to prepare for
+  // translating to LLVM
   //
-  init_bitcode();
-
-  //
-  // init LLVM-MC for machine code analysis
-  //
-  libmc_init(&O);
-
-  //
-  // build address space mapping to sections
-  //
-  address_to_section_map_of_binary(O, addrspace);
+  prepare_for_translation();
 }
 
 enum HELPER_METADATA_TYPE {
@@ -347,7 +344,10 @@ void translator::init_helpers() {
   }
 }
 
-void translator::init_bitcode() {
+void translator::prepare_for_translation() {
+  //
+  // create the thread-local CPUState
+  //
   GlobalVariable *rthlp_cpu_state = HelperM.getNamedGlobal("cpu_state");
   assert(rthlp_cpu_state);
 
@@ -355,6 +355,38 @@ void translator::init_bitcode() {
                                          GlobalValue::ExternalLinkage, nullptr,
                                          rthlp_cpu_state->getName(), nullptr,
                                          GlobalValue::GeneralDynamicTLSModel);
+
+  //
+  // parse the binary
+  //
+  parse_binary(O, secttbl, symtbl, reloctbl);
+
+  //
+  // create address to section mapping
+  //
+  for (unsigned i = 0; i < secttbl.size(); ++i) {
+    section_t& sect = secttbl[i];
+    boost::icl::discrete_interval<address_t> intervl =
+        boost::icl::discrete_interval<address_t>::right_open(
+            sect.addr, sect.addr + sect.size);
+    addrspace.add(make_pair(intervl, i + 1));
+  }
+
+  //
+  // create declarations for imported functions
+  //
+
+  //
+  // create the section global variables. we must take into account relocations
+  // and symbols, not only for the globals' initializers but for their struct
+  // types as well
+  //
+
+  //
+  // data symbols can give us the size of global variables which are contained
+  // in sections. we'll use this to our advantage and break apart the section so
+  // that the variable is a separate field.
+  //
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {
@@ -513,7 +545,7 @@ bool translator::translate_function(address_t addr) {
     assert(sectit != addrspace.end());
 
     sectstart = (*sectit).first.lower();
-    sectdata = section_contents_of_binary(O, (*sectit).second);
+    sectdata = secttbl[(*sectit).second - 1].contents;
   }
   libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
 
@@ -1312,7 +1344,7 @@ Value* translator::load_global_from_cpu_state(unsigned gidx) {
       tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
       IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
       Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
-  b.CreateLoad(ptr);
+  return b.CreateLoad(ptr);
 }
 
 void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
@@ -1774,19 +1806,54 @@ void translator::translate_tcg_operation_to_llvm(
 
   auto set = [&](Value *v, tcg::Arg a) -> void {
     assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
+
+#if 0
     b.CreateStore(v,
                   a < tcg::num_globals ? tcg_glb_llv_m[a] : tcg_tmp_llv_m[a]);
+
+    if (a >= tcg::num_globals)
+      cout << (boost::format("set: temp_local = %u") %
+               static_cast<unsigned>(bbprop.tcg_tmps[a].temp_local))
+           << endl;
+#endif
+
+#if 1
+    if (a < tcg::num_globals) {
+      b.CreateStore(v, tcg_glb_llv_m[a]);
+    } else {
+      if (bbprop.tcg_tmps[a].temp_local)
+        b.CreateStore(v, tcg_tmp_llv_m[a]);
+      else
+        tcg_tmp_llv_m[a] = v;
+    }
+#endif
   };
 
   auto get = [&](tcg::Arg a) -> Value * {
     assert(a != tcg::CALL_DUMMY_ARG);
 
-    Value *res = a < tcg::num_globals ? tcg_glb_llv_m[a] : tcg_tmp_llv_m[a];
-
     if (a == tcg::CPU_STATE_ARG)
-      return b.CreatePtrToInt(res, word_type());
+      return b.CreatePtrToInt(tcg_glb_llv_m[tcg::CPU_STATE_ARG], word_type());
 
-    return b.CreateLoad(res);
+    Value* ptr = nullptr;
+
+    if (a < tcg::num_globals) {
+      ptr = tcg_glb_llv_m[a];
+    } else {
+      if (bbprop.tcg_tmps[a].temp_local)
+        ptr = tcg_tmp_llv_m[a];
+      else
+        return tcg_tmp_llv_m[a];
+    }
+
+    return b.CreateLoad(ptr);
+    
+#if 0
+    if (a >= tcg::num_globals)
+      cout << (boost::format("get: temp_local = %u") %
+               static_cast<unsigned>(bbprop.tcg_tmps[a].temp_local))
+           << endl;
+#endif
   };
 
   auto type = [&](tcg::Arg a) -> Type * {
@@ -1893,9 +1960,11 @@ void translator::translate_tcg_operation_to_llvm(
 #endif
 
     if (h->outglbv.size()) {
+#if 0
       cout << "h->outglbv.size() = " << h->outglbv.size() << endl;
       for (unsigned i = 0; i < h->outglbv.size(); ++i)
         cout << "outglb: " << tcg_globals[h->outglbv[i]].nm << endl;
+#endif
 
       // return type is a struct
       assert(isa<StructType>(res->getType()));
@@ -2269,9 +2338,27 @@ void translator::translate_tcg_operation_to_llvm(
     b.CreateStore(valueToStore, addr);                                         \
   } break;
 
+//    if (C = ConstantFoldInstruction(addr, DL))
+
 #define __OP_QEMU_LD(opc_name, bits)                                           \
   case opc_name: {                                                             \
     Value *addr = get(args[1]);                                                \
+    ConstantInt *constiaddr = nullptr;                                         \
+    Constant *constaddr;                                                       \
+    if (isa<ConstantInt>(addr))                                                \
+      constiaddr = cast<ConstantInt>(addr);                                    \
+    else if (isa<Instruction>(addr) && (constaddr = ConstantFoldInstruction(   \
+                                            cast<Instruction>(addr), DL)) &&   \
+             isa<ConstantInt>(constaddr)) {                                    \
+      outs() << "folded constant\n";                                           \
+      constiaddr = cast<ConstantInt>(constaddr);                               \
+    }                                                                          \
+    if (constiaddr) {                                                          \
+      outs() << "__OP_QEMU_LD: addr is constant ";                             \
+      outs() << *addr << " = "                                                 \
+             << (boost::format("%x") % constiaddr->getZExtValue()).str()       \
+             << "\n";                                                          \
+    }                                                                          \
     addr = b.CreateZExt(addr, word_type());                                    \
     addr = b.CreateIntToPtr(addr,                                              \
                             PointerType::get(IntegerType::get(C, bits), 0));   \

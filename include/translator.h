@@ -1,10 +1,8 @@
 #pragma once
-#include "types.h"
+#include "binary.h"
 #include <array>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/icl/interval_map.hpp>
-#include <config-target.h>
-#include <inttypes.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -262,7 +260,11 @@ private:
 
   llvm::IRBuilder<> b;
 
-  boost::icl::interval_map<address_t, section_number_t> addrspace;
+  section_table_t secttbl;
+  symbol_table_t symtbl;
+  relocation_table_t reloctbl;
+
+  boost::icl::interval_map<address_t, unsigned> addrspace;
 
   llvm::Type* word_ty;
 
@@ -292,6 +294,8 @@ private:
   // on tree edge
   std::vector<basic_block_t> parentMap;
 
+  // section for which we are translating for
+  // XXX TODO change this to always look for correct section
   llvm::ArrayRef<uint8_t> sectdata;
   address_t sectstart;
 
@@ -306,9 +310,12 @@ private:
   llvm::Value* pc_llv;
   llvm::Value* cpu_state_glb_llv;
 
+  std::unordered_map<std::string, llvm::Function*> function_sym_table;
+  std::unordered_map<address_t, llvm::Function*> reloc_function_table;
+
   llvm::Type *word_type();
   void init_helpers();
-  void init_bitcode();
+  void prepare_for_translation();
   bool translate_function(address_t);
   basic_block_t translate_basic_block(function_t&, address_t);
   void write_function_graphviz(function_t &);
@@ -350,6 +357,18 @@ public:
 
   llvm::Module& module() {
     return M;
+  }
+
+  const section_table_t& section_table() {
+    return secttbl;
+  }
+
+  const symbol_table_t& symbol_table() {
+    return symtbl;
+  }
+
+  const relocation_table_t& relocation_table() {
+    return reloctbl;
   }
 
   void tcg_helper(uintptr_t addr, const char *name);

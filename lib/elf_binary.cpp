@@ -1,7 +1,9 @@
-#include "elf_binary.h"
+#include "binary.h"
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ELF.h>
+#include <unordered_map>
 
+using namespace std;
 using namespace llvm;
 using namespace object;
 
@@ -11,107 +13,181 @@ template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   return Val ? *Val : Default;
 }
 
-void imported_functions_of_elf_binary(const llvm::object::ObjectFile &,
-                                      std::vector<symbol_t> &) {
-}
-
 template <typename ELFT>
-void exported_functions_of_elf(const ELFFile<ELFT> *ELF,
-                               std::vector<symbol_t> & res) {
+static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
+                      symbol_table_t &symtbl, relocation_table_t &reloctbl) {
   typedef typename ELFFile<ELFT>::Elf_Shdr Elf_Shdr;
   typedef typename ELFFile<ELFT>::Elf_Sym Elf_Sym;
+  typedef typename ELFFile<ELFT>::Elf_Rel Elf_Rel;
+  typedef typename ELFFile<ELFT>::Elf_Rela Elf_Rela;
 
-  const Elf_Shdr *DotSymtabSec = nullptr; // Symbol table section.
+  const Elf_Shdr *DotSymTblSec = nullptr; // Symbol table section.
 
+  //
+  // gather sections
+  //
+  secttbl.reserve(ELF->getNumSections());
   for (const Elf_Shdr &Sec : ELF->sections()) {
-    if (Sec.sh_type == ELF::SHT_SYMTAB) {
-      DotSymtabSec = &Sec;
-      break;
+    // while iterating sections, look for the symbol table
+    if (Sec.sh_type == ELF::SHT_SYMTAB)
+      DotSymTblSec = &Sec;
+
+    if (!(Sec.sh_flags & ELF::SHF_ALLOC))
+      continue;
+
+    section_t res;
+
+    res.name = errorOrDefault(ELF->getSectionName(&Sec)).str();
+    res.addr = Sec.sh_addr;
+    res.size = Sec.sh_size;
+
+    res.contents = errorOrDefault(ELF->getSectionContents(&Sec));
+
+    res.align = Sec.sh_addralign;
+
+    res.flags.read = 1;
+    res.flags.write = Sec.sh_flags & ELF::SHF_WRITE;
+    res.flags.exec = Sec.sh_flags & ELF::SHF_EXECINSTR;
+    res.flags.tls = Sec.sh_flags & ELF::SHF_TLS;
+
+    secttbl.push_back(res);
+  }
+
+  //
+  // gather symbols
+  //
+  unordered_map<string, unsigned> symidxmap;
+  symtbl.reserve(DotSymTblSec->sh_size / sizeof(Elf_Sym));
+  StringRef StrTable =
+      errorOrDefault(ELF->getStringTableForSymtab(*DotSymTblSec));
+  for (const Elf_Sym &Sym : ELF->symbols(DotSymTblSec)) {
+    symbol_t res;
+
+    res.name = errorOrDefault(Sym.getName(StrTable)).str();
+
+    res.addr = Sym.isUndefined() ? 0 : Sym.st_value;
+
+    constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+        symbol_t::NOTYPE,   // STT_NOTYPE              = 0
+        symbol_t::DATA,     // STT_OBJECT              = 1
+        symbol_t::FUNCTION, // STT_FUNC                = 2
+        symbol_t::NOTYPE,   // STT_SECTION             = 3
+        symbol_t::NOTYPE,   // STT_FILE                = 4
+        symbol_t::NOTYPE,   // STT_COMMON              = 5
+        symbol_t::TLSDATA,  // STT_TLS                 = 6
+        symbol_t::NOTYPE,   // N/A                     = 7
+        symbol_t::NOTYPE,   // N/A                     = 8
+        symbol_t::NOTYPE,   // N/A                     = 9
+        symbol_t::NOTYPE,   // STT_GNU_IFUNC, STT_LOOS = 10
+        symbol_t::NOTYPE,   // N/A                     = 11
+        symbol_t::NOTYPE,   // STT_HIOS                = 12
+        symbol_t::NOTYPE,   // STT_LOPROC              = 13
+        symbol_t::NOTYPE,   // N/A                     = 14
+        symbol_t::NOTYPE    // STT_HIPROC              = 15
+    };
+
+    res.ty = elf_symbol_type_mapping[Sym.getType()];
+
+    res.size = Sym.st_size;
+
+    constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+        symbol_t::LOCAL,     // STT_LOCAL      = 0
+        symbol_t::GLOBAL,    // STB_GLOBAL     = 1
+        symbol_t::WEAK,      // STB_WEAK       = 2
+        symbol_t::NOBINDING, // N/A            = 3
+        symbol_t::NOBINDING, // N/A            = 4
+        symbol_t::NOBINDING, // N/A            = 5
+        symbol_t::NOBINDING, // N/A            = 6
+        symbol_t::NOBINDING, // N/A            = 7
+        symbol_t::NOBINDING, // N/A            = 8
+        symbol_t::NOBINDING, // N/A            = 9
+        symbol_t::NOBINDING, // STB_GNU_UNIQUE = 10
+        symbol_t::NOBINDING, // N/A            = 11
+        symbol_t::NOBINDING, // STB_HIOS       = 12
+        symbol_t::NOBINDING, // STB_LOPROC     = 13
+        symbol_t::NOBINDING, // N/A            = 14
+        symbol_t::NOBINDING  // STB_HIPROC     = 15
+    };
+
+    res.bind = elf_symbol_binding_mapping[Sym.getBinding()];
+
+    symidxmap[res.name] = symtbl.size();
+    symtbl.push_back(res);
+  }
+
+  //
+  // gather relocations
+  //
+  for (const Elf_Shdr &Sec : ELF->sections()) {
+    if (Sec.sh_type != ELF::SHT_REL && Sec.sh_type != ELF::SHT_RELA)
+      continue;
+
+    auto relocation_type_of_elf_rela_type =
+        [](unsigned char elf_rela_ty) -> relocation_t::TYPE {
+      switch (elf_rela_ty) {
+#if defined(TARGET_AARCH64)
+#include "elf_relocs_aarch64.cpp"
+#elif defined(TARGET_ARM)
+#include "elf_relocs_arm.cpp"
+#elif defined(TARGET_X86_64)
+#include "elf_relocs_x86_64.cpp"
+#elif defined(TARGET_I386)
+#include "elf_relocs_i386.cpp"
+#elif defined(TARGET_MIPS)
+#include "elf_relocs_mips.cpp"
+#endif
+      default:
+        return relocation_t::NONE;
+      }
+    };
+
+    auto process_rela = [&](const Elf_Rela &R) -> void {
+      relocation_t res;
+
+      res.ty = relocation_type_of_elf_rela_type(R.getType(ELF->isMips64EL()));
+      res.addr = R.r_offset;
+      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, DotSymTblSec);
+      res.symidx = symidxmap[errorOrDefault(Sym->getName(StrTable)).str()];
+      res.addend = R.r_addend;
+
+      reloctbl.push_back(res);
+    };
+
+    if (Sec.sh_type == ELF::SHT_REL) {
+      reloctbl.reserve(reloctbl.size() +
+                       distance(ELF->rel_begin(&Sec), ELF->rel_end(&Sec)));
+
+      for (const Elf_Rel &R : ELF->rels(&Sec)) {
+        Elf_Rela Rela;
+        Rela.r_offset = R.r_offset;
+        Rela.r_info = R.r_info;
+        Rela.r_addend = 0;
+        process_rela(Rela);
+      }
+    } else { // ELF::SHT_RELA
+      reloctbl.reserve(reloctbl.size() +
+                       distance(ELF->rela_begin(&Sec), ELF->rela_end(&Sec)));
+
+      for (const Elf_Rela &Rela : ELF->relas(&Sec))
+        process_rela(Rela);
     }
   }
 
-  if (!DotSymtabSec)
-    return;
-
-  StringRef StrTable =
-      errorOrDefault(ELF->getStringTableForSymtab(*DotSymtabSec));
-
-  for (const Elf_Sym &Sym : ELF->symbols(DotSymtabSec)) {
-    StringRef SymbolName = errorOrDefault(Sym.getName(StrTable));
-    if (Sym.getType() == ELF::STT_FUNC && !Sym.isUndefined() &&
-        (Sym.getBinding() == ELF::STB_GLOBAL ||
-         Sym.getBinding() == ELF::STB_WEAK))
-      res.push_back({Sym.st_value, SymbolName.str()});
-  }
+  return true;
 }
 
-void exported_functions_of_elf_binary(const llvm::object::ObjectFile & O,
-                                      std::vector<symbol_t> & res) {
+bool parse_elf_binary(const llvm::object::ObjectFile &O,
+                      section_table_t &secttbl, symbol_table_t &symtbl,
+                      relocation_table_t &reloctbl) {
   if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(&O))
-    exported_functions_of_elf(ELFObj->getELFFile(), res);
+    return parse_elf(ELFObj->getELFFile(), secttbl, symtbl, reloctbl);
   else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(&O))
-    exported_functions_of_elf(ELFObj->getELFFile(), res);
+    return parse_elf(ELFObj->getELFFile(), secttbl, symtbl, reloctbl);
   else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(&O))
-    exported_functions_of_elf(ELFObj->getELFFile(), res);
+    return parse_elf(ELFObj->getELFFile(), secttbl, symtbl, reloctbl);
   else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(&O))
-    exported_functions_of_elf(ELFObj->getELFFile(), res);
-  else
-    exit(94);
-}
+    return parse_elf(ELFObj->getELFFile(), secttbl, symtbl, reloctbl);
 
-template <typename ELFT>
-static ArrayRef<uint8_t> section_contents_of_elf(const ELFFile<ELFT> *ELF,
-                                                 section_number_t S) {
-  section_number_t SectionNumber = 0;
-  for (const auto &Shdr : ELF->sections()) {
-    ++SectionNumber;
-    if (SectionNumber == S)
-      return errorOrDefault(ELF->getSectionContents(&Shdr));
-  }
-
-  return ArrayRef<uint8_t>();
-}
-
-ArrayRef<uint8_t>
-section_contents_of_elf_binary(const llvm::object::ObjectFile & O,
-                               section_number_t S) {
-  if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(&O))
-    return section_contents_of_elf(ELFObj->getELFFile(), S);
-  else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(&O))
-    return section_contents_of_elf(ELFObj->getELFFile(), S);
-  else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(&O))
-    return section_contents_of_elf(ELFObj->getELFFile(), S);
-  else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(&O))
-    return section_contents_of_elf(ELFObj->getELFFile(), S);
-  else
-    exit(94);
-}
-
-template <typename ELFT>
-static void address_to_section_map_of_elf(const ELFFile<ELFT> *ELF,
-    boost::icl::interval_map<address_t, section_number_t> &res) {
-  section_number_t SectionNumber = 0;
-  for (const auto &Shdr : ELF->sections()) {
-    ++SectionNumber;
-    boost::icl::discrete_interval<address_t> intervl =
-        boost::icl::discrete_interval<address_t>::right_open(
-            Shdr.sh_addr, Shdr.sh_addr + Shdr.sh_size);
-    res.add(make_pair(intervl, SectionNumber));
-  }
-}
-
-void address_to_section_map_of_elf_binary(
-    const llvm::object::ObjectFile &O,
-    boost::icl::interval_map<address_t, section_number_t> &res) {
-  if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(&O))
-    address_to_section_map_of_elf(ELFObj->getELFFile(), res);
-  else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(&O))
-    address_to_section_map_of_elf(ELFObj->getELFFile(), res);
-  else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(&O))
-    address_to_section_map_of_elf(ELFObj->getELFFile(), res);
-  else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(&O))
-    address_to_section_map_of_elf(ELFObj->getELFFile(), res);
-  else
-    exit(94);
+  return false;
 }
 }
