@@ -17,6 +17,7 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Verifier.h>
 #include <boost/range/adaptor/reversed.hpp>
+#include <boost/icl/interval_set.hpp>
 #include <llvm/Analysis/ConstantFolding.h>
 
 using namespace llvm;
@@ -362,7 +363,7 @@ void translator::prepare_for_translation() {
   parse_binary(O, secttbl, symtbl, reloctbl);
 
   //
-  // create address to section mapping
+  // create address to section number mapping
   //
   for (unsigned i = 0; i < secttbl.size(); ++i) {
     section_t& sect = secttbl[i];
@@ -372,21 +373,133 @@ void translator::prepare_for_translation() {
     addrspace.add(make_pair(intervl, i + 1));
   }
 
-  //
-  // create declarations for imported functions
-  //
+
+  typedef boost::icl::interval_set<unsigned> section_interval_map_t;
+  typedef section_interval_map_t::interval_type section_interval_t;
+
+  vector<section_interval_map_t> sectstuffs(secttbl.size());
+  vector<unordered_map<unsigned, Constant*>> sectrelocs(secttbl.size());
 
   //
-  // create the section global variables. we must take into account relocations
-  // and symbols, not only for the globals' initializers but for their struct
-  // types as well
+  // process relocations
   //
+  for (const relocation_t& reloc : reloctbl) {
+    // the use of the address of an imported function can be identified by a
+    // relocation of the type FUNCTION whose symbol is undefined
+    if (reloc.ty != relocation_t::FUNCTION)
+      continue;
+
+    const symbol_t& sym = symtbl[reloc.symidx];
+
+    cout << "reloc: " << sym.name << endl;
+
+    if (!sym.is_undefined())
+      continue;
+
+    cout << "reloc sym is undefined" <<  endl;
+
+    auto sectit = addrspace.find(reloc.addr);
+    if (sectit == addrspace.end())
+      continue;
+
+    unsigned sectidx = (*sectit).second - 1;
+    unsigned off = reloc.addr - secttbl[sectidx].addr;
+    sectrelocs[sectidx][off] = M.getOrInsertFunction(
+        sym.name, FunctionType::get(Type::getVoidTy(C), false));
+    sectstuffs[sectidx].insert(
+        section_interval_t::right_open(off, off + sizeof(address_t)));
+  }
 
   //
-  // data symbols can give us the size of global variables which are contained
-  // in sections. we'll use this to our advantage and break apart the section so
-  // that the variable is a separate field.
+  // process global variable symbols
   //
+  for (const symbol_t& sym : symtbl) {
+    if (sym.is_undefined() || sym.ty != symbol_t::DATA)
+      continue;
+
+    auto sectit = addrspace.find(sym.addr);
+    if (sectit == addrspace.end())
+      continue;
+
+    unsigned sectidx = (*sectit).second - 1;
+    unsigned off = sym.addr - (*sectit).first.lower();
+
+    sectstuffs[sectidx].insert(
+        section_interval_t::right_open(off, off + sym.size));
+  }
+
+  //
+  // for each section, create struct type and global variable w/ initializer
+  //
+  sectgvs.reserve(secttbl.size());
+  for (unsigned i = 0; i < secttbl.size(); ++i) {
+    section_t& sect = secttbl[i];
+
+    vector<llvm::Constant*> structfieldconsts;
+    vector<Type*> structfieldtys;
+
+    section_interval_map_t fullsect;
+    fullsect.insert(section_interval_t(0, sect.size));
+    section_interval_map_t sectstuff = fullsect - sectstuffs[i];
+
+    auto itend = sectstuff.end();
+    for (auto it = sectstuff.begin(); it != itend; ++it) {
+      // section data
+      Constant *fieldconst = ConstantDataArray::get(
+          C, ArrayRef<uint8_t>(sect.contents.begin() + (*it).lower(),
+                               sect.contents.begin() + (*it).upper()));
+      Type* fieldty = fieldconst->getType();
+
+      structfieldtys.push_back(fieldty);
+      structfieldconsts.push_back(fieldconst);
+
+      auto itnext = next(it);
+      if (itnext != itend) {
+        // we have a relocation or global here
+        section_interval_t hole = boost::icl::inner_complement(*it, *itnext);
+
+        auto relocit = sectrelocs[i].find(hole.lower());
+        if (relocit != sectrelocs[i].end()) { // a relocation
+          Constant * vl = (*relocit).second;
+          structfieldtys.push_back(vl->getType());
+          structfieldconsts.push_back(vl);
+        } else { // a global
+          Type *ty = IntegerType::get(C, 8 * boost::icl::length(*itnext));
+
+          uint64_t cnstvl;
+          switch (boost::icl::length(*itnext)) {
+          case 1:
+            cnstvl = sect.contents.begin()[hole.lower()];
+            break;
+          case 2:
+            cnstvl = *reinterpret_cast<const uint16_t *>(
+                &sect.contents.begin()[hole.lower()]);
+            break;
+          case 4:
+            cnstvl = *reinterpret_cast<const uint32_t *>(
+                &sect.contents.begin()[hole.lower()]);
+            break;
+          case 8:
+            cnstvl = *reinterpret_cast<const uint64_t *>(
+                &sect.contents.begin()[hole.lower()]);
+            break;
+          }
+          Constant *cnst = ConstantInt::get(ty, cnstvl);
+
+          structfieldtys.push_back(ty);
+          structfieldconsts.push_back(cnst);
+        }
+      }
+    }
+
+    StructType *structty =
+        StructType::create(structfieldtys, "struct." + sect.name, true);
+    Constant *conststruct = ConstantStruct::get(structty, structfieldconsts);
+
+    sectgvs.push_back(new GlobalVariable(
+        M, structty, false, GlobalValue::InternalLinkage, conststruct,
+        sect.name, nullptr, GlobalValue::GeneralDynamicTLSModel));
+  }
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {

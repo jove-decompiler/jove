@@ -284,6 +284,8 @@ private:
   std::unordered_map<address_t, basic_block_t> translated_basic_blocks;
   std::queue<address_t> functions_to_translate;
 
+  std::vector<llvm::GlobalVariable*> sectgvs;
+
   // contains basic blocks in depth first search order. if we access this
   // vector sequentially, it's equivalent to access vertices by depth first
   // search order.

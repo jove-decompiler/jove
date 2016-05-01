@@ -2,6 +2,7 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ELF.h>
 #include <unordered_map>
+#include <iostream>
 
 using namespace std;
 using namespace llvm;
@@ -57,12 +58,13 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
   // gather symbols
   //
   unordered_map<string, unsigned> symidxmap;
+
   symtbl.reserve(DotSymTblSec->sh_size / sizeof(Elf_Sym));
-  StringRef StrTable =
-      errorOrDefault(ELF->getStringTableForSymtab(*DotSymTblSec));
   for (const Elf_Sym &Sym : ELF->symbols(DotSymTblSec)) {
     symbol_t res;
 
+    StringRef StrTable =
+        errorOrDefault(ELF->getStringTableForSymtab(*DotSymTblSec));
     res.name = errorOrDefault(Sym.getName(StrTable)).str();
 
     res.addr = Sym.isUndefined() ? 0 : Sym.st_value;
@@ -111,6 +113,9 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
 
     res.bind = elf_symbol_binding_mapping[Sym.getBinding()];
 
+    if (res.ty == symbol_t::FUNCTION)
+      cout << "symbol: " << res.name << endl;
+
     symidxmap[res.name] = symtbl.size();
     symtbl.push_back(res);
   }
@@ -141,12 +146,21 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
       }
     };
 
-    auto process_rela = [&](const Elf_Rela &R) -> void {
-      relocation_t res;
+    const Elf_Shdr *SymTab = errorOrDefault(ELF->getSection(Sec.sh_link));
 
+    auto process_rela = [&](const Elf_Rela &R) -> void {
+      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, SymTab);
+      if (!Sym || Sym->getType() == ELF::STT_SECTION)
+        return;
+
+      StringRef StrTable =
+          errorOrDefault(ELF->getStringTableForSymtab(*SymTab));
+
+      cout << "reloc sym " << errorOrDefault(Sym->getName(StrTable)).str() << endl;
+
+      relocation_t res;
       res.ty = relocation_type_of_elf_rela_type(R.getType(ELF->isMips64EL()));
       res.addr = R.r_offset;
-      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, DotSymTblSec);
       res.symidx = symidxmap[errorOrDefault(Sym->getName(StrTable)).str()];
       res.addend = R.r_addend;
 
