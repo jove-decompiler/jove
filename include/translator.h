@@ -343,24 +343,20 @@ private:
   void translate_tcg_to_llvm(function_t &f, basic_block_t bb);
   void translate_tcg_operation_to_llvm(basic_block_properties_t &,
                                        const tcg::Op *, const tcg::Arg *);
-  llvm::Value *buildGEP(llvm::Value *BasePtr, llvm::SmallVectorImpl<llvm::Value *> &Indices,
-                        llvm::Twine NamePrefix);
-  llvm::Value *getNaturalGEPWithType(
-      llvm::Value *BasePtr, llvm::Type *Ty, llvm::Type *TargetTy,
-      llvm::SmallVectorImpl<llvm::Value *> &Indices, llvm::Twine NamePrefix);
-  llvm::Value *
-  getNaturalGEPRecursively(llvm::Value *Ptr, llvm::Type *Ty,
-                           llvm::APInt &Offset, llvm::Type *TargetTy,
-                           llvm::SmallVectorImpl<llvm::Value *> &Indices,
-                           llvm::Twine NamePrefix);
-  llvm::Value *getNaturalGEPWithOffset(llvm::Value *Ptr, llvm::APInt Offset,
-                                       llvm::Type *TargetTy,
-                                       llvm::SmallVectorImpl<llvm::Value *> &Indices,
-                                       llvm::Twine NamePrefix);
+  void getNaturalGEPWithType(llvm::Value *BasePtr, llvm::Type *Ty,
+                             llvm::Type *TargetTy,
+                             llvm::SmallVectorImpl<llvm::Value *> &Indices);
+  void getNaturalGEPRecursively(llvm::Value *Ptr, llvm::Type *Ty,
+                                llvm::APInt &Offset, llvm::Type *TargetTy,
+                                llvm::SmallVectorImpl<llvm::Value *> &Indices);
+  void getNaturalGEPWithOffset(llvm::Value *Ptr, llvm::APInt Offset,
+                               llvm::Type *TargetTy,
+                               llvm::SmallVectorImpl<llvm::Value *> &Indices);
+  llvm::Value *cpu_state_global_gep(unsigned gidx);
   llvm::Value *load_global_from_cpu_state(unsigned gidx);
   void store_global_to_cpu_state(llvm::Value *gvl, unsigned gidx);
-  llvm::Constant* try_fold_to_constant(llvm::Value*);
-  llvm::ConstantInt* try_fold_to_constant_int(llvm::Value*);
+  llvm::Constant *try_fold_to_constant(llvm::Value *);
+  llvm::ConstantInt *try_fold_to_constant_int(llvm::Value *);
   llvm::Value *section_ptr(address_t addr);
   llvm::Value *section_int_ptr(address_t addr);
 

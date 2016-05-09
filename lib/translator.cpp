@@ -422,7 +422,7 @@ void translator::create_section_global_variables() {
 
   auto process_relative_relocation_type =
       [&](const relocation_t &reloc) -> void {
-    type_for_relocation(reloc, PointerType::get(word_type()));
+    //type_for_relocation(reloc, PointerType::get(word_type(), 0));
   };
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
@@ -480,46 +480,49 @@ void translator::create_section_global_variables() {
   // initialize section global variables
   //
   auto constant_for_relocation = [&](const relocation_t &reloc,
-                                     Constant *C) -> void {
+                                     Constant *Cnst) -> void {
     unsigned sectidx = (*addrspace.find(reloc.addr)).second - 1;
     unsigned off = reloc.addr - secttbl[sectidx].addr;
-    sectrelocs[sectidx][off] = C;
+    sectrelocs[sectidx][off] = Cnst;
   };
 
-  auto process_function_relocation = [&](const relocation_t& reloc) -> void {
-    symbol_t& sym = symtbl[reloc.symidx];
+  auto process_function_relocation = [&](const relocation_t &reloc) -> void {
+    symbol_t &sym = symtbl[reloc.symidx];
 
-    Constant *C;
+    Constant *Cnst;
     if (sym.is_undefined()) {
       GlobalVariable *g = M.getGlobalVariable(sym.name);
-      C = g ? g : M.getOrInsertFunction(
+      Cnst =
+          g ? g : M.getOrInsertFunction(
                       sym.name, FunctionType::get(Type::getVoidTy(C), false));
     } else {
-      C = M.getOrInsertFunction((boost::format("%s_thunk") % sym.name).str(),
+      Cnst =
+          M.getOrInsertFunction((boost::format("%s_thunk") % sym.name).str(),
                                 FunctionType::get(Type::getVoidTy(C), false));
     }
 
-    constant_for_relocation(reloc, C);
+    constant_for_relocation(reloc, Cnst);
   };
 
   auto process_data_relocation = [&](const relocation_t &reloc) -> void {
     symbol_t &sym = symtbl[reloc.symidx];
 
-    Constant *C;
+    Constant *Cnst;
     if (sym.is_undefined()) {
       Function *f = M.getFunction(sym.name);
-      C = f ? f : M.getOrInsertGlobal(sym.name, word_type());
+      Cnst = f ? f : M.getOrInsertGlobal(sym.name, word_type());
     } else {
-      C = M.getOrInsertGlobal(
+      Cnst = M.getOrInsertGlobal(
           sym.name,
           IntegerType::get(C, sym.size ? 8 * sym.size : 8 * sizeof(address_t)));
     }
 
-    constant_for_relocation(reloc, C);
+    constant_for_relocation(reloc, Cnst);
   };
 
-  auto process_relative_relocation = [&](const relocation_t& reloc) -> void {
-    constant_for_relocation(reloc, C);
+  auto process_relative_relocation = [&](const relocation_t &reloc) -> void {
+    Constant *Cnst;
+    //constant_for_relocation(reloc, Cnst);
   };
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
@@ -1549,23 +1552,34 @@ Type *translator::word_type() {
   return word_ty;
 }
 
-Value* translator::load_global_from_cpu_state(unsigned gidx) {
+Value* translator::cpu_state_global_gep(unsigned gidx) {
   SmallVector<Value *, 4> Indices;
-  Value *ptr = getNaturalGEPWithOffset(
-      tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
+  getNaturalGEPWithOffset(tcg_glb_llv_m[tcg::CPU_STATE_ARG], 
+      APInt(64, tcg_globals[gidx].cpustoff),
       IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
-      Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+      Indices);
+  assert(!Indices.empty() && Indices.size() != 1);
+
+  errs() << "Indices\n";
+  errs() << "  gidx = " << gidx << "\n";
+  for (Value* Idx : Indices)
+    errs() << "  " << *Idx << '\n';
+  errs().flush();
+
+  Value *ptr = b.CreateInBoundsGEP(
+      nullptr, tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
+      (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+  return ptr;
+}
+
+Value *translator::load_global_from_cpu_state(unsigned gidx) {
   return b.CreateLoad(
-      ptr, (boost::format("%s_loaded") % tcg_globals[gidx].nm).str());
+      cpu_state_global_gep(gidx),
+      (boost::format("%s_loaded") % tcg_globals[gidx].nm).str());
 }
 
 void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
-  SmallVector<Value *, 4> Indices;
-  Value *ptr = getNaturalGEPWithOffset(
-      tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
-      IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
-      Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
-  b.CreateStore(gvl, ptr);
+  b.CreateStore(gvl, cpu_state_global_gep(gidx));
 }
 
 void translator::translate_function_llvm(function_t& f) {
@@ -2178,10 +2192,13 @@ void translator::translate_tcg_operation_to_llvm(
 
   auto cpu_state_gep = [&](unsigned memBits, unsigned offset) -> Value * {
     SmallVector<Value *, 4> Indices;
-    Value *ptr = getNaturalGEPWithOffset(
-        tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, offset),
-        IntegerType::get(C, memBits), Indices,
-        (boost::format("env+%u") % offset).str());
+    getNaturalGEPWithOffset(tcg_glb_llv_m[tcg::CPU_STATE_ARG],
+                            APInt(64, offset), IntegerType::get(C, memBits),
+                            Indices);
+    assert(!Indices.empty() && Indices.size() != 1);
+    Value *ptr = b.CreateInBoundsGEP(tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
+                                     (boost::format("env+%u") % offset).str());
+
     ptr = b.CreatePointerCast(
         ptr, PointerType::get(IntegerType::get(C, memBits), 0));
     return ptr;
@@ -2217,9 +2234,11 @@ void translator::translate_tcg_operation_to_llvm(
       return b.CreatePtrToInt((*relit).second, IntegerType::get(C, bits));
 
     SmallVector<Value *, 4> Indices;
-    Value *ptr = getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
-                                         IntegerType::get(C, bits), Indices,
-                                         (boost::format("%x") % addr).str());
+    getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
+                            IntegerType::get(C, bits), Indices);
+    assert(!Indices.empty() && Indices.size() != 1);
+    Value *ptr = b.CreateInBoundsGEP(tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
+                                     (boost::format("%x") % addr).str());
     ptr = b.CreatePointerCast(ptr,
                               PointerType::get(IntegerType::get(C, bits), 0));
 
@@ -2792,23 +2811,6 @@ void translator::translate_tcg_operation_to_llvm(
   }
 }
 
-/// \brief Build a GEP out of a base pointer and indices.
-///
-/// This will return the BasePtr if that is valid, or build a new GEP
-/// instruction using the IRBuilder if GEP-ing is needed.
-Value *translator::buildGEP(Value *BasePtr, SmallVectorImpl<Value *> &Indices,
-                            Twine NamePrefix) {
-  if (Indices.empty())
-    return BasePtr;
-
-  // A single zero index is a no-op, so check for this and avoid building a GEP
-  // in that case.
-  if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
-    return BasePtr;
-
-  return b.CreateInBoundsGEP(nullptr, BasePtr, Indices, NamePrefix);
-}
-
 /// \brief Get a natural GEP off of the BasePtr walking through Ty toward
 /// TargetTy without changing the offset of the pointer.
 ///
@@ -2818,12 +2820,10 @@ Value *translator::buildGEP(Value *BasePtr, SmallVectorImpl<Value *> &Indices,
 /// TargetTy. If we can't find one with the same type, we at least try to use
 /// one with the same size. If none of that works, we just produce the GEP as
 /// indicated by Indices to have the correct offset.
-Value *translator::getNaturalGEPWithType(Value *BasePtr, Type *Ty,
-                                         Type *TargetTy,
-                                         SmallVectorImpl<Value *> &Indices,
-                                         Twine NamePrefix) {
+void translator::getNaturalGEPWithType(Value *BasePtr, Type *Ty, Type *TargetTy,
+                                       SmallVectorImpl<Value *> &Indices) {
   if (Ty == TargetTy)
-    return buildGEP(BasePtr, Indices, NamePrefix);
+    return;
 
   // Pointer size to use for the indices.
   unsigned PtrSize = DL.getPointerTypeSizeInBits(BasePtr->getType());
@@ -2854,24 +2854,23 @@ Value *translator::getNaturalGEPWithType(Value *BasePtr, Type *Ty,
   } while (ElementTy != TargetTy);
   if (ElementTy != TargetTy)
     Indices.erase(Indices.end() - NumLayers, Indices.end());
-
-  return buildGEP(BasePtr, Indices, NamePrefix);
 }
 
 /// \brief Recursively compute indices for a natural GEP.
 ///
 /// This is the recursive step for getNaturalGEPWithOffset that walks down the
 /// element types adding appropriate indices for the GEP.
-Value *translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
-                                            Type *TargetTy,
-                                            SmallVectorImpl<Value *> &Indices,
-                                            Twine NamePrefix) {
-  if (Offset == 0)
-    return getNaturalGEPWithType(Ptr, Ty, TargetTy, Indices, NamePrefix);
+void translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
+                                          Type *TargetTy,
+                                          SmallVectorImpl<Value *> &Indices) {
+  if (Offset == 0) {
+    getNaturalGEPWithType(Ptr, Ty, TargetTy, Indices);
+    return;
+  }
 
   // We can't recurse through pointer types.
   if (Ty->isPointerTy())
-    return nullptr;
+    return;
 
   // We try to analyze GEPs over vectors here, but note that these GEPs are
   // extremely poorly defined currently. The long-term goal is to remove GEPing
@@ -2880,16 +2879,17 @@ Value *translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
     unsigned ElementSizeInBits = DL.getTypeSizeInBits(VecTy->getScalarType());
     if (ElementSizeInBits % 8 != 0) {
       // GEPs over non-multiple of 8 size vector elements are invalid.
-      return nullptr;
+      return;
     }
     APInt ElementSize(Offset.getBitWidth(), ElementSizeInBits / 8);
     APInt NumSkippedElements = Offset.sdiv(ElementSize);
     if (NumSkippedElements.ugt(VecTy->getNumElements()))
-      return nullptr;
+      return;
     Offset -= NumSkippedElements * ElementSize;
     Indices.push_back(b.getInt(NumSkippedElements));
-    return getNaturalGEPRecursively(Ptr, VecTy->getElementType(), Offset,
-                                    TargetTy, Indices, NamePrefix);
+    getNaturalGEPRecursively(Ptr, VecTy->getElementType(), Offset, TargetTy,
+                             Indices);
+    return;
   }
 
   if (ArrayType *ArrTy = dyn_cast<ArrayType>(Ty)) {
@@ -2897,31 +2897,30 @@ Value *translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
     APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
     APInt NumSkippedElements = Offset.sdiv(ElementSize);
     if (NumSkippedElements.ugt(ArrTy->getNumElements()))
-      return nullptr;
+      return;
 
     Offset -= NumSkippedElements * ElementSize;
     Indices.push_back(b.getInt(NumSkippedElements));
-    return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
-                                    NamePrefix);
+    getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices);
+    return;
   }
 
   StructType *STy = dyn_cast<StructType>(Ty);
   if (!STy)
-    return nullptr;
+    return;
 
   const StructLayout *SL = DL.getStructLayout(STy);
   uint64_t StructOffset = Offset.getZExtValue();
   if (StructOffset >= SL->getSizeInBytes())
-    return nullptr;
+    return;
   unsigned Index = SL->getElementContainingOffset(StructOffset);
   Offset -= APInt(Offset.getBitWidth(), SL->getElementOffset(Index));
   Type *ElementTy = STy->getElementType(Index);
   if (Offset.uge(DL.getTypeAllocSize(ElementTy)))
-    return nullptr; // The offset points into alignment padding.
+    return; // The offset points into alignment padding.
 
   Indices.push_back(b.getInt32(Index));
-  return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
-                                  NamePrefix);
+  getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices);
 }
 
 /// \brief Get a natural GEP from a base pointer to a particular offset and
@@ -2934,29 +2933,27 @@ Value *translator::getNaturalGEPRecursively(Value *Ptr, Type *Ty, APInt &Offset,
 /// Indices, and setting Ty to the result subtype.
 ///
 /// If no natural GEP can be constructed, this function returns null.
-Value *translator::getNaturalGEPWithOffset(Value *Ptr, APInt Offset,
-                                           Type *TargetTy,
-                                           SmallVectorImpl<Value *> &Indices,
-                                           Twine NamePrefix) {
+void translator::getNaturalGEPWithOffset(Value *Ptr, APInt Offset,
+                                         Type *TargetTy,
+                                         SmallVectorImpl<Value *> &Indices) {
   PointerType *Ty = cast<PointerType>(Ptr->getType());
 
   // Don't consider any GEPs through an i8* as natural unless the TargetTy is
   // an i8.
   if (Ty == b.getInt8PtrTy(Ty->getAddressSpace()) && TargetTy->isIntegerTy(8))
-    return nullptr;
+    return;
 
   Type *ElementTy = Ty->getElementType();
   if (!ElementTy->isSized())
-    return nullptr; // We can't GEP through an unsized element.
+    return; // We can't GEP through an unsized element.
   APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
   if (ElementSize == 0)
-    return nullptr; // Zero-length arrays can't help us build a natural GEP.
+    return; // Zero-length arrays can't help us build a natural GEP.
   APInt NumSkippedElements = Offset.sdiv(ElementSize);
 
   Offset -= NumSkippedElements * ElementSize;
   Indices.push_back(b.getInt(NumSkippedElements));
-  return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
-                                  NamePrefix);
+  getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices);
 }
 
 ConstantInt *translator::try_fold_to_constant_int(Value *v) {
@@ -3007,12 +3004,11 @@ Value* translator::section_ptr(address_t addr) {
   unsigned off = addr - (*it).first.lower();
 
   SmallVector<Value *, 4> Indices;
-  Value *ptr =
-      getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
-                              IntegerType::get(C, sizeof(address_t) * 8),
-                              Indices, (boost::format("%x") % addr).str());
+  getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
+                          IntegerType::get(C, sizeof(address_t) * 8), Indices);
 
-  return ptr;
+  return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectgvs[sectidx],
+                                                Indices);
 }
 
 Value* translator::section_int_ptr(address_t addr) {
