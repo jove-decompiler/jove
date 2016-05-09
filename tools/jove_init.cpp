@@ -200,7 +200,7 @@ void createImportedFunctions() {
 void createExportedFunctions() {
   vector<address_t> addrs;
   for (const symbol_t& sym : T->symbol_table()) {
-    if (!sym.addr || sym.ty != symbol_t::FUNCTION ||
+    if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
         sym.bind == symbol_t::NOBINDING)
       continue;
 
@@ -209,16 +209,17 @@ void createExportedFunctions() {
 
   T->translate(addrs);
 
-#if 0
-  for (symbol_t s : syms) {
-    Function* llf = T->function_of_addr(s.addr);
+  for (const symbol_t& sym : T->symbol_table()) {
+    if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
+        sym.bind == symbol_t::NOBINDING)
+      continue;
 
+    Function* llf = T->function_of_addr(sym.addr);
     if (!llf)
       continue;
 
-    llf->setName(s.name);
+    llf->setName(sym.name);
   }
-#endif
 }
 
 void createExportedVariables() {}

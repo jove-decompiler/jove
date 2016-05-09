@@ -17,8 +17,9 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Verifier.h>
 #include <boost/range/adaptor/reversed.hpp>
-#include <boost/icl/interval_set.hpp>
+#include <boost/icl/split_interval_set.hpp>
 #include <llvm/Analysis/ConstantFolding.h>
+#include <llvm/Analysis/ValueTracking.h>
 
 using namespace llvm;
 using namespace object;
@@ -216,10 +217,11 @@ translator::translator(ObjectFile &O, const string &MNm)
       FnThunkTy(FunctionType::get(Type::getVoidTy(C), false)),
       FnThunkAttr(
           AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
-
+      ExternalFnTy(FunctionType::get(Type::getVoidTy(C), false)),
+      ExternalFnPtrTy(PointerType::get(ExternalFnTy, 0)),
       IndirectJumpFn(Function::Create(
-          FunctionType::get(Type::getVoidTy(C), ArrayRef<Type *>(word_ty),
-                            false),
+          FunctionType::get(Type::getVoidTy(C),
+                            ArrayRef<Type *>(ExternalFnPtrTy), false),
           GlobalValue::ExternalLinkage, "___jove_indirect_jump", &M)),
       IndirectCallFn(Function::Create(
           FunctionType::get(Type::getVoidTy(C), ArrayRef<Type *>(word_ty),
@@ -345,6 +347,237 @@ void translator::init_helpers() {
   }
 }
 
+template <typename InputIterator, typename Pred, typename Func>
+Func for_each_if(InputIterator first, InputIterator last, Pred p, Func f) {
+  while (first != last) {
+    if (p(*first))
+      f(*first);
+    ++first;
+  }
+  return f;
+}
+
+void translator::create_section_global_variables() {
+  //
+  // create address to section number mapping
+  //
+  for (unsigned i = 0; i < secttbl.size(); ++i) {
+    section_t& sect = secttbl[i];
+    boost::icl::discrete_interval<address_t> intervl =
+        boost::icl::discrete_interval<address_t>::right_open(
+            sect.addr, sect.addr + sect.size);
+    addrspace.add(make_pair(intervl, i + 1));
+  }
+
+  //
+  // initialize section intervals
+  //
+  typedef boost::icl::split_interval_set<unsigned> section_interval_map_t;
+  typedef section_interval_map_t::interval_type section_interval_t;
+  vector<section_interval_map_t> sectstuffs(secttbl.size());
+  for (unsigned i = 0; i < secttbl.size(); ++i)
+    sectstuffs[i].insert(section_interval_t::right_open(0, secttbl[i].size));
+
+
+  //
+  // allocate local data structures
+  //
+  std::vector<StructType*> sectgvtys;
+
+  sectgvs.reserve(secttbl.size());
+  sectgvtys.resize(secttbl.size());
+  sectrelocs.resize(secttbl.size());
+  sectreloctys.resize(secttbl.size());
+
+  //
+  // compute section field types, and split section intervals
+  //
+
+  auto type_for_relocation = [&](const relocation_t &reloc, Type* ty) -> void {
+    unsigned sectidx = (*addrspace.find(reloc.addr)).second - 1;
+    unsigned off = reloc.addr - secttbl[sectidx].addr;
+
+    sectreloctys[sectidx][off] = ty;
+    sectstuffs[sectidx].insert(
+        section_interval_t::right_open(off, off + sizeof(address_t)));
+  };
+
+  auto process_function_relocation_type =
+      [&](const relocation_t &reloc) -> void {
+    symbol_t& sym = symtbl[reloc.symidx];
+    Type *ty = sym.is_undefined() ?
+        PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0) :
+        M.getFunction(sym.name)->getType();
+
+    type_for_relocation(reloc, ty);
+  };
+
+  auto process_data_relocation_type = [&](const relocation_t &reloc) -> void {
+    symbol_t& sym = symtbl[reloc.symidx];
+    Type *ty = PointerType::get(
+        !sym.size ? word_type() : IntegerType::get(C, 8 * sym.size), 0);
+
+    type_for_relocation(reloc, ty);
+  };
+
+  auto process_relative_relocation_type =
+      [&](const relocation_t &reloc) -> void {
+    type_for_relocation(reloc, PointerType::get(word_type()));
+  };
+
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::FUNCTION &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_function_relocation_type);
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::DATA &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_data_relocation_type);
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::RELATIVE &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_relative_relocation_type);
+
+  //
+  // create section global variables
+  //
+  for (unsigned i = 0; i < secttbl.size(); ++i) {
+    section_t &sect = secttbl[i];
+
+    section_interval_map_t &sectstuff = sectstuffs[i];
+
+    vector<Type *> structfieldtys;
+
+    for (auto it = sectstuff.begin(); it != sectstuff.end(); ++it) {
+      const section_interval_t &intvl = *it;
+      auto relocit = sectreloctys[i].find(intvl.lower());
+      Type *ty = relocit != sectreloctys[i].end()
+                     ? (*relocit).second
+                     : ArrayType::get(IntegerType::get(C, 8),
+                                      intvl.upper() - intvl.lower());
+
+      structfieldtys.push_back(ty);
+    }
+
+    sectgvtys[i] = StructType::create(C, structfieldtys,
+                                      "struct.__jove_" + sect.name, true);
+    GlobalVariable *sectgv =
+        new GlobalVariable(M, sectgvtys[i], false, GlobalValue::ExternalLinkage,
+                           nullptr, "__jove_" + sect.name);
+    sectgv->setAlignment(sect.align);
+
+    sectgvs.push_back(sectgv);
+    sectgvmap.insert({sectgv, i});
+  }
+
+  //
+  // initialize section global variables
+  //
+  auto constant_for_relocation = [&](const relocation_t &reloc,
+                                     Constant *C) -> void {
+    unsigned sectidx = (*addrspace.find(reloc.addr)).second - 1;
+    unsigned off = reloc.addr - secttbl[sectidx].addr;
+    sectrelocs[sectidx][off] = C;
+  };
+
+  auto process_function_relocation = [&](const relocation_t& reloc) -> void {
+    symbol_t& sym = symtbl[reloc.symidx];
+
+    Constant *C;
+    if (sym.is_undefined()) {
+      GlobalVariable *g = M.getGlobalVariable(sym.name);
+      C = g ? g : M.getOrInsertFunction(
+                      sym.name, FunctionType::get(Type::getVoidTy(C), false));
+    } else {
+      C = M.getOrInsertFunction((boost::format("%s_thunk") % sym.name).str(),
+                                FunctionType::get(Type::getVoidTy(C), false));
+    }
+
+    constant_for_relocation(reloc, C);
+  };
+
+  auto process_data_relocation = [&](const relocation_t &reloc) -> void {
+    symbol_t &sym = symtbl[reloc.symidx];
+
+    Constant *C;
+    if (sym.is_undefined()) {
+      Function *f = M.getFunction(sym.name);
+      C = f ? f : M.getOrInsertGlobal(sym.name, word_type());
+    } else {
+      C = M.getOrInsertGlobal(
+          sym.name,
+          IntegerType::get(C, sym.size ? 8 * sym.size : 8 * sizeof(address_t)));
+    }
+
+    constant_for_relocation(reloc, C);
+  };
+
+  auto process_relative_relocation = [&](const relocation_t& reloc) -> void {
+    constant_for_relocation(reloc, C);
+  };
+
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::FUNCTION &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_function_relocation);
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::DATA &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_data_relocation);
+  for_each_if(reloctbl.begin(), reloctbl.end(),
+              [&](const relocation_t &reloc) -> bool {
+                return reloc.ty == relocation_t::RELATIVE &&
+                       addrspace.find(reloc.addr) != addrspace.end();
+              },
+              process_relative_relocation);
+
+  //
+  // create initializers
+  //
+  for (unsigned i = 0; i < secttbl.size(); ++i) {
+    vector<llvm::Constant *> structfieldconsts;
+    StructType *sectgvty = sectgvtys[i];
+
+    section_interval_map_t &sectstuff = sectstuffs[i];
+    StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
+    for (auto it = sectstuff.begin(); it != sectstuff.end(); ++it) {
+      const section_interval_t &intvl = *it;
+      Type* sectgvty_elem = *sectgvty_elem_it++;
+
+      Constant *cnst = nullptr;
+
+      auto relocit = sectrelocs[i].find(intvl.lower());
+      if (relocit != sectrelocs[i].end()) { // a relocation
+        cnst = ConstantExpr::getPointerCast((*relocit).second, sectgvty_elem);
+      } else { // section data
+        section_t &sect = secttbl[i];
+        cnst = ConstantDataArray::get(
+            C, ArrayRef<uint8_t>(sect.contents.begin() + (*it).lower(),
+                                 sect.contents.begin() + (*it).upper()));
+      }
+
+      structfieldconsts.push_back(cnst);
+    }
+
+    sectgvtys[i]->dump();
+    for (Constant* C : structfieldconsts)
+      C->dump();
+
+    sectgvs[i]->setInitializer(
+        ConstantStruct::get(sectgvtys[i], structfieldconsts));
+  }
+}
+
 void translator::prepare_for_translation() {
   //
   // create the thread-local CPUState
@@ -363,143 +596,9 @@ void translator::prepare_for_translation() {
   parse_binary(O, secttbl, symtbl, reloctbl);
 
   //
-  // create address to section number mapping
+  // binary section data
   //
-  for (unsigned i = 0; i < secttbl.size(); ++i) {
-    section_t& sect = secttbl[i];
-    boost::icl::discrete_interval<address_t> intervl =
-        boost::icl::discrete_interval<address_t>::right_open(
-            sect.addr, sect.addr + sect.size);
-    addrspace.add(make_pair(intervl, i + 1));
-  }
-
-
-  typedef boost::icl::interval_set<unsigned> section_interval_map_t;
-  typedef section_interval_map_t::interval_type section_interval_t;
-
-  vector<section_interval_map_t> sectstuffs(secttbl.size());
-  vector<unordered_map<unsigned, Constant*>> sectrelocs(secttbl.size());
-
-  //
-  // process relocations
-  //
-  for (const relocation_t& reloc : reloctbl) {
-    // the use of the address of an imported function can be identified by a
-    // relocation of the type FUNCTION whose symbol is undefined
-    if (reloc.ty != relocation_t::FUNCTION)
-      continue;
-
-    const symbol_t& sym = symtbl[reloc.symidx];
-
-    cout << "reloc: " << sym.name << endl;
-
-    if (!sym.is_undefined())
-      continue;
-
-    cout << "reloc sym is undefined" <<  endl;
-
-    auto sectit = addrspace.find(reloc.addr);
-    if (sectit == addrspace.end())
-      continue;
-
-    unsigned sectidx = (*sectit).second - 1;
-    unsigned off = reloc.addr - secttbl[sectidx].addr;
-    sectrelocs[sectidx][off] = M.getOrInsertFunction(
-        sym.name, FunctionType::get(Type::getVoidTy(C), false));
-    sectstuffs[sectidx].insert(
-        section_interval_t::right_open(off, off + sizeof(address_t)));
-  }
-
-  //
-  // process global variable symbols
-  //
-  for (const symbol_t& sym : symtbl) {
-    if (sym.is_undefined() || sym.ty != symbol_t::DATA)
-      continue;
-
-    auto sectit = addrspace.find(sym.addr);
-    if (sectit == addrspace.end())
-      continue;
-
-    unsigned sectidx = (*sectit).second - 1;
-    unsigned off = sym.addr - (*sectit).first.lower();
-
-    sectstuffs[sectidx].insert(
-        section_interval_t::right_open(off, off + sym.size));
-  }
-
-  //
-  // for each section, create struct type and global variable w/ initializer
-  //
-  sectgvs.reserve(secttbl.size());
-  for (unsigned i = 0; i < secttbl.size(); ++i) {
-    section_t& sect = secttbl[i];
-
-    vector<llvm::Constant*> structfieldconsts;
-    vector<Type*> structfieldtys;
-
-    section_interval_map_t fullsect;
-    fullsect.insert(section_interval_t(0, sect.size));
-    section_interval_map_t sectstuff = fullsect - sectstuffs[i];
-
-    auto itend = sectstuff.end();
-    for (auto it = sectstuff.begin(); it != itend; ++it) {
-      // section data
-      Constant *fieldconst = ConstantDataArray::get(
-          C, ArrayRef<uint8_t>(sect.contents.begin() + (*it).lower(),
-                               sect.contents.begin() + (*it).upper()));
-      Type* fieldty = fieldconst->getType();
-
-      structfieldtys.push_back(fieldty);
-      structfieldconsts.push_back(fieldconst);
-
-      auto itnext = next(it);
-      if (itnext != itend) {
-        // we have a relocation or global here
-        section_interval_t hole = boost::icl::inner_complement(*it, *itnext);
-
-        auto relocit = sectrelocs[i].find(hole.lower());
-        if (relocit != sectrelocs[i].end()) { // a relocation
-          Constant * vl = (*relocit).second;
-          structfieldtys.push_back(vl->getType());
-          structfieldconsts.push_back(vl);
-        } else { // a global
-          Type *ty = IntegerType::get(C, 8 * boost::icl::length(*itnext));
-
-          uint64_t cnstvl;
-          switch (boost::icl::length(*itnext)) {
-          case 1:
-            cnstvl = sect.contents.begin()[hole.lower()];
-            break;
-          case 2:
-            cnstvl = *reinterpret_cast<const uint16_t *>(
-                &sect.contents.begin()[hole.lower()]);
-            break;
-          case 4:
-            cnstvl = *reinterpret_cast<const uint32_t *>(
-                &sect.contents.begin()[hole.lower()]);
-            break;
-          case 8:
-            cnstvl = *reinterpret_cast<const uint64_t *>(
-                &sect.contents.begin()[hole.lower()]);
-            break;
-          }
-          Constant *cnst = ConstantInt::get(ty, cnstvl);
-
-          structfieldtys.push_back(ty);
-          structfieldconsts.push_back(cnst);
-        }
-      }
-    }
-
-    StructType *structty =
-        StructType::create(structfieldtys, "struct." + sect.name, true);
-    Constant *conststruct = ConstantStruct::get(structty, structfieldconsts);
-
-    sectgvs.push_back(new GlobalVariable(
-        M, structty, false, GlobalValue::InternalLinkage, conststruct,
-        sect.name, nullptr, GlobalValue::GeneralDynamicTLSModel));
-  }
+  create_section_global_variables();
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {
@@ -612,6 +711,7 @@ translator::translate(const std::vector<address_t> &addrs) {
     f[boost::graph_bundle].llf = Function::Create(
         ty, GlobalValue::ExternalLinkage,
         (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
+    f[boost::graph_bundle].llf->setAttributes(FnAttr);
   }
 
   //
@@ -967,9 +1067,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
-
     // XXX is indirect jump to a PLT entry?
-    control_flow_to(succ_addr);
   } else if (MIA->isCall(Inst)) {
     bool is_indirect;
     uint64_t target;
@@ -1457,7 +1555,8 @@ Value* translator::load_global_from_cpu_state(unsigned gidx) {
       tcg_glb_llv_m[tcg::CPU_STATE_ARG], APInt(64, tcg_globals[gidx].cpustoff),
       IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
       Indices, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
-  return b.CreateLoad(ptr);
+  return b.CreateLoad(
+      ptr, (boost::format("%s_loaded") % tcg_globals[gidx].nm).str());
 }
 
 void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
@@ -1524,11 +1623,6 @@ void translator::translate_function_llvm(function_t& f) {
   b.SetInsertPoint(f[entry].llbb);
 
   //
-  // first create an alloca for the program counter
-  //
-  pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
-
-  //
   // create the Alloca's for globals
   //
   for (auto gidx : glb_used_v)
@@ -1561,6 +1655,11 @@ void translator::translate_function_llvm(function_t& f) {
   //
   tie(vi, vi_end) = boost::vertices(f);
   for (;;) {
+#if 0
+    cout << hex << f[*vi].addr << ": f[*vi].lbls.size() = " << dec
+         << f[*vi].lbls.size() << endl;
+#endif
+
     translate_tcg_to_llvm(f, *vi);
     ++vi;
 
@@ -1700,6 +1799,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   }
 
   //
+  // create an alloca for the program counter if this basic block has a
+  // conditional branch
+  //
+  if (bbprop.lbls.size())
+    pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
+
+  //
   // translate the TCG operations to LLVM instructions
   //
   const tcg::Op *ops = bbprop.tcg_ops.get();
@@ -1732,11 +1838,16 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   auto on_conditional_jump = [&](basic_block_t dst1,
                                  basic_block_t dst2) -> void {
     Value *pc = b.CreateLoad(pc_llv);
-    Value *addr1 = ConstantInt::get(word_type(), f[dst1].addr);
+    Value *addr1 = section_int_ptr(f[dst1].addr);
     b.CreateCondBr(b.CreateICmpEQ(pc, addr1), f[dst1].llbb, f[dst2].llbb);
   };
 
   auto on_call = [&](basic_block_t succ) -> void {
+    //
+    // for outputs which are not passed as arguments to function, store them to
+    // the CPU state
+    //
+
     function_t& callee = *function_table[bbprop.callee];
     vector<unsigned> glb_params_v;
     explode_tcg_global_set(glb_params_v, callee[boost::graph_bundle].params);
@@ -1745,7 +1856,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     transform(glb_params_v.begin(), glb_params_v.end(), passed.begin(),
               [&](unsigned gidx) -> Value * {
                 if (f[boost::graph_bundle].used.test(gidx))
-                  return b.CreateLoad(tcg_glb_llv_m[gidx]);
+                  return b.CreateLoad(tcg_glb_llv_m[gidx],
+                                      tcg_globals[gidx].nm + string("_passed"));
                 else
                   return load_global_from_cpu_state(gidx);
               });
@@ -1753,12 +1865,18 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     Value *res = b.CreateCall(callee[boost::graph_bundle].llf,
                               ArrayRef<Value *>(passed));
 
+    //
+    // store the return values from the call to this functions' local copies of
+    // globals-- or, if this function doesn't work with any of those globals--
+    // store them to the CPU state.
+    //
     vector<unsigned> ret_v;
     explode_tcg_global_set(ret_v, callee[boost::graph_bundle].returned);
 
     for (unsigned i = 0; i < ret_v.size(); ++i) {
       unsigned gidx = ret_v[i];
       Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
+      gvl->setName(tcg_globals[gidx].nm + string("_returned"));
       if (f[boost::graph_bundle].used.test(gidx))
         b.CreateStore(gvl, tcg_glb_llv_m[gidx]);
       else
@@ -1769,28 +1887,40 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
-    Value *pc = b.CreateLoad(pc_llv);
-    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc));
-    b.CreateBr(f[succ].llbb);
-  };
-
-  auto on_indirect_jump = [&](basic_block_t succ) -> void {
-    Value *pc = b.CreateLoad(pc_llv);
-    b.CreateCall(IndirectJumpFn, ArrayRef<Value*>(pc));
-    // TODO imported functions
+    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc_llv));
     b.CreateBr(f[succ].llbb);
   };
 
   auto on_return = [&](void) -> void {
+    //
+    // store to CPU state the outputs which are not returned
+    //
+    tcg::global_set_t tostore =
+        f[boost::graph_bundle].outputs & ~f[boost::graph_bundle].returned;
+    vector<unsigned> tostore_v;
+    explode_tcg_global_set(tostore_v, tostore);
+    for (unsigned gidx : tostore_v)
+      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+
+    //
+    // examine returned outputs
+    //
     FunctionType *llf_ty = f[boost::graph_bundle].llf->getFunctionType();
     Type *ret_ty = llf_ty->getReturnType();
+
+    //
+    // if return type is void, then nothing to do
+    //
     if (ret_ty == Type::getVoidTy(C)) {
       b.CreateRetVoid();
       return;
     }
 
+    //
+    // must be returning a struct. pile the values together to make the return
+    // value
+    //
     assert(isa<StructType>(ret_ty));
-
     vector<unsigned> ret_v;
     explode_tcg_global_set(ret_v, f[boost::graph_bundle].returned);
 
@@ -1811,41 +1941,109 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     b.CreateRet(res);
   };
 
-  auto on_unknown = [&](basic_block_t succ) -> void {
-    // for unknown instructions we create a branch checking if the program
-    // counter is either the current basic block's address (in which case we
-    // branch back) or the successor's address (in which case we branch there).
-    // when neither of those cases are true, we create an unreachable
-    if (succ == boost::graph_traits<function_t>::null_vertex()) {
-      BasicBlock *elsellbb =
-          BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
+  auto on_indirect_jump = [&](void) -> void {
+#if 0
+    // check for relocation
 
-      b.CreateCondBr(b.CreateICmpEQ(b.CreateLoad(pc_llv),
-                                    ConstantInt::get(word_type(), bbprop.addr)),
-                     bbprop.llbb, elsellbb);
+#if 0
+    pc_llv->dump();
+    pc_llv->getType()->dump();
+    if (isa<ConstantExpr>(pc_llv))
+      cout << "PC_LLV IS CONSTEXPR" << endl;
+    if (isa<ConstantInt>(pc_llv))
+      cout << "PC_LLV IS CONSTINT" << endl;
+#endif
 
-      b.SetInsertPoint(elsellbb);
-      b.CreateUnreachable();
-      return;
+    if (isa<LoadInst>(pc_llv)) {
+      Value *ptr = cast<LoadInst>(pc_llv)->getPointerOperand();
+
+      int64_t off;
+      Value *base = GetPointerBaseWithConstantOffset(ptr, off, DL);
+      auto it = sectgvmap.find(base);
+      if (it != sectgvmap.end()) {
+        // XXX TODO
+      }
     }
+    Constant* pcconst = try_fold_to_constant();
+#if 0
+    if (pcconst) {
+      cout << "FOLDED PC_LLV TO CONST" << endl;
+      pcconst->dump();
+    }
+#endif
+    if (pcconst && isa<Function>(pcconst)) {
+      // this is a tail call to a relocated function
+      b.CreateCall(cast<Function>(pcconst));
+      on_return();
+    } else {
+#endif
+      Value* passed_pc = b.CreateIntToPtr(pc_llv, ExternalFnPtrTy);
+      b.CreateCall(IndirectJumpFn, ArrayRef<Value*>(passed_pc));
+      // TODO imported functions
+      on_return();
+#if 0
+    }
+#endif
+  };
 
-    BasicBlock *else1llbb =
-        BasicBlock::Create(C, "unknown1", f[boost::graph_bundle].llf);
-    BasicBlock *else2llbb =
-        BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
+  auto on_unknown = [&](basic_block_t succ) -> void {
+    if (bbprop.lbls.size()) {
+      cout << "unknown basic block terminator: multiple basic blocks!" << endl;
+      // for unknown instructions we create a branch checking if the program
+      // counter is either the current basic block's address (in which case we
+      // branch back) or the successor's address (in which case we branch
+      // there). when neither of those cases are true, we create an unreachable
+      if (succ == boost::graph_traits<function_t>::null_vertex()) {
+        BasicBlock *elsellbb =
+            BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
 
-    Value *pc = b.CreateLoad(pc_llv);
-    b.CreateCondBr(
-        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
-        f[succ].llbb, else1llbb);
+        b.CreateCondBr(
+            b.CreateICmpEQ(b.CreateLoad(pc_llv),
+                           section_int_ptr(bbprop.addr)),
+            bbprop.llbb, elsellbb);
 
-    b.SetInsertPoint(else1llbb);
-    b.CreateCondBr(
-        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), bbprop.addr)),
-        bbprop.llbb, else2llbb);
+        b.SetInsertPoint(elsellbb);
+        b.CreateUnreachable();
+        return;
+      }
 
-    b.SetInsertPoint(else2llbb);
-    b.CreateUnreachable();
+      BasicBlock *else1llbb =
+          BasicBlock::Create(C, "unknown1", f[boost::graph_bundle].llf);
+      BasicBlock *else2llbb =
+          BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
+
+      Value *pc = b.CreateLoad(pc_llv);
+      b.CreateCondBr(
+          b.CreateICmpEQ(pc, section_int_ptr(f[succ].addr)),
+          f[succ].llbb, else1llbb);
+
+      b.SetInsertPoint(else1llbb);
+      b.CreateCondBr(
+          b.CreateICmpEQ(pc, section_int_ptr(bbprop.addr)),
+          bbprop.llbb, else2llbb);
+
+      b.SetInsertPoint(else2llbb);
+      b.CreateUnreachable();
+    } else {
+      ConstantInt* pcint = try_fold_to_constant_int(pc_llv);
+      cout << "unknown basic block terminator: ";
+      if (pcint) {
+        address_t pc = pcint->getZExtValue();
+        cout << "folded to constant address: " << hex << pc << endl;
+        if (pc == bbprop.addr) {
+          b.CreateBr(bbprop.llbb);
+          return;
+        } else if (succ != boost::graph_traits<function_t>::null_vertex() &&
+                 pc == f[succ].addr) {
+          b.CreateBr(f[succ].llbb);
+          return;
+        }
+      } else {
+        cout << "could not fold to constant address" << endl;
+      }
+
+      b.CreateUnreachable();
+    }
   };
 
   struct normal_edges {
@@ -1882,9 +2080,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     on_indirect_call(boost::target(*ei++, cfg));
     break;
   case basic_block_properties_t::TERM_INDIRECT_JUMP:
-    on_indirect_jump(ei == ei_end
-                         ? boost::graph_traits<function_t>::null_vertex()
-                         : boost::target(*ei++, cfg));
+    on_indirect_jump();
     break;
   case basic_block_properties_t::TERM_RETURN:
     on_return();
@@ -1920,17 +2116,6 @@ void translator::translate_tcg_operation_to_llvm(
   auto set = [&](Value *v, tcg::Arg a) -> void {
     assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
 
-#if 0
-    b.CreateStore(v,
-                  a < tcg::num_globals ? tcg_glb_llv_m[a] : tcg_tmp_llv_m[a]);
-
-    if (a >= tcg::num_globals)
-      cout << (boost::format("set: temp_local = %u") %
-               static_cast<unsigned>(bbprop.tcg_tmps[a].temp_local))
-           << endl;
-#endif
-
-#if 1
     if (a < tcg::num_globals) {
       b.CreateStore(v, tcg_glb_llv_m[a]);
     } else {
@@ -1939,7 +2124,6 @@ void translator::translate_tcg_operation_to_llvm(
       else
         tcg_tmp_llv_m[a] = v;
     }
-#endif
   };
 
   auto get = [&](tcg::Arg a) -> Value * {
@@ -1960,13 +2144,20 @@ void translator::translate_tcg_operation_to_llvm(
     }
 
     return b.CreateLoad(ptr);
-    
-#if 0
-    if (a >= tcg::num_globals)
-      cout << (boost::format("get: temp_local = %u") %
-               static_cast<unsigned>(bbprop.tcg_tmps[a].temp_local))
-           << endl;
+  };
+
+  auto immediate_constant = [&](unsigned bits, tcg::Arg a) -> Value * {
+    if (bits == sizeof(address_t) * 8) {
+      Value *intptr = section_int_ptr(a);
+      if (intptr) {
+#if 1
+        cout << "immediate_constant: arg is address " << hex << a << endl;
 #endif
+        return intptr;
+      }
+    }
+
+    return ConstantInt::get(IntegerType::get(C, bits), a);
   };
 
   auto type = [&](tcg::Arg a) -> Type * {
@@ -2004,6 +2195,60 @@ void translator::translate_tcg_operation_to_llvm(
 #endif
 
     return b.CreateLoad(cpu_state_gep(memBits, offset));
+  };
+
+  auto guest_load_from_constant_address = [&](unsigned bits,
+                                              address_t addr) -> Value * {
+    auto it = addrspace.find(addr);
+    if (it == addrspace.end())
+      return nullptr;
+
+#if 1
+    cout << "guest_load_from_constant_address: addr = " << hex << addr << endl;
+#endif
+
+    unsigned sectidx = (*it).second - 1;
+    unordered_map<unsigned, Constant *> &relocs = sectrelocs[sectidx];
+
+    unsigned off = addr - (*it).first.lower();
+
+    auto relit = relocs.find(off);
+    if (relit != relocs.end())
+      return b.CreatePtrToInt((*relit).second, IntegerType::get(C, bits));
+
+    SmallVector<Value *, 4> Indices;
+    Value *ptr = getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
+                                         IntegerType::get(C, bits), Indices,
+                                         (boost::format("%x") % addr).str());
+    ptr = b.CreatePointerCast(ptr,
+                              PointerType::get(IntegerType::get(C, bits), 0));
+
+    return b.CreateLoad(ptr);
+  };
+
+  auto guest_load = [&](unsigned bits) -> Value * {
+    Value *addr = get(args[1]);
+
+    ConstantInt *addr_int = try_fold_to_constant_int(addr);
+
+    if (addr_int) {
+      Value *v =
+          guest_load_from_constant_address(bits, addr_int->getZExtValue());
+      if (v)
+        return v;
+    }
+
+    addr = b.CreateZExt(addr, word_type());
+    addr =
+        b.CreateIntToPtr(addr, PointerType::get(IntegerType::get(C, bits), 0));
+    return b.CreateLoad(addr);
+  };
+
+  auto set_program_counter = [&](Value* v) -> void {
+    if (!bbprop.lbls.size())
+      pc_llv = v;
+    else
+      b.CreateStore(v, pc_llv);
   };
 
   switch (opc) {
@@ -2147,7 +2392,7 @@ void translator::translate_tcg_operation_to_llvm(
     break;
 
   case tcg::INDEX_op_movi_i32:
-    set(ConstantInt::get(IntegerType::get(C, 32), args[1]), args[0]);
+    set(immediate_constant(32, args[1]), args[0]);
     break;
 
   case tcg::INDEX_op_mov_i32:
@@ -2156,7 +2401,7 @@ void translator::translate_tcg_operation_to_llvm(
     break;
 
   case tcg::INDEX_op_movi_i64:
-    set(ConstantInt::get(IntegerType::get(C, 64), args[1]), args[0]);
+    set(immediate_constant(64, args[1]), args[0]);
     break;
 
   case tcg::INDEX_op_mov_i64:
@@ -2186,6 +2431,9 @@ void translator::translate_tcg_operation_to_llvm(
 
 #undef __EXT_OP
 
+//
+// load from host memory
+//
 #define __LD_OP(opc_name, memBits, regBits, signE)                             \
   case opc_name: {                                                             \
     Value *v;                                                                  \
@@ -2200,15 +2448,18 @@ void translator::translate_tcg_operation_to_llvm(
     set(b.Create##signE##Ext(v, IntegerType::get(C, regBits)), args[0]);       \
   } break;
 
-/* special case: when we see a st_i64/32 tmp, env, offset where offset points to
- * to the program counter field, then we store it in our local variable */
+//
+// store to host memory
+// special case: when we see a st_i64/32 tmp, env, offset where offset points to
+// to the program counter field, then we store it in our local variable
+//
 #define __ST_OP(opc_name, memBits, regBits)                                    \
   case opc_name: {                                                             \
     Value *valueToStore = get(args[0]);                                        \
     Value *addr;                                                               \
     if (args[1] == tcg::CPU_STATE_ARG) {                                       \
       if (args[2] == tcg::cpu_state_program_counter_offset)                    \
-        addr = pc_llv;                                                         \
+        return set_program_counter(valueToStore);                              \
       else                                                                     \
         addr = cpu_state_gep(memBits, args[2]);                                \
     } else {                                                                   \
@@ -2440,6 +2691,9 @@ void translator::translate_tcg_operation_to_llvm(
 #undef __ARITH_OP_DIV2
 #undef __ARITH_OP
 
+//
+// store to guest memory
+//
 #define __OP_QEMU_ST(opc_name, bits)                                           \
   case opc_name: {                                                             \
     Value *addr = get(args[1]);                                                \
@@ -2451,33 +2705,13 @@ void translator::translate_tcg_operation_to_llvm(
     b.CreateStore(valueToStore, addr);                                         \
   } break;
 
-//    if (C = ConstantFoldInstruction(addr, DL))
-
+//
+// load from guest memory
+//
 #define __OP_QEMU_LD(opc_name, bits)                                           \
-  case opc_name: {                                                             \
-    Value *addr = get(args[1]);                                                \
-    ConstantInt *constiaddr = nullptr;                                         \
-    Constant *constaddr;                                                       \
-    if (isa<ConstantInt>(addr))                                                \
-      constiaddr = cast<ConstantInt>(addr);                                    \
-    else if (isa<Instruction>(addr) && (constaddr = ConstantFoldInstruction(   \
-                                            cast<Instruction>(addr), DL)) &&   \
-             isa<ConstantInt>(constaddr)) {                                    \
-      outs() << "folded constant\n";                                           \
-      constiaddr = cast<ConstantInt>(constaddr);                               \
-    }                                                                          \
-    if (constiaddr) {                                                          \
-      outs() << "__OP_QEMU_LD: addr is constant ";                             \
-      outs() << *addr << " = "                                                 \
-             << (boost::format("%x") % constiaddr->getZExtValue()).str()       \
-             << "\n";                                                          \
-    }                                                                          \
-    addr = b.CreateZExt(addr, word_type());                                    \
-    addr = b.CreateIntToPtr(addr,                                              \
-                            PointerType::get(IntegerType::get(C, bits), 0));   \
-    Value *v = b.CreateLoad(addr);                                             \
-    set(v, args[0]);                                                           \
-  } break;
+  case opc_name:                                                               \
+    set(guest_load(bits), args[0]);                                            \
+    break;
 
     __OP_QEMU_ST(tcg::INDEX_op_qemu_st_i32, 32)
     __OP_QEMU_ST(tcg::INDEX_op_qemu_st_i64, 64)
@@ -2724,4 +2958,66 @@ Value *translator::getNaturalGEPWithOffset(Value *Ptr, APInt Offset,
   return getNaturalGEPRecursively(Ptr, ElementTy, Offset, TargetTy, Indices,
                                   NamePrefix);
 }
+
+ConstantInt *translator::try_fold_to_constant_int(Value *v) {
+  ConstantInt *vint = nullptr;
+  if (isa<ConstantInt>(v)) {
+    vint = cast<ConstantInt>(v);
+  } else if (isa<Instruction>(v)) {
+    Constant *foldedaddr = ConstantFoldInstruction(cast<Instruction>(v), DL);
+
+    if (foldedaddr && isa<ConstantInt>(foldedaddr))
+      vint = cast<ConstantInt>(foldedaddr);
+  }
+
+  return vint;
+}
+
+#if 0
+  // Unwrap ptrtoint casts
+  // TODO XXX check that it is lossless
+  if (PtrToIntInst *PTII = dyn_cast<PtrToIntInst>(v))
+    v = PTII->getPointerOperand();
+#endif
+
+Constant* translator::try_fold_to_constant(Value* v) {
+  if (ConstantExpr *CE = dyn_cast<ConstantExpr>(v)) {
+    // unwrap ptrtoint casts
+    if (CE->getOpcode() == Instruction::PtrToInt)
+      return try_fold_to_constant(CE->getOperand(0));
+
+    return ConstantFoldConstantExpression(CE, DL);
+  }
+
+  if (isa<Constant>(v))
+    return cast<Constant>(v);
+
+  if (isa<Instruction>(v))
+    return ConstantFoldInstruction(cast<Instruction>(v), DL);
+
+  return nullptr;
+}
+
+Value* translator::section_ptr(address_t addr) {
+  auto it = addrspace.find(addr);
+  if (it == addrspace.end())
+    return nullptr;
+
+  unsigned sectidx = (*it).second - 1;
+  unsigned off = addr - (*it).first.lower();
+
+  SmallVector<Value *, 4> Indices;
+  Value *ptr =
+      getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
+                              IntegerType::get(C, sizeof(address_t) * 8),
+                              Indices, (boost::format("%x") % addr).str());
+
+  return ptr;
+}
+
+Value* translator::section_int_ptr(address_t addr) {
+  Value* ptr = section_ptr(addr);
+  return ptr ? b.CreatePtrToInt(ptr, word_type()) : nullptr;
+}
+
 }

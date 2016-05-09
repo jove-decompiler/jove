@@ -273,6 +273,8 @@ private:
   llvm::FunctionType *FnThunkTy;
   llvm::AttributeSet FnThunkAttr;
 
+  llvm::FunctionType *ExternalFnTy;
+  llvm::PointerType *ExternalFnPtrTy;
   llvm::Function *IndirectJumpFn;
   llvm::Function *IndirectCallFn;
 
@@ -285,6 +287,10 @@ private:
   std::queue<address_t> functions_to_translate;
 
   std::vector<llvm::GlobalVariable*> sectgvs;
+  std::unordered_map<llvm::GlobalVariable*, unsigned> sectgvmap;
+
+  std::vector<std::unordered_map<unsigned, llvm::Type*>> sectreloctys;
+  std::vector<std::unordered_map<unsigned, llvm::Constant*>> sectrelocs;
 
   // contains basic blocks in depth first search order. if we access this
   // vector sequentially, it's equivalent to access vertices by depth first
@@ -318,6 +324,7 @@ private:
   llvm::Type *word_type();
   void init_helpers();
   void prepare_for_translation();
+  void create_section_global_variables();
   bool translate_function(address_t);
   basic_block_t translate_basic_block(function_t&, address_t);
   void write_function_graphviz(function_t &);
@@ -352,6 +359,10 @@ private:
                                        llvm::Twine NamePrefix);
   llvm::Value *load_global_from_cpu_state(unsigned gidx);
   void store_global_to_cpu_state(llvm::Value *gvl, unsigned gidx);
+  llvm::Constant* try_fold_to_constant(llvm::Value*);
+  llvm::ConstantInt* try_fold_to_constant_int(llvm::Value*);
+  llvm::Value *section_ptr(address_t addr);
+  llvm::Value *section_int_ptr(address_t addr);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string& Nm);

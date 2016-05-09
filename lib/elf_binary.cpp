@@ -33,7 +33,7 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
     if (Sec.sh_type == ELF::SHT_SYMTAB)
       DotSymTblSec = &Sec;
 
-    if (!(Sec.sh_flags & ELF::SHF_ALLOC))
+    if (!(Sec.sh_flags & ELF::SHF_ALLOC) || !Sec.sh_size)
       continue;
 
     section_t res;
@@ -57,17 +57,14 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
   //
   // gather symbols
   //
-  unordered_map<string, unsigned> symidxmap;
-
-  symtbl.reserve(DotSymTblSec->sh_size / sizeof(Elf_Sym));
-  for (const Elf_Sym &Sym : ELF->symbols(DotSymTblSec)) {
+  auto process_elf_sym = [&](const Elf_Shdr *SymTab,
+                             const Elf_Sym *Sym) -> void {
     symbol_t res;
 
-    StringRef StrTable =
-        errorOrDefault(ELF->getStringTableForSymtab(*DotSymTblSec));
-    res.name = errorOrDefault(Sym.getName(StrTable)).str();
+    StringRef StrTable = errorOrDefault(ELF->getStringTableForSymtab(*SymTab));
+    res.name = errorOrDefault(Sym->getName(StrTable)).str();
 
-    res.addr = Sym.isUndefined() ? 0 : Sym.st_value;
+    res.addr = Sym->isUndefined() ? 0 : Sym->st_value;
 
     constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
         symbol_t::NOTYPE,   // STT_NOTYPE              = 0
@@ -88,9 +85,9 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
         symbol_t::NOTYPE    // STT_HIPROC              = 15
     };
 
-    res.ty = elf_symbol_type_mapping[Sym.getType()];
+    res.ty = elf_symbol_type_mapping[Sym->getType()];
 
-    res.size = Sym.st_size;
+    res.size = Sym->st_size;
 
     constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
         symbol_t::LOCAL,     // STT_LOCAL      = 0
@@ -111,14 +108,14 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
         symbol_t::NOBINDING  // STB_HIPROC     = 15
     };
 
-    res.bind = elf_symbol_binding_mapping[Sym.getBinding()];
+    res.bind = elf_symbol_binding_mapping[Sym->getBinding()];
 
-    if (res.ty == symbol_t::FUNCTION)
-      cout << "symbol: " << res.name << endl;
-
-    symidxmap[res.name] = symtbl.size();
     symtbl.push_back(res);
-  }
+  };
+
+  symtbl.reserve(DotSymTblSec->sh_size / sizeof(Elf_Sym));
+  for (const Elf_Sym &Sym : ELF->symbols(DotSymTblSec))
+    process_elf_sym(DotSymTblSec, &Sym);
 
   //
   // gather relocations
@@ -153,17 +150,13 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
       if (!Sym || Sym->getType() == ELF::STT_SECTION)
         return;
 
-      StringRef StrTable =
-          errorOrDefault(ELF->getStringTableForSymtab(*SymTab));
-
-      cout << "reloc sym " << errorOrDefault(Sym->getName(StrTable)).str() << endl;
-
       relocation_t res;
       res.ty = relocation_type_of_elf_rela_type(R.getType(ELF->isMips64EL()));
       res.addr = R.r_offset;
-      res.symidx = symidxmap[errorOrDefault(Sym->getName(StrTable)).str()];
+      res.symidx = symtbl.size();
       res.addend = R.r_addend;
 
+      process_elf_sym(SymTab, Sym);
       reloctbl.push_back(res);
     };
 
