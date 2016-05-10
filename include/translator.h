@@ -15,14 +15,19 @@
 
 #if defined(TARGET_AARCH64)
 #include "tcgdefs-aarch64.hpp"
+#include "abi_callingconv-aarch64.hpp"
 #elif defined(TARGET_ARM)
 #include "tcgdefs-arm.hpp"
+#include "abi_callingconv-arm.hpp"
 #elif defined(TARGET_X86_64)
 #include "tcgdefs-x86_64.hpp"
+#include "abi_callingconv-x86_64.hpp"
 #elif defined(TARGET_I386)
 #include "tcgdefs-i386.hpp"
+#include "abi_callingconv-i386.hpp"
 #elif defined(TARGET_MIPS)
 #include "tcgdefs-mipsel.hpp"
+#include "abi_callingconv-mipsel.hpp"
 #endif
 
 /* XXX QEMUVERSIONDEPENDENT */
@@ -277,6 +282,11 @@ private:
   llvm::PointerType *ExternalFnPtrTy;
   llvm::Function *IndirectJumpFn;
   llvm::Function *IndirectCallFn;
+
+  struct {
+    std::array<unsigned, call_conv_num_arg_regs> arg_regs;
+    std::array<unsigned, call_conv_num_ret_regs> ret_regs;
+  } const callconv;
 
   const std::array<tcg::global_t, tcg::num_globals> tcg_globals;
   std::array<tcg::helper_t, tcg::num_helpers> tcg_helpers;

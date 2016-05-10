@@ -1,5 +1,8 @@
 include config.mk
 
+# this just obtains the directory this Makefile resides in
+JOVE_TARGET_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
+
 #jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp
 
 jove_all: $(build_dir)/jove-init-$(_TARGET_NAME)
@@ -48,7 +51,7 @@ $(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).b
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
 
-$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp
+$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp
 	@echo CLANG++ $(notdir $@ $<)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
@@ -101,6 +104,42 @@ $(build_dir)/elf-binary-$(_TARGET_NAME).bc: $(build_dir)/elf_binary.cpp
 $(build_dir)/coff-binary-$(_TARGET_NAME).bc: $(build_dir)/coff_binary.cpp
 	@echo CLANG++ $(notdir $@ $^)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+
+#
+# ABI calling convention
+#
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
+	@echo ABICALLINGCONV $(notdir $@)
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 1 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+
+$(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
+	@echo ABICALLINGCONV $(notdir $@)
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 2 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+
+$(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
+	@echo ABICALLINGCONV $(notdir $@)
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 3 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME): $(build_dir)/abi_callingconv-$(_TARGET_NAME).2.bc
+	@echo CLANG $(notdir $@ $^)
+	@$(llvm_dir)/bin/clang -o $@ $< -flto -fPIC -lglib-2.0 -pthread
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME).2.bc: $(build_dir)/abi_callingconv-$(_TARGET_NAME).1.bc
+	@echo OPT $(notdir $@ $^)
+	@$(llvm_dir)/bin/opt -o $@ -globaldce $<
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME).1.bc: $(build_dir)/abi_callingconv-$(_TARGET_NAME).0.bc
+	@echo LLKNIFE $(notdir $@ $^)
+	@$(build_dir)/llknife -o $@ -i $< --only-external-regex 'main'
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).bc $(build_dir)/qemutcg-$(_TARGET_NAME).bc $(build_dir)/abi_callingconv-$(_TARGET_NAME).bc
+	@echo BCLINK $(notdir $@ $^)
+	@$(llvm_dir)/bin/llvm-link -o $@ $^
+
+$(build_dir)/abi_callingconv-$(_TARGET_NAME).bc: $(build_dir)/abi_callingconv.c
+	@echo CLANG $(notdir $@ $^)
+	@$(llvm_dir)/bin/clang -o $@ -c -emit-llvm -I $(include_dir) -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
 
 #
 # tcgdefs

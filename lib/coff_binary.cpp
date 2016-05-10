@@ -85,7 +85,7 @@ bool parse_coff_binary(const llvm::object::ObjectFile &O,
       relocation_t res1;
 
       res1.addr = COFF->getImageBase() + IAT_RVA + off;
-      res1.ty = relocation_t::JUMP_SLOT;
+      res1.ty = relocation_t::FUNCTION;
       res1.symidx = symtbl.size();
 
       symbol_t res2;

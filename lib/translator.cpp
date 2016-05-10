@@ -228,6 +228,32 @@ translator::translator(ObjectFile &O, const string &MNm)
                             false),
           GlobalValue::ExternalLinkage, "___jove_indirect_call", &M)),
 
+      callconv{{{
+#if defined(TARGET_AARCH64)
+#include "abi_callingconv_arg_regs-aarch64.cpp"
+#elif defined(TARGET_ARM)
+#include "abi_callingconv_arg_regs-arm.cpp"
+#elif defined(TARGET_X86_64)
+#include "abi_callingconv_arg_regs-x86_64.cpp"
+#elif defined(TARGET_I386)
+#include "abi_callingconv_arg_regs-i386.cpp"
+#elif defined(TARGET_MIPS)
+#include "abi_callingconv_arg_regs-mipsel.cpp"
+#endif
+               }},
+               {{
+#if defined(TARGET_AARCH64)
+#include "abi_callingconv_ret_regs-aarch64.cpp"
+#elif defined(TARGET_ARM)
+#include "abi_callingconv_ret_regs-arm.cpp"
+#elif defined(TARGET_X86_64)
+#include "abi_callingconv_ret_regs-x86_64.cpp"
+#elif defined(TARGET_I386)
+#include "abi_callingconv_ret_regs-i386.cpp"
+#elif defined(TARGET_MIPS)
+#include "abi_callingconv_ret_regs-mipsel.cpp"
+#endif
+               }}},
       tcg_globals{{
 #if defined(TARGET_AARCH64)
 #include "tcg_globals-aarch64.cpp"
