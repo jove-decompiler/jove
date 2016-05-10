@@ -146,17 +146,20 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
     const Elf_Shdr *SymTab = errorOrDefault(ELF->getSection(Sec.sh_link));
 
     auto process_rela = [&](const Elf_Rela &R) -> void {
-      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, SymTab);
-      if (!Sym || Sym->getType() == ELF::STT_SECTION)
-        return;
-
       relocation_t res;
+
+      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, SymTab);
+      if (Sym) {
+        res.symidx = symtbl.size();
+        process_elf_sym(SymTab, Sym);
+      } else {
+        res.symidx = numeric_limits<unsigned int>::max();
+      }
+
       res.ty = relocation_type_of_elf_rela_type(R.getType(ELF->isMips64EL()));
       res.addr = R.r_offset;
-      res.symidx = symtbl.size();
       res.addend = R.r_addend;
 
-      process_elf_sym(SymTab, Sym);
       reloctbl.push_back(res);
     };
 

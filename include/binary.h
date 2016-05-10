@@ -67,6 +67,7 @@ struct symbol_t {
 
   // an undefined symbol is an imported function or global variable
   bool is_undefined() const { return addr == 0; }
+  bool is_defined() const { return !is_undefined(); }
 };
 
 //

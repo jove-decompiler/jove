@@ -209,6 +209,7 @@ void createExportedFunctions() {
 
   T->translate(addrs);
 
+#if 0
   for (const symbol_t& sym : T->symbol_table()) {
     if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
         sym.bind == symbol_t::NOBINDING)
@@ -220,6 +221,7 @@ void createExportedFunctions() {
 
     llf->setName(sym.name);
   }
+#endif
 }
 
 void createExportedVariables() {}

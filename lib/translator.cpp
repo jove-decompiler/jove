@@ -394,6 +394,8 @@ void translator::create_section_global_variables() {
   //
 
   auto type_for_relocation = [&](const relocation_t &reloc, Type* ty) -> void {
+    assert(ty);
+
     unsigned sectidx = (*addrspace.find(reloc.addr)).second - 1;
     unsigned off = reloc.addr - secttbl[sectidx].addr;
 
@@ -415,15 +417,32 @@ void translator::create_section_global_variables() {
   auto process_data_relocation_type = [&](const relocation_t &reloc) -> void {
     symbol_t& sym = symtbl[reloc.symidx];
     Type *ty = PointerType::get(
-        !sym.size ? word_type() : IntegerType::get(C, 8 * sym.size), 0);
+        sym.size ? IntegerType::get(C, 8 * sym.size) : word_type(), 0);
 
     type_for_relocation(reloc, ty);
   };
 
   auto process_relative_relocation_type =
       [&](const relocation_t &reloc) -> void {
-    //type_for_relocation(reloc, PointerType::get(word_type(), 0));
+    type_for_relocation(reloc, PointerType::get(word_type(), 0));
   };
+
+  static const char *reloc_ty_str[] = {"NONE", "RELATIVE", "ABSOLUTE",
+                                       "COPY", "FUNCTION", "DATA"};
+
+  for (const relocation_t &reloc : reloctbl) {
+    cout << (boost::format("(%s) %x %s") % reloc_ty_str[reloc.ty] % reloc.addr %
+             (addrspace.find(reloc.addr) == addrspace.end() ? "~" : "-"));
+    if (reloc.symidx < symtbl.size()) {
+      symbol_t &sym = symtbl[reloc.symidx];
+      cout << (boost::format(" : %s [%s]") % sym.name %
+               (sym.is_defined()
+                    ? (boost::format("DEFINED @ %x {%d}") % sym.addr % sym.size)
+                          .str()
+                    : "UNDEFINED"));
+    }
+    cout << endl;
+  }
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
@@ -465,11 +484,14 @@ void translator::create_section_global_variables() {
       structfieldtys.push_back(ty);
     }
 
-    sectgvtys[i] = StructType::create(C, structfieldtys,
-                                      "struct.__jove_" + sect.name, true);
+    string sectnm_ = sect.name;
+    boost::replace_all(sectnm_, ".", "_");
+
+    sectgvtys[i] =
+        StructType::create(C, structfieldtys, "struct.__jove_" + sectnm_, true);
     GlobalVariable *sectgv =
-        new GlobalVariable(M, sectgvtys[i], false, GlobalValue::ExternalLinkage,
-                           nullptr, "__jove_" + sect.name);
+        new GlobalVariable(M, sectgvtys[i], true, GlobalValue::ExternalLinkage,
+                           nullptr, "__jove_" + sectnm_);
     sectgv->setAlignment(sect.align);
 
     sectgvs.push_back(sectgv);
@@ -481,6 +503,8 @@ void translator::create_section_global_variables() {
   //
   auto constant_for_relocation = [&](const relocation_t &reloc,
                                      Constant *Cnst) -> void {
+    assert(Cnst);
+
     unsigned sectidx = (*addrspace.find(reloc.addr)).second - 1;
     unsigned off = reloc.addr - secttbl[sectidx].addr;
     sectrelocs[sectidx][off] = Cnst;
@@ -512,17 +536,55 @@ void translator::create_section_global_variables() {
       Function *f = M.getFunction(sym.name);
       Cnst = f ? f : M.getOrInsertGlobal(sym.name, word_type());
     } else {
-      Cnst = M.getOrInsertGlobal(
-          sym.name,
-          IntegerType::get(C, sym.size ? 8 * sym.size : 8 * sizeof(address_t)));
+      Function *f = M.getFunction(sym.name);
+      if (f) {
+        Cnst = f;
+      } else {
+        GlobalVariable *g = M.getGlobalVariable(sym.name);
+        if (g) {
+          Cnst = g;
+        } else {
+          unsigned sectidx = (*addrspace.find(sym.addr)).second - 1;
+          section_t &sect = secttbl[sectidx];
+          unsigned off = sym.addr - sect.addr;
+
+          uint64_t cnstvl;
+          switch (sym.size) {
+          case 1:
+            cnstvl = sect.contents.begin()[off];
+            break;
+          case 2:
+            cnstvl = *reinterpret_cast<const uint16_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          case 4:
+            cnstvl = *reinterpret_cast<const uint32_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          case 8:
+            cnstvl = *reinterpret_cast<const uint64_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          default:
+            cerr << "warning: defined symbol with unknown size " << dec
+                 << sym.size << endl;
+            return;
+          }
+
+          Type *ty = IntegerType::get(C, sym.size ? 8 * sym.size
+                                                  : 8 * sizeof(address_t));
+          Cnst =
+              new GlobalVariable(M, ty, false, GlobalVariable::ExternalLinkage,
+                                 ConstantInt::get(ty, cnstvl), sym.name);
+        }
+      }
     }
 
     constant_for_relocation(reloc, Cnst);
   };
 
   auto process_relative_relocation = [&](const relocation_t &reloc) -> void {
-    Constant *Cnst;
-    //constant_for_relocation(reloc, Cnst);
+    constant_for_relocation(reloc, section_ptr(reloc.addend));
   };
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
@@ -572,10 +634,6 @@ void translator::create_section_global_variables() {
       structfieldconsts.push_back(cnst);
     }
 
-    sectgvtys[i]->dump();
-    for (Constant* C : structfieldconsts)
-      C->dump();
-
     sectgvs[i]->setInitializer(
         ConstantStruct::get(sectgvtys[i], structfieldconsts));
   }
@@ -588,10 +646,12 @@ void translator::prepare_for_translation() {
   GlobalVariable *rthlp_cpu_state = HelperM.getNamedGlobal("cpu_state");
   assert(rthlp_cpu_state);
 
-  cpu_state_glb_llv = new GlobalVariable(M, rthlp_cpu_state->getType(), false,
-                                         GlobalValue::ExternalLinkage, nullptr,
-                                         rthlp_cpu_state->getName(), nullptr,
-                                         GlobalValue::GeneralDynamicTLSModel);
+  Type *cpu_state_ty =
+      cast<PointerType>(rthlp_cpu_state->getType())->getElementType();
+  cpu_state_glb_llv = new GlobalVariable(
+      M, cpu_state_ty, false, GlobalValue::InternalLinkage,
+      ConstantAggregateZero::get(cpu_state_ty), rthlp_cpu_state->getName(),
+      nullptr, GlobalValue::GeneralDynamicTLSModel);
 
   //
   // parse the binary
@@ -1560,12 +1620,6 @@ Value* translator::cpu_state_global_gep(unsigned gidx) {
       Indices);
   assert(!Indices.empty() && Indices.size() != 1);
 
-  errs() << "Indices\n";
-  errs() << "  gidx = " << gidx << "\n";
-  for (Value* Idx : Indices)
-    errs() << "  " << *Idx << '\n';
-  errs().flush();
-
   Value *ptr = b.CreateInBoundsGEP(
       nullptr, tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
       (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
@@ -1647,7 +1701,7 @@ void translator::translate_function_llvm(function_t& f) {
   //
   // add the CPUState extern global as the LLVM value for env
   //
-  tcg_glb_llv_m[tcg::CPU_STATE_ARG] = b.CreateLoad(cpu_state_glb_llv);
+  tcg_glb_llv_m[tcg::CPU_STATE_ARG] = cpu_state_glb_llv;
 
   //
   // initialize tcg global parameter Alloca's
@@ -2192,12 +2246,13 @@ void translator::translate_tcg_operation_to_llvm(
 
   auto cpu_state_gep = [&](unsigned memBits, unsigned offset) -> Value * {
     SmallVector<Value *, 4> Indices;
-    getNaturalGEPWithOffset(tcg_glb_llv_m[tcg::CPU_STATE_ARG],
+    getNaturalGEPWithOffset(cpu_state_glb_llv,
                             APInt(64, offset), IntegerType::get(C, memBits),
                             Indices);
     assert(!Indices.empty() && Indices.size() != 1);
-    Value *ptr = b.CreateInBoundsGEP(tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
-                                     (boost::format("env+%u") % offset).str());
+
+    Value *ptr = ConstantExpr::getInBoundsGetElementPtr(
+        nullptr, cpu_state_glb_llv, Indices);
 
     ptr = b.CreatePointerCast(
         ptr, PointerType::get(IntegerType::get(C, memBits), 0));
@@ -2995,7 +3050,7 @@ Constant* translator::try_fold_to_constant(Value* v) {
   return nullptr;
 }
 
-Value* translator::section_ptr(address_t addr) {
+Constant* translator::section_ptr(address_t addr) {
   auto it = addrspace.find(addr);
   if (it == addrspace.end())
     return nullptr;
