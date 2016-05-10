@@ -215,9 +215,9 @@ public:
     address_t entry_point;
 
     //
-    // the set of TCG globals which are provided as parameters
+    // the set of TCG globals which are read before written to
     //
-    tcg::global_set_t params;
+    tcg::global_set_t inputs;
 
     //
     // the set of TCG globals which are written to
@@ -225,10 +225,15 @@ public:
     tcg::global_set_t outputs;
 
     //
+    // the set of TCG globals which are provided as parameters
+    //
+    std::vector<unsigned> params;
+
+    //
     // the set of TCG globals which are returned. this is affected by the
     // liveness analysis of callers of this function
     //
-    tcg::global_set_t returned;
+    std::vector<unsigned> returned;
 
     tcg::global_set_t used;
 
@@ -287,6 +292,9 @@ private:
     std::array<unsigned, call_conv_num_arg_regs> arg_regs;
     std::array<unsigned, call_conv_num_ret_regs> ret_regs;
   } const callconv;
+
+  std::array<int, tcg::num_globals> tcg_global_callconv_arg_idx;
+  std::array<int, tcg::num_globals> tcg_global_callconv_ret_idx;
 
   const std::array<tcg::global_t, tcg::num_globals> tcg_globals;
   std::array<tcg::helper_t, tcg::num_helpers> tcg_helpers;
@@ -369,6 +377,8 @@ private:
   llvm::ConstantInt *try_fold_to_constant_int(llvm::Value *);
   llvm::Constant *section_ptr(address_t addr);
   llvm::Value *section_int_ptr(address_t addr);
+  llvm::Value *cpu_state_gep(unsigned memBits, unsigned offset);
+  llvm::Value *cpu_state_load(unsigned memBits, unsigned offset);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string& Nm);

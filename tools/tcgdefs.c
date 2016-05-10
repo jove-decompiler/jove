@@ -25,7 +25,6 @@ static void print_tcg_globals_definition(void) {
 }
 
 static unsigned num_globals(void) {
-  // don't include CPUState pointer
   return tcg_ctx.nb_globals;
 }
 

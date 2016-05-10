@@ -29,6 +29,15 @@ static unsigned tcg_global_of_name(const char *name) {
   exit(1);
 }
 
+static unsigned num_globals(void) {
+  return tcg_ctx.nb_globals;
+}
+
+#define SET_NTH_BIT(number, n)                                                 \
+  do {                                                                         \
+    number |= 1ull << n;                                                       \
+  } while (0)
+
 int main(int argc, char **argv) {
   if (argc != 3) {
     fprintf(stderr, "usage: abi-callingconv outputtype callconvfile\n");
@@ -53,22 +62,51 @@ int main(int argc, char **argv) {
     unsigned n_arg_regs = 1;
     unsigned n_ret_regs = 1;
 
+    unsigned long long arg_regs = 0;
+    unsigned long long ret_regs = 0;
+
     word = strtok(line1, " ");
-    while ((word = strtok(NULL, " ")) != NULL)
+    SET_NTH_BIT(arg_regs, tcg_global_of_name(word));
+    while ((word = strtok(NULL, " ")) != NULL) {
       ++n_arg_regs;
+      if (word[strlen(word)-1] == '\n') {
+        word[strlen(word)-1] = '\0';
+        SET_NTH_BIT(arg_regs, tcg_global_of_name(word));
+        break;
+      } else {
+        SET_NTH_BIT(arg_regs, tcg_global_of_name(word));
+      }
+    }
 
     word = strtok(line2, " ");
-    while ((word = strtok(NULL, " ")) != NULL)
+    SET_NTH_BIT(ret_regs, tcg_global_of_name(word));
+    while ((word = strtok(NULL, " ")) != NULL) {
       ++n_ret_regs;
+      if (word[strlen(word)-1] == '\n') {
+        word[strlen(word)-1] = '\0';
+        SET_NTH_BIT(ret_regs, tcg_global_of_name(word));
+        break;
+      } else {
+        SET_NTH_BIT(ret_regs, tcg_global_of_name(word));
+      }
+    }
 
     printf("#pragma once\n"
+           "\n"
+           "#include <bitset>\n"
            "\n"
            "namespace jove {\n"
            "constexpr unsigned call_conv_num_arg_regs = %u;\n"
            "constexpr unsigned call_conv_num_ret_regs = %u;\n"
+           "constexpr std::bitset<%u> call_conv_arg_regs(%lluull);\n"
+           "constexpr std::bitset<%u> call_conv_ret_regs(%lluull);\n"
            "}",
            n_arg_regs,
-           n_ret_regs
+           n_ret_regs,
+           num_globals(),
+           arg_regs,
+           num_globals(),
+           ret_regs
            );
     break;
   }

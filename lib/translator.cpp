@@ -667,6 +667,19 @@ void translator::create_section_global_variables() {
 
 void translator::prepare_for_translation() {
   //
+  // build tables for sorting parameters by calling convention order
+  //
+  int i;
+
+  i = 0;
+  for (unsigned gidx : callconv.arg_regs)
+    tcg_global_callconv_arg_idx[gidx] = i++;
+
+  i = 0;
+  for (unsigned gidx : callconv.ret_regs)
+    tcg_global_callconv_ret_idx[gidx] = i++;
+
+  //
   // create the thread-local CPUState
   //
   GlobalVariable *rthlp_cpu_state = HelperM.getNamedGlobal("cpu_state");
@@ -725,19 +738,18 @@ translator::translate(const std::vector<address_t> &addrs) {
 #if 1
     cout << hex << addr << endl;
 
-    vector<unsigned> params, returned, outputs;
+    vector<unsigned> inputs, outputs;
 
-    explode_tcg_global_set(params, f[boost::graph_bundle].params);
-    explode_tcg_global_set(returned, f[boost::graph_bundle].returned);
+    explode_tcg_global_set(inputs, f[boost::graph_bundle].inputs);
     explode_tcg_global_set(outputs, f[boost::graph_bundle].outputs);
 
     cout << '<';
-    for (auto g : params)
+    for (auto g : inputs)
       cout << ' ' << tcg_globals[g].nm;
     cout << endl;
 
     cout << '>';
-    for (auto g : returned)
+    for (auto g : f[boost::graph_bundle].returned)
       cout << ' ' << tcg_globals[g].nm;
     cout << endl;
 
@@ -768,13 +780,10 @@ translator::translate(const std::vector<address_t> &addrs) {
     //
     // build function type
     //
-    auto types_of_tcg_global_set = [&](vector<Type *>& tys,
-                                       tcg::global_set_t glbs) -> void {
-      if (glbs.none())
+    auto types_of_tcg_global_indices =
+        [&](vector<Type *> &tys, const vector<unsigned> &glbv) -> void {
+      if (glbv.empty())
         return;
-
-      vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, glbs);
 
       tys.resize(glbv.size());
       transform(glbv.begin(), glbv.end(), tys.begin(), [&](unsigned gidx) {
@@ -786,8 +795,8 @@ translator::translate(const std::vector<address_t> &addrs) {
     vector<Type *> param_tys;
     vector<Type *> return_tys;
 
-    types_of_tcg_global_set(param_tys, f[boost::graph_bundle].params);
-    types_of_tcg_global_set(return_tys, f[boost::graph_bundle].returned);
+    types_of_tcg_global_indices(param_tys, f[boost::graph_bundle].params);
+    types_of_tcg_global_indices(return_tys, f[boost::graph_bundle].returned);
 
     FunctionType *ty = FunctionType::get(
         return_tys.empty() ? Type::getVoidTy(C)
@@ -899,7 +908,18 @@ void translator::compute_params(function_t& f) {
     }
   } while (change);
 
-  f[boost::graph_bundle].params = f[*boost::vertices(f).first].live_in;
+  f[boost::graph_bundle].inputs = f[*boost::vertices(f).first].live_in;
+
+  tcg::global_set_t params_s =
+      f[boost::graph_bundle].inputs & call_conv_arg_regs;
+  explode_tcg_global_set(f[boost::graph_bundle].params, params_s);
+
+  sort(f[boost::graph_bundle].params.begin(),
+       f[boost::graph_bundle].params.end(),
+       [&](unsigned gidx1, unsigned gidx2) {
+         return tcg_global_callconv_arg_idx[gidx1] <
+                tcg_global_callconv_arg_idx[gidx2];
+       });
 }
 
 void translator::compute_returned(function_t& f) {
@@ -994,6 +1014,7 @@ void translator::compute_returned(function_t& f) {
   dfs_visitor vis(domtree);
   boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
 
+#if 0
   //
   // compute returned set of globals for f. it is equal to
   //
@@ -1011,6 +1032,18 @@ void translator::compute_returned(function_t& f) {
   f[boost::graph_bundle].returned = X.any()
                                         ? (X & f[boost::graph_bundle].outputs)
                                         : f[boost::graph_bundle].outputs;
+#else
+  tcg::global_set_t returned_s =
+      f[boost::graph_bundle].outputs & call_conv_ret_regs;
+  explode_tcg_global_set(f[boost::graph_bundle].returned, returned_s);
+
+  sort(f[boost::graph_bundle].returned.begin(),
+       f[boost::graph_bundle].returned.end(),
+       [&](unsigned gidx1, unsigned gidx2) {
+         return tcg_global_callconv_ret_idx[gidx1] <
+                tcg_global_callconv_ret_idx[gidx2];
+       });
+#endif
 }
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
@@ -1730,19 +1763,26 @@ void translator::translate_function_llvm(function_t& f) {
   tcg_glb_llv_m[tcg::CPU_STATE_ARG] = cpu_state_glb_llv;
 
   //
-  // initialize tcg global parameter Alloca's
+  // initialize tcg global parameter Alloca's with values for either arguments
+  // or CPU State
   //
-  vector<unsigned> glb_params_v;
-  explode_tcg_global_set(glb_params_v, f[boost::graph_bundle].params);
-
-  for_each(boost::make_zip_iterator(
-               boost::make_tuple(glb_params_v.begin(), llf->arg_begin())),
-           boost::make_zip_iterator(
-               boost::make_tuple(glb_params_v.end(), llf->arg_end())),
+  for_each(boost::make_zip_iterator(boost::make_tuple(
+               f[boost::graph_bundle].params.begin(), llf->arg_begin())),
+           boost::make_zip_iterator(boost::make_tuple(
+               f[boost::graph_bundle].params.end(), llf->arg_end())),
            [&](const boost::tuple<unsigned, Argument &> &t) {
              t.get<1>().setName(tcg_globals[t.get<0>()].nm);
              b.CreateStore(&t.get<1>(), tcg_glb_llv_m[t.get<0>()]);
            });
+
+  tcg::global_set_t glb_inputs_not_params =
+      f[boost::graph_bundle].inputs & ~(call_conv_arg_regs);
+
+  vector<unsigned> glb_inputs_not_params_v;
+  explode_tcg_global_set(glb_inputs_not_params_v, glb_inputs_not_params);
+
+  for (unsigned gidx : glb_inputs_not_params_v)
+    b.CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
   //
   // translate each basic block to LLVM, in roughly topological order
@@ -1942,12 +1982,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // the CPU state
     //
 
-    function_t& callee = *function_table[bbprop.callee];
-    vector<unsigned> glb_params_v;
-    explode_tcg_global_set(glb_params_v, callee[boost::graph_bundle].params);
-
-    vector<Value *> passed(glb_params_v.size());
-    transform(glb_params_v.begin(), glb_params_v.end(), passed.begin(),
+    function_t &callee = *function_table[bbprop.callee];
+    vector<Value *> passed(callee[boost::graph_bundle].params.size());
+    transform(callee[boost::graph_bundle].params.begin(),
+              callee[boost::graph_bundle].params.end(), passed.begin(),
               [&](unsigned gidx) -> Value * {
                 if (f[boost::graph_bundle].used.test(gidx))
                   return b.CreateLoad(tcg_glb_llv_m[gidx],
@@ -1964,9 +2002,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // globals-- or, if this function doesn't work with any of those globals--
     // store them to the CPU state.
     //
-    vector<unsigned> ret_v;
-    explode_tcg_global_set(ret_v, callee[boost::graph_bundle].returned);
-
+    vector<unsigned>& ret_v = callee[boost::graph_bundle].returned;
     for (unsigned i = 0; i < ret_v.size(); ++i) {
       unsigned gidx = ret_v[i];
       Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
@@ -1990,7 +2026,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // store to CPU state the outputs which are not returned
     //
     tcg::global_set_t tostore =
-        f[boost::graph_bundle].outputs & ~f[boost::graph_bundle].returned;
+        f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
     vector<unsigned> tostore_v;
     explode_tcg_global_set(tostore_v, tostore);
     for (unsigned gidx : tostore_v)
@@ -2015,8 +2051,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // value
     //
     assert(isa<StructType>(ret_ty));
-    vector<unsigned> ret_v;
-    explode_tcg_global_set(ret_v, f[boost::graph_bundle].returned);
+    vector<unsigned>& ret_v = f[boost::graph_bundle].returned;
 
     assert(ret_v.size() == cast<StructType>(ret_ty)->getNumElements());
 
@@ -2268,31 +2303,6 @@ void translator::translate_tcg_operation_to_llvm(
         v = b.CreateTrunc(v, IntegerType::get(C, target));
 
     return v;
-  };
-
-  auto cpu_state_gep = [&](unsigned memBits, unsigned offset) -> Value * {
-    SmallVector<Value *, 4> Indices;
-    getNaturalGEPWithOffset(cpu_state_glb_llv,
-                            APInt(64, offset), IntegerType::get(C, memBits),
-                            Indices);
-    assert(!Indices.empty() && Indices.size() != 1);
-
-    Value *ptr = ConstantExpr::getInBoundsGetElementPtr(
-        nullptr, cpu_state_glb_llv, Indices);
-
-    ptr = b.CreatePointerCast(
-        ptr, PointerType::get(IntegerType::get(C, memBits), 0));
-    return ptr;
-  };
-
-  auto cpu_state_load = [&](unsigned memBits, unsigned offset) -> Value * {
-#if defined(TARGET_I386)
-    if (offset >= tcg::cpu_state_segs_offset &&
-        offset < tcg::cpu_state_segs_offset + tcg::cpu_state_segs_size)
-      return ConstantInt::get(IntegerType::get(C, memBits), 0);
-#endif
-
-    return b.CreateLoad(cpu_state_gep(memBits, offset));
   };
 
   auto guest_load_from_constant_address = [&](unsigned bits,
@@ -3092,9 +3102,32 @@ Constant* translator::section_ptr(address_t addr) {
                                                 Indices);
 }
 
-Value* translator::section_int_ptr(address_t addr) {
-  Value* ptr = section_ptr(addr);
+Value *translator::section_int_ptr(address_t addr) {
+  Value *ptr = section_ptr(addr);
   return ptr ? b.CreatePtrToInt(ptr, word_type()) : nullptr;
 }
 
+Value *translator::cpu_state_gep(unsigned memBits, unsigned offset) {
+  SmallVector<Value *, 4> Indices;
+  getNaturalGEPWithOffset(cpu_state_glb_llv, APInt(64, offset),
+                          IntegerType::get(C, memBits), Indices);
+  assert(!Indices.empty() && Indices.size() != 1);
+
+  Value *ptr = ConstantExpr::getInBoundsGetElementPtr(
+      nullptr, cpu_state_glb_llv, Indices);
+
+  ptr = b.CreatePointerCast(ptr,
+                            PointerType::get(IntegerType::get(C, memBits), 0));
+  return ptr;
+}
+
+Value *translator::cpu_state_load(unsigned memBits, unsigned offset) {
+#if defined(TARGET_I386)
+  if (offset >= tcg::cpu_state_segs_offset &&
+      offset < tcg::cpu_state_segs_offset + tcg::cpu_state_segs_size)
+    return ConstantInt::get(IntegerType::get(C, memBits), 0);
+#endif
+
+  return b.CreateLoad(cpu_state_gep(memBits, offset));
+}
 }
