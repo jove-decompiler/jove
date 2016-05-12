@@ -299,7 +299,9 @@ private:
   std::array<int, tcg::num_globals> tcg_global_callconv_arg_idx;
   std::array<int, tcg::num_globals> tcg_global_callconv_ret_idx;
 
+public:
   const std::array<tcg::global_t, tcg::num_globals> tcg_globals;
+private:
   std::array<tcg::helper_t, tcg::num_helpers> tcg_helpers;
 
   std::unordered_map<uintptr_t, tcg::helper_t *> tcg_helper_addr_map;
@@ -356,8 +358,6 @@ private:
  
   void compute_returned(function_t&);
 
-  void explode_tcg_global_set(std::vector<unsigned> &, tcg::global_set_t);
-  void explode_tcg_temp_set(std::vector<unsigned> &, tcg::temp_set_t);
   void translate_function_llvm(function_t &f);
   tcg::global_set_t compute_tcg_globals_used(basic_block_properties_t &);
   tcg::temp_set_t compute_tcg_temps_used(basic_block_properties_t &);

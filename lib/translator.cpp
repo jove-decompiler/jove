@@ -731,6 +731,30 @@ llvm::Function *translator::function_of_addr(address_t addr) {
   return f[boost::graph_bundle].llf;
 }
 
+static void explode_tcg_global_set(vector<unsigned> &out,
+                                   tcg::global_set_t glbs) {
+  if (glbs.none())
+    return;
+
+#if 0
+  cout << "explode_tcg_global_set: " << glbs << endl;
+#endif
+
+  out.reserve(tcg::num_globals);
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+#if 0
+    cout << "explode_tcg_global_set " << dec << idx-1 << endl;
+#endif
+    out.push_back(idx - 1);
+  } while (x);
+}
+
 tuple<Function *, Function *>
 translator::translate(const std::vector<address_t> &addrs) {
   vector<address_t> functions_translated;
@@ -1501,9 +1525,62 @@ template <typename Graph> struct graphviz_label_writer {
   void operator()(std::ostream &out, const VertexOrEdge &v) const {
     std::string s;
 
+    constexpr const char* term_str_tbl[] = {
+      "TERM_UNCONDITIONAL_JUMP",
+      "TERM_CONDITIONAL_JUMP",
+      "TERM_CALL",
+      "TERM_INDIRECT_CALL",
+      "TERM_INDIRECT_JUMP",
+      "TERM_RETURN",
+      "TERM_UNKNOWN"
+    };
+
     {
       ostringstream oss;
+
+      oss << endl << "reaching definitions IN:";
+      {
+        vector<unsigned> reachdef_v;
+        explode_tcg_global_set(reachdef_v, g[v].reachdef_in);
+        for (unsigned gidx : reachdef_v)
+          oss << ' ' << t.tcg_globals[gidx].nm;
+        oss << endl;
+      }
+
+      oss << endl << "livness IN:";
+      {
+        vector<unsigned> live_v;
+        explode_tcg_global_set(live_v, g[v].live_in);
+        for (unsigned gidx : live_v)
+          oss << ' ' << t.tcg_globals[gidx].nm;
+        oss << endl;
+      }
+      
+      oss << endl;
       t.print_tcg_ops(oss, g[v]);
+      oss << endl;
+
+      oss << "reaching definitions OUT:";
+      {
+        vector<unsigned> reachdef_v;
+        explode_tcg_global_set(reachdef_v, g[v].reachdef_out);
+        for (unsigned gidx : reachdef_v)
+          oss << ' ' << t.tcg_globals[gidx].nm;
+        oss << endl;
+      }
+
+      oss << "livness OUT:";
+      {
+        vector<unsigned> live_v;
+        explode_tcg_global_set(live_v, g[v].live_out);
+        for (unsigned gidx : live_v)
+          oss << ' ' << t.tcg_globals[gidx].nm;
+        oss << endl;
+      }
+
+      oss << endl;
+      oss << term_str_tbl[g[v].term];
+
       s = oss.str();
     }
 
@@ -1582,47 +1659,6 @@ void translator::write_function_graphviz(function_t &f) {
       (boost::format("%lx.dot") % f[boost::graph_bundle].entry_point).str());
   boost::write_graphviz(of, graph, graphviz_label_writer<function_t>(*this, f),
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
-}
-
-void translator::explode_tcg_global_set(vector<unsigned> &out,
-                                        tcg::global_set_t glbs) {
-  if (glbs.none())
-    return;
-
-#if 0
-  cout << "explode_tcg_global_set: " << glbs << endl;
-#endif
-
-  out.reserve(tcg::num_globals);
-
-  unsigned long long x = glbs.to_ullong();
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-#if 0
-    cout << "explode_tcg_global_set " << dec << idx-1 << endl;
-#endif
-    out.push_back(idx-1);
-  } while (x);
-}
-
-void translator::explode_tcg_temp_set(vector<unsigned> &out,
-                                      tcg::temp_set_t tmps) {
-  if (tmps.none())
-    return;
-
-  out.reserve(tcg::num_globals*2);
-
-  unsigned long long x = tmps.to_ullong();
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-    out.push_back(idx - 1 + tcg::num_globals);
-  } while (x);
 }
 
 Type *translator::word_type() {
@@ -1875,6 +1911,22 @@ translator::compute_tcg_temps_used(basic_block_properties_t &bbprop) {
   return res;
 }
 
+static void explode_tcg_temp_set(vector<unsigned> &out, tcg::temp_set_t tmps) {
+  if (tmps.none())
+    return;
+
+  out.reserve(tcg::num_globals * 2);
+
+  unsigned long long x = tmps.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1 + tcg::num_globals);
+  } while (x);
+}
+
 void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   basic_block_properties_t& bbprop = f[bb];
   //
@@ -1935,21 +1987,29 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_call = [&](basic_block_t succ) -> void {
-    //
-    // spill every global to the CPU state which is in the reaching definitions
-    // OUT for this basic block
-    //
+    function_t &callee = *function_table[bbprop.callee];
 
     //
-    // we have to store any TCG global which is modified but not in the
-    // parameter list of the callee to the CPU state
+    // spill every global to the CPU state which is in the reaching definitions
+    // OUT for this basic block, which is NOT a parameter
     //
-    function_t &callee = *function_table[bbprop.callee];
+    tcg::global_set_t tospill =
+        bbprop.reachdef_out &
+        ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
+    vector<unsigned> tospill_v;
+    explode_tcg_global_set(tospill_v, tospill);
+
+    for (unsigned gidx : tospill_v)
+      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+
+    //
+    // pass parameters to function
+    //
     vector<Value *> passed(callee[boost::graph_bundle].params.size());
     transform(callee[boost::graph_bundle].params.begin(),
               callee[boost::graph_bundle].params.end(), passed.begin(),
               [&](unsigned gidx) -> Value * {
-                if (f[boost::graph_bundle].used.test(gidx))
+                if (bbprop.reachdef_out.test(gidx))
                   return b.CreateLoad(tcg_glb_llv_m[gidx],
                                       tcg_globals[gidx].nm + string("_passed"));
                 else
@@ -1960,33 +2020,33 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
                               ArrayRef<Value *>(passed));
 
     //
-    // similarly we have to load any TCG globals, which are live or returned,
-    // from the CPU state which are not returned by the callee.
-    //
-    // if we do not return a global returned by the callee, it is our
-    // responsibility to store it to the CPU state.
-    //
-
-    //
-    // reload every global from the CPUState that is in the liveness OUT of this
-    // basic block
-    //
-
-    //
-    // store the return values from the call to this functions' local copies of
-    // globals-- or, if this function doesn't work with any of those globals--
-    // store them to the CPU state.
+    // for every return value: if the global is an output, then store it to our
+    // local copy. otherwise, spill it to the CPU state.
     //
     vector<unsigned>& ret_v = callee[boost::graph_bundle].returned;
     for (unsigned i = 0; i < ret_v.size(); ++i) {
       unsigned gidx = ret_v[i];
       Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
       gvl->setName(tcg_globals[gidx].nm + string("_returned"));
-      if (f[boost::graph_bundle].used.test(gidx))
+      if (f[boost::graph_bundle].outputs.test(gidx))
         b.CreateStore(gvl, tcg_glb_llv_m[gidx]);
       else
         store_global_to_cpu_state(gvl, gidx);
     }
+
+    //
+    // reload every global from the CPUState that is in the liveness OUT of this
+    // basic block
+    //
+    tcg::global_set_t toreload =
+        bbprop.live_out &
+        ~(callee[boost::graph_bundle].outputs & call_conv_ret_regs);
+
+    vector<unsigned> toreload_v;
+    explode_tcg_global_set(toreload_v, toreload);
+    
+    for (unsigned gidx : toreload_v)
+      b.CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
     b.CreateBr(f[succ].llbb);
   };
