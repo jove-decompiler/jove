@@ -10,6 +10,7 @@
 #include <config-target.h>
 #include <fstream>
 #include <glib.h>
+#include <numeric>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/Object/Binary.h>
@@ -433,10 +434,13 @@ void translator::create_section_global_variables() {
   auto process_function_relocation_type =
       [&](const relocation_t &reloc) -> void {
     symbol_t& sym = symtbl[reloc.symidx];
+#if 0
     Type *ty = sym.is_undefined() ?
         PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0) :
         M.getFunction(sym.name)->getType();
-
+#else
+    Type *ty = PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0);
+#endif
     type_for_relocation(reloc, ty);
   };
 
@@ -455,17 +459,17 @@ void translator::create_section_global_variables() {
 
   static const char *reloc_ty_str[] = {"NONE", "RELATIVE", "ABSOLUTE",
                                        "COPY", "FUNCTION", "DATA"};
+  static const char *sym_ty_str[] = {"NOTYPE", "DATA", "FUNCTION", "TLSDATA"};
+  static const char *sym_bind_str[] = {"NOBINDING", "LOCAL", "WEAK", "GLOBAL"};
 
   for (const relocation_t &reloc : reloctbl) {
     cout << (boost::format("(%s) %x %s") % reloc_ty_str[reloc.ty] % reloc.addr %
              (addrspace.find(reloc.addr) == addrspace.end() ? "~" : "-"));
     if (reloc.symidx < symtbl.size()) {
       symbol_t &sym = symtbl[reloc.symidx];
-      cout << (boost::format(" : %s [%s]") % sym.name %
-               (sym.is_defined()
-                    ? (boost::format("DEFINED @ %x {%d}") % sym.addr % sym.size)
-                          .str()
-                    : "UNDEFINED"));
+      cout << (boost::format(" : %s @ %x {%d} (%s) (%s)") % sym.name %
+               sym.addr % sym.size % sym_bind_str[sym.bind] %
+               sym_ty_str[sym.ty]);
     }
     cout << endl;
   }
@@ -542,6 +546,21 @@ void translator::create_section_global_variables() {
     Constant *Cnst;
     if (sym.is_undefined()) {
       GlobalVariable *g = M.getGlobalVariable(sym.name);
+      if (g) {
+        Cnst = ConstantExpr::getPointerCast(
+            g,
+            PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0));
+      } else {
+        Function* f;
+        if (!(f = M.getFunction(sym.name))) {
+          f = Function::Create(FunctionType::get(Type::getVoidTy(C), false),
+                               sym.bind == symbol_t::WEAK
+                                   ? GlobalValue::ExternalWeakLinkage
+                                   : GlobalValue::ExternalLinkage,
+                               sym.name, &M);
+        }
+        Cnst = f;
+      }
       Cnst =
           g ? g : M.getOrInsertFunction(
                       sym.name, FunctionType::get(Type::getVoidTy(C), false));
@@ -733,7 +752,6 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   for (address_t addr : functions_translated) {
     function_t& f = *function_table[addr];
-    compute_returned(f);
 
 #if 1
     cout << hex << addr << endl;
@@ -869,21 +887,26 @@ bool translator::translate_function(address_t addr) {
     return false;
 
   //
+  // compute gen and kill sets for each basic block in preparation for liveness
+  // and reaching definitions analysis
+  //
+  for (basic_block_t bb : verticesByDFNum)
+    compute_basic_block_defs_and_uses(f[bb]);
+
+  //
   // determine parameters for function
   //
   compute_params(f);
+
+  //
+  // determine return values for function
+  //
+  compute_returned(f);
 
   return true;
 }
 
 void translator::compute_params(function_t& f) {
-  //
-  // compute defs and uses for each basic block in preparation for liveness
-  // analysis
-  //
-  for (basic_block_t bb : verticesByDFNum)
-    compute_basic_block_defs_and_uses(f[bb]);
-
   //
   // conduct data-flow analysis via iterative worklist algorithm. we iterate in
   // reverse-preorder since this is a backwards data-flow analysis
@@ -893,9 +916,9 @@ void translator::compute_params(function_t& f) {
     change = false;
 
     for (basic_block_t bb : boost::adaptors::reverse(verticesByDFNum)) {
-      auto eit_pair = boost::out_edges(bb, f);
-      tcg::global_set_t live_in_before = f[bb].live_in;
+      tcg::global_set_t live_in_saved = f[bb].live_in;
 
+      auto eit_pair = boost::out_edges(bb, f);
       f[bb].live_out =
           accumulate(eit_pair.first, eit_pair.second, tcg::global_set_t(),
                      [&](tcg::global_set_t glbl, control_flow_t cf) {
@@ -904,7 +927,7 @@ void translator::compute_params(function_t& f) {
       f[bb].live_in =
           f[bb].uses | (f[bb].live_out & ~(f[bb].defs | f[bb].dead));
 
-      change = change || live_in_before != f[bb].live_in;
+      change = change || live_in_saved != f[bb].live_in;
     }
   } while (change);
 
@@ -924,115 +947,51 @@ void translator::compute_params(function_t& f) {
 
 void translator::compute_returned(function_t& f) {
   //
-  // compute outputs by constructing the dominator tree for the function's
-  // control-flow graph and follow the data-flow for generated outputs, which
-  // are killed by globals marked as 'dead' by basic blocks
+  // conduct data-flow analysis via iterative worklist algorithm. we iterate in
+  // preorder since this is a forwards data-flow analysis
   //
-  basic_block_t entry = *boost::vertices(f).first;
+  bool change;
+  do {
+    change = false;
 
-  vector<basic_block_t> idoms(boost::num_vertices(f),
-                              boost::graph_traits<function_t>::null_vertex());
-  boost::lengauer_tarjan_dominator_tree_without_dfs(
-      f, entry, boost::get(boost::vertex_index, f),
-      boost::get(boost::vertex_index, f),
-      boost::make_iterator_property_map(parentMap.begin(),
-                                        boost::get(boost::vertex_index, f)),
-      verticesByDFNum, boost::make_iterator_property_map(
-                           idoms.begin(), boost::get(boost::vertex_index, f)));
+    for (basic_block_t bb : verticesByDFNum) {
+      tcg::global_set_t reachdef_out_saved = f[bb].reachdef_out;
 
-  for (auto i : boost::irange<unsigned>(0, idoms.size())) {
-    if (idoms[i] == boost::graph_traits<function_t>::null_vertex())
-      continue;
+      auto eit_pair = boost::in_edges(bb, f);
+      f[bb].reachdef_in =
+          accumulate(eit_pair.first, eit_pair.second, tcg::global_set_t(),
+                     [&](tcg::global_set_t glbl, control_flow_t cf) {
+                       // if a predecessor called another function, then it
+                       // (conservatively) implies that all definitions of
+                       // globals have been overwritten. (prior to the call, we
+                       // spill every OUT reaching definition of the calling
+                       // block to the CPU state)
+                       if (f[boost::source(cf, f)].term ==
+                               basic_block_properties_t::TERM_CALL ||
+                           f[boost::source(cf, f)].term ==
+                               basic_block_properties_t::TERM_INDIRECT_CALL)
+                         return glbl;
 
-    f[boost::add_edge(idoms[i], i, f).first].dom = true;
-  }
+                       return glbl | f[boost::source(cf, f)].reachdef_out;
+                     });
+      f[bb].reachdef_out = f[bb].defs | (f[bb].reachdef_in & ~(f[bb].dead));
 
-  struct dom_edges {
-    translator::function_t *f;
-
-    dom_edges() {}
-    dom_edges(translator::function_t *f) : f(f) {}
-
-    bool operator()(const control_flow_t &e) const {
-      translator::function_t &_f = *f;
-      return _f[e].dom;
+      change = change || reachdef_out_saved != f[bb].reachdef_out;
     }
-  };
+  } while (change);
 
-  dom_edges e_filter(&f);
-  typedef boost::filtered_graph<function_t, dom_edges> domtree_t;
-  domtree_t domtree(f, e_filter);
+  // the set of outputs are the union of the OUT reaching definitions of every
+  // returning basic block
+  auto vit_pair = boost::vertices(f);
+  f[boost::graph_bundle].outputs =
+      accumulate(vit_pair.first, vit_pair.second, tcg::global_set_t(),
+                 [&](tcg::global_set_t glbl, basic_block_t bb) {
+                   if (f[bb].term != basic_block_properties_t::TERM_RETURN)
+                     return glbl;
 
-#if 0
-  {
-    ofstream of(
-        (boost::format("%lx.domtree.dot") % f[boost::graph_bundle].entry_point)
-            .str());
-    boost::write_graphviz(of, domtree,
-                          graphviz_label_writer<domtree_t>(*this, domtree),
-                          graphviz_edge_prop_writer(), graphviz_prop_writer());
-  }
-#endif
-
-  struct dfs_visitor : public boost::default_dfs_visitor {
-    domtree_t &f;
-
-    dfs_visitor(domtree_t &f) : f(f) {}
-
-    void discover_vertex(basic_block_t bb, const domtree_t &) const {
-      domtree_t::in_edge_iterator ei, eie;
-      tie(ei, eie) = in_edges(bb, f);
-      if (ei == eie) { // root vertex
-        f[bb].outputs = f[bb].defs;
-        return;
-      }
-
-      // immediate dominator is unique
-      basic_block_t idom = boost::source(*ei, f);
-      tcg::global_set_t &outs_a = f[idom].outputs;
-
-      tcg::global_set_t &defs_b = f[bb].defs;
-      tcg::global_set_t &dead_b = f[bb].dead;
-      tcg::global_set_t &outs_b = f[bb].outputs;
-
-      outs_b = defs_b | outs_a & ~dead_b;
-    }
-
-    void finish_vertex(basic_block_t bb, const domtree_t &) const {
-      domtree_t::out_edge_iterator ei, eie;
-      tie(ei, eie) = out_edges(bb, f);
-      if (ei != eie) // non-leaf vertex
-        return;
-
-      f[boost::graph_bundle].outputs |= f[bb].outputs;
-    }
-  };
-
-  //
-  // compute outputs
-  //
-  dfs_visitor vis(domtree);
-  boost::depth_first_search(domtree, boost::visitor(vis).root_vertex(entry));
-
-#if 0
-  //
-  // compute returned set of globals for f. it is equal to
-  //
-  // (              ∪ (OUT[B]                 ) ∩ OUTPUTS(f)
-  // ∀ caller basic blocks B
-  //
-  const auto &calls = callers[f[boost::graph_bundle].entry_point];
-  tcg::global_set_t X =
-      accumulate(calls.begin(), calls.end(), tcg::global_set_t(),
-                 [&](tcg::global_set_t res, const caller_t &caller) {
-                   function_t &caller_f = *caller.first;
-                   return res | caller_f[caller.second].live_out;
+                   return glbl | f[bb].reachdef_out;
                  });
 
-  f[boost::graph_bundle].returned = X.any()
-                                        ? (X & f[boost::graph_bundle].outputs)
-                                        : f[boost::graph_bundle].outputs;
-#else
   tcg::global_set_t returned_s =
       f[boost::graph_bundle].outputs & call_conv_ret_regs;
   explode_tcg_global_set(f[boost::graph_bundle].returned, returned_s);
@@ -1043,7 +1002,6 @@ void translator::compute_returned(function_t& f) {
          return tcg_global_callconv_ret_idx[gidx1] <
                 tcg_global_callconv_ret_idx[gidx2];
        });
-#endif
 }
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
@@ -1978,10 +1936,14 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
   auto on_call = [&](basic_block_t succ) -> void {
     //
-    // for outputs which are not passed as arguments to function, store them to
-    // the CPU state
+    // spill every global to the CPU state which is in the reaching definitions
+    // OUT for this basic block
     //
 
+    //
+    // we have to store any TCG global which is modified but not in the
+    // parameter list of the callee to the CPU state
+    //
     function_t &callee = *function_table[bbprop.callee];
     vector<Value *> passed(callee[boost::graph_bundle].params.size());
     transform(callee[boost::graph_bundle].params.begin(),
@@ -1996,6 +1958,19 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
     Value *res = b.CreateCall(callee[boost::graph_bundle].llf,
                               ArrayRef<Value *>(passed));
+
+    //
+    // similarly we have to load any TCG globals, which are live or returned,
+    // from the CPU state which are not returned by the callee.
+    //
+    // if we do not return a global returned by the callee, it is our
+    // responsibility to store it to the CPU state.
+    //
+
+    //
+    // reload every global from the CPUState that is in the liveness OUT of this
+    // basic block
+    //
 
     //
     // store the return values from the call to this functions' local copies of

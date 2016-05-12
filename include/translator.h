@@ -201,6 +201,9 @@ public:
     tcg::global_set_t defs;
     tcg::global_set_t dead;
 
+    tcg::global_set_t reachdef_in;
+    tcg::global_set_t reachdef_out;
+
     tcg::global_set_t live_in;
     tcg::global_set_t live_out;
 

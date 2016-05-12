@@ -40,7 +40,7 @@ struct section_t {
 };
 
 //
-// a symbol is basically a name and a value. from a program compiled from C, the
+// a symbol is basically a name and a value. in a program compiled from C, the
 // value of a symbol is roughly the address of a global. Each defined symbol has
 // an address, and the dynamic linker will resolve each undefined symbol by
 // finding a defined symbol with the same name.

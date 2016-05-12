@@ -51,7 +51,7 @@ $(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).b
 	@echo BCLINK $(notdir $@ $^)
 	@$(llvm_dir)/bin/llvm-link -o $@ $^
 
-$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp
+$(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp $(include_dir)/translator.h
 	@echo CLANG++ $(notdir $@ $<)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
