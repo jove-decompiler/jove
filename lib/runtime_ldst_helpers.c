@@ -1,4 +1,5 @@
-#include <cpu.h>
+#include "qemu/osdep.h"
+#include "cpu.h"
 
 #define MEMSUFFIX _data
 #define DATA_SIZE 1

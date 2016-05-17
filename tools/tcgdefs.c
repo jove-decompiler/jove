@@ -1,3 +1,5 @@
+#include "qemu/osdep.h"
+#include "cpu.h"
 #include "tcg.h"
 #include "qemutcg.h"
 
@@ -77,10 +79,10 @@ int main(int argc, char **argv) {
            num_globals(),
            num_helpers(),
            max_temps(),
-           cpu_state_program_counter_offset(),
+           cpu_state_program_counter_offset()
 #if defined(TARGET_I386)
-           cpu_state_segs_offset(),
-           cpu_state_segs_size()
+           , cpu_state_segs_offset()
+           , cpu_state_segs_size()
 #endif
            );
 

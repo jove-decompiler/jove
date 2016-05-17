@@ -1,4 +1,5 @@
 #include <config-target.h>
+#include "qemu/osdep.h"
 #include "cpu.h"
 
 const uint8_t* code;

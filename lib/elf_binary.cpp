@@ -125,7 +125,7 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
       continue;
 
     auto relocation_type_of_elf_rela_type =
-        [](unsigned char elf_rela_ty) -> relocation_t::TYPE {
+        [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
       switch (elf_rela_ty) {
 #if defined(TARGET_AARCH64)
 #include "elf_relocs_aarch64.cpp"

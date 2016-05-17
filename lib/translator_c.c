@@ -1,4 +1,6 @@
-#include <tcg.h>
+#include "qemu/osdep.h"
+#include "cpu.h"
+#include "tcg.h"
 
 GHashTable* translator_tcg_helpers(void);
 

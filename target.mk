@@ -1,8 +1,5 @@
 include config.mk
 
-# this just obtains the directory this Makefile resides in
-JOVE_TARGET_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
-
 #jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp
 
 jove_all: $(build_dir)/jove-init-$(_TARGET_NAME)
@@ -97,7 +94,7 @@ $(build_dir)/mc-$(_TARGET_NAME).bc: $(build_dir)/mc.cpp
 #
 # binary
 #
-$(build_dir)/elf-binary-$(_TARGET_NAME).bc: $(build_dir)/elf_binary.cpp
+$(build_dir)/elf-binary-$(_TARGET_NAME).bc: $(build_dir)/elf_binary.cpp $(build_dir)/elf_relocs_i386.cpp $(build_dir)/elf_relocs_x86_64.cpp $(build_dir)/elf_relocs_aarch64.cpp $(build_dir)/elf_relocs_arm.cpp 
 	@echo CLANG++ $(notdir $@ $^)
 	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
@@ -111,15 +108,15 @@ $(build_dir)/coff-binary-$(_TARGET_NAME).bc: $(build_dir)/coff_binary.cpp
 
 $(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
 	@echo ABICALLINGCONV $(notdir $@)
-	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 1 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 1 $(build_dir)/$(_TARGET_NAME).callconv > $@
 
 $(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
 	@echo ABICALLINGCONV $(notdir $@)
-	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 2 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 2 $(build_dir)/$(_TARGET_NAME).callconv > $@
 
 $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp: $(build_dir)/abi_callingconv-$(_TARGET_NAME)
 	@echo ABICALLINGCONV $(notdir $@)
-	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 3 $(JOVE_TARGET_ROOT_DIR)/abi/x86_64/sysv.callconv > $@
+	@$(build_dir)/abi_callingconv-$(_TARGET_NAME) 3 $(build_dir)/$(_TARGET_NAME).callconv > $@
 
 $(build_dir)/abi_callingconv-$(_TARGET_NAME): $(build_dir)/abi_callingconv-$(_TARGET_NAME).2.bc
 	@echo CLANG $(notdir $@ $^)

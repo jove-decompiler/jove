@@ -87,69 +87,69 @@ static bool is_arg_temp(Arg a) {
 }
 
 enum MemOp {
-  MO_8 = 0,
-  MO_16 = 1,
-  MO_32 = 2,
-  MO_64 = 3,
-  MO_SIZE = 3, /* Mask for the above.  */
+    MO_8     = 0,
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_SIZE  = 3,   /* Mask for the above.  */
 
-  MO_SIGN = 4, /* Sign-extended, otherwise zero-extended.  */
+    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
 
-  MO_BSWAP = 8, /* Host reverse endian.  */
+    MO_BSWAP = 8,   /* Host reverse endian.  */
 #ifdef HOST_WORDS_BIGENDIAN
-  MO_LE = MO_BSWAP,
-  MO_BE = 0,
+    MO_LE    = MO_BSWAP,
+    MO_BE    = 0,
 #else
-  MO_LE = 0,
-  MO_BE = MO_BSWAP,
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
 #endif
 #ifdef TARGET_WORDS_BIGENDIAN
-  MO_TE = MO_BE,
+    MO_TE    = MO_BE,
 #else
-  MO_TE = MO_LE,
+    MO_TE    = MO_LE,
 #endif
 
-  /* MO_UNALN accesses are never checked for alignment.
-     MO_ALIGN accesses will result in a call to the CPU's
-     do_unaligned_access hook if the guest address is not aligned.
-     The default depends on whether the target CPU defines ALIGNED_ONLY.  */
-  MO_AMASK = 16,
+    /* MO_UNALN accesses are never checked for alignment.
+       MO_ALIGN accesses will result in a call to the CPU's
+       do_unaligned_access hook if the guest address is not aligned.
+       The default depends on whether the target CPU defines ALIGNED_ONLY.  */
+    MO_AMASK = 16,
 #ifdef ALIGNED_ONLY
-  MO_ALIGN = 0,
-  MO_UNALN = MO_AMASK,
+    MO_ALIGN = 0,
+    MO_UNALN = MO_AMASK,
 #else
-  MO_ALIGN = MO_AMASK,
-  MO_UNALN = 0,
+    MO_ALIGN = MO_AMASK,
+    MO_UNALN = 0,
 #endif
 
-  /* Combinations of the above, for ease of use.  */
-  MO_UB = MO_8,
-  MO_UW = MO_16,
-  MO_UL = MO_32,
-  MO_SB = MO_SIGN | MO_8,
-  MO_SW = MO_SIGN | MO_16,
-  MO_SL = MO_SIGN | MO_32,
-  MO_Q = MO_64,
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8,
+    MO_UW    = MO_16,
+    MO_UL    = MO_32,
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_Q     = MO_64,
 
-  MO_LEUW = MO_LE | MO_UW,
-  MO_LEUL = MO_LE | MO_UL,
-  MO_LESW = MO_LE | MO_SW,
-  MO_LESL = MO_LE | MO_SL,
-  MO_LEQ = MO_LE | MO_Q,
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LEQ   = MO_LE | MO_Q,
 
-  MO_BEUW = MO_BE | MO_UW,
-  MO_BEUL = MO_BE | MO_UL,
-  MO_BESW = MO_BE | MO_SW,
-  MO_BESL = MO_BE | MO_SL,
-  MO_BEQ = MO_BE | MO_Q,
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BEQ   = MO_BE | MO_Q,
 
-  MO_TEUW = MO_TE | MO_UW,
-  MO_TEUL = MO_TE | MO_UL,
-  MO_TESW = MO_TE | MO_SW,
-  MO_TESL = MO_TE | MO_SL,
-  MO_TEQ = MO_TE | MO_Q,
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TEQ   = MO_TE | MO_Q,
 
-  MO_SSIZE = MO_SIZE | MO_SIGN,
+    MO_SSIZE = MO_SIZE | MO_SIGN,
 };
 typedef enum {
     /* non-signed */
@@ -712,6 +712,13 @@ void translator::prepare_for_translation() {
       nullptr, GlobalValue::GeneralDynamicTLSModel);
 
   //
+  // special global variable used for pc-relative addresses
+  //
+  pcrel_gv =
+      new GlobalVariable(M, word_type(), false, GlobalValue::ExternalLinkage,
+                         ConstantInt::get(word_type(), 0), "pcrel");
+
+  //
   // parse the binary
   //
   parse_binary(O, secttbl, symtbl, reloctbl);
@@ -891,18 +898,6 @@ bool translator::translate_function(address_t addr) {
   translated_basic_blocks.clear();
 
   //
-  // identify section containing function for access to instruction bytes
-  //
-  {
-    auto sectit = addrspace.find(addr);
-    assert(sectit != addrspace.end());
-
-    sectstart = (*sectit).first.lower();
-    sectdata = secttbl[(*sectit).second - 1].contents;
-  }
-  libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
-
-  //
   // conduct a recursive descent of the function, and translate each basic block
   // into QEMU TCG intermediate code
   //
@@ -1016,6 +1011,11 @@ void translator::compute_returned(function_t& f) {
                    return glbl | f[bb].reachdef_out;
                  });
 
+#if defined(TARGET_AARCH64)
+  // this is the program counter for aarch64
+  f[boost::graph_bundle].outputs.reset(25);
+#endif
+
   tcg::global_set_t returned_s =
       f[boost::graph_bundle].outputs & call_conv_ret_regs;
   explode_tcg_global_set(f[boost::graph_bundle].returned, returned_s);
@@ -1030,8 +1030,21 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-  if (addr > sectstart + sectdata.size())
-    return boost::graph_traits<function_t>::null_vertex();
+
+  //
+  // identify section containing function for access to instruction bytes
+  //
+  {
+    auto sectit = addrspace.find(addr);
+    if (sectit == addrspace.end()) {
+      cerr << "no code found for address " << hex << addr << endl;
+      return boost::graph_traits<function_t>::null_vertex();
+    }
+
+    sectstart = (*sectit).first.lower();
+    sectdata = secttbl[(*sectit).second - 1].contents;
+  }
+  libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
 
   MCInst Inst;
   uint64_t size;
@@ -1042,8 +1055,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   //
   if (!libmc_analyze_instr(Inst, size,
                            sectdata.data() + (addr - sectstart),
-                           addr))
+                           addr)) {
+    cerr << "invalid instruction at " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
+  }
 
   //
   // perform the translation from machine code to TCG intermediate code for one
@@ -1059,8 +1074,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   //
   if (!libmc_analyze_instr(Inst, size,
                            sectdata.data() + (last_instr_addr - sectstart),
-                           last_instr_addr))
+                           last_instr_addr)) {
+    cerr << "invalid instruction at " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
+  }
 
   address_t next_addr = last_instr_addr + size;
 
@@ -1208,8 +1225,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     } else {
       /* unknown control flow */
       char asmbuf[0x100];
-      cerr << "warning: mysterious basic block terminator " << endl
-           << "0x" << hex << last_instr_addr << "    "
+      cerr << "warning: mysterious basic block terminator at " << hex
+           << last_instr_addr << "    "
            << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
                               last_instr_addr, asmbuf)
            << endl;
@@ -1400,6 +1417,9 @@ void translator::print_tcg_ops(ostream &out,
       printf("|%s", libmc_instr_asm((s->gen_first_op_idx - code_pc) + code,
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
+
+      if (a == 0x7FFFFFFF)
+        continue;
 
       out << endl
           << "0x" << hex << a << "    "
@@ -1946,8 +1966,12 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   // create an alloca for the program counter if this basic block has a
   // conditional branch
   //
-  if (bbprop.lbls.size())
-    pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
+#if defined(TARGET_AARCH64)
+  // this is the program counter for aarch64
+  pc_llv = tcg_glb_llv_m[25];
+#else
+  pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
+#endif
 
   //
   // translate the TCG operations to LLVM instructions
@@ -1976,13 +2000,16 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   b.SetInsertPoint(bbprop.exitllbb);
 
   auto on_unconditional_jump = [&](basic_block_t dst) -> void {
-    b.CreateBr(f[dst].llbb);
+    if (dst == boost::graph_traits<function_t>::null_vertex())
+      b.CreateUnreachable();
+    else
+      b.CreateBr(f[dst].llbb);
   };
 
   auto on_conditional_jump = [&](basic_block_t dst1,
                                  basic_block_t dst2) -> void {
     Value *pc = b.CreateLoad(pc_llv);
-    Value *addr1 = section_int_ptr(f[dst1].addr);
+    Value *addr1 = ConstantInt::get(word_type(), f[dst1].addr);
     b.CreateCondBr(b.CreateICmpEQ(pc, addr1), f[dst1].llbb, f[dst2].llbb);
   };
 
@@ -2048,12 +2075,20 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     for (unsigned gidx : toreload_v)
       b.CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
-    b.CreateBr(f[succ].llbb);
+    if (succ == boost::graph_traits<function_t>::null_vertex())
+      b.CreateUnreachable();
+    else
+      b.CreateBr(f[succ].llbb);
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
-    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc_llv));
-    b.CreateBr(f[succ].llbb);
+    Value* pc = b.CreateLoad(pc_llv);
+    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc));
+
+    if (succ == boost::graph_traits<function_t>::null_vertex())
+      b.CreateUnreachable();
+    else
+      b.CreateBr(f[succ].llbb);
   };
 
   auto on_return = [&](void) -> void {
@@ -2141,10 +2176,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       on_return();
     } else {
 #endif
-      Value* passed_pc = b.CreateIntToPtr(pc_llv, ExternalFnPtrTy);
-      b.CreateCall(IndirectJumpFn, ArrayRef<Value*>(passed_pc));
-      // TODO imported functions
-      on_return();
+    Value *passed_pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
+    b.CreateCall(IndirectJumpFn, ArrayRef<Value *>(passed_pc));
+    // TODO imported functions
+    on_return();
 #if 0
     }
 #endif
@@ -2163,7 +2198,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
         b.CreateCondBr(
             b.CreateICmpEQ(b.CreateLoad(pc_llv),
-                           section_int_ptr(bbprop.addr)),
+                           ConstantInt::get(word_type(), bbprop.addr)),
             bbprop.llbb, elsellbb);
 
         b.SetInsertPoint(elsellbb);
@@ -2178,34 +2213,19 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
       Value *pc = b.CreateLoad(pc_llv);
       b.CreateCondBr(
-          b.CreateICmpEQ(pc, section_int_ptr(f[succ].addr)),
+          b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
           f[succ].llbb, else1llbb);
 
       b.SetInsertPoint(else1llbb);
       b.CreateCondBr(
-          b.CreateICmpEQ(pc, section_int_ptr(bbprop.addr)),
+          b.CreateICmpEQ(pc, ConstantInt::get(word_type(), bbprop.addr)),
           bbprop.llbb, else2llbb);
 
       b.SetInsertPoint(else2llbb);
       b.CreateUnreachable();
     } else {
-      ConstantInt* pcint = try_fold_to_constant_int(pc_llv);
-      cout << "unknown basic block terminator: ";
-      if (pcint) {
-        address_t pc = pcint->getZExtValue();
-        cout << "folded to constant address: " << hex << pc << endl;
-        if (pc == bbprop.addr) {
-          b.CreateBr(bbprop.llbb);
-          return;
-        } else if (succ != boost::graph_traits<function_t>::null_vertex() &&
-                 pc == f[succ].addr) {
-          b.CreateBr(f[succ].llbb);
-          return;
-        }
-      } else {
-        cout << "could not fold to constant address" << endl;
-      }
-
+      cout << "unknown basic block terminator for bb " << hex << bbprop.addr
+           << endl;
       b.CreateUnreachable();
     }
   };
@@ -2228,20 +2248,24 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
   boost::graph_traits<control_flow_graph_t>::out_edge_iterator ei, ei_end;
   tie(ei, ei_end) = boost::out_edges(bb, cfg);
+
+  auto next_edge = [&](void) -> basic_block_t {
+    return ei == ei_end ? boost::graph_traits<function_t>::null_vertex()
+                        : boost::target(*ei++, cfg);
+  };
+
   switch (bbprop.term) {
   case basic_block_properties_t::TERM_UNCONDITIONAL_JUMP:
-    on_unconditional_jump(boost::target(*ei++, cfg));
+    on_unconditional_jump(next_edge());
     break;
   case basic_block_properties_t::TERM_CONDITIONAL_JUMP: {
-    basic_block_t dst1 = boost::target(*ei++, cfg);
-    basic_block_t dst2 = boost::target(*ei++, cfg);
-    on_conditional_jump(dst1, dst2);
+    on_conditional_jump(next_edge(), next_edge());
   } break;
   case basic_block_properties_t::TERM_CALL:
-    on_call(boost::target(*ei++, cfg));
+    on_call(next_edge());
     break;
   case basic_block_properties_t::TERM_INDIRECT_CALL:
-    on_indirect_call(boost::target(*ei++, cfg));
+    on_indirect_call(next_edge());
     break;
   case basic_block_properties_t::TERM_INDIRECT_JUMP:
     on_indirect_jump();
@@ -2250,12 +2274,9 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     on_return();
     break;
   case basic_block_properties_t::TERM_UNKNOWN:
-    on_unknown(ei == ei_end ? boost::graph_traits<function_t>::null_vertex()
-                            : boost::target(*ei++, cfg));
+    on_unknown(next_edge());
     break;
   }
-
-  assert(bbprop.exitllbb->getTerminator());
   assert(ei == ei_end);
 }
 
@@ -2311,14 +2332,33 @@ void translator::translate_tcg_operation_to_llvm(
   };
 
   auto immediate_constant = [&](unsigned bits, tcg::Arg a) -> Value * {
-    if (bits == sizeof(address_t) * 8) {
-      Value *intptr = section_int_ptr(a);
-      if (intptr) {
-#if 1
-        cout << "immediate_constant: arg is address " << hex << a << endl;
+    if (pcrel_flag && bits == sizeof(address_t) * 8) {
+      pcrel_flag = false;
+
+      cout << "immediate_constant: a = " << hex << a << endl;
+
+#if 0
+        int64_t off = a -
 #endif
+      Value *intptr = section_int_ptr(a);
+
+      if (!intptr) {
+        //
+        // take the given address and compute its constant offset from the
+        // address of the program counter. Then add that constant offset to a
+        // pointer in the sections to the program counter that we generate
+        //
+        return ConstantExpr::getAdd(
+            ConstantInt::get(word_type(), a),
+            ConstantExpr::getPtrToInt(pcrel_gv, word_type()));
+      }
+
+      if (intptr) {
+        intptr->dump();
         return intptr;
       }
+
+      cout << "immediate_constant: cannot get section pointer" << endl;
     }
 
     return ConstantInt::get(IntegerType::get(C, bits), a);
@@ -2390,14 +2430,23 @@ void translator::translate_tcg_operation_to_llvm(
   };
 
   auto set_program_counter = [&](Value* v) -> void {
-    if (!bbprop.lbls.size())
-      pc_llv = v;
-    else
-      b.CreateStore(v, pc_llv);
+    b.CreateStore(v, pc_llv);
   };
 
   switch (opc) {
   case tcg::INDEX_op_insn_start:
+    static uint64_t lstaddr = 0;
+
+    if (args[0] == 0x7fffffff) {
+      pcrel_flag = true;
+      cout << "tcg::INDEX_op_insn_start: 7fffffff last address: " << hex
+           << lstaddr << endl;
+    } else {
+      pcrel_flag = false;
+    }
+
+    lstaddr = args[0];
+
     break;
 
   case tcg::INDEX_op_discard:
@@ -2553,7 +2602,7 @@ void translator::translate_tcg_operation_to_llvm(
     set(get(args[1]), args[0]);
     break;
 
-/* size extensions */
+// 8, 16 or 32 bit sign/zero extension (both operands must have the same type)
 #define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
   case opc_name:                                                               \
     set(b.Create##signE##Ext(                                                  \
@@ -2573,6 +2622,17 @@ void translator::translate_tcg_operation_to_llvm(
     __EXT_OP(tcg::INDEX_op_ext16u_i64, 16, 64, Z)
     __EXT_OP(tcg::INDEX_op_ext32s_i64, 32, 64, S)
     __EXT_OP(tcg::INDEX_op_ext32u_i64, 32, 64, Z)
+
+#undef __EXT_OP
+
+// Convert 32 bit to 64 bit and does sign/zero extension
+#define __EXT_OP(opc_name, signE)                                              \
+  case opc_name:                                                               \
+    set(b.Create##signE##Ext(get(args[1]), IntegerType::get(C, 64)), args[0]); \
+    break;
+
+    __EXT_OP(tcg::INDEX_op_extu_i32_i64, Z)
+    __EXT_OP(tcg::INDEX_op_ext_i32_i64, S)
 
 #undef __EXT_OP
 
@@ -2929,6 +2989,37 @@ void translator::translate_tcg_operation_to_llvm(
     ret = b.CreateOr(ret, t1);
     set(ret, args[0]);
   } break;
+
+#define __OP_SETCOND_COND(tcg_cond, cond)                                      \
+  case tcg_cond:                                                               \
+    v = b.CreateICmp##cond(get(args[1]), get(args[2]));                        \
+    break;
+
+#define __OP_SETCOND(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    Value *v;                                                                  \
+    switch (args[3]) {                                                         \
+      __OP_SETCOND_COND(tcg::TCG_COND_EQ, EQ)                                  \
+      __OP_SETCOND_COND(tcg::TCG_COND_NE, NE)                                  \
+      __OP_SETCOND_COND(tcg::TCG_COND_LT, SLT)                                 \
+      __OP_SETCOND_COND(tcg::TCG_COND_GE, SGE)                                 \
+      __OP_SETCOND_COND(tcg::TCG_COND_LE, SLE)                                 \
+      __OP_SETCOND_COND(tcg::TCG_COND_GT, SGT)                                 \
+      __OP_SETCOND_COND(tcg::TCG_COND_LTU, ULT)                                \
+      __OP_SETCOND_COND(tcg::TCG_COND_GEU, UGE)                                \
+      __OP_SETCOND_COND(tcg::TCG_COND_LEU, ULE)                                \
+      __OP_SETCOND_COND(tcg::TCG_COND_GTU, UGT)                                \
+    default:                                                                   \
+      assert(false);                                                           \
+    }                                                                          \
+    set(b.CreateZExt(v, IntegerType::get(C, bits)), args[0]);                  \
+  } break;
+
+    __OP_SETCOND(tcg::INDEX_op_setcond_i32, 32)
+    __OP_SETCOND(tcg::INDEX_op_setcond_i64, 64)
+
+#undef __OP_SETCOND_COND
+#undef __OP_SETCOND
 
   default:
     cerr << "error: Unhandled TCG operation '" << def.name << "'" << endl;

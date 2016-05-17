@@ -1,17 +1,33 @@
 #include "qemutcg.h"
+#include "qemu/osdep.h"
+#include "cpu.h"
 #include "tcg.h"
 
 static const char *tcg_type_nm_map[] = {"I32", "I64", "COUNT"};
 
 static void dump_tcg_globals(void) {
   for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
-    TCGTemp* ts = &tcg_ctx.temps[i];
-    printf("type: %s name: %s reg: %u mem_reg: %u fixed_reg: %u mem_coherent: "
-           "%u mem_allocated: %u mem_offset: %u val: %u\n",
-           tcg_type_nm_map[ts->type], ts->name, (unsigned)ts->reg,
-           (unsigned)ts->mem_reg, (unsigned)ts->fixed_reg,
-           (unsigned)ts->mem_coherent, (unsigned)ts->mem_allocated,
-           (unsigned)ts->mem_offset, (unsigned)ts->val);
+    TCGTemp *ts = &tcg_ctx.temps[i];
+    printf("type: %s "
+           "name: %s "
+           "reg: %u "
+           "fixed_reg: %u "
+           "indirect_reg: %u "
+           "indirect_base: %u "
+           "mem_coherent: %u "
+           "mem_allocated: %u "
+           "mem_offset: %u "
+           "val: %u\n",
+           tcg_type_nm_map[ts->type],
+           ts->name,
+           (unsigned)ts->reg,
+           (unsigned)ts->fixed_reg,
+           (unsigned)ts->indirect_reg,
+           (unsigned)ts->indirect_base,
+           (unsigned)ts->mem_coherent,
+           (unsigned)ts->mem_allocated,
+           (unsigned)ts->mem_offset,
+           (unsigned)ts->val);
   }
 }
 

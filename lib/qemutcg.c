@@ -1,4 +1,5 @@
 #include "qemutcg.h"
+#include "qemu/osdep.h"
 #include "cpu.h"
 #include "tcg.h"
 #include "mc.h"
@@ -119,7 +120,7 @@ void libqemutcg_init(void) {
   memset(env->regs, 0, sizeof(env->regs));
   // XXX TODO enable BE8 based on ELF flags (has EF_ARM_BE8)
   // XXX TODO enable thumb based on ELF flags
-  cpsr_write(env, CPSR_T, 0xffffffff);
+  cpsr_write(env, CPSR_T, 0xffffffff, CPSRWriteByInstr);
 #if defined(TARGET_AARCH64)
   if (!(arm_feature(env, ARM_FEATURE_AARCH64)) || !env->aarch64)
     exit(24);
@@ -287,6 +288,9 @@ void libqemutcg_print_ops(void) {
                                     s->gen_first_op_idx - code_pc, asmbuf));
 #endif
 
+      if (a == 0x7FFFFFFF)
+        continue;
+
       if (oi != s->gen_first_op_idx)
         printf("|\n"); /* make empty row */
 
@@ -422,6 +426,10 @@ uint64_t libqemutcg_last_tcg_op_addr(void) {
 #else
       a = args[i];
 #endif
+
+      if (a == 0x7FFFFFFF)
+        continue;
+
       res = a;
     }
   }
@@ -447,6 +455,10 @@ uint64_t libqemutcg_second_to_last_tcg_op_addr(void) {
 #else
       a = args[i];
 #endif
+
+      if (a == 0x7FFFFFFF)
+        continue;
+
       last_res = res;
       res = a;
     }

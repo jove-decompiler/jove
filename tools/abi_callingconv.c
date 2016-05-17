@@ -1,3 +1,5 @@
+#include "qemu/osdep.h"
+#include "cpu.h"
 #include "tcg.h"
 #include "qemutcg.h"
 
