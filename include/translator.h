@@ -314,8 +314,7 @@ private:
   std::unordered_map<address_t, basic_block_t> translated_basic_blocks;
   std::queue<address_t> functions_to_translate;
 
-  std::vector<llvm::GlobalVariable *> sectgvs;
-  std::unordered_map<llvm::GlobalVariable *, unsigned> sectgvmap;
+  llvm::GlobalVariable *sectsgv;
 
   std::vector<std::unordered_map<unsigned, llvm::Type *>> sectreloctys;
   std::vector<std::unordered_map<unsigned, llvm::Constant *>> sectrelocs;
@@ -352,6 +351,7 @@ private:
   std::unordered_map<address_t, llvm::Function *> reloc_function_table;
 
   llvm::Type *word_type();
+  address_t lower_addr();
   void init_helpers();
   void prepare_for_translation();
   void create_section_global_variables();

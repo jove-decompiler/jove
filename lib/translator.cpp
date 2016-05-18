@@ -396,6 +396,10 @@ void translator::create_section_global_variables() {
     addrspace.add(make_pair(intervl, i + 1));
   }
 
+  for (const auto& sect : addrspace) {
+    cout << sect.first << endl;
+  }
+
   //
   // initialize section intervals
   //
@@ -411,7 +415,6 @@ void translator::create_section_global_variables() {
   //
   std::vector<StructType*> sectgvtys;
 
-  sectgvs.reserve(secttbl.size());
   sectgvtys.resize(secttbl.size());
   sectrelocs.resize(secttbl.size());
   sectreloctys.resize(secttbl.size());
@@ -494,10 +497,24 @@ void translator::create_section_global_variables() {
               process_relative_relocation_type);
 
   //
-  // create section global variables
+  // create global variable for sections
   //
-  for (unsigned i = 0; i < secttbl.size(); ++i) {
+  vector<Type *> fieldtys;
+  for (auto addrspace_it = addrspace.begin(); addrspace_it != addrspace.end();
+       ++addrspace_it) {
+    unsigned i = (*addrspace_it).second - 1;
     section_t &sect = secttbl[i];
+
+    if (addrspace_it != addrspace.begin()) {
+      section_t &prevsect = secttbl[(*prev(addrspace_it)).second - 1];
+      address_t prevsectend = prevsect.addr + prevsect.size;
+      address_t sectbeg = sect.addr;
+      unsigned space = sectbeg - prevsectend;
+      if (space > 0) {
+        // zero padding between sections
+        fieldtys.push_back(ArrayType::get(IntegerType::get(C, 8), space));
+      }
+    }
 
     section_interval_map_t &sectstuff = sectstuffs[i];
 
@@ -519,14 +536,15 @@ void translator::create_section_global_variables() {
 
     sectgvtys[i] =
         StructType::create(C, structfieldtys, "struct.__jove_" + sectnm_, true);
-    GlobalVariable *sectgv =
-        new GlobalVariable(M, sectgvtys[i], true, GlobalValue::ExternalLinkage,
-                           nullptr, "__jove_" + sectnm_);
-    sectgv->setAlignment(sect.align);
 
-    sectgvs.push_back(sectgv);
-    sectgvmap.insert({sectgv, i});
+    fieldtys.push_back(sectgvtys[i]);
   }
+
+  StructType *sectsgvty =
+      StructType::create(C, fieldtys, "struct.__jove_sections", true);
+  sectsgv = new GlobalVariable(M, sectsgvty, true, GlobalValue::ExternalLinkage,
+                               nullptr, "__jove_sections");
+  sectsgv->setAlignment(sizeof(address_t));
 
   //
   // initialize section global variables
@@ -654,7 +672,24 @@ void translator::create_section_global_variables() {
   //
   // create initializers
   //
-  for (unsigned i = 0; i < secttbl.size(); ++i) {
+  vector<llvm::Constant*> fieldinits;
+  for (auto addrspace_it = addrspace.begin(); addrspace_it != addrspace.end();
+       ++addrspace_it) {
+    unsigned i = (*addrspace_it).second - 1;
+    section_t &sect = secttbl[i];
+
+    if (addrspace_it != addrspace.begin()) {
+      section_t &prevsect = secttbl[(*prev(addrspace_it)).second - 1];
+      address_t prevsectend = prevsect.addr + prevsect.size;
+      address_t sectbeg = sect.addr;
+      unsigned space = sectbeg - prevsectend;
+      if (space > 0) {
+        // zero padding between sections
+        fieldinits.push_back(Constant::getNullValue(
+            ArrayType::get(IntegerType::get(C, 8), space)));
+      }
+    }
+
     vector<llvm::Constant *> structfieldconsts;
     StructType *sectgvty = sectgvtys[i];
 
@@ -670,7 +705,6 @@ void translator::create_section_global_variables() {
       if (relocit != sectrelocs[i].end()) { // a relocation
         cnst = ConstantExpr::getPointerCast((*relocit).second, sectgvty_elem);
       } else { // section data
-        section_t &sect = secttbl[i];
         cnst = ConstantDataArray::get(
             C, ArrayRef<uint8_t>(sect.contents.begin() + (*it).lower(),
                                  sect.contents.begin() + (*it).upper()));
@@ -679,9 +713,10 @@ void translator::create_section_global_variables() {
       structfieldconsts.push_back(cnst);
     }
 
-    sectgvs[i]->setInitializer(
-        ConstantStruct::get(sectgvtys[i], structfieldconsts));
+    fieldinits.push_back(ConstantStruct::get(sectgvtys[i], structfieldconsts));
   }
+
+  sectsgv->setInitializer(ConstantStruct::get(sectsgvty, fieldinits));
 }
 
 void translator::prepare_for_translation() {
@@ -715,7 +750,7 @@ void translator::prepare_for_translation() {
   // special global variable used for pc-relative addresses
   //
   pcrel_gv =
-      new GlobalVariable(M, word_type(), false, GlobalValue::ExternalLinkage,
+      new GlobalVariable(M, word_type(), false, GlobalValue::InternalLinkage,
                          ConstantInt::get(word_type(), 0), "pcrel");
 
   //
@@ -1685,6 +1720,10 @@ Type *translator::word_type() {
   return word_ty;
 }
 
+address_t translator::lower_addr() {
+  return (*addrspace.begin()).first.lower();
+}
+
 Value* translator::cpu_state_global_gep(unsigned gidx) {
   SmallVector<Value *, 4> Indices;
   getNaturalGEPWithOffset(tcg_glb_llv_m[tcg::CPU_STATE_ARG], 
@@ -2348,9 +2387,8 @@ void translator::translate_tcg_operation_to_llvm(
         // address of the program counter. Then add that constant offset to a
         // pointer in the sections to the program counter that we generate
         //
-        return ConstantExpr::getAdd(
-            ConstantInt::get(word_type(), a),
-            ConstantExpr::getPtrToInt(pcrel_gv, word_type()));
+        return b.CreateAdd(ConstantInt::get(word_type(), a),
+                           b.CreateLoad(pcrel_gv));
       }
 
       if (intptr) {
@@ -2386,10 +2424,6 @@ void translator::translate_tcg_operation_to_llvm(
     if (it == addrspace.end())
       return nullptr;
 
-#if 1
-    cout << "guest_load_from_constant_address: addr = " << hex << addr << endl;
-#endif
-
     unsigned sectidx = (*it).second - 1;
     unordered_map<unsigned, Constant *> &relocs = sectrelocs[sectidx];
 
@@ -2399,27 +2433,22 @@ void translator::translate_tcg_operation_to_llvm(
     if (relit != relocs.end())
       return b.CreatePtrToInt((*relit).second, IntegerType::get(C, bits));
 
-    SmallVector<Value *, 4> Indices;
-    getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
-                            IntegerType::get(C, bits), Indices);
-    assert(!Indices.empty() && Indices.size() != 1);
-    Value *ptr = b.CreateInBoundsGEP(tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
-                                     (boost::format("%x") % addr).str());
-    ptr = b.CreatePointerCast(ptr,
-                              PointerType::get(IntegerType::get(C, bits), 0));
+    Constant* ptr = section_ptr(addr);
+    if (!ptr)
+      return nullptr;
 
-    return b.CreateLoad(ptr);
+    return b.CreateLoad(b.CreatePointerCast(
+        ptr, PointerType::get(IntegerType::get(C, bits), 0)));
   };
 
   auto guest_load = [&](unsigned bits) -> Value * {
     Value *addr = get(args[1]);
 
-    ConstantInt *addr_int = try_fold_to_constant_int(addr);
+    //ConstantInt *addr_int = try_fold_to_constant_int(addr);
 
-    if (addr_int) {
-      Value *v =
-          guest_load_from_constant_address(bits, addr_int->getZExtValue());
-      if (v)
+    if (ConstantInt *addr_int = dyn_cast<ConstantInt>(addr)) {
+      if (Value *v =
+              guest_load_from_constant_address(bits, addr_int->getZExtValue()))
         return v;
     }
 
@@ -3212,20 +3241,17 @@ Constant* translator::try_fold_to_constant(Value* v) {
   return nullptr;
 }
 
-Constant* translator::section_ptr(address_t addr) {
+Constant *translator::section_ptr(address_t addr) {
   auto it = addrspace.find(addr);
   if (it == addrspace.end())
     return nullptr;
 
-  unsigned sectidx = (*it).second - 1;
-  unsigned off = addr - (*it).first.lower();
+  unsigned off = addr - lower_addr();
 
   SmallVector<Value *, 4> Indices;
-  getNaturalGEPWithOffset(sectgvs[sectidx], APInt(64, off),
-                          IntegerType::get(C, sizeof(address_t) * 8), Indices);
+  getNaturalGEPWithOffset(sectsgv, APInt(64, off), word_type(), Indices);
 
-  return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectgvs[sectidx],
-                                                Indices);
+  return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
 }
 
 Value *translator::section_int_ptr(address_t addr) {
