@@ -1,115 +1,85 @@
 include config.mk
 
-#jove_all: $(build_dir)/jove-init-$(_TARGET_NAME) $(build_dir)/obj2llvmdump-$(_TARGET_NAME) $(build_dir)/tcgglobals-$(_TARGET_NAME) $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/libqemutcg-$(_TARGET_NAME).bc $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp
+targ_build_dir := $(build_dir)/$(_TARGET_NAME)
+res = $(targ_build_dir)/$(1)
 
-jove_all: $(build_dir)/jove-init-$(_TARGET_NAME)
+jove_all: $(call res,jove-init)
 
 _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
 include $(qemu_build_dir)/$(_QEMU_TARGET)/Makefile
 
-_INCLUDES := -I$(build_dir) -I$(qemu_build_dir) -I$(qemu_build_dir)/$(_QEMU_TARGET) -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) $(QEMU_INCLUDES)
-_CFLAGS   := $(CFLAGS) $(QEMU_CFLAGS) -DNEED_CPU_H
-_CXXFLAGS := $(CXXFLAGS) $(QEMU_CXXFLAGS) -DNEED_CPU_H
+LLCONFIG := $(llvm_dir)/bin/llvm-config
+LLCXX    := $(llvm_dir)/bin/clang++
+LLCC     := $(llvm_dir)/bin/clang
+LLOPT    := $(llvm_dir)/bin/opt
+LLKNIFE  := $(build_dir)/llknife
+LLLD     := $(llvm_dir)/bin/llvm-link
 
-ifeq ($(_TARGET_NAME),x86_64)
-llvm_arch = x86
-endif
-ifeq ($(_TARGET_NAME),i386)
-llvm_arch = x86
-endif
-ifeq ($(_TARGET_NAME),arm)
-llvm_arch = arm
-endif
-ifeq ($(_TARGET_NAME),aarch64)
-llvm_arch = aarch64
-endif
-ifeq ($(_TARGET_NAME),mipsel)
-llvm_arch = mips
-endif
+_INCLUDES := -I$(build_dir)/$(_TARGET_NAME) \
+             -I$(include_dir) \
+             -I$(build_dir) \
+             -I$(qemu_build_dir) \
+             -I$(qemu_build_dir)/$(_QEMU_TARGET) \
+             -I$(SRC_PATH)/target-$(TARGET_BASE_ARCH) \
+             $(QEMU_INCLUDES)
+
+_CFLAGS   := $(CFLAGS) \
+             $(QEMU_CFLAGS) \
+             -DNEED_CPU_H \
+             $(shell pkg-config --cflags glib-2.0)
+
+_CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
+             $(CXXFLAGS) $(QEMU_CXXFLAGS) \
+             -DNEED_CPU_H \
+             $(shell pkg-config --cflags glib-2.0)
+
+_CFLAGS   := $(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))
+_CXXFLAGS := $(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))
 
 #
 # jove-init
 #
 
-res = $(build_dir)/$(1)-$(_TARGET_NAME)
+_SRCSNAMES = jove_init.cpp \
+             mc.cpp \
+             elf_binary.cpp \
+             coff_binary.cpp \
+             translator.cpp
 
-LLCXX   := $(llvm_dir)/bin/clang++
-LLCC    := $(llvm_dir)/bin/clang
-LLOPT   := $(llvm_dir)/bin/opt
-LLKNIFE := $(build_dir)/llknife
-LLLD    := $(llvm_dir)/bin/llvm-link
+_SRCS := $(patsubst %,$(build_dir)/%,$(_SRCSNAMES))
+_OBJS := $(patsubst %.cpp,$(call res,%).o,$(_SRCSNAMES))
+_DEPS := $(patsubst %.cpp,$(call res,%).d,$(_SRCSNAMES))
 
-$(call res,jove-init): $(call res,jove-init).2.bc
+$(call res,jove-init): $(_OBJS) $(call res,libqemutcg).so
 	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ $< $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -lboost_system -lboost_program_options -lboost_filesystem -ldl
+	@$(LLCXX) -o $@ \
+	  $(_CXXFLAGS) $(_OBJS) \
+	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
+	  -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so \
+	  $(shell $(LLCONFIG) --ldflags) \
+	  -lglib-2.0 \
+	  -pthread \
+	  -lcurses \
+	  -lz \
+	  -lboost_system \
+	  -lboost_program_options \
+	  -lboost_filesystem \
+	  -ldl
 
-$(call res,jove-init).2.bc: $(call res,jove-init).1.bc
-	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -globaldce $<
+# pull in dependency info for existing .o files
+-include $(_DEPS)
 
-$(call res,jove-init).1.bc: $(call res,jove-init).0.bc
-	@echo LLKNIFE $(notdir $@ $^)
-	@$(LLKNIFE) -o $@ -i $< --only-external-regex 'main'
-
-$(call res,jove-init).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,jove-init).bc $(call res,mc).bc $(call res,elf-binary).bc $(call res,coff-binary).bc $(call res,translator).bc
-	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
-
-$(call res,jove-init).bc: $(build_dir)/jove_init.cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(include_dir)/translator.h
+$(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -MMD -Wall -g -O2 $(_INCLUDES) $(_CXXFLAGS) $<
 
-$(call res,translator).bc: $(build_dir)/translator.cpp $(call res,helpers).cpp $(call res,tcgdefs).hpp $(call res,tcg_globals).cpp
-	@echo CLANG++ $(notdir $@ $<)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) $(shell pkg-config --cflags glib-2.0) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
-
-#
-# obj2llvmdump
-#
-
-$(call res,obj2llvmdump): $(call res,obj2llvmdump).2.bc
-	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ $< $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -lboost_system -lboost_program_options
-
-$(call res,obj2llvmdump).2.bc: $(call res,obj2llvmdump).1.bc
-	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -globaldce $<
-
-$(call res,obj2llvmdump).1.bc: $(call res,obj2llvmdump).0.bc
-	@echo LLKNIFE $(notdir $@ $^)
-	@$(LLKNIFE) -o $@ -i $< --only-external-regex 'main'
-
-$(call res,obj2llvmdump).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,obj2llvmdump).bc $(call res,mc).bc $(call res,elf-binary).bc $(call res,coff-binary).bc
-	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
-
-$(call res,obj2llvmdump).bc: $(build_dir)/obj2llvmdump.cpp
-	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+$(call res,jove_init).o: $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
+$(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(call res,helpers).cpp $(call res,tcg_globals).cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 
 #
-# mc
+# output of ABI calling conventions
 #
-$(call res,mc).bc: $(build_dir)/mc.cpp
-	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
-
-#
-# binary
-#
-$(call res,elf-binary).bc: $(build_dir)/elf_binary.cpp $(build_dir)/elf_relocs_i386.cpp $(build_dir)/elf_relocs_x86_64.cpp $(build_dir)/elf_relocs_aarch64.cpp $(build_dir)/elf_relocs_arm.cpp 
-	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
-
-$(call res,coff-binary).bc: $(build_dir)/coff_binary.cpp
-	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
-
-#
-# ABI calling convention
-#
-
 $(call res,abi_callingconv).hpp: $(call res,abi_callingconv)
 	@echo ABICALLINGCONV $(notdir $@)
 	@$(call res,abi_callingconv) 1 $(build_dir)/$(_TARGET_NAME).callconv > $@
@@ -122,13 +92,13 @@ $(call res,abi_callingconv_ret_regs).cpp: $(call res,abi_callingconv)
 	@echo ABICALLINGCONV $(notdir $@)
 	@$(call res,abi_callingconv) 3 $(build_dir)/$(_TARGET_NAME).callconv > $@
 
-$(call res,abi_callingconv): $(call res,abi_callingconv).2.bc
-	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ $< -fPIC -lglib-2.0 -pthread
 
-$(call res,abi_callingconv).2.bc: $(call res,abi_callingconv).1.bc
-	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -globaldce $<
+#
+# ABI calling convention
+#
+$(call res,abi_callingconv): $(call res,abi_callingconv).1.bc
+	@echo CLANG $(notdir $@ $^)
+	@$(LLCC) -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
 
 $(call res,abi_callingconv).1.bc: $(call res,abi_callingconv).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -140,10 +110,10 @@ $(call res,abi_callingconv).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(c
 
 $(call res,abi_callingconv).bc: $(build_dir)/abi_callingconv.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
-# tcgdefs
+# output of tcgdefs
 #
 $(call res,tcg_globals).cpp: $(call res,tcgdefs)
 	@echo TCGDEFS $(notdir $@ $^)
@@ -153,13 +123,12 @@ $(call res,tcgdefs).hpp: $(call res,tcgdefs)
 	@echo TCGDEFS $(notdir $@ $^)
 	@$(call res,tcgdefs) > $@
 
-$(call res,tcgdefs): $(call res,tcgdefs).2.bc
+#
+# tcgdefs
+#
+$(call res,tcgdefs): $(call res,tcgdefs).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ $< -fPIC -lglib-2.0 -pthread
-
-$(call res,tcgdefs).2.bc: $(call res,tcgdefs).1.bc
-	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -globaldce $<
+	@$(LLCC) -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
 
 $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -171,7 +140,7 @@ $(call res,tcgdefs).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,
 
 $(call res,tcgdefs).bc: $(build_dir)/tcgdefs.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -O3 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # tcgglobals
@@ -191,14 +160,14 @@ $(call res,tcgglobals).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call r
 
 $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O2 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # C library implementing API to QEMU translation layer
 #
 $(call res,libqemutcg).so: $(call res,libqemutcg).bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -shared -O3 $<
+	@$(LLCC) -o $@ -shared -fPIC -O3 $<
 
 $(call res,libqemutcg).bc: $(call res,libqemutcg).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -217,11 +186,11 @@ $(call res,qemutcg).bc: $(call res,translate-ldst-helpers).bc $(call res,qemutcg
 
 $(call res,translate-ldst-helpers).bc: $(build_dir)/translate_ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O2 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 $(call res,qemutcg).0.bc: $(build_dir)/qemutcg.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O2 $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # library base QEMU bitcode
@@ -271,7 +240,7 @@ $(call res,helpers).0.bc: $(call res,qemu).6.bc $(call res,ldst_helpers).bc
 
 $(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 -I $(include_dir) $(_INCLUDES) $(filter-out -fno-inline,$(_CFLAGS)) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # process QEMU bitcode

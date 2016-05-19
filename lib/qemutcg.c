@@ -468,3 +468,13 @@ uint64_t libqemutcg_second_to_last_tcg_op_addr(void) {
 }
 
 GHashTable *libqemutcg_helpers() { return tcg_ctx.helpers; }
+
+extern TCGOpDef tcg_op_defs[];
+
+void* libqemutcg_def_of_opcode(unsigned opc) {
+  return &tcg_op_defs[opc];
+}
+
+const char* libqemutcg_find_helper(uintptr_t ptr) {
+  return tcg_find_helper(&tcg_ctx, ptr);
+}

@@ -162,29 +162,25 @@ static Label *arg_label(Arg i) { return (Label *)(uintptr_t)i; }
 typedef uint32_t MemOpIdx;
 static MemOp get_memop(MemOpIdx oi) { return (MemOp)(oi >> 4); }
 static unsigned get_mmuidx(MemOpIdx oi) { return oi & 15; }
-extern "C" {
-extern tcg::OpDef tcg_op_defs[];
-struct TCGContext;
-extern TCGContext tcg_ctx;
-const char *tcg_find_helper(TCGContext *s, uintptr_t val);
-extern const char *const cond_name[];
-extern const char *const ldst_name[];
-}
+static const char *const cond_name[] =
+    {[TCG_COND_NEVER] = "never", [TCG_COND_ALWAYS] = "always",
+     [TCG_COND_EQ] = "eq",       [TCG_COND_NE] = "ne",
+     [TCG_COND_LT] = "lt",       [TCG_COND_GE] = "ge",
+     [TCG_COND_LE] = "le",       [TCG_COND_GT] = "gt",
+     [TCG_COND_LTU] = "ltu",     [TCG_COND_GEU] = "geu",
+     [TCG_COND_LEU] = "leu",     [TCG_COND_GTU] = "gtu"};
+
+static const char *const ldst_name[] = {
+        [MO_UB] = "ub",     [MO_SB] = "sb",     [MO_LEUW] = "leuw",
+        [MO_LESW] = "lesw", [MO_LEUL] = "leul", [MO_LESL] = "lesl",
+        [MO_LEQ] = "leq",   [MO_BEUW] = "beuw", [MO_BESW] = "besw",
+        [MO_BEUL] = "beul", [MO_BESL] = "besl", [MO_BEQ] = "beq",
+};
 }
 /* XXX QEMUVERSIONDEPENDENT */
 
 static const uint8_t helpers_bitcode_data[] = {
-#if defined(TARGET_AARCH64)
-#include "helpers-aarch64.cpp"
-#elif defined(TARGET_ARM)
-#include "helpers-arm.cpp"
-#elif defined(TARGET_X86_64)
-#include "helpers-x86_64.cpp"
-#elif defined(TARGET_I386)
-#include "helpers-i386.cpp"
-#elif defined(TARGET_MIPS)
-#include "helpers-mipsel.cpp"
-#endif
+#include "helpers.cpp"
 };
 
 translator::translator(ObjectFile &O, const string &MNm)
@@ -219,43 +215,13 @@ translator::translator(ObjectFile &O, const string &MNm)
           GlobalValue::ExternalLinkage, "___jove_indirect_call", &M)),
 
       callconv{{{
-#if defined(TARGET_AARCH64)
-#include "abi_callingconv_arg_regs-aarch64.cpp"
-#elif defined(TARGET_ARM)
-#include "abi_callingconv_arg_regs-arm.cpp"
-#elif defined(TARGET_X86_64)
-#include "abi_callingconv_arg_regs-x86_64.cpp"
-#elif defined(TARGET_I386)
-#include "abi_callingconv_arg_regs-i386.cpp"
-#elif defined(TARGET_MIPS)
-#include "abi_callingconv_arg_regs-mipsel.cpp"
-#endif
+#include "abi_callingconv_arg_regs.cpp"
                }},
                {{
-#if defined(TARGET_AARCH64)
-#include "abi_callingconv_ret_regs-aarch64.cpp"
-#elif defined(TARGET_ARM)
-#include "abi_callingconv_ret_regs-arm.cpp"
-#elif defined(TARGET_X86_64)
-#include "abi_callingconv_ret_regs-x86_64.cpp"
-#elif defined(TARGET_I386)
-#include "abi_callingconv_ret_regs-i386.cpp"
-#elif defined(TARGET_MIPS)
-#include "abi_callingconv_ret_regs-mipsel.cpp"
-#endif
+#include "abi_callingconv_ret_regs.cpp"
                }}},
       tcg_globals{{
-#if defined(TARGET_AARCH64)
-#include "tcg_globals-aarch64.cpp"
-#elif defined(TARGET_ARM)
-#include "tcg_globals-arm.cpp"
-#elif defined(TARGET_X86_64)
-#include "tcg_globals-x86_64.cpp"
-#elif defined(TARGET_I386)
-#include "tcg_globals-i386.cpp"
-#elif defined(TARGET_MIPS)
-#include "tcg_globals-mipsel.cpp"
-#endif
+#include "tcg_globals.cpp"
       }} {
   //
   // init TCG translator
@@ -1273,7 +1239,8 @@ void translator::compute_basic_block_defs_and_uses(
   for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::OpDef *def =
+        static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     const tcg::Arg *args = &params[op->args];
 
     int nb_iargs = 0;
@@ -1345,7 +1312,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
 
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::OpDef *def = static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     tcg::Arg *args = &params[op->args];
 
     if (c == tcg::INDEX_op_insn_start) {
@@ -1421,7 +1388,7 @@ void translator::print_tcg_ops(ostream &out,
 
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::OpDef *def = static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     const tcg::Arg *args = &params[op->args];
 
     if (c == tcg::INDEX_op_insn_start) {
@@ -1459,7 +1426,7 @@ void translator::print_tcg_ops(ostream &out,
 
         /* function name, flags, out args */
         out << (boost::format("%s %s,$0x%" TCG_PRIlx ",$%d") % def->name %
-                tcg_find_helper(&tcg::tcg_ctx, args[nb_oargs + nb_iargs]) %
+                libqemutcg_find_helper(args[nb_oargs + nb_iargs]) %
                 args[nb_oargs + nb_iargs + 1] % nb_oargs);
 
         for (i = 0; i < nb_oargs; i++)
@@ -1999,7 +1966,8 @@ translator::compute_tcg_globals_used(basic_block_properties_t &bbprop) {
   for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::OpDef *def =
+        static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     const tcg::Arg *args = &params[op->args];
 
     int nb_iargs = 0;
@@ -2059,7 +2027,8 @@ translator::compute_tcg_temps_used(basic_block_properties_t &bbprop) {
   for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = &tcg::tcg_op_defs[c];
+    const tcg::OpDef *def =
+        static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     const tcg::Arg *args = &params[op->args];
 
     int nb_iargs = 0;
@@ -2441,7 +2410,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 void translator::translate_tcg_operation_to_llvm(
     basic_block_properties_t &bbprop, const tcg::Op *op, const tcg::Arg *args) {
   const tcg::Opcode opc = op->opc;
-  const tcg::OpDef &def = tcg::tcg_op_defs[opc];
+  const tcg::OpDef &def =
+      *(static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(opc)));
 
   auto name = [&](tcg::Arg a) -> string {
     if (a == tcg::CALL_DUMMY_ARG)

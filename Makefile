@@ -4,8 +4,11 @@ include config.mk
 all_targets: $(patsubst %,target_%,$(qemutcg_archs))
 
 define TARGET_TEMPLATE =
+$(build_dir)/$(1):
+	mkdir $(build_dir)/$(1)
+
 .PHONY: target_$(1)
-target_$(1): $(build_dir)/transform-helpers $(build_dir)/llknife
+target_$(1): $(build_dir)/transform-helpers $(build_dir)/llknife | $(build_dir)/$(1)
 	@$$(MAKE) -C $(build_dir)/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))

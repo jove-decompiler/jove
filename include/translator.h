@@ -15,22 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
-#if defined(TARGET_AARCH64)
-#include "abi_callingconv-aarch64.hpp"
-#include "tcgdefs-aarch64.hpp"
-#elif defined(TARGET_ARM)
-#include "abi_callingconv-arm.hpp"
-#include "tcgdefs-arm.hpp"
-#elif defined(TARGET_X86_64)
-#include "abi_callingconv-x86_64.hpp"
-#include "tcgdefs-x86_64.hpp"
-#elif defined(TARGET_I386)
-#include "abi_callingconv-i386.hpp"
-#include "tcgdefs-i386.hpp"
-#elif defined(TARGET_MIPS)
-#include "abi_callingconv-mipsel.hpp"
-#include "tcgdefs-mipsel.hpp"
-#endif
+#include "abi_callingconv.hpp"
+#include "tcgdefs.hpp"
 
 /* XXX QEMUVERSIONDEPENDENT */
 #if defined(TARGET_AARCH64) || defined(TARGET_X86_64) || defined(TARGET_MIPS64)

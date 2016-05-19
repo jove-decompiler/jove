@@ -24,6 +24,8 @@ void libqemutcg_print_ops(void);
 uint64_t libqemutcg_last_tcg_op_addr(void);
 uint64_t libqemutcg_second_to_last_tcg_op_addr(void);
 GHashTable *libqemutcg_helpers(void);
+void* libqemutcg_def_of_opcode(unsigned);
+const char* libqemutcg_find_helper(uintptr_t);
 
 #ifdef __cplusplus
 }
