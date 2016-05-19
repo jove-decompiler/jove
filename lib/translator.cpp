@@ -9,7 +9,6 @@
 #include <config-host.h>
 #include <config-target.h>
 #include <fstream>
-#include <glib.h>
 #include <numeric>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/Constants.h>
@@ -28,18 +27,6 @@
 using namespace llvm;
 using namespace object;
 using namespace std;
-
-extern "C" {
-GHashTable *translator_tcg_helpers();
-
-void translator_tcg_helper(jove::translator *, uint64_t addr, const char *name);
-void translator_enumerate_tcg_helpers(jove::translator *);
-}
-
-void translator_tcg_helper(jove::translator *T, uintptr_t addr,
-                           const char *name) {
-  T->tcg_helper(addr, name);
-}
 
 namespace jove {
 
@@ -186,28 +173,27 @@ extern const char *const ldst_name[];
 }
 /* XXX QEMUVERSIONDEPENDENT */
 
-static const uint8_t runtime_helpers_bitcode_data[] = {
+static const uint8_t helpers_bitcode_data[] = {
 #if defined(TARGET_AARCH64)
-#include "runtime_helpers-aarch64.cpp"
+#include "helpers-aarch64.cpp"
 #elif defined(TARGET_ARM)
-#include "runtime_helpers-arm.cpp"
+#include "helpers-arm.cpp"
 #elif defined(TARGET_X86_64)
-#include "runtime_helpers-x86_64.cpp"
+#include "helpers-x86_64.cpp"
 #elif defined(TARGET_I386)
-#include "runtime_helpers-i386.cpp"
+#include "helpers-i386.cpp"
 #elif defined(TARGET_MIPS)
-#include "runtime_helpers-mipsel.cpp"
+#include "helpers-mipsel.cpp"
 #endif
 };
 
 translator::translator(ObjectFile &O, const string &MNm)
     : O(O), M(MNm, C), DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
-          MemoryBuffer::getMemBuffer(
-              StringRef(reinterpret_cast<const char *>(
-                            &runtime_helpers_bitcode_data[0]),
-                        sizeof(runtime_helpers_bitcode_data)),
-              "", false),
+          MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
+                                                   &helpers_bitcode_data[0]),
+                                               sizeof(helpers_bitcode_data)),
+                                     "", false),
           C))),
       HelperM(*_HelperM), b(C), word_ty(
 #if defined(TARGET_AARCH64) || defined(TARGET_X86_64)
@@ -308,7 +294,7 @@ void translator::init_helpers() {
   } TCGHelperInfo;
   /* XXX QEMUVERSIONDEPENDENT */
 
-  GHashTable *helpers = translator_tcg_helpers();
+  GHashTable *helpers = libqemutcg_helpers();
 
   GHashTableIter iter;
   gpointer key, value;

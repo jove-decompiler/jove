@@ -1,4 +1,5 @@
 #pragma once
+#include <glib.h>
 
 #ifdef __cplusplus
 #include <cstdint>
@@ -22,6 +23,7 @@ void libqemutcg_copy_tmps(void*);
 void libqemutcg_print_ops(void);
 uint64_t libqemutcg_last_tcg_op_addr(void);
 uint64_t libqemutcg_second_to_last_tcg_op_addr(void);
+GHashTable *libqemutcg_helpers(void);
 
 #ifdef __cplusplus
 }

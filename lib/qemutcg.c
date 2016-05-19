@@ -466,3 +466,5 @@ uint64_t libqemutcg_second_to_last_tcg_op_addr(void) {
 
   return last_res;
 }
+
+GHashTable *libqemutcg_helpers() { return tcg_ctx.helpers; }
