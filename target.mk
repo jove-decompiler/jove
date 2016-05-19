@@ -32,9 +32,11 @@ endif
 # jove-init
 #
 
+LLCXX := $(llvm_dir)/bin/clang++
+
 $(build_dir)/jove-init-$(_TARGET_NAME): $(build_dir)/jove-init-$(_TARGET_NAME).2.bc
 	@echo CLANG++ $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang++ -o $@ $< -O3 -flto -fPIC $(shell $(llvm_dir)/bin/llvm-config --libs object $(llvm_arch)) $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -L $(boost_dir)/lib -lboost_system -lboost_program_options -lboost_filesystem
+	@$(LLCXX) -o $@ $< $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -lboost_system -lboost_program_options -lboost_filesystem -ldl
 
 $(build_dir)/jove-init-$(_TARGET_NAME).2.bc: $(build_dir)/jove-init-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)
@@ -50,7 +52,7 @@ $(build_dir)/jove-init-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME).b
 
 $(build_dir)/jove-init-$(_TARGET_NAME).bc: $(build_dir)/jove_init.cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv-$(_TARGET_NAME).hpp $(build_dir)/abi_callingconv_arg_regs-$(_TARGET_NAME).cpp $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp $(include_dir)/translator.h
 	@echo CLANG++ $(notdir $@ $<)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 $(build_dir)/translator_c-$(_TARGET_NAME).bc: $(build_dir)/translator_c.c
 	@echo CLANG $(notdir $@ $^)
@@ -58,7 +60,7 @@ $(build_dir)/translator_c-$(_TARGET_NAME).bc: $(build_dir)/translator_c.c
 
 $(build_dir)/translator-$(_TARGET_NAME).bc: $(build_dir)/translator.cpp $(build_dir)/runtime_helpers-$(_TARGET_NAME).cpp $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp $(build_dir)/tcg_globals-$(_TARGET_NAME).cpp
 	@echo CLANG++ $(notdir $@ $<)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) $$(pkg-config --cflags glib-2.0) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) $(shell pkg-config --cflags glib-2.0) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # obj2llvmdump
@@ -66,7 +68,7 @@ $(build_dir)/translator-$(_TARGET_NAME).bc: $(build_dir)/translator.cpp $(build_
 
 $(build_dir)/obj2llvmdump-$(_TARGET_NAME): $(build_dir)/obj2llvmdump-$(_TARGET_NAME).2.bc
 	@echo CLANG++ $(notdir $@ $^)
-	$(llvm_dir)/bin/clang++ -o $@ $< -O3 -flto -fPIC $(shell $(llvm_dir)/bin/llvm-config --libs object $(llvm_arch)) $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -L $(boost_dir)/lib -lboost_system -lboost_program_options
+	@$(LLCXX) -o $@ $< $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so $(shell $(llvm_dir)/bin/llvm-config --ldflags) -lglib-2.0 -pthread -lcurses -lz -lboost_system -lboost_program_options
 
 $(build_dir)/obj2llvmdump-$(_TARGET_NAME).2.bc: $(build_dir)/obj2llvmdump-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)
@@ -82,25 +84,25 @@ $(build_dir)/obj2llvmdump-$(_TARGET_NAME).0.bc: $(build_dir)/qemu-$(_TARGET_NAME
 
 $(build_dir)/obj2llvmdump-$(_TARGET_NAME).bc: $(build_dir)/obj2llvmdump.cpp
 	@echo CLANG++ $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # mc
 #
 $(build_dir)/mc-$(_TARGET_NAME).bc: $(build_dir)/mc.cpp
 	@echo CLANG++ $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # binary
 #
 $(build_dir)/elf-binary-$(_TARGET_NAME).bc: $(build_dir)/elf_binary.cpp $(build_dir)/elf_relocs_i386.cpp $(build_dir)/elf_relocs_x86_64.cpp $(build_dir)/elf_relocs_aarch64.cpp $(build_dir)/elf_relocs_arm.cpp 
 	@echo CLANG++ $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 $(build_dir)/coff-binary-$(_TARGET_NAME).bc: $(build_dir)/coff_binary.cpp
 	@echo CLANG++ $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang++ -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
+	@$(LLCXX) -o $@ -c -emit-llvm -I $(include_dir) -Wall -g -O0 -fno-inline $(_INCLUDES) $(filter-out -fno-inline,$(_CXXFLAGS)) $(filter-out -fno-exceptions,$(shell $(llvm_dir)/bin/llvm-config --cxxflags)) $<
 
 #
 # ABI calling convention
@@ -120,7 +122,7 @@ $(build_dir)/abi_callingconv_ret_regs-$(_TARGET_NAME).cpp: $(build_dir)/abi_call
 
 $(build_dir)/abi_callingconv-$(_TARGET_NAME): $(build_dir)/abi_callingconv-$(_TARGET_NAME).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ $< -flto -fPIC -lglib-2.0 -pthread
+	@$(llvm_dir)/bin/clang -o $@ $< -fPIC -lglib-2.0 -pthread
 
 $(build_dir)/abi_callingconv-$(_TARGET_NAME).2.bc: $(build_dir)/abi_callingconv-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)
@@ -151,7 +153,7 @@ $(build_dir)/tcgdefs-$(_TARGET_NAME).hpp: $(build_dir)/tcgdefs-$(_TARGET_NAME)
 
 $(build_dir)/tcgdefs-$(_TARGET_NAME): $(build_dir)/tcgdefs-$(_TARGET_NAME).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ $< -flto -fPIC -lglib-2.0 -pthread
+	@$(llvm_dir)/bin/clang -o $@ $< -fPIC -lglib-2.0 -pthread
 
 $(build_dir)/tcgdefs-$(_TARGET_NAME).2.bc: $(build_dir)/tcgdefs-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)
@@ -175,7 +177,7 @@ $(build_dir)/tcgdefs-$(_TARGET_NAME).bc: $(build_dir)/tcgdefs.c
 
 $(build_dir)/tcgglobals-$(_TARGET_NAME): $(build_dir)/tcgglobals-$(_TARGET_NAME).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(llvm_dir)/bin/clang -o $@ $< -flto -fPIC -lglib-2.0 -pthread
+	@$(llvm_dir)/bin/clang -o $@ $< -fPIC -lglib-2.0 -pthread
 
 $(build_dir)/tcgglobals-$(_TARGET_NAME).2.bc: $(build_dir)/tcgglobals-$(_TARGET_NAME).1.bc
 	@echo OPT $(notdir $@ $^)

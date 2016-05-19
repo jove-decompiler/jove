@@ -14,7 +14,7 @@ $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 #LDFLAGS -Wl,-z,relro -Wl,-z,now -pie -m64 -flto -fno-inline
 #LIBS -lpixman-1 -lutil -lnuma -lbluetooth -lncursesw -lvdeplug -luuid -lSDL -lpthread -lX11 -lnettle -lgnutls -lgtk-x11-2.0 -lgdk-x11-2.0 -lpangocairo-1.0 -latk-1.0 -lcairo -lgdk_pixbuf-2.0 -lgio-2.0 -lpangoft2-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lfontconfig -lfreetype -lX11 -llzo2 -lsnappy -lseccomp -lfdt -lcacard -lglib-2.0 -lusb-1.0 -lusbredirparser -lm -lgthread-2.0 -pthread -lglib-2.0 -lz -lrt
 
-LLVMLIBSDIR  := $(llvm_nonflto_dir)/lib/ocaml
+LLVMLIBSDIR  := $(llvm_dir)/lib/ocaml
 
 OCAMLLIBNAMES := nums \
                  str

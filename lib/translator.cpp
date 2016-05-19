@@ -21,6 +21,9 @@
 #include <boost/icl/split_interval_set.hpp>
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/ValueTracking.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/Analysis/BasicAliasAnalysis.h>
 
 using namespace llvm;
 using namespace object;
@@ -742,16 +745,15 @@ void translator::prepare_for_translation() {
   Type *cpu_state_ty =
       cast<PointerType>(rthlp_cpu_state->getType())->getElementType();
   cpu_state_glb_llv = new GlobalVariable(
-      M, cpu_state_ty, false, GlobalValue::InternalLinkage,
+      M, cpu_state_ty, false, GlobalValue::ExternalLinkage,
       ConstantAggregateZero::get(cpu_state_ty), rthlp_cpu_state->getName(),
       nullptr, GlobalValue::GeneralDynamicTLSModel);
 
   //
   // special global variable used for pc-relative addresses
   //
-  pcrel_gv =
-      new GlobalVariable(M, word_type(), false, GlobalValue::InternalLinkage,
-                         ConstantInt::get(word_type(), 0), "pcrel");
+  pcrel_gv = new GlobalVariable(M, word_type(), false,
+                                GlobalValue::ExternalLinkage, nullptr, "pcrel");
 
   //
   // parse the binary
@@ -1065,7 +1067,6 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-
   //
   // identify section containing function for access to instruction bytes
   //
@@ -1749,7 +1750,7 @@ void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
 }
 
 void translator::translate_function_llvm(function_t& f) {
-  Function *const llf = f[boost::graph_bundle].llf;
+  Function &llf = *f[boost::graph_bundle].llf;
   boost::graph_traits<function_t>::vertex_iterator vi, vi_end;
 
   //
@@ -1758,13 +1759,13 @@ void translator::translate_function_llvm(function_t& f) {
   //
   for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
     f[*vi].llbb =
-        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(), llf);
+        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(), &llf);
     f[*vi].exitllbb =
-        BasicBlock::Create(C, (boost::format("E%x") % f[*vi].addr).str(), llf);
+        BasicBlock::Create(C, (boost::format("E%x") % f[*vi].addr).str(), &llf);
 
     for (unsigned i = 0; i < f[*vi].lbls.size(); ++i)
       f[*vi].lbls[i] =
-          BasicBlock::Create(C, (boost::format("L%u") % i).str(), llf);
+          BasicBlock::Create(C, (boost::format("L%u") % i).str(), &llf);
   }
 
   //
@@ -1811,6 +1812,13 @@ void translator::translate_function_llvm(function_t& f) {
         nullptr, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
 
   //
+  // allocate pcrel
+  //
+#if 1
+  pcrel_llv = b.CreateLoad(pcrel_gv, "pcrel");
+#endif
+
+  //
   // add the CPUState extern global as the LLVM value for env
   //
   tcg_glb_llv_m[tcg::CPU_STATE_ARG] = cpu_state_glb_llv;
@@ -1820,9 +1828,9 @@ void translator::translate_function_llvm(function_t& f) {
   // or CPU State
   //
   for_each(boost::make_zip_iterator(boost::make_tuple(
-               f[boost::graph_bundle].params.begin(), llf->arg_begin())),
+               f[boost::graph_bundle].params.begin(), llf.arg_begin())),
            boost::make_zip_iterator(boost::make_tuple(
-               f[boost::graph_bundle].params.end(), llf->arg_end())),
+               f[boost::graph_bundle].params.end(), llf.arg_end())),
            [&](const boost::tuple<unsigned, Argument &> &t) {
              t.get<1>().setName(tcg_globals[t.get<0>()].nm);
              b.CreateStore(&t.get<1>(), tcg_glb_llv_m[t.get<0>()]);
@@ -1859,10 +1867,135 @@ void translator::translate_function_llvm(function_t& f) {
 #if 0
   f[boost::graph_bundle].llf->dump();
 #endif
-  if (verifyFunction(*f[boost::graph_bundle].llf, &errs())) {
+  if (verifyFunction(llf, &errs())) {
     errs().flush();
     abort();
   }
+
+  {
+    error_code ec;
+    raw_fd_ostream of("/tmp/jove.O0.bc", ec, sys::fs::F_RW);
+    WriteBitcodeToFile(&M, of);
+  }
+
+  legacy::FunctionPassManager FPM(&M);
+  // provide basic aliasanalysis support for GVN.
+  FPM.add(createBasicAAWrapperPass());
+  // promote allocas to registers.
+  FPM.add(createPromoteMemoryToRegisterPass());
+  // do simple "peephole" optimizations and bit-twiddling optzns.
+  FPM.add(createInstructionCombiningPass());
+  // reassociate expressions.
+  FPM.add(createReassociatePass());
+  // eliminate common subexpressions.
+  FPM.add(createGVNPass());
+  // simplify the control flow graph (deleting unreachable blocks, etc).
+  FPM.add(createCFGSimplificationPass());
+
+  FPM.doInitialization();
+  FPM.run(llf);
+  FPM.doFinalization();
+
+#if 0
+  //
+  // pcrel was invalidated, find it again
+  //
+  pcrel_llv = nullptr;
+  for (User *U : pcrel_gv->users()) {
+    if (Instruction *I = dyn_cast<Instruction>(U)) {
+      if (I->getOpcode() == Instruction::Load &&
+          I->getParent()->getParent() == &llf) {
+        pcrel_llv = I;
+        break;
+      }
+    }
+  }
+
+  if (!pcrel_llv)
+    return;
+
+  //
+  // take care of pcrel expressions
+  //
+  vector<pair<Value *, Constant *>> torepl;
+  for (User *U : pcrel_llv->users()) {
+    if (cast<Instruction>(U)->getOpcode() == Instruction::Add) {
+      U->dump();
+      if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
+        if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
+          torepl.push_back({U, Ptr});
+    }
+  }
+
+  for (auto &replm : torepl) {
+    Value *V;
+    Constant *C;
+    tie(V, C) = replm;
+
+    V->replaceAllUsesWith(C);
+  }
+
+  pcrel_llv->replaceAllUsesWith(
+      ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
+                           ConstantInt::get(word_type(), lower_addr())));
+#elif 0
+  SmallVector<Value *, 4> Indices;
+#if 0
+  Indices.push_back(0);
+  Indices.push_back(0);
+  Indices.push_back(0);
+#endif
+  getNaturalGEPWithOffset(sectsgv, APInt(64, sizeof(address_t)), word_type(), Indices);
+
+  //cout << "Indicies size: " << dec << Indices.size() << endl;
+  Constant *ptr =
+      ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
+
+  if (ptr) {
+    ptr = ConstantExpr::getSub(ConstantExpr::getPtrToInt(ptr, word_type()), ConstantInt::get(word_type(), sizeof(address_t)));
+  } else {
+    cerr << "ptr is null";
+    return;
+  }
+
+  for (User *U : pcrel_gv->users()) {
+    if (Instruction *I = dyn_cast<Instruction>(U)) {
+      if (I->getOpcode() == Instruction::Load &&
+          I->getParent()->getParent() == &llf) {
+
+        I->replaceAllUsesWith(ptr);
+        break;
+      }
+    }
+  }
+#elif 0
+  //
+  // pcrel was invalidated, find it again
+  //
+  pcrel_llv = nullptr;
+  for (User *U : pcrel_gv->users()) {
+    if (Instruction *I = dyn_cast<Instruction>(U)) {
+      if (I->getOpcode() == Instruction::Load &&
+          I->getParent()->getParent() == &llf) {
+        pcrel_llv = I;
+        break;
+      }
+    }
+  }
+
+  if (pcrel_llv) {
+#if 1
+    pcrel_llv->replaceAllUsesWith(
+        ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
+                             ConstantInt::get(word_type(), lower_addr())));
+#else
+    Constant *neg1 = ConstantInt::get(word_type(), -1);
+    pcrel_llv->replaceAllUsesWith(ConstantExpr::getPtrToInt(
+        ConstantExpr::getGetElementPtr(nullptr, sectsgv, neg1), word_type()));
+#endif
+  }
+
+#endif
 }
 
 tcg::global_set_t
@@ -2374,6 +2507,7 @@ void translator::translate_tcg_operation_to_llvm(
     if (pcrel_flag && bits == sizeof(address_t) * 8) {
       pcrel_flag = false;
 
+#if 0
       cout << "immediate_constant: a = " << hex << a << endl;
 
 #if 0
@@ -2387,16 +2521,27 @@ void translator::translate_tcg_operation_to_llvm(
         // address of the program counter. Then add that constant offset to a
         // pointer in the sections to the program counter that we generate
         //
-        return b.CreateAdd(ConstantInt::get(word_type(), a),
-                           b.CreateLoad(pcrel_gv));
+#if 0
+        return b.CreateAdd(ConstantInt::get(word_type(), a), pcrel_llv);
+#else
+        ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
+                             ConstantInt::get(word_type(), lower_addr()));
+#endif
       }
 
       if (intptr) {
         intptr->dump();
         return intptr;
       }
-
-      cout << "immediate_constant: cannot get section pointer" << endl;
+#elif 0
+      int64_t sectoff =
+          static_cast<int64_t>(a) - static_cast<int64_t>(lower_addr());
+      return ConstantExpr::getAdd(
+          ConstantExpr::getPtrToInt(sectsgv, word_type()),
+          ConstantInt::get(word_type(), sectoff));
+#else
+      return b.CreateAdd(ConstantInt::get(word_type(), a), pcrel_llv);
+#endif
     }
 
     return ConstantInt::get(IntegerType::get(C, bits), a);
@@ -3254,9 +3399,9 @@ Constant *translator::section_ptr(address_t addr) {
   return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
 }
 
-Value *translator::section_int_ptr(address_t addr) {
-  Value *ptr = section_ptr(addr);
-  return ptr ? b.CreatePtrToInt(ptr, word_type()) : nullptr;
+Constant *translator::section_int_ptr(address_t addr) {
+  Constant *ptr = section_ptr(addr);
+  return ptr ? ConstantExpr::getPtrToInt(ptr, word_type()) : nullptr;
 }
 
 Value *translator::cpu_state_gep(unsigned memBits, unsigned offset) {

@@ -343,6 +343,7 @@ private:
   std::array<llvm::Value *, tcg::max_temps> tcg_tmp_llv_m;
   std::array<llvm::Value *, tcg::num_globals> tcg_glb_llv_m;
   llvm::Value *pc_llv;
+  llvm::Value *pcrel_llv;
   bool pcrel_flag;
   llvm::GlobalVariable* pcrel_gv;
   llvm::GlobalVariable *cpu_state_glb_llv;
@@ -386,7 +387,7 @@ private:
   llvm::Constant *try_fold_to_constant(llvm::Value *);
   llvm::ConstantInt *try_fold_to_constant_int(llvm::Value *);
   llvm::Constant *section_ptr(address_t addr);
-  llvm::Value *section_int_ptr(address_t addr);
+  llvm::Constant *section_int_ptr(address_t addr);
   llvm::Value *cpu_state_gep(unsigned memBits, unsigned offset);
   llvm::Value *cpu_state_load(unsigned memBits, unsigned offset);
 
