@@ -70,9 +70,9 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
         symbol_t::NOTYPE,   // STT_NOTYPE              = 0
         symbol_t::DATA,     // STT_OBJECT              = 1
         symbol_t::FUNCTION, // STT_FUNC                = 2
-        symbol_t::NOTYPE,   // STT_SECTION             = 3
-        symbol_t::NOTYPE,   // STT_FILE                = 4
-        symbol_t::NOTYPE,   // STT_COMMON              = 5
+        symbol_t::DATA,     // STT_SECTION             = 3
+        symbol_t::DATA,     // STT_FILE                = 4
+        symbol_t::DATA,     // STT_COMMON              = 5
         symbol_t::TLSDATA,  // STT_TLS                 = 6
         symbol_t::NOTYPE,   // N/A                     = 7
         symbol_t::NOTYPE,   // N/A                     = 8
@@ -109,6 +109,9 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
     };
 
     res.bind = elf_symbol_binding_mapping[Sym->getBinding()];
+
+    if (res.bind == symbol_t::WEAK)
+      res.ty = symbol_t::FUNCTION; // XXX
 
     symtbl.push_back(res);
   };

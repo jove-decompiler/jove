@@ -253,6 +253,8 @@ public:
   typedef function_t::edge_descriptor control_flow_t;
 
 private:
+  const bool noopt;
+
   llvm::object::ObjectFile &O;
 
   llvm::LLVMContext C;
@@ -381,7 +383,8 @@ private:
   llvm::Value *cpu_state_load(unsigned memBits, unsigned offset);
 
 public:
-  translator(llvm::object::ObjectFile &, const std::string &Nm);
+  translator(llvm::object::ObjectFile &, const std::string &Nm,
+             bool noopt = false);
   ~translator();
 
   llvm::Module &module() { return M; }

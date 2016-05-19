@@ -183,8 +183,8 @@ static const uint8_t helpers_bitcode_data[] = {
 #include "helpers.cpp"
 };
 
-translator::translator(ObjectFile &O, const string &MNm)
-    : O(O), M(MNm, C), FPM(&M),
+translator::translator(ObjectFile &O, const string &MNm, bool noopt)
+    : noopt(noopt), O(O), M(MNm, C), FPM(&M),
       DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
@@ -409,10 +409,14 @@ void translator::create_section_global_variables() {
 
   auto process_data_relocation_type = [&](const relocation_t &reloc) -> void {
     symbol_t& sym = symtbl[reloc.symidx];
-    Type *ty = PointerType::get(
-        sym.size ? IntegerType::get(C, 8 * sym.size) : word_type(), 0);
 
-    type_for_relocation(reloc, ty);
+    type_for_relocation(
+        reloc,
+        sym.ty == symbol_t::FUNCTION
+            ? PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0)
+            : PointerType::get(sym.size ? IntegerType::get(C, 8 * sym.size)
+                                        : word_type(),
+                               0));
   };
 
   auto process_relative_relocation_type =
@@ -426,8 +430,9 @@ void translator::create_section_global_variables() {
   static const char *sym_bind_str[] = {"NOBINDING", "LOCAL", "WEAK", "GLOBAL"};
 
   for (const relocation_t &reloc : reloctbl) {
-    cout << (boost::format("(%s) %x %s") % reloc_ty_str[reloc.ty] % reloc.addr %
-             (addrspace.find(reloc.addr) == addrspace.end() ? "~" : "-"));
+    cout << (boost::format("(%s) %x +%x%s") % reloc_ty_str[reloc.ty] %
+             reloc.addr % reloc.addend %
+             (addrspace.find(reloc.addr) == addrspace.end() ? " ~" : ""));
     if (reloc.symidx < symtbl.size()) {
       symbol_t &sym = symtbl[reloc.symidx];
       cout << (boost::format(" : %s @ %x {%d} (%s) (%s)") % sym.name %
@@ -1831,11 +1836,6 @@ void translator::translate_function_llvm(function_t& f) {
   //
   tie(vi, vi_end) = boost::vertices(f);
   for (;;) {
-#if 0
-    cout << hex << f[*vi].addr << ": f[*vi].lbls.size() = " << dec
-         << f[*vi].lbls.size() << endl;
-#endif
-
     translate_tcg_to_llvm(f, *vi);
     ++vi;
 
@@ -1845,25 +1845,18 @@ void translator::translate_function_llvm(function_t& f) {
     b.SetInsertPoint(f[*vi].llbb);
   }
 
-#if 0
-  f[boost::graph_bundle].llf->dump();
-#endif
   if (verifyFunction(llf, &errs())) {
     errs().flush();
     abort();
   }
 
-#if 0
-  {
-    error_code ec;
-    raw_fd_ostream of("/tmp/jove.O0.bc", ec, sys::fs::F_RW);
-    WriteBitcodeToFile(&M, of);
-  }
-#endif
+  //
+  // optimize code and replace pc-relative expressions
+  // 
 
-  FPM.run(llf);
+  if (!noopt)
+    FPM.run(llf);
 
-#if 1
   //
   // pcrel was invalidated, find it again
   //
@@ -1907,64 +1900,6 @@ void translator::translate_function_llvm(function_t& f) {
     pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
         ConstantExpr::getPtrToInt(sectsgv, word_type()),
         ConstantInt::get(word_type(), lower_section_addr())));
-#elif 0
-  SmallVector<Value *, 4> Indices;
-#if 0
-  Indices.push_back(0);
-  Indices.push_back(0);
-  Indices.push_back(0);
-#endif
-  getNaturalGEPWithOffset(sectsgv, APInt(64, sizeof(address_t)), word_type(), Indices);
-
-  //cout << "Indicies size: " << dec << Indices.size() << endl;
-  Constant *ptr =
-      ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
-
-  if (ptr) {
-    ptr = ConstantExpr::getSub(ConstantExpr::getPtrToInt(ptr, word_type()), ConstantInt::get(word_type(), sizeof(address_t)));
-  } else {
-    cerr << "ptr is null";
-    return;
-  }
-
-  for (User *U : pcrel_gv->users()) {
-    if (Instruction *I = dyn_cast<Instruction>(U)) {
-      if (I->getOpcode() == Instruction::Load &&
-          I->getParent()->getParent() == &llf) {
-
-        I->replaceAllUsesWith(ptr);
-        break;
-      }
-    }
-  }
-#elif 0
-  //
-  // pcrel was invalidated, find it again
-  //
-  pcrel_llv = nullptr;
-  for (User *U : pcrel_gv->users()) {
-    if (Instruction *I = dyn_cast<Instruction>(U)) {
-      if (I->getOpcode() == Instruction::Load &&
-          I->getParent()->getParent() == &llf) {
-        pcrel_llv = I;
-        break;
-      }
-    }
-  }
-
-  if (pcrel_llv) {
-#if 1
-    pcrel_llv->replaceAllUsesWith(
-        ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
-                             ConstantInt::get(word_type(), lower_section_addr())));
-#else
-    Constant *neg1 = ConstantInt::get(word_type(), -1);
-    pcrel_llv->replaceAllUsesWith(ConstantExpr::getPtrToInt(
-        ConstantExpr::getGetElementPtr(nullptr, sectsgv, neg1), word_type()));
-#endif
-  }
-
-#endif
 }
 
 tcg::global_set_t
@@ -2319,8 +2254,19 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       on_return();
     } else {
 #endif
+    //
+    // spill every global to the CPU state which is in the reaching definitions
+    // OUT for this basic block, which is NOT a parameter
+    //
+    vector<unsigned> tospill_v;
+    explode_tcg_global_set(tospill_v, bbprop.reachdef_out);
+
+    for (unsigned gidx : tospill_v)
+      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+
     Value *passed_pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
     b.CreateCall(IndirectJumpFn, ArrayRef<Value *>(passed_pc));
+
     // TODO imported functions
     on_return();
 #if 0

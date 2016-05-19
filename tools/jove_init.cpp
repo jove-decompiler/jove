@@ -28,7 +28,7 @@ namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
 namespace jove {
-static tuple<fs::path, fs::path, bool>
+static tuple<fs::path, fs::path, bool, bool>
 parse_command_line_arguments(int argc, char **argv);
 
 static void verify_arch(const ObjectFile *);
@@ -48,9 +48,9 @@ using namespace jove;
 
 int main(int argc, char **argv) {
   fs::path ifp, ofp;
-  bool static_mode;
+  bool static_mode, noopt;
 
-  tie(ifp, ofp, static_mode) = parse_command_line_arguments(argc, argv);
+  tie(ifp, ofp, static_mode, noopt) = parse_command_line_arguments(argc, argv);
 
   //
   // parse binary
@@ -76,7 +76,7 @@ int main(int argc, char **argv) {
   //
   // initialize translator
   //
-  T.reset(new translator(*O, ifp.stem().string()));
+  T.reset(new translator(*O, ifp.stem().string(), noopt));
 
   //
   // create declarations for imported functions
@@ -117,9 +117,9 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc, char **argv) {
+tuple<fs::path, fs::path, bool, bool> parse_command_line_arguments(int argc, char **argv) {
   string ifp, ofp;
-  bool static_mode = false, dynamic_mode = false;
+  bool static_mode = false, dynamic_mode = false, noopt = false;
 
   try {
     po::options_description desc("Allowed options");
@@ -129,6 +129,9 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc, char **ar
       ("input,i", po::value<string>(&ifp), "input binary")
 
       ("output,o", po::value<string>(&ofp), "output bitcode file path")
+
+      ("noopt,s", po::value<bool>(&noopt),
+      "produce unoptimized LLVM")
 
       ("static,s", po::value<bool>(&static_mode),
       "produce bitcode for static analysis")
@@ -156,7 +159,7 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc, char **ar
     exit(1);
   }
 
-  return make_tuple(ifp, ofp, static_mode);
+  return make_tuple(ifp, ofp, static_mode, noopt);
 }
 
 void verify_arch(const ObjectFile *Obj) {
