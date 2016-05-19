@@ -1,7 +1,6 @@
 case ELF::R_X86_64_GLOB_DAT:
-  return relocation_t::DATA;
 case ELF::R_X86_64_JUMP_SLOT:
-  return relocation_t::FUNCTION;
+  return relocation_t::ADDRESSOF;
 case ELF::R_X86_64_COPY:
   return relocation_t::COPY;
 case ELF::R_X86_64_64:

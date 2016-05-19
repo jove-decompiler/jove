@@ -394,22 +394,9 @@ void translator::create_section_global_variables() {
         section_interval_t::right_open(off, off + sizeof(address_t)));
   };
 
-  auto process_function_relocation_type =
+  auto process_addressof_relocation_type =
       [&](const relocation_t &reloc) -> void {
-#if 0
     symbol_t& sym = symtbl[reloc.symidx];
-    Type *ty = sym.is_undefined() ?
-        PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0) :
-        M.getFunction(sym.name)->getType();
-#else
-    Type *ty = PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0);
-#endif
-    type_for_relocation(reloc, ty);
-  };
-
-  auto process_data_relocation_type = [&](const relocation_t &reloc) -> void {
-    symbol_t& sym = symtbl[reloc.symidx];
-
     type_for_relocation(
         reloc,
         sym.ty == symbol_t::FUNCTION
@@ -424,8 +411,8 @@ void translator::create_section_global_variables() {
     type_for_relocation(reloc, PointerType::get(word_type(), 0));
   };
 
-  static const char *reloc_ty_str[] = {"NONE", "RELATIVE", "ABSOLUTE",
-                                       "COPY", "FUNCTION", "DATA"};
+  static const char *reloc_ty_str[] = {"NONE", "RELATIVE", "ABSOLUTE", "COPY",
+                                       "ADDRESSOF"};
   static const char *sym_ty_str[] = {"NOTYPE", "DATA", "FUNCTION", "TLSDATA"};
   static const char *sym_bind_str[] = {"NOBINDING", "LOCAL", "WEAK", "GLOBAL"};
 
@@ -444,16 +431,10 @@ void translator::create_section_global_variables() {
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
-                return reloc.ty == relocation_t::FUNCTION &&
+                return reloc.ty == relocation_t::ADDRESSOF &&
                        addrspace.find(reloc.addr) != addrspace.end();
               },
-              process_function_relocation_type);
-  for_each_if(reloctbl.begin(), reloctbl.end(),
-              [&](const relocation_t &reloc) -> bool {
-                return reloc.ty == relocation_t::DATA &&
-                       addrspace.find(reloc.addr) != addrspace.end();
-              },
-              process_data_relocation_type);
+              process_addressof_relocation_type);
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
                 return reloc.ty == relocation_t::RELATIVE &&
@@ -507,7 +488,7 @@ void translator::create_section_global_variables() {
 
   StructType *sectsgvty =
       StructType::create(C, fieldtys, "struct.__jove_sections", true);
-  sectsgv = new GlobalVariable(M, sectsgvty, true, GlobalValue::ExternalLinkage,
+  sectsgv = new GlobalVariable(M, sectsgvty, false, GlobalValue::ExternalLinkage,
                                nullptr, "__jove_sections");
   sectsgv->setAlignment(sizeof(address_t));
 
@@ -523,7 +504,7 @@ void translator::create_section_global_variables() {
     sectrelocs[sectidx][off] = Cnst;
   };
 
-  auto process_function_relocation = [&](const relocation_t &reloc) -> void {
+  auto process_addressof_function_relocation = [&](const relocation_t &reloc) -> void {
     symbol_t &sym = symtbl[reloc.symidx];
 
     Constant *Cnst;
@@ -556,7 +537,7 @@ void translator::create_section_global_variables() {
     constant_for_relocation(reloc, Cnst);
   };
 
-  auto process_data_relocation = [&](const relocation_t &reloc) -> void {
+  auto process_addressof_data_relocation = [&](const relocation_t &reloc) -> void {
     symbol_t &sym = symtbl[reloc.symidx];
 
     Constant *Cnst;
@@ -611,22 +592,31 @@ void translator::create_section_global_variables() {
     constant_for_relocation(reloc, Cnst);
   };
 
+  auto process_addressof_relocation = [&](const relocation_t &reloc) -> void {
+    symbol_t &sym = symtbl[reloc.symidx];
+
+    switch (sym.ty) {
+    case symbol_t::FUNCTION:
+      process_addressof_function_relocation(reloc);
+      break;
+    case symbol_t::DATA:
+      process_addressof_data_relocation(reloc);
+      break;
+    default:
+      break;
+    }
+  };
+
   auto process_relative_relocation = [&](const relocation_t &reloc) -> void {
     constant_for_relocation(reloc, section_ptr(reloc.addend));
   };
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
-                return reloc.ty == relocation_t::FUNCTION &&
+                return reloc.ty == relocation_t::ADDRESSOF &&
                        addrspace.find(reloc.addr) != addrspace.end();
               },
-              process_function_relocation);
-  for_each_if(reloctbl.begin(), reloctbl.end(),
-              [&](const relocation_t &reloc) -> bool {
-                return reloc.ty == relocation_t::DATA &&
-                       addrspace.find(reloc.addr) != addrspace.end();
-              },
-              process_data_relocation);
+              process_addressof_relocation);
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
                 return reloc.ty == relocation_t::RELATIVE &&
@@ -731,21 +721,16 @@ void translator::prepare_for_translation() {
   // initialize function pass manager
   //
   //
-  // provide basic aliasanalysis support for GVN.
   FPM.add(createBasicAAWrapperPass());
-  // promote allocas to registers.
   FPM.add(createPromoteMemoryToRegisterPass());
-  // sparse conditional constant propagation and merging
   FPM.add(createSCCPPass());
-  // do simple "peephole" optimizations and bit-twiddling optzns.
   FPM.add(createInstructionCombiningPass());
-  // eliminate common subexpressions.
   FPM.add(createGVNPass());
-  // kill dead stores
   FPM.add(createDeadStoreEliminationPass());
-  // simplify the control flow graph (deleting unreachable blocks, etc).
   FPM.add(createCFGSimplificationPass());
-  // reassociate expressions.
+  FPM.add(createReassociatePass());
+  FPM.add(createInstructionSimplifierPass());
+  FPM.add(createInstructionCombiningPass());
   FPM.add(createReassociatePass());
 
   FPM.doInitialization();
@@ -890,6 +875,10 @@ translator::translate(const std::vector<address_t> &addrs) {
     function_t &f = *function_table[addr];
     translate_function_llvm(f);
   }
+
+  //
+  // whole-module analysis
+  //
 
   return make_tuple(nullptr, nullptr);
 }

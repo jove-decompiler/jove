@@ -90,7 +90,7 @@ struct relocation_t {
     RELATIVE,
 
     //
-    // set the location specified to be the address of the symbol specified
+    // set the location specified to be the absolute address of the addend
     //
     ABSOLUTE,
 
@@ -100,7 +100,7 @@ struct relocation_t {
     COPY,
 
     //
-    // address of a function.
+    // address of a function or variable.
     //
     // on linux x86_64, when C code is compiled to call an imported function, it
     // appears as
@@ -126,12 +126,7 @@ struct relocation_t {
     // contained in the object file sets [_imp_MessageBoxA (00007ff7`607330c0)]
     // equal to the address of the imported function.
     //
-    FUNCTION,
-
-    //
-    // address of a variable.
-    //
-    DATA
+    ADDRESSOF
   } ty;
 
   address_t addr;
