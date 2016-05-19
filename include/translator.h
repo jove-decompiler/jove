@@ -10,6 +10,7 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Object/ObjectFile.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <queue>
 #include <tuple>
 #include <unordered_map>
@@ -256,6 +257,7 @@ private:
 
   llvm::LLVMContext C;
   llvm::Module M;
+  llvm::legacy::FunctionPassManager FPM;
   const llvm::DataLayout &DL;
 
   std::unique_ptr<llvm::Module> _HelperM;
@@ -329,7 +331,7 @@ private:
   std::array<llvm::Value *, tcg::max_temps> tcg_tmp_llv_m;
   std::array<llvm::Value *, tcg::num_globals> tcg_glb_llv_m;
   llvm::Value *pc_llv;
-  llvm::Value *pcrel_llv;
+  llvm::LoadInst *pcrel_llv;
   bool pcrel_flag;
   llvm::GlobalVariable* pcrel_gv;
   llvm::GlobalVariable *cpu_state_glb_llv;
@@ -338,7 +340,8 @@ private:
   std::unordered_map<address_t, llvm::Function *> reloc_function_table;
 
   llvm::Type *word_type();
-  address_t lower_addr();
+  address_t lower_section_addr();
+  address_t upper_section_addr();
   void init_helpers();
   void prepare_for_translation();
   void create_section_global_variables();
@@ -379,7 +382,7 @@ private:
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm);
-  ~translator() {}
+  ~translator();
 
   llvm::Module &module() { return M; }
 

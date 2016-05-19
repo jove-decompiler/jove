@@ -32,10 +32,11 @@ _CFLAGS   := $(CFLAGS) \
 _CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
              $(CXXFLAGS) $(QEMU_CXXFLAGS) \
              -DNEED_CPU_H \
+			 -Wno-c99-extensions \
              $(shell pkg-config --cflags glib-2.0)
 
 _CFLAGS   := $(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))
-_CXXFLAGS := $(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))
+_CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))
 
 #
 # jove-init

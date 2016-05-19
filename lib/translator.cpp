@@ -21,8 +21,8 @@
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/Transforms/Scalar.h>
-#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Analysis/BasicAliasAnalysis.h>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 
 using namespace llvm;
 using namespace object;
@@ -77,86 +77,86 @@ static bool is_arg_temp(Arg a) {
 }
 
 enum MemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
+  MO_8 = 0,
+  MO_16 = 1,
+  MO_32 = 2,
+  MO_64 = 3,
+  MO_SIZE = 3, /* Mask for the above.  */
 
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
+  MO_SIGN = 4, /* Sign-extended, otherwise zero-extended.  */
 
-    MO_BSWAP = 8,   /* Host reverse endian.  */
+  MO_BSWAP = 8, /* Host reverse endian.  */
 #ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
+  MO_LE = MO_BSWAP,
+  MO_BE = 0,
 #else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
+  MO_LE = 0,
+  MO_BE = MO_BSWAP,
 #endif
 #ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
+  MO_TE = MO_BE,
 #else
-    MO_TE    = MO_LE,
+  MO_TE = MO_LE,
 #endif
 
-    /* MO_UNALN accesses are never checked for alignment.
-       MO_ALIGN accesses will result in a call to the CPU's
-       do_unaligned_access hook if the guest address is not aligned.
-       The default depends on whether the target CPU defines ALIGNED_ONLY.  */
-    MO_AMASK = 16,
+  /* MO_UNALN accesses are never checked for alignment.
+     MO_ALIGN accesses will result in a call to the CPU's
+     do_unaligned_access hook if the guest address is not aligned.
+     The default depends on whether the target CPU defines ALIGNED_ONLY.  */
+  MO_AMASK = 16,
 #ifdef ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
+  MO_ALIGN = 0,
+  MO_UNALN = MO_AMASK,
 #else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
+  MO_ALIGN = MO_AMASK,
+  MO_UNALN = 0,
 #endif
 
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
+  /* Combinations of the above, for ease of use.  */
+  MO_UB = MO_8,
+  MO_UW = MO_16,
+  MO_UL = MO_32,
+  MO_SB = MO_SIGN | MO_8,
+  MO_SW = MO_SIGN | MO_16,
+  MO_SL = MO_SIGN | MO_32,
+  MO_Q = MO_64,
 
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
+  MO_LEUW = MO_LE | MO_UW,
+  MO_LEUL = MO_LE | MO_UL,
+  MO_LESW = MO_LE | MO_SW,
+  MO_LESL = MO_LE | MO_SL,
+  MO_LEQ = MO_LE | MO_Q,
 
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
+  MO_BEUW = MO_BE | MO_UW,
+  MO_BEUL = MO_BE | MO_UL,
+  MO_BESW = MO_BE | MO_SW,
+  MO_BESL = MO_BE | MO_SL,
+  MO_BEQ = MO_BE | MO_Q,
 
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
+  MO_TEUW = MO_TE | MO_UW,
+  MO_TEUL = MO_TE | MO_UL,
+  MO_TESW = MO_TE | MO_SW,
+  MO_TESL = MO_TE | MO_SL,
+  MO_TEQ = MO_TE | MO_Q,
 
-    MO_SSIZE = MO_SIZE | MO_SIGN,
+  MO_SSIZE = MO_SIZE | MO_SIGN,
 };
 typedef enum {
-    /* non-signed */
-    TCG_COND_NEVER  = 0 | 0 | 0 | 0,
-    TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
-    TCG_COND_EQ     = 8 | 0 | 0 | 0,
-    TCG_COND_NE     = 8 | 0 | 0 | 1,
-    /* signed */
-    TCG_COND_LT     = 0 | 0 | 2 | 0,
-    TCG_COND_GE     = 0 | 0 | 2 | 1,
-    TCG_COND_LE     = 8 | 0 | 2 | 0,
-    TCG_COND_GT     = 8 | 0 | 2 | 1,
-    /* unsigned */
-    TCG_COND_LTU    = 0 | 4 | 0 | 0,
-    TCG_COND_GEU    = 0 | 4 | 0 | 1,
-    TCG_COND_LEU    = 8 | 4 | 0 | 0,
-    TCG_COND_GTU    = 8 | 4 | 0 | 1,
+  /* non-signed */
+  TCG_COND_NEVER = 0 | 0 | 0 | 0,
+  TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
+  TCG_COND_EQ = 8 | 0 | 0 | 0,
+  TCG_COND_NE = 8 | 0 | 0 | 1,
+  /* signed */
+  TCG_COND_LT = 0 | 0 | 2 | 0,
+  TCG_COND_GE = 0 | 0 | 2 | 1,
+  TCG_COND_LE = 8 | 0 | 2 | 0,
+  TCG_COND_GT = 8 | 0 | 2 | 1,
+  /* unsigned */
+  TCG_COND_LTU = 0 | 4 | 0 | 0,
+  TCG_COND_GEU = 0 | 4 | 0 | 1,
+  TCG_COND_LEU = 8 | 4 | 0 | 0,
+  TCG_COND_GTU = 8 | 4 | 0 | 1,
 } TCGCond;
 static Label *arg_label(Arg i) { return (Label *)(uintptr_t)i; }
 typedef uint32_t MemOpIdx;
@@ -184,7 +184,8 @@ static const uint8_t helpers_bitcode_data[] = {
 };
 
 translator::translator(ObjectFile &O, const string &MNm)
-    : O(O), M(MNm, C), DL(M.getDataLayout()),
+    : O(O), M(MNm, C), FPM(&M),
+      DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
                                                    &helpers_bitcode_data[0]),
@@ -243,6 +244,10 @@ translator::translator(ObjectFile &O, const string &MNm)
   // translating to LLVM
   //
   prepare_for_translation();
+}
+
+translator::~translator() {
+  FPM.doFinalization();
 }
 
 enum HELPER_METADATA_TYPE {
@@ -391,8 +396,8 @@ void translator::create_section_global_variables() {
 
   auto process_function_relocation_type =
       [&](const relocation_t &reloc) -> void {
-    symbol_t& sym = symtbl[reloc.symidx];
 #if 0
+    symbol_t& sym = symtbl[reloc.symidx];
     Type *ty = sym.is_undefined() ?
         PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0) :
         M.getFunction(sym.name)->getType();
@@ -716,6 +721,29 @@ void translator::prepare_for_translation() {
   // binary section data
   //
   create_section_global_variables();
+
+  //
+  // initialize function pass manager
+  //
+  //
+  // provide basic aliasanalysis support for GVN.
+  FPM.add(createBasicAAWrapperPass());
+  // promote allocas to registers.
+  FPM.add(createPromoteMemoryToRegisterPass());
+  // sparse conditional constant propagation and merging
+  FPM.add(createSCCPPass());
+  // do simple "peephole" optimizations and bit-twiddling optzns.
+  FPM.add(createInstructionCombiningPass());
+  // eliminate common subexpressions.
+  FPM.add(createGVNPass());
+  // kill dead stores
+  FPM.add(createDeadStoreEliminationPass());
+  // simplify the control flow graph (deleting unreachable blocks, etc).
+  FPM.add(createCFGSimplificationPass());
+  // reassociate expressions.
+  FPM.add(createReassociatePass());
+
+  FPM.doInitialization();
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {
@@ -1146,9 +1174,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     MIA = _MIA.get();
   }
 
-  const MCRegisterInfo &MRI = *libmc_reginfo();
-  const MCInstrDesc &Desc = libmc_instrinfo()->get(Inst.getOpcode());
-
   if (MIA->isReturn(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_RETURN;
   } else if (MIA->isConditionalBranch(Inst)) {
@@ -1377,7 +1402,6 @@ void translator::print_tcg_ops(ostream &out,
       return (boost::format("tmp_%d") % static_cast<int>(a)).str();
   };
 
-  char buf[128];
   char asmbuf[128];
 
   const tcg::Op *ops = bbprop.tcg_ops.get();
@@ -1674,8 +1698,12 @@ Type *translator::word_type() {
   return word_ty;
 }
 
-address_t translator::lower_addr() {
+address_t translator::lower_section_addr() {
   return (*addrspace.begin()).first.lower();
+}
+
+address_t translator::upper_section_addr() {
+  return (*prev(addrspace.end())).first.upper();
 }
 
 Value* translator::cpu_state_global_gep(unsigned gidx) {
@@ -1825,31 +1853,17 @@ void translator::translate_function_llvm(function_t& f) {
     abort();
   }
 
+#if 0
   {
     error_code ec;
     raw_fd_ostream of("/tmp/jove.O0.bc", ec, sys::fs::F_RW);
     WriteBitcodeToFile(&M, of);
   }
+#endif
 
-  legacy::FunctionPassManager FPM(&M);
-  // provide basic aliasanalysis support for GVN.
-  FPM.add(createBasicAAWrapperPass());
-  // promote allocas to registers.
-  FPM.add(createPromoteMemoryToRegisterPass());
-  // do simple "peephole" optimizations and bit-twiddling optzns.
-  FPM.add(createInstructionCombiningPass());
-  // reassociate expressions.
-  FPM.add(createReassociatePass());
-  // eliminate common subexpressions.
-  FPM.add(createGVNPass());
-  // simplify the control flow graph (deleting unreachable blocks, etc).
-  FPM.add(createCFGSimplificationPass());
-
-  FPM.doInitialization();
   FPM.run(llf);
-  FPM.doFinalization();
 
-#if 0
+#if 1
   //
   // pcrel was invalidated, find it again
   //
@@ -1858,7 +1872,7 @@ void translator::translate_function_llvm(function_t& f) {
     if (Instruction *I = dyn_cast<Instruction>(U)) {
       if (I->getOpcode() == Instruction::Load &&
           I->getParent()->getParent() == &llf) {
-        pcrel_llv = I;
+        pcrel_llv = cast<LoadInst>(I);
         break;
       }
     }
@@ -1870,27 +1884,29 @@ void translator::translate_function_llvm(function_t& f) {
   //
   // take care of pcrel expressions
   //
-  vector<pair<Value *, Constant *>> torepl;
+  vector<pair<Instruction *, Constant *>> torepl;
   for (User *U : pcrel_llv->users()) {
-    if (cast<Instruction>(U)->getOpcode() == Instruction::Add) {
-      U->dump();
+    if (cast<Instruction>(U)->getOpcode() == Instruction::Add)
       if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
         if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
-          torepl.push_back({U, Ptr});
-    }
+          torepl.push_back({cast<Instruction>(U), Ptr});
   }
 
   for (auto &replm : torepl) {
-    Value *V;
+    Instruction *Inst;
     Constant *C;
-    tie(V, C) = replm;
+    tie(Inst, C) = replm;
 
-    V->replaceAllUsesWith(C);
+    Inst->replaceAllUsesWith(C);
+    Inst->eraseFromParent();
   }
 
-  pcrel_llv->replaceAllUsesWith(
-      ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
-                           ConstantInt::get(word_type(), lower_addr())));
+  if (pcrel_llv->user_begin() == pcrel_llv->user_end())
+    pcrel_llv->eraseFromParent();
+  else
+    pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
+        ConstantExpr::getPtrToInt(sectsgv, word_type()),
+        ConstantInt::get(word_type(), lower_section_addr())));
 #elif 0
   SmallVector<Value *, 4> Indices;
 #if 0
@@ -1940,7 +1956,7 @@ void translator::translate_function_llvm(function_t& f) {
 #if 1
     pcrel_llv->replaceAllUsesWith(
         ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
-                             ConstantInt::get(word_type(), lower_addr())));
+                             ConstantInt::get(word_type(), lower_section_addr())));
 #else
     Constant *neg1 = ConstantInt::get(word_type(), -1);
     pcrel_llv->replaceAllUsesWith(ConstantExpr::getPtrToInt(
@@ -2174,15 +2190,15 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
                               ArrayRef<Value *>(passed));
 
     //
-    // for every return value: if the global is an output, then store it to our
-    // local copy. otherwise, spill it to the CPU state.
+    // for every return value: if the global is live, store it to our local
+    // copy. otherwise, spill it to the CPU state.
     //
     vector<unsigned>& ret_v = callee[boost::graph_bundle].returned;
     for (unsigned i = 0; i < ret_v.size(); ++i) {
       unsigned gidx = ret_v[i];
       Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
       gvl->setName(tcg_globals[gidx].nm + string("_returned"));
-      if (f[boost::graph_bundle].outputs.test(gidx))
+      if (bbprop.live_out.test(gidx))
         b.CreateStore(gvl, tcg_glb_llv_m[gidx]);
       else
         store_global_to_cpu_state(gvl, gidx);
@@ -2190,7 +2206,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
     //
     // reload every global from the CPUState that is in the liveness OUT of this
-    // basic block
+    // basic block and that was not returned
     //
     tcg::global_set_t toreload =
         bbprop.live_out &
@@ -2413,19 +2429,6 @@ void translator::translate_tcg_operation_to_llvm(
   const tcg::OpDef &def =
       *(static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(opc)));
 
-  auto name = [&](tcg::Arg a) -> string {
-    if (a == tcg::CALL_DUMMY_ARG)
-      return "dummy";
-
-    if (a == tcg::CPU_STATE_ARG)
-      return "env";
-
-    if (a < tcg::num_globals)
-      return tcg_globals[a].nm;
-    else
-      return (boost::format("tmp%u") % static_cast<unsigned>(a)).str();
-  };
-
   auto set = [&](Value *v, tcg::Arg a) -> void {
     assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
 
@@ -2481,7 +2484,7 @@ void translator::translate_tcg_operation_to_llvm(
         return b.CreateAdd(ConstantInt::get(word_type(), a), pcrel_llv);
 #else
         ConstantExpr::getSub(ConstantExpr::getPtrToInt(sectsgv, word_type()),
-                             ConstantInt::get(word_type(), lower_addr()));
+                             ConstantInt::get(word_type(), lower_section_addr()));
 #endif
       }
 
@@ -2491,7 +2494,7 @@ void translator::translate_tcg_operation_to_llvm(
       }
 #elif 0
       int64_t sectoff =
-          static_cast<int64_t>(a) - static_cast<int64_t>(lower_addr());
+          static_cast<int64_t>(a) - static_cast<int64_t>(lower_section_addr());
       return ConstantExpr::getAdd(
           ConstantExpr::getPtrToInt(sectsgv, word_type()),
           ConstantInt::get(word_type(), sectoff));
@@ -3343,14 +3346,16 @@ Constant* translator::try_fold_to_constant(Value* v) {
 }
 
 Constant *translator::section_ptr(address_t addr) {
-  auto it = addrspace.find(addr);
-  if (it == addrspace.end())
+  if (addr < lower_section_addr() || addr >= upper_section_addr())
     return nullptr;
 
-  unsigned off = addr - lower_addr();
+  unsigned off = addr - lower_section_addr();
 
   SmallVector<Value *, 4> Indices;
   getNaturalGEPWithOffset(sectsgv, APInt(64, off), word_type(), Indices);
+
+  if (Indices.empty())
+    return nullptr;
 
   return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
 }
