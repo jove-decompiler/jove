@@ -1,22 +1,29 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 #include "tcg.h"
+#include <stdio.h>
 
+
+void foo(int);
+void foo(int x) {
+  printf("%d\n", x);
+}
+typedef void (*proc_ty)(int);
+
+static const proc_ty __jove_thunk_in_to = foo;
 static CPUX86State cpu_state;
 
-static uint64_t __jove_thunk_in_to;
 void __jove_thunk_in_begin(void) __attribute__((naked));
-
 void __jove_thunk_in_begin() {
   __asm__ volatile(
+      "xchgq %%rbp, %[out_rbp]\n"
+      "xchgq %%rsp, %[out_rsp]\n"
       "movq %%rax, %[out_rax]\n"
       "movq %%rbx, %[out_rbx]\n"
       "movq %%rcx, %[out_rcx]\n"
       "movq %%rdx, %[out_rdx]\n"
       "movq %%rsi, %[out_rsi]\n"
       "movq %%rdi, %[out_rdi]\n"
-      "movq %%rbp, %[out_rbp]\n"
-      "movq %%rsp, %[out_rsp]\n"
       "movq %%r8, %[out_r8]\n"
       "movq %%r9, %[out_r9]\n"
       "movq %%r10, %[out_r10]\n"
@@ -26,7 +33,7 @@ void __jove_thunk_in_begin() {
       "movq %%r14, %[out_r14]\n"
       "movq %%r15, %[out_r15]\n"
 
-      "call *%[to]\n"
+      "call foo\n"
 
       "movq %[in_rax], %%rax\n"
       "movq %[in_rbx], %%rbx\n"
@@ -34,8 +41,6 @@ void __jove_thunk_in_begin() {
       "movq %[in_rdx], %%rdx\n"
       "movq %[in_rsi], %%rsi\n"
       "movq %[in_rdi], %%rdi\n"
-      "movq %[in_rbp], %%rbp\n"
-      "movq %[in_rsp], %%rsp\n"
       "movq %[in_r8],  %%r8\n"
       "movq %[in_r9],  %%r9\n"
       "movq %[in_r10], %%r10\n"
@@ -44,6 +49,8 @@ void __jove_thunk_in_begin() {
       "movq %[in_r13], %%r13\n"
       "movq %[in_r14], %%r14\n"
       "movq %[in_r15], %%r15\n"
+      "xchgq %[in_rbp], %%rbp\n"
+      "xchgq %[in_rsp], %%rsp\n"
 
       : // OutputOperands
       [out_rax] "=m" (cpu_state.regs[R_EAX]),
@@ -79,9 +86,7 @@ void __jove_thunk_in_begin() {
       [in_r12] "m" (cpu_state.regs[12]),
       [in_r13] "m" (cpu_state.regs[13]),
       [in_r14] "m" (cpu_state.regs[14]),
-      [in_r15] "m" (cpu_state.regs[15]),
-
-      [to] "m"(__jove_thunk_in_to)
+      [in_r15] "m" (cpu_state.regs[15])
 
       : // Clobbers
       "rax",
