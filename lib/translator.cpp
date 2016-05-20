@@ -867,99 +867,18 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   // whole-module analysis
   //
-#if 0
-  InitializeAllTargets();
-  InitializeAllTargetMCs();
-  InitializeAllAsmPrinters();
-
-  // Initialize passes
-  PassRegistry &Registry = *PassRegistry::getPassRegistry();
-  initializeCore(Registry);
-  initializeScalarOpts(Registry);
-  initializeObjCARCOpts(Registry);
-  initializeVectorization(Registry);
-  initializeIPO(Registry);
-  initializeAnalysis(Registry);
-  initializeTransformUtils(Registry);
-  initializeInstCombine(Registry);
-  initializeInstrumentation(Registry);
-  initializeTarget(Registry);
-
-  initializeCodeGenPreparePass(Registry);
-  initializeAtomicExpandPass(Registry);
-  initializeRewriteSymbolsPass(Registry);
-  initializeWinEHPreparePass(Registry);
-  initializeDwarfEHPreparePass(Registry);
-  initializeSjLjEHPreparePass(Registry);
 
   //
-  // optimize code 
+  // optimize code, use -O2 passes
   // 
-  legacy::FunctionPassManager FPM(&M);
-  legacy::PassManager MPM;
-
-  //
-  // add an appropriate TargetLibraryInfo pass for the module's triple
-  //
-  Triple ModuleTriple(M.getTargetTriple());
-  TargetLibraryInfoImpl TLII(ModuleTriple);
-  MPM.add(new TargetLibraryInfoWrapperPass(TLII));
-
-  //
-  // add internal analysis passes from the target machine
-  //
-  std::string CPUStr, FeaturesStr;
-  TargetMachine *Machine = nullptr;
-  const TargetOptions Options;
-  auto GetTargetMachine = [&](void) -> TargetMachine * {
-    std::string Error;
-    const Target *TheTarget =
-        TargetRegistry::lookupTarget("", ModuleTriple, Error);
-
-    // some modules don't specify a triple, and this is okay
-    if (!TheTarget) {
-      return nullptr;
-    }
-
-    return TheTarget->createTargetMachine(
-        ModuleTriple.getTriple(), CPUStr, FeaturesStr, Options, Reloc::Default,
-        CodeModel::Default, CodeGenOpt::Default);
-  };
-  Machine = GetTargetMachine();
-  std::unique_ptr<TargetMachine> TM(Machine);
-
-  MPM.add(createTargetTransformInfoWrapperPass(TM ? TM->getTargetIRAnalysis()
-                                                  : TargetIRAnalysis()));
-
-  FPM.add(createTargetTransformInfoWrapperPass(TM ? TM->getTargetIRAnalysis()
-                                                  : TargetIRAnalysis()));
-#else
-  //
-  // optimize code 
-  // 
-  legacy::FunctionPassManager FPM(&M);
-  legacy::PassManager MPM;
-#endif
-
-  //
-  // use -O2 passes
-  //
   PassManagerBuilder Builder;
   Builder.OptLevel = 2;
   Builder.SizeLevel = 0;
 
-  Builder.populateFunctionPassManager(FPM);
+  legacy::PassManager MPM;
   Builder.populateModulePassManager(MPM);
 
-#if 0
-  Builder.populateLTOPassManager(MPM);
-#endif
-
-  FPM.doInitialization();
-  for (Function &F : M)
-    FPM.run(F);
-
-  //MPM.run(M);
+  MPM.run(M);
 
   //
   // fixup pc-relative expressions
@@ -992,14 +911,95 @@ translator::translate(const std::vector<address_t> &addrs) {
           ConstantInt::get(word_type(), lower_section_addr())));
   }
 
-#if 0
-  for (Function &F : M)
-    FPM.run(F);
-#endif
-
+  //
+  // optimize again to get IR to have expressions of the form
+  // load GEP(section + offset)
+  //
   MPM.run(M);
 
-  FPM.doFinalization();
+  //
+  // replace loads of section GEP's that point to Constant's (i.e., relocations)
+  // with the constants themselves
+  //
+  set<LoadInst*> ToRemove;
+  for (User *SectsU : sectsgv->users()) {
+    if (!isa<ConstantExpr>(SectsU))
+     continue;
+
+    ConstantExpr* SectsCE = cast<ConstantExpr>(SectsU);
+
+    if (SectsCE->getOpcode() != Instruction::GetElementPtr)
+      continue;
+
+    //
+    // determine the constant address in the section data that this GEP
+    // represents
+    //
+    APInt sectsoff(DL.getPointerTypeSizeInBits(SectsCE->getType()), 0);
+    cast<GEPOperator>(SectsCE)->accumulateConstantOffset(DL, sectsoff);
+
+    uint64_t addr = sectsoff.getZExtValue() + lower_section_addr();
+
+    unsigned sectidx = (*addrspace.find(addr)).second - 1;
+    unsigned sectoff = addr - secttbl[sectidx].addr;
+    auto sectreloc_it = sectrelocs[sectidx].find(sectoff);
+    if (sectreloc_it == sectrelocs[sectidx].end())
+      continue;
+
+    Constant* C = (*sectreloc_it).second;
+
+    auto on_load = [&](LoadInst *LInst) -> bool {
+      if (DL.getTypeSizeInBits(LInst->getType()) !=
+          DL.getTypeSizeInBits(C->getType()))
+        return false;
+
+      Constant* Replacement;
+      Type* T = LInst->getType();
+      if (isa<IntegerType>(T)) {
+        Replacement = ConstantExpr::getPtrToInt(C, T);
+      } else if (isa<PointerType>(T)) {
+        Replacement = ConstantExpr::getPointerCast(C, T);
+      } else {
+        cerr << "warning: could not replace load of relocation from section"
+             << endl;
+        return false;
+      }
+
+      LInst->replaceAllUsesWith(Replacement);
+      return true;
+    };
+
+    function<void(ConstantExpr *)> look_through_to_load =
+        [&](ConstantExpr *CE) -> void {
+      for (User *U : CE->users()) {
+        if (LoadInst* LI = dyn_cast<LoadInst>(U))
+          if (on_load(LI))
+            ToRemove.insert(LI);
+
+        if (isa<ConstantExpr>(U))
+          look_through_to_load(cast<ConstantExpr>(U));
+      }
+    };
+
+    look_through_to_load(SectsCE);
+  }
+
+#if 1
+  for (LoadInst *LI : ToRemove) {
+    assert(LI->user_begin() == LI->user_end());
+    LI->eraseFromParent();
+  }
+#endif
+
+  //
+  // look for indirect jumps to external (i.e., imported) functions. we'll turn
+  // them into g
+  //
+
+  if (verifyModule(M, &errs())) {
+    errs().flush();
+    abort();
+  }
 
   return make_tuple(nullptr, nullptr);
 }

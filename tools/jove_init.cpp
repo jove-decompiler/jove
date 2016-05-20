@@ -50,7 +50,7 @@ int main(int argc, char **argv) {
   fs::path ifp, ofp;
   bool static_mode, noopt;
 
-  // XXX do we need this?
+#if 0
   StringMap<cl::Option *> &optMap(cl::getRegisteredOptions());
 
   {
@@ -58,6 +58,7 @@ int main(int argc, char **argv) {
     if (optIt != optMap.end())
       ((cl::opt<bool> *)(*optIt).second)->setValue(true);
   }
+#endif
 
   tie(ifp, ofp, static_mode, noopt) = parse_command_line_arguments(argc, argv);
 
