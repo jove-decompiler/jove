@@ -35,7 +35,7 @@ _CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
 			 -Wno-c99-extensions \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))
+_CFLAGS   := $(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))))
 _CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))
 
 #
@@ -84,7 +84,7 @@ $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,ab
 
 $(call res,thunk).bc: $(build_dir)/thunk_$(_TARGET_NAME).c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
+	$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # output of ABI calling conventions
