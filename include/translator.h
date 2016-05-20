@@ -280,8 +280,10 @@ private:
 
   llvm::FunctionType *ExternalFnTy;
   llvm::PointerType *ExternalFnPtrTy;
-  llvm::Function *IndirectJumpFn;
-  llvm::Function *IndirectCallFn;
+
+  llvm::Function *IndirectJumpFn();
+  llvm::Function *IndirectCallFn();
+  llvm::Function *CallImportedFn();
 
   struct {
     std::array<unsigned, call_conv_num_arg_regs> arg_regs;

@@ -213,15 +213,6 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
           AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
       ExternalFnTy(FunctionType::get(Type::getVoidTy(C), false)),
       ExternalFnPtrTy(PointerType::get(ExternalFnTy, 0)),
-      IndirectJumpFn(Function::Create(
-          FunctionType::get(Type::getVoidTy(C),
-                            ArrayRef<Type *>(ExternalFnPtrTy), false),
-          GlobalValue::ExternalLinkage, "___jove_indirect_jump", &M)),
-      IndirectCallFn(Function::Create(
-          FunctionType::get(Type::getVoidTy(C), ArrayRef<Type *>(word_ty),
-                            false),
-          GlobalValue::ExternalLinkage, "___jove_indirect_call", &M)),
-
       callconv{{{
 #include "abi_callingconv_arg_regs.cpp"
                }},
@@ -260,6 +251,40 @@ enum HELPER_METADATA_TYPE {
   HMT_INPUT,
   HMT_OUTPUT,
 };
+
+llvm::Function *translator::IndirectJumpFn() {
+  const char* nm = "__jove_indirect_jump";
+
+  if (Function* f = M.getFunction(nm))
+    return f;
+
+  return Function::Create(FunctionType::get(Type::getVoidTy(C),
+                                            ArrayRef<Type *>(ExternalFnPtrTy),
+                                            false),
+                          GlobalValue::ExternalLinkage, nm, &M);
+}
+llvm::Function *translator::IndirectCallFn() {
+  const char* nm = "__jove_indirect_call";
+
+  if (Function* f = M.getFunction(nm))
+    return f;
+
+  return Function::Create(FunctionType::get(Type::getVoidTy(C),
+                                            ArrayRef<Type *>(ExternalFnPtrTy),
+                                            false),
+                          GlobalValue::ExternalLinkage, nm, &M);
+}
+llvm::Function *translator::CallImportedFn() {
+  const char* nm = "__jove_call_imported";
+
+  if (Function* f = M.getFunction(nm))
+    return f;
+
+  return Function::Create(FunctionType::get(Type::getVoidTy(C),
+                                            ArrayRef<Type *>(ExternalFnPtrTy),
+                                            false),
+                          GlobalValue::ExternalLinkage, nm, &M);
+}
 
 void translator::init_helpers() {
   /* XXX QEMUVERSIONDEPENDENT */
@@ -496,7 +521,7 @@ void translator::create_section_global_variables() {
       StructType::create(C, fieldtys, "struct.__jove_sections", true);
   sectsgv = new GlobalVariable(M, sectsgvty, false, GlobalValue::ExternalLinkage,
                                nullptr, "__jove_sections");
-  sectsgv->setAlignment(sizeof(address_t));
+  sectsgv->setAlignment(4096);
 
   //
   // initialize section global variables
@@ -878,6 +903,11 @@ translator::translate(const std::vector<address_t> &addrs) {
   legacy::PassManager MPM;
   Builder.populateModulePassManager(MPM);
 
+  if (verifyModule(M, &errs())) {
+    errs().flush();
+    abort();
+  }
+
   MPM.run(M);
 
   //
@@ -915,6 +945,11 @@ translator::translate(const std::vector<address_t> &addrs) {
   // optimize again to get IR to have expressions of the form
   // load GEP(section + offset)
   //
+  if (verifyModule(M, &errs())) {
+    errs().flush();
+    abort();
+  }
+
   MPM.run(M);
 
   //
@@ -940,7 +975,11 @@ translator::translate(const std::vector<address_t> &addrs) {
 
     uint64_t addr = sectsoff.getZExtValue() + lower_section_addr();
 
-    unsigned sectidx = (*addrspace.find(addr)).second - 1;
+    auto sectit = addrspace.find(addr);
+    if (sectit == addrspace.end())
+      continue;
+
+    unsigned sectidx = (*sectit).second - 1;
     unsigned sectoff = addr - secttbl[sectidx].addr;
     auto sectreloc_it = sectrelocs[sectidx].find(sectoff);
     if (sectreloc_it == sectrelocs[sectidx].end())
@@ -984,21 +1023,67 @@ translator::translate(const std::vector<address_t> &addrs) {
     look_through_to_load(SectsCE);
   }
 
-#if 1
   for (LoadInst *LI : ToRemove) {
     assert(LI->user_begin() == LI->user_end());
     LI->eraseFromParent();
   }
-#endif
 
   //
-  // look for indirect jumps to external (i.e., imported) functions. we'll turn
-  // them into g
+  // optimize again to get IR to have expressions of the form
+  // __jove_indirect_jump(constant)
   //
-
   if (verifyModule(M, &errs())) {
     errs().flush();
     abort();
+  }
+
+  MPM.run(M);
+
+  //
+  // look for indirect jumps to external (i.e., imported) functions which are
+  // the *only* Instruction in the body of its parent function. for every call
+  // to such a function, replace it with a call to
+  // __jove_call_imported, providing the constant of the function in question
+  // as the parameter
+  //
+  auto lift_calls_to_PLT_entry = [&](Function* plt_e, Function* proc) -> void {
+    vector<CallInst*> ToRemove;
+    for (User *U : plt_e->users()) {
+      CallInst* CInst = dyn_cast<CallInst>(U);
+
+      if (!CInst)
+        continue;
+
+      b.SetInsertPoint(CInst);
+
+      CallInst *NewCInst =
+          b.CreateCall(CallImportedFn(), ArrayRef<Value *>(proc));
+
+      if (CInst->getType() != Type::getVoidTy(C))
+        CInst->replaceAllUsesWith(NewCInst);
+
+      ToRemove.push_back(CInst);
+    }
+
+    for (CallInst* CI : ToRemove)
+      CI->eraseFromParent();
+  };
+
+  for (User *U : IndirectJumpFn()->users()) {
+    CallInst* CInst = dyn_cast<CallInst>(U);
+
+    if (!CInst)
+      continue;
+
+    if (isa<Function>(CInst->getOperand(0)) &&
+        CInst->getParent()->size() == 2 &&
+        CInst->getParent()->getParent()->size() == 1) {
+      cout << "PLT entry: " << CInst->getParent()->getParent()->getName().str()
+           << endl;
+
+      lift_calls_to_PLT_entry(CInst->getParent()->getParent(),
+                              cast<Function>(CInst->getOperand(0)));
+    }
   }
 
   return make_tuple(nullptr, nullptr);
@@ -1316,7 +1401,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
-    // XXX is indirect jump to a PLT entry?
   } else if (MIA->isCall(Inst)) {
     bool is_indirect;
     uint64_t target;
@@ -2219,8 +2303,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
-    Value* pc = b.CreateLoad(pc_llv);
-    b.CreateCall(IndirectCallFn, ArrayRef<Value*>(pc));
+    Value* pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
+    b.CreateCall(IndirectCallFn(), ArrayRef<Value*>(pc));
 
     if (succ == boost::graph_traits<function_t>::null_vertex())
       b.CreateUnreachable();
@@ -2278,44 +2362,9 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_jump = [&](void) -> void {
-#if 0
-    // check for relocation
-
-#if 0
-    pc_llv->dump();
-    pc_llv->getType()->dump();
-    if (isa<ConstantExpr>(pc_llv))
-      cout << "PC_LLV IS CONSTEXPR" << endl;
-    if (isa<ConstantInt>(pc_llv))
-      cout << "PC_LLV IS CONSTINT" << endl;
-#endif
-
-    if (isa<LoadInst>(pc_llv)) {
-      Value *ptr = cast<LoadInst>(pc_llv)->getPointerOperand();
-
-      int64_t off;
-      Value *base = GetPointerBaseWithConstantOffset(ptr, off, DL);
-      auto it = sectgvmap.find(base);
-      if (it != sectgvmap.end()) {
-        // XXX TODO
-      }
-    }
-    Constant* pcconst = try_fold_to_constant();
-#if 0
-    if (pcconst) {
-      cout << "FOLDED PC_LLV TO CONST" << endl;
-      pcconst->dump();
-    }
-#endif
-    if (pcconst && isa<Function>(pcconst)) {
-      // this is a tail call to a relocated function
-      b.CreateCall(cast<Function>(pcconst));
-      on_return();
-    } else {
-#endif
     //
     // spill every global to the CPU state which is in the reaching definitions
-    // OUT for this basic block, which is NOT a parameter
+    // OUT for this basic block (which is not a parameter of the indirect fn)
     //
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, bbprop.reachdef_out);
@@ -2324,13 +2373,18 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
 
     Value *passed_pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
-    b.CreateCall(IndirectJumpFn, ArrayRef<Value *>(passed_pc));
+    b.CreateCall(IndirectJumpFn(), ArrayRef<Value *>(passed_pc));
 
-    // TODO imported functions
-    on_return();
-#if 0
-    }
-#endif
+    FunctionType *llf_ty = f[boost::graph_bundle].llf->getFunctionType();
+    Type *ret_ty = llf_ty->getReturnType();
+
+    //
+    // if return type is void, then nothing to do
+    //
+    if (ret_ty == Type::getVoidTy(C))
+      b.CreateRetVoid();
+    else
+      b.CreateRet(UndefValue::get(ret_ty));
   };
 
   auto on_unknown = [&](basic_block_t succ) -> void {

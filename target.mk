@@ -3,7 +3,7 @@ include config.mk
 targ_build_dir := $(build_dir)/$(_TARGET_NAME)
 res = $(targ_build_dir)/$(1)
 
-jove_all: $(call res,jove-init)
+jove_all: $(call res,jove-init) $(call res,thunk).bc
 
 _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
@@ -35,7 +35,7 @@ _CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
 			 -Wno-c99-extensions \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))
+_CFLAGS   := $(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))
 _CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))
 
 #
@@ -77,6 +77,14 @@ $(call res,%).o: $(build_dir)/%.cpp
 
 $(call res,jove_init).o: $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(call res,helpers).cpp $(call res,tcg_globals).cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
+
+#
+# jove-instrument
+#
+
+$(call res,thunk).bc: $(build_dir)/thunk_$(_TARGET_NAME).c
+	@echo CLANG $(notdir $@ $^)
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # output of ABI calling conventions
