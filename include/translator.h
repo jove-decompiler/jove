@@ -10,7 +10,6 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/Object/ObjectFile.h>
-#include <llvm/IR/LegacyPassManager.h>
 #include <queue>
 #include <tuple>
 #include <unordered_map>
@@ -259,7 +258,6 @@ private:
 
   llvm::LLVMContext C;
   llvm::Module M;
-  llvm::legacy::FunctionPassManager FPM;
   const llvm::DataLayout &DL;
 
   std::unique_ptr<llvm::Module> _HelperM;

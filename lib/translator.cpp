@@ -23,6 +23,13 @@
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Analysis/BasicAliasAnalysis.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/TargetRegistry.h>
 
 using namespace llvm;
 using namespace object;
@@ -184,7 +191,7 @@ static const uint8_t helpers_bitcode_data[] = {
 };
 
 translator::translator(ObjectFile &O, const string &MNm, bool noopt)
-    : noopt(noopt), O(O), M(MNm, C), FPM(&M),
+    : noopt(noopt), O(O), M(MNm, C),
       DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
@@ -247,7 +254,6 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
 }
 
 translator::~translator() {
-  FPM.doFinalization();
 }
 
 enum HELPER_METADATA_TYPE {
@@ -716,24 +722,6 @@ void translator::prepare_for_translation() {
   // binary section data
   //
   create_section_global_variables();
-
-  //
-  // initialize function pass manager
-  //
-  //
-  FPM.add(createBasicAAWrapperPass());
-  FPM.add(createPromoteMemoryToRegisterPass());
-  FPM.add(createSCCPPass());
-  FPM.add(createInstructionCombiningPass());
-  FPM.add(createGVNPass());
-  FPM.add(createDeadStoreEliminationPass());
-  FPM.add(createCFGSimplificationPass());
-  FPM.add(createReassociatePass());
-  FPM.add(createInstructionSimplifierPass());
-  FPM.add(createInstructionCombiningPass());
-  FPM.add(createReassociatePass());
-
-  FPM.doInitialization();
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {
@@ -879,6 +867,139 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   // whole-module analysis
   //
+#if 0
+  InitializeAllTargets();
+  InitializeAllTargetMCs();
+  InitializeAllAsmPrinters();
+
+  // Initialize passes
+  PassRegistry &Registry = *PassRegistry::getPassRegistry();
+  initializeCore(Registry);
+  initializeScalarOpts(Registry);
+  initializeObjCARCOpts(Registry);
+  initializeVectorization(Registry);
+  initializeIPO(Registry);
+  initializeAnalysis(Registry);
+  initializeTransformUtils(Registry);
+  initializeInstCombine(Registry);
+  initializeInstrumentation(Registry);
+  initializeTarget(Registry);
+
+  initializeCodeGenPreparePass(Registry);
+  initializeAtomicExpandPass(Registry);
+  initializeRewriteSymbolsPass(Registry);
+  initializeWinEHPreparePass(Registry);
+  initializeDwarfEHPreparePass(Registry);
+  initializeSjLjEHPreparePass(Registry);
+
+  //
+  // optimize code 
+  // 
+  legacy::FunctionPassManager FPM(&M);
+  legacy::PassManager MPM;
+
+  //
+  // add an appropriate TargetLibraryInfo pass for the module's triple
+  //
+  Triple ModuleTriple(M.getTargetTriple());
+  TargetLibraryInfoImpl TLII(ModuleTriple);
+  MPM.add(new TargetLibraryInfoWrapperPass(TLII));
+
+  //
+  // add internal analysis passes from the target machine
+  //
+  std::string CPUStr, FeaturesStr;
+  TargetMachine *Machine = nullptr;
+  const TargetOptions Options;
+  auto GetTargetMachine = [&](void) -> TargetMachine * {
+    std::string Error;
+    const Target *TheTarget =
+        TargetRegistry::lookupTarget("", ModuleTriple, Error);
+
+    // some modules don't specify a triple, and this is okay
+    if (!TheTarget) {
+      return nullptr;
+    }
+
+    return TheTarget->createTargetMachine(
+        ModuleTriple.getTriple(), CPUStr, FeaturesStr, Options, Reloc::Default,
+        CodeModel::Default, CodeGenOpt::Default);
+  };
+  Machine = GetTargetMachine();
+  std::unique_ptr<TargetMachine> TM(Machine);
+
+  MPM.add(createTargetTransformInfoWrapperPass(TM ? TM->getTargetIRAnalysis()
+                                                  : TargetIRAnalysis()));
+
+  FPM.add(createTargetTransformInfoWrapperPass(TM ? TM->getTargetIRAnalysis()
+                                                  : TargetIRAnalysis()));
+#else
+  //
+  // optimize code 
+  // 
+  legacy::FunctionPassManager FPM(&M);
+  legacy::PassManager MPM;
+#endif
+
+  //
+  // use -O2 passes
+  //
+  PassManagerBuilder Builder;
+  Builder.OptLevel = 2;
+  Builder.SizeLevel = 0;
+
+  Builder.populateFunctionPassManager(FPM);
+  Builder.populateModulePassManager(MPM);
+
+#if 0
+  Builder.populateLTOPassManager(MPM);
+#endif
+
+  FPM.doInitialization();
+  for (Function &F : M)
+    FPM.run(F);
+
+  //MPM.run(M);
+
+  //
+  // fixup pc-relative expressions
+  //
+  for (User *U : pcrel_gv->users()) {
+    assert(isa<LoadInst>(U));
+    vector<pair<Instruction *, Constant *>> torepl;
+    pcrel_llv = cast<LoadInst>(U);
+
+    for (User *U : pcrel_llv->users())
+      if (cast<Instruction>(U)->getOpcode() == Instruction::Add)
+        if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
+          if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
+            torepl.push_back({cast<Instruction>(U), Ptr});
+
+    for (auto &replm : torepl) {
+      Instruction *Inst;
+      Constant *C;
+      tie(Inst, C) = replm;
+
+      Inst->replaceAllUsesWith(C);
+      Inst->eraseFromParent();
+    }
+
+    if (pcrel_llv->user_begin() == pcrel_llv->user_end())
+      pcrel_llv->eraseFromParent();
+    else
+      pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
+          ConstantExpr::getPtrToInt(sectsgv, word_type()),
+          ConstantInt::get(word_type(), lower_section_addr())));
+  }
+
+#if 0
+  for (Function &F : M)
+    FPM.run(F);
+#endif
+
+  MPM.run(M);
+
+  FPM.doFinalization();
 
   return make_tuple(nullptr, nullptr);
 }
@@ -1838,57 +1959,6 @@ void translator::translate_function_llvm(function_t& f) {
     errs().flush();
     abort();
   }
-
-  //
-  // optimize code and replace pc-relative expressions
-  // 
-
-  if (!noopt)
-    FPM.run(llf);
-
-  //
-  // pcrel was invalidated, find it again
-  //
-  pcrel_llv = nullptr;
-  for (User *U : pcrel_gv->users()) {
-    if (Instruction *I = dyn_cast<Instruction>(U)) {
-      if (I->getOpcode() == Instruction::Load &&
-          I->getParent()->getParent() == &llf) {
-        pcrel_llv = cast<LoadInst>(I);
-        break;
-      }
-    }
-  }
-
-  if (!pcrel_llv)
-    return;
-
-  //
-  // take care of pcrel expressions
-  //
-  vector<pair<Instruction *, Constant *>> torepl;
-  for (User *U : pcrel_llv->users()) {
-    if (cast<Instruction>(U)->getOpcode() == Instruction::Add)
-      if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
-        if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
-          torepl.push_back({cast<Instruction>(U), Ptr});
-  }
-
-  for (auto &replm : torepl) {
-    Instruction *Inst;
-    Constant *C;
-    tie(Inst, C) = replm;
-
-    Inst->replaceAllUsesWith(C);
-    Inst->eraseFromParent();
-  }
-
-  if (pcrel_llv->user_begin() == pcrel_llv->user_end())
-    pcrel_llv->eraseFromParent();
-  else
-    pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
-        ConstantExpr::getPtrToInt(sectsgv, word_type()),
-        ConstantInt::get(word_type(), lower_section_addr())));
 }
 
 tcg::global_set_t
