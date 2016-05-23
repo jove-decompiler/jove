@@ -52,15 +52,8 @@ struct OpDef {
 #endif
 };
 
-/* XXX wrong, but doesn't matter */
-typedef uint8_t insn_unit;
-
-struct Relocation {
-  struct Relocation *next;
-  int type;
-  insn_unit *ptr;
-  intptr_t addend;
-};
+struct Relocation;
+struct insn_unit;
 
 struct Label {
   unsigned has_value : 1;
@@ -263,6 +256,7 @@ llvm::Function *translator::IndirectJumpFn() {
                                             false),
                           GlobalValue::ExternalLinkage, nm, &M);
 }
+
 llvm::Function *translator::IndirectCallFn() {
   const char* nm = "__jove_indirect_call";
 
@@ -274,8 +268,9 @@ llvm::Function *translator::IndirectCallFn() {
                                             false),
                           GlobalValue::ExternalLinkage, nm, &M);
 }
+
 llvm::Function *translator::CallImportedFn() {
-  const char* nm = "__jove_call_imported";
+  const char* nm = "__jove_call";
 
   if (Function* f = M.getFunction(nm))
     return f;
@@ -1039,6 +1034,7 @@ translator::translate(const std::vector<address_t> &addrs) {
 
   MPM.run(M);
 
+#if 0
   //
   // look for indirect jumps to external (i.e., imported) functions which are
   // the *only* Instruction in the body of its parent function. for every call
@@ -1085,6 +1081,25 @@ translator::translate(const std::vector<address_t> &addrs) {
                               cast<Function>(CInst->getOperand(0)));
     }
   }
+#else
+  //
+  // look for indirect jumps to external (i.e., imported) functions
+  //
+  vector<CallInst*> tochange;
+  for (User *U : IndirectJumpFn()->users()) {
+    CallInst* CInst = dyn_cast<CallInst>(U);
+    if (!CInst)
+      continue;
+
+    if (!isa<Constant>(CInst->getOperand(0)))
+      continue;
+
+    tochange.push_back(CInst);
+  }
+
+  for (CallInst* CInst : tochange)
+    CInst->setOperand(1, CallImportedFn());
+#endif
 
   return make_tuple(nullptr, nullptr);
 }
@@ -1228,13 +1243,14 @@ void translator::compute_returned(function_t& f) {
                    return glbl | f[bb].reachdef_out;
                  });
 
-#if defined(TARGET_AARCH64)
-  // this is the program counter for aarch64
-  f[boost::graph_bundle].outputs.reset(25);
-#endif
-
   tcg::global_set_t returned_s =
       f[boost::graph_bundle].outputs & call_conv_ret_regs;
+
+#if defined(TARGET_AARCH64)
+    // this is the program counter for aarch64
+    returned_s.reset(25);
+#endif
+
   explode_tcg_global_set(f[boost::graph_bundle].returned, returned_s);
 
   sort(f[boost::graph_bundle].returned.begin(),
@@ -2244,6 +2260,12 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     tcg::global_set_t tospill =
         bbprop.reachdef_out &
         ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
+
+#if defined(TARGET_AARCH64)
+    // this is the program counter for aarch64
+    tospill.reset(25);
+#endif
+
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, tospill);
 
@@ -2318,6 +2340,12 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     //
     tcg::global_set_t tostore =
         f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
+
+#if defined(TARGET_AARCH64)
+    // this is the program counter for aarch64
+    tostore.reset(25);
+#endif
+
     vector<unsigned> tostore_v;
     explode_tcg_global_set(tostore_v, tostore);
     for (unsigned gidx : tostore_v)
@@ -2366,8 +2394,15 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // spill every global to the CPU state which is in the reaching definitions
     // OUT for this basic block (which is not a parameter of the indirect fn)
     //
+    tcg::global_set_t tospill = bbprop.reachdef_out;
+
+#if defined(TARGET_AARCH64)
+    // this is the program counter for aarch64
+    tospill.reset(25);
+#endif
+
     vector<unsigned> tospill_v;
-    explode_tcg_global_set(tospill_v, bbprop.reachdef_out);
+    explode_tcg_global_set(tospill_v, tospill);
 
     for (unsigned gidx : tospill_v)
       store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);

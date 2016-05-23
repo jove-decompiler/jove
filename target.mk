@@ -84,7 +84,7 @@ $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,ab
 
 $(call res,thunk).bc: $(build_dir)/thunk_$(_TARGET_NAME).c
 	@echo CLANG $(notdir $@ $^)
-	$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
+	@$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # output of ABI calling conventions

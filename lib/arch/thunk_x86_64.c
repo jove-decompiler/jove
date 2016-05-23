@@ -35,11 +35,11 @@ __attribute__((naked)) void get_rand(void) {
       );
 
   __asm__ volatile(
-      "movq %[__jove_impl], %[thunk_in_to]\n"
+      "movq %[__jove_impl], %[thunk_buff]\n"
       "jmp __jove_thunk_in\n"
 
       : // OutputOperands
-      [thunk_in_to] "=m" (__jove_thunk_buff)
+      [thunk_buff] "=m" (__jove_thunk_buff)
 
       : // InputOperands
       [__jove_impl] "a" (__jove_impl_get_rand)
@@ -67,7 +67,7 @@ void __jove_thunk_in() {
       "movq %%r15, %[out_r15]\n"
       "movq %[in_rax], %%rax\n"
 
-      "call *%[in_proc]\n"
+      "call *%[thunk_buff]\n"
 
       "movq %[in_rax], %%rax\n"
       "movq %[in_rbx], %%rbx\n"
@@ -123,7 +123,7 @@ void __jove_thunk_in() {
       [in_r14] "m" (cpu_state.regs[14]),
       [in_r15] "m" (cpu_state.regs[15]),
 
-      [in_proc] "m" (__jove_thunk_buff)
+      [thunk_buff] "m" (__jove_thunk_buff)
 
       : // Clobbers
       "rax",
