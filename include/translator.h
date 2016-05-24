@@ -273,6 +273,8 @@ private:
 
   llvm::Type *word_ty;
 
+  llvm::MDTuple* aliasscopel;
+
   llvm::AttributeSet FnAttr;
 
   llvm::FunctionType *FnThunkTy;
@@ -295,8 +297,8 @@ private:
 
 public:
   const std::array<tcg::global_t, tcg::num_globals> tcg_globals;
-
 private:
+
   std::array<tcg::helper_t, tcg::num_helpers> tcg_helpers;
 
   std::unordered_map<uintptr_t, tcg::helper_t *> tcg_helper_addr_map;
@@ -381,6 +383,12 @@ private:
   llvm::Constant *section_int_ptr(address_t addr);
   llvm::Value *cpu_state_gep(unsigned memBits, unsigned offset);
   llvm::Value *cpu_state_load(unsigned memBits, unsigned offset);
+
+  llvm::LoadInst *CreateLoad(llvm::Value *, const std::string &nm = std::string());
+  llvm::StoreInst *CreateStore(llvm::Value *, llvm::Value *ptr);
+
+  llvm::LoadInst *CreateGuestLoad(llvm::Value *);
+  llvm::StoreInst *CreateGuestStore(llvm::Value *, llvm::Value *ptr);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,

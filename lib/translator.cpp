@@ -16,6 +16,7 @@
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/MDBuilder.h>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/icl/split_interval_set.hpp>
 #include <llvm/Analysis/ConstantFolding.h>
@@ -30,6 +31,7 @@
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/TargetRegistry.h>
+#include <llvm/IR/MDBuilder.h>
 
 using namespace llvm;
 using namespace object;
@@ -742,6 +744,14 @@ void translator::prepare_for_translation() {
   // binary section data
   //
   create_section_global_variables();
+
+  //
+  // create noalias metadata
+  //
+  MDBuilder mdb(C);
+  MDNode *aliasscope = mdb.createAliasScope(
+      "JoveScope", mdb.createAliasScopeDomain("JoveDomain"));
+  aliasscopel = MDNode::get(C, ArrayRef<Metadata *>(aliasscope));
 }
 
 llvm::Function *translator::function_of_addr(address_t addr) {
@@ -887,6 +897,11 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   // whole-module analysis
   //
+  {
+    error_code ec;
+    raw_fd_ostream of("/tmp/jove.bc", ec, sys::fs::F_RW);
+    WriteBitcodeToFile(&M, of);
+  }
 
   //
   // optimize code, use -O2 passes
@@ -1245,12 +1260,6 @@ void translator::compute_returned(function_t& f) {
 
   tcg::global_set_t returned_s =
       f[boost::graph_bundle].outputs & call_conv_ret_regs;
-
-#if defined(TARGET_AARCH64)
-    // this is the program counter for aarch64
-    returned_s.reset(25);
-#endif
-
   explode_tcg_global_set(f[boost::graph_bundle].returned, returned_s);
 
   sort(f[boost::graph_bundle].returned.begin(),
@@ -1936,13 +1945,11 @@ Value* translator::cpu_state_global_gep(unsigned gidx) {
 }
 
 Value *translator::load_global_from_cpu_state(unsigned gidx) {
-  return b.CreateLoad(
-      cpu_state_global_gep(gidx),
-      (boost::format("%s_loaded") % tcg_globals[gidx].nm).str());
+  return CreateLoad(cpu_state_global_gep(gidx), tcg_globals[gidx].nm);
 }
 
 void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
-  b.CreateStore(gvl, cpu_state_global_gep(gidx));
+  CreateStore(gvl, cpu_state_global_gep(gidx));
 }
 
 void translator::translate_function_llvm(function_t& f) {
@@ -2011,7 +2018,7 @@ void translator::translate_function_llvm(function_t& f) {
   // allocate pcrel
   //
 #if 1
-  pcrel_llv = b.CreateLoad(pcrel_gv, "pcrel");
+  pcrel_llv = CreateLoad(pcrel_gv, "pcrel");
 #endif
 
   //
@@ -2029,7 +2036,7 @@ void translator::translate_function_llvm(function_t& f) {
                f[boost::graph_bundle].params.end(), llf.arg_end())),
            [&](const boost::tuple<unsigned, Argument &> &t) {
              t.get<1>().setName(tcg_globals[t.get<0>()].nm);
-             b.CreateStore(&t.get<1>(), tcg_glb_llv_m[t.get<0>()]);
+             CreateStore(&t.get<1>(), tcg_glb_llv_m[t.get<0>()]);
            });
 
   tcg::global_set_t glb_inputs_not_params =
@@ -2039,7 +2046,7 @@ void translator::translate_function_llvm(function_t& f) {
   explode_tcg_global_set(glb_inputs_not_params_v, glb_inputs_not_params);
 
   for (unsigned gidx : glb_inputs_not_params_v)
-    b.CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
+    CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
   //
   // translate each basic block to LLVM, in roughly topological order
@@ -2245,7 +2252,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
   auto on_conditional_jump = [&](basic_block_t dst1,
                                  basic_block_t dst2) -> void {
-    Value *pc = b.CreateLoad(pc_llv);
+    Value *pc = CreateLoad(pc_llv);
     Value *addr1 = ConstantInt::get(word_type(), f[dst1].addr);
     b.CreateCondBr(b.CreateICmpEQ(pc, addr1), f[dst1].llbb, f[dst2].llbb);
   };
@@ -2262,15 +2269,15 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
 
 #if defined(TARGET_AARCH64)
-    // this is the program counter for aarch64
-    tospill.reset(25);
+    tospill.reset(25); // pc
+    tospill.reset(56); // lr
 #endif
 
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, tospill);
 
     for (unsigned gidx : tospill_v)
-      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+      store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
 
     //
     // pass parameters to function
@@ -2280,7 +2287,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
               callee[boost::graph_bundle].params.end(), passed.begin(),
               [&](unsigned gidx) -> Value * {
                 if (bbprop.reachdef_out.test(gidx))
-                  return b.CreateLoad(tcg_glb_llv_m[gidx],
+                  return CreateLoad(tcg_glb_llv_m[gidx],
                                       tcg_globals[gidx].nm + string("_passed"));
                 else
                   return load_global_from_cpu_state(gidx);
@@ -2299,7 +2306,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
       gvl->setName(tcg_globals[gidx].nm + string("_returned"));
       if (bbprop.live_out.test(gidx))
-        b.CreateStore(gvl, tcg_glb_llv_m[gidx]);
+        CreateStore(gvl, tcg_glb_llv_m[gidx]);
       else
         store_global_to_cpu_state(gvl, gidx);
     }
@@ -2316,7 +2323,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     explode_tcg_global_set(toreload_v, toreload);
     
     for (unsigned gidx : toreload_v)
-      b.CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
+      CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
     if (succ == boost::graph_traits<function_t>::null_vertex())
       b.CreateUnreachable();
@@ -2325,7 +2332,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
-    Value* pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
+    Value* pc = b.CreateIntToPtr(CreateLoad(pc_llv), ExternalFnPtrTy);
     b.CreateCall(IndirectCallFn(), ArrayRef<Value*>(pc));
 
     if (succ == boost::graph_traits<function_t>::null_vertex())
@@ -2342,14 +2349,14 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
 
 #if defined(TARGET_AARCH64)
-    // this is the program counter for aarch64
-    tostore.reset(25);
+    tostore.reset(25); // pc
+    tostore.reset(56); // lr
 #endif
 
     vector<unsigned> tostore_v;
     explode_tcg_global_set(tostore_v, tostore);
     for (unsigned gidx : tostore_v)
-      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+      store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
 
     //
     // examine returned outputs
@@ -2382,7 +2389,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
               Value *res = respair.second;
               return make_pair(idx + 1, b.CreateInsertValue(
                                             res ? res : UndefValue::get(ret_ty),
-                                            b.CreateLoad(tcg_glb_llv_m[gidx]),
+                                            CreateLoad(tcg_glb_llv_m[gidx]),
                                             ArrayRef<unsigned>(idx)));
             })
             .second;
@@ -2397,17 +2404,17 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     tcg::global_set_t tospill = bbprop.reachdef_out;
 
 #if defined(TARGET_AARCH64)
-    // this is the program counter for aarch64
-    tospill.reset(25);
+    tospill.reset(25); // pc
+    tospill.reset(56); // lr
 #endif
 
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, tospill);
 
     for (unsigned gidx : tospill_v)
-      store_global_to_cpu_state(b.CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+      store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
 
-    Value *passed_pc = b.CreateIntToPtr(b.CreateLoad(pc_llv), ExternalFnPtrTy);
+    Value *passed_pc = b.CreateIntToPtr(CreateLoad(pc_llv), ExternalFnPtrTy);
     b.CreateCall(IndirectJumpFn(), ArrayRef<Value *>(passed_pc));
 
     FunctionType *llf_ty = f[boost::graph_bundle].llf->getFunctionType();
@@ -2434,7 +2441,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
             BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
 
         b.CreateCondBr(
-            b.CreateICmpEQ(b.CreateLoad(pc_llv),
+            b.CreateICmpEQ(CreateLoad(pc_llv),
                            ConstantInt::get(word_type(), bbprop.addr)),
             bbprop.llbb, elsellbb);
 
@@ -2448,7 +2455,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       BasicBlock *else2llbb =
           BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
 
-      Value *pc = b.CreateLoad(pc_llv);
+      Value *pc = CreateLoad(pc_llv);
       b.CreateCondBr(
           b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
           f[succ].llbb, else1llbb);
@@ -2527,10 +2534,10 @@ void translator::translate_tcg_operation_to_llvm(
     assert(a != tcg::CALL_DUMMY_ARG && a != tcg::CPU_STATE_ARG);
 
     if (a < tcg::num_globals) {
-      b.CreateStore(v, tcg_glb_llv_m[a]);
+      CreateStore(v, tcg_glb_llv_m[a]);
     } else {
       if (bbprop.tcg_tmps[a].temp_local)
-        b.CreateStore(v, tcg_tmp_llv_m[a]);
+        CreateStore(v, tcg_tmp_llv_m[a]);
       else
         tcg_tmp_llv_m[a] = v;
     }
@@ -2553,7 +2560,7 @@ void translator::translate_tcg_operation_to_llvm(
         return tcg_tmp_llv_m[a];
     }
 
-    return b.CreateLoad(ptr);
+    return CreateLoad(ptr);
   };
 
   auto immediate_constant = [&](unsigned bits, tcg::Arg a) -> Value * {
@@ -2635,14 +2642,14 @@ void translator::translate_tcg_operation_to_llvm(
     if (!ptr)
       return nullptr;
 
-    return b.CreateLoad(b.CreatePointerCast(
+    return CreateLoad(b.CreatePointerCast(
         ptr, PointerType::get(IntegerType::get(C, bits), 0)));
   };
 
   auto guest_load = [&](unsigned bits) -> Value * {
     Value *addr = get(args[1]);
 
-    //ConstantInt *addr_int = try_fold_to_constant_int(addr);
+    // ConstantInt *addr_int = try_fold_to_constant_int(addr);
 
     if (ConstantInt *addr_int = dyn_cast<ConstantInt>(addr)) {
       if (Value *v =
@@ -2653,11 +2660,11 @@ void translator::translate_tcg_operation_to_llvm(
     addr = b.CreateZExt(addr, word_type());
     addr =
         b.CreateIntToPtr(addr, PointerType::get(IntegerType::get(C, bits), 0));
-    return b.CreateLoad(addr);
+    return CreateGuestLoad(addr);
   };
 
   auto set_program_counter = [&](Value* v) -> void {
-    b.CreateStore(v, pc_llv);
+    CreateStore(v, pc_llv);
   };
 
   switch (opc) {
@@ -2875,7 +2882,7 @@ void translator::translate_tcg_operation_to_llvm(
       v = b.CreateAdd(get(args[1]), ConstantInt::get(word_type(), args[2]));   \
       v = b.CreateIntToPtr(v,                                                  \
                            PointerType::get(IntegerType::get(C, memBits), 0)); \
-      v = b.CreateLoad(v);                                                     \
+      v = CreateLoad(v);                                                     \
     }                                                                          \
     set(b.Create##signE##Ext(v, IntegerType::get(C, regBits)), args[0]);       \
   } break;
@@ -2900,7 +2907,7 @@ void translator::translate_tcg_operation_to_llvm(
       addr = b.CreateIntToPtr(                                                 \
           addr, PointerType::get(IntegerType::get(C, memBits), 0));            \
     }                                                                          \
-    b.CreateStore(b.CreateTrunc(valueToStore, IntegerType::get(C, memBits)),   \
+    CreateStore(b.CreateTrunc(valueToStore, IntegerType::get(C, memBits)),   \
                   addr);                                                       \
   } break;
 
@@ -3134,7 +3141,7 @@ void translator::translate_tcg_operation_to_llvm(
                             PointerType::get(IntegerType::get(C, bits), 0));   \
     Value *valueToStore =                                                      \
         b.CreateIntCast(get(args[0]), IntegerType::get(C, bits), false);       \
-    b.CreateStore(valueToStore, addr);                                         \
+    CreateGuestStore(valueToStore, addr);                                         \
   } break;
 
 //
@@ -3421,6 +3428,30 @@ ConstantInt *translator::try_fold_to_constant_int(Value *v) {
     v = PTII->getPointerOperand();
 #endif
 
+LoadInst *translator::CreateLoad(Value *ptr, const std::string &nm) {
+  LoadInst* LInst = b.CreateLoad(ptr, nm);
+  LInst->setMetadata(LLVMContext::MD_alias_scope, aliasscopel);
+  return LInst;
+}
+
+llvm::StoreInst *translator::CreateStore(Value *v, Value *ptr) {
+  StoreInst* SInst = b.CreateStore(v, ptr);
+  SInst->setMetadata(LLVMContext::MD_alias_scope, aliasscopel);
+  return SInst;
+}
+
+LoadInst *translator::CreateGuestLoad(Value *ptr) {
+  LoadInst* LInst = b.CreateLoad(ptr);
+  LInst->setMetadata(LLVMContext::MD_noalias, aliasscopel);
+  return LInst;
+}
+
+llvm::StoreInst *translator::CreateGuestStore(Value *v, Value *ptr) {
+  StoreInst* SInst = b.CreateStore(v, ptr);
+  SInst->setMetadata(LLVMContext::MD_noalias, aliasscopel);
+  return SInst;
+}
+
 Constant* translator::try_fold_to_constant(Value* v) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(v)) {
     // unwrap ptrtoint casts
@@ -3480,6 +3511,6 @@ Value *translator::cpu_state_load(unsigned memBits, unsigned offset) {
     return ConstantInt::get(IntegerType::get(C, memBits), 0);
 #endif
 
-  return b.CreateLoad(cpu_state_gep(memBits, offset));
+  return CreateLoad(cpu_state_gep(memBits, offset));
 }
 }
