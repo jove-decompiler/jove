@@ -897,7 +897,7 @@ translator::translate(const std::vector<address_t> &addrs) {
   //
   // whole-module analysis
   //
-  {
+  if (noopt) {
     error_code ec;
     raw_fd_ostream of("/tmp/jove.bc", ec, sys::fs::F_RW);
     WriteBitcodeToFile(&M, of);
@@ -1932,20 +1932,27 @@ address_t translator::upper_section_addr() {
 
 Value* translator::cpu_state_global_gep(unsigned gidx) {
   SmallVector<Value *, 4> Indices;
-  getNaturalGEPWithOffset(tcg_glb_llv_m[tcg::CPU_STATE_ARG], 
-      APInt(64, tcg_globals[gidx].cpustoff),
+  getNaturalGEPWithOffset(
+      cpu_state_glb_llv, APInt(64, tcg_globals[gidx].cpustoff),
       IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
       Indices);
   assert(!Indices.empty() && Indices.size() != 1);
 
+#if 0
   Value *ptr = b.CreateInBoundsGEP(
       nullptr, tcg_glb_llv_m[tcg::CPU_STATE_ARG], Indices,
       (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+
   return ptr;
+#else
+  return ConstantExpr::getInBoundsGetElementPtr(nullptr, cpu_state_glb_llv,
+                                                Indices);
+#endif
 }
 
 Value *translator::load_global_from_cpu_state(unsigned gidx) {
-  return CreateLoad(cpu_state_global_gep(gidx), tcg_globals[gidx].nm);
+  return CreateLoad(cpu_state_global_gep(gidx),
+                    tcg_globals[gidx].nm + string("_"));
 }
 
 void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
@@ -2012,7 +2019,7 @@ void translator::translate_function_llvm(function_t& f) {
   for (auto gidx : glb_used_v)
     tcg_glb_llv_m[gidx] = b.CreateAlloca(
         IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
-        nullptr, (boost::format("%s_ptr") % tcg_globals[gidx].nm).str());
+        nullptr, tcg_globals[gidx].nm + string("_"));
 
   //
   // allocate pcrel

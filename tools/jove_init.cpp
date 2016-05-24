@@ -28,7 +28,7 @@ namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
 namespace jove {
-static tuple<fs::path, fs::path, bool, bool>
+static tuple<fs::path, fs::path, bool>
 parse_command_line_arguments(int argc, char **argv);
 
 static void verify_arch(const ObjectFile *);
@@ -37,44 +37,29 @@ static void print_obj_info(const ObjectFile *);
 static ObjectFile *O;
 static unique_ptr<translator> T;
 
-static void createImportedFunctions();
-static void createExportedFunctions();
-static void createExportedVariables();
-static void createThreadLocalVariables();
-static void createSectionData();
 }
 
 using namespace jove;
 
 int main(int argc, char **argv) {
   fs::path ifp, ofp;
-  bool static_mode, noopt;
+  bool noopt;
 
-#if 0
-  StringMap<cl::Option *> &optMap(cl::getRegisteredOptions());
-
-  {
-    auto optIt = optMap.find("print-after-all");
-    if (optIt != optMap.end())
-      ((cl::opt<bool> *)(*optIt).second)->setValue(true);
-  }
-#endif
-
-  tie(ifp, ofp, static_mode, noopt) = parse_command_line_arguments(argc, argv);
+  tie(ifp, ofp, noopt) = parse_command_line_arguments(argc, argv);
 
   //
   // parse binary
   //
   ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(ifp.string());
   if (error_code EC = BinaryOrErr.getError()) {
-    cerr << "error: " << EC.message() << endl;
-    exit(1);
+    cerr << "error loading binary: " << EC.message() << endl;
+    return 1;
   }
 
   O = dyn_cast<ObjectFile>(BinaryOrErr.get().getBinary());
   if (!O) {
     cerr << "error: provided file is not object" << endl;
-    exit(1);
+    return 1;
   }
 
   verify_arch(O);
@@ -89,128 +74,18 @@ int main(int argc, char **argv) {
   T.reset(new translator(*O, ifp.stem().string(), noopt));
 
   //
-  // create declarations for imported functions
+  // run translator
   //
-  createImportedFunctions();
-
-  //
-  // create definitions for exported functions
-  //
-  createExportedFunctions();
-
-  //
-  // create definitions for exported global variables
-  //
-  createExportedVariables();
-
-  //
-  // create definitions for thread-local global variables
-  //
-  createThreadLocalVariables();
-
-  //
-  // create section data, taking into account relocations
-  //
-  createSectionData();
-
-  if (verifyModule(T->module(), &errs())) {
-    errs().flush();
-    abort();
-  }
-
-  error_code ec;
-  raw_fd_ostream of(ifp.stem().string() + ".bc", ec, sys::fs::F_RW);
-  WriteBitcodeToFile(&T->module(), of);
-
-  return 0;
-}
-
-namespace jove {
-
-tuple<fs::path, fs::path, bool, bool> parse_command_line_arguments(int argc, char **argv) {
-  string ifp, ofp;
-  bool static_mode = false, dynamic_mode = false, noopt = false;
-
-  try {
-    po::options_description desc("Allowed options");
-    desc.add_options()
-      ("help,h", "produce help message")
-
-      ("input,i", po::value<string>(&ifp), "input binary")
-
-      ("output,o", po::value<string>(&ofp), "output bitcode file path")
-
-      ("noopt,s", po::value<bool>(&noopt),
-      "produce unoptimized LLVM")
-
-      ("static,s", po::value<bool>(&static_mode),
-      "produce bitcode for static analysis")
-
-      ("dynamic,d", po::value<bool>(&dynamic_mode),
-      "produce bitcode for dynamic analysis");
-
-    po::positional_options_description p;
-    p.add("input", -1);
-
-    po::variables_map vm;
-    po::store(
-        po::command_line_parser(argc, argv).options(desc).positional(p).run(),
-        vm);
-    po::notify(vm);
-
-    if (vm.count("help") || !vm.count("input") || !vm.count("output") ||
-        static_mode == dynamic_mode) {
-      cout << "Usage: jove-init-<arch> [--static] [--dynamic] [-o] binary\n";
-      cout << desc;
-      exit(1);
-    }
-  } catch (exception &e) {
-    cerr << e.what() << endl;
-    exit(1);
-  }
-
-  return make_tuple(ifp, ofp, static_mode, noopt);
-}
-
-void verify_arch(const ObjectFile *Obj) {
-  Triple::ArchType archty;
-
-#if defined(TARGET_AARCH64)
-  archty = Triple::ArchType::aarch64;
-#elif defined(TARGET_ARM)
-  archty = Triple::ArchType::arm;
-#elif defined(TARGET_X86_64)
-  archty = Triple::ArchType::x86_64;
-#elif defined(TARGET_I386)
-  archty = Triple::ArchType::x86;
-#elif defined(TARGET_MIPS)
-  archty = Triple::ArchType::mipsel;
-#endif
-
-  if (Obj->getArch() != archty) {
-    cerr << "error: architecture mismatch (run trans-obj-<arch>)" << endl;
-    exit(1);
-  }
-}
-
-#ifdef JOVEDBG
-void print_obj_info(const ObjectFile *Obj) {
-  cout << "File: " << Obj->getFileName().str() << "\n";
-  cout << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
-       << "\n";
-  cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
-}
-#endif
-
-void createImportedFunctions() {
 #if 0
-  vector<symbol_t> syms;
-  imported_functions_of_binary(*O, syms);
-#endif
-}
+  StringMap<cl::Option *> &optMap(cl::getRegisteredOptions());
 
-void createExportedFunctions() {
+  {
+    auto optIt = optMap.find("print-after-all");
+    if (optIt != optMap.end())
+      ((cl::opt<bool> *)(*optIt).second)->setValue(true);
+  }
+#endif
+
   vector<address_t> addrs;
   for (const symbol_t& sym : T->symbol_table()) {
     if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
@@ -247,9 +122,95 @@ void createExportedFunctions() {
     GlobalAlias::create(sym.name, llf);
   }
 #endif
+
+  if (verifyModule(T->module(), &errs())) {
+    errs().flush();
+    abort();
+  }
+
+  error_code ec;
+  raw_fd_ostream of(ofp.string(), ec, sys::fs::F_RW);
+  WriteBitcodeToFile(&T->module(), of);
+
+  return 0;
 }
 
-void createExportedVariables() {}
-void createThreadLocalVariables() {}
-void createSectionData() {}
+namespace jove {
+
+tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
+                                                             char **argv) {
+  fs::path ifp, ofp;
+  bool noopt = false;
+
+  try {
+    po::options_description desc("Allowed options");
+    desc.add_options()
+      ("help,h", "produce help message")
+
+      ("input,i", po::value<fs::path>(&ifp), "input binary")
+
+      ("output,o", po::value<fs::path>(&ofp), "output bitcode file path")
+
+      ("noopt,s", po::value<bool>(&noopt),
+      "produce unoptimized LLVM");
+
+    po::positional_options_description p;
+    p.add("input", -1);
+
+    po::variables_map vm;
+    po::store(
+        po::command_line_parser(argc, argv).options(desc).positional(p).run(),
+        vm);
+    po::notify(vm);
+
+    if (vm.count("help") || !vm.count("input")) {
+      cout << "Usage: jove-init-<arch> [-o output] binary\n";
+      cout << desc;
+      exit(1);
+    }
+
+    if (!vm.count("output")) {
+      ofp = ifp;
+      ofp.replace_extension("bc");
+      ofp = ofp.filename();
+    }
+  } catch (exception &e) {
+    cerr << e.what() << endl;
+    abort();
+  }
+
+  return make_tuple(ifp, ofp, noopt);
+}
+
+void verify_arch(const ObjectFile *Obj) {
+  Triple::ArchType archty;
+
+#if defined(TARGET_AARCH64)
+  archty = Triple::ArchType::aarch64;
+#elif defined(TARGET_ARM)
+  archty = Triple::ArchType::arm;
+#elif defined(TARGET_X86_64)
+  archty = Triple::ArchType::x86_64;
+#elif defined(TARGET_I386)
+  archty = Triple::ArchType::x86;
+#elif defined(TARGET_MIPS)
+  archty = Triple::ArchType::mipsel;
+#endif
+
+  if (Obj->getArch() != archty) {
+    cerr << "error: architecture mismatch (run trans-obj-<arch>)" << endl;
+    exit(1);
+  }
+}
+
+#ifdef JOVEDBG
+void print_obj_info(const ObjectFile *Obj) {
+  cout << "File: " << Obj->getFileName().str() << "\n";
+  cout << "Format: " << Obj->getFileFormatName().str() << "\n";
+  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
+       << "\n";
+  cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
+}
+#endif
+
 }
