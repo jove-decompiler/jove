@@ -32,6 +32,7 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/IR/MDBuilder.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 using namespace llvm;
 using namespace object;
@@ -1054,56 +1055,8 @@ translator::translate(const std::vector<address_t> &addrs) {
 
   MPM.run(M);
 
-#if 0
   //
-  // look for indirect jumps to external (i.e., imported) functions which are
-  // the *only* Instruction in the body of its parent function. for every call
-  // to such a function, replace it with a call to
-  // __jove_call_imported, providing the constant of the function in question
-  // as the parameter
-  //
-  auto lift_calls_to_PLT_entry = [&](Function* plt_e, Function* proc) -> void {
-    vector<CallInst*> ToRemove;
-    for (User *U : plt_e->users()) {
-      CallInst* CInst = dyn_cast<CallInst>(U);
-
-      if (!CInst)
-        continue;
-
-      b.SetInsertPoint(CInst);
-
-      CallInst *NewCInst =
-          b.CreateCall(CallImportedFn(), ArrayRef<Value *>(proc));
-
-      if (CInst->getType() != Type::getVoidTy(C))
-        CInst->replaceAllUsesWith(NewCInst);
-
-      ToRemove.push_back(CInst);
-    }
-
-    for (CallInst* CI : ToRemove)
-      CI->eraseFromParent();
-  };
-
-  for (User *U : IndirectJumpFn()->users()) {
-    CallInst* CInst = dyn_cast<CallInst>(U);
-
-    if (!CInst)
-      continue;
-
-    if (isa<Function>(CInst->getOperand(0)) &&
-        CInst->getParent()->size() == 2 &&
-        CInst->getParent()->getParent()->size() == 1) {
-      cout << "PLT entry: " << CInst->getParent()->getParent()->getName().str()
-           << endl;
-
-      lift_calls_to_PLT_entry(CInst->getParent()->getParent(),
-                              cast<Function>(CInst->getOperand(0)));
-    }
-  }
-#else
-  //
-  // look for indirect jumps to external (i.e., imported) functions
+  // look for indirect jumps to imported functions
   //
   vector<CallInst*> tochange;
   for (User *U : IndirectJumpFn()->users()) {
@@ -1111,7 +1064,8 @@ translator::translate(const std::vector<address_t> &addrs) {
     if (!CInst)
       continue;
 
-    if (!isa<Constant>(CInst->getOperand(0)))
+    if (!isa<Function>(CInst->getOperand(0)) ||
+        !cast<Function>(CInst->getOperand(0))->isDeclaration())
       continue;
 
     tochange.push_back(CInst);
@@ -1119,7 +1073,40 @@ translator::translate(const std::vector<address_t> &addrs) {
 
   for (CallInst* CInst : tochange)
     CInst->setOperand(1, CallImportedFn());
-#endif
+
+  //
+  // look for calls to imported functions for which they are the only
+  // instruction in the only basic block of a function. Inline those functions
+  // containing the calls to imported functions (we are looking for PLT entries
+  // here).
+  //
+  vector<Function*> fnstoinline;
+  for (User *U : CallImportedFn()->users()) {
+    CallInst* CInst = dyn_cast<CallInst>(U);
+
+    if (!CInst)
+      continue;
+
+    if (isa<Function>(CInst->getOperand(0)) &&
+        CInst->getParent()->size() == 2 &&
+        CInst->getParent()->getParent()->size() == 1)
+      fnstoinline.push_back(CInst->getParent()->getParent());
+  }
+
+  vector<CallInst*> toinline;
+  for (Function* f : fnstoinline) {
+    for (User *U : f->users()) {
+      if (!isa<CallInst>(U))
+        continue;
+
+      toinline.push_back(cast<CallInst>(U));
+    }
+  }
+
+  for (CallInst* CInst : toinline) {
+    InlineFunctionInfo IFI;
+    InlineFunction(CInst, IFI);
+  }
 
   return make_tuple(nullptr, nullptr);
 }
