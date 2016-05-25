@@ -803,13 +803,10 @@ translator::translate(const std::vector<address_t> &addrs) {
       functions_translated.push_back(addr);
   }
 
-  //
-  // compute return values for functions encountered
-  //
+#if 0
   for (address_t addr : functions_translated) {
     function_t& f = *function_table[addr];
 
-#if 1
     cout << hex << addr << endl;
 
     vector<unsigned> inputs, outputs;
@@ -831,8 +828,16 @@ translator::translate(const std::vector<address_t> &addrs) {
     for (auto g : outputs)
       cout << ' ' << tcg_globals[g].nm;
     cout << endl;
-#endif
   }
+#endif
+
+  // XXX after dynamic analysis
+#if 0
+  //
+  // conduct interprocedural context-insensitive liveness-analysis using
+  // procedure summaries
+  //
+#endif
 
   //
   // write graphviz files for control-flow graphs
@@ -1968,14 +1973,16 @@ void translator::translate_function_llvm(function_t& f) {
   // for each TCG basic block
   //
   for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-    f[*vi].llbb =
-        BasicBlock::Create(C, (boost::format("%x") % f[*vi].addr).str(), &llf);
-    f[*vi].exitllbb =
-        BasicBlock::Create(C, (boost::format("E%x") % f[*vi].addr).str(), &llf);
+    basic_block_properties_t& bbprop = f[*vi];
 
-    for (unsigned i = 0; i < f[*vi].lbls.size(); ++i)
-      f[*vi].lbls[i] =
-          BasicBlock::Create(C, (boost::format("L%u") % i).str(), &llf);
+    bbprop.llbb =
+        BasicBlock::Create(C, (boost::format("%#x") % bbprop.addr).str(), &llf);
+    bbprop.exitllbb = BasicBlock::Create(
+        C, (boost::format("%#x.exit") % bbprop.addr).str(), &llf);
+
+    for (unsigned i = 0; i < bbprop.lbls.size(); ++i)
+      bbprop.lbls[i] = BasicBlock::Create(
+          C, (boost::format("%#x.%u") % bbprop.addr % (i + 1)).str(), &llf);
   }
 
   //
