@@ -755,15 +755,6 @@ void translator::prepare_for_translation() {
   aliasscopel = MDNode::get(C, ArrayRef<Metadata *>(aliasscope));
 }
 
-llvm::Function *translator::function_of_addr(address_t addr) {
-  auto it = function_table.find(addr);
-  if (it == function_table.end())
-    return nullptr;
-
-  function_t& f = *(*it).second;
-  return f[boost::graph_bundle].llf;
-}
-
 static void explode_tcg_global_set(vector<unsigned> &out,
                                    tcg::global_set_t glbs) {
   if (glbs.none())
@@ -788,20 +779,24 @@ static void explode_tcg_global_set(vector<unsigned> &out,
   } while (x);
 }
 
-tuple<Function *, Function *>
-translator::translate(const std::vector<address_t> &addrs) {
-  vector<address_t> functions_translated;
+void translator::find_functions_to_translate() {
+  for (const symbol_t& sym : symtbl) {
+    if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
+        sym.bind == symbol_t::NOBINDING)
+      continue;
 
-  functions_to_translate = queue<address_t>();
-  for (address_t addr : addrs)
-    functions_to_translate.push(addr);
+    functions_to_translate.push(sym.addr);
+  }
+}
+
+void translator::run() {
+  find_functions_to_translate();
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
     functions_to_translate.pop();
 
-    if (translate_function(addr))
-      functions_translated.push_back(addr);
+    translate_function(addr);
   }
 
 #if 0
@@ -832,20 +827,12 @@ translator::translate(const std::vector<address_t> &addrs) {
   }
 #endif
 
-  // XXX after dynamic analysis
-#if 0
-  //
-  // conduct interprocedural context-insensitive liveness-analysis using
-  // procedure summaries
-  //
-#endif
-
   //
   // write graphviz files for control-flow graphs
   //
 #if 1
-  for (address_t addr : functions_translated) {
-    function_t& f = *function_table[addr];
+  for (auto &f_entry : function_table) {
+    function_t &f = *f_entry.second;
     write_function_graphviz(f);
   }
 #endif
@@ -854,8 +841,8 @@ translator::translate(const std::vector<address_t> &addrs) {
   // in preparation for LLVM translation, create LLVM prototypes for each
   // function
   //
-  for (address_t addr : functions_translated) {
-    function_t &f = *function_table[addr];
+  for (auto &f_entry : function_table) {
+    function_t &f = *f_entry.second;
 
     //
     // build function type
@@ -888,15 +875,16 @@ translator::translate(const std::vector<address_t> &addrs) {
     //
     f[boost::graph_bundle].llf = Function::Create(
         ty, GlobalValue::ExternalLinkage,
-        (boost::format("%x") % f[boost::graph_bundle].entry_point).str(), &M);
+        (boost::format("%#x") % f[boost::graph_bundle].entry_point).str(), &M);
     f[boost::graph_bundle].llf->setAttributes(FnAttr);
   }
 
   //
   // translate TCG -> LLVM for each function
   //
-  for (address_t addr : functions_translated) {
-    function_t &f = *function_table[addr];
+  for (auto &f_entry : function_table) {
+    function_t &f = *f_entry.second;
+
     translate_function_llvm(f);
   }
 
@@ -1108,26 +1096,37 @@ translator::translate(const std::vector<address_t> &addrs) {
     InlineFunction(CInst, IFI);
   }
 
-  return make_tuple(nullptr, nullptr);
+  //
+  // recover function symbols
+  //
+  for (const symbol_t& sym : symtbl) {
+    if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
+        sym.bind == symbol_t::NOBINDING)
+      continue;
+
+    auto it = function_table.find(sym.addr);
+    if (it == function_table.end())
+      continue;
+
+    function_t& f = *(*it).second;
+    f[boost::graph_bundle].llf->setName(sym.name);
+  }
 }
 
 bool translator::translate_function(address_t addr) {
   //
   // check to see if function was already translated
   //
-  {
-    auto f_it = function_table.find(addr);
-    if (f_it != function_table.end())
-      return false;
-    else
-      function_table[addr].reset(new function_t);
-  }
+  auto f_it = function_table.find(addr);
+  if (f_it != function_table.end())
+    return false;
+
+  unique_ptr<function_t> f(new function_t);
 
   //
   // initialize function
   //
-  function_t& f = *function_table[addr];
-  f[boost::graph_bundle].entry_point = addr;
+  (*f)[boost::graph_bundle].entry_point = addr;
 
   //
   // initialize data structures used during translation of a function
@@ -1140,7 +1139,7 @@ bool translator::translate_function(address_t addr) {
   // conduct a recursive descent of the function, and translate each basic block
   // into QEMU TCG intermediate code
   //
-  if (translate_basic_block(f, addr) ==
+  if (translate_basic_block(*f, addr) ==
       boost::graph_traits<function_t>::null_vertex())
     return false;
 
@@ -1149,18 +1148,19 @@ bool translator::translate_function(address_t addr) {
   // and reaching definitions analysis
   //
   for (basic_block_t bb : verticesByDFNum)
-    compute_basic_block_defs_and_uses(f[bb]);
+    compute_basic_block_defs_and_uses((*f)[bb]);
 
   //
   // determine parameters for function
   //
-  compute_params(f);
+  compute_params(*f);
 
   //
   // determine return values for function
   //
-  compute_returned(f);
+  compute_returned(*f);
 
+  function_table[addr] = std::move(f);
   return true;
 }
 
@@ -1985,6 +1985,7 @@ void translator::translate_function_llvm(function_t& f) {
 
   if (tcg::longest_word_bits < max_num_temps - tcg::num_globals) {
     cerr << "can't do fast method for computing set of TCG temps used" << endl;
+    cerr << "max_num_temps = " << dec << max_num_temps << endl;
     exit(1);
   }
 #endif

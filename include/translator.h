@@ -390,29 +390,20 @@ private:
   llvm::LoadInst *CreateGuestLoad(llvm::Value *);
   llvm::StoreInst *CreateGuestStore(llvm::Value *, llvm::Value *ptr);
 
+  void find_functions_to_translate();
+
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,
              bool noopt = false);
   ~translator();
 
-  llvm::Module &module() { return M; }
-
-  const section_table_t &section_table() { return secttbl; }
-
-  const symbol_table_t &symbol_table() { return symtbl; }
-
-  const relocation_table_t &relocation_table() { return reloctbl; }
-
-  void tcg_helper(uintptr_t addr, const char *name);
-
   // given an entry point, translates to an LLVM function and its counterpart
   // thunk (for untranslated-code to use)
-  std::tuple<llvm::Function *, llvm::Function *>
-  translate(const std::vector<address_t> &);
-
-  llvm::Function *function_of_addr(address_t);
+  void run();
 
   void print_tcg_ops(std::ostream &out,
                      const basic_block_properties_t &bbprop) const;
+
+  llvm::Module &module() { return M; }
 };
 }

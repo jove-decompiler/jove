@@ -2,6 +2,7 @@ include config.mk
 
 targ_build_dir := $(build_dir)/$(_TARGET_NAME)
 res = $(targ_build_dir)/$(1)
+tool = _jove_$(1)
 
 jove_all: $(call res,jove-init) $(call res,thunk).bc
 
@@ -42,20 +43,20 @@ _CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-o
 # jove-init
 #
 
-_SRCSNAMES = jove_init.cpp \
-             mc.cpp \
-             elf_binary.cpp \
-             coff_binary.cpp \
-             translator.cpp
+$(call tool,init)_SRC_NMS = jove_init.cpp \
+                            mc.cpp \
+                            elf_binary.cpp \
+                            coff_binary.cpp \
+                            translator.cpp
 
-_SRCS := $(patsubst %,$(build_dir)/%,$(_SRCSNAMES))
-_OBJS := $(patsubst %.cpp,$(call res,%).o,$(_SRCSNAMES))
-_DEPS := $(patsubst %.cpp,$(call res,%).d,$(_SRCSNAMES))
+$(call tool,init)_SRCS := $(patsubst %,$(build_dir)/%,$($(call tool,init)_SRC_NMS))
+$(call tool,init)_OBJS := $(patsubst %.cpp,$(call res,%).o,$($(call tool,init)_SRC_NMS))
+$(call tool,init)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,init)_SRC_NMS))
 
-$(call res,jove-init): $(_OBJS) $(call res,libqemutcg).so
+$(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 	@echo CLANG++ $(notdir $@ $^)
 	@$(LLCXX) -o $@ \
-	  $(_CXXFLAGS) $(_OBJS) \
+	  $(_CXXFLAGS) $($(call tool,init)_OBJS) \
 	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
 	  -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so \
 	  $(shell $(LLCONFIG) --ldflags) \
@@ -69,7 +70,7 @@ $(call res,jove-init): $(_OBJS) $(call res,libqemutcg).so
 	  -ldl
 
 # pull in dependency info for existing .o files
--include $(_DEPS)
+-include $($(call tool,init)_DEPS)
 
 $(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
