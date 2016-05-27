@@ -412,9 +412,89 @@ let main () =
   let cpustptrty = pointer_type cpustty in
 
   (*
-   * add CPUState thread-local global variable
+   * create shadow stack
    *)
-  let glblcpust = define_global "cpu_state" (const_null cpustty) llm in
+  let shadowstack_len = 8192 * 1024 in (* 8192 KiB *)
+  let shadowstack_ty = array_type (i8_type llctx) shadowstack_len in
+  let shadowstack = define_global "shadow_stack" (const_null shadowstack_ty) llm in
+
+  (*
+   * create CPUState (thread-local) global variable. the stack pointer will be
+   * initialized to the shadow stack (this is architecture dependent)
+   *)
+  assert (classify_type cpustty = TypeKind.Struct);
+  let cpustelemtys = struct_element_types cpustty in
+  let cpustinit = Array.init
+      (Array.length cpustelemtys)
+      (fun idx -> const_null cpustelemtys.(idx)) in
+
+  (match !arch_s with
+  | "i386"
+  | "x86_64" ->
+    let regsty = cpustelemtys.(0) in
+    assert (classify_type regsty = TypeKind.Array);
+
+    let regs = Array.make
+        (array_length regsty)
+        (const_null (element_type regsty)) in
+    (*
+     * #define R_ESP 4
+     * #define R_EBP 5
+     *)
+    let top_of_stack =
+      const_ptrtoint
+        (const_gep shadowstack
+           [|const_int (i32_type llctx) 0;
+             const_int (i32_type llctx) (shadowstack_len - 1024)|])
+        (element_type regsty) in
+    regs.(4) <- top_of_stack;
+    regs.(5) <- top_of_stack;
+    cpustinit.(0) <- const_array (element_type regsty) regs
+  | "arm" ->
+    let regsty = cpustelemtys.(0) in
+    assert (classify_type regsty = TypeKind.Array);
+
+    let regs = Array.make
+        (array_length regsty)
+        (const_null (element_type regsty)) in
+    (*
+     * R13 is used as the stack pointer
+     *)
+    let top_of_stack =
+      const_ptrtoint
+        (const_gep shadowstack
+           [|const_int (i32_type llctx) 0;
+             const_int (i32_type llctx) (shadowstack_len - 1024)|])
+        (element_type regsty) in
+    regs.(13) <- top_of_stack;
+    cpustinit.(0) <- const_array (element_type regsty) regs
+  | "aarch64" ->
+    let regsty = cpustelemtys.(1) in
+    assert (classify_type regsty = TypeKind.Array);
+
+    let regs = Array.make
+        (array_length regsty)
+        (const_null (element_type regsty)) in
+    (*
+     * x31 is used as the stack pointer
+     *)
+    let top_of_stack =
+      const_ptrtoint
+        (const_gep shadowstack
+           [|const_int (i32_type llctx) 0;
+             const_int (i32_type llctx) (shadowstack_len - 1024)|])
+        (element_type regsty) in
+    regs.(31) <- top_of_stack;
+    cpustinit.(1) <- const_array (element_type regsty) regs
+  | "mipsel" -> ()
+  | _ -> assert false);
+
+  let glblcpust = declare_global
+      cpustty
+      "cpu_state"
+      llm in
+  set_initializer (const_named_struct cpustty cpustinit) glblcpust;
+  set_linkage Linkage.External glblcpust;
   set_thread_local true glblcpust;
 
   (*

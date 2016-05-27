@@ -4,7 +4,7 @@ targ_build_dir := $(build_dir)/$(_TARGET_NAME)
 res = $(targ_build_dir)/$(1)
 tool = _jove_$(1)
 
-jove_all: $(call res,jove-init) $(call res,thunk).bc
+jove_all: $(call res,jove-init) $(call res,jove-recompile) $(call res,thunk).bc
 
 _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
@@ -40,6 +40,33 @@ _CFLAGS   := $(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out 
 _CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))
 
 #
+# jove-recompile
+#
+
+$(call tool,recompile)_SRC_NMS = jove_recompile.cpp
+
+$(call tool,recompile)_SRCS := $(patsubst %,$(build_dir)/%,$($(call tool,recompile)_SRC_NMS))
+$(call tool,recompile)_OBJS := $(patsubst %.cpp,$(call res,%).o,$($(call tool,recompile)_SRC_NMS))
+$(call tool,recompile)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,recompile)_SRC_NMS))
+
+$(call res,jove-recompile): $($(call tool,recompile)_OBJS)
+	@echo CLANG++ $(notdir $@ $^)
+	@$(LLCXX) -o $@ \
+	  $(_CXXFLAGS) $($(call tool,recompile)_OBJS) \
+	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
+	  $(shell $(LLCONFIG) --ldflags) \
+	  -lglib-2.0 \
+	  -pthread \
+	  -lcurses \
+	  -lz \
+	  -lboost_system \
+	  -lboost_program_options \
+	  -lboost_filesystem \
+	  -ldl
+
+-include $($(call tool,recompile)_DEPS)
+
+#
 # jove-init
 #
 
@@ -69,7 +96,6 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 	  -lboost_filesystem \
 	  -ldl
 
-# pull in dependency info for existing .o files
 -include $($(call tool,init)_DEPS)
 
 $(call res,%).o: $(build_dir)/%.cpp
@@ -226,7 +252,7 @@ $(call res,helpers).bc: $(call res,helpers).5.bc
 
 $(call res,helpers).5.bc: $(call res,helpers).4.bc $(build_dir)/transform-helpers $(call res,tcgglobals)
 	@echo TRANSFORMHELPERS $(notdir $@ $<)
-	@$(build_dir)/transform-helpers -o $@ -i $< --arch $(_TARGET_NAME) $$($(call res,tcgglobals) | xargs)
+	$(build_dir)/transform-helpers -o $@ -i $< --arch $(_TARGET_NAME) $$($(call res,tcgglobals) | xargs)
 
 $(call res,helpers).4.bc: $(call res,helpers).3.bc
 	@echo OPT $(notdir $@ $^)

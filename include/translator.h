@@ -390,7 +390,7 @@ private:
   llvm::LoadInst *CreateGuestLoad(llvm::Value *);
   llvm::StoreInst *CreateGuestStore(llvm::Value *, llvm::Value *ptr);
 
-  void find_functions_to_translate();
+  void find_exported_functions(std::unordered_set<address_t>&);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,

@@ -1,15 +1,9 @@
+#include "config-host.h"
+#include "config-target.h"
 #include "translator.h"
 #include "binary.h"
 #include "mc.h"
 #include "qemutcg.h"
-#include <boost/format.hpp>
-#include <boost/graph/dominator_tree.hpp>
-#include <boost/graph/filtered_graph.hpp>
-#include <boost/graph/graphviz.hpp>
-#include <config-host.h>
-#include <config-target.h>
-#include <fstream>
-#include <numeric>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/Object/Binary.h>
@@ -17,8 +11,6 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/MDBuilder.h>
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/icl/split_interval_set.hpp>
 #include <llvm/Analysis/ConstantFolding.h>
 #include <llvm/Analysis/ValueTracking.h>
 #include <llvm/Transforms/Scalar.h>
@@ -33,6 +25,14 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/IR/MDBuilder.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <boost/range/adaptor/reversed.hpp>
+#include <boost/icl/split_interval_set.hpp>
+#include <boost/format.hpp>
+#include <boost/graph/dominator_tree.hpp>
+#include <boost/graph/filtered_graph.hpp>
+#include <boost/graph/graphviz.hpp>
+#include <fstream>
+#include <numeric>
 
 using namespace llvm;
 using namespace object;
@@ -727,7 +727,7 @@ void translator::prepare_for_translation() {
       cast<PointerType>(rthlp_cpu_state->getType())->getElementType();
   cpu_state_glb_llv = new GlobalVariable(
       M, cpu_state_ty, false, GlobalValue::ExternalLinkage,
-      ConstantAggregateZero::get(cpu_state_ty), rthlp_cpu_state->getName(),
+      nullptr, rthlp_cpu_state->getName(),
       nullptr, GlobalValue::GeneralDynamicTLSModel);
 
   //
@@ -779,18 +779,22 @@ static void explode_tcg_global_set(vector<unsigned> &out,
   } while (x);
 }
 
-void translator::find_functions_to_translate() {
-  for (const symbol_t& sym : symtbl) {
+void translator::find_exported_functions(unordered_set<address_t> &out) {
+  for (const symbol_t &sym : symtbl) {
     if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
         sym.bind == symbol_t::NOBINDING)
       continue;
 
-    functions_to_translate.push(sym.addr);
+    out.insert(sym.addr);
   }
 }
 
 void translator::run() {
-  find_functions_to_translate();
+  unordered_set<address_t> exportedfns;
+  find_exported_functions(exportedfns);
+
+  for (address_t addr : exportedfns)
+    functions_to_translate.push(addr);
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
@@ -1094,6 +1098,18 @@ void translator::run() {
   for (CallInst* CInst : toinline) {
     InlineFunctionInfo IFI;
     InlineFunction(CInst, IFI);
+  }
+
+  //
+  // set linkage of functions according to whether they are exported or not
+  //
+  for (auto &f_entry : function_table) {
+    function_t &f = *f_entry.second;
+    Function* llf = f[boost::graph_bundle].llf;
+
+    llf->setLinkage(exportedfns.find(f_entry.first) == exportedfns.end()
+                        ? GlobalValue::InternalLinkage
+                        : GlobalValue::ExternalLinkage);
   }
 
   //

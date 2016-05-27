@@ -1,23 +1,19 @@
+#include "config-target.h"
 #include "binary.h"
 #include "translator.h"
-#include <config-target.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/ADT/Triple.h>
-#include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Bitcode/ReaderWriter.h>
-#include <boost/icl/interval_map.hpp>
-#include <boost/program_options.hpp>
-#include <boost/filesystem.hpp>
-#include <cstdint>
-#include <iostream>
-#include <sstream>
-#include <string>
-#include <tuple>
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Object/Binary.h>
+#include <boost/program_options.hpp>
+#include <boost/filesystem.hpp>
+#include <iostream>
+#include <cstdint>
+#include <string>
+#include <tuple>
 
 #define JOVEDBG
 
@@ -89,6 +85,9 @@ int main(int argc, char **argv) {
     errs().flush();
     abort();
   }
+
+  if (fs::exists(ofp))
+    fs::remove_all(ofp);
 
   fs::create_directory(ofp);
   fs::create_directory(ofp / "analysis");
