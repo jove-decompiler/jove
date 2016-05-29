@@ -9,7 +9,8 @@ void foo(int x) {
   printf("%d\n", x);
 }
 
-static CPUX86State cpu_state;
+extern CPUX86State cpu_state;
+static uint64_t rdx_buff;
 
 typedef void (*thunk_proc_ty)(void);
 static thunk_proc_ty __jove_thunk_buff;
@@ -24,10 +25,10 @@ int __jove_impl_get_rand(void);
 
 __attribute__((naked)) void get_rand(void) {
   __asm__ volatile(
-      "movq %%rax, %[out_rax]\n"
+      "movq %%rdx, %[out_rdx]\n"
 
       : // OutputOperands
-      [out_rax] "=m" (cpu_state.regs[R_EAX])
+      [out_rdx] "=m" (rdx_buff)
 
       : // InputOperands
 
@@ -42,13 +43,147 @@ __attribute__((naked)) void get_rand(void) {
       [thunk_buff] "=m" (__jove_thunk_buff)
 
       : // InputOperands
-      [__jove_impl] "a" (__jove_impl_get_rand)
+      [__jove_impl] "d" (__jove_impl_get_rand)
 
       : // Clobbers
-      "rax");
+      "rdx");
 }
 
+/*
+ * #define R_EAX 0
+ * #define R_ECX 1
+ * #define R_EDX 2
+ * #define R_EBX 3
+ * #define R_ESP 4
+ * #define R_EBP 5
+ * #define R_ESI 6
+ * #define R_EDI 7
+ * #define R_8   8
+ * #define R_9   9
+ * #define R_10  10
+ * #define R_11  11
+ * #define R_12  12
+ * #define R_13  14
+ * #define R_14  14
+ * #define R_15  15
+ */
+
 void __jove_thunk_in() {
+  __asm__ volatile(
+      "movq %%rdx, %[saved_rdx]\n"
+
+      : // OutputOperands
+      [saved_rdx] "=m" (rdx_buff)
+      : // InputOperands
+      : // Clobbers
+      );
+
+  __asm__ volatile(
+      "movq %[regs_ptr], %%rdx\n"
+
+      : // OutputOperands
+      : // InputOperands
+      [regs_ptr] "d" (&cpu_state.regs[0])
+      : // Clobbers
+      "rdx"
+      );
+
+  __asm__ volatile(
+      "movq  %%rax,    (%%rdx)\n"
+      "movq  %%rcx,  8 (%%rdx)\n"
+      "movq  %%rbx,  24(%%rdx)\n"
+      "xchgq %%rsp,  32(%%rdx)\n"
+      "xchgq %%rbp,  40(%%rdx)\n"
+      "movq  %%rsi,  48(%%rdx)\n"
+      "movq  %%rdi,  56(%%rdx)\n"
+      "movq  %%r8,   64(%%rdx)\n"
+      "movq  %%r9,   72(%%rdx)\n"
+      "movq  %%r10,  80(%%rdx)\n"
+      "movq  %%r11,  88(%%rdx)\n"
+      "movq  %%r12,  96(%%rdx)\n"
+      "movq  %%r13,  104(%%rdx)\n"
+      "movq  %%r14,  112(%%rdx)\n"
+      "movq  %%r15,  120(%%rdx)\n"
+
+      "movq %[saved_rdx], %%rcx\n"
+      "movq %%rcx, 16(%%rdx)\n"
+
+      : // OutputOperands
+      : // InputOperands
+      [saved_rdx] "m" (rdx_buff)
+      : // Clobbers
+      "rcx"
+      );
+
+  __asm__ volatile(
+      "call *%[thunk_buff]\n"
+
+      : // OutputOperands
+      : // InputOperands
+      [thunk_buff] "m" (__jove_thunk_buff)
+      : // Clobbers
+      );
+
+#if 0
+  __asm__ volatile(
+      "movq %[regs_ptr], %%rax\n"
+
+      : // OutputOperands
+      : // InputOperands
+      [regs_ptr] "a" (&cpu_state.regs[0])
+      : // Clobbers
+      "rax"
+      );
+
+  __asm__ volatile(
+      "movq (%%rax), %%rcx\n"
+      "movq %%rcx, %[saved_rax]\n"
+
+      "movq  8(%%rax),   %%rcx\n"
+      "movq  16(%%rax),  %%rdx\n"
+      "movq  24(%%rax),  %%rbx\n"
+      "xchgq 32(%%rax),  %%rsp\n"
+      "xchgq 40(%%rax),  %%rbp\n"
+      "movq  48(%%rax),  %%rsi\n"
+      "movq  56(%%rax),  %%rdi\n"
+      "movq  64(%%rax),  %%r8\n"
+      "movq  72(%%rax),  %%r9\n"
+      "movq  80(%%rax),  %%r10\n"
+      "movq  88(%%rax),  %%r11\n"
+      "movq  96(%%rax),  %%r12\n"
+      "movq  104(%%rax), %%r13\n"
+      "movq  112(%%rax), %%r14\n"
+      "movq  120(%%rax), %%r15\n"
+
+      "movq %[saved_rax], %%rax\n"
+      "ret\n"
+
+      : // OutputOperands
+      [saved_rax] "=m" (rax_buff)
+
+      : // InputOperands
+      [saved_rax] "m" (rax_buff)
+
+      : // Clobbers
+      "rax",
+      "rbx",
+      "rcx",
+      "rdx",
+      "rsi",
+      "rdi",
+      "rbp",
+      "rsp",
+      "r8",
+      "r9",
+      "r10",
+      "r11",
+      "r12",
+      "r13",
+      "r14",
+      "r15");
+#endif
+
+#if 0
   __asm__ volatile(
       "xchgq %%rbp, %[out_rbp]\n"
       "xchgq %%rsp, %[out_rsp]\n"
@@ -142,9 +277,11 @@ void __jove_thunk_in() {
       "r13",
       "r14",
       "r15");
+#endif
 }
 
 void __jove_thunk_out() {
+#if 0
   __asm__ volatile(
       "xchgq %[in_rbp], %%rbp\n"
       "xchgq %[in_rsp], %%rsp\n"
@@ -224,9 +361,11 @@ void __jove_thunk_out() {
       "r13",
       "r14",
       "r15");
+#endif
 }
 
 void __jove_thunk_out_prologue() {
+#if 0
   __asm__ volatile(
       "xchgq %%rbp, %[out_rbp]\n"
       "xchgq %%rsp, %[out_rsp]\n"
@@ -267,6 +406,7 @@ void __jove_thunk_out_prologue() {
 
       : // Clobbers
       );
+#endif
 }
 
 int __jove_impl_get_rand(void) {

@@ -12,6 +12,7 @@
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/raw_ostream.h>
+#include <llvm/IR/InlineAsm.h>
 
 using namespace std;
 using namespace llvm;
@@ -28,6 +29,10 @@ static void print_obj_info(const ObjectFile *);
 static void needed_shared_libraries_of_binary(const ObjectFile *,
                                               vector<fs::path> &);
 }
+
+static const uint8_t helpers_bitcode_data[] = {
+#include "helpers.cpp"
+};
 
 using namespace jove;
 
@@ -54,6 +59,28 @@ int main(int argc, char **argv) {
   }
 
   print_obj_info(O);
+
+  llvm::LLVMContext C;
+  unique_ptr<Module> _HelperM = move(*getLazyBitcodeModule(
+      MemoryBuffer::getMemBuffer(
+          StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
+                    sizeof(helpers_bitcode_data)),
+          "", false),
+      C));
+  Module& HelperM = *_HelperM;
+
+  unique_ptr<Module> _M = move(
+      *getLazyBitcodeModule(move(*MemoryBuffer::getFile(
+                                (ifp / "bitcode" / "decompilation").string())),
+                            C));
+  Module& M = *_M;
+
+  for (Function& F : M) {
+    if (F.getLinkage() == GlobalValue::ExternalLinkage) {
+      // create thunk
+      cout << "external" << endl;
+    }
+  }
 
   vector<fs::path> libs;
   needed_shared_libraries_of_binary(O, libs);

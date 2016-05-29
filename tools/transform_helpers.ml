@@ -416,7 +416,14 @@ let main () =
    *)
   let shadowstack_len = 8192 * 1024 in (* 8192 KiB *)
   let shadowstack_ty = array_type (i8_type llctx) shadowstack_len in
-  let shadowstack = define_global "shadow_stack" (const_null shadowstack_ty) llm in
+
+  let shadowstack = declare_global
+      shadowstack_ty
+      "shadow_stack"
+      llm in
+  set_initializer (const_null shadowstack_ty) shadowstack;
+  set_linkage Linkage.Internal shadowstack;
+  set_thread_local true shadowstack;
 
   (*
    * create CPUState (thread-local) global variable. the stack pointer will be
