@@ -801,7 +801,8 @@ void translator::find_exported_functions(unordered_set<address_t> &out) {
 }
 
 void translator::run() {
-  cout << "Translate " TARGET_NAME " machine code to QEMU IR" << endl;
+  cout << "Translating " TARGET_NAME " machine code to QEMU IR..." << endl
+       << endl;
 
   unordered_set<address_t> exportedfns;
   find_exported_functions(exportedfns);
@@ -898,7 +899,7 @@ void translator::run() {
     f[boost::graph_bundle].llf->setAttributes(FnAttr);
   }
 
-  cout << "Translate QEMU IR to LLVM" << endl << endl;
+  cout << "Translating QEMU IR to LLVM..." << endl << endl;
 
   //
   // translate TCG -> LLVM for each function
