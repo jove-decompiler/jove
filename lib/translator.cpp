@@ -793,8 +793,10 @@ void translator::run() {
   unordered_set<address_t> exportedfns;
   find_exported_functions(exportedfns);
 
-  for (address_t addr : exportedfns)
+  for (address_t addr : exportedfns) {
+    assert(addr);
     functions_to_translate.push(addr);
+  }
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
@@ -1155,6 +1157,7 @@ bool translator::translate_function(address_t addr) {
   // conduct a recursive descent of the function, and translate each basic block
   // into QEMU TCG intermediate code
   //
+  assert(addr);
   if (translate_basic_block(*f, addr) ==
       boost::graph_traits<function_t>::null_vertex())
     return false;
@@ -1360,6 +1363,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // (recursively) descend into branch targets, translating basic blocks
   //
   auto control_flow_to = [&](address_t dst_addr) -> void {
+    assert(dst_addr != 0);
+
     auto bb_it = translated_basic_blocks.find(dst_addr);
     if (bb_it != translated_basic_blocks.end()) {
       f[boost::add_edge(bb, (*bb_it).second, f).first].back_edge = true;
@@ -1412,41 +1417,43 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   } else if (MIA->isConditionalBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_CONDITIONAL_JUMP;
 
-    uint64_t target;
+    uint64_t target = 0;
 #if defined(TARGET_X86_64)
     assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
 #elif defined(TARGET_AARCH64)
     aarch64_evaluateConditionalBranch(target);
 #endif
+    assert(target);
 
     control_flow_to(target);
     control_flow_to(succ_addr);
   } else if (MIA->isUnconditionalBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
 
-    uint64_t target;
+    uint64_t target = 0;
 #if defined(TARGET_X86_64)
     assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
 #elif defined(TARGET_AARCH64)
     aarch64_evaluateUnconditionalBranch(target);
 #endif
+    assert(target);
 
     control_flow_to(target);
   } else if (MIA->isIndirectBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
   } else if (MIA->isCall(Inst)) {
     bool is_indirect;
-    uint64_t target;
+    uint64_t target = 0;
 #if defined(TARGET_X86_64)
     is_indirect = !MIA->evaluateBranch(Inst, last_instr_addr, size, target);
 #elif defined(TARGET_AARCH64)
     is_indirect = !aarch64_evaluateCall(target);
 #endif
-
     bbprop.term = is_indirect ? basic_block_properties_t::TERM_INDIRECT_CALL
                               : basic_block_properties_t::TERM_CALL;
 
     if (!is_indirect) {
+      assert(target);
       functions_to_translate.push(target);
       callers[target].push_back({&f, bb});
       bbprop.callee = target;
@@ -2070,6 +2077,7 @@ void translator::translate_function_llvm(function_t& f) {
   // translate each basic block to LLVM, in roughly topological order
   //
   tie(vi, vi_end) = boost::vertices(f);
+  assert(vi != vi_end);
   for (;;) {
     translate_tcg_to_llvm(f, *vi);
     ++vi;
@@ -2270,8 +2278,24 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
   auto on_conditional_jump = [&](basic_block_t dst1,
                                  basic_block_t dst2) -> void {
+    if (dst1 == boost::graph_traits<function_t>::null_vertex())
+      on_unconditional_jump(dst2);
+    if (dst2 == boost::graph_traits<function_t>::null_vertex())
+      on_unconditional_jump(dst1);
+
     Value *pc = CreateLoad(pc_llv);
     Value *addr1 = ConstantInt::get(word_type(), f[dst1].addr);
+
+#if 0
+    pc->dump();
+    addr1->dump();
+    errs() << f[dst1].llbb << '\n';
+    f[dst1].llbb->dump();
+    errs() << dst2 << '\n';
+    errs() << f[dst2].llbb << '\n';
+    f[dst2].llbb->dump();
+#endif
+
     b.CreateCondBr(b.CreateICmpEQ(pc, addr1), f[dst1].llbb, f[dst2].llbb);
   };
 
@@ -2512,8 +2536,16 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   tie(ei, ei_end) = boost::out_edges(bb, cfg);
 
   auto next_edge = [&](void) -> basic_block_t {
-    return ei == ei_end ? boost::graph_traits<function_t>::null_vertex()
-                        : boost::target(*ei++, cfg);
+    if (ei == ei_end)
+      return boost::graph_traits<function_t>::null_vertex();
+
+    basic_block_t res = boost::target(*ei, cfg);
+#if 0
+    errs() << "bb: " << res << '\n';
+#endif
+    ++ei;
+
+    return res;
   };
 
   switch (bbprop.term) {
@@ -2540,6 +2572,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     break;
   }
   assert(ei == ei_end);
+  assert(bbprop.exitllbb->getTerminator());
 }
 
 void translator::translate_tcg_operation_to_llvm(
@@ -2818,6 +2851,7 @@ void translator::translate_tcg_operation_to_llvm(
       __OP_BRCOND_C(tcg::TCG_COND_GTU, UGT)                                    \
     default:                                                                   \
       assert(false);                                                           \
+      return;                                                                  \
     }                                                                          \
     BasicBlock *bb = BasicBlock::Create(                                       \
         C, (boost::format("l%u") % bbprop.lbls.size()).str(),                  \
@@ -3263,6 +3297,7 @@ void translator::translate_tcg_operation_to_llvm(
       __OP_SETCOND_COND(tcg::TCG_COND_GTU, UGT)                                \
     default:                                                                   \
       assert(false);                                                           \
+      return;                                                                  \
     }                                                                          \
     set(b.CreateZExt(v, IntegerType::get(C, bits)), args[0]);                  \
   } break;

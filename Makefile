@@ -21,13 +21,17 @@ LLVMLIBSDIR   := $(llvm_dir)/lib/ocaml
 
 OCAMLLIBNAMES := nums \
                  str
-LLVMLIBNAMES  := llvm llvm_bitreader llvm_bitwriter llvm_analysis
+LLVMLIBNAMES  := llvm \
+                 llvm_bitreader \
+				 llvm_bitwriter \
+				 llvm_analysis
 OPAMLIBNAMES  := batteries/batteries \
                  zarith/zarith \
                  stdint/stdint \
 				 ocamlgraph/graph
 
-INCLUDES  := -I $(ocaml_dir) \
+INCLUDES  := -I $(build_dir) \
+             -I $(ocaml_dir) \
              -I $(LLVMLIBSDIR) \
 		     $(patsubst %,-I %,$(patsubst %/,%,$(dir $(patsubst %,$(opam_libs_dir)/%,$(OPAMLIBNAMES)))))
 
@@ -36,6 +40,12 @@ CLIBDIRS  := -ccopt -L -ccopt $(ocaml_dir) -ccopt -L -ccopt $(LLVMLIBSDIR)
 OCAMLLIBS := $(patsubst %,$(ocaml_dir)/%.cmxa,$(OCAMLLIBNAMES))
 LLVMLLIBS := $(patsubst %,$(LLVMLIBSDIR)/%.cmxa,$(LLVMLIBNAMES))
 OPAMLIBS  := $(patsubst %,$(opam_libs_dir)/%.cmxa,$(OPAMLIBNAMES))
+
+LLCONFIG := $(llvm_dir)/bin/llvm-config
+LLCXX    := $(llvm_dir)/bin/clang++
+LLCC     := $(llvm_dir)/bin/clang
+LLOPT    := $(llvm_dir)/bin/opt
+LLLD     := $(llvm_dir)/bin/llvm-link
 
 $(build_dir):
 	mkdir $@
@@ -70,24 +80,30 @@ $(build_dir):
 	rm -r build/qemuutil
 	rm -r build/qemustub
 
-$(build_dir)/llknife: $(build_dir)/llknife.ml
+$(build_dir)/llknife: $(build_dir)/llknife.ml $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
-$(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml | $(build_dir)
+$(build_dir)/extllvm.cmx: $(build_dir)/extllvm.ml
+	@echo OCAMLC $@ $^
+	@ocamlopt -c -o $@ -g -thread $<
+
+$(build_dir)/extllvm_ocaml.c.o: $(build_dir)/extllvm_ocaml.c
+	@echo LLCC $@ $^
+	@$(LLCC) -o $@ -c -I/usr/lib/ocaml $(shell $(LLCONFIG) --cflags) $<
+
+$(build_dir)/extllvm_ocaml.cpp.o: $(build_dir)/extllvm_ocaml.cpp
+	@echo LLCXX $@ $^
+	@$(LLCXX) -o $@ -c $(shell $(LLCONFIG) --cxxflags) $<
+
+$(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
 configure: $(build_dir) | $(build_dir)/llknife
-	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
-	  echo llknife $${bc} ; \
-	  $(build_dir)/llknife -o $${bc} -i $${bc} --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' ; \
-	done
-	for bc in $$(find $(qemu_build_dir) -type f -name '*.o') ; do \
-	  echo llknife $${bc} ; \
-	  $(build_dir)/llknife -o $${bc} -i $${bc} --make-external-and-rename-regex 'do_qemu_init_register_types' ; \
-	done
+	find $(qemu_build_dir) -type f -name '*.o' -print0 | parallel -q0 $(build_dir)/llknife --change-fn-def-to-decl-regex '\(cpu_ld.*\)\|\(cpu_st[qlwb]_.*\)\|\(tlb_vaddr_to_host\)' -i
+	find $(qemu_build_dir) -type f -name '*.o' -print0 | parallel -q0 $(build_dir)/llknife --make-external-and-rename-regex 'do_qemu_init_register_types' -i
 
 .PHONY: build-tools
 build-tools: $(build_dir)/llknife $(build_dir)/transform-helpers

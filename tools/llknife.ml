@@ -1,4 +1,5 @@
 open Llvm
+open Extllvm
 
 module Action = struct
   type t =
@@ -83,8 +84,11 @@ let main () =
   (*
    * validate arguments
    *)
-  if !ifp = "" || not (Sys.file_exists !ifp) || !ofp = "" then
+  if !ifp = "" || not (Sys.file_exists !ifp) then
     assert false;
+
+  if !ofp = "" then
+    ofp := !ifp;
 
   (match !a with
    | Action.None -> assert false
