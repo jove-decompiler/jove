@@ -38,6 +38,9 @@ using namespace llvm;
 using namespace object;
 using namespace std;
 
+#define FNINDENT "  "
+#define BBINDENT FNINDENT "  "
+
 namespace jove {
 
 namespace tcg {
@@ -608,7 +611,7 @@ void translator::create_section_global_variables() {
                 &sect.contents.begin()[off]);
             break;
           default:
-            cerr << "warning: defined symbol with unknown size " << dec
+            cout << "warning: defined symbol with unknown size " << dec
                  << sym.size << endl;
             return;
           }
@@ -1013,7 +1016,7 @@ void translator::run() {
       } else if (isa<PointerType>(T)) {
         Replacement = ConstantExpr::getPointerCast(C, T);
       } else {
-        cerr << "warning: could not replace load of relocation from section"
+        cout << "warning: could not replace load of relocation from section"
              << endl;
         return false;
       }
@@ -1142,6 +1145,8 @@ bool translator::translate_function(address_t addr) {
   auto f_it = function_table.find(addr);
   if (f_it != function_table.end())
     return false;
+
+  cout << hex << addr << endl;
 
   unique_ptr<function_t> f(new function_t);
 
@@ -1287,13 +1292,16 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
+  if (addr != f[boost::graph_bundle].entry_point)
+    cout << FNINDENT << hex << addr << endl;
+
   //
   // identify section containing function for access to instruction bytes
   //
   {
     auto sectit = addrspace.find(addr);
     if (sectit == addrspace.end()) {
-      cerr << "no code found for address " << hex << addr << endl;
+      cout << BBINDENT "note: no code @ " << hex << addr << endl;
       return boost::graph_traits<function_t>::null_vertex();
     }
 
@@ -1312,7 +1320,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   if (!libmc_analyze_instr(Inst, size,
                            sectdata.data() + (addr - sectstart),
                            addr)) {
-    cerr << "invalid instruction at " << hex << addr << endl;
+    cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1331,7 +1339,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   if (!libmc_analyze_instr(Inst, size,
                            sectdata.data() + (last_instr_addr - sectstart),
                            last_instr_addr)) {
-    cerr << "invalid instruction at " << hex << addr << endl;
+    cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1481,8 +1489,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     } else {
       /* unknown control flow */
       char asmbuf[0x100];
-      cerr << "warning: mysterious basic block terminator at " << hex
-           << last_instr_addr << "    "
+      cout << BBINDENT "note: unknown basic block terminator: "
            << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
                               last_instr_addr, asmbuf)
            << endl;
@@ -1979,6 +1986,8 @@ void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
 }
 
 void translator::translate_function_llvm(function_t& f) {
+  cout << hex << f[boost::graph_bundle].entry_point << endl;
+
   Function &llf = *f[boost::graph_bundle].llf;
   boost::graph_traits<function_t>::vertex_iterator vi, vi_end;
 
@@ -2223,6 +2232,10 @@ static void explode_tcg_temp_set(vector<unsigned> &out, tcg::temp_set_t tmps) {
 
 void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   basic_block_properties_t& bbprop = f[bb];
+
+  if (bbprop.addr != f[boost::graph_bundle].entry_point)
+    cout << FNINDENT << hex << bbprop.addr << endl;
+
   //
   // initialize tcg tmp Alloca's
   //
@@ -2476,22 +2489,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_unknown = [&](basic_block_t succ) -> void {
-    if (!bbprop.lbls.size()) {
-      cout << "unknown basic block terminator for bb " << hex << bbprop.addr
-           << endl;
-      b.CreateUnreachable();
-      return;
-    }
-
-#if 0
-      cout << "unknown basic block terminator: multiple basic blocks!" << endl;
-#endif
-
     // for unknown instructions we create a branch checking if the program
     // counter is either the current basic block's address (in which case we
     // branch back) or the successor's address (in which case we branch
     // there). when neither of those cases are true, we create an unreachable
-    if (succ == boost::graph_traits<function_t>::null_vertex()) {
+
+    if (!bbprop.lbls.size() ||
+        succ == boost::graph_traits<function_t>::null_vertex()) {
       BasicBlock *elsellbb =
           BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
 
@@ -2731,8 +2735,7 @@ void translator::translate_tcg_operation_to_llvm(
 
     if (args[0] == 0x7fffffff) {
       pcrel_flag = true;
-      cout << "tcg::INDEX_op_insn_start: 7fffffff last address: " << hex
-           << lstaddr << endl;
+      cout << BBINDENT "note: PC-relative expression @ " << hex << lstaddr << endl;
     } else {
       pcrel_flag = false;
     }
