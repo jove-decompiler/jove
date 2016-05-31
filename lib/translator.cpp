@@ -38,6 +38,7 @@ using namespace llvm;
 using namespace object;
 using namespace std;
 
+#define RELOCINDENT "  "
 #define FNINDENT "  "
 #define BBINDENT FNINDENT "  "
 
@@ -388,6 +389,7 @@ void translator::create_section_global_variables() {
     addrspace.add(make_pair(intervl, i + 1));
   }
 
+  cout << endl << "Address Space:" << endl;
   for (const auto& entry : addrspace) {
     section_t& sect = secttbl[entry.second - 1];
 
@@ -395,6 +397,7 @@ void translator::create_section_global_variables() {
              (sect.addr + sect.size))
          << endl;
   }
+  cout << endl;
 
   //
   // initialize section intervals
@@ -452,18 +455,19 @@ void translator::create_section_global_variables() {
   static const char *sym_ty_str[] = {"NOTYPE", "DATA", "FUNCTION", "TLSDATA"};
   static const char *sym_bind_str[] = {"NOBINDING", "LOCAL", "WEAK", "GLOBAL"};
 
+  cout << "Relocations:" << endl;
   for (const relocation_t &reloc : reloctbl) {
-    cout << (boost::format("(%s) %x +%x%s") % reloc_ty_str[reloc.ty] %
-             reloc.addr % reloc.addend %
-             (addrspace.find(reloc.addr) == addrspace.end() ? " ~" : ""));
+    cout << (boost::format(RELOCINDENT "%-12s @ %-16x +%-16x") % reloc_ty_str[reloc.ty] %
+             reloc.addr % reloc.addend);
     if (reloc.symidx < symtbl.size()) {
       symbol_t &sym = symtbl[reloc.symidx];
-      cout << (boost::format(" : %s @ %x {%d} (%s) (%s)") % sym.name %
-               sym.addr % sym.size % sym_bind_str[sym.bind] %
-               sym_ty_str[sym.ty]);
+      cout << (boost::format("%-30s *%-10s *%-8s @ %x {%d}") % sym.name %
+               sym_ty_str[sym.ty] % sym_bind_str[sym.bind] % sym.addr %
+               sym.size);
     }
     cout << endl;
   }
+  cout << endl;
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
               [&](const relocation_t &reloc) -> bool {
@@ -797,6 +801,8 @@ void translator::find_exported_functions(unordered_set<address_t> &out) {
 }
 
 void translator::run() {
+  cout << "Translate " TARGET_NAME " machine code to QEMU IR" << endl;
+
   unordered_set<address_t> exportedfns;
   find_exported_functions(exportedfns);
 
@@ -891,6 +897,8 @@ void translator::run() {
         (boost::format("%#x") % f[boost::graph_bundle].entry_point).str(), &M);
     f[boost::graph_bundle].llf->setAttributes(FnAttr);
   }
+
+  cout << "Translate QEMU IR to LLVM" << endl << endl;
 
   //
   // translate TCG -> LLVM for each function
@@ -1292,8 +1300,7 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-  if (addr != f[boost::graph_bundle].entry_point)
-    cout << FNINDENT << hex << addr << endl;
+  cout << FNINDENT << hex << addr << endl;
 
   //
   // identify section containing function for access to instruction bytes
@@ -1469,6 +1476,8 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
       functions_to_translate.push(target);
       callers[target].push_back({&f, bb});
       bbprop.callee = target;
+
+      cout << BBINDENT "-> " << hex << target << endl;
     }
 
     control_flow_to(succ_addr);
@@ -2233,8 +2242,7 @@ static void explode_tcg_temp_set(vector<unsigned> &out, tcg::temp_set_t tmps) {
 void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   basic_block_properties_t& bbprop = f[bb];
 
-  if (bbprop.addr != f[boost::graph_bundle].entry_point)
-    cout << FNINDENT << hex << bbprop.addr << endl;
+  cout << FNINDENT << hex << bbprop.addr << endl;
 
   //
   // initialize tcg tmp Alloca's
