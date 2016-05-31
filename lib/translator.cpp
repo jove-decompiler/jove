@@ -899,7 +899,7 @@ void translator::run() {
     f[boost::graph_bundle].llf->setAttributes(FnAttr);
   }
 
-  cout << "Translating QEMU IR to LLVM..." << endl << endl;
+  cout << endl << "Translating QEMU IR to LLVM..." << endl << endl;
 
   //
   // translate TCG -> LLVM for each function
