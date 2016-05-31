@@ -36,8 +36,8 @@ _CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
 			 -Wno-c99-extensions \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))))
-_CXXFLAGS := $(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))
+_CFLAGS   := $(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))))))
+_CXXFLAGS := $(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))))
 
 #
 # jove-recompile
@@ -98,10 +98,18 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 
 -include $($(call tool,init)_DEPS)
 
+#
+# rules
+#
+
 $(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
 	@$(LLCXX) -o $@ -c -MMD -Wall -g -O2 $(_INCLUDES) $(_CXXFLAGS) $<
 
+#
+# extra dependencies
+#
+$(call res,jove_recompile).o: $(call res,helpers).cpp
 $(call res,jove_init).o: $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(call res,helpers).cpp $(call res,tcg_globals).cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 
@@ -248,7 +256,7 @@ $(call res,helpers).cpp: $(call res,helpers).bc
 
 $(call res,helpers).bc: $(call res,helpers).5.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
 
 $(call res,helpers).5.bc: $(call res,helpers).4.bc $(build_dir)/transform-helpers $(call res,tcgglobals)
 	@echo TRANSFORMHELPERS $(notdir $@ $<)
@@ -256,7 +264,7 @@ $(call res,helpers).5.bc: $(call res,helpers).4.bc $(build_dir)/transform-helper
 
 $(call res,helpers).4.bc: $(call res,helpers).3.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
 
 $(call res,helpers).3.bc: $(call res,helpers).2.bc
 	@echo KNIFE $(notdir $@ $^)
@@ -284,7 +292,7 @@ $(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
 
 $(call res,qemu).6.bc: $(call res,qemu).5.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -disable-loop-vectorization -disable-slp-vectorization -scalarizer -memdep-enable-load-widening=false $<
+	@$(LLOPT) -o $@ -O3 -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
 
 $(call res,qemu).5.bc: $(call res,qemu).4.bc
 	@echo LLKNIFE $(notdir $@ $^)
