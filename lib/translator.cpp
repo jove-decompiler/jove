@@ -385,8 +385,12 @@ void translator::create_section_global_variables() {
     addrspace.add(make_pair(intervl, i + 1));
   }
 
-  for (const auto& sect : addrspace) {
-    cout << sect.first << endl;
+  for (const auto& entry : addrspace) {
+    section_t& sect = secttbl[entry.second - 1];
+
+    cout << (boost::format("%-20s [%x, %x)") % sect.name % sect.addr %
+             (sect.addr + sect.size))
+         << endl;
   }
 
   //
@@ -2472,48 +2476,51 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_unknown = [&](basic_block_t succ) -> void {
-    if (bbprop.lbls.size()) {
-      cout << "unknown basic block terminator: multiple basic blocks!" << endl;
-      // for unknown instructions we create a branch checking if the program
-      // counter is either the current basic block's address (in which case we
-      // branch back) or the successor's address (in which case we branch
-      // there). when neither of those cases are true, we create an unreachable
-      if (succ == boost::graph_traits<function_t>::null_vertex()) {
-        BasicBlock *elsellbb =
-            BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
-
-        b.CreateCondBr(
-            b.CreateICmpEQ(CreateLoad(pc_llv),
-                           ConstantInt::get(word_type(), bbprop.addr)),
-            bbprop.llbb, elsellbb);
-
-        b.SetInsertPoint(elsellbb);
-        b.CreateUnreachable();
-        return;
-      }
-
-      BasicBlock *else1llbb =
-          BasicBlock::Create(C, "unknown1", f[boost::graph_bundle].llf);
-      BasicBlock *else2llbb =
-          BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
-
-      Value *pc = CreateLoad(pc_llv);
-      b.CreateCondBr(
-          b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
-          f[succ].llbb, else1llbb);
-
-      b.SetInsertPoint(else1llbb);
-      b.CreateCondBr(
-          b.CreateICmpEQ(pc, ConstantInt::get(word_type(), bbprop.addr)),
-          bbprop.llbb, else2llbb);
-
-      b.SetInsertPoint(else2llbb);
-      b.CreateUnreachable();
-    } else {
+    if (!bbprop.lbls.size()) {
       cout << "unknown basic block terminator for bb " << hex << bbprop.addr
            << endl;
       b.CreateUnreachable();
+      return;
     }
+
+#if 0
+      cout << "unknown basic block terminator: multiple basic blocks!" << endl;
+#endif
+
+    // for unknown instructions we create a branch checking if the program
+    // counter is either the current basic block's address (in which case we
+    // branch back) or the successor's address (in which case we branch
+    // there). when neither of those cases are true, we create an unreachable
+    if (succ == boost::graph_traits<function_t>::null_vertex()) {
+      BasicBlock *elsellbb =
+          BasicBlock::Create(C, "unknown", f[boost::graph_bundle].llf);
+
+      b.CreateCondBr(b.CreateICmpEQ(CreateLoad(pc_llv),
+                                    ConstantInt::get(word_type(), bbprop.addr)),
+                     bbprop.llbb, elsellbb);
+
+      b.SetInsertPoint(elsellbb);
+      b.CreateUnreachable();
+      return;
+    }
+
+    BasicBlock *else1llbb =
+        BasicBlock::Create(C, "unknown1", f[boost::graph_bundle].llf);
+    BasicBlock *else2llbb =
+        BasicBlock::Create(C, "unknown2", f[boost::graph_bundle].llf);
+
+    Value *pc = CreateLoad(pc_llv);
+    b.CreateCondBr(
+        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), f[succ].addr)),
+        f[succ].llbb, else1llbb);
+
+    b.SetInsertPoint(else1llbb);
+    b.CreateCondBr(
+        b.CreateICmpEQ(pc, ConstantInt::get(word_type(), bbprop.addr)),
+        bbprop.llbb, else2llbb);
+
+    b.SetInsertPoint(else2llbb);
+    b.CreateUnreachable();
   };
 
   struct normal_edges {
