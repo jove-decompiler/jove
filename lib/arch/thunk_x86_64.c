@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 extern CPUX86State cpu_state;
-static uint64_t save_buff1, save_buff2;
+static uint64_t save_buff;
 
 static CPUX86State* const cpu_state_ptr = &cpu_state;
 
@@ -16,16 +16,16 @@ void get_rand(void) __attribute__((naked));
 void __jove_thunk_in(void) __attribute__((naked));
 
 void __jove_thunk_out(thunk_proc_ty);
-void __jove_thunk_prologue(void) __attribute__((naked));
-void __jove_thunk_out_epilogue(void) __attribute__((naked));
+static void __jove_thunk_prologue(void) __attribute__((naked));
+static void __jove_thunk_out_epilogue(void) __attribute__((naked));
 
 int __jove_impl_get_rand(void);
 
 __attribute__((naked)) void get_rand(void) {
-  __asm__("movq %%rax, %[save_buff1]\n"
+  __asm__("movq %%rax, %[save_buff]\n"
 
           : // OutputOperands
-          [save_buff1] "=m"(save_buff1)
+          [save_buff] "=m"(save_buff)
 
           : // InputOperands
 
@@ -65,8 +65,7 @@ __attribute__((naked)) void get_rand(void) {
  */
 
 void __jove_thunk_in() {
-  __asm__("movq %%rax, %[saved]\n"
-          "movq %[regs_ptr], %%rax\n"
+  __asm__("movq %[regs_ptr], %%rax\n"
 
           "movq  %%rcx,  8 (%%rax)\n"
           "movq  %%rdx,  16(%%rax)\n"
@@ -111,9 +110,9 @@ void __jove_thunk_in() {
           "movq %[saved], %%rax\n"
           "ret\n"
           : // OutputOperands
-          [saved] "=m"(save_buff1)
+          [saved] "=m"(save_buff)
           : // InputOperands
-          [saved] "m"(save_buff1),
+          [saved] "m"(save_buff),
           [thunk_buff] "m"(__jove_thunk_buff),
           [regs_ptr] "m"(cpu_state_ptr)
           : // Clobbers
@@ -185,9 +184,10 @@ void __jove_thunk_out_epilogue() {
           "ret\n"
 
           : // OutputOperands
-          [saved] "=m"(save_buff1)
+          [saved] "=m"(save_buff)
           : // InputOperands
-          [saved] "m"(save_buff1), [regs_ptr] "m"(cpu_state_ptr),
+          [saved] "m"(save_buff),
+          [regs_ptr] "m"(cpu_state_ptr),
           [thunk_buff] "m"(__jove_thunk_buff)
           : // Clobbers
           );

@@ -13,6 +13,9 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/InlineAsm.h>
+#include <llvm/Linker/Linker.h>
+#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/SourceMgr.h>
 
 using namespace std;
 using namespace llvm;
@@ -32,6 +35,10 @@ static void needed_shared_libraries_of_binary(const ObjectFile *,
 
 static const uint8_t helpers_bitcode_data[] = {
 #include "helpers.cpp"
+};
+
+static const uint8_t thunk_bitcode_data[] = {
+#include "thunk.cpp"
 };
 
 using namespace jove;
@@ -61,6 +68,38 @@ int main(int argc, char **argv) {
   print_obj_info(O);
 
   llvm::LLVMContext C;
+
+#if 0
+  {
+    SMDiagnostic Err;
+    std::unique_ptr<Module> Result = getLazyIRFileModule(
+        (ifp / "bitcode" / "decompilation").string(), Err, C);
+    if (!Result)
+      Err.print(argv[0], errs());
+    Result->dump();
+  }
+#elif 0
+  {
+    SMDiagnostic Err;
+    std::unique_ptr<Module> Result = parseIRFile(
+        (ifp / "bitcode" / "decompilation").string(), Err, C);
+    if (!Result)
+      Err.print(argv[0], errs());
+    Result->dump();
+  }
+#endif
+
+  ErrorOr<unique_ptr<MemoryBuffer>> _MB(
+      MemoryBuffer::getFile((ifp / "bitcode" / "decompilation").string()));
+
+  if (std::error_code EC = _MB.getError())
+    return 1;
+
+  unique_ptr<Module> _M =
+      move(*parseBitcodeFile(_MB.get()->getMemBufferRef(), C));
+  Module& M = *_M;
+  M.dump();
+
   unique_ptr<Module> _HelperM = move(*getLazyBitcodeModule(
       MemoryBuffer::getMemBuffer(
           StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
@@ -69,11 +108,25 @@ int main(int argc, char **argv) {
       C));
   Module& HelperM = *_HelperM;
 
-  unique_ptr<Module> _M = move(
-      *getLazyBitcodeModule(move(*MemoryBuffer::getFile(
-                                (ifp / "bitcode" / "decompilation").string())),
-                            C));
-  Module& M = *_M;
+  unique_ptr<Module> _ThunkM = move(*getLazyBitcodeModule(
+      MemoryBuffer::getMemBuffer(
+          StringRef(reinterpret_cast<const char *>(&thunk_bitcode_data[0]),
+                    sizeof(helpers_bitcode_data)),
+          "", false),
+      C));
+  Module& ThunkM = *_ThunkM;
+
+  Linker lnk(M);
+
+  if (lnk.linkInModule(move(_HelperM), Linker::LinkOnlyNeeded)) {
+    cerr << "error linking bitcode" << endl;
+    return 1;
+  }
+
+  if (lnk.linkInModule(move(_ThunkM))) {
+    cerr << "error linking bitcode" << endl;
+    return 1;
+  }
 
   for (Function& F : M) {
     if (F.getLinkage() == GlobalValue::ExternalLinkage) {

@@ -109,17 +109,21 @@ $(call res,%).o: $(build_dir)/%.cpp
 #
 # extra dependencies
 #
-$(call res,jove_recompile).o: $(call res,helpers).cpp
+$(call res,jove_recompile).o: $(call res,helpers).cpp $(call res,thunk).cpp
 $(call res,jove_init).o: $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(call res,helpers).cpp $(call res,tcg_globals).cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 
 #
-# jove-instrument
+# jove-recompile
 #
 
 $(call res,thunk).bc: $(build_dir)/thunk_$(_TARGET_NAME).c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 -g $(_INCLUDES) $(_CFLAGS) $<
+	@$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
+
+$(call res,thunk).cpp: $(call res,thunk).bc
+	@echo XXD -include $(notdir $@ $^)
+	@xxd -include < $< > $@
 
 #
 # output of ABI calling conventions

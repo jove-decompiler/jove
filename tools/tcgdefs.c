@@ -20,8 +20,7 @@ static void print_tcg_globals_definition(void) {
     printf("{%s, %u, \"%s\"}%s\n",
            ts->fixed_reg ? tcg_global_enum_map[2]
                          : tcg_global_enum_map[ts->type],
-           ts->fixed_reg ? 0xdead : (unsigned)ts->mem_offset,
-           ts->name,
+           ts->fixed_reg ? 0xdead : (unsigned)ts->mem_offset, ts->name,
            i + 1 == tcg_ctx.nb_globals ? "" : ",");
   }
 }
