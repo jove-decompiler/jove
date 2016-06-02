@@ -69,66 +69,44 @@ int main(int argc, char **argv) {
 
   llvm::LLVMContext C;
 
-#if 0
-  {
-    SMDiagnostic Err;
-    std::unique_ptr<Module> Result = getLazyIRFileModule(
-        (ifp / "bitcode" / "decompilation").string(), Err, C);
-    if (!Result)
-      Err.print(argv[0], errs());
-    Result->dump();
-  }
-#elif 0
-  {
-    SMDiagnostic Err;
-    std::unique_ptr<Module> Result = parseIRFile(
-        (ifp / "bitcode" / "decompilation").string(), Err, C);
-    if (!Result)
-      Err.print(argv[0], errs());
-    Result->dump();
-  }
-#endif
-
-  ErrorOr<unique_ptr<MemoryBuffer>> _MB(
+  ErrorOr<unique_ptr<MemoryBuffer>> MBOrEror(
       MemoryBuffer::getFile((ifp / "bitcode" / "decompilation").string()));
 
-  if (std::error_code EC = _MB.getError())
+  if (std::error_code EC = MBOrEror.getError()) {
+    cerr << "bitcode does not exist in provided path" << endl;
     return 1;
+  }
 
-  unique_ptr<Module> _M =
-      move(*parseBitcodeFile(_MB.get()->getMemBufferRef(), C));
-  Module& M = *_M;
-  M.dump();
+  unique_ptr<Module> M =
+      move(*parseBitcodeFile(MBOrEror.get()->getMemBufferRef(), C));
 
-  unique_ptr<Module> _HelperM = move(*getLazyBitcodeModule(
+  unique_ptr<Module> HelperM = move(*getLazyBitcodeModule(
       MemoryBuffer::getMemBuffer(
           StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
                     sizeof(helpers_bitcode_data)),
           "", false),
       C));
-  Module& HelperM = *_HelperM;
 
-  unique_ptr<Module> _ThunkM = move(*getLazyBitcodeModule(
+  unique_ptr<Module> ThunkM = move(*getLazyBitcodeModule(
       MemoryBuffer::getMemBuffer(
           StringRef(reinterpret_cast<const char *>(&thunk_bitcode_data[0]),
                     sizeof(helpers_bitcode_data)),
           "", false),
       C));
-  Module& ThunkM = *_ThunkM;
 
-  Linker lnk(M);
+  Linker lnk(*M);
 
-  if (lnk.linkInModule(move(_HelperM), Linker::LinkOnlyNeeded)) {
+  if (lnk.linkInModule(move(HelperM), Linker::LinkOnlyNeeded)) {
     cerr << "error linking bitcode" << endl;
     return 1;
   }
 
-  if (lnk.linkInModule(move(_ThunkM))) {
+  if (lnk.linkInModule(move(ThunkM))) {
     cerr << "error linking bitcode" << endl;
     return 1;
   }
 
-  for (Function& F : M) {
+  for (Function& F : *M) {
     if (F.getLinkage() == GlobalValue::ExternalLinkage) {
       // create thunk
       cout << "external" << endl;
