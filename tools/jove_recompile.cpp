@@ -14,8 +14,7 @@
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/InlineAsm.h>
 #include <llvm/Linker/Linker.h>
-#include <llvm/IRReader/IRReader.h>
-#include <llvm/Support/SourceMgr.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 
 using namespace std;
 using namespace llvm;
@@ -69,30 +68,42 @@ int main(int argc, char **argv) {
 
   llvm::LLVMContext C;
 
-  ErrorOr<unique_ptr<MemoryBuffer>> MBOrEror(
-      MemoryBuffer::getFile((ifp / "bitcode" / "decompilation").string()));
+  unique_ptr<Module> M;
+  {
+    ErrorOr<unique_ptr<MemoryBuffer>> MBOrEror(
+        MemoryBuffer::getFile((ifp / "bitcode" / "decompilation").string()));
 
-  if (std::error_code EC = MBOrEror.getError()) {
-    cerr << "bitcode does not exist in provided path" << endl;
-    return 1;
+    if (std::error_code EC = MBOrEror.getError()) {
+      cerr << "failed to read bitcode file " << EC.message() << endl;
+      return 1;
+    }
+    M = move(*parseBitcodeFile(MBOrEror.get()->getMemBufferRef(), C));
   }
 
-  unique_ptr<Module> M =
-      move(*parseBitcodeFile(MBOrEror.get()->getMemBufferRef(), C));
+  vector<string> fns;
+  for (Function& F : *M)
+    if (F.getLinkage() == GlobalValue::ExternalLinkage && !F.isDeclaration())
+      fns.push_back(F.getName().str());
 
-  unique_ptr<Module> HelperM = move(*getLazyBitcodeModule(
-      MemoryBuffer::getMemBuffer(
-          StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
-                    sizeof(helpers_bitcode_data)),
-          "", false),
-      C));
+  unique_ptr<Module> HelperM;
+  {
+    unique_ptr<MemoryBuffer> MB(MemoryBuffer::getMemBuffer(
+        StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
+                  sizeof(helpers_bitcode_data)),
+        "", false));
 
-  unique_ptr<Module> ThunkM = move(*getLazyBitcodeModule(
-      MemoryBuffer::getMemBuffer(
-          StringRef(reinterpret_cast<const char *>(&thunk_bitcode_data[0]),
-                    sizeof(helpers_bitcode_data)),
-          "", false),
-      C));
+    HelperM = move(*parseBitcodeFile(MB->getMemBufferRef(), C));
+  }
+
+  unique_ptr<Module> ThunkM;
+  {
+    unique_ptr<MemoryBuffer> MB(MemoryBuffer::getMemBuffer(
+        StringRef(reinterpret_cast<const char *>(&thunk_bitcode_data[0]),
+                  sizeof(thunk_bitcode_data)),
+        "", false));
+
+    ThunkM = move(*parseBitcodeFile(MB->getMemBufferRef(), C));
+  }
 
   Linker lnk(*M);
 
@@ -106,12 +117,75 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  for (Function& F : *M) {
-    if (F.getLinkage() == GlobalValue::ExternalLinkage) {
-      // create thunk
-      cout << "external" << endl;
-    }
+  Function &exported_template_fn =
+      *M->getFunction("__jove_exported_template_fn");
+  Function &exported_template_fn_impl =
+      *M->getFunction("__jove_exported_template_fn_impl");
+
+  for (const string& sym : fns) {
+    Function& F = *M->getFunction(sym);
+
+    ValueToValueMapTy VMap;
+    Function& G = *CloneFunction(&exported_template_fn, VMap, false);
+    M->getFunctionList().push_back(&G);
+
+    G.takeName(&F);
+    F.setName("__jove_impl_" + sym);
+    F.setLinkage(GlobalValue::InternalLinkage);
+    F.setCallingConv(CallingConv::C);
+
+    auto user_of_impl = [&](void) -> Instruction * {
+      for (User *U : exported_template_fn_impl.users()) {
+        Instruction* Inst = dyn_cast<Instruction>(U);
+        if (!Inst)
+          continue;
+
+        if (Inst->getParent()->getParent() == &G)
+          return Inst;
+      }
+
+      return nullptr;
+    };
+
+    Instruction* Inst = user_of_impl();
+    assert(Inst);
+
+    auto operand_index_of_impl_user = [&](void) -> unsigned {
+      for (unsigned i = 0; i < Inst->getNumOperands(); ++i) {
+        if (Inst->getOperand(i) == &exported_template_fn_impl)
+          return i;
+      }
+
+      return numeric_limits<unsigned>::max();
+    };
+
+    unsigned opidx = operand_index_of_impl_user();
+    assert(opidx < Inst->getNumOperands());
+
+    Inst->setOperand(opidx, &F);
   }
+
+  assert(exported_template_fn.getNumUses() == 0);
+  M->getFunctionList().remove(&exported_template_fn);
+#if 0
+  assert(exported_template_fn_impl.getNumUses() == 0);
+  M->getFunctionList().remove(&exported_template_fn_impl);
+#endif
+
+  Function &JFn0 =
+      *M->getFunction("__jove_thunk_out");
+  Function &JFn1 =
+      *M->getFunction("__jove_indirect_jump");
+  Function &JFn2 =
+      *M->getFunction("__jove_indirect_call");
+  Function &JFn3 =
+      *M->getFunction("__jove_call");
+
+  JFn1.replaceAllUsesWith(&JFn0);
+  JFn2.replaceAllUsesWith(&JFn0);
+  JFn3.replaceAllUsesWith(&JFn0);
+
+  M->dump();
 
   vector<fs::path> libs;
   needed_shared_libraries_of_binary(O, libs);

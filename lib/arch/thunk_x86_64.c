@@ -12,16 +12,15 @@ static CPUX86State* const cpu_state_ptr = &cpu_state;
 typedef void (*thunk_proc_ty)(void);
 static thunk_proc_ty __jove_thunk_buff;
 
-void get_rand(void) __attribute__((naked));
-void __jove_thunk_in(void) __attribute__((naked));
+void __jove_exported_template_fn(void) __attribute__((naked));
+void __jove_exported_template_fn_impl(void);
 
+void __jove_thunk_in(void) __attribute__((naked));
 void __jove_thunk_out(thunk_proc_ty);
-static void __jove_thunk_prologue(void) __attribute__((naked));
+static void __jove_thunk_out_prologue(void) __attribute__((naked));
 static void __jove_thunk_out_epilogue(void) __attribute__((naked));
 
-int __jove_impl_get_rand(void);
-
-__attribute__((naked)) void get_rand(void) {
+void __jove_exported_template_fn(void) {
   __asm__("movq %%rax, %[save_buff]\n"
 
           : // OutputOperands
@@ -39,10 +38,14 @@ __attribute__((naked)) void get_rand(void) {
           [thunk_buff] "=m"(__jove_thunk_buff)
 
           : // InputOperands
-          [__jove_impl] "a"(__jove_impl_get_rand)
+          [__jove_impl] "a"(__jove_exported_template_fn_impl)
 
           : // Clobbers
           );
+}
+
+void __jove_exported_template_fn_impl() {
+  __builtin_unreachable();
 }
 
 /*
@@ -108,6 +111,10 @@ void __jove_thunk_in() {
           "movq  120(%%rax), %%r15\n"
 
           "movq %[saved], %%rax\n"
+
+          // the translated code already pop'd the return address off the stack.
+          // we need to undo that.
+          "subq $8, %%rsp\n"
           "ret\n"
           : // OutputOperands
           [saved] "=m"(save_buff)
@@ -125,10 +132,10 @@ void __jove_thunk_out(thunk_proc_ty dst) {
   // change return address to __jove_thunk_out_epilogue
   *((uint64_t*)cpu_state.regs[R_ESP]) = (uint64_t)__jove_thunk_out_epilogue;
 
-  __jove_thunk_prologue();
+  __jove_thunk_out_prologue();
 }
 
-void __jove_thunk_prologue() {
+void __jove_thunk_out_prologue() {
   __asm__("movq %[regs_ptr], %%rax\n"
 
           "movq   8(%%rax),  %%rcx\n"
@@ -191,8 +198,4 @@ void __jove_thunk_out_epilogue() {
           [thunk_buff] "m"(__jove_thunk_buff)
           : // Clobbers
           );
-}
-
-int __jove_impl_get_rand(void) {
-  return rand();
 }

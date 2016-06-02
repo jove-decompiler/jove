@@ -1125,9 +1125,12 @@ void translator::run() {
     function_t &f = *f_entry.second;
     Function* llf = f[boost::graph_bundle].llf;
 
-    llf->setLinkage(exportedfns.find(f_entry.first) == exportedfns.end()
-                        ? GlobalValue::InternalLinkage
-                        : GlobalValue::ExternalLinkage);
+    if (exportedfns.find(f_entry.first) == exportedfns.end()) {
+      llf->setLinkage(GlobalValue::InternalLinkage);
+    } else {
+      llf->setLinkage(GlobalValue::ExternalLinkage);
+      llf->setCallingConv(CallingConv::C);
+    }
   }
 
   //
