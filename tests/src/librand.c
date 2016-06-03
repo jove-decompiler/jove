@@ -9,5 +9,5 @@ unsigned long librand_get() {
 }
 
 void librand_dump_seed() {
-  fprintf(stderr, "%lu\n", librand_seed);
+  librand_seed -= fprintf(stderr, "%lu\n", librand_seed);
 }
