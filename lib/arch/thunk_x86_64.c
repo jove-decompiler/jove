@@ -70,7 +70,7 @@ void __jove_exported_template_fn_impl() {
 void __jove_thunk_in() {
   __asm__("movq %[regs_ptr], %%rax\n"
 
-          "movq  %%rcx,  8 (%%rax)\n"
+          "movq  %%rcx,   8(%%rax)\n"
           "movq  %%rdx,  16(%%rax)\n"
           "movq  %%rbx,  24(%%rax)\n"
           "xchgq %%rsp,  32(%%rax)\n"
@@ -82,19 +82,19 @@ void __jove_thunk_in() {
           "movq  %%r10,  80(%%rax)\n"
           "movq  %%r11,  88(%%rax)\n"
           "movq  %%r12,  96(%%rax)\n"
-          "movq  %%r13,  104(%%rax)\n"
-          "movq  %%r14,  112(%%rax)\n"
-          "movq  %%r15,  120(%%rax)\n"
+          "movq  %%r13, 104(%%rax)\n"
+          "movq  %%r14, 112(%%rax)\n"
+          "movq  %%r15, 120(%%rax)\n"
 
           "movq %[saved], %%r11\n"
-          "movq %%r11,   (%%rax)\n"
+          "movq %%r11, (%%rax)\n"
 
           "callq *%[thunk_buff]\n"
 
           "movq %%rax, %[saved]\n"
           "movq %[regs_ptr], %%rax\n"
 
-          "movq   8(%%rax),  %%rcx\n"
+          "movq    8(%%rax), %%rcx\n"
           "movq   16(%%rax), %%rdx\n"
           "movq   24(%%rax), %%rbx\n"
           "xchgq  32(%%rax), %%rsp\n"
@@ -138,7 +138,7 @@ void __jove_thunk_out(thunk_proc_ty dst) {
 void __jove_thunk_out_prologue() {
   __asm__("movq %[regs_ptr], %%rax\n"
 
-          "xchgq  8(%%rax),  %%rcx\n"
+          "xchgq   8(%%rax), %%rcx\n"
           "xchgq  16(%%rax), %%rdx\n"
           "xchgq  24(%%rax), %%rbx\n"
           "xchgq  32(%%rax), %%rsp\n"
@@ -169,7 +169,7 @@ void __jove_thunk_out_epilogue() {
   __asm__("movq %%rax, %[saved]\n"
           "movq %[regs_ptr], %%rax\n"
 
-          "xchgq %%rcx,  8 (%%rax)\n"
+          "xchgq %%rcx,   8(%%rax)\n"
           "xchgq %%rdx,  16(%%rax)\n"
           "xchgq %%rbx,  24(%%rax)\n"
           "xchgq %%rsp,  32(%%rax)\n"
@@ -186,7 +186,7 @@ void __jove_thunk_out_epilogue() {
           "xchgq %%r15, 120(%%rax)\n"
 
           "movq %[saved], %%r11\n"
-          "movq %%r11,   (%%rax)\n"
+          "movq %%r11, (%%rax)\n"
 
           "ret\n"
 

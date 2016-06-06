@@ -185,6 +185,8 @@ int main(int argc, char **argv) {
   JFn2.replaceAllUsesWith(&JFn0);
   JFn3.replaceAllUsesWith(&JFn0);
 
+  JFn0.setLinkage(GlobalValue::InternalLinkage);
+
   M->dump();
 
   vector<fs::path> libs;
