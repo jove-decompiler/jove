@@ -425,6 +425,7 @@ let main () =
   set_initializer (const_null shadowstack_ty) shadowstack;
   set_linkage Linkage.Internal shadowstack;
   set_thread_local true shadowstack;
+  set_alignment 16 shadowstack;
 
   (*
    * create CPUState (thread-local) global variable. the stack pointer will be
