@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
     M->getFunctionList().push_back(&G);
 
     G.takeName(&F);
-    F.setName("__jove_impl_" + sym);
+    F.setName(sym + "__jove_impl_");
     F.setLinkage(GlobalValue::InternalLinkage);
     F.setCallingConv(CallingConv::C);
 
@@ -277,10 +277,6 @@ static bool compareAddr(uint64_t VAddr, const Elf_Phdr_Impl<ELFT> *Phdr) {
 template <typename ELFT>
 static void needed_shared_libraries_of_elf(const ELFFile<ELFT> *ELF,
                                            vector<fs::path> &libs) {
-  typedef typename ELFFile<ELFT>::Elf_Shdr Elf_Shdr;
-  typedef typename ELFFile<ELFT>::Elf_Sym Elf_Sym;
-  typedef typename ELFFile<ELFT>::Elf_Rel Elf_Rel;
-  typedef typename ELFFile<ELFT>::Elf_Rela Elf_Rela;
   typedef typename ELFFile<ELFT>::Elf_Phdr Elf_Phdr;
   typedef typename ELFFile<ELFT>::Elf_Dyn_Range Elf_Dyn_Range;
 
