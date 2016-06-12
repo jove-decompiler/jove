@@ -121,7 +121,8 @@ let main () =
   (*
    * helpful functions
    *)
-  let llvm_function_of_symbol sym = BatOption.get (lookup_function sym llm) in
+  let get x = match x with | None -> assert false | Some x' -> x' in
+  let llvm_function_of_symbol sym = get (lookup_function sym llm) in
   let sscan = Scanf.sscanf in
   let id = fun x -> x in
   let beginswith s' s =
@@ -230,7 +231,7 @@ let main () =
 
      List.iter
        (set_linkage Linkage.External)
-       (List.map BatOption.get (llfs@llgs))
+       (List.map get (llfs@llgs))
 
    | Action.Change_fn_def_to_decl_regex ->
      let r = Str.regexp (!args).(0) in
@@ -321,7 +322,7 @@ let main () =
    | Action.Delete_global_ctors ->
      let ctrs_gl' = lookup_global "llvm.global_ctors" llm in
      if ctrs_gl' <> None then
-       delete_global (BatOption.get ctrs_gl')
+       delete_global (get ctrs_gl')
 
    | Action.Make_external_and_rename_regex ->
      let prefix = Filename.chop_extension (Filename.basename !ifp) in

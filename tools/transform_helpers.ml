@@ -5,6 +5,7 @@ open Graph
 (*
  * helpful functions
  *)
+let get x = match x with | None -> assert false | Some x' -> x'
 let sscan = Scanf.sscanf
 let id = fun x -> x
 let beginswith s' s =
@@ -54,8 +55,8 @@ let return_instructions llf = fold_left_blocks
   (fun res llbb ->
     let bt_o = block_terminator llbb in
     if bt_o <> None &&
-       instr_opcode (BatOption.get bt_o) = Opcode.Ret then
-      (BatOption.get bt_o)::res
+       instr_opcode (get bt_o) = Opcode.Ret then
+      (get bt_o)::res
     else
       res) [] llf
 
@@ -409,7 +410,7 @@ let main () =
     | "mipsel" -> "struct.CPUMIPSState"
     | _ -> assert false
   in
-  let cpustty = BatOption.get (type_by_name llm cpusttynm) in
+  let cpustty = get (type_by_name llm cpusttynm) in
   let cpustptrty = pointer_type cpustty in
 
   (*
@@ -807,7 +808,7 @@ let main () =
                               (build_extractvalue
                                  call'
                                  (Int64.to_int
-                                    (BatOption.get
+                                    (get
                                        (int64_of_const (operand llins 1))))
                                  ""
                                  b);

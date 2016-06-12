@@ -25,10 +25,7 @@ LLVMLIBNAMES  := llvm \
                  llvm_bitreader \
 				 llvm_bitwriter \
 				 llvm_analysis
-OPAMLIBNAMES  := batteries/batteries \
-                 zarith/zarith \
-                 stdint/stdint \
-				 ocamlgraph/graph
+OPAMLIBNAMES  := ocamlgraph/graph
 
 INCLUDES  := -I $(build_dir) \
              -I $(ocaml_dir) \
