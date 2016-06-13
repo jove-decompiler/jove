@@ -20,15 +20,18 @@ $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 LLVMLIBSDIR   := $(llvm_dir)/lib/ocaml
 
 OCAMLLIBNAMES := nums \
-                 str
+                 str \
+                 ocamlgraph/graph
+
 LLVMLIBNAMES  := llvm \
                  llvm_bitreader \
-				 llvm_bitwriter \
-				 llvm_analysis
-OPAMLIBNAMES  := ocamlgraph/graph
+                 llvm_bitwriter \
+                 llvm_analysis
+#OPAMLIBNAMES  := 
 
 INCLUDES  := -I $(build_dir) \
              -I $(ocaml_dir) \
+             -I $(ocaml_dir)/ocamlgraph \
              -I $(LLVMLIBSDIR) \
 		     $(patsubst %,-I %,$(patsubst %/,%,$(dir $(patsubst %,$(opam_libs_dir)/%,$(OPAMLIBNAMES)))))
 
@@ -83,7 +86,7 @@ $(build_dir)/llknife: $(build_dir)/llknife.ml $(build_dir)/extllvm.cmx $(build_d
 
 $(build_dir)/extllvm.cmx: $(build_dir)/extllvm.ml
 	@echo OCAMLC $@ $^
-	@ocamlopt -c -o $@ -g -thread $<
+	ocamlopt -c -o $@ -g -thread $(INCLUDES) $<
 
 $(build_dir)/extllvm_ocaml.c.o: $(build_dir)/extllvm_ocaml.c
 	@echo LLCC $@ $^
@@ -95,7 +98,7 @@ $(build_dir)/extllvm_ocaml.cpp.o: $(build_dir)/extllvm_ocaml.cpp
 
 $(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
 configure: $(build_dir) | $(build_dir)/llknife
