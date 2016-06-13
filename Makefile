@@ -66,6 +66,7 @@ $(build_dir):
 	done
 	ln -s ../abi/aarch64/arch.callconv $(build_dir)/aarch64.callconv
 	ln -s ../abi/x86_64/sysv.callconv $(build_dir)/x86_64.callconv
+	ln -s ../abi/arm/standard.callconv $(build_dir)/arm.callconv
 	cp -r $(qemu_dir) $(qemu_build_dir)
 	mkdir $(build_dir)/qemuutil
 	mkdir $(build_dir)/qemustub
