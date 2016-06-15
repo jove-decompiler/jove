@@ -1,4 +1,7 @@
 #include "config-target.h"
+#include "recompiler.h"
+#include "elf_recompiler.h"
+#include "coff_recompiler.h"
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 #include <cstdint>
@@ -13,7 +16,6 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/IR/InlineAsm.h>
-#include <llvm/Linker/Linker.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 
 using namespace std;
@@ -31,14 +33,6 @@ static void print_obj_info(const ObjectFile *);
 static void needed_shared_libraries_of_binary(const ObjectFile *,
                                               vector<fs::path> &);
 }
-
-static const uint8_t helpers_bitcode_data[] = {
-#include "helpers.cpp"
-};
-
-static const uint8_t thunk_bitcode_data[] = {
-#include "thunk.cpp"
-};
 
 using namespace jove;
 
@@ -85,36 +79,29 @@ int main(int argc, char **argv) {
     if (F.getLinkage() == GlobalValue::ExternalLinkage && !F.isDeclaration())
       fns.push_back(F.getName().str());
 
-  unique_ptr<Module> HelperM;
+  unique_ptr<recompiler> R;
   {
-    unique_ptr<MemoryBuffer> MB(MemoryBuffer::getMemBuffer(
-        StringRef(reinterpret_cast<const char *>(&helpers_bitcode_data[0]),
-                  sizeof(helpers_bitcode_data)),
-        "", false));
-
-    HelperM = move(*parseBitcodeFile(MB->getMemBufferRef(), C));
-  }
-
-  unique_ptr<Module> ThunkM;
-  {
-    unique_ptr<MemoryBuffer> MB(MemoryBuffer::getMemBuffer(
-        StringRef(reinterpret_cast<const char *>(&thunk_bitcode_data[0]),
-                  sizeof(thunk_bitcode_data)),
-        "", false));
-
-    ThunkM = move(*parseBitcodeFile(MB->getMemBufferRef(), C));
-  }
-
-  Linker lnk(*M);
-
-  if (lnk.linkInModule(move(HelperM), Linker::LinkOnlyNeeded)) {
-    cerr << "error linking bitcode" << endl;
-    return 1;
-  }
-
-  if (lnk.linkInModule(move(ThunkM))) {
-    cerr << "error linking bitcode" << endl;
-    return 1;
+    if (O->isELF()) {
+      if (const auto *ELFObj =
+              dyn_cast<ELFObjectFile<ELFType<support::little, false>>>(O))
+        R.reset(
+            new elf_recompiler<ELFType<support::little, false>>(*ELFObj, *M));
+      else if (const auto *ELFObj =
+                   dyn_cast<ELFObjectFile<ELFType<support::big, false>>>(O))
+        R.reset(new elf_recompiler<ELFType<support::big, false>>(*ELFObj, *M));
+      else if (const auto *ELFObj =
+                   dyn_cast<ELFObjectFile<ELFType<support::little, true>>>(O))
+        R.reset(
+            new elf_recompiler<ELFType<support::little, true>>(*ELFObj, *M));
+      else if (const auto *ELFObj =
+                   dyn_cast<ELFObjectFile<ELFType<support::big, true>>>(O))
+        R.reset(new elf_recompiler<ELFType<support::big, true>>(*ELFObj, *M));
+    } else if (O->isCOFF()) {
+      R.reset(new coff_recompiler(*O, *M));
+    } else {
+      cerr << "unknown object file format" << endl;
+      return 1;
+    }
   }
 
   Function &exported_template_fn =
@@ -289,12 +276,15 @@ static void needed_shared_libraries_of_elf(const ELFFile<ELFT> *ELF,
       DynamicProgHeader = &Phdr;
       break;
     case ELF::PT_LOAD:
-     if (Phdr.p_filesz == 0)
-       break;
+      if (Phdr.p_filesz == 0)
+        break;
       LoadSegments.push_back(&Phdr);
       break;
     }
   }
+
+  if (!DynamicProgHeader)
+    return;
 
   ErrorOr<Elf_Dyn_Range> dyntbl_ = ELF->dynamic_table(DynamicProgHeader);
   if (dyntbl_.getError())

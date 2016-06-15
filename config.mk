@@ -2,7 +2,7 @@
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
 #qemutcg_archs  := x86_64 i386 arm aarch64 mipsel
-qemutcg_archs  := x86_64 aarch64
+qemutcg_archs  := x86_64 arm aarch64
 qemu_dir       := /home/aeden/qemu-2.6.0-build
 qemu_src_dir   := /home/aeden/qemu-2.6.0
 llvm_dir       := /usr

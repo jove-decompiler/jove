@@ -46,6 +46,13 @@ namespace jove {
 
 namespace tcg {
 /* XXX QEMUVERSIONDEPENDENT */
+struct HelperInfo {
+  void *func;
+  const char *name;
+  unsigned flags;
+  unsigned sizemask;
+};
+
 struct ArgConstraint;
 
 struct OpDef {
@@ -289,15 +296,6 @@ llvm::Function *translator::CallImportedFn() {
 }
 
 void translator::init_helpers() {
-  /* XXX QEMUVERSIONDEPENDENT */
-  typedef struct TCGHelperInfo {
-    void *func;
-    const char *name;
-    unsigned flags;
-    unsigned sizemask;
-  } TCGHelperInfo;
-  /* XXX QEMUVERSIONDEPENDENT */
-
   GHashTable *helpers = libqemutcg_helpers();
 
   GHashTableIter iter;
@@ -308,7 +306,7 @@ void translator::init_helpers() {
   while (g_hash_table_iter_next(&iter, &key, &value)) {
     ++i;
 
-    TCGHelperInfo *h = static_cast<TCGHelperInfo *>(value);
+    tcg::HelperInfo *h = static_cast<tcg::HelperInfo *>(value);
 
     tcg_helpers[i].addr = reinterpret_cast<uintptr_t>(h->func);
     tcg_helper_addr_map[tcg_helpers[i].addr] = &tcg_helpers[i];
@@ -547,31 +545,29 @@ void translator::create_section_global_variables() {
   auto process_addressof_function_relocation = [&](const relocation_t &reloc) -> void {
     symbol_t &sym = symtbl[reloc.symidx];
 
-    Constant *Cnst;
+    Constant *Cnst = nullptr;
     if (sym.is_undefined()) {
-      GlobalVariable *g = M.getGlobalVariable(sym.name);
-      if (g) {
+      Cnst = M.getGlobalVariable(sym.name);
+      if (Cnst) {
         Cnst = ConstantExpr::getPointerCast(
-            g,
+            Cnst,
             PointerType::get(FunctionType::get(Type::getVoidTy(C), false), 0));
       } else {
-        Function* f;
-        if (!(f = M.getFunction(sym.name))) {
-          f = Function::Create(FunctionType::get(Type::getVoidTy(C), false),
-                               sym.bind == symbol_t::WEAK
-                                   ? GlobalValue::ExternalWeakLinkage
-                                   : GlobalValue::ExternalLinkage,
-                               sym.name, &M);
-        }
-        Cnst = f;
+        Cnst = M.getFunction(sym.name);
+        if (!Cnst)
+          Cnst = Function::Create(FunctionType::get(Type::getVoidTy(C), false),
+                                  sym.bind == symbol_t::WEAK
+                                      ? GlobalValue::ExternalWeakLinkage
+                                      : GlobalValue::ExternalLinkage,
+                                  sym.name, &M);
       }
-      Cnst =
-          g ? g : M.getOrInsertFunction(
-                      sym.name, FunctionType::get(Type::getVoidTy(C), false));
     } else {
-      Cnst =
-          M.getOrInsertFunction((boost::format("%s_thunk") % sym.name).str(),
-                                FunctionType::get(Type::getVoidTy(C), false));
+      // XXX TODO
+      Cnst = M.getOrInsertFunction(
+          (boost::format("%s_function_defined_and_spotted_at_relocation") %
+           sym.name)
+              .str(),
+          FunctionType::get(Type::getVoidTy(C), false));
     }
 
     constant_for_relocation(reloc, Cnst);
@@ -648,7 +644,13 @@ void translator::create_section_global_variables() {
   };
 
   auto process_relative_relocation = [&](const relocation_t &reloc) -> void {
-    constant_for_relocation(reloc, section_ptr(reloc.addend));
+    Constant* ptr = section_ptr(reloc.addend);
+    if (!ptr) {
+      cout << "warning: relative relocation @ " << reloc.addend
+           << " out-of-bounds" << endl;
+      return;
+    }
+    constant_for_relocation(reloc, ptr);
   };
 
   for_each_if(reloctbl.begin(), reloctbl.end(),
@@ -814,6 +816,9 @@ void translator::run() {
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
+#if defined(TARGET_ARM) && !defined(TARGET_AARCH64)
+    addr &= 0xfffffffe;
+#endif
     functions_to_translate.pop();
 
     translate_function(addr);
@@ -1441,36 +1446,57 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     bbprop.term = basic_block_properties_t::TERM_CONDITIONAL_JUMP;
 
     uint64_t target = 0;
-#if defined(TARGET_X86_64)
-    assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
-#elif defined(TARGET_AARCH64)
+#if defined(TARGET_AARCH64)
     aarch64_evaluateConditionalBranch(target);
-#endif
-    assert(target);
+    {
+#else
+    if (!MIA->evaluateBranch(Inst, last_instr_addr, size, target)) {
+      char asmbuf[0x100];
+      cout << BBINDENT "note: could not evaluate branch: "
+           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
+                              last_instr_addr, asmbuf)
+           << endl;
 
-    control_flow_to(target);
-    control_flow_to(succ_addr);
+      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
+      control_flow_to(succ_addr);
+    } else {
+#endif
+      assert(target);
+
+      control_flow_to(target);
+      control_flow_to(succ_addr);
+    }
   } else if (MIA->isUnconditionalBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
 
     uint64_t target = 0;
-#if defined(TARGET_X86_64)
-    assert(MIA->evaluateBranch(Inst, last_instr_addr, size, target));
-#elif defined(TARGET_AARCH64)
+#if defined(TARGET_AARCH64)
     aarch64_evaluateUnconditionalBranch(target);
-#endif
-    assert(target);
+    {
+#else
+    if (!MIA->evaluateBranch(Inst, last_instr_addr, size, target)) {
+      char asmbuf[0x100];
+      cout << BBINDENT "note: could not evaluate branch: "
+           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
+                              last_instr_addr, asmbuf)
+           << endl;
 
-    control_flow_to(target);
+      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
+      control_flow_to(succ_addr);
+    } else {
+#endif
+      assert(target);
+      control_flow_to(target);
+    }
   } else if (MIA->isIndirectBranch(Inst)) {
     bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
   } else if (MIA->isCall(Inst)) {
     bool is_indirect;
     uint64_t target = 0;
-#if defined(TARGET_X86_64)
-    is_indirect = !MIA->evaluateBranch(Inst, last_instr_addr, size, target);
-#elif defined(TARGET_AARCH64)
+#if defined(TARGET_AARCH64)
     is_indirect = !aarch64_evaluateCall(target);
+#else
+    is_indirect = !MIA->evaluateBranch(Inst, last_instr_addr, size, target);
 #endif
     bbprop.term = is_indirect ? basic_block_properties_t::TERM_INDIRECT_CALL
                               : basic_block_properties_t::TERM_CALL;
@@ -1555,7 +1581,12 @@ void translator::compute_basic_block_defs_and_uses(
       auto h_addr = args[nb_oargs + nb_iargs];
       auto h_it = tcg_helper_addr_map.find(h_addr);
       if (h_it == tcg_helper_addr_map.end()) {
-        cerr << "warning: bad call to tcg helper" << endl;
+        GHashTable *helpers = libqemutcg_helpers();
+        tcg::HelperInfo *info =
+            (tcg::HelperInfo *)g_hash_table_lookup(helpers, (gpointer)h_addr);
+        cerr << "info: " << info << endl;
+        assert(info);
+        cerr << "warning: bad call to tcg helper " << info->name << endl;
         continue;
       }
 
@@ -1657,7 +1688,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
 }
 
 void translator::print_tcg_ops(ostream &out,
-                               const basic_block_properties_t &bbprop) const {
+                               const basic_block_properties_t &bbprop) {
   auto string_of_tcg_arg = [&](tcg::Arg a) -> string {
     if (a < tcg::num_globals)
       return tcg_globals[a].nm;
@@ -1697,11 +1728,19 @@ void translator::print_tcg_ops(ostream &out,
       if (a == 0x7FFFFFFF)
         continue;
 
-      out << endl
-          << "0x" << hex << a << "    "
-          << libmc_instr_asm(sectdata.data() + (a - sectstart), a, asmbuf)
-          << endl
-          << endl;
+      auto sectit = addrspace.find(a);
+      if (sectit == addrspace.end()) {
+        cout << "note: no code @ " << hex << a << endl;
+      } else {
+        sectstart = (*sectit).first.lower();
+        sectdata = secttbl[(*sectit).second - 1].contents;
+
+        out << endl
+            << "0x" << hex << a << "    "
+            << libmc_instr_asm(sectdata.data() + (a - sectstart), a, asmbuf)
+            << endl
+            << endl;
+      }
 
       continue;
     } else {
@@ -3191,6 +3230,9 @@ void translator::translate_tcg_operation_to_llvm(
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap16_i64, 16, 64)
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap32_i64, 32, 64)
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap64_i64, 64, 64)
+
+    __ARITH_OP2(tcg::INDEX_op_add2_i32, Add, 32)
+    __ARITH_OP2(tcg::INDEX_op_sub2_i32, Sub, 32)
 
     __ARITH_OP2(tcg::INDEX_op_add2_i64, Add, 64)
     __ARITH_OP2(tcg::INDEX_op_sub2_i64, Sub, 64)

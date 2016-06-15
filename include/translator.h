@@ -401,8 +401,7 @@ public:
   // thunk (for untranslated-code to use)
   void run();
 
-  void print_tcg_ops(std::ostream &out,
-                     const basic_block_properties_t &bbprop) const;
+  void print_tcg_ops(std::ostream &out, const basic_block_properties_t &bbprop);
 
   llvm::Module &module() { return M; }
 };

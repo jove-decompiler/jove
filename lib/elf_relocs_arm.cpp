@@ -1,3 +1,10 @@
+case ELF::R_ARM_GLOB_DAT:
+case ELF::R_ARM_JUMP_SLOT:
+  return relocation_t::ADDRESSOF;
+case ELF::R_ARM_COPY:
+  return relocation_t::COPY;
+case ELF::R_ARM_RELATIVE:
+  return relocation_t::RELATIVE;
 case ELF::R_ARM_NONE:
 case ELF::R_ARM_PC24:
 case ELF::R_ARM_ABS32:
@@ -18,10 +25,6 @@ case ELF::R_ARM_THM_XPC22:
 case ELF::R_ARM_TLS_DTPMOD32:
 case ELF::R_ARM_TLS_DTPOFF32:
 case ELF::R_ARM_TLS_TPOFF32:
-case ELF::R_ARM_COPY:
-case ELF::R_ARM_GLOB_DAT:
-case ELF::R_ARM_JUMP_SLOT:
-case ELF::R_ARM_RELATIVE:
 case ELF::R_ARM_GOTOFF32:
 case ELF::R_ARM_BASE_PREL:
 case ELF::R_ARM_GOT_BREL:

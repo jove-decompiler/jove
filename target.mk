@@ -43,7 +43,8 @@ _CXXFLAGS := $(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filte
 # jove-recompile
 #
 
-$(call tool,recompile)_SRC_NMS = jove_recompile.cpp
+$(call tool,recompile)_SRC_NMS = jove_recompile.cpp \
+                                 recompiler.cpp
 
 $(call tool,recompile)_SRCS := $(patsubst %,$(build_dir)/%,$($(call tool,recompile)_SRC_NMS))
 $(call tool,recompile)_OBJS := $(patsubst %.cpp,$(call res,%).o,$($(call tool,recompile)_SRC_NMS))
@@ -109,6 +110,7 @@ $(call res,%).o: $(build_dir)/%.cpp
 #
 # extra dependencies
 #
+$(call res,recompiler).o: $(call res,helpers).cpp $(call res,thunk).cpp
 $(call res,jove_recompile).o: $(call res,helpers).cpp $(call res,thunk).cpp
 $(call res,jove_init).o: $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp
 $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,abi_callingconv_ret_regs).cpp $(call res,helpers).cpp $(call res,tcg_globals).cpp $(call res,tcgdefs).hpp $(call res,abi_callingconv).hpp

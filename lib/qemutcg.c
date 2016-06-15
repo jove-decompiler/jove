@@ -206,6 +206,7 @@ unsigned libqemutcg_first_op_index() {
 #endif
 
 void libqemutcg_copy_ops(void* dst) {
+#if 0
   //
   // determine the max index which is used
   //
@@ -230,9 +231,13 @@ void libqemutcg_copy_ops(void* dst) {
 #endif
 
   memcpy(dst, tcg_ctx.gen_op_buf, (max_oi + 1) * sizeof(TCGOp));
+#else
+  memcpy(dst, tcg_ctx.gen_op_buf, OPC_BUF_SIZE * sizeof(TCGOp));
+#endif
 }
 
 void libqemutcg_copy_params(void* dst) {
+#if 0
   //
   // determine the max index which is used
   //
@@ -246,6 +251,9 @@ void libqemutcg_copy_params(void* dst) {
   } while (oi >= 0);
 
   memcpy(dst, tcg_ctx.gen_opparam_buf, (max_args_idx + 1) * sizeof(TCGArg));
+#else
+  memcpy(dst, tcg_ctx.gen_opparam_buf, OPPARAM_BUF_SIZE * sizeof(TCGArg));
+#endif
 }
 
 void libqemutcg_copy_tmps(void* dst) {
