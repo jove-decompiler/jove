@@ -44,6 +44,8 @@ _CXXFLAGS := $(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filte
 #
 
 $(call tool,recompile)_SRC_NMS = jove_recompile.cpp \
+                                 elf_recompiler.cpp \
+                                 coff_recompiler.cpp \
                                  recompiler.cpp
 
 $(call tool,recompile)_SRCS := $(patsubst %,$(build_dir)/%,$($(call tool,recompile)_SRC_NMS))

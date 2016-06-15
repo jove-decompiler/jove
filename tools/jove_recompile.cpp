@@ -1,7 +1,5 @@
 #include "config-target.h"
 #include "recompiler.h"
-#include "elf_recompiler.h"
-#include "coff_recompiler.h"
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 #include <cstdint>
@@ -11,12 +9,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Object/Binary.h>
-#include <llvm/Object/ELF.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/raw_ostream.h>
-#include <llvm/IR/InlineAsm.h>
-#include <llvm/Transforms/Utils/Cloning.h>
 
 using namespace std;
 using namespace llvm;
@@ -30,8 +24,6 @@ static tuple<fs::path, fs::path, bool>
 parse_command_line_arguments(int argc, char **argv);
 
 static void print_obj_info(const ObjectFile *);
-static void needed_shared_libraries_of_binary(const ObjectFile *,
-                                              vector<fs::path> &);
 }
 
 using namespace jove;
@@ -74,113 +66,15 @@ int main(int argc, char **argv) {
     M = move(*parseBitcodeFile(MBOrEror.get()->getMemBufferRef(), C));
   }
 
-  vector<string> fns;
-  for (Function& F : *M)
-    if (F.getLinkage() == GlobalValue::ExternalLinkage && !F.isDeclaration())
-      fns.push_back(F.getName().str());
+  unique_ptr<recompiler> R = create_recompiler(*O, *M);
 
-  unique_ptr<recompiler> R;
-  {
-    if (O->isELF()) {
-      if (const auto *ELFObj =
-              dyn_cast<ELFObjectFile<ELFType<support::little, false>>>(O))
-        R.reset(
-            new elf_recompiler<ELFType<support::little, false>>(*ELFObj, *M));
-      else if (const auto *ELFObj =
-                   dyn_cast<ELFObjectFile<ELFType<support::big, false>>>(O))
-        R.reset(new elf_recompiler<ELFType<support::big, false>>(*ELFObj, *M));
-      else if (const auto *ELFObj =
-                   dyn_cast<ELFObjectFile<ELFType<support::little, true>>>(O))
-        R.reset(
-            new elf_recompiler<ELFType<support::little, true>>(*ELFObj, *M));
-      else if (const auto *ELFObj =
-                   dyn_cast<ELFObjectFile<ELFType<support::big, true>>>(O))
-        R.reset(new elf_recompiler<ELFType<support::big, true>>(*ELFObj, *M));
-    } else if (O->isCOFF()) {
-      R.reset(new coff_recompiler(*O, *M));
-    } else {
-      cerr << "unknown object file format" << endl;
-      return 1;
-    }
-  }
+  fs::path objfp = fs::unique_path();
+  fs::path lnkfp = fs::unique_path();
 
-  Function &exported_template_fn =
-      *M->getFunction("__jove_exported_template_fn");
-  Function &exported_template_fn_impl =
-      *M->getFunction("__jove_exported_template_fn_impl");
-
-  for (const string& sym : fns) {
-    Function& F = *M->getFunction(sym);
-
-    ValueToValueMapTy VMap;
-    Function& G = *CloneFunction(&exported_template_fn, VMap, false);
-    M->getFunctionList().push_back(&G);
-
-    G.takeName(&F);
-    F.setName(sym + "__jove_impl_");
-    F.setLinkage(GlobalValue::InternalLinkage);
-    F.setCallingConv(CallingConv::C);
-
-    auto user_of_impl = [&](void) -> Instruction * {
-      for (User *U : exported_template_fn_impl.users()) {
-        Instruction* Inst = dyn_cast<Instruction>(U);
-        if (!Inst)
-          continue;
-
-        if (Inst->getParent()->getParent() == &G)
-          return Inst;
-      }
-
-      return nullptr;
-    };
-
-    Instruction* Inst = user_of_impl();
-    assert(Inst);
-
-    auto operand_index_of_impl_user = [&](void) -> unsigned {
-      for (unsigned i = 0; i < Inst->getNumOperands(); ++i) {
-        if (Inst->getOperand(i) == &exported_template_fn_impl)
-          return i;
-      }
-
-      return numeric_limits<unsigned>::max();
-    };
-
-    unsigned opidx = operand_index_of_impl_user();
-    assert(opidx < Inst->getNumOperands());
-
-    Inst->setOperand(opidx, &F);
-  }
-
-  assert(exported_template_fn.getNumUses() == 0);
-  M->getFunctionList().remove(&exported_template_fn);
-#if 0
-  assert(exported_template_fn_impl.getNumUses() == 0);
-  M->getFunctionList().remove(&exported_template_fn_impl);
-#endif
-
-  Function &JFn0 =
-      *M->getFunction("__jove_thunk_out");
-  Function &JFn1 =
-      *M->getFunction("__jove_indirect_jump");
-  Function &JFn2 =
-      *M->getFunction("__jove_indirect_call");
-  Function &JFn3 =
-      *M->getFunction("__jove_call");
-
-  JFn1.replaceAllUsesWith(&JFn0);
-  JFn2.replaceAllUsesWith(&JFn0);
-  JFn3.replaceAllUsesWith(&JFn0);
-
-  JFn0.setLinkage(GlobalValue::InternalLinkage);
+  R->compile(objfp);
+  R->link(objfp, lnkfp);
 
   M->dump();
-
-  vector<fs::path> libs;
-  needed_shared_libraries_of_binary(O, libs);
-
-  for (fs::path lib : libs)
-    cout << lib << endl;
 
   return 0;
 }
@@ -237,122 +131,6 @@ void print_obj_info(const ObjectFile *Obj) {
   cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
        << "\n";
   cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
-}
-
-static void needed_shared_libraries_of_elf_binary(const ObjectFile *,
-                                                  vector<fs::path> &);
-static void needed_shared_libraries_of_coff_binary(const ObjectFile *,
-                                                   vector<fs::path> &);
-
-void needed_shared_libraries_of_binary(const ObjectFile *O,
-                                       vector<fs::path> &libs) {
-  if (O->isELF())
-    return needed_shared_libraries_of_elf_binary(O, libs);
-  else if (O->isCOFF())
-    return needed_shared_libraries_of_coff_binary(O, libs);
-}
-
-template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
-  return Val ? *Val : Default;
-}
-
-template <class ELFT>
-static bool compareAddr(uint64_t VAddr, const Elf_Phdr_Impl<ELFT> *Phdr) {
-  return VAddr < Phdr->p_vaddr;
-}
-
-template <typename ELFT>
-static void needed_shared_libraries_of_elf(const ELFFile<ELFT> *ELF,
-                                           vector<fs::path> &libs) {
-  typedef typename ELFFile<ELFT>::Elf_Phdr Elf_Phdr;
-  typedef typename ELFFile<ELFT>::Elf_Dyn_Range Elf_Dyn_Range;
-
-  const Elf_Phdr *DynamicProgHeader = nullptr;
-  SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-  for (const Elf_Phdr &Phdr : ELF->program_headers()) {
-    switch (Phdr.p_type) {
-    case ELF::PT_DYNAMIC:
-      DynamicProgHeader = &Phdr;
-      break;
-    case ELF::PT_LOAD:
-      if (Phdr.p_filesz == 0)
-        break;
-      LoadSegments.push_back(&Phdr);
-      break;
-    }
-  }
-
-  if (!DynamicProgHeader)
-    return;
-
-  ErrorOr<Elf_Dyn_Range> dyntbl_ = ELF->dynamic_table(DynamicProgHeader);
-  if (dyntbl_.getError())
-    return;
-
-  Elf_Dyn_Range dyntbl = *dyntbl_;
-
-  const char *StringTableBegin = nullptr;
-  uint64_t StringTableSize = 0;
-
-  auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
-    const Elf_Phdr **I = upper_bound(LoadSegments.begin(), LoadSegments.end(),
-                                     VAddr, compareAddr<ELFT>);
-    if (I == LoadSegments.begin())
-      return nullptr;
-    --I;
-    const Elf_Phdr &Phdr = **I;
-    uint64_t Delta = VAddr - Phdr.p_vaddr;
-    if (Delta >= Phdr.p_filesz)
-      return nullptr;
-    return ELF->base() + Phdr.p_offset + Delta;
-  };
-
-  for (const auto &Entry : dyntbl) {
-    switch (Entry.d_tag) {
-    case ELF::DT_STRTAB:
-      StringTableBegin = StringTableBegin
-                             ? StringTableBegin
-                             : (const char *)toMappedAddr(Entry.getPtr());
-      break;
-    case ELF::DT_STRSZ:
-      StringTableSize = Entry.getVal();
-      break;
-    }
-  }
-
-
-  if (!StringTableBegin)
-    return;
-
-  StringRef DynamicStringTable = StringRef(StringTableBegin, StringTableSize);
-
-  for (const auto &Entry : dyntbl) {
-    if (Entry.d_tag != ELF::DT_NEEDED)
-      continue;
-
-    if (Entry.d_un.d_val >= DynamicStringTable.size())
-      continue;
-
-    libs.push_back(
-        StringRef(DynamicStringTable.data() + Entry.d_un.d_val).str());
-  }
-}
-
-void needed_shared_libraries_of_elf_binary(const ObjectFile *O,
-                                           vector<fs::path> &libs) {
-  if (const ELF32LEObjectFile *ELFObj = dyn_cast<ELF32LEObjectFile>(O))
-    needed_shared_libraries_of_elf(ELFObj->getELFFile(), libs);
-  else if (const ELF32BEObjectFile *ELFObj = dyn_cast<ELF32BEObjectFile>(O))
-    needed_shared_libraries_of_elf(ELFObj->getELFFile(), libs);
-  else if (const ELF64LEObjectFile *ELFObj = dyn_cast<ELF64LEObjectFile>(O))
-    needed_shared_libraries_of_elf(ELFObj->getELFFile(), libs);
-  else if (const ELF64BEObjectFile *ELFObj = dyn_cast<ELF64BEObjectFile>(O))
-    needed_shared_libraries_of_elf(ELFObj->getELFFile(), libs);
-}
-
-void needed_shared_libraries_of_coff_binary(const ObjectFile *,
-                                                   vector<fs::path> &) {
 }
 
 }
