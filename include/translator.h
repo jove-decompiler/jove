@@ -12,6 +12,7 @@
 #include <queue>
 #include <tuple>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "abi_callingconv.hpp"
