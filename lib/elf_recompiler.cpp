@@ -3,6 +3,8 @@
 #include <llvm/IR/Module.h>
 #include <llvm/Object/ELF.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <boost/format.hpp>
+#include <boost/filesystem.hpp>
 
 using namespace std;
 using namespace llvm;
@@ -10,6 +12,8 @@ using namespace object;
 namespace fs = boost::filesystem;
 
 namespace jove {
+
+typedef boost::format fmt;
 
 template <class T>
 static T errorOrDefault(llvm::ErrorOr<T> Val, T Default = T()) {
@@ -52,20 +56,33 @@ public:
       : recompiler(EO, M), Obj(*EO.getELFFile()) {}
 
   void compile(const boost::filesystem::path &out) const {
+    fs::path tmpbcfp(fs::unique_path());
+    {
+      error_code ec;
+      raw_fd_ostream of(tmpbcfp.string(), ec, sys::fs::F_RW);
+      WriteBitcodeToFile(&M, of);
+    }
+
+    string cmd = (fmt("llc -o %s -filetype=obj -relocation-model=pic %s") %
+                  out % tmpbcfp)
+                     .str();
+    system(cmd.c_str());
+
+    fs::remove(tmpbcfp);
   }
 
   void link(const boost::filesystem::path &obj,
             const boost::filesystem::path &out) const {
+    string cmd = (fmt("ld -o %s -shared %s") % out % obj).str();
+    system(cmd.c_str());
   }
 
 private:
-
-  void needed_shared_libraries_of_elf(const ELFO *ELF, vector<fs::path> &libs) {
-
+  void needed_shared_libraries_of_elf(vector<fs::path> &libs) {
     const Elf_Phdr *DynamicProgHeader = nullptr;
     SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
-    for (const Elf_Phdr &Phdr : ELF->program_headers()) {
+    for (const Elf_Phdr &Phdr : Obj.program_headers()) {
       switch (Phdr.p_type) {
       case ELF::PT_DYNAMIC:
         DynamicProgHeader = &Phdr;
@@ -81,7 +98,7 @@ private:
     if (!DynamicProgHeader)
       return;
 
-    ErrorOr<Elf_Dyn_Range> dyntbl_ = ELF->dynamic_table(DynamicProgHeader);
+    ErrorOr<Elf_Dyn_Range> dyntbl_ = Obj.dynamic_table(DynamicProgHeader);
     if (dyntbl_.getError())
       return;
 
@@ -100,7 +117,7 @@ private:
       uint64_t Delta = VAddr - Phdr.p_vaddr;
       if (Delta >= Phdr.p_filesz)
         return nullptr;
-      return ELF->base() + Phdr.p_offset + Delta;
+      return Obj.base() + Phdr.p_offset + Delta;
     };
 
     for (const auto &Entry : dyntbl) {

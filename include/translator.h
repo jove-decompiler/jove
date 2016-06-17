@@ -1,6 +1,5 @@
 #pragma once
 #include <cstdint>
-#include "tcg-target.h"
 #include "binary.h"
 #include <array>
 #include <boost/graph/adjacency_list.hpp>
@@ -117,8 +116,11 @@ enum TempVal {
   TEMP_VAL_CONST,
 };
 
+// XXX
+enum Reg { TCG_REG_R0 };
+
 struct Tmp {
-  TCGReg reg : 8;
+  Reg reg : 8;
   TempVal val_type : 8;
   Type base_type : 8;
   Type type : 8;
