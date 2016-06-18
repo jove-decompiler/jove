@@ -85,7 +85,7 @@ $(call tool,init)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,init)_S
 
 $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 	@echo CLANG++ $(notdir $@ $^)
-	$(LLCXX) -o $@ \
+	@$(LLCXX) -o $@ \
 	  $(_CXXFLAGS) $($(call tool,init)_OBJS) \
 	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
 	  -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so \
