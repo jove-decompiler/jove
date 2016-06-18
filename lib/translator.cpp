@@ -710,7 +710,7 @@ void translator::create_section_global_variables() {
       structfieldconsts.push_back(cnst);
     }
 
-    fieldinits.push_back(ConstantStruct::get(sectgvtys[i], structfieldconsts));
+    fieldinits.push_back(ConstantStruct::get(sectgvty, structfieldconsts));
   }
 
   sectsgv->setInitializer(ConstantStruct::get(sectsgvty, fieldinits));
