@@ -219,7 +219,7 @@ $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 #
 $(call res,libqemutcg).so: $(call res,libqemutcg).bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -shared -fPIC -O3 $<
+	@$(LLCC) -o $@ -shared -fPIC -O3 $< -lglib-2.0 -pthread
 
 $(call res,libqemutcg).bc: $(call res,libqemutcg).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
