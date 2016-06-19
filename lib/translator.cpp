@@ -644,11 +644,17 @@ void translator::create_section_global_variables() {
   };
 
   auto process_relative_relocation = [&](const relocation_t &reloc) -> void {
-    Constant* ptr = section_ptr(reloc.addend);
-    if (!ptr) {
-      cout << "warning: relative relocation @ " << reloc.addend
-           << " out-of-bounds" << endl;
-      return;
+    Constant *ptr;
+    if (reloc.addend == 0) {
+      // special case
+      ptr = section_ptr(reloc.addr);
+    } else {
+      ptr = section_ptr(reloc.addend);
+      if (!ptr) {
+        cout << "warning: relative relocation @ " << reloc.addend
+             << " out-of-bounds" << endl;
+        assert(false);
+      }
     }
     constant_for_relocation(reloc, ptr);
   };
@@ -691,6 +697,9 @@ void translator::create_section_global_variables() {
     StructType *sectgvty = sectgvtys[i];
 
     section_interval_map_t &sectstuff = sectstuffs[i];
+
+    sectgvty->dump();
+
     StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
     for (auto it = sectstuff.begin(); it != sectstuff.end(); ++it) {
       const section_interval_t &intvl = *it;
@@ -707,6 +716,7 @@ void translator::create_section_global_variables() {
                                  sect.contents.begin() + (*it).upper()));
       }
 
+      cnst->dump();
       structfieldconsts.push_back(cnst);
     }
 
@@ -3174,6 +3184,22 @@ void translator::translate_tcg_operation_to_llvm(
         args[0]);                                                              \
   } break;
 
+#define __ANDC_OP(opc_name, bits)                                              \
+  case opc_name: {                                                             \
+    Value *v1 = get(args[1]);                                                  \
+    Value *v2 = get(args[2]);                                                  \
+    assert(v1->getType() == IntegerType::get(C, bits));                        \
+    Value *notv2;                                                              \
+    if (bits == 32) {                                                          \
+      notv2 = b.CreateXor(                                                     \
+          ConstantInt::get(IntegerType::get(C, 32), 0xffffffff), v2);          \
+    } else if (bits == 64) {                                                   \
+      notv2 = b.CreateXor(                                                     \
+          ConstantInt::get(IntegerType::get(C, 64), 0xffffffffffffffff), v2);  \
+    }                                                                          \
+    set(b.CreateAnd(v1, notv2), args[0]);                                      \
+  } break;
+
     __ARITH_OP(tcg::INDEX_op_add_i32, Add, 32)
     __ARITH_OP(tcg::INDEX_op_sub_i32, Sub, 32)
     __ARITH_OP(tcg::INDEX_op_mul_i32, Mul, 32)
@@ -3196,8 +3222,11 @@ void translator::translate_tcg_operation_to_llvm(
     __ARITH_OP_ROT(tcg::INDEX_op_rotl_i32, Shl, LShr, 32)
     __ARITH_OP_ROT(tcg::INDEX_op_rotr_i32, LShr, Shl, 32)
 
-    __ARITH_OP_I(tcg::INDEX_op_not_i32, Xor, (uint64_t)-1, 32)
+    __ARITH_OP_I(tcg::INDEX_op_not_i32, Xor, 0xffffffff, 32)
     __ARITH_OP_I(tcg::INDEX_op_neg_i32, Sub, 0, 32)
+
+    __ANDC_OP(tcg::INDEX_op_andc_i32, 32)
+    __ANDC_OP(tcg::INDEX_op_andc_i64, 64)
 
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap16_i32, 16, 32)
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap32_i32, 32, 32)
@@ -3224,7 +3253,7 @@ void translator::translate_tcg_operation_to_llvm(
     __ARITH_OP_ROT(tcg::INDEX_op_rotl_i64, Shl, LShr, 64)
     __ARITH_OP_ROT(tcg::INDEX_op_rotr_i64, LShr, Shl, 64)
 
-    __ARITH_OP_I(tcg::INDEX_op_not_i64, Xor, (uint64_t)-1, 64)
+    __ARITH_OP_I(tcg::INDEX_op_not_i64, Xor, 0xffffffffffffffff, 64)
     __ARITH_OP_I(tcg::INDEX_op_neg_i64, Sub, 0, 64)
 
     __ARITH_OP_BSWAP(tcg::INDEX_op_bswap16_i64, 16, 64)
