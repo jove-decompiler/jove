@@ -394,6 +394,9 @@ private:
   llvm::StoreInst *CreateGuestStore(llvm::Value *, llvm::Value *ptr);
 
   void find_exported_functions(std::unordered_set<address_t>&);
+  std::pair<address_t, address_t>
+  tcg_conditional_branch_targets(basic_block_properties_t &);
+  address_t tcg_branch_target(basic_block_properties_t &);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,

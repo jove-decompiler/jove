@@ -1209,6 +1209,82 @@ bool translator::translate_function(address_t addr) {
   return true;
 }
 
+std::pair<address_t, address_t>
+translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
+  address_t targets[2] = {0};
+  address_t *res = targets;
+  address_t constprop[tcg::max_temps] = {0};
+
+  const tcg::Op *ops = bbprop.tcg_ops.get();
+  const tcg::Arg *params = bbprop.tcg_args.get();
+  const tcg::Op *op;
+  for (int oi = bbprop.first_tcg_op_idx; oi >= 0; oi = op->next) {
+    op = &ops[oi];
+    const tcg::Opcode c = op->opc;
+    const tcg::Arg *args = &params[op->args];
+
+    switch (c) {
+
+#define __MOVI_OP(bits)                                                        \
+  case tcg::INDEX_op_movi_i##bits:                                              \
+    if (bits != sizeof(address_t) * 8)                                         \
+      break;                                                                   \
+                                                                               \
+    constprop[args[0]] = args[1];                                              \
+                                                                               \
+    if (tcg::program_counter_global_index == 0)                                \
+      break;                                                                   \
+                                                                               \
+    if (args[0] == tcg::program_counter_global_index)                          \
+      *res++ = args[1];                                                        \
+    break;
+
+      __MOVI_OP(32)
+      __MOVI_OP(64)
+
+#undef __MOVI_OP
+
+//
+// store to host memory
+// when we see a st_i64/32 tmp, env, offset where offset points to to the
+// program counter field, then we store it in our local variable
+//
+#define __ST_OP(opc_name, memBits, regBits)                                    \
+  case opc_name:                                                               \
+    if (memBits != regBits)                                                    \
+      break;                                                                   \
+    if (regBits != sizeof(address_t) * 8)                                      \
+      break;                                                                   \
+    if (args[1] != tcg::CPU_STATE_ARG)                                         \
+      break;                                                                   \
+    if (args[2] != tcg::cpu_state_program_counter_offset)                      \
+      break;                                                                   \
+                                                                               \
+    *res++ = constprop[args[0]];                                               \
+    break;
+
+      __ST_OP(tcg::INDEX_op_st8_i32, 8, 32)
+      __ST_OP(tcg::INDEX_op_st16_i32, 16, 32)
+      __ST_OP(tcg::INDEX_op_st_i32, 32, 32)
+      __ST_OP(tcg::INDEX_op_st8_i64, 8, 64)
+      __ST_OP(tcg::INDEX_op_st16_i64, 16, 64)
+      __ST_OP(tcg::INDEX_op_st32_i64, 32, 64)
+      __ST_OP(tcg::INDEX_op_st_i64, 64, 64)
+
+#undef __ST_OP
+
+    default:
+      break;
+    }
+  }
+
+  return make_pair(targets[0], targets[1]);
+}
+
+address_t translator::tcg_branch_target(basic_block_properties_t &bbprop) {
+  return tcg_conditional_branch_targets(bbprop).first;
+}
+
 void translator::compute_params(function_t& f) {
   //
   // conduct data-flow analysis via iterative worklist algorithm. we iterate in
@@ -1341,8 +1417,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   }
 
   //
-  // perform the translation from machine code to TCG intermediate code for one
-  // basic block
+  // translate machine code -> TCG intermediate code
   //
   address_t succ_addr = addr + libqemutcg_translate(addr);
   address_t last_instr_addr = libqemutcg_last_tcg_op_addr();
@@ -1358,8 +1433,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
-
-  address_t next_addr = last_instr_addr + size;
 
   //
   // prepare data structures for new basic block
@@ -1406,136 +1479,89 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     }
   };
 
-#if defined(TARGET_AARCH64)
-  auto aarch64_evaluateUnconditionalBranch = [&](uint64_t& target) -> void {
-    assert(Inst.getNumOperands() == 1);
-    assert(Inst.getOperand(0).isImm());
-
-    target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
-                                   static_cast<int64_t>(last_instr_addr));
-  };
-
-  auto aarch64_evaluateConditionalBranch = [&](uint64_t& target) -> void {
-    assert(Inst.getNumOperands() == 2);
-    assert(Inst.getOperand(1).isImm());
-
-    target = static_cast<uint64_t>(4*Inst.getOperand(1).getImm() +
-                                   static_cast<int64_t>(last_instr_addr));
-  };
-
-  auto aarch64_evaluateCall = [&](uint64_t& target) -> bool {
-    if (Inst.getNumOperands() != 1 || !Inst.getOperand(0).isImm())
-      return false;
-
-    target = static_cast<uint64_t>(4*Inst.getOperand(0).getImm() +
-                                   static_cast<int64_t>(last_instr_addr));
-    return true;
-  };
-#endif
-
-  const MCInstrAnalysis *MIA = libmc_instranalyzer();
-  unique_ptr<MCInstrAnalysis> _MIA;
-  if (!MIA) {
-    _MIA.reset(new MCInstrAnalysis(libmc_instrinfo()));
-    MIA = _MIA.get();
-  }
-
-  if (MIA->isReturn(Inst)) {
-    bbprop.term = basic_block_properties_t::TERM_RETURN;
-  } else if (MIA->isConditionalBranch(Inst)) {
+  if (bbprop.lbls.size() == 1) {
+    //
+    // conditional jump
+    //
     bbprop.term = basic_block_properties_t::TERM_CONDITIONAL_JUMP;
 
-    uint64_t target = 0;
-#if defined(TARGET_AARCH64)
-    aarch64_evaluateConditionalBranch(target);
-    {
-#else
-    if (!MIA->evaluateBranch(Inst, last_instr_addr, size, target)) {
-      char asmbuf[0x100];
-      cout << BBINDENT "note: could not evaluate branch: "
-           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
-                              last_instr_addr, asmbuf)
-           << endl;
+    address_t target1, target2;
+    tie(target1, target2) = tcg_conditional_branch_targets(bbprop);
 
-      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
-      control_flow_to(succ_addr);
+    cout << BBINDENT "note: conditional jump to " << hex << target1 << " and "
+         << target2 << endl;
+
+    control_flow_to(target1);
+    control_flow_to(target2);
+  } else if (bbprop.lbls.size() == 0) {
+    //
+    // we'll need to use LLVM's instruction analyzer
+    //
+    const MCInstrAnalysis *MIA = libmc_instranalyzer();
+    unique_ptr<MCInstrAnalysis> _MIA;
+    if (!MIA) {
+      _MIA.reset(new MCInstrAnalysis(libmc_instrinfo()));
+      MIA = _MIA.get();
+    }
+
+    //
+    // either:
+    //   (1) unconditional jump
+    //   (2) direct call
+    //   (3) indirect jump
+    //   (4) indirect call
+    //   (5) return
+    //
+    // (5) fall-through case, since many classes of instructions can be
+    // constructed as returns (e.g. pop {r3, pc} on ARM)
+    //
+    address_t target;
+    target = tcg_branch_target(bbprop);
+
+    if (target) {
+      // either (1) or (2)
+      if (MIA->isCall(Inst)) {
+        // (2)
+        cout << BBINDENT "note: direct call" << endl;
+        bbprop.term = basic_block_properties_t::TERM_CALL;
+
+        // add call target to translation queue
+        functions_to_translate.push(target);
+        callers[target].push_back({&f, bb});
+        bbprop.callee = target;
+
+        // return address
+        control_flow_to(succ_addr);
+      } else {
+        // (1)
+        cout << BBINDENT "note: unconditional jump" << endl;
+        bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
+
+        control_flow_to(target);
+      }
     } else {
-#endif
-      assert(target);
+      // either (3), (4), or (5)
+      if (MIA->isCall(Inst)) {
+        // (4)
+        cout << BBINDENT "note: indirect call" << endl;
+        bbprop.term = basic_block_properties_t::TERM_INDIRECT_CALL;
 
-      control_flow_to(target);
-      control_flow_to(succ_addr);
+        // return address
+        control_flow_to(succ_addr);
+      } else if (MIA->isIndirectBranch(Inst)) {
+        // (3)
+        cout << BBINDENT "note: indirect jump" << endl;
+        bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
+      } else {
+        // (5)
+        cout << BBINDENT "note: return" << endl;
+        bbprop.term = basic_block_properties_t::TERM_RETURN;
+      }
     }
-  } else if (MIA->isUnconditionalBranch(Inst)) {
-    bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
-
-    uint64_t target = 0;
-#if defined(TARGET_AARCH64)
-    aarch64_evaluateUnconditionalBranch(target);
-    {
-#else
-    if (!MIA->evaluateBranch(Inst, last_instr_addr, size, target)) {
-      char asmbuf[0x100];
-      cout << BBINDENT "note: could not evaluate branch: "
-           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
-                              last_instr_addr, asmbuf)
-           << endl;
-
-      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
-      control_flow_to(succ_addr);
-    } else {
-#endif
-      assert(target);
-      control_flow_to(target);
-    }
-  } else if (MIA->isIndirectBranch(Inst)) {
-    bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
-  } else if (MIA->isCall(Inst)) {
-    bool is_indirect;
-    uint64_t target = 0;
-#if defined(TARGET_AARCH64)
-    is_indirect = !aarch64_evaluateCall(target);
-#else
-    is_indirect = !MIA->evaluateBranch(Inst, last_instr_addr, size, target);
-#endif
-    bbprop.term = is_indirect ? basic_block_properties_t::TERM_INDIRECT_CALL
-                              : basic_block_properties_t::TERM_CALL;
-
-    if (!is_indirect) {
-      assert(target);
-      functions_to_translate.push(target);
-      callers[target].push_back({&f, bb});
-      bbprop.callee = target;
-
-      cout << BBINDENT "-> " << hex << target << endl;
-    }
-
-    control_flow_to(succ_addr);
   } else {
-    MCInst second_to_lst_inst;
-    address_t second_to_lst_addr = libqemutcg_second_to_last_tcg_op_addr();
-    MCInst succ_inst;
-    if ((libmc_analyze_instr(succ_inst, size,
-                             sectdata.data() + (next_addr - sectstart),
-                             next_addr) &&
-         MIA->isReturn(succ_inst)) ||
-        (second_to_lst_addr &&
-         libmc_analyze_instr(second_to_lst_inst, size,
-                             sectdata.data() + (second_to_lst_addr - sectstart),
-                             second_to_lst_addr) &&
-         MIA->isReturn(second_to_lst_inst))) {
-      bbprop.term = basic_block_properties_t::TERM_RETURN;
-    } else {
-      /* unknown control flow */
-      char asmbuf[0x100];
-      cout << BBINDENT "note: unknown basic block terminator: "
-           << libmc_instr_asm(sectdata.data() + (last_instr_addr - sectstart),
-                              last_instr_addr, asmbuf)
-           << endl;
-
-      bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
-      control_flow_to(succ_addr);
-    }
+    cerr << "error: invalid TCG translation nb labels = " << bbprop.lbls.size()
+         << endl;
+    bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
   }
 
   return bb;
@@ -1631,7 +1657,8 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
 
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
+    const tcg::OpDef *def =
+        static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     tcg::Arg *args = &params[op->args];
 
     if (c == tcg::INDEX_op_insn_start) {
@@ -1706,7 +1733,8 @@ void translator::print_tcg_ops(ostream &out,
 
     op = &ops[oi];
     const tcg::Opcode c = op->opc;
-    const tcg::OpDef *def = static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
+    const tcg::OpDef *def =
+        static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     const tcg::Arg *args = &params[op->args];
 
     if (c == tcg::INDEX_op_insn_start) {
@@ -1852,23 +1880,21 @@ void translator::print_tcg_ops(ostream &out,
 }
 
 template <typename Graph> struct graphviz_label_writer {
-  translator& t;
+  translator &t;
   const Graph &g;
-  graphviz_label_writer(translator& t, const Graph &g) : t(t), g(g) {}
+  graphviz_label_writer(translator &t, const Graph &g) : t(t), g(g) {}
 
   template <class VertexOrEdge>
   void operator()(std::ostream &out, const VertexOrEdge &v) const {
     std::string s;
 
-    constexpr const char* term_str_tbl[] = {
-      "TERM_UNCONDITIONAL_JUMP",
-      "TERM_CONDITIONAL_JUMP",
-      "TERM_CALL",
-      "TERM_INDIRECT_CALL",
-      "TERM_INDIRECT_JUMP",
-      "TERM_RETURN",
-      "TERM_UNKNOWN"
-    };
+    constexpr const char *term_str_tbl[] = {"TERM_UNCONDITIONAL_JUMP",
+                                            "TERM_CONDITIONAL_JUMP",
+                                            "TERM_CALL",
+                                            "TERM_INDIRECT_CALL",
+                                            "TERM_INDIRECT_JUMP",
+                                            "TERM_RETURN",
+                                            "TERM_UNKNOWN"};
 
     {
       ostringstream oss;
@@ -1890,7 +1916,7 @@ template <typename Graph> struct graphviz_label_writer {
           oss << ' ' << t.tcg_globals[gidx].nm;
         oss << endl;
       }
-      
+
       oss << endl;
       t.print_tcg_ops(oss, g[v]);
       oss << endl;
@@ -1945,11 +1971,9 @@ template <typename Graph> struct graphviz_label_writer {
 };
 
 struct graphviz_edge_prop_writer {
-  template <class Edge>
-  void operator()(ostream &out, const Edge &e) const {
-    static const char *edge_type_styles[] = {
-        "solid", "dashed", /*"invis"*/ "dotted"
-    };
+  template <class Edge> void operator()(ostream &out, const Edge &e) const {
+    static const char *edge_type_styles[] = {"solid", "dashed",
+                                             /*"invis"*/ "dotted"};
 
     out << "[style=\"" << edge_type_styles[0] << "\"]";
   }
@@ -1996,9 +2020,7 @@ void translator::write_function_graphviz(function_t &f) {
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
 }
 
-Type *translator::word_type() {
-  return word_ty;
-}
+Type *translator::word_type() { return word_ty; }
 
 address_t translator::lower_section_addr() {
   return (*addrspace.begin()).first.lower();
@@ -2008,7 +2030,7 @@ address_t translator::upper_section_addr() {
   return (*prev(addrspace.end())).first.upper();
 }
 
-Value* translator::cpu_state_global_gep(unsigned gidx) {
+Value *translator::cpu_state_global_gep(unsigned gidx) {
   SmallVector<Value *, 4> Indices;
   getNaturalGEPWithOffset(
       cpu_state_glb_llv, APInt(64, tcg_globals[gidx].cpustoff),
@@ -2033,11 +2055,11 @@ Value *translator::load_global_from_cpu_state(unsigned gidx) {
                     tcg_globals[gidx].nm + string("_"));
 }
 
-void translator::store_global_to_cpu_state(Value* gvl, unsigned gidx) {
+void translator::store_global_to_cpu_state(Value *gvl, unsigned gidx) {
   CreateStore(gvl, cpu_state_global_gep(gidx));
 }
 
-void translator::translate_function_llvm(function_t& f) {
+void translator::translate_function_llvm(function_t &f) {
   cout << hex << f[boost::graph_bundle].entry_point << endl;
 
   Function &llf = *f[boost::graph_bundle].llf;
@@ -2048,7 +2070,7 @@ void translator::translate_function_llvm(function_t& f) {
   // for each TCG basic block
   //
   for (tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-    basic_block_properties_t& bbprop = f[*vi];
+    basic_block_properties_t &bbprop = f[*vi];
 
     bbprop.llbb =
         BasicBlock::Create(C, (boost::format("%#x") % bbprop.addr).str(), &llf);
@@ -2060,10 +2082,10 @@ void translator::translate_function_llvm(function_t& f) {
           C, (boost::format("%#x.%u") % bbprop.addr % (i + 1)).str(), &llf);
   }
 
-  //
-  // next we computing the set of TCG globals that are used so that we may
-  // create alloca's for each of them at the head of the function
-  //
+//
+// next we computing the set of TCG globals that are used so that we may
+// create alloca's for each of them at the head of the function
+//
 #ifndef NJOVEDBG
   tie(vi, vi_end) = boost::vertices(f);
   unsigned max_num_temps =
@@ -2087,7 +2109,7 @@ void translator::translate_function_llvm(function_t& f) {
 
   vector<unsigned> glb_used_v;
   explode_tcg_global_set(glb_used_v, glb_used_s);
- 
+
 #if 0
   for (unsigned glbused : glb_used_v)
     cout << "glbused: " << dec << glbused << endl;
@@ -2104,9 +2126,9 @@ void translator::translate_function_llvm(function_t& f) {
         IntegerType::get(C, tcg_globals[gidx].ty == tcg::GLOBAL_I32 ? 32 : 64),
         nullptr, tcg_globals[gidx].nm + string("_"));
 
-  //
-  // allocate pcrel
-  //
+//
+// allocate pcrel
+//
 #if 1
   pcrel_llv = CreateLoad(pcrel_gv, "pcrel");
 #endif
@@ -2283,7 +2305,7 @@ static void explode_tcg_temp_set(vector<unsigned> &out, tcg::temp_set_t tmps) {
 }
 
 void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
-  basic_block_properties_t& bbprop = f[bb];
+  basic_block_properties_t &bbprop = f[bb];
 
   cout << FNINDENT << hex << bbprop.addr << endl;
 
@@ -2300,10 +2322,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         nullptr, (boost::format("tmp%u") % static_cast<unsigned>(tmp)).str());
   }
 
-  //
-  // create an alloca for the program counter if this basic block has a
-  // conditional branch
-  //
+//
+// create an alloca for the program counter if this basic block has a
+// conditional branch
+//
 #if defined(TARGET_AARCH64)
   // this is the program counter for aarch64
   pc_llv = tcg_glb_llv_m[25];
@@ -2398,7 +2420,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
               [&](unsigned gidx) -> Value * {
                 if (bbprop.reachdef_out.test(gidx))
                   return CreateLoad(tcg_glb_llv_m[gidx],
-                                      tcg_globals[gidx].nm + string("_passed"));
+                                    tcg_globals[gidx].nm + string("_passed"));
                 else
                   return load_global_from_cpu_state(gidx);
               });
@@ -2410,10 +2432,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // for every return value: if the global is live, store it to our local
     // copy. otherwise, spill it to the CPU state.
     //
-    vector<unsigned>& ret_v = callee[boost::graph_bundle].returned;
+    vector<unsigned> &ret_v = callee[boost::graph_bundle].returned;
     for (unsigned i = 0; i < ret_v.size(); ++i) {
       unsigned gidx = ret_v[i];
-      Value* gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
+      Value *gvl = b.CreateExtractValue(res, ArrayRef<unsigned>(i));
       gvl->setName(tcg_globals[gidx].nm + string("_returned"));
       if (bbprop.live_out.test(gidx))
         CreateStore(gvl, tcg_glb_llv_m[gidx]);
@@ -2431,7 +2453,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 
     vector<unsigned> toreload_v;
     explode_tcg_global_set(toreload_v, toreload);
-    
+
     for (unsigned gidx : toreload_v)
       CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
@@ -2442,8 +2464,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
-    Value* pc = b.CreateIntToPtr(CreateLoad(pc_llv), ExternalFnPtrTy);
-    b.CreateCall(IndirectCallFn(), ArrayRef<Value*>(pc));
+    Value *pc = b.CreateIntToPtr(CreateLoad(pc_llv), ExternalFnPtrTy);
+    b.CreateCall(IndirectCallFn(), ArrayRef<Value *>(pc));
 
     if (succ == boost::graph_traits<function_t>::null_vertex())
       b.CreateUnreachable();
@@ -2487,7 +2509,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // value
     //
     assert(isa<StructType>(ret_ty));
-    vector<unsigned>& ret_v = f[boost::graph_bundle].returned;
+    vector<unsigned> &ret_v = f[boost::graph_bundle].returned;
 
     assert(ret_v.size() == cast<StructType>(ret_ty)->getNumElements());
 
@@ -2662,7 +2684,7 @@ void translator::translate_tcg_operation_to_llvm(
     if (a == tcg::CPU_STATE_ARG)
       return b.CreatePtrToInt(tcg_glb_llv_m[tcg::CPU_STATE_ARG], word_type());
 
-    Value* ptr = nullptr;
+    Value *ptr = nullptr;
 
     if (a < tcg::num_globals) {
       ptr = tcg_glb_llv_m[a];
@@ -2729,9 +2751,9 @@ void translator::translate_tcg_operation_to_llvm(
                      C, bbprop.tcg_tmps[a].type == tcg::TYPE_I32 ? 32 : 64);
   };
 
-  auto adjust_type_size = [&](unsigned target, Value *v) -> Value* {
+  auto adjust_type_size = [&](unsigned target, Value *v) -> Value * {
     if (target == 32 && v->getType() == IntegerType::get(C, 64))
-        v = b.CreateTrunc(v, IntegerType::get(C, target));
+      v = b.CreateTrunc(v, IntegerType::get(C, target));
 
     return v;
   };
@@ -2751,7 +2773,7 @@ void translator::translate_tcg_operation_to_llvm(
     if (relit != relocs.end())
       return b.CreatePtrToInt((*relit).second, IntegerType::get(C, bits));
 
-    Constant* ptr = section_ptr(addr);
+    Constant *ptr = section_ptr(addr);
     if (!ptr)
       return nullptr;
 
@@ -2776,9 +2798,7 @@ void translator::translate_tcg_operation_to_llvm(
     return CreateGuestLoad(addr);
   };
 
-  auto set_program_counter = [&](Value* v) -> void {
-    CreateStore(v, pc_llv);
-  };
+  auto set_program_counter = [&](Value *v) -> void { CreateStore(v, pc_llv); };
 
   switch (opc) {
   case tcg::INDEX_op_insn_start:
@@ -2786,7 +2806,8 @@ void translator::translate_tcg_operation_to_llvm(
 
     if (args[0] == 0x7fffffff) {
       pcrel_flag = true;
-      cout << BBINDENT "note: PC-relative expression @ " << hex << lstaddr << endl;
+      cout << BBINDENT "note: PC-relative expression @ " << hex << lstaddr
+           << endl;
     } else {
       pcrel_flag = false;
     }
@@ -2995,7 +3016,7 @@ void translator::translate_tcg_operation_to_llvm(
       v = b.CreateAdd(get(args[1]), ConstantInt::get(word_type(), args[2]));   \
       v = b.CreateIntToPtr(v,                                                  \
                            PointerType::get(IntegerType::get(C, memBits), 0)); \
-      v = CreateLoad(v);                                                     \
+      v = CreateLoad(v);                                                       \
     }                                                                          \
     set(b.Create##signE##Ext(v, IntegerType::get(C, regBits)), args[0]);       \
   } break;
@@ -3020,8 +3041,8 @@ void translator::translate_tcg_operation_to_llvm(
       addr = b.CreateIntToPtr(                                                 \
           addr, PointerType::get(IntegerType::get(C, memBits), 0));            \
     }                                                                          \
-    CreateStore(b.CreateTrunc(valueToStore, IntegerType::get(C, memBits)),   \
-                  addr);                                                       \
+    CreateStore(b.CreateTrunc(valueToStore, IntegerType::get(C, memBits)),     \
+                addr);                                                         \
   } break;
 
     __LD_OP(tcg::INDEX_op_ld8u_i32, 8, 32, Z)
@@ -3257,7 +3278,7 @@ void translator::translate_tcg_operation_to_llvm(
                             PointerType::get(IntegerType::get(C, bits), 0));   \
     Value *valueToStore =                                                      \
         b.CreateIntCast(get(args[0]), IntegerType::get(C, bits), false);       \
-    CreateGuestStore(valueToStore, addr);                                         \
+    CreateGuestStore(valueToStore, addr);                                      \
   } break;
 
 //
@@ -3546,30 +3567,30 @@ ConstantInt *translator::try_fold_to_constant_int(Value *v) {
 #endif
 
 LoadInst *translator::CreateLoad(Value *ptr, const std::string &nm) {
-  LoadInst* LInst = b.CreateLoad(ptr, nm);
+  LoadInst *LInst = b.CreateLoad(ptr, nm);
   LInst->setMetadata(LLVMContext::MD_alias_scope, aliasscopel);
   return LInst;
 }
 
 llvm::StoreInst *translator::CreateStore(Value *v, Value *ptr) {
-  StoreInst* SInst = b.CreateStore(v, ptr);
+  StoreInst *SInst = b.CreateStore(v, ptr);
   SInst->setMetadata(LLVMContext::MD_alias_scope, aliasscopel);
   return SInst;
 }
 
 LoadInst *translator::CreateGuestLoad(Value *ptr) {
-  LoadInst* LInst = b.CreateLoad(ptr);
+  LoadInst *LInst = b.CreateLoad(ptr);
   LInst->setMetadata(LLVMContext::MD_noalias, aliasscopel);
   return LInst;
 }
 
 llvm::StoreInst *translator::CreateGuestStore(Value *v, Value *ptr) {
-  StoreInst* SInst = b.CreateStore(v, ptr);
+  StoreInst *SInst = b.CreateStore(v, ptr);
   SInst->setMetadata(LLVMContext::MD_noalias, aliasscopel);
   return SInst;
 }
 
-Constant* translator::try_fold_to_constant(Value* v) {
+Constant *translator::try_fold_to_constant(Value *v) {
   if (ConstantExpr *CE = dyn_cast<ConstantExpr>(v)) {
     // unwrap ptrtoint casts
     if (CE->getOpcode() == Instruction::PtrToInt)

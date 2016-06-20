@@ -33,6 +33,18 @@ static unsigned num_helpers(void) { return g_hash_table_size(tcg_ctx.helpers); }
 
 static unsigned max_temps(void) { return TCG_MAX_TEMPS; }
 
+static unsigned program_counter_global_index(void) {
+#if defined(TARGET_AARCH64)
+  return 25;
+#elif defined(TARGET_ARM)
+  return 16;
+#elif defined(TARGET_I386)
+  return 0;
+#elif defined(TARGET_MIPS)
+  return 0;
+#endif
+}
+
 static unsigned cpu_state_program_counter_offset(void) {
 #if defined(TARGET_AARCH64)
   return offsetof(CPUARMState, pc);
@@ -68,6 +80,7 @@ int main(int argc, char **argv) {
            "constexpr unsigned num_globals = %u;\n"
            "constexpr unsigned num_helpers = %u;\n"
            "constexpr unsigned max_temps = %u;\n"
+           "constexpr unsigned program_counter_global_index = %u;\n"
            "constexpr unsigned cpu_state_program_counter_offset = %u;\n"
 #if defined(TARGET_I386)
            "constexpr unsigned cpu_state_segs_offset = %u;\n"
@@ -78,6 +91,7 @@ int main(int argc, char **argv) {
            num_globals(),
            num_helpers(),
            max_temps(),
+           program_counter_global_index(),
            cpu_state_program_counter_offset()
 #if defined(TARGET_I386)
            , cpu_state_segs_offset()
