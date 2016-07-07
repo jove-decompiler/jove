@@ -4,6 +4,7 @@
 #include "binary.h"
 #include "mc.h"
 #include "qemutcg.h"
+#include <llvm/MC/MCInst.h>
 #include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/Object/Binary.h>
@@ -25,6 +26,7 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/IR/MDBuilder.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/MC/MCInstrAnalysis.h>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/icl/split_interval_set.hpp>
 #include <boost/format.hpp>
@@ -198,21 +200,16 @@ static const uint8_t helpers_bitcode_data[] = {
 };
 
 translator::translator(ObjectFile &O, const string &MNm, bool noopt)
-    : noopt(noopt), O(O), M(MNm, C),
-      DL(M.getDataLayout()),
+    : noopt(noopt), O(O),
+    M(MNm, C), DL(M.getDataLayout()),
       _HelperM(move(*getLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
                                                    &helpers_bitcode_data[0]),
                                                sizeof(helpers_bitcode_data)),
                                      "", false),
           C))),
-      HelperM(*_HelperM), b(C), word_ty(
-#if defined(TARGET_AARCH64) || defined(TARGET_X86_64)
-                                    IntegerType::get(C, 64)
-#else
-                                    IntegerType::get(C, 32)
-#endif
-                                        ),
+      HelperM(*_HelperM), b(C),
+      word_ty(IntegerType::get(C, sizeof(address_t) * 8)),
       FnAttr(AttributeSet::get(C, AttributeSet::FunctionIndex,
                                Attribute::NoInline)),
       FnThunkTy(FunctionType::get(Type::getVoidTy(C), false)),
@@ -220,13 +217,16 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
           AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
       ExternalFnTy(FunctionType::get(Type::getVoidTy(C), false)),
       ExternalFnPtrTy(PointerType::get(ExternalFnTy, 0)),
-      callconv{{{
+      callconv {
+        {{
 #include "abi_callingconv_arg_regs.cpp"
-               }},
-               {{
+        }},
+        {{
 #include "abi_callingconv_ret_regs.cpp"
-               }}},
-      tcg_globals{{
+        }}
+      },
+      tcg_globals
+      {{
 #include "tcg_globals.cpp"
       }} {
   //
@@ -237,7 +237,12 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
   //
   // initialize LLVM-MC for machine code analysis
   //
-  libmc_init(&O);
+  libmc_init();
+  mc1 = new mc_t(&O);
+  mc2 = nullptr;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  mc2 = new thumb_mc_t(&O);
+#endif
 
   //
   // initialize helpers
@@ -698,7 +703,9 @@ void translator::create_section_global_variables() {
 
     section_interval_map_t &sectstuff = sectstuffs[i];
 
+#if 0
     sectgvty->dump();
+#endif
 
     StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
     for (auto it = sectstuff.begin(); it != sectstuff.end(); ++it) {
@@ -716,7 +723,9 @@ void translator::create_section_global_variables() {
                                  sect.contents.begin() + (*it).upper()));
       }
 
+#if 0
       cnst->dump();
+#endif
       structfieldconsts.push_back(cnst);
     }
 
@@ -812,6 +821,20 @@ void translator::find_exported_functions(unordered_set<address_t> &out) {
   }
 }
 
+bool translator::analyze_instruction(llvm::MCInst & Inst, uint64_t &size,
+                                     const void *mcinsts, uint64_t addr) {
+  bool res = mc1->analyze_instruction(Inst, size, mcinsts, addr);
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  if (!res && mc2->analyze_instruction(Inst, size, mcinsts, addr)) {
+    swap(mc1, mc2);
+    return true;
+  }
+#endif
+
+  return res;
+}
+
 void translator::run() {
   cout << "Translating " TARGET_NAME " machine code to QEMU IR..." << endl
        << endl;
@@ -826,7 +849,7 @@ void translator::run() {
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
-#if defined(TARGET_ARM) && !defined(TARGET_AARCH64)
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
     addr &= 0xfffffffe;
 #endif
     functions_to_translate.pop();
@@ -1419,7 +1442,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // if the first instruction has an invalid encoding, then we assume it is
   // unreachable and do not create a basic block for this address
   //
-  if (!libmc_analyze_instr(Inst, size,
+  if (!analyze_instruction(Inst, size,
                            sectdata.data() + (addr - sectstart),
                            addr)) {
     cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
@@ -1437,7 +1460,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // we assume it is unreachable and do not create a basic block for this
   // address
   //
-  if (!libmc_analyze_instr(Inst, size,
+  if (!analyze_instruction(Inst, size,
                            sectdata.data() + (last_instr_addr - sectstart),
                            last_instr_addr)) {
     cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
@@ -1507,10 +1530,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     //
     // we'll need to use LLVM's instruction analyzer
     //
-    const MCInstrAnalysis *MIA = libmc_instranalyzer();
+    const MCInstrAnalysis *MIA = mc1->MIA;
     unique_ptr<MCInstrAnalysis> _MIA;
     if (!MIA) {
-      _MIA.reset(new MCInstrAnalysis(libmc_instrinfo()));
+      _MIA.reset(new MCInstrAnalysis(mc1->MII));
       MIA = _MIA.get();
     }
 
@@ -1532,7 +1555,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
       // either (1) or (2)
       if (MIA->isCall(Inst)) {
         // (2)
-        cout << BBINDENT "note: direct call" << endl;
+        cout << BBINDENT "note: direct call to " << hex << target << endl;
         bbprop.term = basic_block_properties_t::TERM_CALL;
 
         // add call target to translation queue
@@ -1733,8 +1756,6 @@ void translator::print_tcg_ops(ostream &out,
       return (boost::format("tmp_%d") % static_cast<int>(a)).str();
   };
 
-  char asmbuf[128];
-
   const tcg::Op *ops = bbprop.tcg_ops.get();
   const tcg::Arg *params = bbprop.tcg_args.get();
   const tcg::Op *op;
@@ -1775,7 +1796,8 @@ void translator::print_tcg_ops(ostream &out,
 
         out << endl
             << "0x" << hex << a << "    "
-            << libmc_instr_asm(sectdata.data() + (a - sectstart), a, asmbuf)
+            << mc1->disassemble_instruction(sectdata.data() + (a - sectstart),
+                                            a)
             << endl
             << endl;
       }
@@ -2336,12 +2358,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
 // create an alloca for the program counter if this basic block has a
 // conditional branch
 //
-#if defined(TARGET_AARCH64)
-  // this is the program counter for aarch64
-  pc_llv = tcg_glb_llv_m[25];
-#else
-  pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
-#endif
+  if (tcg::program_counter_global_index)
+    pc_llv = tcg_glb_llv_m[tcg::program_counter_global_index];
+  else
+    pc_llv = b.CreateAlloca(word_type(), nullptr, "pc_ptr");
 
   //
   // translate the TCG operations to LLVM instructions
@@ -2400,7 +2420,20 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_call = [&](basic_block_t succ) -> void {
-    function_t &callee = *function_table[bbprop.callee];
+    auto callee_it = function_table.find(bbprop.callee);
+
+    if (succ == boost::graph_traits<function_t>::null_vertex()) {
+      cerr << "on_call null vertex" << endl;
+      b.CreateUnreachable();
+      return;
+    }
+    if (callee_it == function_table.end()) {
+      cerr << "on_call iterator end" << endl;
+      b.CreateUnreachable();
+      return;
+    }
+
+    function_t &callee = *(*callee_it).second;
 
     //
     // spill every global to the CPU state which is in the reaching definitions
@@ -2410,8 +2443,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         bbprop.reachdef_out &
         ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
 
+    tospill.reset(tcg::program_counter_global_index); // pc
 #if defined(TARGET_AARCH64)
-    tospill.reset(25); // pc
     tospill.reset(56); // lr
 #endif
 
@@ -2467,10 +2500,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     for (unsigned gidx : toreload_v)
       CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
 
-    if (succ == boost::graph_traits<function_t>::null_vertex())
-      b.CreateUnreachable();
-    else
-      b.CreateBr(f[succ].llbb);
+    b.CreateBr(f[succ].llbb);
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
@@ -2490,8 +2520,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     tcg::global_set_t tostore =
         f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
 
+    tostore.reset(tcg::program_counter_global_index); // pc
 #if defined(TARGET_AARCH64)
-    tostore.reset(25); // pc
     tostore.reset(56); // lr
 #endif
 
@@ -2545,8 +2575,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     //
     tcg::global_set_t tospill = bbprop.reachdef_out;
 
+    tospill.reset(tcg::program_counter_global_index); // pc
 #if defined(TARGET_AARCH64)
-    tospill.reset(25); // pc
     tospill.reset(56); // lr
 #endif
 
@@ -2646,9 +2676,9 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   case basic_block_properties_t::TERM_UNCONDITIONAL_JUMP:
     on_unconditional_jump(next_edge());
     break;
-  case basic_block_properties_t::TERM_CONDITIONAL_JUMP: {
+  case basic_block_properties_t::TERM_CONDITIONAL_JUMP:
     on_conditional_jump(next_edge(), next_edge());
-  } break;
+    break;
   case basic_block_properties_t::TERM_CALL:
     on_call(next_edge());
     break;

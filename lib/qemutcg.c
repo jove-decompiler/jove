@@ -2,7 +2,6 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 #include "tcg.h"
-#include "mc.h"
 #include <libgen.h>
 
 char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size, int idx);
@@ -302,8 +301,10 @@ void libqemutcg_print_ops(void) {
       if (oi != s->gen_first_op_idx)
         printf("|\n"); /* make empty row */
 
+#if 0
       if (a >= code_pc)
         printf("%s", libmc_instr_asm((a - code_pc) + code, a, asmbuf));
+#endif
 
       continue;
     } else {

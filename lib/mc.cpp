@@ -1,8 +1,9 @@
-#include <config-target.h>
 #include "mc.h"
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/replace.hpp>
+#include <config-target.h>
+#include <iostream>
 #include <llvm/ADT/Triple.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler.h>
@@ -11,35 +12,19 @@
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/Object/ObjectFile.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/COFF.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/replace.hpp>
-#include <iostream>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Object/ObjectFile.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
 
 using namespace std;
 using namespace llvm;
 using namespace object;
 
-static const MCRegisterInfo *MRI;
-static const MCAsmInfo *AsmInfo;
-static const MCSubtargetInfo *STI;
-static const MCInstrInfo *MII;
-static const MCObjectFileInfo *MOFI;
-static MCContext *Ctx;
-static MCDisassembler *DisAsm;
-static const MCInstrAnalysis *MIA;
-static MCInstPrinter *IP;
+namespace jove {
 
-static string TripleName;
-static const Target *getTarget(const ObjectFile *Obj = nullptr);
-static bool libmc_disas(MCInst &MI, uint64_t &size, const void *code,
-                        uint64_t addr);
-static const unsigned max_instr_len = 24;
-
-void libmc_init(const ObjectFile *Obj) {
-  // Initialize targets and assembly printers/parsers.
+void libmc_init() {
 #if defined(TARGET_AARCH64)
   LLVMInitializeAArch64TargetInfo();
   LLVMInitializeAArch64TargetMC();
@@ -61,70 +46,55 @@ void libmc_init(const ObjectFile *Obj) {
   LLVMInitializeMipsTargetMC();
   LLVMInitializeMipsDisassembler();
 #endif
+}
 
-  const Target *TheTarget = getTarget(Obj);
+mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
+{
+  if (Obj->isELF())
+    TheTriple.setObjectFormat(Triple::ELF);
+  if (Obj->isCOFF())
+    TheTriple.setObjectFormat(Triple::COFF);
+  if (Obj->isMachO())
+    TheTriple.setObjectFormat(Triple::MachO);
 
-  // Package up features to be passed to target/subtarget
-  string MCPU;
-  string FeaturesStr;
-#if 0
-  if (MAttrs.size()) {
-    SubtargetFeatures Features;
-    for (unsigned i = 0; i != MAttrs.size(); ++i)
-      Features.AddFeature(MAttrs[i]);
-    FeaturesStr = Features.getString();
-  }
-#endif
+  string Error;
+  TheTarget = TargetRegistry::lookupTarget("", TheTriple, Error);
 
+  string TripleName = TheTriple.getTriple();
   MRI = TheTarget->createMCRegInfo(TripleName);
-  if (!MRI)
-    exit(29);
   AsmInfo = TheTarget->createMCAsmInfo(*MRI, TripleName);
-  if (!AsmInfo)
-    exit(30);
-  STI = TheTarget->createMCSubtargetInfo(TripleName, MCPU, FeaturesStr);
-  if (!STI)
-    exit(31);
+  STI = TheTarget->createMCSubtargetInfo(TripleName, string(), string());
   MII = TheTarget->createMCInstrInfo();
-  if (!MII)
-    exit(32);
-
+  MIA = TheTarget->createMCInstrAnalysis(MII);
   MOFI = new MCObjectFileInfo;
   Ctx = new MCContext(AsmInfo, MRI, MOFI);
-
   DisAsm = TheTarget->createMCDisassembler(*STI, *Ctx);
-  if (!DisAsm)
-    exit(33);
-
-  /* may be null for unsupported targets */
-  MIA = TheTarget->createMCInstrAnalysis(MII);
-
-  IP = TheTarget->createMCInstPrinter(Triple(TripleName),
-#if 0 // defined(TARGET_I386)
-                                      1, // intel asm
-#else
-                                      AsmInfo->getAssemblerDialect(),
-#endif
-                                      *AsmInfo, *MII, *MRI);
-
-  if (!IP)
-    exit(35);
-
+  IP = TheTarget->createMCInstPrinter(
+      Triple(TripleName), AsmInfo->getAssemblerDialect(), *AsmInfo, *MII, *MRI);
   IP->setPrintImmHex(true);
 }
 
-unsigned libmc_instr_opc(const void *code, uint64_t addr) {
-  MCInst MI;
-  uint64_t size;
-  libmc_disas(MI, size, code, addr);
-  return MI.getOpcode();
+llvm::Triple mc_t::getArchTriple() {
+  llvm::Triple TheTriple("unknown-unknown-unknown");
+  TheTriple.setArch(Triple::ArchType(Obj->getArch()));
+  return TheTriple;
 }
 
-char* libmc_instr_asm(const void *code, uint64_t addr, char* out) {
+bool mc_t::analyze_instruction(MCInst &Inst, uint64_t &size,
+                               const void *mcinsts, uint64_t addr) {
+  constexpr unsigned max_instr_len = 32;
+
+  ArrayRef<uint8_t> coderef(static_cast<const uint8_t *>(mcinsts),
+                            max_instr_len);
+
+  raw_null_ostream nullos;
+  return DisAsm->getInstruction(Inst, size, coderef, addr, nullos, nullos);
+}
+
+std::string mc_t::disassemble_instruction(const void *mcinst, uint64_t addr) {
   MCInst MI;
   uint64_t size;
-
-  if (libmc_disas(MI, size, code, addr)) {
+  if (analyze_instruction(MI, size, mcinst, addr)) {
     string Str;
     {
       raw_string_ostream CvtOS(Str);
@@ -133,56 +103,10 @@ char* libmc_instr_asm(const void *code, uint64_t addr, char* out) {
 
     boost::algorithm::trim(Str);
     boost::algorithm::replace_all(Str, "\t", " ");
-    strcpy(out, Str.c_str());
+    return Str;
   } else {
-    strcpy(out, "<bad encoding>");
+    return "<bad encoding>";
   }
-
-  return out;
 }
 
-bool libmc_disas(MCInst &Inst, uint64_t &size, const void *code,
-                 uint64_t addr) {
-  ArrayRef<uint8_t> coderef(static_cast<const uint8_t *>(code), max_instr_len);
-
-  raw_null_ostream nullos;
-  return DisAsm->getInstruction(Inst, size, coderef, addr, nullos, nullos);
-}
-
-bool libmc_analyze_instr(MCInst &Instr, uint64_t &size, const void *code,
-                         uint64_t addr) {
-  return libmc_disas(Instr, size, code, addr);
-}
-
-const MCInstrAnalysis *libmc_instranalyzer() { return MIA; }
-
-const MCInstrInfo *libmc_instrinfo() { return MII; }
-
-const MCRegisterInfo *libmc_reginfo() { return MRI; }
-
-const Target *getTarget(const ObjectFile *Obj) {
-  // Figure out the target triple.
-  llvm::Triple TheTriple("unknown-unknown-unknown");
-
-  if (Obj->getArch() != Triple::arm)
-    TheTriple.setArch(Triple::ArchType(Obj->getArch()));
-  else
-    TheTriple.setTriple("thumbv7-unknown-unknown");
-
-  if (Obj->isELF())
-    TheTriple.setObjectFormat(Triple::ELF);
-  if (Obj->isCOFF())
-    TheTriple.setObjectFormat(Triple::COFF);
-  if (Obj->isMachO())
-    TheTriple.setObjectFormat(Triple::MachO);
-
-  // Get the target specific parser.
-  std::string Error;
-  const Target *TheTarget = TargetRegistry::lookupTarget("", TheTriple, Error);
-  if (!TheTarget)
-    exit(35);
-
-  // Update the triple name and return the found target.
-  TripleName = TheTriple.getTriple();
-  return TheTarget;
 }

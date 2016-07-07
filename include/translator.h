@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "binary.h"
+#include "mc.h"
 #include <array>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/icl/interval_map.hpp>
@@ -259,6 +260,9 @@ private:
 
   llvm::object::ObjectFile &O;
 
+  mc_t* mc1;
+  mc_t* mc2;
+
   llvm::LLVMContext C;
   llvm::Module M;
   const llvm::DataLayout &DL;
@@ -397,6 +401,9 @@ private:
   std::pair<address_t, address_t>
   tcg_conditional_branch_targets(basic_block_properties_t &);
   address_t tcg_branch_target(basic_block_properties_t &);
+
+  bool analyze_instruction(llvm::MCInst &, uint64_t &size, const void *code,
+                           uint64_t addr);
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,
