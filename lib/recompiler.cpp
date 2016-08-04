@@ -62,7 +62,7 @@ void recompiler::setup_thunks() {
     Function& F = *M.getFunction(sym);
 
     ValueToValueMapTy VMap;
-    Function& G = *CloneFunction(&exported_template_fn, VMap, false);
+    Function& G = *CloneFunction(&exported_template_fn, VMap);
     M.getFunctionList().push_back(&G);
 
     G.takeName(&F);

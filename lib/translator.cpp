@@ -241,7 +241,7 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
   mc1 = new mc_t(&O);
   mc2 = nullptr;
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-  mc2 = new thumb_mc_t(&O);
+  //mc2 = new thumb_mc_t(&O);
 #endif
 
   //
@@ -337,10 +337,10 @@ void translator::init_helpers() {
       HELPER_METADATA_TYPE hm_ty;
       {
         Metadata *M = mdn->getOperand(0);
-        assert(isa<ConstantAsMetadata>(M));
+        assert(M && isa<ConstantAsMetadata>(M));
         ConstantAsMetadata *CAsM = cast<ConstantAsMetadata>(M);
         Constant *C = CAsM->getValue();
-        assert(isa<ConstantInt>(C));
+        assert(C && isa<ConstantInt>(C));
         ConstantInt *CI = cast<ConstantInt>(C);
         hm_ty = static_cast<HELPER_METADATA_TYPE>(CI->getZExtValue());
       }
@@ -348,10 +348,10 @@ void translator::init_helpers() {
       unsigned tcggbl_idx;
       {
         Metadata *M = mdn->getOperand(1);
-        assert(isa<ConstantAsMetadata>(M));
+        assert(M && isa<ConstantAsMetadata>(M));
         ConstantAsMetadata *CAsM = cast<ConstantAsMetadata>(M);
         Constant *C = CAsM->getValue();
-        assert(isa<ConstantInt>(C));
+        assert(C && isa<ConstantInt>(C));
         ConstantInt *CI = cast<ConstantInt>(C);
         tcggbl_idx = CI->getZExtValue();
       }
@@ -458,7 +458,7 @@ void translator::create_section_global_variables() {
   static const char *sym_ty_str[] = {"NOTYPE", "DATA", "FUNCTION", "TLSDATA"};
   static const char *sym_bind_str[] = {"NOBINDING", "LOCAL", "WEAK", "GLOBAL"};
 
-  cout << "Relocations:" << endl;
+  cout << "Relocations:" << endl << endl;
   for (const relocation_t &reloc : reloctbl) {
     cout << (boost::format(RELOCINDENT "%-12s @ %-16x +%-16x") % reloc_ty_str[reloc.ty] %
              reloc.addr % reloc.addend);
@@ -3655,7 +3655,7 @@ Constant *translator::try_fold_to_constant(Value *v) {
     if (CE->getOpcode() == Instruction::PtrToInt)
       return try_fold_to_constant(CE->getOperand(0));
 
-    return ConstantFoldConstantExpression(CE, DL);
+    return ConstantFoldConstant(CE, DL);
   }
 
   if (isa<Constant>(v))

@@ -62,7 +62,10 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
     symbol_t res;
 
     StringRef StrTable = errorOrDefault(ELF->getStringTableForSymtab(*SymTab));
-    res.name = errorOrDefault(Sym->getName(StrTable)).str();
+    Expected<StringRef> e = Sym->getName(StrTable);
+    if (!e)
+      return;
+    res.name = (*e).str();
 
     res.addr = Sym->isUndefined() ? 0 : Sym->st_value;
 

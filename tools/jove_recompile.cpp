@@ -38,9 +38,9 @@ int main(int argc, char **argv) {
   // parse binary
   //
   fs::path bin_fp = *fs::directory_iterator(ifp / "binary");
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(bin_fp.string());
-  if (error_code EC = BinaryOrErr.getError()) {
-    cerr << "error loading binary: " << EC.message() << endl;
+  Expected<OwningBinary<Binary>> BinaryOrErr = createBinary(bin_fp.string());
+  if (!BinaryOrErr) {
+    cerr << "error loading binary" << endl;
     return 1;
   }
 

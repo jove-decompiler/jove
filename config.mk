@@ -2,10 +2,10 @@
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
 #qemutcg_archs  := x86_64 i386 arm aarch64 mipsel
-qemutcg_archs  := x86_64 arm aarch64
-qemu_dir       := /home/aeden/qemu-2.6.0-build
-qemu_src_dir   := /home/aeden/qemu-2.6.0
-llvm_dir       := /usr
+qemutcg_archs  := arm
+qemu_dir       := /home/aeden/Hacking/qemu-2.6.0-build
+qemu_src_dir   := /home/aeden/Hacking/qemu-2.6.0
+llvm_dir       := /usr/local
 boost_dir      := /usr
 opam_libs_dir  := ~/.opam/system/lib
 ocaml_dir      := /usr/lib/ocaml

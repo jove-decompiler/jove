@@ -53,9 +53,9 @@ int main(int argc, char **argv) {
   //
   // parse binary
   //
-  ErrorOr<OwningBinary<Binary>> BinaryOrErr = createBinary(ifp.string());
-  if (error_code EC = BinaryOrErr.getError()) {
-    cerr << "error loading binary: " << EC.message() << endl;
+  Expected<OwningBinary<Binary>> BinaryOrErr = createBinary(ifp.string());
+  if (!BinaryOrErr) {
+    cerr << "error loading binary" << endl;
     return 1;
   }
 

@@ -107,7 +107,7 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 
 $(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
-	@$(LLCXX) -o $@ -c -MMD -Wall -g -O2 $(_INCLUDES) $(_CXXFLAGS) $<
+	$(LLCXX) -o $@ -c -MMD -Wall -g $(_INCLUDES) $(_CXXFLAGS) -O1 $<
 
 #
 # extra dependencies

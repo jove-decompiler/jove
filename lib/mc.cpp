@@ -6,12 +6,12 @@
 #include <llvm/ADT/Triple.h>
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
 #include <llvm/Object/COFF.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ObjectFile.h>
@@ -60,18 +60,32 @@ mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
   string Error;
   TheTarget = TargetRegistry::lookupTarget("", TheTriple, Error);
 
+  assert(TheTarget);
+
   string TripleName = TheTriple.getTriple();
   MRI = TheTarget->createMCRegInfo(TripleName);
   AsmInfo = TheTarget->createMCAsmInfo(*MRI, TripleName);
   STI = TheTarget->createMCSubtargetInfo(TripleName, string(), string());
   MII = TheTarget->createMCInstrInfo();
-  MIA = TheTarget->createMCInstrAnalysis(MII);
+
+  assert(MRI);
+  assert(AsmInfo);
+  assert(STI);
+  assert(MII);
+
   MOFI = new MCObjectFileInfo;
+#if 0
   Ctx = new MCContext(AsmInfo, MRI, MOFI);
+
   DisAsm = TheTarget->createMCDisassembler(*STI, *Ctx);
+  assert(DisAsm);
   IP = TheTarget->createMCInstPrinter(
       Triple(TripleName), AsmInfo->getAssemblerDialect(), *AsmInfo, *MII, *MRI);
+  assert(IP);
   IP->setPrintImmHex(true);
+
+  MIA = TheTarget->createMCInstrAnalysis(MII);
+#endif
 }
 
 llvm::Triple mc_t::getArchTriple() {
@@ -82,6 +96,8 @@ llvm::Triple mc_t::getArchTriple() {
 
 bool mc_t::analyze_instruction(MCInst &Inst, uint64_t &size,
                                const void *mcinsts, uint64_t addr) {
+  return false;
+
   constexpr unsigned max_instr_len = 32;
 
   ArrayRef<uint8_t> coderef(static_cast<const uint8_t *>(mcinsts),
