@@ -21,18 +21,17 @@ LLVMLIBSDIR      := $(llvm_dir)/lib
 LLVMOCAMLLIBSDIR := $(LLVMLIBSDIR)/ocaml
 
 OCAMLLIBNAMES := nums \
-                 str \
-                 ocamlgraph/graph
+                 str
 
 LLVMLIBNAMES  := llvm \
                  llvm_bitreader \
                  llvm_bitwriter \
                  llvm_analysis
-#OPAMLIBNAMES  := 
+
+OPAMLIBNAMES  := ocamlgraph/graph
 
 INCLUDES  := -I $(build_dir) \
              -I $(ocaml_dir) \
-             -I $(ocaml_dir)/ocamlgraph \
              -I $(LLVMOCAMLLIBSDIR) \
              $(patsubst %,-I %,$(patsubst %/,%,$(dir $(patsubst %,$(opam_libs_dir)/%,$(OPAMLIBNAMES)))))
 
