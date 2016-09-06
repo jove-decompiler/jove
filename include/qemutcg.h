@@ -1,4 +1,5 @@
 #pragma once
+#include <config-target.h>
 #include <glib.h>
 
 #ifdef __cplusplus
@@ -26,6 +27,11 @@ uint64_t libqemutcg_second_to_last_tcg_op_addr(void);
 GHashTable *libqemutcg_helpers(void);
 void* libqemutcg_def_of_opcode(unsigned);
 const char* libqemutcg_find_helper(uintptr_t);
+void libqemutcg_replace_labels_with_id(void);
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+extern int libqemutcg_thumb;
+#endif
 
 #ifdef __cplusplus
 }

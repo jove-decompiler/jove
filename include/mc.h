@@ -43,12 +43,10 @@ namespace jove {
 void libmc_init();
 
 class mc_t {
-  const llvm::object::ObjectFile* Obj;
-
   llvm::Triple TheTriple;
-  const llvm::Target* TheTarget;
+  const llvm::Target *TheTarget;
 
-  virtual llvm::Triple getArchTriple();
+  llvm::Triple getArchTriple(const llvm::object::ObjectFile *);
 
 public:
   const llvm::MCRegisterInfo *MRI;
@@ -61,7 +59,7 @@ public:
   llvm::MCDisassembler *DisAsm;
   llvm::MCInstPrinter *IP;
 
-  mc_t(const llvm::object::ObjectFile *Obj);
+  mc_t(const llvm::object::ObjectFile *Obj, const char *arch_triple = nullptr);
 
   bool analyze_instruction(llvm::MCInst &, uint64_t &size, const void *mcinsts,
                            uint64_t addr);
@@ -69,13 +67,9 @@ public:
 };
 
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-class thumb_mc_t : public mc_t {
-  virtual llvm::Triple getArchTriple() {
-    return llvm::Triple("thumbv7-unknown-unknown");
-  }
-public:
-  thumb_mc_t(const llvm::object::ObjectFile *Obj) : mc_t(Obj) {}
+struct thumb_mc_t : public mc_t {
+  thumb_mc_t(const llvm::object::ObjectFile *Obj)
+      : mc_t(Obj, "thumbv7-unknown") {}
 };
 #endif
-
 }

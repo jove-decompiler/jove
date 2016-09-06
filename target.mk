@@ -34,10 +34,11 @@ _CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
              $(CXXFLAGS) $(QEMU_CXXFLAGS) \
              -DNEED_CPU_H \
 			 -Wno-c99-extensions \
+			 -Wno-dollar-in-identifier-extension \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))))))
-_CXXFLAGS := $(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))))
+_CFLAGS   := $(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))))))
+_CXXFLAGS := $(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))))
 
 #
 # jove-recompile
@@ -107,7 +108,7 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 
 $(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
-	$(LLCXX) -o $@ -c -MMD -Wall -g $(_INCLUDES) $(_CXXFLAGS) -O1 $<
+	@$(LLCXX) -o $@ -c -MMD -Wall -g $(_INCLUDES) $(_CXXFLAGS) -O1 $<
 
 #
 # extra dependencies

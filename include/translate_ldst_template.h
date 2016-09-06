@@ -29,7 +29,7 @@
 RES_TYPE
 glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr) {
   unsigned off = ptr - code_pc;
-  if (unlikely(off >= code_len)) {
+  if (unlikely(off > code_len)) {
     unsigned over = (off - code_len) % 8;
     return glue(glue(ld, USUFFIX), _p)(oobb + over);
   }
@@ -47,7 +47,7 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX),
 int glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env,
                                            target_ulong ptr) {
   unsigned off = ptr - code_pc;
-  if (unlikely(off >= code_len)) {
+  if (unlikely(off > code_len)) {
     unsigned over = (off - code_len) % 8;
     return glue(glue(ld, USUFFIX), _p)(oobb + over);
   }

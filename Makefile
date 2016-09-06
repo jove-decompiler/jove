@@ -84,11 +84,11 @@ $(build_dir):
 
 $(build_dir)/llknife: $(build_dir)/llknife.ml $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(INCLUDES) $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 $(build_dir)/extllvm.cmx: $(build_dir)/extllvm.ml
 	@echo OCAMLC $@ $^
-	ocamlopt -c -o $@ -g -thread $(INCLUDES) $<
+	@ocamlopt -c -o $@ -g -thread $(INCLUDES) $<
 
 $(build_dir)/extllvm_ocaml.c.o: $(build_dir)/extllvm_ocaml.c
 	@echo LLCC $@ $^
@@ -100,7 +100,7 @@ $(build_dir)/extllvm_ocaml.cpp.o: $(build_dir)/extllvm_ocaml.cpp
 
 $(build_dir)/transform-helpers: $(build_dir)/transform_helpers.ml $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o
 	@echo OCAMLC $< $(OCAMLLIBNAMES) $(OPAMLIBNAMES) $(LLVMLIBNAMES)
-	ocamlopt -o $@ -absname -g -thread -ccopt -flto $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
+	@ocamlopt -o $@ -absname -g -thread -ccopt -flto $(build_dir)/extllvm.cmx $(build_dir)/extllvm_ocaml.c.o $(build_dir)/extllvm_ocaml.cpp.o $(INCLUDES) $(CLIBDIRS) $(OCAMLLIBS) $(OPAMLIBS) $(LLVMLLIBS) $<
 
 .PHONY: configure
 configure: $(build_dir) | $(build_dir)/llknife

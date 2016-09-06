@@ -11,7 +11,11 @@ extern const uint8_t* code;
 extern unsigned long code_len;
 extern target_ulong code_pc;
 
-extern const char *const cond_name[];
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+int libqemutcg_thumb = 0;
+#endif
+
+extern const char *const cond_name[12];
 extern const char *const ldst_name[];
 
 void object_do_qemu_init_register_types(void);
@@ -121,12 +125,7 @@ void libqemutcg_init(void) {
   // XXX TODO enable thumb based on ELF flags
   cpsr_write(env, CPSR_T, 0xffffffff, CPSRWriteByInstr);
 #if defined(TARGET_AARCH64)
-  if (!(arm_feature(env, ARM_FEATURE_AARCH64)) || !env->aarch64)
-    exit(24);
-
   memset(env->xregs, 0, sizeof(env->xregs));
-#else
-  env->thumb = 1;
 #endif
 #elif defined(TARGET_MIPS)
   memset(env->active_tc.gpr, 0, sizeof(env->active_tc.gpr));
@@ -144,6 +143,10 @@ unsigned libqemutcg_translate(unsigned long _pc) {
   target_ulong pc = _pc;
 
   CPUArchState *env = first_cpu->env_ptr;
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  env->thumb = libqemutcg_thumb;
+#endif
 
 #if defined(TARGET_AARCH64)
   env->pc = pc;
@@ -171,12 +174,16 @@ unsigned libqemutcg_translate(unsigned long _pc) {
 
   gen_intermediate_code(env, &tb);
 
-  /* XXX we delete call to gen_tb_end() to get rid of using tcg_exit_req, but
+  /*
+   * XXX we delete call to gen_tb_end() to get rid of using tcg_exit_req, but
    * we need this line here.
    */
+
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 
+  tcg_dump_ops(&tcg_ctx);
+  libqemutcg_replace_labels_with_id();
   return tb.size;
 }
 
@@ -414,6 +421,143 @@ void libqemutcg_print_ops(void) {
       }
     }
     printf("\n");
+  }
+}
+
+#define NOOPFUNC(...) do { __VA_ARGS__ ; } while (0)
+
+void libqemutcg_replace_labels_with_id(void) {
+  TCGContext *const s = &tcg_ctx;
+  char buf[128];
+  TCGOp *op;
+  int oi;
+
+  for (oi = s->gen_first_op_idx; oi >= 0; oi = op->next) {
+    int i, k, nb_oargs, nb_iargs, nb_cargs;
+    const TCGOpDef *def;
+    TCGArg *args;
+    TCGOpcode c;
+
+    op = &s->gen_op_buf[oi];
+    c = op->opc;
+    def = &tcg_op_defs[c];
+    args = &s->gen_opparam_buf[op->args];
+
+    if (c == INDEX_op_insn_start) {
+      NOOPFUNC("%s ----", oi != s->gen_first_op_idx ? "\n" : "");
+
+      for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
+        target_ulong a;
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+        a = ((target_ulong)args[i * 2 + 1] << 32) | args[i * 2];
+#else
+        a = args[i];
+#endif
+        NOOPFUNC(" " TARGET_FMT_lx, a);
+      }
+    } else if (c == INDEX_op_call) {
+      /* variable number of arguments */
+      nb_oargs = op->callo;
+      nb_iargs = op->calli;
+      nb_cargs = def->nb_cargs;
+
+      /* function name, flags, out args */
+      NOOPFUNC(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
+               "",
+               args[nb_oargs + nb_iargs + 1], nb_oargs);
+      for (i = 0; i < nb_oargs; i++) {
+        NOOPFUNC(",%s", "");
+      }
+      for (i = 0; i < nb_iargs; i++) {
+        TCGArg arg = args[nb_oargs + i];
+        const char *t = "<dummy>";
+        if (arg != TCG_CALL_DUMMY_ARG) {
+          t = "";
+        }
+        NOOPFUNC(",%s", t);
+      }
+    } else {
+      NOOPFUNC(" %s ", def->name);
+
+      nb_oargs = def->nb_oargs;
+      nb_iargs = def->nb_iargs;
+      nb_cargs = def->nb_cargs;
+
+      k = 0;
+      for (i = 0; i < nb_oargs; i++) {
+        if (k != 0) {
+          NOOPFUNC(",");
+        }
+        NOOPFUNC("%s", "");
+      }
+      for (i = 0; i < nb_iargs; i++) {
+        if (k != 0) {
+          NOOPFUNC(",");
+        }
+        NOOPFUNC("%s", "");
+      }
+      switch (c) {
+      case INDEX_op_brcond_i32:
+      case INDEX_op_setcond_i32:
+      case INDEX_op_movcond_i32:
+      case INDEX_op_brcond2_i32:
+      case INDEX_op_setcond2_i32:
+      case INDEX_op_brcond_i64:
+      case INDEX_op_setcond_i64:
+      case INDEX_op_movcond_i64:
+        if (args[k] < ARRAY_SIZE(cond_name) && cond_name[args[k]]) {
+          NOOPFUNC(",%s", cond_name[args[k++]]);
+        } else {
+          NOOPFUNC(",$0x%" TCG_PRIlx, args[k++]);
+        }
+        i = 1;
+        break;
+      case INDEX_op_qemu_ld_i32:
+      case INDEX_op_qemu_st_i32:
+      case INDEX_op_qemu_ld_i64:
+      case INDEX_op_qemu_st_i64: {
+        TCGMemOpIdx oi = args[k++];
+        TCGMemOp op = get_memop(oi);
+        unsigned ix = get_mmuidx(oi);
+
+        if (op & ~(MO_AMASK | MO_BSWAP | MO_SSIZE)) {
+          NOOPFUNC(",$0x%x,%u", op, ix);
+        } else {
+          const char *s_al = "", *s_op;
+          if (op & MO_AMASK) {
+            if ((op & MO_AMASK) == MO_ALIGN) {
+              s_al = "al+";
+            } else {
+              s_al = "un+";
+            }
+          }
+          s_op = ldst_name[op & (MO_BSWAP | MO_SSIZE)];
+          NOOPFUNC(",%s%s,%u", s_al, s_op, ix);
+        }
+        i = 1;
+      } break;
+      default:
+        i = 0;
+        break;
+      }
+      switch (c) {
+      case INDEX_op_set_label:
+      case INDEX_op_br:
+      case INDEX_op_brcond_i32:
+      case INDEX_op_brcond_i64:
+      case INDEX_op_brcond2_i32:
+        NOOPFUNC("%s$L%d", k ? "," : "", arg_label(args[k])->id);
+        args[k] = arg_label(args[k])->id;
+        i++, k++;
+        break;
+      default:
+        break;
+      }
+      for (; i < nb_cargs; i++, k++) {
+        NOOPFUNC("%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
+      }
+    }
+    NOOPFUNC("\n");
   }
 }
 

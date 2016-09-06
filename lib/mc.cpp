@@ -48,8 +48,8 @@ void libmc_init() {
 #endif
 }
 
-mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
-{
+mc_t::mc_t(const ObjectFile *Obj, const char *arch_triple)
+    : TheTriple(arch_triple ? Triple(arch_triple) : getArchTriple(Obj)) {
   if (Obj->isELF())
     TheTriple.setObjectFormat(Triple::ELF);
   if (Obj->isCOFF())
@@ -60,7 +60,10 @@ mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
   string Error;
   TheTarget = TargetRegistry::lookupTarget("", TheTriple, Error);
 
-  assert(TheTarget);
+  if (!TheTarget) {
+    cerr << "error looking up llvm target: " << Error << endl;
+    abort();
+  }
 
   string TripleName = TheTriple.getTriple();
   MRI = TheTarget->createMCRegInfo(TripleName);
@@ -74,7 +77,6 @@ mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
   assert(MII);
 
   MOFI = new MCObjectFileInfo;
-#if 0
   Ctx = new MCContext(AsmInfo, MRI, MOFI);
 
   DisAsm = TheTarget->createMCDisassembler(*STI, *Ctx);
@@ -85,19 +87,16 @@ mc_t::mc_t(const ObjectFile *Obj) : Obj(Obj), TheTriple(getArchTriple())
   IP->setPrintImmHex(true);
 
   MIA = TheTarget->createMCInstrAnalysis(MII);
-#endif
 }
 
-llvm::Triple mc_t::getArchTriple() {
+llvm::Triple mc_t::getArchTriple(const ObjectFile* O) {
   llvm::Triple TheTriple("unknown-unknown-unknown");
-  TheTriple.setArch(Triple::ArchType(Obj->getArch()));
+  TheTriple.setArch(Triple::ArchType(O->getArch()));
   return TheTriple;
 }
 
 bool mc_t::analyze_instruction(MCInst &Inst, uint64_t &size,
                                const void *mcinsts, uint64_t addr) {
-  return false;
-
   constexpr unsigned max_instr_len = 32;
 
   ArrayRef<uint8_t> coderef(static_cast<const uint8_t *>(mcinsts),

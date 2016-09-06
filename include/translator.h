@@ -235,6 +235,10 @@ public:
 
     llvm::Function *thunk_llf;
     llvm::Function *llf;
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    bool thumb;
+#endif
   };
 
   struct control_flow_properties_t {
@@ -260,8 +264,10 @@ private:
 
   llvm::object::ObjectFile &O;
 
-  mc_t* mc1;
-  mc_t* mc2;
+  mc_t* mc;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  thumb_mc_t* thumb_mc;
+#endif
 
   llvm::LLVMContext C;
   llvm::Module M;
@@ -402,9 +408,6 @@ private:
   tcg_conditional_branch_targets(basic_block_properties_t &);
   address_t tcg_branch_target(basic_block_properties_t &);
 
-  bool analyze_instruction(llvm::MCInst &, uint64_t &size, const void *code,
-                           uint64_t addr);
-
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,
              bool noopt = false);
@@ -414,7 +417,9 @@ public:
   // thunk (for untranslated-code to use)
   void run();
 
-  void print_tcg_ops(std::ostream &out, const basic_block_properties_t &bbprop);
+  void print_tcg_ops(std::ostream &out,
+                    const function_properties_t& f,
+                    const basic_block_properties_t &bbprop);
 
   llvm::Module &module() { return M; }
 };

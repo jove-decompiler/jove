@@ -238,10 +238,10 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
   // initialize LLVM-MC for machine code analysis
   //
   libmc_init();
-  mc1 = new mc_t(&O);
-  mc2 = nullptr;
+
+  mc = new mc_t(&O);
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-  //mc2 = new thumb_mc_t(&O);
+  thumb_mc = new thumb_mc_t(&O);
 #endif
 
   //
@@ -817,22 +817,17 @@ void translator::find_exported_functions(unordered_set<address_t> &out) {
         sym.bind == symbol_t::NOBINDING)
       continue;
 
-    out.insert(sym.addr);
-  }
-}
-
-bool translator::analyze_instruction(llvm::MCInst & Inst, uint64_t &size,
-                                     const void *mcinsts, uint64_t addr) {
-  bool res = mc1->analyze_instruction(Inst, size, mcinsts, addr);
-
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-  if (!res && mc2->analyze_instruction(Inst, size, mcinsts, addr)) {
-    swap(mc1, mc2);
-    return true;
-  }
+    if (sym.addr & 1)
+      cout << "Thumb code @ ";
+    else
+      cout << "ARM code @ ";
+
+    cout << hex << (sym.addr & 0xfffffffe) << ' ' << sym.name << endl;
 #endif
 
-  return res;
+    out.insert(sym.addr);
+  }
 }
 
 void translator::run() {
@@ -849,9 +844,6 @@ void translator::run() {
 
   while (!functions_to_translate.empty()) {
     address_t addr = functions_to_translate.front();
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-    addr &= 0xfffffffe;
-#endif
     functions_to_translate.pop();
 
     translate_function(addr);
@@ -1192,6 +1184,11 @@ bool translator::translate_function(address_t addr) {
   //
   // check to see if function was already translated
   //
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  bool thumb = (addr & 1) == 1;
+  addr &= 0xfffffffe;
+#endif
+
   auto f_it = function_table.find(addr);
   if (f_it != function_table.end())
     return false;
@@ -1199,6 +1196,9 @@ bool translator::translate_function(address_t addr) {
   cout << hex << addr << endl;
 
   unique_ptr<function_t> f(new function_t);
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  (*f)[boost::graph_bundle].thumb = thumb;
+#endif
 
   //
   // initialize function
@@ -1442,10 +1442,24 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // if the first instruction has an invalid encoding, then we assume it is
   // unreachable and do not create a basic block for this address
   //
-  if (!analyze_instruction(Inst, size,
-                           sectdata.data() + (addr - sectstart),
-                           addr)) {
-    cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
+  mc_t* m = mc;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  if (f[boost::graph_bundle].thumb) {
+    m = thumb_mc;
+    libqemutcg_thumb = 1;
+  } else {
+    libqemutcg_thumb = 0;
+  }
+#endif
+
+  if (!m->analyze_instruction(Inst, size,
+                              sectdata.data() + (addr - sectstart),
+                              addr)) {
+    cout << BBINDENT "note: invalid instruction @ " << hex << addr;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    cout << " (" << (m == mc ? "ARM" : "THUMB") << ')';
+#endif
+    cout << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1460,10 +1474,14 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // we assume it is unreachable and do not create a basic block for this
   // address
   //
-  if (!analyze_instruction(Inst, size,
-                           sectdata.data() + (last_instr_addr - sectstart),
-                           last_instr_addr)) {
-    cout << BBINDENT "note: invalid instruction @ " << hex << addr << endl;
+  if (!m->analyze_instruction(Inst, size,
+                              sectdata.data() + (last_instr_addr - sectstart),
+                              last_instr_addr)) {
+    cout << BBINDENT "note: invalid instruction @ " << hex << addr;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    cout << " (" << (m == mc ? "ARM" : "THUMB") << ')';
+#endif
+    cout << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1482,6 +1500,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   //
   bbprop.first_tcg_op_idx = libqemutcg_first_op_index();
   bbprop.num_tmps = libqemutcg_num_tmps();
+  cout << "bbprop.first_tcg_op_idx:" << dec << bbprop.first_tcg_op_idx << endl;
   bbprop.lbls.reserve(2*libqemutcg_num_labels());
   bbprop.lbls.resize(libqemutcg_num_labels());
   bbprop.tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
@@ -1490,7 +1509,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   libqemutcg_copy_ops(bbprop.tcg_ops.get());
   libqemutcg_copy_params(bbprop.tcg_args.get());
   libqemutcg_copy_tmps(bbprop.tcg_tmps.get());
-  prepare_tcg_ops(bbprop);
+  //prepare_tcg_ops(bbprop);
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
@@ -1530,10 +1549,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     //
     // we'll need to use LLVM's instruction analyzer
     //
-    const MCInstrAnalysis *MIA = mc1->MIA;
+    const MCInstrAnalysis *MIA = m->MIA;
     unique_ptr<MCInstrAnalysis> _MIA;
     if (!MIA) {
-      _MIA.reset(new MCInstrAnalysis(mc1->MII));
+      _MIA.reset(new MCInstrAnalysis(m->MII));
       MIA = _MIA.get();
     }
 
@@ -1694,6 +1713,9 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
         static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     tcg::Arg *args = &params[op->args];
 
+    cout << "oi: " << dec << oi << endl;
+    cout << "op->args: " << dec << op->args << endl;
+
     if (c == tcg::INDEX_op_insn_start) {
     } else if (c == tcg::INDEX_op_call) {
       /* variable number of arguments */
@@ -1705,9 +1727,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
       nb_iargs = def->nb_iargs;
       nb_cargs = def->nb_cargs;
 
-      k = 0;
-      k += nb_oargs;
-      k += nb_iargs;
+      k = nb_oargs + nb_iargs;
       switch (c) {
       case tcg::INDEX_op_brcond_i32:
       case tcg::INDEX_op_setcond_i32:
@@ -1724,18 +1744,41 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
       case tcg::INDEX_op_qemu_st_i32:
       case tcg::INDEX_op_qemu_ld_i64:
       case tcg::INDEX_op_qemu_st_i64:
+        ++k;
         i = 1;
         break;
       default:
         i = 0;
         break;
       }
+
+      switch (c) {
+      case tcg::INDEX_op_set_label:
+        cout << "INDEX_op_set_label" << endl;
+        break;
+      case tcg::INDEX_op_br:
+        cout << "INDEX_op_br" << endl;
+        break;
+      case tcg::INDEX_op_brcond_i32:
+        cout << "INDEX_op_brcond_i32" << endl;
+        break;
+      case tcg::INDEX_op_brcond_i64:
+        cout << "INDEX_op_brcond_i64" << endl;
+        break;
+      case tcg::INDEX_op_brcond2_i32:
+        cout << "INDEX_op_brcond2_i32" << endl;
+        break;
+      default:
+        break;
+      }
+
       switch (c) {
       case tcg::INDEX_op_set_label:
       case tcg::INDEX_op_br:
       case tcg::INDEX_op_brcond_i32:
       case tcg::INDEX_op_brcond_i64:
       case tcg::INDEX_op_brcond2_i32:
+        cout << "args[" << dec << k << "]: " << dec << args[k] << endl;
         args[k] = tcg::arg_label(args[k])->id;
         i++, k++;
         break;
@@ -1748,6 +1791,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
 }
 
 void translator::print_tcg_ops(ostream &out,
+                               const function_properties_t& fprop,
                                const basic_block_properties_t &bbprop) {
   auto string_of_tcg_arg = [&](tcg::Arg a) -> string {
     if (a < tcg::num_globals)
@@ -1794,10 +1838,14 @@ void translator::print_tcg_ops(ostream &out,
         sectstart = (*sectit).first.lower();
         sectdata = secttbl[(*sectit).second - 1].contents;
 
+        mc_t* m = mc;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+        if (fprop.thumb)
+          m = thumb_mc;
+#endif
         out << endl
             << "0x" << hex << a << "    "
-            << mc1->disassemble_instruction(sectdata.data() + (a - sectstart),
-                                            a)
+            << m->disassemble_instruction(sectdata.data() + (a - sectstart), a)
             << endl
             << endl;
       }
@@ -1911,10 +1959,10 @@ void translator::print_tcg_ops(ostream &out,
   }
 }
 
-template <typename Graph> struct graphviz_label_writer {
+struct graphviz_label_writer {
   translator &t;
-  const Graph &g;
-  graphviz_label_writer(translator &t, const Graph &g) : t(t), g(g) {}
+  const translator::function_t &f;
+  graphviz_label_writer(translator &t, const translator::function_t &f) : t(t), f(f) {}
 
   template <class VertexOrEdge>
   void operator()(std::ostream &out, const VertexOrEdge &v) const {
@@ -1934,7 +1982,7 @@ template <typename Graph> struct graphviz_label_writer {
       oss << endl << "reaching definitions IN:";
       {
         vector<unsigned> reachdef_v;
-        explode_tcg_global_set(reachdef_v, g[v].reachdef_in);
+        explode_tcg_global_set(reachdef_v, f[v].reachdef_in);
         for (unsigned gidx : reachdef_v)
           oss << ' ' << t.tcg_globals[gidx].nm;
         oss << endl;
@@ -1943,20 +1991,20 @@ template <typename Graph> struct graphviz_label_writer {
       oss << endl << "livness IN:";
       {
         vector<unsigned> live_v;
-        explode_tcg_global_set(live_v, g[v].live_in);
+        explode_tcg_global_set(live_v, f[v].live_in);
         for (unsigned gidx : live_v)
           oss << ' ' << t.tcg_globals[gidx].nm;
         oss << endl;
       }
 
       oss << endl;
-      t.print_tcg_ops(oss, g[v]);
+      t.print_tcg_ops(oss, f[boost::graph_bundle], f[v]);
       oss << endl;
 
       oss << "reaching definitions OUT:";
       {
         vector<unsigned> reachdef_v;
-        explode_tcg_global_set(reachdef_v, g[v].reachdef_out);
+        explode_tcg_global_set(reachdef_v, f[v].reachdef_out);
         for (unsigned gidx : reachdef_v)
           oss << ' ' << t.tcg_globals[gidx].nm;
         oss << endl;
@@ -1965,14 +2013,14 @@ template <typename Graph> struct graphviz_label_writer {
       oss << "livness OUT:";
       {
         vector<unsigned> live_v;
-        explode_tcg_global_set(live_v, g[v].live_out);
+        explode_tcg_global_set(live_v, f[v].live_out);
         for (unsigned gidx : live_v)
           oss << ' ' << t.tcg_globals[gidx].nm;
         oss << endl;
       }
 
       oss << endl;
-      oss << term_str_tbl[g[v].term];
+      oss << term_str_tbl[f[v].term];
 
       s = oss.str();
     }
@@ -2031,24 +2079,9 @@ struct graphviz_prop_writer {
 };
 
 void translator::write_function_graphviz(function_t &f) {
-  struct normal_edges {
-    translator::function_t *f;
-
-    normal_edges() {}
-    normal_edges(translator::function_t *f) : f(f) {}
-
-    bool operator()(const control_flow_t &e) const {
-      translator::function_t &_f = *f;
-      return !_f[e].dom;
-    }
-  };
-
-  normal_edges e_filter(&f);
-  boost::filtered_graph<function_t, normal_edges> graph(f, e_filter);
-
   ofstream of(
       (boost::format("%lx.dot") % f[boost::graph_bundle].entry_point).str());
-  boost::write_graphviz(of, graph, graphviz_label_writer<function_t>(*this, f),
+  boost::write_graphviz(of, f, graphviz_label_writer(*this, f),
                         graphviz_edge_prop_writer(), graphviz_prop_writer());
 }
 
@@ -3655,7 +3688,7 @@ Constant *translator::try_fold_to_constant(Value *v) {
     if (CE->getOpcode() == Instruction::PtrToInt)
       return try_fold_to_constant(CE->getOperand(0));
 
-    return ConstantFoldConstant(CE, DL);
+    return ConstantFoldConstantExpression(CE, DL);
   }
 
   if (isa<Constant>(v))

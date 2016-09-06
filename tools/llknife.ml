@@ -90,23 +90,25 @@ let main () =
   if !ofp = "" then
     ofp := !ifp;
 
-  (match !a with
-   | Action.None -> assert false
-   | Action.Rename_function -> assert (Array.length !args = 2)
-   | Action.Replace_calls_with_ret -> assert (Array.length !args = 2)
-   | Action.Extricate_call_operand -> assert (Array.length !args = 4)
-   | Action.Make_defined_globals_weak -> assert (Array.length !args = 0)
-   | Action.Delete_global_ctors -> assert (Array.length !args = 0)
-   | Action.Make_external_and_rename_regex -> assert (Array.length !args = 1)
-   | Action.Make_external_regex -> assert (Array.length !args = 1)
-   | Action.Remove_noinline_attr_regex -> assert (Array.length !args = 1)
-   | Action.Set_global_constant_regex -> assert (Array.length !args = 1)
-   | Action.Only_external_regex -> assert (Array.length !args = 1)
-   | Action.Change_fn_def_to_decl_regex -> assert (Array.length !args = 1)
-   | Action.Make_fn_into_stub_regex -> assert (Array.length !args = 1)
-   | Action.Promote_call_operand_pointee_to_global -> assert (Array.length !args = 4)
-   | Action.Only_external -> () (* variable number of arguments *)
-  );
+  if !a <> Action.Only_external (* variable number of arguments *) then
+    assert (Array.length !args = (
+        match !a with
+        | Action.Rename_function -> 2
+        | Action.Replace_calls_with_ret -> 2
+        | Action.Extricate_call_operand -> 4
+        | Action.Make_defined_globals_weak -> 0
+        | Action.Delete_global_ctors -> 0
+        | Action.Make_external_and_rename_regex -> 1
+        | Action.Make_external_regex -> 1
+        | Action.Remove_noinline_attr_regex -> 1
+        | Action.Set_global_constant_regex -> 1
+        | Action.Only_external_regex -> 1
+        | Action.Change_fn_def_to_decl_regex -> 1
+        | Action.Make_fn_into_stub_regex -> 1
+        | Action.Promote_call_operand_pointee_to_global -> 4
+        | _ -> -1
+      )
+    );
 
   (*
    * LLVM initialization
@@ -116,7 +118,12 @@ let main () =
   (*
    * parse input
    *)
-  let llm = Llvm_bitreader.parse_bitcode llctx (MemoryBuffer.of_file !ifp) in
+  let llm =
+    try
+      Llvm_bitreader.parse_bitcode llctx (MemoryBuffer.of_file !ifp)
+    with _ ->
+      exit 0
+  in
 
   (*
    * helpful functions
