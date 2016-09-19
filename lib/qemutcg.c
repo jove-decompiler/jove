@@ -186,11 +186,14 @@ unsigned libqemutcg_translate(unsigned long _pc) {
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 
+#if 0
   printf("################ START TCG DUMP OPS\n");
   fflush(stdout);
   __tcg_dump_ops(&tcg_ctx);
   printf("################ END START TCG DUMP OPS\n");
   fflush(stdout);
+#endif
+
   libqemutcg_replace_labels_with_id();
   return tb.size;
 }

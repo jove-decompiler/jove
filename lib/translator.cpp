@@ -1434,7 +1434,6 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     sectdata = secttbl[(*sectit).second - 1].contents;
   }
   libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
-  cout << "sectdata: " << hex << (uintptr_t)sectdata.data() << endl;
 
   MCInst Inst;
   uint64_t size;
