@@ -218,11 +218,15 @@ $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 #
 # C library implementing API to QEMU translation layer
 #
-$(call res,libqemutcg).so: $(call res,libqemutcg).bc
+$(call res,libqemutcg).so: $(call res,libqemutcg).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -shared -fPIC -O3 $< -lglib-2.0 -pthread
+	@$(LLCC) -o $@ -shared -fPIC -g -O0 $< -lglib-2.0 -pthread
 
-$(call res,libqemutcg).bc: $(call res,libqemutcg).0.bc
+$(call res,libqemutcg).2.bc: $(call res,libqemutcg).1.bc
+	@echo OPT $(notdir $@ $^)
+	@$(LLOPT) -o $@ -globaldce $<
+
+$(call res,libqemutcg).1.bc: $(call res,libqemutcg).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
 	@$(LLKNIFE) -o $@ -i $< --only-external-regex 'libqemutcg_.*'
 
@@ -243,7 +247,7 @@ $(call res,translate-ldst-helpers).bc: $(build_dir)/translate_ldst_helpers.c
 
 $(call res,qemutcg).0.bc: $(build_dir)/qemutcg.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
+	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O0 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # library base QEMU bitcode
@@ -301,7 +305,7 @@ $(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
 
 $(call res,qemu).6.bc: $(call res,qemu).5.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
+	@$(LLOPT) -o $@ -disable-loop-vectorization -disable-slp-vectorization -scalarizer  -globaldce $<
 
 $(call res,qemu).5.bc: $(call res,qemu).4.bc
 	@echo LLKNIFE $(notdir $@ $^)

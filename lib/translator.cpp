@@ -1434,6 +1434,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     sectdata = secttbl[(*sectit).second - 1].contents;
   }
   libqemutcg_set_code(sectdata.data(), sectdata.size(), sectstart);
+  cout << "sectdata: " << hex << (uintptr_t)sectdata.data() << endl;
 
   MCInst Inst;
   uint64_t size;
@@ -1500,7 +1501,9 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   //
   bbprop.first_tcg_op_idx = libqemutcg_first_op_index();
   bbprop.num_tmps = libqemutcg_num_tmps();
+#if 0
   cout << "bbprop.first_tcg_op_idx:" << dec << bbprop.first_tcg_op_idx << endl;
+#endif
   bbprop.lbls.reserve(2*libqemutcg_num_labels());
   bbprop.lbls.resize(libqemutcg_num_labels());
   bbprop.tcg_ops.reset(new tcg::Op[libqemutcg_max_ops()]);
@@ -1509,7 +1512,9 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   libqemutcg_copy_ops(bbprop.tcg_ops.get());
   libqemutcg_copy_params(bbprop.tcg_args.get());
   libqemutcg_copy_tmps(bbprop.tcg_tmps.get());
-  //prepare_tcg_ops(bbprop);
+#if 0
+  prepare_tcg_ops(bbprop);
+#endif
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
@@ -1713,8 +1718,10 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
         static_cast<tcg::OpDef *>(libqemutcg_def_of_opcode(c));
     tcg::Arg *args = &params[op->args];
 
+#if 0
     cout << "oi: " << dec << oi << endl;
     cout << "op->args: " << dec << op->args << endl;
+#endif
 
     if (c == tcg::INDEX_op_insn_start) {
     } else if (c == tcg::INDEX_op_call) {
@@ -1752,6 +1759,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
         break;
       }
 
+#if 0
       switch (c) {
       case tcg::INDEX_op_set_label:
         cout << "INDEX_op_set_label" << endl;
@@ -1771,6 +1779,7 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
       default:
         break;
       }
+#endif
 
       switch (c) {
       case tcg::INDEX_op_set_label:
@@ -1778,7 +1787,9 @@ void translator::prepare_tcg_ops(basic_block_properties_t &bbprop) {
       case tcg::INDEX_op_brcond_i32:
       case tcg::INDEX_op_brcond_i64:
       case tcg::INDEX_op_brcond2_i32:
+#if 0
         cout << "args[" << dec << k << "]: " << dec << args[k] << endl;
+#endif
         args[k] = tcg::arg_label(args[k])->id;
         i++, k++;
         break;

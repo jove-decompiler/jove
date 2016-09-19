@@ -7,6 +7,8 @@
 char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size, int idx);
 const char *tcg_find_helper(TCGContext *s, uintptr_t val);
 
+static void __tcg_dump_ops(TCGContext *s);
+
 extern const uint8_t* code;
 extern unsigned long code_len;
 extern target_ulong code_pc;
@@ -130,6 +132,8 @@ void libqemutcg_init(void) {
 #elif defined(TARGET_MIPS)
   memset(env->active_tc.gpr, 0, sizeof(env->active_tc.gpr));
 #endif
+
+  cpu->breakpoints.tqh_first = NULL;
 }
 
 void libqemutcg_set_code(const uint8_t *p, unsigned long len,
@@ -182,7 +186,11 @@ unsigned libqemutcg_translate(unsigned long _pc) {
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 
-  tcg_dump_ops(&tcg_ctx);
+  printf("################ START TCG DUMP OPS\n");
+  fflush(stdout);
+  __tcg_dump_ops(&tcg_ctx);
+  printf("################ END START TCG DUMP OPS\n");
+  fflush(stdout);
   libqemutcg_replace_labels_with_id();
   return tb.size;
 }
@@ -426,6 +434,7 @@ void libqemutcg_print_ops(void) {
 
 #define NOOPFUNC(...) do { __VA_ARGS__ ; } while (0)
 
+#if 0
 void libqemutcg_replace_labels_with_id(void) {
   TCGContext *const s = &tcg_ctx;
   char buf[128];
@@ -444,16 +453,7 @@ void libqemutcg_replace_labels_with_id(void) {
     args = &s->gen_opparam_buf[op->args];
 
     if (c == INDEX_op_insn_start) {
-      NOOPFUNC("%s ----", oi != s->gen_first_op_idx ? "\n" : "");
-
       for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
-        target_ulong a;
-#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
-        a = ((target_ulong)args[i * 2 + 1] << 32) | args[i * 2];
-#else
-        a = args[i];
-#endif
-        NOOPFUNC(" " TARGET_FMT_lx, a);
       }
     } else if (c == INDEX_op_call) {
       /* variable number of arguments */
@@ -461,40 +461,19 @@ void libqemutcg_replace_labels_with_id(void) {
       nb_iargs = op->calli;
       nb_cargs = def->nb_cargs;
 
-      /* function name, flags, out args */
-      NOOPFUNC(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
-               "",
-               args[nb_oargs + nb_iargs + 1], nb_oargs);
       for (i = 0; i < nb_oargs; i++) {
-        NOOPFUNC(",%s", "");
       }
       for (i = 0; i < nb_iargs; i++) {
-        TCGArg arg = args[nb_oargs + i];
-        const char *t = "<dummy>";
-        if (arg != TCG_CALL_DUMMY_ARG) {
-          t = "";
-        }
-        NOOPFUNC(",%s", t);
       }
     } else {
-      NOOPFUNC(" %s ", def->name);
-
       nb_oargs = def->nb_oargs;
       nb_iargs = def->nb_iargs;
       nb_cargs = def->nb_cargs;
 
       k = 0;
       for (i = 0; i < nb_oargs; i++) {
-        if (k != 0) {
-          NOOPFUNC(",");
-        }
-        NOOPFUNC("%s", "");
       }
       for (i = 0; i < nb_iargs; i++) {
-        if (k != 0) {
-          NOOPFUNC(",");
-        }
-        NOOPFUNC("%s", "");
       }
       switch (c) {
       case INDEX_op_brcond_i32:
@@ -505,35 +484,14 @@ void libqemutcg_replace_labels_with_id(void) {
       case INDEX_op_brcond_i64:
       case INDEX_op_setcond_i64:
       case INDEX_op_movcond_i64:
-        if (args[k] < ARRAY_SIZE(cond_name) && cond_name[args[k]]) {
-          NOOPFUNC(",%s", cond_name[args[k++]]);
-        } else {
-          NOOPFUNC(",$0x%" TCG_PRIlx, args[k++]);
-        }
+        k++;
         i = 1;
         break;
       case INDEX_op_qemu_ld_i32:
       case INDEX_op_qemu_st_i32:
       case INDEX_op_qemu_ld_i64:
       case INDEX_op_qemu_st_i64: {
-        TCGMemOpIdx oi = args[k++];
-        TCGMemOp op = get_memop(oi);
-        unsigned ix = get_mmuidx(oi);
-
-        if (op & ~(MO_AMASK | MO_BSWAP | MO_SSIZE)) {
-          NOOPFUNC(",$0x%x,%u", op, ix);
-        } else {
-          const char *s_al = "", *s_op;
-          if (op & MO_AMASK) {
-            if ((op & MO_AMASK) == MO_ALIGN) {
-              s_al = "al+";
-            } else {
-              s_al = "un+";
-            }
-          }
-          s_op = ldst_name[op & (MO_BSWAP | MO_SSIZE)];
-          NOOPFUNC(",%s%s,%u", s_al, s_op, ix);
-        }
+        k++;
         i = 1;
       } break;
       default:
@@ -546,7 +504,6 @@ void libqemutcg_replace_labels_with_id(void) {
       case INDEX_op_brcond_i32:
       case INDEX_op_brcond_i64:
       case INDEX_op_brcond2_i32:
-        NOOPFUNC("%s$L%d", k ? "," : "", arg_label(args[k])->id);
         args[k] = arg_label(args[k])->id;
         i++, k++;
         break;
@@ -554,12 +511,152 @@ void libqemutcg_replace_labels_with_id(void) {
         break;
       }
       for (; i < nb_cargs; i++, k++) {
-        NOOPFUNC("%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
       }
     }
-    NOOPFUNC("\n");
   }
 }
+#else
+void libqemutcg_replace_labels_with_id(void)
+{
+    TCGContext* s = &tcg_ctx;
+    char buf[128];
+    TCGOp *op;
+    int oi;
+
+    for (oi = s->gen_first_op_idx; oi >= 0; oi = op->next) {
+        int i, k, nb_oargs, nb_iargs, nb_cargs;
+        const TCGOpDef *def;
+        TCGArg *args;
+        TCGOpcode c;
+
+        op = &s->gen_op_buf[oi];
+        c = op->opc;
+        def = &tcg_op_defs[c];
+        args = &s->gen_opparam_buf[op->args];
+
+        if (c == INDEX_op_insn_start) {
+            NOOPFUNC("%s ----", oi != s->gen_first_op_idx ? "\n" : "");
+
+            for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
+                target_ulong a;
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+                a = ((target_ulong)args[i * 2 + 1] << 32) | args[i * 2];
+#else
+                a = args[i];
+#endif
+                NOOPFUNC(" " TARGET_FMT_lx, a);
+            }
+        } else if (c == INDEX_op_call) {
+            /* variable number of arguments */
+            nb_oargs = op->callo;
+            nb_iargs = op->calli;
+            nb_cargs = def->nb_cargs;
+
+            /* function name, flags, out args */
+            NOOPFUNC(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
+                     tcg_find_helper(s, args[nb_oargs + nb_iargs]),
+                     args[nb_oargs + nb_iargs + 1], nb_oargs);
+            for (i = 0; i < nb_oargs; i++) {
+                NOOPFUNC(",%s", tcg_get_arg_str_idx(s, buf, sizeof(buf),
+                                                   args[i]));
+            }
+            for (i = 0; i < nb_iargs; i++) {
+                TCGArg arg = args[nb_oargs + i];
+                const char *t = "<dummy>";
+                if (arg != TCG_CALL_DUMMY_ARG) {
+                    t = tcg_get_arg_str_idx(s, buf, sizeof(buf), arg);
+                }
+                NOOPFUNC(",%s", t);
+            }
+        } else {
+            NOOPFUNC(" %s ", def->name);
+
+            nb_oargs = def->nb_oargs;
+            nb_iargs = def->nb_iargs;
+            nb_cargs = def->nb_cargs;
+
+            k = 0;
+            for (i = 0; i < nb_oargs; i++) {
+                if (k != 0) {
+                    NOOPFUNC(",");
+                }
+                NOOPFUNC("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf),
+                                                   args[k++]));
+            }
+            for (i = 0; i < nb_iargs; i++) {
+                if (k != 0) {
+                    NOOPFUNC(",");
+                }
+                NOOPFUNC("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf),
+                                                   args[k++]));
+            }
+            switch (c) {
+            case INDEX_op_brcond_i32:
+            case INDEX_op_setcond_i32:
+            case INDEX_op_movcond_i32:
+            case INDEX_op_brcond2_i32:
+            case INDEX_op_setcond2_i32:
+            case INDEX_op_brcond_i64:
+            case INDEX_op_setcond_i64:
+            case INDEX_op_movcond_i64:
+                if (args[k] < ARRAY_SIZE(cond_name) && cond_name[args[k]]) {
+                    NOOPFUNC(",%s", cond_name[args[k++]]);
+                } else {
+                    NOOPFUNC(",$0x%" TCG_PRIlx, args[k++]);
+                }
+                i = 1;
+                break;
+            case INDEX_op_qemu_ld_i32:
+            case INDEX_op_qemu_st_i32:
+            case INDEX_op_qemu_ld_i64:
+            case INDEX_op_qemu_st_i64:
+                {
+                    TCGMemOpIdx oi = args[k++];
+                    TCGMemOp op = get_memop(oi);
+                    unsigned ix = get_mmuidx(oi);
+
+                    if (op & ~(MO_AMASK | MO_BSWAP | MO_SSIZE)) {
+                        NOOPFUNC(",$0x%x,%u", op, ix);
+                    } else {
+                        const char *s_al = "", *s_op;
+                        if (op & MO_AMASK) {
+                            if ((op & MO_AMASK) == MO_ALIGN) {
+                                s_al = "al+";
+                            } else {
+                                s_al = "un+";
+                            }
+                        }
+                        s_op = ldst_name[op & (MO_BSWAP | MO_SSIZE)];
+                        NOOPFUNC(",%s%s,%u", s_al, s_op, ix);
+                    }
+                    i = 1;
+                }
+                break;
+            default:
+                i = 0;
+                break;
+            }
+            switch (c) {
+            case INDEX_op_set_label:
+            case INDEX_op_br:
+            case INDEX_op_brcond_i32:
+            case INDEX_op_brcond_i64:
+            case INDEX_op_brcond2_i32:
+                NOOPFUNC("%s$L%d", k ? "," : "", arg_label(args[k])->id);
+                args[k] = arg_label(args[k])->id;
+                i++, k++;
+                break;
+            default:
+                break;
+            }
+            for (; i < nb_cargs; i++, k++) {
+                NOOPFUNC("%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
+            }
+        }
+        NOOPFUNC("\n");
+    }
+}
+#endif
 
 uint64_t libqemutcg_last_tcg_op_addr(void) {
   uint64_t res = 0;
@@ -630,4 +727,137 @@ void* libqemutcg_def_of_opcode(unsigned opc) {
 
 const char* libqemutcg_find_helper(uintptr_t ptr) {
   return tcg_find_helper(&tcg_ctx, ptr);
+}
+
+void __tcg_dump_ops(TCGContext *s) {
+  char buf[128];
+  TCGOp *op;
+  int oi;
+
+  for (oi = s->gen_first_op_idx; oi >= 0; oi = op->next) {
+    int i, k, nb_oargs, nb_iargs, nb_cargs;
+    const TCGOpDef *def;
+    const TCGArg *args;
+    TCGOpcode c;
+
+    op = &s->gen_op_buf[oi];
+    c = op->opc;
+    def = &tcg_op_defs[c];
+    args = &s->gen_opparam_buf[op->args];
+
+    if (c == INDEX_op_insn_start) {
+      printf("%s ----", oi != s->gen_first_op_idx ? "\n" : "");
+
+      for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
+        target_ulong a;
+#if TARGET_LONG_BITS > TCG_TARGET_REG_BITS
+        a = ((target_ulong)args[i * 2 + 1] << 32) | args[i * 2];
+#else
+        a = args[i];
+#endif
+        printf(" " TARGET_FMT_lx, a);
+      }
+    } else if (c == INDEX_op_call) {
+      /* variable number of arguments */
+      nb_oargs = op->callo;
+      nb_iargs = op->calli;
+      nb_cargs = def->nb_cargs;
+
+      /* function name, flags, out args */
+      printf(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
+             tcg_find_helper(s, args[nb_oargs + nb_iargs]),
+             args[nb_oargs + nb_iargs + 1], nb_oargs);
+      for (i = 0; i < nb_oargs; i++) {
+        printf(",%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[i]));
+      }
+      for (i = 0; i < nb_iargs; i++) {
+        TCGArg arg = args[nb_oargs + i];
+        const char *t = "<dummy>";
+        if (arg != TCG_CALL_DUMMY_ARG) {
+          t = tcg_get_arg_str_idx(s, buf, sizeof(buf), arg);
+        }
+        printf(",%s", t);
+      }
+    } else {
+      printf(" %s ", def->name);
+
+      nb_oargs = def->nb_oargs;
+      nb_iargs = def->nb_iargs;
+      nb_cargs = def->nb_cargs;
+
+      k = 0;
+      for (i = 0; i < nb_oargs; i++) {
+        if (k != 0) {
+          printf(",");
+        }
+        printf("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
+      }
+      for (i = 0; i < nb_iargs; i++) {
+        if (k != 0) {
+          printf(",");
+        }
+        printf("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
+      }
+      switch (c) {
+      case INDEX_op_brcond_i32:
+      case INDEX_op_setcond_i32:
+      case INDEX_op_movcond_i32:
+      case INDEX_op_brcond2_i32:
+      case INDEX_op_setcond2_i32:
+      case INDEX_op_brcond_i64:
+      case INDEX_op_setcond_i64:
+      case INDEX_op_movcond_i64:
+        if (args[k] < ARRAY_SIZE(cond_name) && cond_name[args[k]]) {
+          printf(",%s", cond_name[args[k++]]);
+        } else {
+          printf(",$0x%" TCG_PRIlx, args[k++]);
+        }
+        i = 1;
+        break;
+      case INDEX_op_qemu_ld_i32:
+      case INDEX_op_qemu_st_i32:
+      case INDEX_op_qemu_ld_i64:
+      case INDEX_op_qemu_st_i64: {
+        TCGMemOpIdx oi = args[k++];
+        TCGMemOp op = get_memop(oi);
+        unsigned ix = get_mmuidx(oi);
+
+        if (op & ~(MO_AMASK | MO_BSWAP | MO_SSIZE)) {
+          printf(",$0x%x,%u", op, ix);
+        } else {
+          const char *s_al = "", *s_op;
+          if (op & MO_AMASK) {
+            if ((op & MO_AMASK) == MO_ALIGN) {
+              s_al = "al+";
+            } else {
+              s_al = "un+";
+            }
+          }
+          s_op = ldst_name[op & (MO_BSWAP | MO_SSIZE)];
+          printf(",%s%s,%u", s_al, s_op, ix);
+        }
+        i = 1;
+      } break;
+      default:
+        i = 0;
+        break;
+      }
+      switch (c) {
+      case INDEX_op_set_label:
+      case INDEX_op_br:
+      case INDEX_op_brcond_i32:
+      case INDEX_op_brcond_i64:
+      case INDEX_op_brcond2_i32:
+        printf("%s$L%d", k ? "," : "", arg_label(args[k])->id);
+        i++, k++;
+        break;
+      default:
+        break;
+      }
+      for (; i < nb_cargs; i++, k++) {
+        printf("%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
+      }
+    }
+    printf("\n");
+  }
 }
