@@ -53,13 +53,6 @@ void libmc_init() {
 #endif
 }
 
-template <class T>
-static T unwrapOrError(ErrorOr<T> EO) {
-  if (EO)
-    return *EO;
-  return T();
-}
-
 typedef ELFType<support::little, false> ARMElfType;
 typedef ELF32LEObjectFile ARMElfObjFile;
 typedef ELF32LEFile ARMElfFile;
@@ -75,7 +68,7 @@ static const ARMElfShdr *armObjAttributesSection(const ARMElfFile *Obj) {
 }
 
 // from llvm/include/llvm/Support/ARMTargetParser.def
-const char *arm_cpu_arch_names[] = {
+static const char *arm_cpu_arch_names[] = {
     "armv2",        // Pre_v4   = 0,
     "armv4",        // v4       = 1,   // e.g. SA110
     "armv4t",       // v4T      = 2,   // e.g. ARM7TDMI
