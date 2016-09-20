@@ -42,13 +42,10 @@ namespace jove {
 
 void libmc_init();
 
-class mc_t {
+struct mc_t {
   llvm::Triple TheTriple;
   const llvm::Target *TheTarget;
 
-  llvm::Triple getArchTriple(const llvm::object::ObjectFile *);
-
-public:
   const llvm::MCRegisterInfo *MRI;
   const llvm::MCAsmInfo *AsmInfo;
   const llvm::MCSubtargetInfo *STI;
@@ -69,7 +66,7 @@ public:
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
 struct thumb_mc_t : public mc_t {
   thumb_mc_t(const llvm::object::ObjectFile *Obj)
-      : mc_t(Obj, "thumbv7-unknown") {}
+      : mc_t(Obj, "thumbv7-unknown-unknown-unknown") {}
 };
 #endif
 }

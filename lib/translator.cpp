@@ -240,8 +240,13 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
   libmc_init();
 
   mc = new mc_t(&O);
+  cout << "MC TheTriple: " << mc->TheTriple.str() << endl;
+  cout << "MC TheTarget: " << mc->TheTarget->getShortDescription() << endl;
+
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
   thumb_mc = new thumb_mc_t(&O);
+  cout << "Thumb TheTriple: " << thumb_mc->TheTriple.str() << endl;
+  cout << "Thumb TheTarget: " << thumb_mc->TheTarget->getShortDescription() << endl;
 #endif
 
   //
@@ -2471,7 +2476,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
       return;
     }
     if (callee_it == function_table.end()) {
-      cerr << "on_call iterator end" << endl;
+      cerr << "on_call iterator end (address = " << hex << bbprop.callee << ')'
+           << endl;
       b.CreateUnreachable();
       return;
     }

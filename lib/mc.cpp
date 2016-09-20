@@ -17,6 +17,11 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/ARMBuildAttributes.h>
+#include <llvm/Support/LEB128.h>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Object/ELFTypes.h>
+#include <llvm/Object/ELF.h>
 
 using namespace std;
 using namespace llvm;
@@ -46,6 +51,129 @@ void libmc_init() {
   LLVMInitializeMipsTargetMC();
   LLVMInitializeMipsDisassembler();
 #endif
+}
+
+template <class T>
+static T unwrapOrError(ErrorOr<T> EO) {
+  if (EO)
+    return *EO;
+  return T();
+}
+
+typedef ELFType<support::little, false> ARMElfType;
+typedef ELF32LEObjectFile ARMElfObjFile;
+typedef ELF32LEFile ARMElfFile;
+typedef ARMElfFile::Elf_Shdr ARMElfShdr;
+
+static const ARMElfShdr *armObjAttributesSection(const ARMElfFile *Obj) {
+  for (const ARMElfShdr &Sec : Obj->sections()) {
+    if (Sec.sh_type == ELF::SHT_ARM_ATTRIBUTES)
+      return &Sec;
+  }
+
+  return nullptr;
+}
+
+// from llvm/include/llvm/Support/ARMTargetParser.def
+const char *arm_cpu_arch_names[] = {
+    "armv2",        // Pre_v4   = 0,
+    "armv4",        // v4       = 1,   // e.g. SA110
+    "armv4t",       // v4T      = 2,   // e.g. ARM7TDMI
+    "armv5t",       // v5T      = 3,   // e.g. ARM9TDMI
+    "armv5te",      // v5TE     = 4,   // e.g. ARM946E_S
+    "armv5tej",     // v5TEJ    = 5,   // e.g. ARM926EJ_S
+    "armv6",        // v6       = 6,   // e.g. ARM1136J_S
+    "armv6kz",      // v6KZ     = 7,   // e.g. ARM1176JZ_S
+    "armv6t2",      // v6T2     = 8,   // e.g. ARM1156T2_S
+    "armv6k",       // v6K      = 9,   // e.g. ARM1176JZ_S
+    "armv7",        // v7       = 10,  // e.g. Cortex A8, Cortex M3
+    "armv6-m",      // v6_M     = 11,  // e.g. Cortex M1
+    "armv6-m",      // v6S_M    = 12,  // v6_M with the System extensions
+    "armv7-m",      // v7E_M    = 13,  // v7_M with DSP extensions
+    "armv8-a",      // v8_A     = 14,  // v8_A AArch32
+    "armv8-m.base", // v8_M_Base= 16,  // v8_M_Base AArch32
+    "armv8-m.main", // v8_M_Main= 17,  // v8_M_Main AArch32
+};
+
+static llvm::Triple getArchTriple(const ObjectFile *Obj) {
+  llvm::Triple TheTriple("unknown-unknown-unknown");
+  Triple::ArchType arch = static_cast<Triple::ArchType>(Obj->getArch());
+
+  const ARMElfObjFile *ELFObj;
+  const ARMElfShdr *aaShdr;
+  if (arch == Triple::arm &&
+      (ELFObj = dyn_cast<ARMElfObjFile>(Obj)) &&
+      (aaShdr = armObjAttributesSection(ELFObj->getELFFile()))) {
+    const char *arm_cpu_arch_nm = nullptr;
+
+    ArrayRef<uint8_t> aaSCont = *ELFObj->getELFFile()->getSectionContents(aaShdr);
+
+    size_t Offset = 1;
+    while (Offset < aaSCont.size()) {
+      uint32_t SectionLength = *reinterpret_cast<const support::ulittle32_t *>(
+          aaSCont.data() + Offset);
+
+      auto parseInteger = [](const uint8_t *Data,
+                             uint32_t &Offset) -> uint64_t {
+        unsigned Length;
+        uint64_t Value = decodeULEB128(Data + Offset, &Length);
+        Offset = Offset + Length;
+        return Value;
+      };
+
+      auto parseAttributeList = [&TheTriple, &arm_cpu_arch_nm, parseInteger](
+          const uint8_t *Data, uint32_t &Offset, uint32_t Length) -> void {
+        while (Offset < Length) {
+          unsigned Length;
+          uint64_t Tag = decodeULEB128(Data + Offset, &Length);
+          Offset += Length;
+
+          if (Tag != ARMBuildAttrs::CPU_arch)
+            continue;
+
+          ARMBuildAttrs::CPUArch cpu_arch =
+              static_cast<ARMBuildAttrs::CPUArch>(parseInteger(Data, Offset));
+          arm_cpu_arch_nm = arm_cpu_arch_names[cpu_arch];
+          TheTriple.setArchName(arm_cpu_arch_nm);
+        }
+      };
+
+      auto parseSubsection = [parseAttributeList](const uint8_t *Data,
+                                                  uint32_t Length) -> void {
+        uint32_t Offset = sizeof(uint32_t); /* SectionLength */
+        const char *VendorName = reinterpret_cast<const char *>(Data + Offset);
+        size_t VendorNameLength = std::strlen(VendorName);
+        Offset = Offset + VendorNameLength + 1;
+
+        while (Offset < Length) {
+          uint8_t Tag = Data[Offset];
+          Offset = Offset + sizeof(Tag);
+
+          uint32_t Size =
+              *reinterpret_cast<const support::ulittle32_t *>(Data + Offset);
+          Offset = Offset + sizeof(Size);
+
+          if (Size > Length) {
+            cerr << "warning: subsection length greater than section length"
+                 << endl;
+            return;
+          }
+
+          if (Tag == ARMBuildAttrs::File)
+            parseAttributeList(Data, Offset, Length);
+        }
+      };
+
+      parseSubsection(aaSCont.data() + Offset, SectionLength);
+      Offset = Offset + SectionLength;
+    }
+
+    if (arm_cpu_arch_nm)
+      return TheTriple;
+  }
+
+  TheTriple.setArch(arch);
+  return TheTriple;
 }
 
 mc_t::mc_t(const ObjectFile *Obj, const char *arch_triple)
@@ -87,12 +215,6 @@ mc_t::mc_t(const ObjectFile *Obj, const char *arch_triple)
   IP->setPrintImmHex(true);
 
   MIA = TheTarget->createMCInstrAnalysis(MII);
-}
-
-llvm::Triple mc_t::getArchTriple(const ObjectFile* O) {
-  llvm::Triple TheTriple("unknown-unknown-unknown");
-  TheTriple.setArch(Triple::ArchType(O->getArch()));
-  return TheTriple;
 }
 
 bool mc_t::analyze_instruction(MCInst &Inst, uint64_t &size,

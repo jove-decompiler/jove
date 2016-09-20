@@ -1,8 +1,7 @@
 # this just obtains the directory this Makefile resides in
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
-#qemutcg_archs  := x86_64 i386 arm aarch64 mipsel
-qemutcg_archs  := aarch64
+qemutcg_archs  := arm
 qemu_dir       := /home/aeden/Hacking/qemu-build
 qemu_src_dir   := /home/aeden/Hacking/qemu
 llvm_dir       := /usr/local
