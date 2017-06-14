@@ -58,8 +58,16 @@ typedef ELF32LEObjectFile ARMElfObjFile;
 typedef ELF32LEFile ARMElfFile;
 typedef ARMElfFile::Elf_Shdr ARMElfShdr;
 
-static const ARMElfShdr *armObjAttributesSection(const ARMElfFile *Obj) {
-  for (const ARMElfShdr &Sec : Obj->sections()) {
+template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
+  return Val ? *Val : Default;
+}
+
+template <class T> static T unwrapOrDefault(Expected<T> EO, T Default = T()) {
+  return EO ? *EO : Default;
+}
+
+static const ARMElfShdr *armObjAttributesSection(const ARMElfFile *ELF) {
+  for (const ARMElfShdr &Sec : unwrapOrDefault(ELF->sections())) {
     if (Sec.sh_type == ELF::SHT_ARM_ATTRIBUTES)
       return &Sec;
   }

@@ -1,5 +1,4 @@
 #include <llvm-c/Core.h>
-#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/CallSite.h>
 #include <llvm/IR/Constants.h>
@@ -27,6 +26,8 @@ void LLVMChangeCalleesToFastCall(LLVMValueRef);
 void LLVMChangeCalleesToCCall(LLVMValueRef);
 void LLVMAddNonNullParamAttr(LLVMValueRef);
 int LLVMGEPAccumulateConstantOffset(LLVMModuleRef, LLVMValueRef);
+void LLVMRemoveAttributeAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx,
+                                LLVMAttributeRef A);
 }
 
 void LLVMRemoveInitializer(LLVMValueRef GlobalVar) {
@@ -54,6 +55,11 @@ int LLVMGEPAccumulateConstantOffset(LLVMModuleRef M, LLVMValueRef Inst) {
     return -1;
 
   return static_cast<int>(Offset.getZExtValue());
+}
+
+void LLVMRemoveAttributeAtIndex(LLVMValueRef F, LLVMAttributeIndex Idx,
+                                LLVMAttributeRef A) {
+  unwrap<Function>(F)->removeAttribute(Idx, unwrap(A).getKindAsEnum());
 }
 
 void LLVMDeleteFunctionBody(LLVMValueRef Fn) {

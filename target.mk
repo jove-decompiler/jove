@@ -10,12 +10,7 @@ _QEMU_TARGET := $(_TARGET_NAME)-linux-user
 
 include $(qemu_build_dir)/$(_QEMU_TARGET)/Makefile
 
-LLCONFIG := $(llvm_dir)/bin/llvm-config
-LLCXX    := $(llvm_dir)/bin/clang++
-LLCC     := $(llvm_dir)/bin/clang
-LLOPT    := $(llvm_dir)/bin/opt
 LLKNIFE  := $(build_dir)/llknife
-LLLD     := $(llvm_dir)/bin/llvm-link
 
 _INCLUDES := -I$(build_dir)/$(_TARGET_NAME) \
              -I$(include_dir) \
@@ -30,7 +25,7 @@ _CFLAGS   := $(CFLAGS) \
              -DNEED_CPU_H \
              $(shell pkg-config --cflags glib-2.0)
 
-_CXXFLAGS := $(shell $(LLCONFIG) --cxxflags) \
+_CXXFLAGS := $(shell llvm-config --cxxflags) \
              $(CXXFLAGS) $(QEMU_CXXFLAGS) \
              -DNEED_CPU_H \
 			 -Wno-c99-extensions \
@@ -55,10 +50,10 @@ $(call tool,recompile)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,re
 
 $(call res,jove-recompile): $($(call tool,recompile)_OBJS)
 	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ \
+	@clang++ -o $@ \
 	  $(_CXXFLAGS) $($(call tool,recompile)_OBJS) \
 	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
-	  $(shell $(LLCONFIG) --ldflags) \
+	  $(shell llvm-config --ldflags) \
 	  -lglib-2.0 \
 	  -pthread \
 	  -lcurses \
@@ -86,11 +81,11 @@ $(call tool,init)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,init)_S
 
 $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 	@echo CLANG++ $(notdir $@ $^)
-	@$(LLCXX) -o $@ \
+	@clang++ -o $@ \
 	  $(_CXXFLAGS) $($(call tool,init)_OBJS) \
 	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
 	  -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so \
-	  $(shell $(LLCONFIG) --ldflags) \
+	  $(shell llvm-config --ldflags) \
 	  -lglib-2.0 \
 	  -pthread \
 	  -lcurses \
@@ -108,7 +103,7 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 
 $(call res,%).o: $(build_dir)/%.cpp
 	@echo CLANG++ $(notdir $@ $<)
-	@$(LLCXX) -o $@ -c -MMD -Wall -g $(_INCLUDES) $(_CXXFLAGS) -O1 $<
+	@clang++ -o $@ -c -MMD -Wall -g $(_INCLUDES) $(_CXXFLAGS) -O1 $<
 
 #
 # extra dependencies
@@ -124,7 +119,7 @@ $(call res,translator).o: $(call res,abi_callingconv_arg_regs).cpp $(call res,ab
 
 $(call res,thunk).bc: $(build_dir)/thunk_$(_TARGET_NAME).c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -fPIC -Wall -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 $(call res,thunk).cpp: $(call res,thunk).bc
 	@echo XXD -include $(notdir $@ $^)
@@ -151,7 +146,7 @@ $(call res,abi_callingconv_ret_regs).cpp: $(call res,abi_callingconv)
 #
 $(call res,abi_callingconv): $(call res,abi_callingconv).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
 
 $(call res,abi_callingconv).1.bc: $(call res,abi_callingconv).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -159,11 +154,11 @@ $(call res,abi_callingconv).1.bc: $(call res,abi_callingconv).0.bc
 
 $(call res,abi_callingconv).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,abi_callingconv).bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 $(call res,abi_callingconv).bc: $(build_dir)/abi_callingconv.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # output of tcgdefs
@@ -181,7 +176,7 @@ $(call res,tcgdefs).hpp: $(call res,tcgdefs)
 #
 $(call res,tcgdefs): $(call res,tcgdefs).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
 
 $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -189,11 +184,11 @@ $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 
 $(call res,tcgdefs).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,tcgdefs).bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 $(call res,tcgdefs).bc: $(build_dir)/tcgdefs.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # tcgglobals
@@ -201,7 +196,7 @@ $(call res,tcgdefs).bc: $(build_dir)/tcgdefs.c
 
 $(call res,tcgglobals): $(call res,tcgglobals).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -O3 $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 $< -fPIC -lglib-2.0 -pthread
 
 $(call res,tcgglobals).1.bc: $(call res,tcgglobals).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -209,22 +204,22 @@ $(call res,tcgglobals).1.bc: $(call res,tcgglobals).0.bc
 
 $(call res,tcgglobals).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc $(call res,tcgglobals).bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # C library implementing API to QEMU translation layer
 #
 $(call res,libqemutcg).so: $(call res,libqemutcg).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -shared -fPIC -g -O0 $< -lglib-2.0 -pthread
+	@clang -o $@ -shared -fPIC -g -O0 $< -lglib-2.0 -pthread
 
 $(call res,libqemutcg).2.bc: $(call res,libqemutcg).1.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -globaldce $<
+	@opt -o $@ -globaldce $<
 
 $(call res,libqemutcg).1.bc: $(call res,libqemutcg).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -232,22 +227,22 @@ $(call res,libqemutcg).1.bc: $(call res,libqemutcg).0.bc
 
 $(call res,libqemutcg).0.bc: $(call res,qemu).bc $(call res,qemutcg).bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 #
 # C API to QEMU translation layer bitcode
 #
 $(call res,qemutcg).bc: $(call res,translate-ldst-helpers).bc $(call res,qemutcg).0.bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 $(call res,translate-ldst-helpers).bc: $(build_dir)/translate_ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 $(call res,qemutcg).0.bc: $(build_dir)/qemutcg.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -g -O0 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -g -O0 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # library base QEMU bitcode
@@ -269,7 +264,7 @@ $(call res,helpers).cpp: $(call res,helpers).bc
 
 $(call res,helpers).bc: $(call res,helpers).5.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
+	@opt -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
 
 $(call res,helpers).5.bc: $(call res,helpers).4.bc $(build_dir)/transform-helpers $(call res,tcgglobals)
 	@echo TRANSFORMHELPERS $(notdir $@ $<)
@@ -277,7 +272,7 @@ $(call res,helpers).5.bc: $(call res,helpers).4.bc $(build_dir)/transform-helper
 
 $(call res,helpers).4.bc: $(call res,helpers).3.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
+	@opt -o $@ -O3 -strip-debug -disable-loop-vectorization -disable-slp-vectorization -scalarizer $<
 
 $(call res,helpers).3.bc: $(call res,helpers).2.bc
 	@echo KNIFE $(notdir $@ $^)
@@ -293,11 +288,11 @@ $(call res,helpers).1.bc: $(call res,helpers).0.bc
 
 $(call res,helpers).0.bc: $(call res,qemu).6.bc $(call res,ldst_helpers).bc
 	@echo BCLINK $(notdir $@ $^)
-	@$(LLLD) -o $@ $^
+	@llvm-link -o $@ $^
 
 $(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
 	@echo CLANG $(notdir $@ $^)
-	@$(LLCC) -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 
 #
 # process QEMU bitcode
@@ -305,7 +300,7 @@ $(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
 
 $(call res,qemu).6.bc: $(call res,qemu).5.bc
 	@echo OPT $(notdir $@ $^)
-	@$(LLOPT) -o $@ -disable-loop-vectorization -disable-slp-vectorization -scalarizer  -globaldce $<
+	@opt -o $@ -disable-loop-vectorization -disable-slp-vectorization -scalarizer  -globaldce $<
 
 $(call res,qemu).5.bc: $(call res,qemu).4.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -329,4 +324,4 @@ $(call res,qemu).1.bc: $(call res,qemu).0.bc
 
 $(call res,qemu).0.bc:
 	@echo BCLINK $(notdir $@ $^ qemustub.bc qemuutil.bc)
-	@$(LLLD) -o $@ $(sort $(patsubst %,$(qemu_build_dir)/$(_QEMU_TARGET)/%,$(all-obj-y))) -override $(build_dir)/qemustub.bc -override $(build_dir)/qemuutil.bc
+	@llvm-link -o $@ $(sort $(patsubst %,$(qemu_build_dir)/$(_QEMU_TARGET)/%,$(all-obj-y))) -override $(build_dir)/qemustub.bc -override $(build_dir)/qemuutil.bc

@@ -3,6 +3,7 @@
 #include <llvm/Object/ELF.h>
 #include <unordered_map>
 #include <iostream>
+#include <iterator>
 
 using namespace std;
 using namespace llvm;
@@ -12,6 +13,10 @@ namespace jove {
 
 template <class T> static T errorOrDefault(ErrorOr<T> Val, T Default = T()) {
   return Val ? *Val : Default;
+}
+
+template <class T> static T unwrapOrDefault(Expected<T> EO, T Default = T()) {
+  return EO ? *EO : Default;
 }
 
 template <typename ELFT>
@@ -27,8 +32,10 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
   //
   // gather sections
   //
-  secttbl.reserve(ELF->getNumSections());
-  for (const Elf_Shdr &Sec : ELF->sections()) {
+
+  secttbl.reserve(distance(begin(unwrapOrDefault(ELF->sections())),
+                           end(unwrapOrDefault(ELF->sections()))));
+  for (const Elf_Shdr &Sec : unwrapOrDefault(ELF->sections())) {
     // while iterating sections, look for the symbol table
     if (Sec.sh_type == ELF::SHT_SYMTAB)
       DotSymTblSec = &Sec;
@@ -38,11 +45,11 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
 
     section_t res;
 
-    res.name = errorOrDefault(ELF->getSectionName(&Sec)).str();
+    res.name = unwrapOrDefault(ELF->getSectionName(&Sec)).str();
     res.addr = Sec.sh_addr;
     res.size = Sec.sh_size;
 
-    res.contents = errorOrDefault(ELF->getSectionContents(&Sec));
+    res.contents = unwrapOrDefault(ELF->getSectionContents(&Sec));
 
     res.align = Sec.sh_addralign;
 
@@ -61,7 +68,7 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
                              const Elf_Sym *Sym) -> void {
     symbol_t res;
 
-    StringRef StrTable = errorOrDefault(ELF->getStringTableForSymtab(*SymTab));
+    StringRef StrTable = unwrapOrDefault(ELF->getStringTableForSymtab(*SymTab));
     Expected<StringRef> e = Sym->getName(StrTable);
     if (!e)
       return;
@@ -120,13 +127,13 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
   };
 
   symtbl.reserve(DotSymTblSec->sh_size / sizeof(Elf_Sym));
-  for (const Elf_Sym &Sym : ELF->symbols(DotSymTblSec))
+  for (const Elf_Sym &Sym : unwrapOrDefault(ELF->symbols(DotSymTblSec)))
     process_elf_sym(DotSymTblSec, &Sym);
 
   //
   // gather relocations
   //
-  for (const Elf_Shdr &Sec : ELF->sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrDefault(ELF->sections())) {
     if (Sec.sh_type != ELF::SHT_REL && Sec.sh_type != ELF::SHT_RELA)
       continue;
 
@@ -149,12 +156,13 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
       }
     };
 
-    const Elf_Shdr *SymTab = errorOrDefault(ELF->getSection(Sec.sh_link));
+    const Elf_Shdr *SymTab = unwrapOrDefault(ELF->getSection(Sec.sh_link));
 
     auto process_rela = [&](const Elf_Rela &R) -> void {
       relocation_t res;
 
-      const Elf_Sym *Sym = ELF->getRelocationSymbol(&R, SymTab);
+      const Elf_Sym *Sym =
+          unwrapOrDefault(ELF->getRelocationSymbol(&R, SymTab));
       if (Sym) {
         res.symidx = symtbl.size();
         process_elf_sym(SymTab, Sym);
@@ -171,9 +179,10 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
 
     if (Sec.sh_type == ELF::SHT_REL) {
       reloctbl.reserve(reloctbl.size() +
-                       distance(ELF->rel_begin(&Sec), ELF->rel_end(&Sec)));
+                       distance(begin(unwrapOrDefault(ELF->rels(&Sec))),
+                                end(unwrapOrDefault(ELF->rels(&Sec)))));
 
-      for (const Elf_Rel &R : ELF->rels(&Sec)) {
+      for (const Elf_Rel &R : unwrapOrDefault(ELF->rels(&Sec))) {
         Elf_Rela Rela;
         Rela.r_offset = R.r_offset;
         Rela.r_info = R.r_info;
@@ -182,9 +191,10 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
       }
     } else { // ELF::SHT_RELA
       reloctbl.reserve(reloctbl.size() +
-                       distance(ELF->rela_begin(&Sec), ELF->rela_end(&Sec)));
+                       distance(begin(unwrapOrDefault(ELF->relas(&Sec))),
+                                end(unwrapOrDefault(ELF->relas(&Sec)))));
 
-      for (const Elf_Rela &Rela : ELF->relas(&Sec))
+      for (const Elf_Rela &Rela : unwrapOrDefault(ELF->relas(&Sec)))
         process_rela(Rela);
     }
   }

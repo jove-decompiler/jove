@@ -21,6 +21,18 @@ external alias_end : llmodule -> (llmodule, llvalue) llrev_pos
   = "llvm_alias_end"
 external alias_pred : llvalue -> (llmodule, llvalue) llrev_pos
   = "llvm_alias_pred"
+external llvm_remove_function_attr : llvalue -> llattribute -> int -> unit
+  = "llvm_remove_function_attr"
+
+(* from llvm/bindings/ocaml/llvm/llvm.ml *)
+let _AttrIndex_to_int index =
+  match index with
+  | AttrIndex.Function -> -1
+  | AttrIndex.Return -> 0
+  | AttrIndex.Param(n) -> 1 + n
+
+let remove_function_attr f a i =
+  llvm_remove_function_attr f a (_AttrIndex_to_int i)
 
 let rec iter_alias_range f i e =
   if i = e then () else

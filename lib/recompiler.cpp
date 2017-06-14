@@ -1,7 +1,8 @@
 #include "recompiler.h"
 #include "elf_recompiler.h"
 #include "coff_recompiler.h"
-#include <llvm/Bitcode/ReaderWriter.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <iostream>
 

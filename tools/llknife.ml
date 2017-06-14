@@ -181,7 +181,7 @@ let main () =
              ignore (build_ret (const_null ret_ty) b);
 
            (* deleting the terminator could change whether the function is noreturn *)
-           remove_function_attr caller Attribute.Noreturn;
+           remove_function_attr caller (attr_of_repr llctx (AttrRepr.Enum(enum_attr_kind "noreturn", Int64.of_int 0))) AttrIndex.Function;
            delete_instruction term
          | _ -> ();
        ) calls;
@@ -267,7 +267,7 @@ let main () =
            else
              ignore (build_ret (const_null ret_ty) b);
 
-           remove_function_attr llf Attribute.Noreturn
+           remove_function_attr llf (attr_of_repr llctx (AttrRepr.Enum(enum_attr_kind "noreturn", Int64.of_int 0))) AttrIndex.Function;
          )
        ) llm
 
@@ -286,7 +286,7 @@ let main () =
      let r = Str.regexp (!args).(0) in
      iter_functions (fun llf ->
          if Str.string_match r (value_name llf) 0 then
-           remove_function_attr llf Attribute.Noinline
+           remove_function_attr llf (attr_of_repr llctx (AttrRepr.Enum(enum_attr_kind "noinline", Int64.of_int 0))) AttrIndex.Function;
        ) llm
 
    | Action.Set_global_constant_regex ->

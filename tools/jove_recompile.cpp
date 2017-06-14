@@ -5,7 +5,8 @@
 #include <cstdint>
 #include <iostream>
 #include <llvm/ADT/Triple.h>
-#include <llvm/Bitcode/ReaderWriter.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/Object/Binary.h>
@@ -128,7 +129,8 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
 void print_obj_info(const ObjectFile *Obj) {
   cout << "File: " << Obj->getFileName().str() << "\n";
   cout << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
+  cout << "Arch: "
+       << Triple::getArchTypeName((Triple::ArchType)Obj->getArch()).str()
        << "\n";
   cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
 }

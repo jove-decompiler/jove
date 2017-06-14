@@ -1,17 +1,18 @@
 #include "config-target.h"
 #include "binary.h"
 #include "translator.h"
+#include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
+#include <cstdint>
+#include <iostream>
+#include <llvm/ADT/Triple.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
-#include <llvm/ADT/Triple.h>
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Bitcode/ReaderWriter.h>
-#include <llvm/Object/ObjectFile.h>
 #include <llvm/Object/Binary.h>
-#include <boost/program_options.hpp>
-#include <boost/filesystem.hpp>
-#include <iostream>
-#include <cstdint>
+#include <llvm/Object/ObjectFile.h>
+#include <llvm/Support/raw_ostream.h>
 #include <string>
 #include <tuple>
 
@@ -180,7 +181,8 @@ void verify_arch(const ObjectFile *Obj) {
 void print_obj_info(const ObjectFile *Obj) {
   cout << "File: " << Obj->getFileName().str() << "\n";
   cout << "Format: " << Obj->getFileFormatName().str() << "\n";
-  cout << "Arch: " << Triple::getArchTypeName((Triple::ArchType)Obj->getArch())
+  cout << "Arch: "
+       << Triple::getArchTypeName((Triple::ArchType)Obj->getArch()).str()
        << "\n";
   cout << "AddressSize: " << (8 * Obj->getBytesInAddress()) << "bit\n";
 }

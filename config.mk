@@ -2,13 +2,13 @@
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
 qemutcg_archs  := arm
-qemu_dir       := /home/aeden/Hacking/qemu-build
-qemu_src_dir   := /home/aeden/Hacking/qemu
-llvm_dir       := /usr/local
+qemu_dir       := /home/aeden/qemu-2.6.2-build
+qemu_src_dir   := /home/aeden/qemu-2.6.2
+llvm_dir       := /usr
 boost_dir      := /usr
 opam_libs_dir  := ~/.opam/system/lib
 ocaml_dir      := /usr/lib/ocaml
 
-build_dir      := $(ROOT_DIR)/build
+build_dir      := $(ROOT_DIR)/bin
 include_dir    := $(ROOT_DIR)/include
 qemu_build_dir := $(build_dir)/qemu

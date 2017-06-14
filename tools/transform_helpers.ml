@@ -87,7 +87,9 @@ let change_function_parameters llm llf param_tys param_idx_mapping =
       llm in
 
   (* preserve attributes *)
-  List.iter (add_function_attr llf') (function_attr llf);
+  Array.iter
+    (fun attr -> add_function_attr llf' attr AttrIndex.Function)
+    (function_attrs llf AttrIndex.Function);
 
   (* preserve linkage of old definition *)
   set_linkage (linkage llf) llf';
@@ -117,8 +119,9 @@ let change_function_parameters llm llf param_tys param_idx_mapping =
 
   (* preserve original parameter attributes *)
   List.iter (fun (i, p) ->
-      let p' = (params llf').(param_idx_mapping.(i)) in
-      List.iter (add_param_attr p') (param_attr p)
+      Array.iter
+        (fun attr -> add_function_attr llf' attr (AttrIndex.Param(param_idx_mapping.(i))))
+        (function_attrs llf (AttrIndex.Param(i)))
     ) (List.filter
          (fun (i, _) -> param_idx_mapping.(i) >= 0)
          (numbered (Array.to_list (params llf))));
@@ -173,10 +176,15 @@ let change_function_return llm llf ret_ty fix_return_value_uses =
                              llm in
 
   (* preserve attributes *)
-  List.iter (add_function_attr llf') (function_attr llf);
-  List.iter2 (fun arg arg' -> List.iter (add_param_attr arg') (param_attr arg))
-    (Array.to_list (params llf))
-    (Array.to_list (params llf'));
+  Array.iter
+    (fun attr -> add_function_attr llf' attr AttrIndex.Function)
+    (function_attrs llf AttrIndex.Function);
+
+  List.iter (fun i ->
+    Array.iter
+      (fun attr -> add_function_attr llf' attr (AttrIndex.Param(i)))
+      (function_attrs llf (AttrIndex.Param(i))))
+    (range 0 (Array.length (params llf)));
 
   (* preserve linkage of old definition *)
   set_linkage (linkage llf) llf';

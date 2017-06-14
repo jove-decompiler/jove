@@ -4,36 +4,35 @@
 #include "binary.h"
 #include "mc.h"
 #include "qemutcg.h"
-#include <llvm/MC/MCInst.h>
-#include <llvm/Bitcode/ReaderWriter.h>
-#include <llvm/IR/Constants.h>
-#include <llvm/Object/Binary.h>
-#include <llvm/Object/COFF.h>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/IR/Verifier.h>
-#include <llvm/IR/MDBuilder.h>
-#include <llvm/Analysis/ConstantFolding.h>
-#include <llvm/Analysis/ValueTracking.h>
-#include <llvm/Transforms/Scalar.h>
-#include <llvm/Analysis/BasicAliasAnalysis.h>
-#include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <llvm/IR/LegacyPassManager.h>
-#include <llvm/Target/TargetOptions.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Target/TargetMachine.h>
-#include <llvm/Analysis/TargetTransformInfo.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/IR/MDBuilder.h>
-#include <llvm/Transforms/Utils/Cloning.h>
-#include <llvm/MC/MCInstrAnalysis.h>
-#include <boost/range/adaptor/reversed.hpp>
-#include <boost/icl/split_interval_set.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/dominator_tree.hpp>
 #include <boost/graph/filtered_graph.hpp>
 #include <boost/graph/graphviz.hpp>
+#include <boost/icl/split_interval_set.hpp>
+#include <boost/range/adaptor/reversed.hpp>
 #include <fstream>
+#include <llvm/Analysis/BasicAliasAnalysis.h>
+#include <llvm/Analysis/ConstantFolding.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/Analysis/ValueTracking.h>
+#include <llvm/Bitcode/BitcodeReader.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/MC/MCInst.h>
+#include <llvm/MC/MCInstrAnalysis.h>
+#include <llvm/Object/Binary.h>
+#include <llvm/Object/COFF.h>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Transforms/Scalar.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <numeric>
 
 using namespace llvm;
@@ -200,9 +199,8 @@ static const uint8_t helpers_bitcode_data[] = {
 };
 
 translator::translator(ObjectFile &O, const string &MNm, bool noopt)
-    : noopt(noopt), O(O),
-    M(MNm, C), DL(M.getDataLayout()),
-      _HelperM(move(*getLazyBitcodeModule(
+    : noopt(noopt), O(O), M(MNm, C), DL(M.getDataLayout()),
+      _HelperM(move(*getOwningLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
                                                    &helpers_bitcode_data[0]),
                                                sizeof(helpers_bitcode_data)),
@@ -216,17 +214,13 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
       FnThunkAttr(
           AttributeSet::get(C, AttributeSet::FunctionIndex, Attribute::Naked)),
       ExternalFnTy(FunctionType::get(Type::getVoidTy(C), false)),
-      ExternalFnPtrTy(PointerType::get(ExternalFnTy, 0)),
-      callconv {
-        {{
+      ExternalFnPtrTy(PointerType::get(ExternalFnTy, 0)), callconv{{{
 #include "abi_callingconv_arg_regs.cpp"
-        }},
-        {{
+                                                                   }},
+                                                                   {{
 #include "abi_callingconv_ret_regs.cpp"
-        }}
-      },
-      tcg_globals
-      {{
+                                                                   }}},
+      tcg_globals{{
 #include "tcg_globals.cpp"
       }} {
   //
@@ -3704,7 +3698,7 @@ Constant *translator::try_fold_to_constant(Value *v) {
     if (CE->getOpcode() == Instruction::PtrToInt)
       return try_fold_to_constant(CE->getOperand(0));
 
-    return ConstantFoldConstantExpression(CE, DL);
+    return ConstantFoldConstant(CE, DL);
   }
 
   if (isa<Constant>(v))
