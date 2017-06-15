@@ -9,7 +9,7 @@ bin/$(1):
 
 .PHONY: target_$(1)
 target_$(1): bin/transform-helpers bin/llknife | bin/$(1)
-	@$$(MAKE) -C bin/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-softmmu SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
+	@$$(MAKE) -C bin/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-linux-user SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 
