@@ -594,8 +594,10 @@ let main () =
       (* now replace caller CPUState operands with undef *)
       iter_uses (fun llu ->
           let ins = user llu in
-          assert (classify_value ins = ValueKind.Instruction Opcode.Call &&
-                  (operand ins ((num_operands ins) - 1)) = llf);
+          if classify_value ins <> ValueKind.Instruction Opcode.Call || (operand ins ((num_operands ins) - 1)) <> llf then (
+            pe (spr "invalid usage of helper:\n%s\nhere:%s" (value_name llf) (string_of_llvalue ins));
+            assert false
+          );
           set_operand
             ins
             (LLMap.find llf hlprs_cpust_param_idx_map)
