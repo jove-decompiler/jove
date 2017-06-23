@@ -11,7 +11,7 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 # on ArchLinux
 sudo pacman -S llvm clang llvm-ocaml boost lld lldb
 ```
-### OcamlGraph (Linux)
+### OCamlgraph (Linux)
 ```bash
 # on ArchLinux
 yaourt -S ocaml-ocamlgraph
