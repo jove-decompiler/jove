@@ -52,7 +52,7 @@ $(call res,jove-recompile): $($(call tool,recompile)_OBJS)
 	@echo CLANG++ $(notdir $@ $^)
 	@clang++ -o $@ \
 	  $(_CXXFLAGS) $($(call tool,recompile)_OBJS) \
-	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
+	  $(llvm_dir)/lib/libLLVM.so \
 	  $(shell llvm-config --ldflags) \
 	  -lglib-2.0 \
 	  -pthread \
@@ -83,7 +83,7 @@ $(call res,jove-init): $($(call tool,init)_OBJS) $(call res,libqemutcg).so
 	@echo CLANG++ $(notdir $@ $^)
 	@clang++ -o $@ \
 	  $(_CXXFLAGS) $($(call tool,init)_OBJS) \
-	  -Wl,-rpath,$(llvm_dir)/lib $(llvm_dir)/lib/libLLVM.so \
+	  $(llvm_dir)/lib/libLLVM.so \
 	  -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so \
 	  $(shell llvm-config --ldflags) \
 	  -lglib-2.0 \

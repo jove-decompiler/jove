@@ -1,0 +1,46 @@
+diff --git a/target-arm/translate-a64.c b/target-arm/translate-a64.c
+index b13cff756a..3209de76fa 100644
+--- a/target-arm/translate-a64.c
++++ b/target-arm/translate-a64.c
+@@ -2701,40 +2701,41 @@ static void disas_ldst(DisasContext *s, uint32_t insn)
+  */
+ static void disas_pc_rel_adr(DisasContext *s, uint32_t insn)
+ {
+     unsigned int page, rd;
+     uint64_t base;
+     uint64_t offset;
+ 
+     page = extract32(insn, 31, 1);
+     /* SignExtend(immhi:immlo) -> offset */
+     offset = sextract64(insn, 5, 19);
+     offset = offset << 2 | extract32(insn, 29, 2);
+     rd = extract32(insn, 0, 5);
+     base = s->pc - 4;
+ 
+     if (page) {
+         /* ADRP (page based) */
+         base &= ~0xfff;
+         offset <<= 12;
+     }
+ 
++    tcg_gen_insn_start(0x7fffffff, 0x7fffffff);
+     tcg_gen_movi_i64(cpu_reg(s, rd), base + offset);
+ }
+ 
+ /*
+  * C3.4.1 Add/subtract (immediate)
+  *
+  *  31 30 29 28       24 23 22 21         10 9   5 4   0
+  * +--+--+--+-----------+-----+-------------+-----+-----+
+  * |sf|op| S| 1 0 0 0 1 |shift|    imm12    |  Rn | Rd  |
+  * +--+--+--+-----------+-----+-------------+-----+-----+
+  *
+  *    sf: 0 -> 32bit, 1 -> 64bit
+  *    op: 0 -> add  , 1 -> sub
+  *     S: 1 -> set flags
+  * shift: 00 -> LSL imm by 0, 01 -> LSL imm by 12
+  */
+ static void disas_add_sub_imm(DisasContext *s, uint32_t insn)
+ {
+     int rd = extract32(insn, 0, 5);
+     int rn = extract32(insn, 5, 5);

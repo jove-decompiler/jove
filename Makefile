@@ -9,7 +9,7 @@ bin/$(1):
 
 .PHONY: target_$(1)
 target_$(1): bin/transform-helpers bin/llknife | bin/$(1)
-	@$$(MAKE) -C bin/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-linux-user SRC_PATH=$(qemu_src_dir) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
+	@$$(MAKE) -C bin/qemu/$(1)-linux-user -f $(ROOT_DIR)/target.mk --include-dir=$(ROOT_DIR) --include-dir=$(qemu_build_dir) --include-dir=$(qemu_build_dir)/$(1)-linux-user SRC_PATH=$(QEMU_SRC_DIR) BUILD_DIR=$(qemu_build_dir) _TARGET_NAME=$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 
@@ -51,7 +51,7 @@ configure: bin/llknife
 	ln -s ../abi/aarch64/arch.callconv bin/aarch64.callconv
 	ln -s ../abi/x86_64/sysv.callconv bin/x86_64.callconv
 	ln -s ../abi/arm/standard.callconv bin/arm.callconv
-	cp -r $(qemu_dir) $(qemu_build_dir)
+	cp -r $(QEMU_BUILD_DIR) $(qemu_build_dir)
 	mkdir bin/qemuutil
 	mkdir bin/qemustub
 	cp $(qemu_build_dir)/libqemuutil.a bin/qemuutil/
