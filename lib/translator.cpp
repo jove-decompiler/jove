@@ -964,36 +964,39 @@ void translator::run() {
   }
 
   MPM.run(M);
+  pcrel_gv = M.getNamedGlobal("pcrel"); /* pcrel could have been removed */
 
   //
   // fixup pc-relative expressions
   //
-  for (User *U : pcrel_gv->users()) {
-    assert(isa<LoadInst>(U));
-    vector<pair<Instruction *, Constant *>> torepl;
-    pcrel_llv = cast<LoadInst>(U);
+  if (pcrel_gv) {
+    for (User *U : pcrel_gv->users()) {
+      assert(isa<LoadInst>(U));
+      vector<pair<Instruction *, Constant *>> torepl;
+      pcrel_llv = cast<LoadInst>(U);
 
-    for (User *U : pcrel_llv->users())
-      if (cast<Instruction>(U)->getOpcode() == Instruction::Add)
-        if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
-          if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
-            torepl.push_back({cast<Instruction>(U), Ptr});
+      for (User *U : pcrel_llv->users())
+        if (cast<Instruction>(U)->getOpcode() == Instruction::Add)
+          if (ConstantInt *CI = dyn_cast<ConstantInt>(U->getOperand(1)))
+            if (Constant *Ptr = section_int_ptr(CI->getZExtValue()))
+              torepl.push_back({cast<Instruction>(U), Ptr});
 
-    for (auto &replm : torepl) {
-      Instruction *Inst;
-      Constant *C;
-      tie(Inst, C) = replm;
+      for (auto &replm : torepl) {
+        Instruction *Inst;
+        Constant *C;
+        tie(Inst, C) = replm;
 
-      Inst->replaceAllUsesWith(C);
-      Inst->eraseFromParent();
+        Inst->replaceAllUsesWith(C);
+        Inst->eraseFromParent();
+      }
+
+      if (pcrel_llv->user_begin() == pcrel_llv->user_end())
+        pcrel_llv->eraseFromParent();
+      else
+        pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
+            ConstantExpr::getPtrToInt(sectsgv, word_type()),
+            ConstantInt::get(word_type(), lower_section_addr())));
     }
-
-    if (pcrel_llv->user_begin() == pcrel_llv->user_end())
-      pcrel_llv->eraseFromParent();
-    else
-      pcrel_llv->replaceAllUsesWith(ConstantExpr::getSub(
-          ConstantExpr::getPtrToInt(sectsgv, word_type()),
-          ConstantInt::get(word_type(), lower_section_addr())));
   }
 
   //
@@ -2884,14 +2887,14 @@ void translator::translate_tcg_operation_to_llvm(
 
     if (args[0] == 0x7fffffff) {
       pcrel_flag = true;
+
       cout << BBINDENT "note: PC-relative expression @ " << hex << lstaddr
            << endl;
     } else {
       pcrel_flag = false;
+
+      lstaddr = args[0];
     }
-
-    lstaddr = args[0];
-
     break;
 
   case tcg::INDEX_op_discard:
