@@ -1,3 +1,5 @@
+![Alt text](/docs/overview.png?raw=true)
+
 # How to Build
 ```bash
 export JOVE_SRC_DIR=/path/to/jove
