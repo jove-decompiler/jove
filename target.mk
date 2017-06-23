@@ -215,7 +215,7 @@ $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 #
 $(call res,libqemutcg).so: $(call res,libqemutcg).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -shared -fPIC -g -O0 $< -lglib-2.0 -pthread
+	@clang -o $@ -shared -fPIC -g -O0 -fuse-ld=gold $< -lglib-2.0 -pthread
 
 $(call res,libqemutcg).2.bc: $(call res,libqemutcg).1.bc
 	@echo OPT $(notdir $@ $^)
