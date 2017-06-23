@@ -11,6 +11,11 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 # on ArchLinux
 sudo pacman -S parallel
 ```
+### Boost (Linux)
+```bash
+# on Archlinux
+sudo pacman -S boost
+```
 ### LLVM 4.0 Toolchain (Linux)
 ```bash
 # on ArchLinux
