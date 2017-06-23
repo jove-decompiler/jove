@@ -81,7 +81,7 @@ struct Label {
 };
 
 constexpr Arg CALL_DUMMY_ARG = -1;
-constexpr Arg CPU_STATE_ARG = 0;
+constexpr Arg CPU_STATE_ARG = tcg::env_index;
 
 static bool is_arg_global(Arg a) {
   return a != CPU_STATE_ARG && a != CALL_DUMMY_ARG && a < tcg::num_globals;
@@ -1243,9 +1243,9 @@ bool translator::translate_function(address_t addr) {
 
 std::pair<address_t, address_t>
 translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
-  address_t targets[2] = {0};
-  address_t *res = targets;
-  address_t constprop[tcg::max_temps] = {0};
+  array<address_t, 2> targets = {{0x0, 0x0}};
+  array<address_t, tcg::max_temps> constprop;
+  unsigned i = 0;
 
   const tcg::Op *ops = bbprop.tcg_ops.get();
   const tcg::Arg *params = bbprop.tcg_args.get();
@@ -1258,17 +1258,15 @@ translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
     switch (c) {
 
 #define __MOVI_OP(bits)                                                        \
-  case tcg::INDEX_op_movi_i##bits:                                              \
+  case tcg::INDEX_op_movi_i##bits:                                             \
     if (bits != sizeof(address_t) * 8)                                         \
       break;                                                                   \
                                                                                \
-    constprop[args[0]] = args[1];                                              \
+    constprop.at(args[0]) = args[1];                                           \
                                                                                \
-    if (tcg::program_counter_global_index == 0)                                \
-      break;                                                                   \
-                                                                               \
-    if (args[0] == tcg::program_counter_global_index)                          \
-      *res++ = args[1];                                                        \
+    if (tcg::program_counter_global_index &&                                   \
+        args[0] == tcg::program_counter_global_index)                          \
+      targets.at(i++) = args[1];                                               \
     break;
 
       __MOVI_OP(32)
@@ -1287,12 +1285,9 @@ translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
       break;                                                                   \
     if (regBits != sizeof(address_t) * 8)                                      \
       break;                                                                   \
-    if (args[1] != tcg::CPU_STATE_ARG)                                         \
-      break;                                                                   \
-    if (args[2] != tcg::cpu_state_program_counter_offset)                      \
-      break;                                                                   \
-                                                                               \
-    *res++ = constprop[args[0]];                                               \
+    if (args[1] == tcg::CPU_STATE_ARG &&                                       \
+        args[2] == tcg::cpu_state_program_counter_offset)                      \
+      targets.at(i++) = constprop.at(args[0]);                                 \
     break;
 
       __ST_OP(tcg::INDEX_op_st8_i32, 8, 32)
@@ -2396,10 +2391,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         nullptr, (boost::format("tmp%u") % static_cast<unsigned>(tmp)).str());
   }
 
-//
-// create an alloca for the program counter if this basic block has a
-// conditional branch
-//
+  //
+  // create an alloca for the program counter if this basic block has a
+  // conditional branch
+  //
   if (tcg::program_counter_global_index)
     pc_llv = tcg_glb_llv_m[tcg::program_counter_global_index];
   else

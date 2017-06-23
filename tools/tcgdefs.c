@@ -34,15 +34,46 @@ static unsigned num_helpers(void) { return g_hash_table_size(tcg_ctx.helpers); }
 static unsigned max_temps(void) { return TCG_MAX_TEMPS; }
 
 static unsigned program_counter_global_index(void) {
-#if defined(TARGET_AARCH64)
-  return 25;
-#elif defined(TARGET_ARM)
-  return 16;
-#elif defined(TARGET_I386)
+  int word_tcg_ty;
+
+  if (sizeof(intptr_t) == 4)
+    word_tcg_ty = TCG_TYPE_I32;
+  else if (sizeof(intptr_t) == 8)
+    word_tcg_ty = TCG_TYPE_I64;
+  else
+    abort();
+
+  for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
+    TCGTemp *ts = &tcg_ctx.temps[i];
+
+    if (!ts->fixed_reg && ts->type == word_tcg_ty &&
+        strcmp(ts->name, "pc") == 0)
+      return i;
+  }
+
   return 0;
-#elif defined(TARGET_MIPS)
-  return 0;
-#endif
+}
+
+static unsigned env_index(void) {
+  for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
+    TCGTemp *ts = &tcg_ctx.temps[i];
+
+    //
+    // we are interested in TCG global memory regs, not TCG global regs (e.g.
+    // env).
+    // From target-i386/translate.c:7865, we can see that a TCG global reg has
+    // fixed_reg = 1
+    //
+
+    if (!ts->fixed_reg)
+      continue;
+
+    if (strcmp("env", ts->name) == 0)
+      return i;
+  }
+
+  fprintf(stderr, "could not find env\n");
+  abort();
 }
 
 static unsigned cpu_state_program_counter_offset(void) {
@@ -82,6 +113,7 @@ int main(int argc, char **argv) {
            "constexpr unsigned max_temps = %u;\n"
            "constexpr unsigned program_counter_global_index = %u;\n"
            "constexpr unsigned cpu_state_program_counter_offset = %u;\n"
+           "constexpr unsigned env_index = %u;\n"
 #if defined(TARGET_I386)
            "constexpr unsigned cpu_state_segs_offset = %u;\n"
            "constexpr unsigned cpu_state_segs_size = %u;\n"
@@ -92,7 +124,8 @@ int main(int argc, char **argv) {
            num_helpers(),
            max_temps(),
            program_counter_global_index(),
-           cpu_state_program_counter_offset()
+           cpu_state_program_counter_offset(),
+           env_index()
 #if defined(TARGET_I386)
            , cpu_state_segs_offset()
            , cpu_state_segs_size()
