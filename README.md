@@ -6,6 +6,11 @@ export JOVE_SRC_DIR=/path/to/jove
 git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 ```
 ## Preparation
+### Tools (Linux)
+```bash
+# on ArchLinux
+sudo pacman -S parallel
+```
 ### LLVM 4.0 Toolchain (Linux)
 ```bash
 # on ArchLinux
