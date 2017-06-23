@@ -6,8 +6,13 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 ## Preparation
 ### LLVM 4.0 Toolchain (Linux)
 ```bash
-# On archlinux:
+# on ArchLinux
 sudo pacman -S llvm clang llvm-ocaml boost lld lldb
+```
+### OcamlGraph (Linux)
+```
+# on ArchLinux
+yaourt -S ocaml-ocamlgraph
 ```
 ### QEMU 2.6.2 (Linux)
 ```bash
