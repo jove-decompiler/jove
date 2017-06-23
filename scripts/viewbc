@@ -1,0 +1,8 @@
+#!/usr/bin/bash
+LL=$(mktemp --suffix=.ll)
+
+llvm-dis -o $LL $1
+
+vim $LL
+
+rm $LL
