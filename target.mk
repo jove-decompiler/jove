@@ -146,7 +146,7 @@ $(call res,abi_callingconv_ret_regs).cpp: $(call res,abi_callingconv)
 #
 $(call res,abi_callingconv): $(call res,abi_callingconv).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
 
 $(call res,abi_callingconv).1.bc: $(call res,abi_callingconv).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -176,7 +176,7 @@ $(call res,tcgdefs).hpp: $(call res,tcgdefs)
 #
 $(call res,tcgdefs): $(call res,tcgdefs).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 -g $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
 
 $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -196,7 +196,7 @@ $(call res,tcgdefs).bc: $(build_dir)/tcgdefs.c
 
 $(call res,tcgglobals): $(call res,tcgglobals).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 $< -fPIC -lglib-2.0 -pthread
+	@clang -o $@ -O3 $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
 
 $(call res,tcgglobals).1.bc: $(call res,tcgglobals).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
