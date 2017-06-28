@@ -271,10 +271,11 @@ private:
 
   llvm::LLVMContext C;
   llvm::Module M;
-  const llvm::DataLayout &DL;
 
   std::unique_ptr<llvm::Module> _HelperM;
   llvm::Module &HelperM;
+
+  const llvm::DataLayout &DL;
 
   llvm::IRBuilder<> b;
 

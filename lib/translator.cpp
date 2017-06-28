@@ -199,14 +199,14 @@ static const uint8_t helpers_bitcode_data[] = {
 };
 
 translator::translator(ObjectFile &O, const string &MNm, bool noopt)
-    : noopt(noopt), O(O), M(MNm, C), DL(M.getDataLayout()),
+    : noopt(noopt), O(O), M(MNm, C),
       _HelperM(move(*getOwningLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
                                                    &helpers_bitcode_data[0]),
                                                sizeof(helpers_bitcode_data)),
                                      "", false),
           C))),
-      HelperM(*_HelperM), b(C),
+      HelperM(*_HelperM), DL(HelperM.getDataLayout()), b(C),
       word_ty(IntegerType::get(C, sizeof(address_t) * 8)),
       FnAttr(AttributeSet::get(C, AttributeSet::FunctionIndex,
                                Attribute::NoInline)),
@@ -223,6 +223,9 @@ translator::translator(ObjectFile &O, const string &MNm, bool noopt)
       tcg_globals{{
 #include "tcg_globals.cpp"
       }} {
+  M.setTargetTriple(HelperM.getTargetTriple().c_str());
+  M.setDataLayout(HelperM.getDataLayout());
+
   //
   // init TCG translator
   //
