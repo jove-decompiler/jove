@@ -187,11 +187,11 @@ unsigned libqemutcg_translate(unsigned long _pc) {
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 
 #if 0
-  printf("################ START TCG DUMP OPS\n");
-  fflush(stdout);
+  fprintf(stderr, "################ START TCG DUMP OPS\n");
+  fflush(stderr);
   __tcg_dump_ops(&tcg_ctx);
-  printf("################ END START TCG DUMP OPS\n");
-  fflush(stdout);
+  fprintf(stderr, "################ END START TCG DUMP OPS\n");
+  fflush(stderr);
 #endif
 
   libqemutcg_replace_labels_with_id();
@@ -749,7 +749,7 @@ void __tcg_dump_ops(TCGContext *s) {
     args = &s->gen_opparam_buf[op->args];
 
     if (c == INDEX_op_insn_start) {
-      printf("%s ----", oi != s->gen_first_op_idx ? "\n" : "");
+      fprintf(stderr, "%s ----", oi != s->gen_first_op_idx ? "\n" : "");
 
       for (i = 0; i < TARGET_INSN_START_WORDS; ++i) {
         target_ulong a;
@@ -758,7 +758,7 @@ void __tcg_dump_ops(TCGContext *s) {
 #else
         a = args[i];
 #endif
-        printf(" " TARGET_FMT_lx, a);
+        fprintf(stderr, " " TARGET_FMT_lx, a);
       }
     } else if (c == INDEX_op_call) {
       /* variable number of arguments */
@@ -767,11 +767,12 @@ void __tcg_dump_ops(TCGContext *s) {
       nb_cargs = def->nb_cargs;
 
       /* function name, flags, out args */
-      printf(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
-             tcg_find_helper(s, args[nb_oargs + nb_iargs]),
-             args[nb_oargs + nb_iargs + 1], nb_oargs);
+      fprintf(stderr, " %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
+              tcg_find_helper(s, args[nb_oargs + nb_iargs]),
+              args[nb_oargs + nb_iargs + 1], nb_oargs);
       for (i = 0; i < nb_oargs; i++) {
-        printf(",%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[i]));
+        fprintf(stderr, ",%s",
+                tcg_get_arg_str_idx(s, buf, sizeof(buf), args[i]));
       }
       for (i = 0; i < nb_iargs; i++) {
         TCGArg arg = args[nb_oargs + i];
@@ -779,10 +780,10 @@ void __tcg_dump_ops(TCGContext *s) {
         if (arg != TCG_CALL_DUMMY_ARG) {
           t = tcg_get_arg_str_idx(s, buf, sizeof(buf), arg);
         }
-        printf(",%s", t);
+        fprintf(stderr, ",%s", t);
       }
     } else {
-      printf(" %s ", def->name);
+      fprintf(stderr, " %s ", def->name);
 
       nb_oargs = def->nb_oargs;
       nb_iargs = def->nb_iargs;
@@ -791,15 +792,17 @@ void __tcg_dump_ops(TCGContext *s) {
       k = 0;
       for (i = 0; i < nb_oargs; i++) {
         if (k != 0) {
-          printf(",");
+          fprintf(stderr, ",");
         }
-        printf("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
+        fprintf(stderr, "%s",
+                tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
       }
       for (i = 0; i < nb_iargs; i++) {
         if (k != 0) {
-          printf(",");
+          fprintf(stderr, ",");
         }
-        printf("%s", tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
+        fprintf(stderr, "%s",
+                tcg_get_arg_str_idx(s, buf, sizeof(buf), args[k++]));
       }
       switch (c) {
       case INDEX_op_brcond_i32:
@@ -811,9 +814,9 @@ void __tcg_dump_ops(TCGContext *s) {
       case INDEX_op_setcond_i64:
       case INDEX_op_movcond_i64:
         if (args[k] < ARRAY_SIZE(cond_name) && cond_name[args[k]]) {
-          printf(",%s", cond_name[args[k++]]);
+          fprintf(stderr, ",%s", cond_name[args[k++]]);
         } else {
-          printf(",$0x%" TCG_PRIlx, args[k++]);
+          fprintf(stderr, ",$0x%" TCG_PRIlx, args[k++]);
         }
         i = 1;
         break;
@@ -826,7 +829,7 @@ void __tcg_dump_ops(TCGContext *s) {
         unsigned ix = get_mmuidx(oi);
 
         if (op & ~(MO_AMASK | MO_BSWAP | MO_SSIZE)) {
-          printf(",$0x%x,%u", op, ix);
+          fprintf(stderr, ",$0x%x,%u", op, ix);
         } else {
           const char *s_al = "", *s_op;
           if (op & MO_AMASK) {
@@ -837,7 +840,7 @@ void __tcg_dump_ops(TCGContext *s) {
             }
           }
           s_op = ldst_name[op & (MO_BSWAP | MO_SSIZE)];
-          printf(",%s%s,%u", s_al, s_op, ix);
+          fprintf(stderr, ",%s%s,%u", s_al, s_op, ix);
         }
         i = 1;
       } break;
@@ -851,16 +854,16 @@ void __tcg_dump_ops(TCGContext *s) {
       case INDEX_op_brcond_i32:
       case INDEX_op_brcond_i64:
       case INDEX_op_brcond2_i32:
-        printf("%s$L%d", k ? "," : "", arg_label(args[k])->id);
+        fprintf(stderr, "%s$L%d", k ? "," : "", arg_label(args[k])->id);
         i++, k++;
         break;
       default:
         break;
       }
       for (; i < nb_cargs; i++, k++) {
-        printf("%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
+        fprintf(stderr, "%s$0x%" TCG_PRIlx, k ? "," : "", args[k]);
       }
     }
-    printf("\n");
+    fprintf(stderr, "\n");
   }
 }

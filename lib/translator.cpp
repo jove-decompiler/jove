@@ -459,8 +459,8 @@ void translator::create_section_global_variables() {
 
   cout << "Relocations:" << endl << endl;
   for (const relocation_t &reloc : reloctbl) {
-    cout << (boost::format(RELOCINDENT "%-12s @ %-16x +%-16x") % reloc_ty_str[reloc.ty] %
-             reloc.addr % reloc.addend);
+    cout << (boost::format(RELOCINDENT "%-12s @ %-16x +%-16x") %
+             reloc_ty_str[reloc.ty] % reloc.addr % reloc.addend);
     if (reloc.symidx < symtbl.size()) {
       symbol_t &sym = symtbl[reloc.symidx];
       cout << (boost::format("%-30s *%-10s *%-8s @ %x {%d}") % sym.name %
@@ -1173,7 +1173,11 @@ void translator::run() {
         sym.bind == symbol_t::NOBINDING)
       continue;
 
-    auto it = function_table.find(sym.addr);
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    address_t addr = sym.addr & 0xfffffffe;
+#endif
+
+    auto it = function_table.find(addr);
     if (it == function_table.end())
       continue;
 
@@ -1532,21 +1536,20 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     }
   };
 
-  if (bbprop.lbls.size() == 1) {
+  address_t target1, target2;
+  tie(target1, target2) = tcg_conditional_branch_targets(bbprop);
+  if (target1 && target2) {
     //
     // conditional jump
     //
     bbprop.term = basic_block_properties_t::TERM_CONDITIONAL_JUMP;
-
-    address_t target1, target2;
-    tie(target1, target2) = tcg_conditional_branch_targets(bbprop);
 
     cout << BBINDENT "note: conditional jump to " << hex << target1 << " and "
          << target2 << endl;
 
     control_flow_to(target1);
     control_flow_to(target2);
-  } else if (bbprop.lbls.size() == 0) {
+  } else {
     //
     // we'll need to use LLVM's instruction analyzer
     //
@@ -1568,29 +1571,26 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     // (5) fall-through case, since many classes of instructions can be
     // constructed as returns (e.g. pop {r3, pc} on ARM)
     //
-    address_t target;
-    target = tcg_branch_target(bbprop);
-
-    if (target) {
+    if (target1) {
       // either (1) or (2)
       if (MIA->isCall(Inst)) {
         // (2)
-        cout << BBINDENT "note: direct call to " << hex << target << endl;
+        cout << BBINDENT "note: direct call to " << hex << target1 << endl;
         bbprop.term = basic_block_properties_t::TERM_CALL;
 
         // add call target to translation queue
-        functions_to_translate.push(target);
-        callers[target].push_back({&f, bb});
-        bbprop.callee = target;
+        functions_to_translate.push(target1);
+        callers[target1].push_back({&f, bb});
+        bbprop.callee = target1;
 
         // return address
         control_flow_to(succ_addr);
       } else {
         // (1)
-        cout << BBINDENT "note: unconditional jump" << endl;
+        cout << BBINDENT "note: unconditional jump to " << hex << target1 << endl;
         bbprop.term = basic_block_properties_t::TERM_UNCONDITIONAL_JUMP;
 
-        control_flow_to(target);
+        control_flow_to(target1);
       }
     } else {
       // either (3), (4), or (5)
@@ -1603,18 +1603,31 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
         control_flow_to(succ_addr);
       } else if (MIA->isIndirectBranch(Inst)) {
         // (3)
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+        if (f[boost::graph_bundle].thumb &&
+            *reinterpret_cast<const uint16_t *>(
+                sectdata.data() + (last_instr_addr - sectstart)) ==
+                0x4770 /* bx lr */)
+          goto arm32_hack;
+#endif
+
         cout << BBINDENT "note: indirect jump" << endl;
         bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
-      } else {
+      } else if (MIA->isReturn(Inst)) {
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+      arm32_hack:
+#endif
         // (5)
         cout << BBINDENT "note: return" << endl;
         bbprop.term = basic_block_properties_t::TERM_RETURN;
+      } else {
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+        goto arm32_hack;
+#endif
+        cerr << "error: unknown basic block terminator!" << endl;
+        bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
       }
     }
-  } else {
-    cerr << "error: invalid TCG translation nb labels = " << bbprop.lbls.size()
-         << endl;
-    bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
   }
 
   return bb;
@@ -2249,6 +2262,7 @@ void translator::translate_function_llvm(function_t &f) {
 
   if (verifyFunction(llf, &errs())) {
     errs().flush();
+    llf.dump();
     abort();
   }
 }
@@ -2419,6 +2433,7 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   // them to the exit basic block
   //
   if (!bbprop.llbb->getTerminator()) {
+    cerr << "warning: llvm basic block is missing terminator!" << endl;
     b.SetInsertPoint(bbprop.llbb);
     b.CreateBr(bbprop.exitllbb);
   }
@@ -2562,8 +2577,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
 
     tostore.reset(tcg::program_counter_global_index); // pc
+#if 0
 #if defined(TARGET_AARCH64)
     tostore.reset(56); // lr
+#endif
 #endif
 
     vector<unsigned> tostore_v;
@@ -2617,8 +2634,10 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     tcg::global_set_t tospill = bbprop.reachdef_out;
 
     tospill.reset(tcg::program_counter_global_index); // pc
+#if 0
 #if defined(TARGET_AARCH64)
     tospill.reset(56); // lr
+#endif
 #endif
 
     vector<unsigned> tospill_v;
@@ -3020,7 +3039,7 @@ void translator::translate_tcg_operation_to_llvm(
         C, (boost::format("l%u") % bbprop.lbls.size()).str(),                  \
         bbprop.llbb->getParent());                                             \
     bbprop.lbls.push_back(bb);                                                 \
-    b.CreateCondBr(v, bbprop.lbls[args[3]], bb);                               \
+    b.CreateCondBr(v, bbprop.lbls.at(args[3]), bb);                            \
     b.SetInsertPoint(bb);                                                      \
   } break;
 
@@ -3031,7 +3050,10 @@ void translator::translate_tcg_operation_to_llvm(
 #undef __OP_BRCOND
 
   case tcg::INDEX_op_set_label:
-    b.SetInsertPoint(bbprop.lbls[args[0]]);
+    if (!b.GetInsertBlock()->getTerminator())
+      b.CreateBr(bbprop.lbls.at(args[0]));
+
+    b.SetInsertPoint(bbprop.lbls.at(args[0]));
     break;
 
   case tcg::INDEX_op_movi_i32:

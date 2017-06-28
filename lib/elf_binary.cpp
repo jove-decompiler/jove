@@ -120,8 +120,14 @@ static bool parse_elf(const ELFFile<ELFT> *ELF, section_table_t &secttbl,
 
     res.bind = elf_symbol_binding_mapping[Sym->getBinding()];
 
-    if (res.ty == symbol_t::NOTYPE && res.bind == symbol_t::WEAK)
-      res.ty = symbol_t::FUNCTION; // XXX
+    if (res.ty == symbol_t::NOTYPE && res.bind == symbol_t::WEAK && !res.addr) {
+      // XXX FIXME
+#if 0
+      cout << "WARNING: making " << res.name << " into function symbol!"
+           << endl;
+#endif
+      res.ty = symbol_t::FUNCTION;
+    }
 
     symtbl.push_back(res);
   };
