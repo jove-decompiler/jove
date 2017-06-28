@@ -127,7 +127,7 @@ struct complex_t cn_div(struct complex_t a, struct complex_t b) {
  9c0:   9ac10c61        sdiv    x1, x3, x1
  9c4:   d65f03c0        ret
 ```
-#### Decompilation
+#### Running Jove
 ```bash
 $ # $PWD is $JOVE_SRC_DIR/bin/aarch64
 $ ./jove-init ../../tests/bin/gcc/debian-jessie/aarch64/complex-num
@@ -453,6 +453,7 @@ a40
   a40
 $ ../../scripts/viewbc complex-num.jv/bitcode/decompilation
 ```
+#### LLVM
 ```llvm
 ; Function Attrs: noinline norecurse nounwind readnone
 define { i64, i64, i64, i64 } @cn_mul(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #1 {
