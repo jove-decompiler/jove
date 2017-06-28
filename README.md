@@ -594,6 +594,62 @@ helper_sdiv64.exit3:                              ; preds = %"0x9a4", %15, %17
 }
 ```
 ### x86_64
+#### Machine Code
+```asm
+00000000000007c0 <cn_add>:
+ 7c0:   48 01 ce                add    %rcx,%rsi
+ 7c3:   48 8d 04 17             lea    (%rdi,%rdx,1),%rax
+ 7c7:   48 89 f2                mov    %rsi,%rdx
+ 7ca:   c3                      retq
+ 7cb:   0f 1f 44 00 00          nopl   0x0(%rax,%rax,1)
+
+00000000000007d0 <cn_sub>:
+ 7d0:   48 29 ce                sub    %rcx,%rsi
+ 7d3:   48 89 f8                mov    %rdi,%rax
+ 7d6:   48 29 d0                sub    %rdx,%rax
+ 7d9:   48 89 f2                mov    %rsi,%rdx
+ 7dc:   c3                      retq
+ 7dd:   0f 1f 00                nopl   (%rax)
+
+00000000000007e0 <cn_mul>:
+ 7e0:   48 89 f8                mov    %rdi,%rax
+ 7e3:   49 89 f0                mov    %rsi,%r8
+ 7e6:   48 0f af c2             imul   %rdx,%rax
+ 7ea:   4c 0f af c1             imul   %rcx,%r8
+ 7ee:   48 0f af f2             imul   %rdx,%rsi
+ 7f2:   4c 29 c0                sub    %r8,%rax
+ 7f5:   48 0f af f9             imul   %rcx,%rdi
+ 7f9:   48 8d 14 3e             lea    (%rsi,%rdi,1),%rdx
+ 7fd:   c3                      retq
+ 7fe:   66 90                   xchg   %ax,%ax
+
+0000000000000800 <cn_div>:
+ 800:   49 89 d1                mov    %rdx,%r9
+ 803:   48 89 c8                mov    %rcx,%rax
+ 806:   49 89 d2                mov    %rdx,%r10
+ 809:   4c 0f af ca             imul   %rdx,%r9
+ 80d:   48 0f af c1             imul   %rcx,%rax
+ 811:   49 01 c1                add    %rax,%r9
+ 814:   48 89 f8                mov    %rdi,%rax
+ 817:   48 0f af c2             imul   %rdx,%rax
+ 81b:   48 89 f2                mov    %rsi,%rdx
+ 81e:   48 0f af d1             imul   %rcx,%rdx
+ 822:   49 0f af f2             imul   %r10,%rsi
+ 826:   48 01 d0                add    %rdx,%rax
+ 829:   48 99                   cqto
+ 82b:   49 f7 f9                idiv   %r9
+ 82e:   48 0f af f9             imul   %rcx,%rdi
+ 832:   49 89 c0                mov    %rax,%r8
+ 835:   48 29 fe                sub    %rdi,%rsi
+ 838:   48 89 f0                mov    %rsi,%rax
+ 83b:   48 99                   cqto
+ 83d:   49 f7 f9                idiv   %r9
+ 840:   48 89 c6                mov    %rax,%rsi
+ 843:   4c 89 c0                mov    %r8,%rax
+ 846:   48 89 f2                mov    %rsi,%rdx
+ 849:   c3                      retq
+ 84a:   66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
+```
 #### Running Jove
 ```bash
 $ # $PWD is $JOVE_SRC_DIR/bin/x86_64
@@ -936,62 +992,6 @@ Translating QEMU IR to LLVM...
 580
   580
     note: PC-relative expression @ 580
-```
-#### Machine Code
-```asm
-00000000000007c0 <cn_add>:
- 7c0:   48 01 ce                add    %rcx,%rsi
- 7c3:   48 8d 04 17             lea    (%rdi,%rdx,1),%rax
- 7c7:   48 89 f2                mov    %rsi,%rdx
- 7ca:   c3                      retq
- 7cb:   0f 1f 44 00 00          nopl   0x0(%rax,%rax,1)
-
-00000000000007d0 <cn_sub>:
- 7d0:   48 29 ce                sub    %rcx,%rsi
- 7d3:   48 89 f8                mov    %rdi,%rax
- 7d6:   48 29 d0                sub    %rdx,%rax
- 7d9:   48 89 f2                mov    %rsi,%rdx
- 7dc:   c3                      retq
- 7dd:   0f 1f 00                nopl   (%rax)
-
-00000000000007e0 <cn_mul>:
- 7e0:   48 89 f8                mov    %rdi,%rax
- 7e3:   49 89 f0                mov    %rsi,%r8
- 7e6:   48 0f af c2             imul   %rdx,%rax
- 7ea:   4c 0f af c1             imul   %rcx,%r8
- 7ee:   48 0f af f2             imul   %rdx,%rsi
- 7f2:   4c 29 c0                sub    %r8,%rax
- 7f5:   48 0f af f9             imul   %rcx,%rdi
- 7f9:   48 8d 14 3e             lea    (%rsi,%rdi,1),%rdx
- 7fd:   c3                      retq
- 7fe:   66 90                   xchg   %ax,%ax
-
-0000000000000800 <cn_div>:
- 800:   49 89 d1                mov    %rdx,%r9
- 803:   48 89 c8                mov    %rcx,%rax
- 806:   49 89 d2                mov    %rdx,%r10
- 809:   4c 0f af ca             imul   %rdx,%r9
- 80d:   48 0f af c1             imul   %rcx,%rax
- 811:   49 01 c1                add    %rax,%r9
- 814:   48 89 f8                mov    %rdi,%rax
- 817:   48 0f af c2             imul   %rdx,%rax
- 81b:   48 89 f2                mov    %rsi,%rdx
- 81e:   48 0f af d1             imul   %rcx,%rdx
- 822:   49 0f af f2             imul   %r10,%rsi
- 826:   48 01 d0                add    %rdx,%rax
- 829:   48 99                   cqto
- 82b:   49 f7 f9                idiv   %r9
- 82e:   48 0f af f9             imul   %rcx,%rdi
- 832:   49 89 c0                mov    %rax,%r8
- 835:   48 29 fe                sub    %rdi,%rsi
- 838:   48 89 f0                mov    %rsi,%rax
- 83b:   48 99                   cqto
- 83d:   49 f7 f9                idiv   %r9
- 840:   48 89 c6                mov    %rax,%rsi
- 843:   4c 89 c0                mov    %r8,%rax
- 846:   48 89 f2                mov    %rsi,%rdx
- 849:   c3                      retq
- 84a:   66 0f 1f 44 00 00       nopw   0x0(%rax,%rax,1)
 ```
 #### LLVM
 ```llvm
