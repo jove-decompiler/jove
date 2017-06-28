@@ -456,51 +456,19 @@ $ ../../scripts/viewbc complex-num.jv/bitcode/decompilation
 ```
 ```llvm
 ; Function Attrs: noinline norecurse nounwind readnone
-define { i64, i64, i64, i64, i64, i64, i64 } @cn_div(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #0 {
-"0x9a4":
-  %0 = mul i64 %x2, %x1
+define { i64, i64, i64, i64 } @cn_mul(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #1 {
+"0x98c":
+  %0 = mul i64 %x2, %x0
   %1 = mul i64 %x3, %x1
-  %2 = mul i64 %x3, %x3
-  %3 = mul i64 %x2, %x2
-  %4 = add i64 %2, %3
-  %5 = mul i64 %x3, %x0
-  %6 = sub i64 %0, %5
-  %7 = mul i64 %x2, %x0
-  %8 = add i64 %1, %7
-  %9 = icmp eq i64 %4, 0
-  br i1 %9, label %helper_sdiv64.exit3, label %10
-
-; <label>:10:                                     ; preds = %"0x9a4"
-  %11 = icmp eq i64 %6, -9223372036854775808
-  %12 = icmp eq i64 %4, -1
-  %or.cond.i = and i1 %11, %12
-  br i1 %or.cond.i, label %15, label %13
-
-; <label>:13:                                     ; preds = %10
-  %14 = sdiv i64 %6, %4
-  br label %15
-
-; <label>:15:                                     ; preds = %10, %13
-  %.0.i.ph = phi i64 [ -9223372036854775808, %10 ], [ %14, %13 ]
-  %16 = icmp eq i64 %8, -9223372036854775808
-  %or.cond.i1 = and i1 %16, %12
-  br i1 %or.cond.i1, label %helper_sdiv64.exit3, label %17
-
-; <label>:17:                                     ; preds = %15
-  %18 = sdiv i64 %8, %4
-  br label %helper_sdiv64.exit3
-
-helper_sdiv64.exit3:                              ; preds = %"0x9a4", %15, %17
-  %.0.i5 = phi i64 [ %.0.i.ph, %17 ], [ %.0.i.ph, %15 ], [ 0, %"0x9a4" ]
-  %.0.i2 = phi i64 [ %18, %17 ], [ -9223372036854775808, %15 ], [ 0, %"0x9a4" ]
-  %19 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } undef, i64 %.0.i2, 0
-  %20 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %19, i64 %.0.i5, 1
-  %21 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %20, i64 %8, 2
-  %22 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %21, i64 %6, 3
-  %23 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %22, i64 %2, 4
-  %24 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %23, i64 %1, 5
-  %25 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %24, i64 %0, 6
-  ret { i64, i64, i64, i64, i64, i64, i64 } %25
+  %2 = sub i64 %0, %1
+  %3 = mul i64 %x3, %x0
+  %4 = mul i64 %x2, %x1
+  %5 = add i64 %3, %4
+  %6 = insertvalue { i64, i64, i64, i64 } undef, i64 %2, 0
+  %7 = insertvalue { i64, i64, i64, i64 } %6, i64 %5, 1
+  %8 = insertvalue { i64, i64, i64, i64 } %7, i64 %x1, 2
+  %9 = insertvalue { i64, i64, i64, i64 } %8, i64 %0, 3
+  ret { i64, i64, i64, i64 } %9
 }
 
 ; Function Attrs: noinline norecurse nounwind
@@ -578,19 +546,51 @@ define { i64, i64 } @cn_sub(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_ad
 }
 
 ; Function Attrs: noinline norecurse nounwind readnone
-define { i64, i64, i64, i64 } @cn_mul(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #1 {
-"0x98c":
-  %0 = mul i64 %x2, %x0
+define { i64, i64, i64, i64, i64, i64, i64 } @cn_div(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #0 {
+"0x9a4":
+  %0 = mul i64 %x2, %x1
   %1 = mul i64 %x3, %x1
-  %2 = sub i64 %0, %1
-  %3 = mul i64 %x3, %x0
-  %4 = mul i64 %x2, %x1
-  %5 = add i64 %3, %4
-  %6 = insertvalue { i64, i64, i64, i64 } undef, i64 %2, 0
-  %7 = insertvalue { i64, i64, i64, i64 } %6, i64 %5, 1
-  %8 = insertvalue { i64, i64, i64, i64 } %7, i64 %x1, 2
-  %9 = insertvalue { i64, i64, i64, i64 } %8, i64 %0, 3
-  ret { i64, i64, i64, i64 } %9
+  %2 = mul i64 %x3, %x3
+  %3 = mul i64 %x2, %x2
+  %4 = add i64 %2, %3
+  %5 = mul i64 %x3, %x0
+  %6 = sub i64 %0, %5
+  %7 = mul i64 %x2, %x0
+  %8 = add i64 %1, %7
+  %9 = icmp eq i64 %4, 0
+  br i1 %9, label %helper_sdiv64.exit3, label %10
+
+; <label>:10:                                     ; preds = %"0x9a4"
+  %11 = icmp eq i64 %6, -9223372036854775808
+  %12 = icmp eq i64 %4, -1
+  %or.cond.i = and i1 %11, %12
+  br i1 %or.cond.i, label %15, label %13
+
+; <label>:13:                                     ; preds = %10
+  %14 = sdiv i64 %6, %4
+  br label %15
+
+; <label>:15:                                     ; preds = %10, %13
+  %.0.i.ph = phi i64 [ -9223372036854775808, %10 ], [ %14, %13 ]
+  %16 = icmp eq i64 %8, -9223372036854775808
+  %or.cond.i1 = and i1 %16, %12
+  br i1 %or.cond.i1, label %helper_sdiv64.exit3, label %17
+
+; <label>:17:                                     ; preds = %15
+  %18 = sdiv i64 %8, %4
+  br label %helper_sdiv64.exit3
+
+helper_sdiv64.exit3:                              ; preds = %"0x9a4", %15, %17
+  %.0.i5 = phi i64 [ %.0.i.ph, %17 ], [ %.0.i.ph, %15 ], [ 0, %"0x9a4" ]
+  %.0.i2 = phi i64 [ %18, %17 ], [ -9223372036854775808, %15 ], [ 0, %"0x9a4" ]
+  %19 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } undef, i64 %.0.i2, 0
+  %20 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %19, i64 %.0.i5, 1
+  %21 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %20, i64 %8, 2
+  %22 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %21, i64 %6, 3
+  %23 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %22, i64 %2, 4
+  %24 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %23, i64 %1, 5
+  %25 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %24, i64 %0, 6
+  ret { i64, i64, i64, i64, i64, i64, i64 } %25
 }
 ```
 # How to Build
