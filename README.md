@@ -593,10 +593,10 @@ helper_sdiv64.exit3:                              ; preds = %"0x9a4", %15, %17
   ret { i64, i64, i64, i64, i64, i64, i64 } %25
 }
 ```
-### X86_64
+### x86_64
 #### Running Jove
 ```bash
-$ # $PWD is $JOVE_SRC_DIR/bin/aarch64
+$ # $PWD is $JOVE_SRC_DIR/bin/x86_64
 $ ./jove-init ../../tests/bin/gcc/debian-jessie/aarch64/complex-num
 File: ../../tests/bin/gcc/debian-jessie/x86_64/complex-num
 Format: ELF64-x86-64
