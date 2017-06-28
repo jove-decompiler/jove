@@ -1194,6 +1194,1246 @@ helper_idivq_EAX.exit23:                          ; preds = %49, %51, %._crit_ed
   ret { i64, i64 } %56
 }
 ```
+### ARM32
+#### Machine Code
+```asm
+0000068c <cn_add>:
+ 68c:	b082      	sub	sp, #8
+ 68e:	b430      	push	{r4, r5}
+ 690:	b082      	sub	sp, #8
+ 692:	ac02      	add	r4, sp, #8
+ 694:	9305      	str	r3, [sp, #20]
+ 696:	e904 0006 	stmdb	r4, {r1, r2}
+ 69a:	9906      	ldr	r1, [sp, #24]
+ 69c:	9d01      	ldr	r5, [sp, #4]
+ 69e:	9a00      	ldr	r2, [sp, #0]
+ 6a0:	4429      	add	r1, r5
+ 6a2:	6041      	str	r1, [r0, #4]
+ 6a4:	4413      	add	r3, r2
+ 6a6:	6003      	str	r3, [r0, #0]
+ 6a8:	b002      	add	sp, #8
+ 6aa:	bc30      	pop	{r4, r5}
+ 6ac:	b002      	add	sp, #8
+ 6ae:	4770      	bx	lr
+
+000006b0 <cn_sub>:
+ 6b0:	b082      	sub	sp, #8
+ 6b2:	b430      	push	{r4, r5}
+ 6b4:	b082      	sub	sp, #8
+ 6b6:	ac02      	add	r4, sp, #8
+ 6b8:	9d06      	ldr	r5, [sp, #24]
+ 6ba:	e904 0006 	stmdb	r4, {r1, r2}
+ 6be:	9901      	ldr	r1, [sp, #4]
+ 6c0:	9a00      	ldr	r2, [sp, #0]
+ 6c2:	9305      	str	r3, [sp, #20]
+ 6c4:	1b49      	subs	r1, r1, r5
+ 6c6:	1ad3      	subs	r3, r2, r3
+ 6c8:	6041      	str	r1, [r0, #4]
+ 6ca:	6003      	str	r3, [r0, #0]
+ 6cc:	b002      	add	sp, #8
+ 6ce:	bc30      	pop	{r4, r5}
+ 6d0:	b002      	add	sp, #8
+ 6d2:	4770      	bx	lr
+
+000006d4 <cn_mul>:
+ 6d4:	b082      	sub	sp, #8
+ 6d6:	b4f0      	push	{r4, r5, r6, r7}
+ 6d8:	b082      	sub	sp, #8
+ 6da:	ac02      	add	r4, sp, #8
+ 6dc:	9307      	str	r3, [sp, #28]
+ 6de:	e904 0006 	stmdb	r4, {r1, r2}
+ 6e2:	9c00      	ldr	r4, [sp, #0]
+ 6e4:	9a08      	ldr	r2, [sp, #32]
+ 6e6:	9e01      	ldr	r6, [sp, #4]
+ 6e8:	fb04 f703 	mul.w	r7, r4, r3
+ 6ec:	fb04 f402 	mul.w	r4, r4, r2
+ 6f0:	fb06 4103 	mla	r1, r6, r3, r4
+ 6f4:	fb06 7212 	mls	r2, r6, r2, r7
+ 6f8:	6041      	str	r1, [r0, #4]
+ 6fa:	6002      	str	r2, [r0, #0]
+ 6fc:	b002      	add	sp, #8
+ 6fe:	bcf0      	pop	{r4, r5, r6, r7}
+ 700:	b002      	add	sp, #8
+ 702:	4770      	bx	lr
+
+00000704 <cn_div>:
+ 704:	b082      	sub	sp, #8
+ 706:	e92d 43f0 	stmdb	sp!, {r4, r5, r6, r7, r8, r9, lr}
+ 70a:	b083      	sub	sp, #12
+ 70c:	ad02      	add	r5, sp, #8
+ 70e:	4680      	mov	r8, r0
+ 710:	9c0c      	ldr	r4, [sp, #48]	; 0x30
+ 712:	461f      	mov	r7, r3
+ 714:	e905 0006 	stmdb	r5, {r1, r2}
+ 718:	9d01      	ldr	r5, [sp, #4]
+ 71a:	fb04 f604 	mul.w	r6, r4, r4
+ 71e:	f8dd 9000 	ldr.w	r9, [sp]
+ 722:	fb03 6603 	mla	r6, r3, r3, r6
+ 726:	930b      	str	r3, [sp, #44]	; 0x2c
+ 728:	fb05 f004 	mul.w	r0, r5, r4
+ 72c:	fb09 0003 	mla	r0, r9, r3, r0
+ 730:	4631      	mov	r1, r6
+ 732:	f000 f811 	bl	758 <__divsi3>
+ 736:	fb05 f507 	mul.w	r5, r5, r7
+ 73a:	4631      	mov	r1, r6
+ 73c:	f8c8 0000 	str.w	r0, [r8]
+ 740:	fb09 5014 	mls	r0, r9, r4, r5
+ 744:	f000 f808 	bl	758 <__divsi3>
+ 748:	f8c8 0004 	str.w	r0, [r8, #4]
+ 74c:	4640      	mov	r0, r8
+ 74e:	b003      	add	sp, #12
+ 750:	e8bd 43f0 	ldmia.w	sp!, {r4, r5, r6, r7, r8, r9, lr}
+ 754:	b002      	add	sp, #8
+ 756:	4770      	bx	lr
+
+00000758 <__divsi3>:
+ 758:	2900      	cmp	r1, #0
+ 75a:	f000 813e 	beq.w	9da <.divsi3_skip_div0_test+0x27c>
+
+0000075e <.divsi3_skip_div0_test>:
+ 75e:	ea80 0c01 	eor.w	ip, r0, r1
+ 762:	bf48      	it	mi
+ 764:	4249      	negmi	r1, r1
+ 766:	1e4a      	subs	r2, r1, #1
+ 768:	f000 811f 	beq.w	9aa <.divsi3_skip_div0_test+0x24c>
+ 76c:	0003      	movs	r3, r0
+ 76e:	bf48      	it	mi
+ 770:	4243      	negmi	r3, r0
+ 772:	428b      	cmp	r3, r1
+ 774:	f240 811e 	bls.w	9b4 <.divsi3_skip_div0_test+0x256>
+ 778:	4211      	tst	r1, r2
+ 77a:	f000 8123 	beq.w	9c4 <.divsi3_skip_div0_test+0x266>
+ 77e:	fab3 f283 	clz	r2, r3
+ 782:	fab1 f081 	clz	r0, r1
+ 786:	eba0 0202 	sub.w	r2, r0, r2
+ 78a:	f1c2 021f 	rsb	r2, r2, #31
+ 78e:	a004      	add	r0, pc, #16	; (adr r0, 7a0 <.divsi3_skip_div0_test+0x42>)
+ 790:	eb00 1202 	add.w	r2, r0, r2, lsl #4
+ 794:	f04f 0000 	mov.w	r0, #0
+ 798:	4697      	mov	pc, r2
+ 79a:	bf00      	nop
+ 79c:	f3af 8000 	nop.w
+ 7a0:	ebb3 7fc1 	cmp.w	r3, r1, lsl #31
+ 7a4:	bf00      	nop
+ 7a6:	eb40 0000 	adc.w	r0, r0, r0
+ 7aa:	bf28      	it	cs
+ 7ac:	eba3 73c1 	subcs.w	r3, r3, r1, lsl #31
+ 7b0:	ebb3 7f81 	cmp.w	r3, r1, lsl #30
+ 7b4:	bf00      	nop
+ 7b6:	eb40 0000 	adc.w	r0, r0, r0
+ 7ba:	bf28      	it	cs
+ 7bc:	eba3 7381 	subcs.w	r3, r3, r1, lsl #30
+ 7c0:	ebb3 7f41 	cmp.w	r3, r1, lsl #29
+ 7c4:	bf00      	nop
+ 7c6:	eb40 0000 	adc.w	r0, r0, r0
+ 7ca:	bf28      	it	cs
+ 7cc:	eba3 7341 	subcs.w	r3, r3, r1, lsl #29
+ 7d0:	ebb3 7f01 	cmp.w	r3, r1, lsl #28
+ 7d4:	bf00      	nop
+ 7d6:	eb40 0000 	adc.w	r0, r0, r0
+ 7da:	bf28      	it	cs
+ 7dc:	eba3 7301 	subcs.w	r3, r3, r1, lsl #28
+ 7e0:	ebb3 6fc1 	cmp.w	r3, r1, lsl #27
+ 7e4:	bf00      	nop
+ 7e6:	eb40 0000 	adc.w	r0, r0, r0
+ 7ea:	bf28      	it	cs
+ 7ec:	eba3 63c1 	subcs.w	r3, r3, r1, lsl #27
+ 7f0:	ebb3 6f81 	cmp.w	r3, r1, lsl #26
+ 7f4:	bf00      	nop
+ 7f6:	eb40 0000 	adc.w	r0, r0, r0
+ 7fa:	bf28      	it	cs
+ 7fc:	eba3 6381 	subcs.w	r3, r3, r1, lsl #26
+ 800:	ebb3 6f41 	cmp.w	r3, r1, lsl #25
+ 804:	bf00      	nop
+ 806:	eb40 0000 	adc.w	r0, r0, r0
+ 80a:	bf28      	it	cs
+ 80c:	eba3 6341 	subcs.w	r3, r3, r1, lsl #25
+ 810:	ebb3 6f01 	cmp.w	r3, r1, lsl #24
+ 814:	bf00      	nop
+ 816:	eb40 0000 	adc.w	r0, r0, r0
+ 81a:	bf28      	it	cs
+ 81c:	eba3 6301 	subcs.w	r3, r3, r1, lsl #24
+ 820:	ebb3 5fc1 	cmp.w	r3, r1, lsl #23
+ 824:	bf00      	nop
+ 826:	eb40 0000 	adc.w	r0, r0, r0
+ 82a:	bf28      	it	cs
+ 82c:	eba3 53c1 	subcs.w	r3, r3, r1, lsl #23
+ 830:	ebb3 5f81 	cmp.w	r3, r1, lsl #22
+ 834:	bf00      	nop
+ 836:	eb40 0000 	adc.w	r0, r0, r0
+ 83a:	bf28      	it	cs
+ 83c:	eba3 5381 	subcs.w	r3, r3, r1, lsl #22
+ 840:	ebb3 5f41 	cmp.w	r3, r1, lsl #21
+ 844:	bf00      	nop
+ 846:	eb40 0000 	adc.w	r0, r0, r0
+ 84a:	bf28      	it	cs
+ 84c:	eba3 5341 	subcs.w	r3, r3, r1, lsl #21
+ 850:	ebb3 5f01 	cmp.w	r3, r1, lsl #20
+ 854:	bf00      	nop
+ 856:	eb40 0000 	adc.w	r0, r0, r0
+ 85a:	bf28      	it	cs
+ 85c:	eba3 5301 	subcs.w	r3, r3, r1, lsl #20
+ 860:	ebb3 4fc1 	cmp.w	r3, r1, lsl #19
+ 864:	bf00      	nop
+ 866:	eb40 0000 	adc.w	r0, r0, r0
+ 86a:	bf28      	it	cs
+ 86c:	eba3 43c1 	subcs.w	r3, r3, r1, lsl #19
+ 870:	ebb3 4f81 	cmp.w	r3, r1, lsl #18
+ 874:	bf00      	nop
+ 876:	eb40 0000 	adc.w	r0, r0, r0
+ 87a:	bf28      	it	cs
+ 87c:	eba3 4381 	subcs.w	r3, r3, r1, lsl #18
+ 880:	ebb3 4f41 	cmp.w	r3, r1, lsl #17
+ 884:	bf00      	nop
+ 886:	eb40 0000 	adc.w	r0, r0, r0
+ 88a:	bf28      	it	cs
+ 88c:	eba3 4341 	subcs.w	r3, r3, r1, lsl #17
+ 890:	ebb3 4f01 	cmp.w	r3, r1, lsl #16
+ 894:	bf00      	nop
+ 896:	eb40 0000 	adc.w	r0, r0, r0
+ 89a:	bf28      	it	cs
+ 89c:	eba3 4301 	subcs.w	r3, r3, r1, lsl #16
+ 8a0:	ebb3 3fc1 	cmp.w	r3, r1, lsl #15
+ 8a4:	bf00      	nop
+ 8a6:	eb40 0000 	adc.w	r0, r0, r0
+ 8aa:	bf28      	it	cs
+ 8ac:	eba3 33c1 	subcs.w	r3, r3, r1, lsl #15
+ 8b0:	ebb3 3f81 	cmp.w	r3, r1, lsl #14
+ 8b4:	bf00      	nop
+ 8b6:	eb40 0000 	adc.w	r0, r0, r0
+ 8ba:	bf28      	it	cs
+ 8bc:	eba3 3381 	subcs.w	r3, r3, r1, lsl #14
+ 8c0:	ebb3 3f41 	cmp.w	r3, r1, lsl #13
+ 8c4:	bf00      	nop
+ 8c6:	eb40 0000 	adc.w	r0, r0, r0
+ 8ca:	bf28      	it	cs
+ 8cc:	eba3 3341 	subcs.w	r3, r3, r1, lsl #13
+ 8d0:	ebb3 3f01 	cmp.w	r3, r1, lsl #12
+ 8d4:	bf00      	nop
+ 8d6:	eb40 0000 	adc.w	r0, r0, r0
+ 8da:	bf28      	it	cs
+ 8dc:	eba3 3301 	subcs.w	r3, r3, r1, lsl #12
+ 8e0:	ebb3 2fc1 	cmp.w	r3, r1, lsl #11
+ 8e4:	bf00      	nop
+ 8e6:	eb40 0000 	adc.w	r0, r0, r0
+ 8ea:	bf28      	it	cs
+ 8ec:	eba3 23c1 	subcs.w	r3, r3, r1, lsl #11
+ 8f0:	ebb3 2f81 	cmp.w	r3, r1, lsl #10
+ 8f4:	bf00      	nop
+ 8f6:	eb40 0000 	adc.w	r0, r0, r0
+ 8fa:	bf28      	it	cs
+ 8fc:	eba3 2381 	subcs.w	r3, r3, r1, lsl #10
+ 900:	ebb3 2f41 	cmp.w	r3, r1, lsl #9
+ 904:	bf00      	nop
+ 906:	eb40 0000 	adc.w	r0, r0, r0
+ 90a:	bf28      	it	cs
+ 90c:	eba3 2341 	subcs.w	r3, r3, r1, lsl #9
+ 910:	ebb3 2f01 	cmp.w	r3, r1, lsl #8
+ 914:	bf00      	nop
+ 916:	eb40 0000 	adc.w	r0, r0, r0
+ 91a:	bf28      	it	cs
+ 91c:	eba3 2301 	subcs.w	r3, r3, r1, lsl #8
+ 920:	ebb3 1fc1 	cmp.w	r3, r1, lsl #7
+ 924:	bf00      	nop
+ 926:	eb40 0000 	adc.w	r0, r0, r0
+ 92a:	bf28      	it	cs
+ 92c:	eba3 13c1 	subcs.w	r3, r3, r1, lsl #7
+ 930:	ebb3 1f81 	cmp.w	r3, r1, lsl #6
+ 934:	bf00      	nop
+ 936:	eb40 0000 	adc.w	r0, r0, r0
+ 93a:	bf28      	it	cs
+ 93c:	eba3 1381 	subcs.w	r3, r3, r1, lsl #6
+ 940:	ebb3 1f41 	cmp.w	r3, r1, lsl #5
+ 944:	bf00      	nop
+ 946:	eb40 0000 	adc.w	r0, r0, r0
+ 94a:	bf28      	it	cs
+ 94c:	eba3 1341 	subcs.w	r3, r3, r1, lsl #5
+ 950:	ebb3 1f01 	cmp.w	r3, r1, lsl #4
+ 954:	bf00      	nop
+ 956:	eb40 0000 	adc.w	r0, r0, r0
+ 95a:	bf28      	it	cs
+ 95c:	eba3 1301 	subcs.w	r3, r3, r1, lsl #4
+ 960:	ebb3 0fc1 	cmp.w	r3, r1, lsl #3
+ 964:	bf00      	nop
+ 966:	eb40 0000 	adc.w	r0, r0, r0
+ 96a:	bf28      	it	cs
+ 96c:	eba3 03c1 	subcs.w	r3, r3, r1, lsl #3
+ 970:	ebb3 0f81 	cmp.w	r3, r1, lsl #2
+ 974:	bf00      	nop
+ 976:	eb40 0000 	adc.w	r0, r0, r0
+ 97a:	bf28      	it	cs
+ 97c:	eba3 0381 	subcs.w	r3, r3, r1, lsl #2__aeabi_idivmod
+ 980:	ebb3 0f41 	cmp.w	r3, r1, lsl #1
+ 984:	bf00      	nop
+ 986:	eb40 0000 	adc.w	r0, r0, r0
+ 98a:	bf28      	it	cs
+ 98c:	eba3 0341 	subcs.w	r3, r3, r1, lsl #1
+ 990:	ebb3 0f01 	cmp.w	r3, r1
+ 994:	bf00      	nop
+ 996:	eb40 0000 	adc.w	r0, r0, r0
+ 99a:	bf28      	it	cs
+ 99c:	eba3 0301 	subcs.w	r3, r3, r1
+ 9a0:	f1bc 0f00 	cmp.w	ip, #0
+ 9a4:	bf48      	it	mi
+ 9a6:	4240      	negmi	r0, r0
+ 9a8:	4770      	bx	lr
+ 9aa:	ea9c 0f00 	teq	ip, r0
+ 9ae:	bf48      	it	mi
+ 9b0:	4240      	negmi	r0, r0
+ 9b2:	4770      	bx	lr
+ 9b4:	bf38      	it	cc
+ 9b6:	2000      	movcc	r0, #0
+ 9b8:	bf04      	itt	eq
+ 9ba:	ea4f 70ec 	moveq.w	r0, ip, asr #31
+ 9be:	f040 0001 	orreq.w	r0, r0, #1
+ 9c2:	4770      	bx	lr
+ 9c4:	fab1 f281 	clz	r2, r1
+ 9c8:	f1c2 021f 	rsb	r2, r2, #31
+ 9cc:	f1bc 0f00 	cmp.w	ip, #0
+ 9d0:	fa23 f002 	lsr.w	r0, r3, r2
+ 9d4:	bf48      	it	mi
+ 9d6:	4240      	negmi	r0, r0
+ 9d8:	4770      	bx	lr
+ 9da:	2800      	cmp	r0, #0
+ 9dc:	bfc8      	it	gt
+ 9de:	f06f 4000 	mvngt.w	r0, #2147483648	; 0x80000000
+ 9e2:	bfb8      	it	lt
+ 9e4:	f04f 4000 	movlt.w	r0, #2147483648	; 0x80000000
+ 9e8:	f000 b80e 	b.w	a08 <__aeabi_idiv0>
+
+000009ec <__aeabi_idivmod>:
+ 9ec:	2900      	cmp	r1, #0
+ 9ee:	d0f4      	beq.n	9da <.divsi3_skip_div0_test+0x27c>
+ 9f0:	e92d 4003 	stmdb	sp!, {r0, r1, lr}
+ 9f4:	f7ff feb3 	bl	75e <.divsi3_skip_div0_test>
+ 9f8:	e8bd 4006 	ldmia.w	sp!, {r1, r2, lr}
+ 9fc:	fb02 f300 	mul.w	r3, r2, r0
+ a00:	eba1 0103 	sub.w	r1, r1, r3
+ a04:	4770      	bx	lr
+ a06:	bf00      	nop
+
+00000a08 <__aeabi_idiv0>:
+ a08:	b502      	push	{r1, lr}
+ a0a:	f04f 0008 	mov.w	r0, #8
+ a0e:	f7ff ed38 	blx	480 <raise@plt>
+ a12:	bd02      	pop	{r1, pc}
+```
+#### Running Jove
+```bash
+$ # $PWD is $JOVE_SRC_DIR/bin/arm
+$ ./jove-init ../../tests/bin/gcc/debian-jessie/arm/complex-num
+File: ../../tests/bin/gcc/debian-jessie/arm/complex-num
+Format: ELF32-arm-little
+Arch: arm
+AddressSize: 32bit
+MC TheTriple: armv7-unknown-unknown-elf
+MC TheTarget: ARM
+Thumb TheTriple: thumbv7-unknown-unknown-elf
+Thumb TheTarget: Thumb
+
+Address Space:
+.interp              [154, 16d)
+.note.ABI-tag        [170, 190)
+.note.gnu.build-id   [190, 1b4)
+.dynsym              [1b4, 274)
+.dynstr              [274, 322)
+.gnu.hash            [324, 33c)
+.gnu.version         [33c, 354)
+.gnu.version_r       [354, 374)
+.rel.dyn             [374, 3cc)
+.rel.plt             [3cc, 40c)
+.init                [40c, 418)
+.plt                 [418, 48c)
+.text                [490, a58)
+.fini                [a58, a60)
+.rodata              [a60, a94)
+.ARM.exidx           [a94, a9c)
+.eh_frame            [a9c, aa0)
+.eh_frame_hdr        [aa0, aa8)
+.dynamic             [1aa8, 1b98)
+.data                [1b98, 1ba0)
+.jcr                 [1ba0, 1ba4)
+.fini_array          [1ba4, 1ba8)
+.init_array          [1ba8, 1bac)
+.got                 [1bac, 1bf8)
+.bss                 [1bf8, 1bf9)
+
+Relocations:
+
+  RELATIVE     @ 1b9c             +0               
+  RELATIVE     @ 1ba4             +0               
+  RELATIVE     @ 1ba8             +0               
+  RELATIVE     @ 1bac             +0               
+  RELATIVE     @ 1bb0             +0               
+  RELATIVE     @ 1bb4             +0               
+  ADDRESSOF    @ 1bb8             +0               __gmon_start__                 *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1bbc             +0               _ITM_deregisterTMCloneTable    *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1bc0             +0               _ITM_registerTMCloneTable      *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1bc4             +0               __cxa_finalize                 *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1bc8             +0               _Jv_RegisterClasses            *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1bd8             +0               __libc_start_main              *FUNCTION   *GLOBAL   @ 0 {0}
+  ADDRESSOF    @ 1bdc             +0               abort                          *FUNCTION   *GLOBAL   @ 0 {0}
+  ADDRESSOF    @ 1be0             +0               __gmon_start__                 *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1be4             +0               __cxa_finalize                 *FUNCTION   *WEAK     @ 0 {0}
+  ADDRESSOF    @ 1be8             +0               puts                           *FUNCTION   *GLOBAL   @ 0 {0}
+  ADDRESSOF    @ 1bec             +0               strtol                         *FUNCTION   *GLOBAL   @ 0 {0}
+  ADDRESSOF    @ 1bf0             +0               printf                         *FUNCTION   *GLOBAL   @ 0 {0}
+  ADDRESSOF    @ 1bf4             +0               raise                          *FUNCTION   *GLOBAL   @ 0 {0}
+
+Translating arm machine code to QEMU IR...
+
+ARM code @ 598 call_weak_fn
+Thumb code @ 5bc deregister_tm_clones
+Thumb code @ 5ec register_tm_clones
+Thumb code @ 620 __do_global_dtors_aux
+Thumb code @ 660 frame_dummy
+Thumb code @ 758 __divsi3
+Thumb code @ 758 __aeabi_idiv
+Thumb code @ 9ec __aeabi_idivmod
+Thumb code @ a08 __aeabi_idiv0
+Thumb code @ a08 __aeabi_ldiv0
+Thumb code @ a54 __libc_csu_fini
+Thumb code @ 550 _start
+Thumb code @ a14 __libc_csu_init
+Thumb code @ 490 main
+ARM code @ 40c _init
+ARM code @ a58 _fini
+Thumb code @ 68c cn_add
+Thumb code @ 6b0 cn_sub
+Thumb code @ 6d4 cn_mul
+Thumb code @ 704 cn_div
+6d4
+  6d4
+    note: return
+660
+  660
+    note: conditional jump to 674 and 66e
+  674
+    note: conditional jump to 66e and 67c
+  66e
+    note: unconditional jump to 5ec
+  5ec
+    note: conditional jump to 60c and 604
+  60c
+    note: return
+  604
+    note: conditional jump to 60c and 60a
+  60a
+    note: indirect jump
+  67c
+    note: indirect call
+  67e
+    note: unconditional jump to 66e
+550
+  550
+    note: direct call to 42c
+  584
+    note: direct call to 438
+  588
+    note: invalid instruction @ 588 (THUMB)
+620
+  620
+    note: conditional jump to 64a and 62e
+  64a
+    note: return
+  62e
+    note: conditional jump to 63e and 634
+  63e
+    note: direct call to 5bc
+  642
+    note: return
+  634
+    note: direct call to 450
+758
+  758
+    note: conditional jump to 9da and 75e
+  9da
+    note: unconditional jump to a08
+  a08
+    note: direct call to 480
+  a12
+    note: return
+  75e
+    note: conditional jump to 9aa and 76c
+  9aa
+    note: return
+  76c
+    note: conditional jump to 9b4 and 778
+  9b4
+    note: return
+  778
+    note: conditional jump to 9c4 and 77e
+  9c4
+    note: return
+  77e
+    note: return
+68c
+  68c
+    note: return
+598
+  598
+    note: unconditional jump to 5b0
+  5b0
+    note: unconditional jump to 444
+  444
+    note: return
+5bc
+  5bc
+    note: conditional jump to 5d8 and 5d0
+  5d8
+    note: return
+  5d0
+    note: conditional jump to 5d8 and 5d6
+  5d6
+    note: indirect jump
+9ec
+  9ec
+    note: conditional jump to 9da and 9f0
+  9da
+    note: unconditional jump to a08
+  a08
+    note: direct call to 480
+  a12
+    note: return
+  9f0
+    note: direct call to 75e
+  9f8
+    note: return
+a08
+  a08
+    note: direct call to 480
+  a12
+    note: return
+a54
+  a54
+    note: return
+a14
+  a14
+    note: direct call to 40c
+  a28
+    note: conditional jump to a46 and a30
+  a46
+    note: return
+  a30
+    note: indirect call
+  a42
+    note: conditional jump to a34 and a46
+  a34
+    note: indirect call
+490
+  490
+    note: conditional jump to 4a6 and 498
+  4a6
+    note: direct call to 468
+  4b2
+    note: direct call to 468
+  4be
+    note: direct call to 468
+  4ca
+    note: direct call to 468
+  4d6
+    note: conditional jump to 542 and 4e2
+  542
+    note: unconditional jump to 4a2
+  4a2
+    note: return
+  4e2
+    note: indirect jump
+  498
+    note: direct call to 45c
+  4a0
+    note: return
+704
+  704
+    note: direct call to 758
+  736
+    note: direct call to 758
+  748
+    note: return
+a58
+  a58
+    note: return
+6b0
+  6b0
+    note: return
+5ec
+  5ec
+    note: conditional jump to 60c and 604
+  60c
+    note: return
+  604
+    note: conditional jump to 60c and 60a
+  60a
+    note: indirect jump
+40c
+  40c
+    note: direct call to 598
+  414
+    note: return
+42c
+  42c
+    note: return
+438
+  438
+    note: return
+450
+  450
+    note: return
+480
+  480
+    note: return
+75e
+  75e
+    note: invalid instruction @ 75e (ARM)
+468
+  468
+    note: return
+45c
+  45c
+    note: return
+
+Translating QEMU IR to LLVM...
+
+45c
+  45c
+    note: PC-relative expression @ 45c
+468
+  468
+    note: PC-relative expression @ 468
+480
+  480
+    note: PC-relative expression @ 480
+450
+  450
+    note: PC-relative expression @ 450
+438
+  438
+    note: PC-relative expression @ 438
+42c
+  42c
+    note: PC-relative expression @ 42c
+40c
+  40c
+  414
+5ec
+  5ec
+    note: PC-relative expression @ 5ec
+    note: PC-relative expression @ 5ee
+    note: PC-relative expression @ 5f0
+    note: PC-relative expression @ 5f2
+    note: PC-relative expression @ 5f4
+    note: PC-relative expression @ 5f8
+  60c
+  604
+    note: PC-relative expression @ 604
+  60a
+68c
+  68c
+758
+  758
+  9da
+  a08
+  a12
+  75e
+  9aa
+  76c
+  9b4
+  778
+  9c4
+  77e
+    note: PC-relative expression @ 78e
+620
+  620
+    note: PC-relative expression @ 622
+    note: PC-relative expression @ 624
+    note: PC-relative expression @ 626
+    note: PC-relative expression @ 628
+  64a
+  62e
+    note: PC-relative expression @ 62e
+  63e
+  642
+    note: PC-relative expression @ 642
+    note: PC-relative expression @ 646
+  634
+    note: PC-relative expression @ 634
+    note: PC-relative expression @ 636
+598
+  598
+    note: PC-relative expression @ 598
+    note: PC-relative expression @ 59c
+    note: PC-relative expression @ 5a0
+  5b0
+  444
+    note: PC-relative expression @ 444
+550
+  550
+    note: PC-relative expression @ 560
+    note: PC-relative expression @ 564
+    note: PC-relative expression @ 568
+    note: PC-relative expression @ 574
+    note: PC-relative expression @ 57a
+  584
+660
+  660
+    note: PC-relative expression @ 660
+    note: PC-relative expression @ 664
+    note: PC-relative expression @ 668
+    note: PC-relative expression @ 66a
+  674
+    note: PC-relative expression @ 674
+  66e
+  5ec
+    note: PC-relative expression @ 5ec
+    note: PC-relative expression @ 5ee
+    note: PC-relative expression @ 5f0
+    note: PC-relative expression @ 5f2
+    note: PC-relative expression @ 5f4
+    note: PC-relative expression @ 5f8
+  60c
+  604
+    note: PC-relative expression @ 604
+  60a
+  67c
+    note: PC-relative expression @ 67c
+  67e
+6d4
+  6d4
+5bc
+  5bc
+    note: PC-relative expression @ 5bc
+    note: PC-relative expression @ 5be
+    note: PC-relative expression @ 5c0
+    note: PC-relative expression @ 5c2
+    note: PC-relative expression @ 5c4
+    note: PC-relative expression @ 5ca
+  5d8
+  5d0
+    note: PC-relative expression @ 5d0
+  5d6
+9ec
+  9ec
+  9da
+  a08
+  a12
+  9f0
+  9f8
+a08
+  a08
+  a12
+a54
+  a54
+a14
+  a14
+    note: PC-relative expression @ a1a
+    note: PC-relative expression @ a1e
+    note: PC-relative expression @ a22
+  a28
+    note: PC-relative expression @ a28
+  a46
+  a30
+    note: PC-relative expression @ a40
+  a42
+  a34
+    note: PC-relative expression @ a40
+a58
+  a58
+490
+  490
+  4a6
+  4b2
+  4be
+  4ca
+  4d6
+  542
+  4a2
+  4e2
+    note: PC-relative expression @ 4e2
+    note: PC-relative expression @ 4e2
+  498
+    note: PC-relative expression @ 498
+    note: PC-relative expression @ 49a
+  4a0
+6b0
+  6b0
+704
+  704
+  736
+  748
+```
+#### LLVM
+```llvm
+; Function Attrs: noinline norecurse nounwind
+define internal { i32 } @cn_add(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
+"0x68c":
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %0 = add i32 %r13_3, -16
+  %1 = zext i32 %0 to i64
+  %2 = inttoptr i64 %1 to i32*
+  store i32 %r4_1, i32* %2, align 4, !noalias !0
+  %3 = add i32 %r13_3, -12
+  %4 = zext i32 %3 to i64
+  %5 = inttoptr i64 %4 to i32*
+  store i32 %r5_2, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_3, -24
+  %7 = add i32 %r13_3, -4
+  %8 = zext i32 %7 to i64
+  %9 = inttoptr i64 %8 to i32*
+  store i32 %r3, i32* %9, align 4, !noalias !0
+  %10 = zext i32 %6 to i64
+  %11 = inttoptr i64 %10 to i32*
+  store i32 %r1, i32* %11, align 4, !noalias !0
+  %12 = add i32 %r13_3, -20
+  %13 = zext i32 %12 to i64
+  %14 = inttoptr i64 %13 to i32*
+  store i32 %r2, i32* %14, align 4, !noalias !0
+  %15 = zext i32 %r13_3 to i64
+  %16 = inttoptr i64 %15 to i32*
+  %17 = load i32, i32* %16, align 4, !noalias !0
+  %18 = load i32, i32* %11, align 4, !noalias !0
+  %19 = add i32 %17, %r2
+  %20 = add i32 %r0, 4
+  %21 = zext i32 %20 to i64
+  %22 = inttoptr i64 %21 to i32*
+  store i32 %19, i32* %22, align 4, !noalias !0
+  %23 = add i32 %18, %r3
+  %24 = zext i32 %r0 to i64
+  %25 = inttoptr i64 %24 to i32*
+  store i32 %23, i32* %25, align 4, !noalias !0
+  %26 = load i32, i32* %2, align 4, !noalias !0
+  %27 = load i32, i32* %5, align 4, !noalias !0
+  %28 = and i32 %r14_4, 1
+  store i32 %28, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 %18, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %23, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
+  store i32 %26, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %29 = insertvalue { i32 } undef, i32 %19, 0
+  ret { i32 } %29
+}
+
+; Function Attrs: noinline nounwind
+define internal { i32, i32 } @__aeabi_idiv(i32 %r0, i32 %r1) local_unnamed_addr #2 {
+"0x758":
+  %r13_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r14_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %0 = icmp eq i32 %r1, 0
+  br i1 %0, label %"0xa08", label %"0x75e"
+
+"0xa08":                                          ; preds = %"0x758"
+  %1 = add i32 %r13_1, -8
+  %2 = zext i32 %1 to i64
+  %3 = inttoptr i64 %2 to i32*
+  store i32 0, i32* %3, align 4, !noalias !0
+  %4 = add i32 %r13_1, -4
+  %5 = zext i32 %4 to i64
+  %6 = inttoptr i64 %5 to i32*
+  store i32 %r14_2, i32* %6, align 4, !noalias !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 8, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 0), align 8, !alias.scope !0
+  store i32 %1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  store i32 2579, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  tail call void @"0x480"()
+  %r13_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %7 = zext i32 %r13_8 to i64
+  %8 = inttoptr i64 %7 to i32*
+  %9 = load i32, i32* %8, align 4, !noalias !0
+  %10 = add i32 %r13_8, 4
+  %11 = zext i32 %10 to i64
+  %12 = inttoptr i64 %11 to i32*
+  %13 = load i32, i32* %12, align 4, !noalias !0
+  %14 = and i32 %13, 1
+  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  %15 = add i32 %r13_8, 8
+  store i32 %15, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %16 = insertvalue { i32, i32 } { i32 8, i32 undef }, i32 %9, 1
+  ret { i32, i32 } %16
+
+"0x75e":                                          ; preds = %"0x758"
+  %17 = xor i32 %r1, %r0
+  %18 = icmp sgt i32 %r1, -1
+  %19 = sub i32 0, %r1
+  %r1. = select i1 %18, i32 %r1, i32 %19
+  %20 = add i32 %r1., -1
+  %21 = icmp eq i32 %20, 0
+  br i1 %21, label %"0x9aa", label %"0x76c"
+
+"0x9aa":                                          ; preds = %"0x75e"
+  %22 = and i32 %r1., -2
+  %23 = sub i32 0, %r0
+  %r0. = select i1 %18, i32 %r0, i32 %23
+  %24 = and i32 %r14_2, 1
+  store i32 %24, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %22, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %25 = insertvalue { i32, i32 } undef, i32 %r0., 0
+  %26 = insertvalue { i32, i32 } %25, i32 %r1., 1
+  ret { i32, i32 } %26
+
+"0x76c":                                          ; preds = %"0x75e"
+  %27 = icmp sgt i32 %r0, -1
+  %28 = sub i32 0, %r0
+  %r0.39 = select i1 %27, i32 %r0, i32 %28
+  %29 = sub i32 %r0.39, %r1.
+  %30 = icmp uge i32 %r0.39, %r1.
+  %31 = zext i1 %30 to i32
+  %32 = xor i32 %29, %r0.39
+  %33 = xor i32 %r1., %r0.39
+  %34 = and i32 %32, %33
+  %35 = icmp ne i32 %29, 0
+  %36 = and i1 %30, %35
+  br i1 %36, label %"0x778", label %l324
+
+"0x778":                                          ; preds = %"0x76c"
+  %37 = and i32 %20, %r1.
+  %38 = icmp eq i32 %37, 0
+  br i1 %38, label %"0x9c4", label %"0x77e.exit"
+
+"0x9c4":                                          ; preds = %"0x778"
+  %39 = tail call i32 @helper_clz(i32 %r1.)
+  %40 = sub i32 31, %39
+  %41 = and i32 %40, 224
+  %42 = icmp ult i32 %41, 32
+  %43 = select i1 %42, i32 %r0.39, i32 0
+  %44 = and i32 %40, 31
+  %45 = lshr i32 %43, %44
+  %46 = icmp sgt i32 %17, -1
+  %47 = sub i32 0, %45
+  %.41 = select i1 %46, i32 %45, i32 %47
+  %48 = and i32 %r14_2, 1
+  store i32 %48, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 %40, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %49 = insertvalue { i32, i32 } undef, i32 %.41, 0
+  %50 = insertvalue { i32, i32 } %49, i32 %r1., 1
+  ret { i32, i32 } %50
+
+"0x77e.exit":                                     ; preds = %"0x778"
+  %51 = tail call i32 @helper_clz(i32 %r0.39)
+  %52 = tail call i32 @helper_clz(i32 %r1.)
+  %53 = sub i32 %51, %52
+  %54 = shl i32 %53, 4
+  %55 = add i32 %54, ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 15, i32 0, i64 1280) to i32)
+  store i32 %55, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
+  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %34, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %56 = insertvalue { i32, i32 } { i32 0, i32 undef }, i32 %r1., 1
+  ret { i32, i32 } %56
+
+l324:                                             ; preds = %"0x76c"
+  %r0_.1 = select i1 %30, i32 %r0, i32 0
+  %57 = icmp eq i32 %29, 0
+  %58 = ashr i32 %17, 31
+  %59 = or i32 %58, 1
+  %..r0_.1 = select i1 %57, i32 %59, i32 %r0_.1
+  %60 = and i32 %r14_2, 1
+  store i32 %60, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
+  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
+  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %29, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %34, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %29, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %61 = insertvalue { i32, i32 } undef, i32 %..r0_.1, 0
+  %62 = insertvalue { i32, i32 } %61, i32 %r1., 1
+  ret { i32, i32 } %62
+}
+
+; Function Attrs: noinline norecurse nounwind
+define internal { i32 } @cn_mul(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
+"0x6d4":
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  %r13_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r14_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %0 = add i32 %r13_5, -24
+  %1 = zext i32 %0 to i64
+  %2 = inttoptr i64 %1 to i32*
+  store i32 %r4_1, i32* %2, align 4, !noalias !0
+  %3 = add i32 %r13_5, -20
+  %4 = zext i32 %3 to i64
+  %5 = inttoptr i64 %4 to i32*
+  store i32 %r5_2, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_5, -16
+  %7 = zext i32 %6 to i64
+  %8 = inttoptr i64 %7 to i32*
+  store i32 %r6_3, i32* %8, align 4, !noalias !0
+  %9 = add i32 %r13_5, -12
+  %10 = zext i32 %9 to i64
+  %11 = inttoptr i64 %10 to i32*
+  store i32 %r7_4, i32* %11, align 4, !noalias !0
+  %12 = add i32 %r13_5, -32
+  %13 = add i32 %r13_5, -4
+  %14 = zext i32 %13 to i64
+  %15 = inttoptr i64 %14 to i32*
+  store i32 %r3, i32* %15, align 4, !noalias !0
+  %16 = zext i32 %12 to i64
+  %17 = inttoptr i64 %16 to i32*
+  store i32 %r1, i32* %17, align 4, !noalias !0
+  %18 = add i32 %r13_5, -28
+  %19 = zext i32 %18 to i64
+  %20 = inttoptr i64 %19 to i32*
+  store i32 %r2, i32* %20, align 4, !noalias !0
+  %21 = load i32, i32* %17, align 4, !noalias !0
+  %22 = zext i32 %r13_5 to i64
+  %23 = inttoptr i64 %22 to i32*
+  %24 = load i32, i32* %23, align 4, !noalias !0
+  %25 = mul i32 %21, %r3
+  %26 = mul i32 %24, %21
+  %27 = mul i32 %r3, %r2
+  %28 = add i32 %26, %27
+  %29 = mul i32 %24, %r2
+  %30 = sub i32 %25, %29
+  %31 = add i32 %r0, 4
+  %32 = zext i32 %31 to i64
+  %33 = inttoptr i64 %32 to i32*
+  store i32 %28, i32* %33, align 4, !noalias !0
+  %34 = zext i32 %r0 to i64
+  %35 = inttoptr i64 %34 to i32*
+  store i32 %30, i32* %35, align 4, !noalias !0
+  %36 = load i32, i32* %2, align 4, !noalias !0
+  %37 = load i32, i32* %5, align 4, !noalias !0
+  %38 = load i32, i32* %8, align 4, !noalias !0
+  %39 = load i32, i32* %11, align 4, !noalias !0
+  %40 = and i32 %r14_6, 1
+  store i32 %40, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %36, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  store i32 %38, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  store i32 %39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  %41 = insertvalue { i32 } undef, i32 %28, 0
+  ret { i32 } %41
+}
+
+; Function Attrs: noinline norecurse nounwind
+define internal { i32 } @cn_sub(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
+"0x6b0":
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %0 = add i32 %r13_3, -16
+  %1 = zext i32 %0 to i64
+  %2 = inttoptr i64 %1 to i32*
+  store i32 %r4_1, i32* %2, align 4, !noalias !0
+  %3 = add i32 %r13_3, -12
+  %4 = zext i32 %3 to i64
+  %5 = inttoptr i64 %4 to i32*
+  store i32 %r5_2, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_3, -24
+  %7 = zext i32 %r13_3 to i64
+  %8 = inttoptr i64 %7 to i32*
+  %9 = load i32, i32* %8, align 4, !noalias !0
+  %10 = zext i32 %6 to i64
+  %11 = inttoptr i64 %10 to i32*
+  store i32 %r1, i32* %11, align 4, !noalias !0
+  %12 = add i32 %r13_3, -20
+  %13 = zext i32 %12 to i64
+  %14 = inttoptr i64 %13 to i32*
+  store i32 %r2, i32* %14, align 4, !noalias !0
+  %15 = load i32, i32* %11, align 4, !noalias !0
+  %16 = add i32 %r13_3, -4
+  %17 = zext i32 %16 to i64
+  %18 = inttoptr i64 %17 to i32*
+  store i32 %r3, i32* %18, align 4, !noalias !0
+  %19 = sub i32 %r2, %9
+  %20 = sub i32 %15, %r3
+  %21 = add i32 %r0, 4
+  %22 = zext i32 %21 to i64
+  %23 = inttoptr i64 %22 to i32*
+  store i32 %19, i32* %23, align 4, !noalias !0
+  %24 = zext i32 %r0 to i64
+  %25 = inttoptr i64 %24 to i32*
+  store i32 %20, i32* %25, align 4, !noalias !0
+  %26 = load i32, i32* %2, align 4, !noalias !0
+  %27 = load i32, i32* %5, align 4, !noalias !0
+  %28 = and i32 %r14_4, 1
+  store i32 %28, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  %29 = xor i32 %20, %15
+  %30 = xor i32 %15, %r3
+  %31 = and i32 %29, %30
+  %32 = icmp uge i32 %15, %r3
+  %33 = zext i1 %32 to i32
+  store i32 %15, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
+  store i32 %26, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  %34 = insertvalue { i32 } undef, i32 %19, 0
+  ret { i32 } %34
+}
+
+; Function Attrs: noinline nounwind
+define internal { i32 } @cn_div(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #2 {
+"0x704":
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  %r8_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
+  %r9_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
+  %r13_7 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r14_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %0 = add i32 %r13_7, -36
+  %1 = zext i32 %0 to i64
+  %2 = inttoptr i64 %1 to i32*
+  store i32 %r4_1, i32* %2, align 4, !noalias !0
+  %3 = add i32 %r13_7, -32
+  %4 = zext i32 %3 to i64
+  %5 = inttoptr i64 %4 to i32*
+  store i32 %r5_2, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_7, -28
+  %7 = zext i32 %6 to i64
+  %8 = inttoptr i64 %7 to i32*
+  store i32 %r6_3, i32* %8, align 4, !noalias !0
+  %9 = add i32 %r13_7, -24
+  %10 = zext i32 %9 to i64
+  %11 = inttoptr i64 %10 to i32*
+  store i32 %r7_4, i32* %11, align 4, !noalias !0
+  %12 = add i32 %r13_7, -20
+  %13 = zext i32 %12 to i64
+  %14 = inttoptr i64 %13 to i32*
+  store i32 %r8_5, i32* %14, align 4, !noalias !0
+  %15 = add i32 %r13_7, -16
+  %16 = zext i32 %15 to i64
+  %17 = inttoptr i64 %16 to i32*
+  store i32 %r9_6, i32* %17, align 4, !noalias !0
+  %18 = add i32 %r13_7, -12
+  %19 = zext i32 %18 to i64
+  %20 = inttoptr i64 %19 to i32*
+  store i32 %r14_8, i32* %20, align 4, !noalias !0
+  %21 = add i32 %r13_7, -48
+  %22 = zext i32 %r13_7 to i64
+  %23 = inttoptr i64 %22 to i32*
+  %24 = load i32, i32* %23, align 4, !noalias !0
+  %25 = zext i32 %21 to i64
+  %26 = inttoptr i64 %25 to i32*
+  store i32 %r1, i32* %26, align 4, !noalias !0
+  %27 = add i32 %r13_7, -44
+  %28 = zext i32 %27 to i64
+  %29 = inttoptr i64 %28 to i32*
+  store i32 %r2, i32* %29, align 4, !noalias !0
+  %30 = mul i32 %24, %24
+  %31 = load i32, i32* %26, align 4, !noalias !0
+  %32 = mul i32 %r3, %r3
+  %33 = add i32 %30, %32
+  %34 = add i32 %r13_7, -4
+  %35 = zext i32 %34 to i64
+  %36 = inttoptr i64 %35 to i32*
+  store i32 %r3, i32* %36, align 4, !noalias !0
+  %37 = mul i32 %31, %r3
+  %38 = mul i32 %24, %r2
+  %39 = add i32 %37, %38
+  store i32 %24, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i32 %r2, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  store i32 %r3, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
+  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
+  store i32 %21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  store i32 1847, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %40 = tail call { i32, i32 } @__aeabi_idiv(i32 %39, i32 %33)
+  %r1_returned = extractvalue { i32, i32 } %40, 1
+  store i32 %r1_returned, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 1), align 4, !alias.scope !0
+  %r6_11 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  %r9_14 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
+  %r8_13 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
+  %r7_12 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  %r5_10 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  %r4_9 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  %r0_returned = extractvalue { i32, i32 } %40, 0
+  %41 = mul i32 %r5_10, %r7_12
+  %42 = zext i32 %r8_13 to i64
+  %43 = inttoptr i64 %42 to i32*
+  store i32 %r0_returned, i32* %43, align 4, !noalias !0
+  %44 = mul i32 %r4_9, %r9_14
+  %45 = sub i32 %41, %44
+  store i32 %41, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  store i32 1865, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %46 = tail call { i32, i32 } @__aeabi_idiv(i32 %45, i32 %r6_11)
+  %r1_returned21 = extractvalue { i32, i32 } %46, 1
+  store i32 %r1_returned21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 1), align 4, !alias.scope !0
+  %r8_22 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
+  %r13_23 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  %r0_returned20 = extractvalue { i32, i32 } %46, 0
+  %47 = add i32 %r8_22, 4
+  %48 = zext i32 %47 to i64
+  %49 = inttoptr i64 %48 to i32*
+  store i32 %r0_returned20, i32* %49, align 4, !noalias !0
+  %50 = add i32 %r13_23, 12
+  %51 = zext i32 %50 to i64
+  %52 = inttoptr i64 %51 to i32*
+  %53 = load i32, i32* %52, align 4, !noalias !0
+  %54 = add i32 %r13_23, 16
+  %55 = zext i32 %54 to i64
+  %56 = inttoptr i64 %55 to i32*
+  %57 = load i32, i32* %56, align 4, !noalias !0
+  %58 = add i32 %r13_23, 20
+  %59 = zext i32 %58 to i64
+  %60 = inttoptr i64 %59 to i32*
+  %61 = load i32, i32* %60, align 4, !noalias !0
+  %62 = add i32 %r13_23, 24
+  %63 = zext i32 %62 to i64
+  %64 = inttoptr i64 %63 to i32*
+  %65 = load i32, i32* %64, align 4, !noalias !0
+  %66 = add i32 %r13_23, 28
+  %67 = zext i32 %66 to i64
+  %68 = inttoptr i64 %67 to i32*
+  %69 = load i32, i32* %68, align 4, !noalias !0
+  %70 = add i32 %r13_23, 32
+  %71 = zext i32 %70 to i64
+  %72 = inttoptr i64 %71 to i32*
+  %73 = load i32, i32* %72, align 4, !noalias !0
+  %74 = add i32 %r13_23, 36
+  %75 = zext i32 %74 to i64
+  %76 = inttoptr i64 %75 to i32*
+  %77 = load i32, i32* %76, align 4, !noalias !0
+  %78 = and i32 %77, 1
+  store i32 %78, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
+  %79 = add i32 %r13_23, 48
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i32 %57, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
+  store i32 %61, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
+  store i32 %65, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
+  store i32 %69, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
+  store i32 %73, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
+  store i32 %79, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
+  store i32 %77, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %80 = insertvalue { i32 } undef, i32 %r8_22, 0
+  ret { i32 } %80
+}
+```
 # How to Build
 ```bash
 export JOVE_SRC_DIR=/path/to/jove
