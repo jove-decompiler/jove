@@ -81,8 +81,8 @@ struct complex_t cn_div(struct complex_t a, struct complex_t b) {
   return c;
 }
 ```
-### Machine Code
-#### AAarch64
+### AAarch64
+#### Machine Code
 ```asm
 000000000000093c <cn_add>:
  93c:   d100c3ff        sub     sp, sp, #0x30
@@ -127,8 +127,7 @@ struct complex_t cn_div(struct complex_t a, struct complex_t b) {
  9c0:   9ac10c61        sdiv    x1, x3, x1
  9c4:   d65f03c0        ret
 ```
-### Decompilation
-#### AAarch64
+#### Decompilation
 ```bash
 $ # $PWD is $JOVE_SRC_DIR/bin/aarch64
 $ ./jove-init ../../tests/bin/gcc/debian-jessie/aarch64/complex-num
