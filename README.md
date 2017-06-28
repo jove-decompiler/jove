@@ -433,15 +433,6 @@ define { i64, i64, i64, i64, i64, i64, i64 } @cn_div(i64 %x0, i64 %x1, i64 %x2, 
   ret { i64, i64, i64, i64, i64, i64, i64 } %17
 }
 
-; Function Attrs: noinline
-define internal void @"0x658"() local_unnamed_addr #0 {
-"0x658":
-  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 1) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
-  store i64 ptrtoint (void ()* @__libc_start_main to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
-  tail call void @__jove_call(void ()* nonnull @__libc_start_main)
-  ret void
-}
-
 ; Function Attrs: noinline norecurse nounwind
 define { i64, i64 } @cn_add(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #2 {
 "0x93c":
@@ -514,15 +505,6 @@ define { i64, i64 } @cn_sub(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_ad
   %18 = insertvalue { i64, i64 } undef, i64 %17, 0
   %19 = insertvalue { i64, i64 } %18, i64 %12, 1
   ret { i64, i64 } %19
-}
-
-; Function Attrs: noinline
-define internal void @"0x698"() local_unnamed_addr #0 {
-"0x698":
-  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 5) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
-  store i64 ptrtoint (void ()* @puts to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
-  tail call void @__jove_call(void ()* nonnull @puts)
-  ret void
 }
 
 ; Function Attrs: noinline norecurse nounwind readnone
