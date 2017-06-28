@@ -81,6 +81,52 @@ struct complex_t cn_div(struct complex_t a, struct complex_t b) {
   return c;
 }
 ```
+### Machine Code
+#### AAarch64
+```asm
+000000000000093c <cn_add>:
+ 93c:   d100c3ff        sub     sp, sp, #0x30
+ 940:   a90107e0        stp     x0, x1, [sp, #16]
+ 944:   a9000fe2        stp     x2, x3, [sp]
+ 948:   3dc007e0        ldr     q0, [sp, #16]
+ 94c:   3dc003e1        ldr     q1, [sp]
+ 950:   4ee18400        add     v0.2d, v0.2d, v1.2d
+ 954:   3d800be0        str     q0, [sp, #32]
+ 958:   a94207e0        ldp     x0, x1, [sp, #32]
+ 95c:   9100c3ff        add     sp, sp, #0x30
+ 960:   d65f03c0        ret
+
+0000000000000964 <cn_sub>:
+ 964:   d100c3ff        sub     sp, sp, #0x30
+ 968:   a90107e0        stp     x0, x1, [sp, #16]
+ 96c:   a9000fe2        stp     x2, x3, [sp]
+ 970:   3dc007e0        ldr     q0, [sp, #16]
+ 974:   3dc003e1        ldr     q1, [sp]
+ 978:   6ee18400        sub     v0.2d, v0.2d, v1.2d
+ 97c:   3d800be0        str     q0, [sp, #32]
+ 980:   a94207e0        ldp     x0, x1, [sp, #32]
+ 984:   9100c3ff        add     sp, sp, #0x30
+ 988:   d65f03c0        ret
+
+000000000000098c <cn_mul>:
+ 98c:   9b007c46        mul     x6, x2, x0
+ 990:   aa0103e5        mov     x5, x1
+ 994:   9b007c61        mul     x1, x3, x0
+ 998:   9b050441        madd    x1, x2, x5, x1
+ 99c:   9b059860        msub    x0, x3, x5, x6
+ 9a0:   d65f03c0        ret
+
+00000000000009a4 <cn_div>:
+ 9a4:   9b017c46        mul     x6, x2, x1
+ 9a8:   9b017c65        mul     x5, x3, x1
+ 9ac:   9b037c64        mul     x4, x3, x3
+ 9b0:   9b021041        madd    x1, x2, x2, x4
+ 9b4:   9b009863        msub    x3, x3, x0, x6
+ 9b8:   9b001442        madd    x2, x2, x0, x5
+ 9bc:   9ac10c40        sdiv    x0, x2, x1
+ 9c0:   9ac10c61        sdiv    x1, x3, x1
+ 9c4:   d65f03c0        ret
+```
 ### Decompilation
 #### AAarch64
 ```bash
