@@ -13,22 +13,23 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 # on ArchLinux
 sudo pacman -S parallel
 ```
-### Boost
+### Libraries
+#### Boost
 ```bash
 # on Archlinux
 sudo pacman -S boost
 ```
-### LLVM Toolchain
+#### LLVM
 ```bash
 # on ArchLinux
 sudo pacman -S llvm clang llvm-ocaml boost lld lldb
 ```
-### OCamlgraph
+#### OCamlgraph
 ```bash
 # on ArchLinux
 yaourt -S ocaml-ocamlgraph
 ```
-### QEMU 2.6.2
+#### QEMU 2.6.2
 ```bash
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
