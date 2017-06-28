@@ -7,28 +7,28 @@
 export JOVE_SRC_DIR=/path/to/jove
 git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 ```
-## Preparation
-### Tools (Linux)
+## Preparation (Linux)
+### Tools
 ```bash
 # on ArchLinux
 sudo pacman -S parallel
 ```
-### Boost (Linux)
+### Boost
 ```bash
 # on Archlinux
 sudo pacman -S boost
 ```
-### LLVM 4.0 Toolchain (Linux)
+### LLVM Toolchain
 ```bash
 # on ArchLinux
 sudo pacman -S llvm clang llvm-ocaml boost lld lldb
 ```
-### OCamlgraph (Linux)
+### OCamlgraph
 ```bash
 # on ArchLinux
 yaourt -S ocaml-ocamlgraph
 ```
-### QEMU 2.6.2 (Linux)
+### QEMU 2.6.2
 ```bash
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
