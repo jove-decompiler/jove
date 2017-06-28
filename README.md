@@ -1966,472 +1966,421 @@ a58
 ; Function Attrs: noinline norecurse nounwind
 define internal { i32 } @cn_add(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
 "0x68c":
-  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
   %0 = add i32 %r13_3, -16
-  %1 = zext i32 %0 to i64
-  %2 = inttoptr i64 %1 to i32*
-  store i32 %r4_1, i32* %2, align 4, !noalias !0
-  %3 = add i32 %r13_3, -12
-  %4 = zext i32 %3 to i64
-  %5 = inttoptr i64 %4 to i32*
-  store i32 %r5_2, i32* %5, align 4, !noalias !0
-  %6 = add i32 %r13_3, -24
-  %7 = add i32 %r13_3, -4
-  %8 = zext i32 %7 to i64
-  %9 = inttoptr i64 %8 to i32*
-  store i32 %r3, i32* %9, align 4, !noalias !0
-  %10 = zext i32 %6 to i64
-  %11 = inttoptr i64 %10 to i32*
-  store i32 %r1, i32* %11, align 4, !noalias !0
-  %12 = add i32 %r13_3, -20
-  %13 = zext i32 %12 to i64
-  %14 = inttoptr i64 %13 to i32*
-  store i32 %r2, i32* %14, align 4, !noalias !0
-  %15 = zext i32 %r13_3 to i64
-  %16 = inttoptr i64 %15 to i32*
-  %17 = load i32, i32* %16, align 4, !noalias !0
-  %18 = load i32, i32* %11, align 4, !noalias !0
-  %19 = add i32 %17, %r2
-  %20 = add i32 %r0, 4
-  %21 = zext i32 %20 to i64
-  %22 = inttoptr i64 %21 to i32*
-  store i32 %19, i32* %22, align 4, !noalias !0
-  %23 = add i32 %18, %r3
-  %24 = zext i32 %r0 to i64
-  %25 = inttoptr i64 %24 to i32*
-  store i32 %23, i32* %25, align 4, !noalias !0
-  %26 = load i32, i32* %2, align 4, !noalias !0
-  %27 = load i32, i32* %5, align 4, !noalias !0
-  %28 = and i32 %r14_4, 1
-  store i32 %28, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 %18, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %23, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
-  store i32 %26, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %29 = insertvalue { i32 } undef, i32 %19, 0
-  ret { i32 } %29
-}
-
-; Function Attrs: noinline nounwind
-define internal { i32, i32 } @__aeabi_idiv(i32 %r0, i32 %r1) local_unnamed_addr #2 {
-"0x758":
-  %r13_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r14_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  %0 = icmp eq i32 %r1, 0
-  br i1 %0, label %"0xa08", label %"0x75e"
-
-"0xa08":                                          ; preds = %"0x758"
-  %1 = add i32 %r13_1, -8
-  %2 = zext i32 %1 to i64
-  %3 = inttoptr i64 %2 to i32*
-  store i32 0, i32* %3, align 4, !noalias !0
-  %4 = add i32 %r13_1, -4
-  %5 = zext i32 %4 to i64
-  %6 = inttoptr i64 %5 to i32*
-  store i32 %r14_2, i32* %6, align 4, !noalias !0
-  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 8, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 0), align 8, !alias.scope !0
-  store i32 %1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  store i32 2579, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  tail call void @"0x480"()
-  %r13_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %7 = zext i32 %r13_8 to i64
-  %8 = inttoptr i64 %7 to i32*
-  %9 = load i32, i32* %8, align 4, !noalias !0
-  %10 = add i32 %r13_8, 4
-  %11 = zext i32 %10 to i64
-  %12 = inttoptr i64 %11 to i32*
-  %13 = load i32, i32* %12, align 4, !noalias !0
-  %14 = and i32 %13, 1
-  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  %15 = add i32 %r13_8, 8
-  store i32 %15, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %16 = insertvalue { i32, i32 } { i32 8, i32 undef }, i32 %9, 1
-  ret { i32, i32 } %16
-
-"0x75e":                                          ; preds = %"0x758"
-  %17 = xor i32 %r1, %r0
-  %18 = icmp sgt i32 %r1, -1
-  %19 = sub i32 0, %r1
-  %r1. = select i1 %18, i32 %r1, i32 %19
-  %20 = add i32 %r1., -1
-  %21 = icmp eq i32 %20, 0
-  br i1 %21, label %"0x9aa", label %"0x76c"
-
-"0x9aa":                                          ; preds = %"0x75e"
-  %22 = and i32 %r1., -2
-  %23 = sub i32 0, %r0
-  %r0. = select i1 %18, i32 %r0, i32 %23
-  %24 = and i32 %r14_2, 1
-  store i32 %24, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
-  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 %22, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %25 = insertvalue { i32, i32 } undef, i32 %r0., 0
-  %26 = insertvalue { i32, i32 } %25, i32 %r1., 1
-  ret { i32, i32 } %26
-
-"0x76c":                                          ; preds = %"0x75e"
-  %27 = icmp sgt i32 %r0, -1
-  %28 = sub i32 0, %r0
-  %r0.39 = select i1 %27, i32 %r0, i32 %28
-  %29 = sub i32 %r0.39, %r1.
-  %30 = icmp uge i32 %r0.39, %r1.
-  %31 = zext i1 %30 to i32
-  %32 = xor i32 %29, %r0.39
-  %33 = xor i32 %r1., %r0.39
-  %34 = and i32 %32, %33
-  %35 = icmp ne i32 %29, 0
-  %36 = and i1 %30, %35
-  br i1 %36, label %"0x778", label %l324
-
-"0x778":                                          ; preds = %"0x76c"
-  %37 = and i32 %20, %r1.
-  %38 = icmp eq i32 %37, 0
-  br i1 %38, label %"0x9c4", label %"0x77e.exit"
-
-"0x9c4":                                          ; preds = %"0x778"
-  %39 = tail call i32 @helper_clz(i32 %r1.)
-  %40 = sub i32 31, %39
-  %41 = and i32 %40, 224
-  %42 = icmp ult i32 %41, 32
-  %43 = select i1 %42, i32 %r0.39, i32 0
-  %44 = and i32 %40, 31
-  %45 = lshr i32 %43, %44
-  %46 = icmp sgt i32 %17, -1
-  %47 = sub i32 0, %45
-  %.41 = select i1 %46, i32 %45, i32 %47
-  %48 = and i32 %r14_2, 1
-  store i32 %48, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 %40, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
-  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %49 = insertvalue { i32, i32 } undef, i32 %.41, 0
-  %50 = insertvalue { i32, i32 } %49, i32 %r1., 1
-  ret { i32, i32 } %50
-
-"0x77e.exit":                                     ; preds = %"0x778"
-  %51 = tail call i32 @helper_clz(i32 %r0.39)
-  %52 = tail call i32 @helper_clz(i32 %r1.)
-  %53 = sub i32 %51, %52
-  %54 = shl i32 %53, 4
-  %55 = add i32 %54, ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 15, i32 0, i64 1280) to i32)
-  store i32 %55, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
-  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 %34, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %56 = insertvalue { i32, i32 } { i32 0, i32 undef }, i32 %r1., 1
-  ret { i32, i32 } %56
-
-l324:                                             ; preds = %"0x76c"
-  %r0_.1 = select i1 %30, i32 %r0, i32 0
-  %57 = icmp eq i32 %29, 0
-  %58 = ashr i32 %17, 31
-  %59 = or i32 %58, 1
-  %..r0_.1 = select i1 %57, i32 %59, i32 %r0_.1
-  %60 = and i32 %r14_2, 1
-  store i32 %60, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
-  store i32 %17, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 12), align 8, !alias.scope !0
-  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %29, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 %34, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %29, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %61 = insertvalue { i32, i32 } undef, i32 %..r0_.1, 0
-  %62 = insertvalue { i32, i32 } %61, i32 %r1., 1
-  ret { i32, i32 } %62
-}
-
-; Function Attrs: noinline norecurse nounwind
-define internal { i32 } @cn_mul(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
-"0x6d4":
-  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  %r13_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r14_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  %0 = add i32 %r13_5, -24
-  %1 = zext i32 %0 to i64
-  %2 = inttoptr i64 %1 to i32*
-  store i32 %r4_1, i32* %2, align 4, !noalias !0
-  %3 = add i32 %r13_5, -20
-  %4 = zext i32 %3 to i64
-  %5 = inttoptr i64 %4 to i32*
-  store i32 %r5_2, i32* %5, align 4, !noalias !0
-  %6 = add i32 %r13_5, -16
-  %7 = zext i32 %6 to i64
-  %8 = inttoptr i64 %7 to i32*
-  store i32 %r6_3, i32* %8, align 4, !noalias !0
-  %9 = add i32 %r13_5, -12
-  %10 = zext i32 %9 to i64
-  %11 = inttoptr i64 %10 to i32*
-  store i32 %r7_4, i32* %11, align 4, !noalias !0
-  %12 = add i32 %r13_5, -32
-  %13 = add i32 %r13_5, -4
-  %14 = zext i32 %13 to i64
-  %15 = inttoptr i64 %14 to i32*
-  store i32 %r3, i32* %15, align 4, !noalias !0
-  %16 = zext i32 %12 to i64
-  %17 = inttoptr i64 %16 to i32*
-  store i32 %r1, i32* %17, align 4, !noalias !0
-  %18 = add i32 %r13_5, -28
-  %19 = zext i32 %18 to i64
-  %20 = inttoptr i64 %19 to i32*
-  store i32 %r2, i32* %20, align 4, !noalias !0
-  %21 = load i32, i32* %17, align 4, !noalias !0
-  %22 = zext i32 %r13_5 to i64
-  %23 = inttoptr i64 %22 to i32*
-  %24 = load i32, i32* %23, align 4, !noalias !0
-  %25 = mul i32 %21, %r3
-  %26 = mul i32 %24, %21
-  %27 = mul i32 %r3, %r2
-  %28 = add i32 %26, %27
-  %29 = mul i32 %24, %r2
-  %30 = sub i32 %25, %29
-  %31 = add i32 %r0, 4
-  %32 = zext i32 %31 to i64
-  %33 = inttoptr i64 %32 to i32*
-  store i32 %28, i32* %33, align 4, !noalias !0
-  %34 = zext i32 %r0 to i64
-  %35 = inttoptr i64 %34 to i32*
-  store i32 %30, i32* %35, align 4, !noalias !0
-  %36 = load i32, i32* %2, align 4, !noalias !0
-  %37 = load i32, i32* %5, align 4, !noalias !0
-  %38 = load i32, i32* %8, align 4, !noalias !0
-  %39 = load i32, i32* %11, align 4, !noalias !0
-  %40 = and i32 %r14_6, 1
-  store i32 %40, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %36, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  store i32 %37, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  store i32 %38, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  store i32 %39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  %41 = insertvalue { i32 } undef, i32 %28, 0
-  ret { i32 } %41
+  %1 = inttoptr i32 %0 to i32*
+  store i32 %r4_1, i32* %1, align 4, !noalias !0
+  %2 = add i32 %r13_3, -12
+  %3 = inttoptr i32 %2 to i32*
+  store i32 %r5_2, i32* %3, align 4, !noalias !0
+  %4 = add i32 %r13_3, -24
+  %5 = add i32 %r13_3, -4
+  %6 = inttoptr i32 %5 to i32*
+  store i32 %r3, i32* %6, align 4, !noalias !0
+  %7 = inttoptr i32 %4 to i32*
+  store i32 %r1, i32* %7, align 4, !noalias !0
+  %8 = add i32 %r13_3, -20
+  %9 = inttoptr i32 %8 to i32*
+  store i32 %r2, i32* %9, align 4, !noalias !0
+  %10 = inttoptr i32 %r13_3 to i32*
+  %11 = load i32, i32* %10, align 4, !noalias !0
+  %12 = load i32, i32* %7, align 4, !noalias !0
+  %13 = add i32 %11, %r2
+  %14 = add i32 %r0, 4
+  %15 = inttoptr i32 %14 to i32*
+  store i32 %13, i32* %15, align 4, !noalias !0
+  %16 = add i32 %12, %r3
+  %17 = inttoptr i32 %r0 to i32*
+  store i32 %16, i32* %17, align 4, !noalias !0
+  %18 = load i32, i32* %1, align 4, !noalias !0
+  %19 = load i32, i32* %3, align 4, !noalias !0
+  %20 = and i32 %r14_4, 1
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 %12, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %16, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 3), align 4, !alias.scope !0
+  store i32 %18, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  store i32 %19, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %21 = insertvalue { i32 } undef, i32 %13, 0
+  ret { i32 } %21
 }
 
 ; Function Attrs: noinline norecurse nounwind
 define internal { i32 } @cn_sub(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
 "0x6b0":
-  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %r13_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r14_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
   %0 = add i32 %r13_3, -16
-  %1 = zext i32 %0 to i64
-  %2 = inttoptr i64 %1 to i32*
-  store i32 %r4_1, i32* %2, align 4, !noalias !0
-  %3 = add i32 %r13_3, -12
-  %4 = zext i32 %3 to i64
-  %5 = inttoptr i64 %4 to i32*
-  store i32 %r5_2, i32* %5, align 4, !noalias !0
-  %6 = add i32 %r13_3, -24
-  %7 = zext i32 %r13_3 to i64
-  %8 = inttoptr i64 %7 to i32*
-  %9 = load i32, i32* %8, align 4, !noalias !0
-  %10 = zext i32 %6 to i64
-  %11 = inttoptr i64 %10 to i32*
+  %1 = inttoptr i32 %0 to i32*
+  store i32 %r4_1, i32* %1, align 4, !noalias !0
+  %2 = add i32 %r13_3, -12
+  %3 = inttoptr i32 %2 to i32*
+  store i32 %r5_2, i32* %3, align 4, !noalias !0
+  %4 = add i32 %r13_3, -24
+  %5 = inttoptr i32 %r13_3 to i32*
+  %6 = load i32, i32* %5, align 4, !noalias !0
+  %7 = inttoptr i32 %4 to i32*
+  store i32 %r1, i32* %7, align 4, !noalias !0
+  %8 = add i32 %r13_3, -20
+  %9 = inttoptr i32 %8 to i32*
+  store i32 %r2, i32* %9, align 4, !noalias !0
+  %10 = load i32, i32* %7, align 4, !noalias !0
+  %11 = add i32 %r13_3, -4
+  %12 = inttoptr i32 %11 to i32*
+  store i32 %r3, i32* %12, align 4, !noalias !0
+  %13 = sub i32 %r2, %6
+  %14 = sub i32 %10, %r3
+  %15 = add i32 %r0, 4
+  %16 = inttoptr i32 %15 to i32*
+  store i32 %13, i32* %16, align 4, !noalias !0
+  %17 = inttoptr i32 %r0 to i32*
+  store i32 %14, i32* %17, align 4, !noalias !0
+  %18 = load i32, i32* %1, align 4, !noalias !0
+  %19 = load i32, i32* %3, align 4, !noalias !0
+  %20 = and i32 %r14_4, 1
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  %21 = xor i32 %14, %10
+  %22 = xor i32 %10, %r3
+  %23 = and i32 %21, %22
+  %24 = icmp uge i32 %10, %r3
+  %25 = zext i1 %24 to i32
+  store i32 %10, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 3), align 4, !alias.scope !0
+  store i32 %18, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  store i32 %19, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  store i32 %25, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 %23, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %26 = insertvalue { i32 } undef, i32 %13, 0
+  ret { i32 } %26
+}
+
+; Function Attrs: noinline norecurse nounwind
+define internal { i32 } @cn_mul(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #0 {
+"0x6d4":
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  %r13_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r14_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  %0 = add i32 %r13_5, -24
+  %1 = inttoptr i32 %0 to i32*
+  store i32 %r4_1, i32* %1, align 4, !noalias !0
+  %2 = add i32 %r13_5, -20
+  %3 = inttoptr i32 %2 to i32*
+  store i32 %r5_2, i32* %3, align 4, !noalias !0
+  %4 = add i32 %r13_5, -16
+  %5 = inttoptr i32 %4 to i32*
+  store i32 %r6_3, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_5, -12
+  %7 = inttoptr i32 %6 to i32*
+  store i32 %r7_4, i32* %7, align 4, !noalias !0
+  %8 = add i32 %r13_5, -32
+  %9 = add i32 %r13_5, -4
+  %10 = inttoptr i32 %9 to i32*
+  store i32 %r3, i32* %10, align 4, !noalias !0
+  %11 = inttoptr i32 %8 to i32*
   store i32 %r1, i32* %11, align 4, !noalias !0
-  %12 = add i32 %r13_3, -20
-  %13 = zext i32 %12 to i64
-  %14 = inttoptr i64 %13 to i32*
-  store i32 %r2, i32* %14, align 4, !noalias !0
-  %15 = load i32, i32* %11, align 4, !noalias !0
-  %16 = add i32 %r13_3, -4
-  %17 = zext i32 %16 to i64
-  %18 = inttoptr i64 %17 to i32*
-  store i32 %r3, i32* %18, align 4, !noalias !0
-  %19 = sub i32 %r2, %9
-  %20 = sub i32 %15, %r3
-  %21 = add i32 %r0, 4
-  %22 = zext i32 %21 to i64
-  %23 = inttoptr i64 %22 to i32*
-  store i32 %19, i32* %23, align 4, !noalias !0
-  %24 = zext i32 %r0 to i64
-  %25 = inttoptr i64 %24 to i32*
-  store i32 %20, i32* %25, align 4, !noalias !0
-  %26 = load i32, i32* %2, align 4, !noalias !0
-  %27 = load i32, i32* %5, align 4, !noalias !0
-  %28 = and i32 %r14_4, 1
-  store i32 %28, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  %29 = xor i32 %20, %15
-  %30 = xor i32 %15, %r3
-  %31 = and i32 %29, %30
-  %32 = icmp uge i32 %15, %r3
-  %33 = zext i1 %32 to i32
-  store i32 %15, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 2), align 8, !alias.scope !0
-  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 3), align 4, !alias.scope !0
-  store i32 %26, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
-  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
-  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
-  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
-  %34 = insertvalue { i32 } undef, i32 %19, 0
-  ret { i32 } %34
+  %12 = add i32 %r13_5, -28
+  %13 = inttoptr i32 %12 to i32*
+  store i32 %r2, i32* %13, align 4, !noalias !0
+  %14 = load i32, i32* %11, align 4, !noalias !0
+  %15 = inttoptr i32 %r13_5 to i32*
+  %16 = load i32, i32* %15, align 4, !noalias !0
+  %17 = mul i32 %14, %r3
+  %18 = mul i32 %16, %14
+  %19 = mul i32 %r3, %r2
+  %20 = add i32 %18, %19
+  %21 = mul i32 %16, %r2
+  %22 = sub i32 %17, %21
+  %23 = add i32 %r0, 4
+  %24 = inttoptr i32 %23 to i32*
+  store i32 %20, i32* %24, align 4, !noalias !0
+  %25 = inttoptr i32 %r0 to i32*
+  store i32 %22, i32* %25, align 4, !noalias !0
+  %26 = load i32, i32* %1, align 4, !noalias !0
+  %27 = load i32, i32* %3, align 4, !noalias !0
+  %28 = load i32, i32* %5, align 4, !noalias !0
+  %29 = load i32, i32* %7, align 4, !noalias !0
+  %30 = and i32 %r14_6, 1
+  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 %22, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %26, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  store i32 %28, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  store i32 %29, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  %31 = insertvalue { i32 } undef, i32 %20, 0
+  ret { i32 } %31
 }
 
 ; Function Attrs: noinline nounwind
 define internal { i32 } @cn_div(i32 %r0, i32 %r1, i32 %r2, i32 %r3) local_unnamed_addr #2 {
 "0x704":
-  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  %r8_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
-  %r9_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
-  %r13_7 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r14_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
+  %r4_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  %r5_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %r6_3 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  %r7_4 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  %r8_5 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 8), align 4, !alias.scope !0
+  %r9_6 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 9), align 4, !alias.scope !0
+  %r13_7 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r14_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
   %0 = add i32 %r13_7, -36
-  %1 = zext i32 %0 to i64
-  %2 = inttoptr i64 %1 to i32*
-  store i32 %r4_1, i32* %2, align 4, !noalias !0
-  %3 = add i32 %r13_7, -32
-  %4 = zext i32 %3 to i64
-  %5 = inttoptr i64 %4 to i32*
-  store i32 %r5_2, i32* %5, align 4, !noalias !0
-  %6 = add i32 %r13_7, -28
-  %7 = zext i32 %6 to i64
-  %8 = inttoptr i64 %7 to i32*
-  store i32 %r6_3, i32* %8, align 4, !noalias !0
-  %9 = add i32 %r13_7, -24
-  %10 = zext i32 %9 to i64
-  %11 = inttoptr i64 %10 to i32*
-  store i32 %r7_4, i32* %11, align 4, !noalias !0
-  %12 = add i32 %r13_7, -20
-  %13 = zext i32 %12 to i64
-  %14 = inttoptr i64 %13 to i32*
-  store i32 %r8_5, i32* %14, align 4, !noalias !0
-  %15 = add i32 %r13_7, -16
-  %16 = zext i32 %15 to i64
-  %17 = inttoptr i64 %16 to i32*
-  store i32 %r9_6, i32* %17, align 4, !noalias !0
-  %18 = add i32 %r13_7, -12
-  %19 = zext i32 %18 to i64
-  %20 = inttoptr i64 %19 to i32*
-  store i32 %r14_8, i32* %20, align 4, !noalias !0
-  %21 = add i32 %r13_7, -48
-  %22 = zext i32 %r13_7 to i64
-  %23 = inttoptr i64 %22 to i32*
-  %24 = load i32, i32* %23, align 4, !noalias !0
-  %25 = zext i32 %21 to i64
-  %26 = inttoptr i64 %25 to i32*
-  store i32 %r1, i32* %26, align 4, !noalias !0
-  %27 = add i32 %r13_7, -44
-  %28 = zext i32 %27 to i64
-  %29 = inttoptr i64 %28 to i32*
-  store i32 %r2, i32* %29, align 4, !noalias !0
-  %30 = mul i32 %24, %24
-  %31 = load i32, i32* %26, align 4, !noalias !0
-  %32 = mul i32 %r3, %r3
-  %33 = add i32 %30, %32
-  %34 = add i32 %r13_7, -4
-  %35 = zext i32 %34 to i64
-  %36 = inttoptr i64 %35 to i32*
-  store i32 %r3, i32* %36, align 4, !noalias !0
-  %37 = mul i32 %31, %r3
-  %38 = mul i32 %24, %r2
-  %39 = add i32 %37, %38
-  store i32 %24, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  store i32 %r2, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  store i32 %r3, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
-  store i32 %31, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
-  store i32 %21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  store i32 1847, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  %40 = tail call { i32, i32 } @__aeabi_idiv(i32 %39, i32 %33)
-  %r1_returned = extractvalue { i32, i32 } %40, 1
-  store i32 %r1_returned, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 1), align 4, !alias.scope !0
-  %r6_11 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  %r9_14 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
-  %r8_13 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
-  %r7_12 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  %r5_10 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  %r4_9 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  %r0_returned = extractvalue { i32, i32 } %40, 0
-  %41 = mul i32 %r5_10, %r7_12
-  %42 = zext i32 %r8_13 to i64
-  %43 = inttoptr i64 %42 to i32*
-  store i32 %r0_returned, i32* %43, align 4, !noalias !0
-  %44 = mul i32 %r4_9, %r9_14
-  %45 = sub i32 %41, %44
-  store i32 %41, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  store i32 1865, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  %46 = tail call { i32, i32 } @__aeabi_idiv(i32 %45, i32 %r6_11)
-  %r1_returned21 = extractvalue { i32, i32 } %46, 1
-  store i32 %r1_returned21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 1), align 4, !alias.scope !0
-  %r8_22 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
-  %r13_23 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  %r0_returned20 = extractvalue { i32, i32 } %46, 0
-  %47 = add i32 %r8_22, 4
-  %48 = zext i32 %47 to i64
-  %49 = inttoptr i64 %48 to i32*
-  store i32 %r0_returned20, i32* %49, align 4, !noalias !0
-  %50 = add i32 %r13_23, 12
-  %51 = zext i32 %50 to i64
-  %52 = inttoptr i64 %51 to i32*
+  %1 = inttoptr i32 %0 to i32*
+  store i32 %r4_1, i32* %1, align 4, !noalias !0
+  %2 = add i32 %r13_7, -32
+  %3 = inttoptr i32 %2 to i32*
+  store i32 %r5_2, i32* %3, align 4, !noalias !0
+  %4 = add i32 %r13_7, -28
+  %5 = inttoptr i32 %4 to i32*
+  store i32 %r6_3, i32* %5, align 4, !noalias !0
+  %6 = add i32 %r13_7, -24
+  %7 = inttoptr i32 %6 to i32*
+  store i32 %r7_4, i32* %7, align 4, !noalias !0
+  %8 = add i32 %r13_7, -20
+  %9 = inttoptr i32 %8 to i32*
+  store i32 %r8_5, i32* %9, align 4, !noalias !0
+  %10 = add i32 %r13_7, -16
+  %11 = inttoptr i32 %10 to i32*
+  store i32 %r9_6, i32* %11, align 4, !noalias !0
+  %12 = add i32 %r13_7, -12
+  %13 = inttoptr i32 %12 to i32*
+  store i32 %r14_8, i32* %13, align 4, !noalias !0
+  %14 = add i32 %r13_7, -48
+  %15 = inttoptr i32 %r13_7 to i32*
+  %16 = load i32, i32* %15, align 4, !noalias !0
+  %17 = inttoptr i32 %14 to i32*
+  store i32 %r1, i32* %17, align 4, !noalias !0
+  %18 = add i32 %r13_7, -44
+  %19 = inttoptr i32 %18 to i32*
+  store i32 %r2, i32* %19, align 4, !noalias !0
+  %20 = mul i32 %16, %16
+  %21 = load i32, i32* %17, align 4, !noalias !0
+  %22 = mul i32 %r3, %r3
+  %23 = add i32 %20, %22
+  %24 = add i32 %r13_7, -4
+  %25 = inttoptr i32 %24 to i32*
+  store i32 %r3, i32* %25, align 4, !noalias !0
+  %26 = mul i32 %21, %r3
+  %27 = mul i32 %16, %r2
+  %28 = add i32 %26, %27
+  store i32 %16, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  store i32 %r2, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  store i32 %23, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  store i32 %r3, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 8), align 4, !alias.scope !0
+  store i32 %21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 9), align 4, !alias.scope !0
+  store i32 %14, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 1847, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  %29 = tail call { i32, i32 } @__aeabi_idiv(i32 %28, i32 %23)
+  %r1_returned = extractvalue { i32, i32 } %29, 1
+  store i32 %r1_returned, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 1), align 4, !alias.scope !0
+  %r6_11 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  %r9_14 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 9), align 4, !alias.scope !0
+  %r8_1326 = load i32*, i32** bitcast (i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 8) to i32**), align 4, !alias.scope !0
+  %r7_12 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  %r5_10 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  %r4_9 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  %r0_returned = extractvalue { i32, i32 } %29, 0
+  %30 = mul i32 %r5_10, %r7_12
+  store i32 %r0_returned, i32* %r8_1326, align 4, !noalias !0
+  %31 = mul i32 %r4_9, %r9_14
+  %32 = sub i32 %30, %31
+  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  store i32 1865, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  %33 = tail call { i32, i32 } @__aeabi_idiv(i32 %32, i32 %r6_11)
+  %r1_returned21 = extractvalue { i32, i32 } %33, 1
+  store i32 %r1_returned21, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 1), align 4, !alias.scope !0
+  %r8_22 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 8), align 4, !alias.scope !0
+  %r13_23 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r0_returned20 = extractvalue { i32, i32 } %33, 0
+  %34 = add i32 %r8_22, 4
+  %35 = inttoptr i32 %34 to i32*
+  store i32 %r0_returned20, i32* %35, align 4, !noalias !0
+  %36 = add i32 %r13_23, 12
+  %37 = inttoptr i32 %36 to i32*
+  %38 = load i32, i32* %37, align 4, !noalias !0
+  %39 = add i32 %r13_23, 16
+  %40 = inttoptr i32 %39 to i32*
+  %41 = load i32, i32* %40, align 4, !noalias !0
+  %42 = add i32 %r13_23, 20
+  %43 = inttoptr i32 %42 to i32*
+  %44 = load i32, i32* %43, align 4, !noalias !0
+  %45 = add i32 %r13_23, 24
+  %46 = inttoptr i32 %45 to i32*
+  %47 = load i32, i32* %46, align 4, !noalias !0
+  %48 = add i32 %r13_23, 28
+  %49 = inttoptr i32 %48 to i32*
+  %50 = load i32, i32* %49, align 4, !noalias !0
+  %51 = add i32 %r13_23, 32
+  %52 = inttoptr i32 %51 to i32*
   %53 = load i32, i32* %52, align 4, !noalias !0
-  %54 = add i32 %r13_23, 16
-  %55 = zext i32 %54 to i64
-  %56 = inttoptr i64 %55 to i32*
-  %57 = load i32, i32* %56, align 4, !noalias !0
-  %58 = add i32 %r13_23, 20
-  %59 = zext i32 %58 to i64
-  %60 = inttoptr i64 %59 to i32*
-  %61 = load i32, i32* %60, align 4, !noalias !0
-  %62 = add i32 %r13_23, 24
-  %63 = zext i32 %62 to i64
-  %64 = inttoptr i64 %63 to i32*
-  %65 = load i32, i32* %64, align 4, !noalias !0
-  %66 = add i32 %r13_23, 28
-  %67 = zext i32 %66 to i64
-  %68 = inttoptr i64 %67 to i32*
-  %69 = load i32, i32* %68, align 4, !noalias !0
-  %70 = add i32 %r13_23, 32
-  %71 = zext i32 %70 to i64
-  %72 = inttoptr i64 %71 to i32*
-  %73 = load i32, i32* %72, align 4, !noalias !0
-  %74 = add i32 %r13_23, 36
-  %75 = zext i32 %74 to i64
-  %76 = inttoptr i64 %75 to i32*
-  %77 = load i32, i32* %76, align 4, !noalias !0
-  %78 = and i32 %77, 1
-  store i32 %78, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 18), align 8, !alias.scope !0
-  %79 = add i32 %r13_23, 48
-  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
-  store i32 %57, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 5), align 4, !alias.scope !0
-  store i32 %61, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 6), align 8, !alias.scope !0
-  store i32 %65, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 7), align 4, !alias.scope !0
-  store i32 %69, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 8), align 8, !alias.scope !0
-  store i32 %73, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 9), align 4, !alias.scope !0
-  store i32 %79, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 13), align 4, !alias.scope !0
-  store i32 %77, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 0, i64 14), align 8, !alias.scope !0
-  %80 = insertvalue { i32 } undef, i32 %r8_22, 0
-  ret { i32 } %80
+  %54 = add i32 %r13_23, 36
+  %55 = inttoptr i32 %54 to i32*
+  %56 = load i32, i32* %55, align 4, !noalias !0
+  %57 = and i32 %56, 1
+  store i32 %57, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  %58 = add i32 %r13_23, 48
+  store i32 %38, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 4), align 4, !alias.scope !0
+  store i32 %41, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 5), align 4, !alias.scope !0
+  store i32 %44, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 6), align 4, !alias.scope !0
+  store i32 %47, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 7), align 4, !alias.scope !0
+  store i32 %50, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 8), align 4, !alias.scope !0
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 9), align 4, !alias.scope !0
+  store i32 %58, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %56, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  %59 = insertvalue { i32 } undef, i32 %r8_22, 0
+  ret { i32 } %59
+}
+
+; Function Attrs: noinline nounwind
+define internal { i32, i32 } @__aeabi_idiv(i32 %r0, i32 %r1) local_unnamed_addr #2 {
+"0x758":
+  %r13_1 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %r14_2 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  %0 = icmp eq i32 %r1, 0
+  br i1 %0, label %"0xa08", label %"0x75e"
+
+"0xa08":                                          ; preds = %"0x758"
+  %1 = add i32 %r13_1, -8
+  %2 = inttoptr i32 %1 to i32*
+  store i32 0, i32* %2, align 4, !noalias !0
+  %3 = add i32 %r13_1, -4
+  %4 = inttoptr i32 %3 to i32*
+  store i32 %r14_2, i32* %4, align 4, !noalias !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 8, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 0), align 4, !alias.scope !0
+  store i32 %1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 2579, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  tail call void @"0x480"()
+  %r13_8 = load i32, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  %5 = inttoptr i32 %r13_8 to i32*
+  %6 = load i32, i32* %5, align 4, !noalias !0
+  %7 = add i32 %r13_8, 4
+  %8 = inttoptr i32 %7 to i32*
+  %9 = load i32, i32* %8, align 4, !noalias !0
+  %10 = and i32 %9, 1
+  store i32 %10, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  %11 = add i32 %r13_8, 8
+  store i32 %11, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %r0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %12 = insertvalue { i32, i32 } { i32 8, i32 undef }, i32 %6, 1
+  ret { i32, i32 } %12
+
+"0x75e":                                          ; preds = %"0x758"
+  %13 = xor i32 %r1, %r0
+  %14 = icmp sgt i32 %r1, -1
+  %15 = sub i32 0, %r1
+  %r1. = select i1 %14, i32 %r1, i32 %15
+  %16 = add i32 %r1., -1
+  %17 = icmp eq i32 %16, 0
+  br i1 %17, label %"0x9aa", label %"0x76c"
+
+"0x9aa":                                          ; preds = %"0x75e"
+  %18 = and i32 %r1., -2
+  %19 = sub i32 0, %r0
+  %r0. = select i1 %14, i32 %r0, i32 %19
+  %20 = and i32 %r14_2, 1
+  store i32 %20, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 %18, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %r1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %21 = insertvalue { i32, i32 } undef, i32 %r0., 0
+  %22 = insertvalue { i32, i32 } %21, i32 %r1., 1
+  ret { i32, i32 } %22
+
+"0x76c":                                          ; preds = %"0x75e"
+  %23 = icmp sgt i32 %r0, -1
+  %24 = sub i32 0, %r0
+  %r0.39 = select i1 %23, i32 %r0, i32 %24
+  %25 = sub i32 %r0.39, %r1.
+  %26 = icmp uge i32 %r0.39, %r1.
+  %27 = zext i1 %26 to i32
+  %28 = xor i32 %25, %r0.39
+  %29 = xor i32 %r1., %r0.39
+  %30 = and i32 %28, %29
+  %31 = icmp ne i32 %25, 0
+  %32 = and i1 %26, %31
+  br i1 %32, label %"0x778", label %l324
+
+"0x778":                                          ; preds = %"0x76c"
+  %33 = and i32 %16, %r1.
+  %34 = icmp eq i32 %33, 0
+  br i1 %34, label %"0x9c4", label %"0x77e.exit"
+
+"0x9c4":                                          ; preds = %"0x778"
+  %35 = tail call i32 @helper_clz(i32 %r1.)
+  %36 = sub i32 31, %35
+  %37 = and i32 %36, 224
+  %38 = icmp ult i32 %37, 32
+  %39 = select i1 %38, i32 %r0.39, i32 0
+  %40 = and i32 %36, 31
+  %41 = lshr i32 %39, %40
+  %42 = icmp sgt i32 %13, -1
+  %43 = sub i32 0, %41
+  %.41 = select i1 %42, i32 %41, i32 %43
+  %44 = and i32 %r14_2, 1
+  store i32 %44, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 %36, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 3), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %45 = insertvalue { i32, i32 } undef, i32 %.41, 0
+  %46 = insertvalue { i32, i32 } %45, i32 %r1., 1
+  ret { i32, i32 } %46
+
+"0x77e.exit":                                     ; preds = %"0x778"
+  %47 = tail call i32 @helper_clz(i32 %r0.39)
+  %48 = tail call i32 @helper_clz(i32 %r1.)
+  %49 = sub i32 %47, %48
+  %50 = shl i32 %49, 4
+  %51 = add i32 %50, ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i32 0, i32 15, i32 0, i32 1280) to i32)
+  store i32 %51, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 3), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %33, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %52 = insertvalue { i32, i32 } { i32 0, i32 undef }, i32 %r1., 1
+  ret { i32, i32 } %52
+
+l324:                                             ; preds = %"0x76c"
+  %r0_.1 = select i1 %26, i32 %r0, i32 0
+  %53 = icmp eq i32 %25, 0
+  %54 = ashr i32 %13, 31
+  %55 = or i32 %54, 1
+  %..r0_.1 = select i1 %53, i32 %55, i32 %r0_.1
+  %56 = and i32 %r14_2, 1
+  store i32 %56, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 18), align 4, !alias.scope !0
+  store i32 %16, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 2), align 4, !alias.scope !0
+  store i32 %r0.39, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 3), align 4, !alias.scope !0
+  store i32 %13, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %27, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 12), align 4, !alias.scope !0
+  store i32 %25, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 14), align 4, !alias.scope !0
+  store i32 %30, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 13), align 4, !alias.scope !0
+  store i32 %25, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i32 0, i32 15), align 4, !alias.scope !0
+  %57 = insertvalue { i32, i32 } undef, i32 %..r0_.1, 0
+  %58 = insertvalue { i32, i32 } %57, i32 %r1., 1
+  ret { i32, i32 } %58
 }
 ```
 # How to Build
