@@ -1176,8 +1176,9 @@ void translator::run() {
         sym.bind == symbol_t::NOBINDING)
       continue;
 
+    address_t addr = sym.addr;
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-    address_t addr = sym.addr & 0xfffffffe;
+    addr &= 0xfffffffe;
 #endif
 
     auto it = function_table.find(addr);
