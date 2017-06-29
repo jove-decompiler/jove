@@ -2400,6 +2400,8 @@ yaourt -S parallel boost llvm clang llvm-ocaml boost lld lldb ocaml-ocamlgraph
 ```
 ## Build QEMU 2.6.2 (Linux)
 ```bash
+# $JOVE_SRC_DIR must be set
+
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
 cd $QEMU_SRC_DIR
@@ -2408,7 +2410,7 @@ cd -
 export QEMU_BUILD_DIR=/path/to/qemu/build/directory
 mkdir -p $QEMU_BUILD_DIR
 cd $QEMU_BUILD_DIR
-CC=clang CXX=clang++ $QEMU_SRC_DIR/configure --python=$(which python2) --target-list=aarch64-linux-user '--extra-cflags=-flto -fno-inline -fuse-ld=gold' --disable-werror --disable-gtk --disable-libnfs --disable-bzip2 --disable-numa --disable-lzo --disable-vhdx --disable-libssh2 --disable-seccomp --disable-opengl --disable-smartcard --disable-spice --disable-curses --disable-glusterfs --disable-rbd --disable-snappy --disable-tpm --disable-libusb --disable-nettle --disable-gnutls --disable-curl --disable-vnc --disable-kvm --disable-brlapi --disable-bluez --enable-tcg-interpreter --disable-fdt --disable-xfsctl --disable-pie --disable-docs --disable-vde --disable-gcrypt --disable-virglrenderer --disable-libiscsi --disable-usb-redir --disable-virtfs --disable-coroutine-pool --disable-archipelago --disable-rdma --disable-linux-aio --disable-netmap --disable-cap-ng --disable-attr --disable-vhost-net --disable-xen --disable-xen-pci-passthrough --disable-libssh2 --disable-slirp --disable-uuid --without-pixman --disable-tools --disable-system --enable-debug
+CC=clang CXX=clang++ $QEMU_SRC_DIR/configure --python=$(which python2) --target-list=$(bits=$(${JOVE_SRC_DIR}/scripts/addrbits) ; if [ "${bits}" == "32" ]; then printf '%s' "arm-linux-user" ; fi ; if [ "${bits}" == "64" ]; then printf '%s' "x86_64-linux-user,aarch64-linux-user" ; fi) '--extra-cflags=-flto -fno-inline -fuse-ld=gold' --disable-werror --disable-gtk --disable-libnfs --disable-bzip2 --disable-numa --disable-lzo --disable-vhdx --disable-libssh2 --disable-seccomp --disable-opengl --disable-smartcard --disable-spice --disable-curses --disable-glusterfs --disable-rbd --disable-snappy --disable-tpm --disable-libusb --disable-nettle --disable-gnutls --disable-curl --disable-vnc --disable-kvm --disable-brlapi --disable-bluez --enable-tcg-interpreter --disable-fdt --disable-xfsctl --disable-pie --disable-docs --disable-vde --disable-gcrypt --disable-virglrenderer --disable-libiscsi --disable-usb-redir --disable-virtfs --disable-coroutine-pool --disable-archipelago --disable-rdma --disable-linux-aio --disable-netmap --disable-cap-ng --disable-attr --disable-vhost-net --disable-xen --disable-xen-pci-passthrough --disable-libssh2 --disable-slirp --disable-uuid --without-pixman --disable-tools --disable-system --enable-debug
 make -j$(nproc)
 ```
 ## Building jove with `make(1)`

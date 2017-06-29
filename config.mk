@@ -1,11 +1,19 @@
 # this just obtains the directory this Makefile resides in
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
-#qemutcg_archs += arm
+_ADDR_BITS := $(shell $(ROOT_DIR)/scripts/addrbits)
+
+ifeq ($(_ADDR_BITS),32)
+qemutcg_archs += arm
+endif
+
+ifeq ($(_ADDR_BITS),64)
 qemutcg_archs += x86_64
+qemutcg_archs += aarch64
+endif
+
 #qemutcg_archs += i386
 #qemutcg_archs += mipsel
-qemutcg_archs += aarch64
 
 ifndef QEMU_BUILD_DIR
 $(error QEMU_BUILD_DIR is not set)

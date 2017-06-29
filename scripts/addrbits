@@ -1,6 +1,7 @@
 #!/bin/sh
 
 bits=$(llvm-readobj $SHELL | grep -F AddressSize | tr -cd '0-9')
+echo $bits
 
 if [ "$bits" == "32" ]; then
   exit 32;
