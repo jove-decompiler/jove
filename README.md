@@ -2398,7 +2398,7 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 # on ArchLinux
 yaourt -S parallel boost llvm clang llvm-ocaml boost lld lldb ocaml-ocamlgraph
 ```
-## Build QEMU 2.6.2
+## Build QEMU 2.6.2 (Linux)
 ```bash
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
