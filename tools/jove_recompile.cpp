@@ -108,7 +108,7 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
     po::notify(vm);
 
     if (vm.count("help") || !vm.count("input")) {
-      cout << "Usage: jove-init-<arch> [-o output] binary\n";
+      cout << "Usage: jove-recompile [-o output] jv\n";
       cout << desc;
       exit(1);
     }
