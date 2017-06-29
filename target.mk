@@ -1,4 +1,4 @@
-include config.mk
+include common.mk
 
 targ_build_dir := $(build_dir)/$(_TARGET_NAME)
 res = $(targ_build_dir)/$(1)
