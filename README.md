@@ -2388,29 +2388,17 @@ l324:                                             ; preds = %"0x76c"
 export JOVE_SRC_DIR=/path/to/jove
 git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 ```
-## Preparation (Linux)
-### Tools
+## Prerequisites (Linux)
+* GNU parallel
+* boost
+* OCaml
+* LLVM w/ ocaml bindings, clang, and lld (version >= 4.0)
+* OCamlgraph
 ```bash
 # on ArchLinux
-sudo pacman -S parallel
+yaourt -S parallel boost llvm clang llvm-ocaml boost lld lldb ocaml-ocamlgraph
 ```
-### Libraries
-#### Boost
-```bash
-# on Archlinux
-sudo pacman -S boost
-```
-#### LLVM
-```bash
-# on ArchLinux
-sudo pacman -S llvm clang llvm-ocaml boost lld lldb
-```
-#### OCamlgraph
-```bash
-# on ArchLinux
-yaourt -S ocaml-ocamlgraph
-```
-#### QEMU 2.6.2
+## Prepare QEMU 2.6.2
 ```bash
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
