@@ -23,7 +23,8 @@ ifndef QEMU_SRC_DIR
 $(error QEMU_SRC_DIR is not set)
 endif
 
-llvm_dir       := /usr # assume system LLVM is installed
+# assume system LLVM is installed
+llvm_dir       := /usr
 
 build_dir      := $(ROOT_DIR)/bin
 include_dir    := $(ROOT_DIR)/include

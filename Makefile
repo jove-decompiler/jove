@@ -1,4 +1,4 @@
-include config.mk
+include common.mk
 
 .PHONY: all_targets
 all_targets: $(patsubst %,target_%,$(qemutcg_archs))
