@@ -2398,7 +2398,7 @@ git clone git@github.mit.edu:an23640/jove.git $JOVE_SRC_DIR
 # on ArchLinux
 yaourt -S parallel boost llvm clang llvm-ocaml boost lld lldb ocaml-ocamlgraph
 ```
-## Prepare QEMU 2.6.2
+## Build QEMU 2.6.2
 ```bash
 export QEMU_SRC_DIR=/path/to/qemu
 git clone https://github.com/qemu/qemu.git -b v2.6.2 $QEMU_SRC_DIR
@@ -2418,7 +2418,7 @@ cd $JOVE_SRC_DIR
 
 # delete any existing build files
 make clean
-# must configure after cleaning
+# must configure (once) after cleaning
 make configure
 # build it!
 make -j$(nproc)
