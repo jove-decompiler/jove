@@ -13,7 +13,8 @@ target_$(1): bin/transform-helpers bin/llknife | bin/$(1)
 endef
 $(foreach targ,$(qemutcg_archs),$(eval $(call TARGET_TEMPLATE,$(targ))))
 
-LLVMOCAMLLIBSDIR := /usr/lib/ocaml/llvm # assume system LLVM ocaml bindings are installed
+# assume system LLVM ocaml bindings are installed
+LLVMOCAMLLIBSDIR := /usr/lib/ocaml/llvm
 
 OCAMLLIBNAMES := nums \
                  str \
@@ -24,7 +25,8 @@ LLVMLIBNAMES  := llvm \
                  llvm_bitwriter \
                  llvm_analysis
 
-CLIBDIRS  := -ccopt -L -ccopt /usr/lib/ocaml # assume system ocaml is installed
+# assume system ocaml is installed
+CLIBDIRS  := -ccopt -L -ccopt /usr/lib/ocaml
 
 OCAMLLIBS := $(patsubst %,/usr/lib/ocaml/%.cmxa,$(OCAMLLIBNAMES))
 LLVMLLIBS := $(patsubst %,$(LLVMOCAMLLIBSDIR)/%.cmxa,$(LLVMLIBNAMES))
@@ -71,8 +73,8 @@ bin/llknife.ml: tools/llknife.ml
 	ln -sf ../tools/llknife.ml $@
 
 bin/llknife: bin/llknife.ml bin/extllvm.cmx bin/extllvm_ocaml.c.o bin/extllvm_ocaml.cpp.o
-	@echo OCAML $@
-	@ocamlopt -o $@ -absname -g -thread -I /usr/lib/ocaml/llvm -I bin bin/extllvm.cmx bin/extllvm_ocaml.c.o bin/extllvm_ocaml.cpp.o $(CLIBDIRS) $(OCAMLLIBS) $(LLVMLLIBS) $<
+	echo OCAML $@
+	ocamlopt -o $@ -absname -g -thread -I /usr/lib/ocaml/llvm -I bin bin/extllvm.cmx bin/extllvm_ocaml.c.o bin/extllvm_ocaml.cpp.o $(CLIBDIRS) $(OCAMLLIBS) $(LLVMLLIBS) $<
 
 bin/extllvm.cmx: lib/extllvm.ml
 	@echo OCAML $@
