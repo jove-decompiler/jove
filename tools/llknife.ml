@@ -138,8 +138,6 @@ let main () =
     sl >= s'l && s' = (String.sub s 0 s'l)
   in
   let spr = Printf.sprintf in
-  let llvm_globals llm = fold_left_globals (fun res llg -> llg::res) [] llm in
-  let llvm_functions llm = fold_left_functions (fun res llf -> llf::res) [] llm in
 
   (*
    * execute requested action

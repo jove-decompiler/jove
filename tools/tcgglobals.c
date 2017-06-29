@@ -49,6 +49,21 @@ static void print_tcg_globals(void) {
   }
 }
 
+void dump_cpu_state(void);
+
+int main(int argc, char** argv) {
+  libqemutcg_init();
+
+  if (argc == 2)
+    dump_tcg_globals();
+  else if (argc == 3)
+    dump_cpu_state();
+  else
+    print_tcg_globals();
+
+  return 0;
+}
+
 #define CPUSTATE_FIELD(FIELD) do { \
     printf("  " #FIELD " : " "%u = 0x%x\n", \
       (unsigned)offsetof(CPUX86State, FIELD), \
@@ -182,17 +197,4 @@ void dump_cpu_state(void) {
   CPUSTATE_FIELD(xss);
   CPUSTATE_FIELD(tpr_access_type);
 #endif
-}
-
-int main(int argc, char** argv) {
-  libqemutcg_init();
-
-  if (argc == 2)
-    dump_tcg_globals();
-  else if (argc == 3)
-    dump_cpu_state();
-  else
-    print_tcg_globals();
-
-  return 0;
 }

@@ -26,6 +26,38 @@
 #define RES_TYPE uint32_t
 #endif
 
+//
+// declarations
+//
+
+RES_TYPE
+glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr);
+
+RES_TYPE
+glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX),
+     _ra)(CPUArchState *env, target_ulong ptr, uintptr_t retaddr);
+
+#if DATA_SIZE <= 2
+int glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env,
+                                           target_ulong ptr);
+
+int glue(glue(glue(cpu_lds, SUFFIX), MEMSUFFIX),
+         _ra)(CPUArchState *env, target_ulong ptr, uintptr_t retaddr);
+#endif
+
+#ifndef CODE_ACCESS
+void glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr,
+                                           RES_TYPE v);
+
+void glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX),
+          _ra)(CPUArchState *env, target_ulong ptr, RES_TYPE v,
+               uintptr_t retaddr);
+#endif
+
+//
+// definitions
+//
+
 RES_TYPE
 glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr) {
   unsigned off = ptr - code_pc;

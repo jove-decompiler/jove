@@ -32,8 +32,8 @@ _CXXFLAGS := $(shell llvm-config --cxxflags) \
 			 -Wno-dollar-in-identifier-extension \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS))))))))
-_CXXFLAGS := $(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS)))))))
+_CFLAGS   := $(filter-out -fuse-ld=gold,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))))))))
+_CXXFLAGS := $(filter-out -fuse-ld=gold,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))))))
 
 #
 # jove-recompile
@@ -51,7 +51,9 @@ $(call tool,recompile)_DEPS := $(patsubst %.cpp,$(call res,%).d,$($(call tool,re
 $(call res,jove-recompile): $($(call tool,recompile)_OBJS)
 	@echo CLANG++ $(notdir $@ $^)
 	@clang++ -o $@ \
-	  $(_CXXFLAGS) $($(call tool,recompile)_OBJS) \
+	  $(_CXXFLAGS) \
+	  -fuse-ld=gold \
+	  $($(call tool,recompile)_OBJS) \
 	  $(llvm_dir)/lib/libLLVM.so \
 	  $(shell llvm-config --ldflags) \
 	  -lglib-2.0 \
@@ -236,13 +238,13 @@ $(call res,qemutcg).bc: $(call res,translate-ldst-helpers).bc $(call res,qemutcg
 	@echo BCLINK $(notdir $@ $^)
 	@llvm-link -o $@ $^
 
-$(call res,translate-ldst-helpers).bc: $(build_dir)/translate_ldst_helpers.c
+$(call res,translate-ldst-helpers).bc: $(build_dir)/translate_ldst_helpers.c $(include_dir)/translate_ldst_template.h
 	@echo CLANG $(notdir $@ $^)
 	@clang -o $@ -c -emit-llvm -Wall -g -O2 $(_INCLUDES) $(_CFLAGS) $<
 
 $(call res,qemutcg).0.bc: $(build_dir)/qemutcg.c
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -c -emit-llvm -Wall -g -O0 $(_INCLUDES) $(_CFLAGS) $<
+	@clang -o $@ -c -emit-llvm -Wall -g -O0 $(_INCLUDES) $(_CFLAGS) -Wno-unused-variable -Wno-unused-value $<
 
 #
 # library base QEMU bitcode
@@ -290,7 +292,7 @@ $(call res,helpers).0.bc: $(call res,qemu).6.bc $(call res,ldst_helpers).bc
 	@echo BCLINK $(notdir $@ $^)
 	@llvm-link -o $@ $^
 
-$(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c
+$(call res,ldst_helpers).bc: $(build_dir)/ldst_helpers.c $(include_dir)/ldst_template.h
 	@echo CLANG $(notdir $@ $^)
 	@clang -o $@ -c -emit-llvm -Wall -O3 $(_INCLUDES) $(_CFLAGS) $<
 

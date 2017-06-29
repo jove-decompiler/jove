@@ -26,9 +26,41 @@
 #define RES_TYPE uint32_t
 #endif
 
+//
+// declarations
+//
+
+RES_TYPE
+glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr);
+
+RES_TYPE
+glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX),
+     _ra)(CPUArchState *env, target_ulong ptr, uintptr_t retaddr);
+
+#if DATA_SIZE <= 2
+int glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env,
+                                           target_ulong ptr);
+
+int glue(glue(glue(cpu_lds, SUFFIX), MEMSUFFIX),
+         _ra)(CPUArchState *env, target_ulong ptr, uintptr_t retaddr);
+#endif
+
+#ifndef CODE_ACCESS
+void glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr,
+                                           RES_TYPE v);
+
+void glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX),
+          _ra)(CPUArchState *env, target_ulong ptr, RES_TYPE v,
+               uintptr_t retaddr);
+#endif
+
+//
+// definitions
+//
+
 RES_TYPE
 glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr) {
-  return glue(glue(ld, USUFFIX), _p)(ptr);
+  return glue(glue(ld, USUFFIX), _p)((const void *)ptr);
 }
 
 RES_TYPE
@@ -40,7 +72,7 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX),
 #if DATA_SIZE <= 2
 int glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env,
                                            target_ulong ptr) {
-  return glue(glue(lds, SUFFIX), _p)(ptr);
+  return glue(glue(lds, SUFFIX), _p)((const void*)ptr);
 }
 
 int glue(glue(glue(cpu_lds, SUFFIX), MEMSUFFIX),
@@ -52,7 +84,7 @@ int glue(glue(glue(cpu_lds, SUFFIX), MEMSUFFIX),
 #ifndef CODE_ACCESS
 void glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr,
                                            RES_TYPE v) {
-  glue(glue(st, SUFFIX), _p)(ptr, v);
+  glue(glue(st, SUFFIX), _p)((void*)ptr, v);
 }
 
 void glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX),

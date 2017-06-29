@@ -7,7 +7,9 @@
 char *tcg_get_arg_str_idx(TCGContext *s, char *buf, int buf_size, int idx);
 const char *tcg_find_helper(TCGContext *s, uintptr_t val);
 
+#ifdef __DUMP_TCG_OPS
 static void __tcg_dump_ops(TCGContext *s);
+#endif
 
 extern const uint8_t* code;
 extern unsigned long code_len;
@@ -186,7 +188,7 @@ unsigned libqemutcg_translate(unsigned long _pc) {
   /* Terminate the linked list.  */
   tcg_ctx.gen_op_buf[tcg_ctx.gen_last_op_idx].next = -1;
 
-#if 0
+#ifdef __DUMP_TCG_OPS
   fprintf(stderr, "################ START TCG DUMP OPS\n");
   fflush(stderr);
   __tcg_dump_ops(&tcg_ctx);
@@ -732,6 +734,7 @@ const char* libqemutcg_find_helper(uintptr_t ptr) {
   return tcg_find_helper(&tcg_ctx, ptr);
 }
 
+#ifdef __DUMP_TCG_OPS
 void __tcg_dump_ops(TCGContext *s) {
   char buf[128];
   TCGOp *op;
@@ -867,3 +870,4 @@ void __tcg_dump_ops(TCGContext *s) {
     fprintf(stderr, "\n");
   }
 }
+#endif

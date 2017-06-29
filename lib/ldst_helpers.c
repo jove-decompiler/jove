@@ -31,6 +31,17 @@
 #undef MEMSUFFIX
 #undef CODE_ACCESS
 
+//
+// declaration
+//
+
+void *tlb_vaddr_to_host(struct CPUState *env, target_ulong addr,
+                        int access_type, int mmu_idx);
+
+//
+// definition
+//
+
 void *tlb_vaddr_to_host(struct CPUState *env, target_ulong addr,
                         int access_type, int mmu_idx) {
   return ((void *)((uintptr_t)addr));

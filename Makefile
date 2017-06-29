@@ -82,11 +82,11 @@ bin/extllvm.cmx: lib/extllvm.ml
 
 bin/extllvm_ocaml.c.o: lib/extllvm_ocaml.c
 	@echo CLANG $@
-	@clang -o $@ -c -I/usr/lib/ocaml $(shell llvm-config --cflags) $<
+	@clang -o $@ -c -I/usr/lib/ocaml $(filter-out -Wno-maybe-uninitialized,$(shell llvm-config --cflags)) $<
 
 bin/extllvm_ocaml.cpp.o: lib/extllvm_ocaml.cpp
 	@echo CLANG++ $@
-	@clang++ -o $@ -c $(shell llvm-config --cxxflags) $<
+	@clang++ -o $@ -c $(filter-out -Wno-maybe-uninitialized,$(shell llvm-config --cxxflags)) $<
 
 bin/transform-helpers: bin/transform_helpers.ml bin/extllvm.cmx bin/extllvm_ocaml.c.o bin/extllvm_ocaml.cpp.o
 	@echo OCAML $@
