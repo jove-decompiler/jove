@@ -1597,6 +1597,25 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
         control_flow_to(target1);
       }
     } else {
+#if defined(TARGET_X86_64)
+      // XXX special case this shit until a reasonable course of action is
+      // decided on http://repzret.org/p/repzret/
+      auto is_special_ret = [&](void) -> bool {
+        return *reinterpret_cast<const uint16_t *>(
+                   sectdata.data() + (last_instr_addr - sectstart)) ==
+               0xc3f3; /* repz retq */
+      };
+#elif !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+      // XXX FIXME generalize this?
+      auto is_special_ret = [&](void) -> bool {
+        return *reinterpret_cast<const uint16_t *>(
+                   sectdata.data() + (last_instr_addr - sectstart)) ==
+               0x4770; /* bx lr */
+      };
+#else
+      auto is_special_ret = [](void) -> bool { return false; };
+#endif
+
       // either (3), (4), or (5)
       if (MIA->isCall(Inst)) {
         // (4)
@@ -1607,27 +1626,13 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
         control_flow_to(succ_addr);
       } else if (MIA->isIndirectBranch(Inst)) {
         // (3)
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-        if (f[boost::graph_bundle].thumb &&
-            *reinterpret_cast<const uint16_t *>(
-                sectdata.data() + (last_instr_addr - sectstart)) ==
-                0x4770 /* bx lr */)
-          goto arm32_hack;
-#endif
-
         cout << BBINDENT "note: indirect jump" << endl;
         bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
-      } else if (MIA->isReturn(Inst)) {
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-      arm32_hack:
-#endif
+      } else if (MIA->isReturn(Inst) || is_special_ret()) {
         // (5)
         cout << BBINDENT "note: return" << endl;
         bbprop.term = basic_block_properties_t::TERM_RETURN;
       } else {
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-        goto arm32_hack;
-#endif
         cerr << "error: unknown basic block terminator!" << endl;
         bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
       }
