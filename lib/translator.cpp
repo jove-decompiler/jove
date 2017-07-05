@@ -2508,10 +2508,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         bbprop.reachdef_out &
         ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
 
-    tospill.reset(tcg::program_counter_global_index); // pc
-#if defined(TARGET_AARCH64)
-    tospill.reset(56); // lr
-#endif
+    auto reset_if_applicable = [&tospill](unsigned idx) -> void {
+      if (idx)
+        tospill.reset(idx);
+    };
+
+    reset_if_applicable(tcg::program_counter_global_index);
+    reset_if_applicable(tcg::return_address_global_index);
 
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, tospill);
@@ -2585,12 +2588,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     tcg::global_set_t tostore =
         f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
 
-    tostore.reset(tcg::program_counter_global_index); // pc
-#if 0
-#if defined(TARGET_AARCH64)
-    tostore.reset(56); // lr
-#endif
-#endif
+    auto reset_if_applicable = [&tostore](unsigned idx) -> void {
+      if (idx)
+        tostore.reset(idx);
+    };
+
+    reset_if_applicable(tcg::program_counter_global_index);
+    reset_if_applicable(tcg::return_address_global_index);
 
     vector<unsigned> tostore_v;
     explode_tcg_global_set(tostore_v, tostore);
@@ -2642,12 +2646,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     //
     tcg::global_set_t tospill = bbprop.reachdef_out;
 
-    tospill.reset(tcg::program_counter_global_index); // pc
-#if 0
-#if defined(TARGET_AARCH64)
-    tospill.reset(56); // lr
-#endif
-#endif
+    auto reset_if_applicable = [&tospill](unsigned idx) -> void {
+      if (idx)
+        tospill.reset(idx);
+    };
+
+    reset_if_applicable(tcg::program_counter_global_index);
+    reset_if_applicable(tcg::return_address_global_index);
 
     vector<unsigned> tospill_v;
     explode_tcg_global_set(tospill_v, tospill);

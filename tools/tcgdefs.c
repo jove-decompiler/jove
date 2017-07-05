@@ -54,6 +54,31 @@ static unsigned program_counter_global_index(void) {
   return 0;
 }
 
+static unsigned return_address_global_index(void) {
+#if !defined(TARGET_ARM)
+  return 0;
+#endif
+
+  int word_tcg_ty;
+
+  if (sizeof(intptr_t) == 4)
+    word_tcg_ty = TCG_TYPE_I32;
+  else if (sizeof(intptr_t) == 8)
+    word_tcg_ty = TCG_TYPE_I64;
+  else
+    abort();
+
+  for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
+    TCGTemp *ts = &tcg_ctx.temps[i];
+
+    if (!ts->fixed_reg && ts->type == word_tcg_ty &&
+        strcmp(ts->name, "lr") == 0)
+      return i;
+  }
+
+  return 0;
+}
+
 static unsigned env_index(void) {
   for (unsigned i = 0; i < tcg_ctx.nb_globals; ++i) {
     TCGTemp *ts = &tcg_ctx.temps[i];
@@ -112,6 +137,7 @@ int main(int argc, char **argv) {
            "constexpr unsigned num_helpers = %u;\n"
            "constexpr unsigned max_temps = %u;\n"
            "constexpr unsigned program_counter_global_index = %u;\n"
+           "constexpr unsigned return_address_global_index = %u;\n"
            "constexpr unsigned cpu_state_program_counter_offset = %u;\n"
            "constexpr unsigned env_index = %u;\n"
 #if defined(TARGET_I386)
@@ -124,6 +150,7 @@ int main(int argc, char **argv) {
            num_helpers(),
            max_temps(),
            program_counter_global_index(),
+           return_address_global_index(),
            cpu_state_program_counter_offset(),
            env_index()
 #if defined(TARGET_I386)
