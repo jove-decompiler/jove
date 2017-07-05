@@ -1255,7 +1255,7 @@ bool translator::translate_function(address_t addr) {
 std::pair<address_t, address_t>
 translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
   array<address_t, 2> targets = {{0x0, 0x0}};
-  array<address_t, tcg::max_temps> constprop;
+  array<address_t, tcg::max_temps> constprop{};
   unsigned i = 0;
 
   const tcg::Op *ops = bbprop.tcg_ops.get();
