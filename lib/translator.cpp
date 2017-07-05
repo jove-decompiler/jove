@@ -2487,13 +2487,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     auto callee_it = function_table.find(bbprop.callee);
 
     if (succ == boost::graph_traits<function_t>::null_vertex()) {
-      cerr << "on_call null vertex" << endl;
+      cerr << "ERROR: on_call null vertex" << endl;
       b.CreateUnreachable();
       return;
     }
     if (callee_it == function_table.end()) {
-      cerr << "on_call iterator end (address = " << hex << bbprop.callee << ')'
-           << endl;
+      cerr << "ERROR: on_call iterator end (address = " << hex << bbprop.callee
+           << ')' << endl;
       b.CreateUnreachable();
       return;
     }
@@ -2676,6 +2676,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_unknown = [&](basic_block_t succ) -> void {
+    cerr << "WARNING: on_unknown" << endl;
+
     // for unknown instructions we create a branch checking if the program
     // counter is either the current basic block's address (in which case we
     // branch back) or the successor's address (in which case we branch
