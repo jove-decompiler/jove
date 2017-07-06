@@ -1297,7 +1297,8 @@ translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
     if (regBits != sizeof(address_t) * 8)                                      \
       break;                                                                   \
     if (args[1] == tcg::CPU_STATE_ARG &&                                       \
-        args[2] == tcg::cpu_state_program_counter_offset)                      \
+        args[2] == tcg::cpu_state_program_counter_offset &&                    \
+        constprop.at(args[0]))                                                 \
       targets.at(i++) = constprop.at(args[0]);                                 \
     break;
 
