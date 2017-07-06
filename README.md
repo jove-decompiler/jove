@@ -197,9 +197,6 @@ Translating aarch64 machine code to QEMU IR...
 a44
   a44
     note: return
-1d20
-  1d20
-    note: invalid instruction @ 1d20
 6c8
   6c8
     note: conditional jump to 6e4 and 704
@@ -218,7 +215,7 @@ a44
   750
     note: conditional jump to 764 and 76c
   764
-    note: unconditional jump
+    note: unconditional jump to 6f4
   6f4
     note: return
   76c
@@ -242,7 +239,7 @@ a44
   840
     note: conditional jump to 84c and 850
   84c
-    note: unconditional jump
+    note: unconditional jump to 678
   678
     note: indirect jump
   850
@@ -268,7 +265,7 @@ a44
   840
     note: conditional jump to 84c and 850
   84c
-    note: unconditional jump
+    note: unconditional jump to 678
   678
     note: indirect jump
   850
@@ -302,7 +299,7 @@ a44
   908
     note: conditional jump to 920 and 928
   920
-    note: unconditional jump
+    note: unconditional jump to 888
   888
     note: conditional jump to 8ac and 8bc
   8ac
@@ -316,7 +313,7 @@ a44
   934
     note: indirect call
   938
-    note: unconditional jump
+    note: unconditional jump to 920
 a40
   a40
     note: return
@@ -451,10 +448,528 @@ a44
     note: PC-relative expression @ 778
 a40
   a40
-$ ../../scripts/viewbc complex-num.jv/bitcode/decompilation
 ```
 #### LLVM
 ```llvm
+; ModuleID = 'complex-num.jv/bitcode/decompilation'
+source_filename = "complex-num"
+target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
+target triple = "x86_64-unknown-linux-gnu"
+
+%struct.CPUARMState = type { [16 x i32], [32 x i64], i64, i32, i32, i32, i32, [8 x i64], [8 x i32], [8 x i32], [5 x i32], [5 x i32], i32, i32, i32, i32, i32, i32, i32, i32, i64, [4 x i64], [4 x i64], %struct.anon.14.271, %struct.anon.45, %struct.anon.46, i32, i32, %struct.anon.47, i64, i64, i64, i64, i32, %struct.anon.48, i32, [16 x %struct.CPUBreakpoint*], [16 x %struct.CPUWatchpoint*], i64, %struct.anon.49, i8*, %struct.arm_boot_info* }
+%struct.anon.14.271 = type { i32, %union.anon.15, %union.anon.15, i64, [4 x i64], i32, i64, i32, %union.anon.15, %union.anon.15, i64, [4 x %struct.TCR], %struct.TCR, i32, i32, %union.anon.23, i32, i32, i64, i64, %union.anon.23, %union.anon.15, [8 x i32], %union.anon.31, i64, %union.anon.15, i32, i32, i32, i64, i64, i32, i32, i32, i32, %union.anon.35, %union.anon.15, i32, %struct.EventNotifier, %union.anon.15, %union.anon.15, i64, i64, i64, %struct.QemuThread, i64, i64, i32, i64, [4 x %struct.Int128], i32, i32, i32, i32, i32, i32, i32, i32, i32, [16 x i64], [16 x i64], [16 x i64], [16 x i64], i64, i64, i64, i64, i64, i64, i64, i64 }
+%struct.TCR = type { i64, i32, i32 }
+%union.anon.23 = type { %struct.Int128 }
+%struct.Int128 = type { i64, i64 }
+%union.anon.31 = type { %struct.anon.32 }
+%struct.anon.32 = type { i64, i32, i32, i32, i32, i64 }
+%union.anon.35 = type { %struct.anon.36 }
+%struct.anon.36 = type { i64, i32, i32, i64, i32, i32 }
+%struct.EventNotifier = type { i32, i32 }
+%union.anon.15 = type { %struct.anon.16.269 }
+%struct.anon.16.269 = type { i64, i64, i64, i64 }
+%struct.QemuThread = type { i64 }
+%struct.anon.45 = type { i32, i32, i32, i32, i32, i32 }
+%struct.anon.46 = type { i32, i32, i64, i32 }
+%struct.anon.47 = type { [64 x i64], [16 x i32], i32, i32, [8 x i32], %struct.float_status, %struct.float_status }
+%struct.float_status = type { i8, i8, i8, i8, i8, i8, i8 }
+%struct.anon.48 = type { [16 x i64], i64, [16 x i32] }
+%struct.CPUBreakpoint = type { i64, i32, %struct.anon.18 }
+%struct.anon.18 = type { %struct.CPUBreakpoint*, %struct.CPUBreakpoint** }
+%struct.CPUWatchpoint = type { i64, i64, i64, %struct.MemTxAttrs, i32, %struct.anon.19 }
+%struct.MemTxAttrs = type { i24 }
+%struct.anon.19 = type { %struct.CPUWatchpoint*, %struct.CPUWatchpoint** }
+%struct.anon.49 = type { i32*, i32*, i32* }
+%struct.arm_boot_info = type { i64, i8*, i8*, i8*, i8*, i64, i64, i64, i64, i32, i32, i8, i32 (%struct.arm_boot_info*, i8*)*, void (%struct.ARMCPU*, %struct.arm_boot_info*)*, void (%struct.ARMCPU*, %struct.arm_boot_info*)*, i8* (%struct.arm_boot_info*, i32*)*, void (%struct.arm_boot_info*, i8*)*, %struct.ArmLoadKernelNotifier, i32, i64, i64, i64, i8, i64, void (%struct.ARMCPU*, %struct.arm_boot_info*)*, i8, i32 }
+%struct.ArmLoadKernelNotifier = type { %struct.Notifier, %struct.ARMCPU* }
+%struct.Notifier = type { void (%struct.Notifier*, i8*)*, %struct.anon.5 }
+%struct.anon.5 = type { %struct.Notifier*, %struct.Notifier** }
+%struct.ARMCPU = type { %struct.CPUState, %struct.CPUARMState, %struct._GHashTable*, i64*, i64*, i32, i64*, i64*, i32, [4 x %struct.QEMUTimer*], [4 x %struct.IRQState*], %struct.MemoryRegion*, i8*, i32, i8, i8, i8, i8, i32, i32, i32, [7 x i32], i8, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i32, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i32, i32, i64, [16 x i32], i64, i32, i8, i32, i64 }
+%struct.CPUState = type { %struct.DeviceState, i32, i32, i32, %struct.QemuThread*, i32, i32, i8, %struct.QemuCond*, i8, i8, i8, i8, i8, i8, i32, i32, i64, [1 x %struct.__jmp_buf_tag], %struct.QemuMutex, %struct.qemu_work_item*, %struct.qemu_work_item*, %struct.CPUAddressSpace*, i32, %struct.AddressSpace*, %struct.MemoryRegion*, i8*, %struct.TranslationBlock*, [4096 x %struct.TranslationBlock*], %struct.GDBRegisterState*, i32, i32, %struct.anon.17, %struct.anon.18, %struct.anon.19, %struct.CPUWatchpoint*, i8*, i64, i64, i32, i8, %struct.KVMState*, %struct.kvm_run*, i32, i32, %union.anon.0, i32, i32, i8, i32 }
+%struct.DeviceState = type { %struct.Object, i8*, i8, i8, %struct.QemuOpts*, i32, %struct.BusState*, %struct.anon.1, %struct.anon.3, i32, i32, i32 }
+%struct.Object = type { %struct.ObjectClass*, void (i8*)*, %struct._GHashTable*, i32, %struct.Object* }
+%struct.ObjectClass = type { %struct.TypeImpl*, %struct._GSList*, [4 x i8*], [4 x i8*], void (%struct.Object*)*, %struct._GHashTable* }
+%struct.TypeImpl = type { i8*, i64, i64, void (%struct.ObjectClass*, i8*)*, void (%struct.ObjectClass*, i8*)*, void (%struct.ObjectClass*, i8*)*, i8*, void (%struct.Object*)*, void (%struct.Object*)*, void (%struct.Object*)*, i8, i8*, %struct.TypeImpl*, %struct.ObjectClass*, i32, [32 x %union.anon] }
+%union.anon = type { i8* }
+%struct._GSList = type { i8*, %struct._GSList* }
+%struct.QemuOpts = type { i8*, %struct.QemuOptsList*, %struct.Location, %struct.anon.0.40, %struct.anon.38 }
+%struct.QemuOptsList = type { i8*, i8*, i8, %struct.anon.38, [0 x %struct.QemuOptDesc] }
+%struct.QemuOptDesc = type { i8*, i32, i8*, i8* }
+%struct.Location = type { i32, i32, i8*, %struct.Location* }
+%struct.anon.0.40 = type { %struct.QemuOpt*, %struct.QemuOpt** }
+%struct.QemuOpt = type { i8*, i8*, %struct.QemuOptDesc*, %struct.QemuThread, %struct.QemuOpts*, %struct.anon.0.40 }
+%struct.anon.38 = type { %struct.QemuOpts*, %struct.QemuOpts** }
+%struct.BusState = type { %struct.Object, %struct.DeviceState*, i8*, %struct.FWPathProvider*, i32, i8, %struct.anon.59, %struct.anon.0 }
+%struct.FWPathProvider = type { %struct.Object }
+%struct.anon.59 = type { %struct.BusChild*, %struct.BusChild** }
+%struct.BusChild = type { %struct.DeviceState*, i32, %struct.anon.59 }
+%struct.anon.0 = type { %struct.BusState*, %struct.BusState** }
+%struct.anon.1 = type { %struct.NamedGPIOList* }
+%struct.NamedGPIOList = type { i8*, %struct.IRQState**, i32, i32, %struct.anon.2 }
+%struct.IRQState = type { %struct.Object, void (i8*, i32, i32)*, i8*, i32 }
+%struct.anon.2 = type { %struct.NamedGPIOList*, %struct.NamedGPIOList** }
+%struct.anon.3 = type { %struct.BusState* }
+%struct.QemuCond = type { %union.pthread_cond_t }
+%union.pthread_cond_t = type { %struct.anon.7 }
+%struct.anon.7 = type { %struct.QemuThread, %struct.QemuThread, [2 x i32], [2 x i32], i32, i32, [2 x i32] }
+%struct.__jmp_buf_tag = type { [8 x i64], i32, %struct.__sigset_t }
+%struct.__sigset_t = type { [16 x i64] }
+%struct.QemuMutex = type { %union.pthread_mutex_t }
+%union.pthread_mutex_t = type { %struct.__pthread_mutex_s }
+%struct.__pthread_mutex_s = type { i32, i32, i32, i32, i32, i16, i16, %struct.__pthread_internal_list }
+%struct.__pthread_internal_list = type { %struct.__pthread_internal_list*, %struct.__pthread_internal_list* }
+%struct.qemu_work_item = type { %struct.qemu_work_item*, void (i8*)*, i8*, i32, i8 }
+%struct.CPUAddressSpace = type opaque
+%struct.AddressSpace = type { %struct.rcu_head, i8*, %struct.MemoryRegion*, i32, i8, %struct.FlatView*, i32, %struct.MemoryRegionIoeventfd*, %struct.AddressSpaceDispatch*, %struct.AddressSpaceDispatch*, %struct.MemoryListener, %struct.anon.16 }
+%struct.rcu_head = type { %struct.rcu_head*, void (%struct.rcu_head*)* }
+%struct.FlatView = type opaque
+%struct.MemoryRegionIoeventfd = type opaque
+%struct.AddressSpaceDispatch = type opaque
+%struct.MemoryListener = type { void (%struct.MemoryListener*)*, void (%struct.MemoryListener*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i32, i32)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i32, i32)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*)*, void (%struct.MemoryListener*)*, void (%struct.MemoryListener*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i1, i64, %struct.EventNotifier*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i1, i64, %struct.EventNotifier*)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i64, i64)*, void (%struct.MemoryListener*, %struct.MemoryRegionSection*, i64, i64)*, i32, %struct.AddressSpace*, %struct.anon.15 }
+%struct.MemoryRegionSection = type { %struct.MemoryRegion*, %struct.AddressSpace*, i64, %struct.Int128, i64, i8 }
+%struct.anon.15 = type { %struct.MemoryListener*, %struct.MemoryListener** }
+%struct.anon.16 = type { %struct.AddressSpace*, %struct.AddressSpace** }
+%struct.TranslationBlock = type { i64, i64, i64, i16, i16, i32, i8*, i8*, %struct.TranslationBlock*, %struct.TranslationBlock*, [2 x %struct.TranslationBlock*], [2 x i64], [2 x i16], [2 x i16], [2 x %struct.TranslationBlock*], %struct.TranslationBlock* }
+%struct.GDBRegisterState = type { i32, i32, i32 (%struct.CPUARMState*, i8*, i32)*, i32 (%struct.CPUARMState*, i8*, i32)*, i8*, %struct.GDBRegisterState* }
+%struct.anon.17 = type { %struct.CPUState*, %struct.CPUState** }
+%struct.KVMState = type opaque
+%struct.kvm_run = type opaque
+%union.anon.0 = type { i32 }
+%struct._GHashTable = type opaque
+%struct.QEMUTimer = type { i64, %struct.QEMUTimerList*, void (i8*)*, i8*, %struct.QEMUTimer*, i32 }
+%struct.QEMUTimerList = type opaque
+%struct.MemoryRegion = type { %struct.Object, i8, i8, i8, i8, i8, i8, i8, i8, %struct.RAMBlock*, %struct.Object*, %struct.MemoryRegionIOMMUOps*, %struct.MemoryRegionOps*, i8*, %struct.MemoryRegion*, %struct.Int128, i64, void (%struct.MemoryRegion*)*, i64, i8, i8, i8, i8, i8, %struct.MemoryRegion*, i64, i32, i8, %struct.subregions, %struct.subregions, %struct.coalesced_ranges, i8*, i32, %struct.MemoryRegionIoeventfd*, %struct.NotifierList }
+%struct.RAMBlock = type opaque
+%struct.MemoryRegionIOMMUOps = type { void (%struct.IOMMUTLBEntry*, %struct.MemoryRegion*, i64, i1)* }
+%struct.IOMMUTLBEntry = type { %struct.AddressSpace*, i64, i64, i64, i32 }
+%struct.MemoryRegionOps = type { i64 (i8*, i64, i32)*, void (i8*, i64, i64, i32)*, i32 (i8*, i64, i64*, i32, i32)*, i32 (i8*, i64, i64, i32, i32)*, i32, %struct.anon.11, %struct.anon.12, %struct.MemoryRegionMmio }
+%struct.anon.11 = type { i32, i32, i8, i1 (i8*, i64, i32, i1)* }
+%struct.anon.12 = type { i32, i32, i8 }
+%struct.MemoryRegionMmio = type { [3 x i32 (i8*, i64)*], [3 x void (i8*, i64, i32)*] }
+%struct.subregions = type { %struct.MemoryRegion*, %struct.MemoryRegion** }
+%struct.coalesced_ranges = type { %struct.CoalescedMemoryRange*, %struct.CoalescedMemoryRange** }
+%struct.CoalescedMemoryRange = type opaque
+%struct.NotifierList = type { %struct.anon.14 }
+%struct.anon.14 = type { %struct.Notifier* }
+%struct.__jove_sections = type <{ %struct.__jove__interp, [1 x i8], %struct.__jove__note_ABI-tag, %struct.__jove__note_gnu_build-id, %struct.__jove__dynsym, %struct.__jove__dynstr, [7 x i8], %struct.__jove__gnu_hash, %struct.__jove__gnu_version, [2 x i8], %struct.__jove__gnu_version_r, [4 x i8], %struct.__jove__rela_dyn, %struct.__jove__rela_plt, %struct.__jove__init, [4 x i8], %struct.__jove__plt, %struct.__jove__text, %struct.__jove__fini, [4 x i8], %struct.__jove__rodata, %struct.__jove__eh_frame, %struct.__jove__eh_frame_hdr, [4096 x i8], %struct.__jove__dynamic, %struct.__jove__got, %struct.__jove__got_plt, %struct.__jove__data, %struct.__jove__jcr, %struct.__jove__fini_array, %struct.__jove__init_array, %struct.__jove__bss }>
+%struct.__jove__interp = type <{ [27 x i8] }>
+%struct.__jove__note_ABI-tag = type <{ [32 x i8] }>
+%struct.__jove__note_gnu_build-id = type <{ [36 x i8] }>
+%struct.__jove__dynsym = type <{ [264 x i8] }>
+%struct.__jove__dynstr = type <{ [169 x i8] }>
+%struct.__jove__gnu_hash = type <{ [28 x i8] }>
+%struct.__jove__gnu_version = type <{ [22 x i8] }>
+%struct.__jove__gnu_version_r = type <{ [32 x i8] }>
+%struct.__jove__rela_dyn = type <{ [264 x i8] }>
+%struct.__jove__rela_plt = type <{ [168 x i8] }>
+%struct.__jove__init = type <{ [20 x i8] }>
+%struct.__jove__plt = type <{ [144 x i8] }>
+%struct.__jove__text = type <{ [892 x i8] }>
+%struct.__jove__fini = type <{ [16 x i8] }>
+%struct.__jove__rodata = type <{ [68 x i8] }>
+%struct.__jove__eh_frame = type <{ [4 x i8] }>
+%struct.__jove__eh_frame_hdr = type <{ [8 x i8] }>
+%struct.__jove__dynamic = type <{ [480 x i8] }>
+%struct.__jove__got = type <{ [8 x i8], i64*, i64*, i64*, void ()*, void ()*, void ()*, void ()*, void ()* }>
+%struct.__jove__got_plt = type <{ [24 x i8], void ()*, void ()*, void ()*, void ()*, void ()*, void ()*, void ()* }>
+%struct.__jove__data = type <{ [8 x i8], i64* }>
+%struct.__jove__jcr = type <{ [8 x i8] }>
+%struct.__jove__fini_array = type <{ i64* }>
+%struct.__jove__init_array = type <{ i64* }>
+%struct.__jove__bss = type <{ [1 x i8] }>
+
+@cpu_state = external thread_local local_unnamed_addr global %struct.CPUARMState
+@__jove_sections = global %struct.__jove_sections <{ %struct.__jove__interp <{ [27 x i8] c"/lib/ld-linux-aarch64.so.1\00" }>, [1 x i8] zeroinitializer, %struct.__jove__note_ABI-tag <{ [32 x i8] c"\04\00\00\00\10\00\00\00\01\00\00\00GNU\00\00\00\00\00\03\00\00\00\07\00\00\00\00\00\00\00" }>, %struct.__jove__note_gnu_build-id <{ [36 x i8] c"\04\00\00\00\14\00\00\00\03\00\00\00GNU\00Q\DC\94\8CF!R\5Ce\B3Hx\F9\9A\F5\A6\11\A2\D6D" }>, %struct.__jove__dynsym <{ [264 x i8] c"\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\01\00\00\00\12\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\1D\00\00\00\12\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00#\00\00\00\12\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00*\00\00\00\12\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00<\00\00\00\22\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00K\00\00\00 \00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00Z\00\00\00\12\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00_\00\00\00 \00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00{\00\00\00 \00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\95\00\00\00 \00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, %struct.__jove__dynstr <{ [169 x i8] c"\00printf\00GLIBC_2.17\00libc.so.6\00abort\00strtol\00__libc_start_main\00__cxa_finalize\00__gmon_start__\00puts\00_ITM_deregisterTMCloneTable\00_ITM_registerTMCloneTable\00_Jv_RegisterClasses\00" }>, [7 x i8] zeroinitializer, %struct.__jove__gnu_hash <{ [28 x i8] c"\01\00\00\00\0B\00\00\00\01\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, %struct.__jove__gnu_version <{ [22 x i8] c"\00\00\02\00\02\00\02\00\02\00\02\00\00\00\02\00\00\00\00\00\00\00" }>, [2 x i8] zeroinitializer, %struct.__jove__gnu_version_r <{ [32 x i8] c"\01\00\01\00\13\00\00\00\10\00\00\00\00\00\00\00\97\91\96\06\00\00\02\00\08\00\00\00\00\00\00\00" }>, [4 x i8] zeroinitializer, %struct.__jove__rela_dyn <{ [264 x i8] c"\90\1C\00\00\00\00\00\00\03\04\00\00\00\00\00\00\C8\06\00\00\00\00\00\00\98\1C\00\00\00\00\00\00\03\04\00\00\00\00\00\00\C8\09\00\00\00\00\00\00\A0\1C\00\00\00\00\00\00\03\04\00\00\00\00\00\00@\0A\00\00\00\00\00\00(\1D\00\00\00\00\00\00\03\04\00\00\00\00\00\00(\1D\00\00\00\00\00\008\1D\00\00\00\00\00\00\03\04\00\00\00\00\00\00\C0\08\00\00\00\00\00\00@\1D\00\00\00\00\00\00\03\04\00\00\00\00\00\00\08\09\00\00\00\00\00\00\C0\1C\00\00\00\00\00\00\01\04\00\00\05\00\00\00\00\00\00\00\00\00\00\00\A8\1C\00\00\00\00\00\00\01\04\00\00\06\00\00\00\00\00\00\00\00\00\00\00\B0\1C\00\00\00\00\00\00\01\04\00\00\08\00\00\00\00\00\00\00\00\00\00\00\B8\1C\00\00\00\00\00\00\01\04\00\00\09\00\00\00\00\00\00\00\00\00\00\00\C8\1C\00\00\00\00\00\00\01\04\00\00\0A\00\00\00\00\00\00\00\00\00\00\00" }>, %struct.__jove__rela_plt <{ [168 x i8] c"\E8\1C\00\00\00\00\00\00\02\04\00\00\04\00\00\00\00\00\00\00\00\00\00\00\F0\1C\00\00\00\00\00\00\02\04\00\00\02\00\00\00\00\00\00\00\00\00\00\00\F8\1C\00\00\00\00\00\00\02\04\00\00\06\00\00\00\00\00\00\00\00\00\00\00\00\1D\00\00\00\00\00\00\02\04\00\00\05\00\00\00\00\00\00\00\00\00\00\00\08\1D\00\00\00\00\00\00\02\04\00\00\07\00\00\00\00\00\00\00\00\00\00\00\10\1D\00\00\00\00\00\00\02\04\00\00\03\00\00\00\00\00\00\00\00\00\00\00\18\1D\00\00\00\00\00\00\02\04\00\00\01\00\00\00\00\00\00\00\00\00\00\00" }>, %struct.__jove__init <{ [20 x i8] c"\FD{\BF\A9\FD\03\00\91\86\00\00\94\FD{\C1\A8\C0\03_\D6" }>, [4 x i8] zeroinitializer, %struct.__jove__plt <{ [144 x i8] c"\F0{\BF\A9\10\00\00\B0\11rF\F9\10\823\91 \02\1F\D6\1F \03\D5\1F \03\D5\1F \03\D5\10\00\00\B0\11vF\F9\10\A23\91 \02\1F\D6\10\00\00\B0\11zF\F9\10\C23\91 \02\1F\D6\10\00\00\B0\11~F\F9\10\E23\91 \02\1F\D6\10\00\00\B0\11\82F\F9\10\024\91 \02\1F\D6\10\00\00\B0\11\86F\F9\10\224\91 \02\1F\D6\10\00\00\B0\11\8AF\F9\10B4\91 \02\1F\D6\10\00\00\B0\11\8EF\F9\10b4\91 \02\1F\D6" }>, %struct.__jove__text <{ [892 x i8] c"\FD{\BD\A9\1F\18\00q\FD\03\00\91\F3S\01\A9\F5[\02\A9\F3\03\01\AA \01\00T\00\00\00\90\00\A0)\91\EB\FF\FF\97\00\00\80R\F3SA\A9\F5[B\A9\FD{\C3\A8\C0\03_\D6 \04@\F9B\01\80R\01\00\80\D2\E6\FF\FF\97\F5\03\00\AA`\0A@\F9B\01\80R\01\00\80\D2\E1\FF\FF\97\F4\03\00\AA`\12@\F9B\01\80R\01\00\80\D2\DC\FF\FF\97\F6\03\00\AA`\16@\F9B\01\80R\01\00\80\D2\D7\FF\FF\97d\0E@\F9\84\00@9\84\A8\00Q\9F\14\00qi\00\00T \00\80R\E3\FF\FF\17\05\00\00\90\A5p)\91\A1Hd8b\00\00\10A\88!\8B \00\1F\D6\E2\03\16\AA\E3\03\00\AA\E1\03\14\AA\E0\03\15\AA\84\00\00\94\E2\03\01\AA\E1\03\00\AA\00\00\00\90\00@*\91\C4\FF\FF\97\00\00\80R\D1\FF\FF\17\E2\03\16\AA\E3\03\00\AA\E1\03\14\AA\E0\03\15\AAh\00\00\94\E2\03\01\AA\F4\FF\FF\17\E2\03\16\AA\E3\03\00\AA\E1\03\14\AA\E0\03\15\AAW\00\00\94\E2\03\01\AA\ED\FF\FF\17\E2\03\16\AA\E3\03\00\AA\E1\03\14\AA\E0\03\15\AAd\00\00\94\E2\03\01\AA\E6\FF\FF\17\1D\00\80\D2\1E\00\80\D2\E5\03\00\AA\E1\03@\F9\E2#\00\91\E6\03\00\91\00\00\00\B0\00HF\F9\03\00\00\B0cLF\F9\04\00\00\B0\84PF\F9\88\FF\FF\97\8B\FF\FF\97\00\00\00\B0\00TF\F9@\00\00\B4\8B\FF\FF\17\C0\03_\D6\01\00\00\B0\00\00\00\B0!\E04\91\00\E04\91!\1C\00\91!\00\00\CB?8\00\F1\A9\00\00T\01\00\00\B0!XF\F9A\00\00\B4 \00\1F\D6\C0\03_\D6\00\00\00\B0\01\00\00\B0\00\E04\91!\E04\91!\00\00\CB\22\FCC\93B\FCB\8BA\FCA\93\A1\00\00\B4\02\00\00\B0B\5CF\F9B\00\00\B4@\00\1F\D6\C0\03_\D6\FD{\BE\A9\FD\03\00\91\F3\0B\00\F9\13\00\00\B0`\22u9@\01\005\00\00\00\B0\00`F\F9\80\00\00\B4\00\00\00\B0\00\94F\F9g\FF\FF\97\D9\FF\FF\97 \00\80R`\2259\F3\0B@\F9\FD{\C2\A8\C0\03_\D6\FD{\BF\A9\00\00\00\B0\FD\03\00\91\00\C04\91\01\00@\F9a\00\00\B5\FD{\C1\A8\D9\FF\FF\17\01\00\00\B0!dF\F9\81\FF\FF\B4 \00?\D6\FA\FF\FF\17\FF\C3\00\D1\E0\07\01\A9\E2\0F\00\A9\E0\07\C0=\E1\03\C0=\00\84\E1N\E0\0B\80=\E0\07B\A9\FF\C3\00\91\C0\03_\D6\FF\C3\00\D1\E0\07\01\A9\E2\0F\00\A9\E0\07\C0=\E1\03\C0=\00\84\E1n\E0\0B\80=\E0\07B\A9\FF\C3\00\91\C0\03_\D6F|\00\9B\E5\03\01\AAa|\00\9BA\04\05\9B`\98\05\9B\C0\03_\D6F|\01\9Be|\01\9Bd|\03\9BA\10\02\9Bc\98\00\9BB\14\00\9B@\0C\C1\9Aa\0C\C1\9A\C0\03_\D6\FD{\BC\A9\FD\03\00\91\F3S\01\A9\F7c\03\A9\14\00\00\B0\18\00\00\B0\18\035\91\94\225\91\94\02\18\CB\94\FEC\93\F5[\02\A9\F7\03\00*\F6\03\01\AA\F5\03\02\AA\13\00\80\D2\07\FF\FF\974\01\00\B4\03{s\F8\E0\03\17*\E1\03\16\AA\E2\03\15\AA`\00?\D6s\06\00\91\7F\02\14\EB!\FF\FFT\F3SA\A9\F5[B\A9\F7cC\A9\FD{\C4\A8\C0\03_\D6\C0\03_\D6" }>, %struct.__jove__fini <{ [16 x i8] c"\FD{\BF\A9\FD\03\00\91\FD{\C1\A8\C0\03_\D6" }>, [4 x i8] zeroinitializer, %struct.__jove__rodata <{ [68 x i8] c"\01\00\02\00\1A\13\F8\0C\F8\00\00\00\00\00\00\00usage: complex-num w x [+-*/] y z\00\00\00\00\00\00\00%li + %lii\0A\00" }>, %struct.__jove__eh_frame zeroinitializer, %struct.__jove__eh_frame_hdr <{ [8 x i8] c"\01\1B\FF\FF\F8\FF\FF\FF" }>, [4096 x i8] zeroinitializer, %struct.__jove__dynamic <{ [480 x i8] c"\03\00\00\00\00\00\00\00\D0\1C\00\00\00\00\00\00\02\00\00\00\00\00\00\00\A8\00\00\00\00\00\00\00\17\00\00\00\00\00\00\00x\05\00\00\00\00\00\00\14\00\00\00\00\00\00\00\07\00\00\00\00\00\00\00\07\00\00\00\00\00\00\00p\04\00\00\00\00\00\00\08\00\00\00\00\00\00\00\08\01\00\00\00\00\00\00\09\00\00\00\00\00\00\00\18\00\00\00\00\00\00\00\F9\FF\FFo\00\00\00\00\06\00\00\00\00\00\00\00\15\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\06\00\00\00\00\00\00\00`\02\00\00\00\00\00\00\0B\00\00\00\00\00\00\00\18\00\00\00\00\00\00\00\05\00\00\00\00\00\00\00h\03\00\00\00\00\00\00\0A\00\00\00\00\00\00\00\A9\00\00\00\00\00\00\00\F5\FE\FFo\00\00\00\00\18\04\00\00\00\00\00\00\01\00\00\00\00\00\00\00\13\00\00\00\00\00\00\00\0C\00\00\00\00\00\00\00 \06\00\00\00\00\00\00\0D\00\00\00\00\00\00\00D\0A\00\00\00\00\00\00\1A\00\00\00\00\00\00\008\1D\00\00\00\00\00\00\1C\00\00\00\00\00\00\00\08\00\00\00\00\00\00\00\19\00\00\00\00\00\00\00@\1D\00\00\00\00\00\00\1B\00\00\00\00\00\00\00\08\00\00\00\00\00\00\00\F0\FF\FFo\00\00\00\004\04\00\00\00\00\00\00\FE\FF\FFo\00\00\00\00L\04\00\00\00\00\00\00\FF\FF\FFo\00\00\00\00\01\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }>, %struct.__jove__got <{ [8 x i8] c"\A8\1A\00\00\00\00\00\00", i64* bitcast (%struct.__jove__text* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17) to i64*), i64* bitcast (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 768) to i64*), i64* bitcast (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 888) to i64*), void ()* @__gmon_start__, void ()* @_ITM_deregisterTMCloneTable, void ()* @_ITM_registerTMCloneTable, void ()* @__cxa_finalize, void ()* @_Jv_RegisterClasses }>, %struct.__jove__got_plt <{ [24 x i8] zeroinitializer, void ()* @__libc_start_main, void ()* @abort, void ()* @__gmon_start__, void ()* @__cxa_finalize, void ()* @puts, void ()* @strtol, void ()* @printf }>, %struct.__jove__data <{ [8 x i8] zeroinitializer, i64* bitcast (i64** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 27, i32 1) to i64*) }>, %struct.__jove__jcr zeroinitializer, %struct.__jove__fini_array <{ i64* bitcast (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 504) to i64*) }>, %struct.__jove__init_array <{ i64* bitcast (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 576) to i64*) }>, %struct.__jove__bss zeroinitializer }>, align 4096
+
+declare extern_weak void @__cxa_finalize()
+
+declare extern_weak void @__gmon_start__()
+
+declare extern_weak void @_ITM_deregisterTMCloneTable()
+
+declare extern_weak void @_ITM_registerTMCloneTable()
+
+declare extern_weak void @_Jv_RegisterClasses()
+
+declare void @__libc_start_main()
+
+declare void @abort()
+
+declare void @puts()
+
+declare void @strtol()
+
+declare void @printf()
+
+; Function Attrs: noinline
+define internal void @"0x688"() local_unnamed_addr #0 {
+"0x688":
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 4) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @__cxa_finalize to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* @__cxa_finalize)
+  ret void
+}
+
+; Function Attrs: noinline
+define internal void @"0x668"() local_unnamed_addr #0 {
+"0x668":
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 2) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @abort to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* nonnull @abort)
+  ret void
+}
+
+; Function Attrs: noinline norecurse nounwind readnone
+define { i64, i64, i64, i64, i64, i64, i64 } @cn_div(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #1 {
+"0x9a4":
+  %0 = mul i64 %x2, %x1
+  %1 = mul i64 %x3, %x1
+  %2 = mul i64 %x3, %x3
+  %3 = mul i64 %x2, %x2
+  %4 = add i64 %2, %3
+  %5 = mul i64 %x3, %x0
+  %6 = sub i64 %0, %5
+  %7 = mul i64 %x2, %x0
+  %8 = add i64 %1, %7
+  %9 = tail call i64 @helper_sdiv64(i64 %6, i64 %4)
+  %10 = tail call i64 @helper_sdiv64(i64 %8, i64 %4)
+  %11 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } undef, i64 %10, 0
+  %12 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %11, i64 %9, 1
+  %13 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %12, i64 %8, 2
+  %14 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %13, i64 %6, 3
+  %15 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %14, i64 %2, 4
+  %16 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %15, i64 %1, 5
+  %17 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %16, i64 %0, 6
+  ret { i64, i64, i64, i64, i64, i64, i64 } %17
+}
+
+; Function Attrs: noinline
+define { i64 } @_start(i64 %x0) local_unnamed_addr #0 {
+"0x808":
+  %sp_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_1, 8
+  %1 = inttoptr i64 %sp_1 to i64*
+  %2 = load i64, i64* %1, align 8, !noalias !0
+  store i64 ptrtoint (%struct.__jove__text* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 %2, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 768) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 3), align 8, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 888) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 4), align 8, !alias.scope !0
+  store i64 %x0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 5), align 8, !alias.scope !0
+  store i64 %sp_1, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 6), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  tail call void @"0x658"()
+  tail call void @"0x668"()
+  br i1 icmp eq (void ()* @__gmon_start__, void ()* null), label %"0x850.exit", label %"0x678"
+
+"0x678":                                          ; preds = %"0x808"
+  store i64 ptrtoint (void ()* @__gmon_start__ to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 3) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @__gmon_start__ to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* @__gmon_start__)
+  ret { i64 } undef
+
+"0x850.exit":                                     ; preds = %"0x808"
+  ret { i64 } zeroinitializer
+}
+
+; Function Attrs: noinline
+define void @__libc_csu_init(i64 %x0, i64 %x1, i64 %x2) local_unnamed_addr #0 {
+"0x9c8":
+  %x19_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %x20_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  %x21_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  %x22_4 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  %x23_5 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 23), align 8, !alias.scope !0
+  %x24_6 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 24), align 8, !alias.scope !0
+  %x29_7 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_8 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_9 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_9, -64
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_7, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_9, -56
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_8, i64* %3, align 8, !noalias !0
+  %4 = add i64 %sp_9, -48
+  %5 = inttoptr i64 %4 to i64*
+  store i64 %x19_1, i64* %5, align 8, !noalias !0
+  %6 = add i64 %sp_9, -40
+  %7 = inttoptr i64 %6 to i64*
+  store i64 %x20_2, i64* %7, align 8, !noalias !0
+  %8 = add i64 %sp_9, -16
+  %9 = inttoptr i64 %8 to i64*
+  store i64 %x23_5, i64* %9, align 8, !noalias !0
+  %10 = add i64 %sp_9, -8
+  %11 = inttoptr i64 %10 to i64*
+  store i64 %x24_6, i64* %11, align 8, !noalias !0
+  %12 = add i64 %sp_9, -32
+  %13 = inttoptr i64 %12 to i64*
+  store i64 %x21_3, i64* %13, align 8, !noalias !0
+  %14 = add i64 %sp_9, -24
+  %15 = inttoptr i64 %14 to i64*
+  store i64 %x22_4, i64* %15, align 8, !noalias !0
+  %16 = and i64 %x0, 4294967295
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 1, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  store i64 %x2, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  store i64 %x1, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  store i64 %16, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 23), align 8, !alias.scope !0
+  store i64 ptrtoint (%struct.__jove__init_array* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 30) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 24), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  tail call void @_init()
+  %x20_11 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  %x24_15 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 24), align 8, !alias.scope !0
+  %sp_16 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %not. = icmp eq i64 %x20_11, 0
+  br i1 %not., label %"0xa2c.exit", label %"0xa0c.preheader"
+
+"0xa0c.preheader":                                ; preds = %"0x9c8"
+  %x19_10 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  br label %"0xa0c"
+
+"0xa0c":                                          ; preds = %"0xa0c", %"0xa0c.preheader"
+  %x19_.0 = phi i64 [ %21, %"0xa0c" ], [ %x19_10, %"0xa0c.preheader" ]
+  %17 = shl i64 %x19_.0, 3
+  %18 = add i64 %17, %x24_15
+  %19 = inttoptr i64 %18 to void ()**
+  %20 = load void ()*, void ()** %19, align 8, !noalias !0
+  tail call void @__jove_indirect_call(void ()* %20)
+  %21 = add i64 %x19_.0, 1
+  %22 = sub i64 %21, %x20_11
+  %23 = lshr i64 %22, 32
+  %24 = or i64 %23, %22
+  %25 = trunc i64 %24 to i32
+  %26 = icmp eq i32 %25, 0
+  br i1 %26, label %"0xa2c.exit.loopexit", label %"0xa0c"
+
+"0xa2c.exit.loopexit":                            ; preds = %"0xa0c"
+  %27 = trunc i64 %23 to i32
+  %28 = icmp uge i64 %21, %x20_11
+  %29 = zext i1 %28 to i32
+  %30 = xor i64 %22, %21
+  %31 = xor i64 %21, %x20_11
+  %32 = and i64 %30, %31
+  %33 = lshr i64 %32, 32
+  %34 = trunc i64 %33 to i32
+  br label %"0xa2c.exit"
+
+"0xa2c.exit":                                     ; preds = %"0xa2c.exit.loopexit", %"0x9c8"
+  %VF_.0 = phi i32 [ undef, %"0x9c8" ], [ %34, %"0xa2c.exit.loopexit" ]
+  %NF_.0 = phi i32 [ undef, %"0x9c8" ], [ %27, %"0xa2c.exit.loopexit" ]
+  %CF_.0 = phi i32 [ undef, %"0x9c8" ], [ %29, %"0xa2c.exit.loopexit" ]
+  %35 = add i64 %sp_16, 48
+  %36 = add i64 %sp_16, 32
+  %37 = add i64 %sp_16, 16
+  %38 = add i64 %sp_16, 64
+  %39 = inttoptr i64 %sp_16 to i64*
+  %40 = load i64, i64* %39, align 8, !noalias !0
+  %41 = add i64 %sp_16, 56
+  %42 = inttoptr i64 %41 to i64*
+  %43 = load i64, i64* %42, align 8, !noalias !0
+  %44 = inttoptr i64 %35 to i64*
+  %45 = load i64, i64* %44, align 8, !noalias !0
+  %46 = add i64 %sp_16, 40
+  %47 = inttoptr i64 %46 to i64*
+  %48 = load i64, i64* %47, align 8, !noalias !0
+  %49 = inttoptr i64 %36 to i64*
+  %50 = load i64, i64* %49, align 8, !noalias !0
+  %51 = add i64 %sp_16, 24
+  %52 = inttoptr i64 %51 to i64*
+  %53 = load i64, i64* %52, align 8, !noalias !0
+  %54 = inttoptr i64 %37 to i64*
+  %55 = load i64, i64* %54, align 8, !noalias !0
+  store i32 %CF_.0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %NF_.0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %VF_.0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 %55, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %53, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  store i64 %50, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  store i64 %48, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  store i64 %45, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 23), align 8, !alias.scope !0
+  store i64 %43, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 24), align 8, !alias.scope !0
+  store i64 %40, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %38, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  ret void
+}
+
+; Function Attrs: noinline
+define internal void @"0x658"() local_unnamed_addr #0 {
+"0x658":
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 1) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @__libc_start_main to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* nonnull @__libc_start_main)
+  ret void
+}
+
+; Function Attrs: noinline norecurse nounwind
+define { i64, i64 } @cn_add(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #2 {
+"0x93c":
+  %sp_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_2, -48
+  %1 = add i64 %sp_2, -32
+  %2 = inttoptr i64 %1 to i64*
+  store i64 %x0, i64* %2, align 8, !noalias !0
+  %3 = add i64 %sp_2, -24
+  %4 = inttoptr i64 %3 to i64*
+  store i64 %x1, i64* %4, align 8, !noalias !0
+  %5 = inttoptr i64 %0 to i64*
+  store i64 %x2, i64* %5, align 8, !noalias !0
+  %6 = add i64 %sp_2, -40
+  %7 = inttoptr i64 %6 to i64*
+  store i64 %x3, i64* %7, align 8, !noalias !0
+  %8 = load i64, i64* %2, align 8, !noalias !0
+  %9 = load i64, i64* %4, align 8
+  %10 = load i64, i64* %5, align 8, !noalias !0
+  store i64 %10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 2), align 8, !alias.scope !0
+  store i64 %x3, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 3), align 8, !alias.scope !0
+  %11 = add i64 %10, %8
+  store i64 %11, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 0), align 8, !alias.scope !0
+  %12 = add i64 %9, %x3
+  store i64 %12, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 1), align 8, !alias.scope !0
+  %13 = add i64 %sp_2, -16
+  %14 = add i64 %sp_2, -8
+  %15 = inttoptr i64 %13 to i64*
+  store i64 %11, i64* %15, align 8, !noalias !0
+  %16 = inttoptr i64 %14 to i64*
+  store i64 %12, i64* %16, align 8, !noalias !0
+  %17 = load i64, i64* %15, align 8, !noalias !0
+  %18 = insertvalue { i64, i64 } undef, i64 %17, 0
+  %19 = insertvalue { i64, i64 } %18, i64 %12, 1
+  ret { i64, i64 } %19
+}
+
+; Function Attrs: noinline norecurse nounwind
+define { i64, i64 } @cn_sub(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #2 {
+"0x964":
+  %sp_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_2, -48
+  %1 = add i64 %sp_2, -32
+  %2 = inttoptr i64 %1 to i64*
+  store i64 %x0, i64* %2, align 8, !noalias !0
+  %3 = add i64 %sp_2, -24
+  %4 = inttoptr i64 %3 to i64*
+  store i64 %x1, i64* %4, align 8, !noalias !0
+  %5 = inttoptr i64 %0 to i64*
+  store i64 %x2, i64* %5, align 8, !noalias !0
+  %6 = add i64 %sp_2, -40
+  %7 = inttoptr i64 %6 to i64*
+  store i64 %x3, i64* %7, align 8, !noalias !0
+  %8 = load i64, i64* %2, align 8, !noalias !0
+  %9 = load i64, i64* %4, align 8
+  %10 = load i64, i64* %5, align 8, !noalias !0
+  store i64 %10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 2), align 8, !alias.scope !0
+  store i64 %x3, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 3), align 8, !alias.scope !0
+  %11 = sub i64 %8, %10
+  store i64 %11, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 0), align 8, !alias.scope !0
+  %12 = sub i64 %9, %x3
+  store i64 %12, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 1), align 8, !alias.scope !0
+  %13 = add i64 %sp_2, -16
+  %14 = add i64 %sp_2, -8
+  %15 = inttoptr i64 %13 to i64*
+  store i64 %11, i64* %15, align 8, !noalias !0
+  %16 = inttoptr i64 %14 to i64*
+  store i64 %12, i64* %16, align 8, !noalias !0
+  %17 = load i64, i64* %15, align 8, !noalias !0
+  %18 = insertvalue { i64, i64 } undef, i64 %17, 0
+  %19 = insertvalue { i64, i64 } %18, i64 %12, 1
+  ret { i64, i64 } %19
+}
+
+; Function Attrs: noinline
+define internal void @"0x698"() local_unnamed_addr #0 {
+"0x698":
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 5) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @puts to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* nonnull @puts)
+  ret void
+}
+
+; Function Attrs: noinline norecurse nounwind
+define { i64, i64 } @deregister_tm_clones() local_unnamed_addr #2 {
+"0x854":
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 -1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 -1, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  ret { i64, i64 } { i64 ptrtoint (%struct.__jove__fini_array* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 29) to i64), i64 7 }
+}
+
+; Function Attrs: noinline
+define void @_init() local_unnamed_addr #0 {
+"0x620":
+  %x29_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_3, -16
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_1, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_3, -8
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_2, i64* %3, align 8, !noalias !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %4 = tail call { i64 } @call_weak_fn()
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  %sp_4 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %5 = add i64 %sp_4, 16
+  %6 = inttoptr i64 %sp_4 to i64*
+  %7 = load i64, i64* %6, align 8, !noalias !0
+  store i64 %7, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %5, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  ret void
+}
+
+; Function Attrs: noinline
+define { i64 } @call_weak_fn() local_unnamed_addr #0 {
+"0x840":
+  br i1 icmp eq (void ()* @__gmon_start__, void ()* null), label %"0x850.exit", label %"0x678"
+
+"0x678":                                          ; preds = %"0x840"
+  store i64 ptrtoint (void ()* @__gmon_start__ to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 3) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @__gmon_start__ to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* @__gmon_start__)
+  ret { i64 } undef
+
+"0x850.exit":                                     ; preds = %"0x840"
+  ret { i64 } zeroinitializer
+}
+
+; Function Attrs: noinline norecurse nounwind
+define void @_fini() local_unnamed_addr #2 {
+"0xa44":
+  %x29_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_3, -16
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_1, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_3, -8
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_2, i64* %3, align 8, !noalias !0
+  %4 = load i64, i64* %1, align 8, !noalias !0
+  store i64 %4, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  ret void
+}
+
+; Function Attrs: noinline norecurse nounwind readnone
+define { i64, i64, i64 } @register_tm_clones() local_unnamed_addr #1 {
+"0x888":
+  ret { i64, i64, i64 } { i64 ptrtoint (%struct.__jove__fini_array* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 29) to i64), i64 0, i64 0 }
+}
+
+; Function Attrs: noinline
+define internal void @"0x6a8"() local_unnamed_addr #0 {
+"0x6a8":
+  store i64 ptrtoint (void ()** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 26, i32 6) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 16), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @strtol to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 17), align 8, !alias.scope !0
+  tail call void @__jove_call(void ()* nonnull @strtol)
+  ret void
+}
+
 ; Function Attrs: noinline norecurse nounwind readnone
 define { i64, i64, i64, i64 } @cn_mul(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #1 {
 "0x98c":
@@ -471,127 +986,315 @@ define { i64, i64, i64, i64 } @cn_mul(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_
   ret { i64, i64, i64, i64 } %9
 }
 
-; Function Attrs: noinline norecurse nounwind
-define { i64, i64 } @cn_add(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #2 {
-"0x93c":
-  %sp_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
-  %0 = add i64 %sp_2, -48
-  %1 = add i64 %sp_2, -32
-  %2 = inttoptr i64 %1 to i64*
-  store i64 %x0, i64* %2, align 4, !noalias !0
-  %3 = add i64 %sp_2, -24
-  %4 = inttoptr i64 %3 to i64*
-  store i64 %x1, i64* %4, align 4, !noalias !0
-  %5 = inttoptr i64 %0 to i64*
-  store i64 %x2, i64* %5, align 4, !noalias !0
-  %6 = add i64 %sp_2, -40
-  %7 = inttoptr i64 %6 to i64*
-  store i64 %x3, i64* %7, align 4, !noalias !0
-  %8 = load i64, i64* %2, align 4, !noalias !0
-  %9 = load i64, i64* %4, align 4
-  %10 = load i64, i64* %5, align 4, !noalias !0
-  store i64 %10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 6), align 8, !alias.scope !0
-  store i64 %x3, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 7), align 8, !alias.scope !0
-  %11 = add i64 %10, %8
-  store i64 %11, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 4), align 8, !alias.scope !0
-  %12 = add i64 %9, %x3
-  store i64 %12, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 5), align 8, !alias.scope !0
-  %13 = add i64 %sp_2, -16
-  %14 = add i64 %sp_2, -8
-  %15 = inttoptr i64 %13 to i64*
-  store i64 %11, i64* %15, align 4, !noalias !0
-  %16 = inttoptr i64 %14 to i64*
-  store i64 %12, i64* %16, align 4, !noalias !0
-  %17 = load i64, i64* %15, align 4, !noalias !0
-  %18 = insertvalue { i64, i64 } undef, i64 %17, 0
-  %19 = insertvalue { i64, i64 } %18, i64 %12, 1
-  ret { i64, i64 } %19
+; Function Attrs: noinline
+define { i64 } @__do_global_dtors_aux() local_unnamed_addr #0 {
+"0x8c0":
+  %x19_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %x29_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_4 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_4, -32
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_2, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_4, -24
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_3, i64* %3, align 8, !noalias !0
+  %4 = add i64 %sp_4, -16
+  %5 = inttoptr i64 %4 to i64*
+  store i64 %x19_1, i64* %5, align 8, !noalias !0
+  %6 = load i64, i64* bitcast (%struct.__jove__bss* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 31) to i64*), align 8, !noalias !0
+  %7 = and i64 %6, 4294967295
+  %8 = icmp eq i64 %7, 0
+  br i1 %8, label %"0x8d8", label %"0x8fc.exit"
+
+"0x8d8":                                          ; preds = %"0x8c0"
+  br i1 icmp eq (void ()* @__cxa_finalize, void ()* null), label %"0x8f0.exit", label %"0x8e4"
+
+"0x8e4":                                          ; preds = %"0x8d8"
+  store i64 ptrtoint (i64** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 27, i32 1) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 23, i64 1368) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  tail call void @"0x688"()
+  %x19_10 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %sp_11 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  br label %"0x8f0.exit"
+
+"0x8f0.exit":                                     ; preds = %"0x8e4", %"0x8d8"
+  %sp_.0 = phi i64 [ %sp_11, %"0x8e4" ], [ %0, %"0x8d8" ]
+  %x19_.0 = phi i64 [ %x19_10, %"0x8e4" ], [ ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 23, i64 1368) to i64), %"0x8d8" ]
+  %x0_.0 = phi i64 [ ptrtoint (i64** getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 27, i32 1) to i64), %"0x8e4" ], [ 0, %"0x8d8" ]
+  store i64 %x0_.0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 %x19_.0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %sp_.0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %9 = tail call { i64, i64 } @deregister_tm_clones()
+  store i64 ptrtoint (%struct.__jove__fini_array* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 29) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 7, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  %sp_13 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %x19_12 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %10 = add i64 %x19_12, 3400
+  %11 = inttoptr i64 %10 to i64*
+  store i64 1, i64* %11, align 8, !noalias !0
+  %12 = add i64 %sp_13, 32
+  %13 = inttoptr i64 %sp_13 to i64*
+  %14 = load i64, i64* %13, align 8, !noalias !0
+  %15 = add i64 %sp_13, 16
+  %16 = inttoptr i64 %15 to i64*
+  %17 = load i64, i64* %16, align 8, !noalias !0
+  store i64 %17, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %14, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %12, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  ret { i64 } { i64 1 }
+
+"0x8fc.exit":                                     ; preds = %"0x8c0"
+  %18 = load i64, i64* %1, align 8, !noalias !0
+  store i64 %18, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %19 = insertvalue { i64 } undef, i64 %6, 0
+  ret { i64 } %19
 }
 
-; Function Attrs: noinline norecurse nounwind
-define { i64, i64 } @cn_sub(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #2 {
-"0x964":
-  %sp_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
-  %0 = add i64 %sp_2, -48
-  %1 = add i64 %sp_2, -32
-  %2 = inttoptr i64 %1 to i64*
-  store i64 %x0, i64* %2, align 4, !noalias !0
-  %3 = add i64 %sp_2, -24
-  %4 = inttoptr i64 %3 to i64*
-  store i64 %x1, i64* %4, align 4, !noalias !0
-  %5 = inttoptr i64 %0 to i64*
-  store i64 %x2, i64* %5, align 4, !noalias !0
-  %6 = add i64 %sp_2, -40
-  %7 = inttoptr i64 %6 to i64*
-  store i64 %x3, i64* %7, align 4, !noalias !0
-  %8 = load i64, i64* %2, align 4, !noalias !0
-  %9 = load i64, i64* %4, align 4
-  %10 = load i64, i64* %5, align 4, !noalias !0
-  store i64 %10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 6), align 8, !alias.scope !0
-  store i64 %x3, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 7), align 8, !alias.scope !0
-  %11 = sub i64 %8, %10
-  store i64 %11, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 4), align 8, !alias.scope !0
-  %12 = sub i64 %9, %x3
-  store i64 %12, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 28, i32 0, i64 5), align 8, !alias.scope !0
-  %13 = add i64 %sp_2, -16
-  %14 = add i64 %sp_2, -8
-  %15 = inttoptr i64 %13 to i64*
-  store i64 %11, i64* %15, align 4, !noalias !0
-  %16 = inttoptr i64 %14 to i64*
-  store i64 %12, i64* %16, align 4, !noalias !0
-  %17 = load i64, i64* %15, align 4, !noalias !0
-  %18 = insertvalue { i64, i64 } undef, i64 %17, 0
-  %19 = insertvalue { i64, i64 } %18, i64 %12, 1
-  ret { i64, i64 } %19
+; Function Attrs: noinline
+define { i64, i64, i64 } @frame_dummy() local_unnamed_addr #0 {
+"0x908":
+  %x29_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_3, -16
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_1, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_3, -8
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_2, i64* %3, align 8, !noalias !0
+  %4 = load i64, i64* bitcast (%struct.__jove__jcr* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 28) to i64*), align 16, !noalias !0
+  %5 = icmp eq i64 %4, 0
+  %brmerge = or i1 %5, icmp eq (void ()* @_Jv_RegisterClasses, void ()* null)
+  br i1 %brmerge, label %"0x920", label %"0x934.exit"
+
+"0x920":                                          ; preds = %"0x934.exit", %"0x908"
+  %6 = load i64, i64* %1, align 8, !noalias !0
+  store i64 %6, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %sp_3, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  ret { i64, i64, i64 } { i64 ptrtoint (%struct.__jove__fini_array* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 29) to i64), i64 0, i64 0 }
+
+"0x934.exit":                                     ; preds = %"0x908"
+  tail call void @__jove_indirect_call(void ()* @_Jv_RegisterClasses)
+  br label %"0x920"
+}
+
+; Function Attrs: noinline
+define { i64, i64 } @main(i64 %x0, i64 %x1) local_unnamed_addr #0 {
+"0x6c8":
+  %x19_1 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %x20_2 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  %x21_3 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  %x22_4 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  %x29_5 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  %lr_6 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 30), align 8, !alias.scope !0
+  %sp_7 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %0 = add i64 %sp_7, -48
+  %1 = inttoptr i64 %0 to i64*
+  store i64 %x29_5, i64* %1, align 8, !noalias !0
+  %2 = add i64 %sp_7, -40
+  %3 = inttoptr i64 %2 to i64*
+  store i64 %lr_6, i64* %3, align 8, !noalias !0
+  %4 = trunc i64 %x0 to i32
+  %5 = add i32 %4, -6
+  %6 = icmp ugt i32 %4, 5
+  %7 = zext i1 %6 to i32
+  %8 = xor i32 %5, %4
+  %9 = xor i32 %4, 6
+  %10 = and i32 %8, %9
+  %11 = add i64 %sp_7, -32
+  %12 = inttoptr i64 %11 to i64*
+  store i64 %x19_1, i64* %12, align 8, !noalias !0
+  %13 = add i64 %sp_7, -24
+  %14 = inttoptr i64 %13 to i64*
+  store i64 %x20_2, i64* %14, align 8, !noalias !0
+  %15 = add i64 %sp_7, -16
+  %16 = inttoptr i64 %15 to i64*
+  store i64 %x21_3, i64* %16, align 8, !noalias !0
+  %17 = add i64 %sp_7, -8
+  %18 = inttoptr i64 %17 to i64*
+  store i64 %x22_4, i64* %18, align 8, !noalias !0
+  %not.44 = icmp eq i32 %5, 0
+  br i1 %not.44, label %"0x704.exit", label %"0x6e4.exit"
+
+"0x6e4.exit":                                     ; preds = %"0x6c8"
+  store i32 %7, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %5, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %10, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %5, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 20, i32 0, i64 16) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 %x1, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  tail call void @"0x698"()
+  %sp_10 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %19 = add i64 %sp_10, 32
+  %20 = add i64 %sp_10, 16
+  %21 = add i64 %sp_10, 48
+  %22 = inttoptr i64 %sp_10 to i64*
+  %23 = load i64, i64* %22, align 8, !noalias !0
+  %24 = add i64 %sp_10, 40
+  %25 = inttoptr i64 %24 to i64*
+  %26 = load i64, i64* %25, align 8, !noalias !0
+  %27 = inttoptr i64 %19 to i64*
+  %28 = load i64, i64* %27, align 8, !noalias !0
+  %29 = add i64 %sp_10, 24
+  %30 = inttoptr i64 %29 to i64*
+  %31 = load i64, i64* %30, align 8, !noalias !0
+  %32 = inttoptr i64 %20 to i64*
+  %33 = load i64, i64* %32, align 8, !noalias !0
+  store i32 %7, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %5, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %10, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %5, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 %33, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %31, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  store i64 %28, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  store i64 %26, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  store i64 %23, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %21, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  ret { i64, i64 } { i64 0, i64 undef }
+
+"0x704.exit":                                     ; preds = %"0x6c8"
+  %34 = add i64 %x1, 8
+  %35 = inttoptr i64 %34 to i64*
+  %36 = load i64, i64* %35, align 8, !noalias !0
+  store i32 %7, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %10, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 0, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 %36, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 %x1, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  tail call void @"0x6a8"()
+  %x0_15 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  %x19_16 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %37 = add i64 %x19_16, 16
+  %38 = inttoptr i64 %37 to i64*
+  %39 = load i64, i64* %38, align 8, !noalias !0
+  store i64 %39, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 %x0_15, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  tail call void @"0x6a8"()
+  %x0_20 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  %x19_21 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %40 = add i64 %x19_21, 32
+  %41 = inttoptr i64 %40 to i64*
+  %42 = load i64, i64* %41, align 8, !noalias !0
+  store i64 %42, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 %x0_20, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  tail call void @"0x6a8"()
+  %x0_25 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  %x19_26 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %43 = add i64 %x19_26, 40
+  %44 = inttoptr i64 %43 to i64*
+  %45 = load i64, i64* %44, align 8, !noalias !0
+  store i64 %45, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 0), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 10, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 %x0_25, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  tail call void @"0x6a8"()
+  %sp_31 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %x19_30 = load i64, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  %46 = add i64 %x19_30, 24
+  %47 = inttoptr i64 %46 to i64**
+  %48 = load i64*, i64** %47, align 8, !noalias !0
+  %49 = load i64, i64* %48, align 8, !noalias !0
+  %50 = add i64 %49, 4294967254
+  %51 = and i64 %50, 4294967295
+  %52 = trunc i64 %50 to i32
+  %53 = add i32 %52, -5
+  %54 = icmp ugt i32 %52, 4
+  %55 = zext i1 %54 to i32
+  %56 = xor i32 %53, %52
+  %57 = xor i32 %52, 5
+  %58 = and i32 %56, %57
+  %59 = icmp eq i32 %53, 0
+  %not. = xor i1 %54, true
+  %60 = or i1 %59, %not.
+  br i1 %60, label %"0x76c", label %l138
+
+"0x76c":                                          ; preds = %"0x704.exit"
+  %61 = add i64 %51, ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 20, i32 0, i64 4) to i64)
+  %62 = inttoptr i64 %61 to i64*
+  %63 = load i64, i64* %62, align 8, !noalias !0
+  %sext = shl i64 %63, 56
+  %64 = ashr exact i64 %sext, 54
+  %65 = add i64 %64, ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 188) to i64)
+  store i32 %55, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %58, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 %65, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 1), align 8, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 17, i32 0, i64 188) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 2), align 8, !alias.scope !0
+  store i64 %51, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 4), align 8, !alias.scope !0
+  store i64 ptrtoint (i8* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 20, i32 0, i64 4) to i64), i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 5), align 8, !alias.scope !0
+  %66 = inttoptr i64 %65 to void ()*
+  tail call void @__jove_indirect_jump(void ()* %66)
+  ret { i64, i64 } undef
+
+l138:                                             ; preds = %"0x704.exit"
+  %67 = add i64 %sp_31, 32
+  %68 = add i64 %sp_31, 16
+  %69 = add i64 %sp_31, 48
+  %70 = inttoptr i64 %sp_31 to i64*
+  %71 = load i64, i64* %70, align 8, !noalias !0
+  %72 = add i64 %sp_31, 40
+  %73 = inttoptr i64 %72 to i64*
+  %74 = load i64, i64* %73, align 8, !noalias !0
+  %75 = inttoptr i64 %67 to i64*
+  %76 = load i64, i64* %75, align 8, !noalias !0
+  %77 = add i64 %sp_31, 24
+  %78 = inttoptr i64 %77 to i64*
+  %79 = load i64, i64* %78, align 8, !noalias !0
+  %80 = inttoptr i64 %68 to i64*
+  %81 = load i64, i64* %80, align 8, !noalias !0
+  store i32 %55, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 12), align 8, !alias.scope !0
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 14), align 8, !alias.scope !0
+  store i32 %58, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 13), align 4, !alias.scope !0
+  store i32 %53, i32* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 15), align 4, !alias.scope !0
+  store i64 %81, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 19), align 8, !alias.scope !0
+  store i64 %79, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 20), align 8, !alias.scope !0
+  store i64 %76, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 21), align 8, !alias.scope !0
+  store i64 %74, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 22), align 8, !alias.scope !0
+  store i64 %71, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 29), align 8, !alias.scope !0
+  store i64 %69, i64* getelementptr inbounds (%struct.CPUARMState, %struct.CPUARMState* @cpu_state, i64 0, i32 1, i64 31), align 8, !alias.scope !0
+  %82 = insertvalue { i64, i64 } { i64 1, i64 undef }, i64 %51, 1
+  ret { i64, i64 } %82
 }
 
 ; Function Attrs: noinline norecurse nounwind readnone
-define { i64, i64, i64, i64, i64, i64, i64 } @cn_div(i64 %x0, i64 %x1, i64 %x2, i64 %x3) local_unnamed_addr #0 {
-"0x9a4":
-  %0 = mul i64 %x2, %x1
-  %1 = mul i64 %x3, %x1
-  %2 = mul i64 %x3, %x3
-  %3 = mul i64 %x2, %x2
-  %4 = add i64 %2, %3
-  %5 = mul i64 %x3, %x0
-  %6 = sub i64 %0, %5
-  %7 = mul i64 %x2, %x0
-  %8 = add i64 %1, %7
-  %9 = icmp eq i64 %4, 0
-  br i1 %9, label %helper_sdiv64.exit3, label %10
-
-; <label>:10:                                     ; preds = %"0x9a4"
-  %11 = icmp eq i64 %6, -9223372036854775808
-  %12 = icmp eq i64 %4, -1
-  %or.cond.i = and i1 %11, %12
-  br i1 %or.cond.i, label %15, label %13
-
-; <label>:13:                                     ; preds = %10
-  %14 = sdiv i64 %6, %4
-  br label %15
-
-; <label>:15:                                     ; preds = %10, %13
-  %.0.i.ph = phi i64 [ -9223372036854775808, %10 ], [ %14, %13 ]
-  %16 = icmp eq i64 %8, -9223372036854775808
-  %or.cond.i1 = and i1 %16, %12
-  br i1 %or.cond.i1, label %helper_sdiv64.exit3, label %17
-
-; <label>:17:                                     ; preds = %15
-  %18 = sdiv i64 %8, %4
-  br label %helper_sdiv64.exit3
-
-helper_sdiv64.exit3:                              ; preds = %"0x9a4", %15, %17
-  %.0.i5 = phi i64 [ %.0.i.ph, %17 ], [ %.0.i.ph, %15 ], [ 0, %"0x9a4" ]
-  %.0.i2 = phi i64 [ %18, %17 ], [ -9223372036854775808, %15 ], [ 0, %"0x9a4" ]
-  %19 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } undef, i64 %.0.i2, 0
-  %20 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %19, i64 %.0.i5, 1
-  %21 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %20, i64 %8, 2
-  %22 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %21, i64 %6, 3
-  %23 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %22, i64 %2, 4
-  %24 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %23, i64 %1, 5
-  %25 = insertvalue { i64, i64, i64, i64, i64, i64, i64 } %24, i64 %0, 6
-  ret { i64, i64, i64, i64, i64, i64, i64 } %25
+define void @__libc_csu_fini() local_unnamed_addr #1 {
+"0xa40":
+  ret void
 }
+
+declare void @__jove_indirect_jump(void ()*) local_unnamed_addr
+
+; Function Attrs: norecurse nounwind readnone uwtable
+declare i64 @helper_sdiv64(i64, i64) local_unnamed_addr #3
+
+declare void @__jove_indirect_call(void ()*) local_unnamed_addr
+
+declare void @__jove_call(void ()*)
+
+attributes #0 = { noinline }
+attributes #1 = { noinline norecurse nounwind readnone }
+attributes #2 = { noinline norecurse nounwind }
+attributes #3 = { norecurse nounwind readnone uwtable "correctly-rounded-divide-sqrt-fp-math"="false" "disable-tail-calls"="false" "less-precise-fpmad"="false" "no-frame-pointer-elim"="true" "no-frame-pointer-elim-non-leaf" "no-infs-fp-math"="false" "no-jump-tables"="false" "no-nans-fp-math"="false" "no-signed-zeros-fp-math"="false" "no-trapping-math"="false" "stack-protector-buffer-size"="8" "target-cpu"="x86-64" "target-features"="+fxsr,+mmx,+sse,+sse2,+x87" "unsafe-fp-math"="false" "use-soft-float"="false" }
+
+!0 = !{!1}
+!1 = !{!"JoveScope", !2}
+!2 = !{!"JoveDomain"}
 ```
 ### x86_64
 #### Machine Code
