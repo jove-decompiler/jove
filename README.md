@@ -994,7 +994,6 @@ Translating QEMU IR to LLVM...
     note: PC-relative expression @ 580
 ```
 #### LLVM
-```html
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 <html>
 <head>
@@ -1814,7 +1813,6 @@ attributes #<span class="Constant">4</span> = { <span class="Statement">argmemon
 </body>
 </html>
 <!-- vim: set foldmethod=manual : -->
-```
 ### ARM32
 #### Machine Code
 ```asm
