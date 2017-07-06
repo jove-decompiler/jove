@@ -72,7 +72,7 @@ static unsigned return_address_global_index(void) {
     TCGTemp *ts = &tcg_ctx.temps[i];
 
     if (!ts->fixed_reg && ts->type == word_tcg_ty &&
-        strcmp(ts->name, "lr") == 0)
+        (strcmp(ts->name, "lr") == 0 || strcmp(ts->name, "r14") == 0))
       return i;
   }
 
