@@ -10,6 +10,7 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/icl/split_interval_set.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+#include <boost/algorithm/string/predicate.hpp>
 #include <fstream>
 #include <llvm/Analysis/BasicAliasAnalysis.h>
 #include <llvm/Analysis/ConstantFolding.h>
@@ -40,6 +41,7 @@ using namespace object;
 using namespace std;
 
 #define RELOCINDENT "  "
+#define EXPFNINDENT "  "
 #define FNINDENT "  "
 #define BBINDENT FNINDENT "  "
 
@@ -462,8 +464,8 @@ void translator::create_section_global_variables() {
 
   cout << "Relocations:" << endl << endl;
   for (const relocation_t &reloc : reloctbl) {
-    cout << (boost::format(RELOCINDENT "%-12s @ %-16x +%-16x") %
-             reloc_ty_str[reloc.ty] % reloc.addr % reloc.addend);
+    cout << RELOCINDENT << (boost::format("%-12s @ %-16x +%-16x") %
+                            reloc_ty_str[reloc.ty] % reloc.addr % reloc.addend);
     if (reloc.symidx < symtbl.size()) {
       symbol_t &sym = symtbl[reloc.symidx];
       cout << (boost::format("%-30s *%-10s *%-8s @ %x {%d}") % sym.name %
@@ -814,30 +816,48 @@ static void explode_tcg_global_set(vector<unsigned> &out,
 }
 
 void translator::find_exported_functions(unordered_set<address_t> &out) {
+  cout << "Exported Functions:" << endl << endl;
+
+  vector<const symbol_t*> fns;
+  fns.reserve(symtbl.size());
+
   for (const symbol_t &sym : symtbl) {
     if (sym.is_undefined() || sym.ty != symbol_t::FUNCTION ||
         sym.bind == symbol_t::NOBINDING)
       continue;
 
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-    if (sym.addr & 1)
-      cout << "Thumb code @ ";
-    else
-      cout << "ARM code @ ";
-
-    cout << hex << (sym.addr & 0xfffffffe) << ' ' << sym.name << endl;
-#endif
-
-    out.insert(sym.addr);
+    if (out.insert(sym.addr).second)
+      fns.push_back(&sym);
   }
+
+  std::sort(fns.begin(), fns.end(), [](const symbol_t *a, const symbol_t *b) {
+    return a->addr < b->addr;
+  });
+
+  for (const symbol_t* _sym : fns) {
+    const symbol_t& sym = *_sym;
+
+    address_t app_pc = sym.addr;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    app_pc &= 0xfffffffe;
+#endif
+    cout << EXPFNINDENT << (boost::format("%-40s @ %-16x") % sym.name % app_pc);
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    cout << ' ' << '{' << (sym.addr & 1 ? 'T' : 'A') << '}';
+#endif
+    cout << endl;
+  }
+
+  cout << endl;
 }
 
 void translator::run() {
-  cout << "Translating " TARGET_NAME " machine code to QEMU IR..." << endl
-       << endl;
-
   unordered_set<address_t> exportedfns;
   find_exported_functions(exportedfns);
+
+  cout << "Translating " TARGET_NAME " machine code to QEMU IR..." << endl
+       << endl;
 
   for (address_t addr : exportedfns) {
     assert(addr);
@@ -1424,7 +1444,25 @@ void translator::compute_returned(function_t& f) {
 
 translator::basic_block_t translator::translate_basic_block(function_t &f,
                                                             address_t addr) {
-  cout << FNINDENT << hex << addr << endl;
+  // XXX hack for ARM32
+  mc_t* m = mc;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  if (f[boost::graph_bundle].thumb) {
+    m = thumb_mc;
+    libqemutcg_thumb = 1;
+  } else {
+    libqemutcg_thumb = 0;
+  }
+#endif
+
+  //
+  // announce we are attempting to translate this basic block
+  //
+  cout << FNINDENT << hex << addr;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+  cout << ' ' << '{' << (libqemutcg_thumb ? 'T' : 'A') << '}';
+#endif
+  cout << endl;
 
   //
   // identify section containing function for access to instruction bytes
@@ -1432,7 +1470,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   {
     auto sectit = addrspace.find(addr);
     if (sectit == addrspace.end()) {
-      cout << BBINDENT "note: no code @ " << hex << addr << endl;
+      cout << FNINDENT "note: no code @ " << hex << addr << endl;
       return boost::graph_traits<function_t>::null_vertex();
     }
 
@@ -1448,24 +1486,10 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   // if the first instruction has an invalid encoding, then we assume it is
   // unreachable and do not create a basic block for this address
   //
-  mc_t* m = mc;
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-  if (f[boost::graph_bundle].thumb) {
-    m = thumb_mc;
-    libqemutcg_thumb = 1;
-  } else {
-    libqemutcg_thumb = 0;
-  }
-#endif
-
   if (!m->analyze_instruction(Inst, size,
                               sectdata.data() + (addr - sectstart),
                               addr)) {
-    cout << BBINDENT "note: invalid instruction @ " << hex << addr;
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-    cout << " (" << (m == mc ? "ARM" : "THUMB") << ')';
-#endif
-    cout << endl;
+    cout << FNINDENT << "note: invalid instruction @ " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1483,11 +1507,7 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
   if (!m->analyze_instruction(Inst, size,
                               sectdata.data() + (last_instr_addr - sectstart),
                               last_instr_addr)) {
-    cout << BBINDENT "note: invalid instruction @ " << hex << addr;
-#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-    cout << " (" << (m == mc ? "ARM" : "THUMB") << ')';
-#endif
-    cout << endl;
+    cout << FNINDENT << "note: invalid instruction @ " << hex << addr << endl;
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -1573,15 +1593,29 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
     //   (4) indirect call
     //   (5) return
     //
-    // (5) fall-through case, since many classes of instructions can be
-    // constructed as returns (e.g. pop {r3, pc} on ARM)
-    //
     if (target1) {
       // either (1) or (2)
       if (MIA->isCall(Inst)) {
         // (2)
         cout << BBINDENT "note: direct call to " << hex << target1 << endl;
         bbprop.term = basic_block_properties_t::TERM_CALL;
+
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+        //
+        // on ARM32, a direct call is generally compiled to either a BL, or BLX.
+        // Branch with Link (BL) calls a subroutine at a PC-relative address.
+        // But Branch with Link and Exchange Instruction Sets (BLX) calls a
+        // subroutine at a PC-relative address, and changes instruction set from
+        // ARM to Thumb, or from Thumb to ARM.
+        //
+        // the problem is: if there's a BL in thumb code to thumb code
+        // elsewhere, the compiler has no need to set the LSB (which would be
+        // set for a BLX instruction, since it's thumb). so we need to propogate
+        // the "THUMB" bit in this case.
+        //
+        if (m->MII->getName(Inst.getOpcode()) == "tBL")
+          target1 |= 1; /* XXX */
+#endif
 
         // add call target to translation queue
         functions_to_translate.push(target1);
@@ -1598,24 +1632,53 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
         control_flow_to(target1);
       }
     } else {
-#if defined(TARGET_X86_64)
-      // XXX special case this shit until a reasonable course of action is
-      // decided on http://repzret.org/p/repzret/
       auto is_special_ret = [&](void) -> bool {
+#if defined(TARGET_X86_64)
+        // XXX special case this shit until a reasonable course of action is
+        // decided on http://repzret.org/p/repzret/
         return *reinterpret_cast<const uint16_t *>(
                    sectdata.data() + (last_instr_addr - sectstart)) ==
                0xc3f3; /* repz retq */
-      };
 #elif !defined(TARGET_AARCH64) && defined(TARGET_ARM)
-      // XXX FIXME generalize this?
-      auto is_special_ret = [&](void) -> bool {
-        return *reinterpret_cast<const uint16_t *>(
-                   sectdata.data() + (last_instr_addr - sectstart)) ==
-               0x4770; /* bx lr */
-      };
-#else
-      auto is_special_ret = [](void) -> bool { return false; };
+        //
+        // from dynamorio/core/arch/arm/instr.c:
+        // There is no "return" opcode so we consider a return to be either:
+        // A) An indirect branch through lr;
+        // B) An instr that reads lr and writes pc; (XXX: should we limit to a
+        //    move and rule out an add or shift or whatever?)
+        // C) A pop into pc.
+        //
+        /* XXX ? if (libqemutcg_thumb) { */
+
+        // bx lr
+        if (*reinterpret_cast<const uint16_t *>(
+                sectdata.data() + (last_instr_addr - sectstart)) == 0x4770)
+          return true;
+
+        string asm_s = m->disassemble_instruction(Inst);
+        // pop {..., pc, ...}
+        if (boost::starts_with(asm_s, "pop") &&
+            asm_s.find("pc") != string::npos)
+          return true;
 #endif
+        return false;
+      };
+
+      auto is_special_indirect_jump = [&](void) -> bool {
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+        /* XXX ? if (libqemutcg_thumb) { */
+        string asm_s = m->disassemble_instruction(Inst);
+
+        // mov pc, rN
+        if (boost::starts_with(asm_s, "mov pc, "))
+          return true;
+
+        // ldr pc, ...
+        if (boost::starts_with(asm_s, "ldr pc, "))
+          return true;
+#endif
+        return false;
+      };
 
       // either (3), (4), or (5)
       if (MIA->isCall(Inst)) {
@@ -1625,16 +1688,18 @@ translator::basic_block_t translator::translate_basic_block(function_t &f,
 
         // return address
         control_flow_to(succ_addr);
-      } else if (MIA->isIndirectBranch(Inst)) {
-        // (3)
-        cout << BBINDENT "note: indirect jump" << endl;
-        bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
       } else if (MIA->isReturn(Inst) || is_special_ret()) {
         // (5)
         cout << BBINDENT "note: return" << endl;
         bbprop.term = basic_block_properties_t::TERM_RETURN;
+      } else if (MIA->isIndirectBranch(Inst) || is_special_indirect_jump()) {
+        // (3)
+        cout << BBINDENT "note: indirect jump" << endl;
+        bbprop.term = basic_block_properties_t::TERM_INDIRECT_JUMP;
       } else {
-        cerr << "error: unknown basic block terminator!" << endl;
+        cerr << BBINDENT << "error: unknown basic block terminator '"
+             << m->disassemble_instruction(Inst) << "' ("
+             << m->MII->getName(Inst.getOpcode()).str() << ")" << endl;
         bbprop.term = basic_block_properties_t::TERM_UNKNOWN;
       }
     }
@@ -1875,7 +1940,7 @@ void translator::print_tcg_ops(ostream &out,
 #endif
         out << endl
             << "0x" << hex << a << "    "
-            << m->disassemble_instruction(sectdata.data() + (a - sectstart), a)
+            << m->disassemble_bytes(sectdata.data() + (a - sectstart), a)
             << endl
             << endl;
       }
@@ -2177,10 +2242,10 @@ void translator::translate_function_llvm(function_t &f) {
           C, (boost::format("%#x.%u") % bbprop.addr % (i + 1)).str(), &llf);
   }
 
-//
-// next we computing the set of TCG globals that are used so that we may
-// create alloca's for each of them at the head of the function
-//
+  //
+  // next we computing the set of TCG globals that are used so that we may
+  // create alloca's for each of them at the head of the function
+  //
 #ifndef NJOVEDBG
   tie(vi, vi_end) = boost::vertices(f);
   unsigned max_num_temps =
@@ -2485,16 +2550,22 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_call = [&](basic_block_t succ) -> void {
-    auto callee_it = function_table.find(bbprop.callee);
+    address_t addr = bbprop.callee;
+#if !defined(TARGET_AARCH64) && defined(TARGET_ARM)
+    addr &= 0xfffffffe;
+#endif
+
+    auto callee_it = function_table.find(addr);
 
     if (succ == boost::graph_traits<function_t>::null_vertex()) {
-      cerr << "ERROR: on_call null vertex" << endl;
+      cout << BBINDENT << "warning: unreachable code" << endl;
       b.CreateUnreachable();
       return;
     }
+
     if (callee_it == function_table.end()) {
-      cerr << "ERROR: on_call iterator end (address = " << hex << bbprop.callee
-           << ')' << endl;
+      cerr << "ERROR: could not find function @ 0x" << hex << bbprop.callee
+           << " which we saw was called!";
       b.CreateUnreachable();
       return;
     }

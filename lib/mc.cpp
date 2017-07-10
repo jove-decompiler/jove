@@ -229,22 +229,23 @@ bool mc_t::analyze_instruction(MCInst &Inst, uint64_t &size,
   return DisAsm->getInstruction(Inst, size, coderef, addr, nullos, nullos);
 }
 
-std::string mc_t::disassemble_instruction(const void *mcinst, uint64_t addr) {
-  MCInst MI;
-  uint64_t size;
-  if (analyze_instruction(MI, size, mcinst, addr)) {
-    string Str;
-    {
-      raw_string_ostream CvtOS(Str);
-      IP->printInst(&MI, CvtOS, "", *STI);
-    }
-
-    boost::algorithm::trim(Str);
-    boost::algorithm::replace_all(Str, "\t", " ");
-    return Str;
-  } else {
-    return "<bad encoding>";
+std::string mc_t::disassemble_instruction(const MCInst &MI) {
+  string Str;
+  {
+    raw_string_ostream CvtOS(Str);
+    IP->printInst(&MI, CvtOS, "", *STI);
   }
+  boost::algorithm::trim(Str);
+  boost::algorithm::replace_all(Str, "\t", " ");
+  return Str;
 }
 
+std::string mc_t::disassemble_bytes(const void *mcinst, uint64_t addr) {
+  MCInst MI;
+  uint64_t size;
+  if (analyze_instruction(MI, size, mcinst, addr))
+    return disassemble_instruction(MI);
+  else
+    return "<bad encoding>";
+}
 }

@@ -60,7 +60,8 @@ struct mc_t {
 
   bool analyze_instruction(llvm::MCInst &, uint64_t &size, const void *mcinsts,
                            uint64_t addr);
-  std::string disassemble_instruction(const void *mcinst, uint64_t addr);
+  std::string disassemble_instruction(const llvm::MCInst &MI);
+  std::string disassemble_bytes(const void *mcinst, uint64_t addr);
 };
 
 #if !defined(TARGET_AARCH64) && defined(TARGET_ARM)

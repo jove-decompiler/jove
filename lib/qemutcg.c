@@ -39,7 +39,7 @@ void rcu_init(void);
 void do_qemu_init_x86_cpu_register_types(void);
 #elif defined(TARGET_ARM)
 void do_qemu_init_arm_cpu_register_types(void);
-#if defined(TARGET_AARCH64)
+#ifdef TARGET_AARCH64
 void do_qemu_init_aarch64_cpu_register_types(void);
 #endif
 #elif defined(TARGET_MIPS)
