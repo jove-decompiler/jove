@@ -1332,6 +1332,44 @@ translator::tcg_conditional_branch_targets(basic_block_properties_t &bbprop) {
 
 #undef __ST_OP
 
+//
+// load from host memory
+// when we see a ld_i64/32 tmp, ... then we reset the constant for tmp
+//
+#define __LD_OP(opc_name, memBits, regBits, signE)                             \
+  case opc_name:                                                               \
+    constprop.at(args[0]) = 0;                                                 \
+    break;
+
+    __LD_OP(tcg::INDEX_op_ld8u_i32, 8, 32, Z)
+    __LD_OP(tcg::INDEX_op_ld8s_i32, 8, 32, S)
+    __LD_OP(tcg::INDEX_op_ld16u_i32, 16, 32, Z)
+    __LD_OP(tcg::INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(tcg::INDEX_op_ld_i32, 32, 32, Z)
+    __LD_OP(tcg::INDEX_op_ld8u_i64, 8, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld8s_i64, 8, 64, S)
+    __LD_OP(tcg::INDEX_op_ld16u_i64, 16, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld16s_i64, 16, 64, S)
+    __LD_OP(tcg::INDEX_op_ld32u_i64, 32, 64, Z)
+    __LD_OP(tcg::INDEX_op_ld32s_i64, 32, 64, S)
+    __LD_OP(tcg::INDEX_op_ld_i64, 64, 64, Z)
+
+#undef __LD_OP
+
+//
+// load from guest memory, same as before
+//
+#define __OP_QEMU_LD(opc_name, bits)                                           \
+  case opc_name:                                                               \
+    constprop.at(args[0]) = 0;                                                 \
+    break;
+
+    __OP_QEMU_LD(tcg::INDEX_op_qemu_ld_i32, 32)
+    __OP_QEMU_LD(tcg::INDEX_op_qemu_ld_i64, 64)
+
+#undef __OP_QEMU_LD
+#undef __OP_QEMU_ST
+
     default:
       break;
     }
@@ -2504,13 +2542,13 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   }
 
   //
-  // if there are any basic blocks without a terminator, create a branch from
-  // them to the exit basic block
+  // if there are any basic blocks without a terminator, create an unreachable
   //
   if (!bbprop.llbb->getTerminator()) {
-    cerr << "warning: llvm basic block is missing terminator!" << endl;
+    cout << BBINDENT << "warning: unreachable code @ " << hex << bbprop.addr
+         << endl;
     b.SetInsertPoint(bbprop.llbb);
-    b.CreateBr(bbprop.exitllbb);
+    b.CreateUnreachable();
   }
 
   //
