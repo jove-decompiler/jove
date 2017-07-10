@@ -186,6 +186,24 @@ Relocations:
   ADDRESSOF    @ 1d10             +0               strtol                         *FUNCTION   *GLOBAL   @ 0 {0}
   ADDRESSOF    @ 1d18             +0               printf                         *FUNCTION   *GLOBAL   @ 0 {0}
 
+Exported Functions:
+
+  _init                                    @ 620             
+  main                                     @ 6c8             
+  _start                                   @ 808             
+  call_weak_fn                             @ 840             
+  deregister_tm_clones                     @ 854             
+  register_tm_clones                       @ 888             
+  __do_global_dtors_aux                    @ 8c0             
+  frame_dummy                              @ 908             
+  cn_add                                   @ 93c             
+  cn_sub                                   @ 964             
+  cn_mul                                   @ 98c             
+  cn_div                                   @ 9a4             
+  __libc_csu_init                          @ 9c8             
+  __libc_csu_fini                          @ a40             
+  _fini                                    @ a44             
+
 Translating aarch64 machine code to QEMU IR...
 
 9a4
@@ -451,11 +469,6 @@ a40
 ```
 #### LLVM
 ```llvm
-; ModuleID = 'complex-num.jv/bitcode/decompilation'
-source_filename = "complex-num"
-target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-unknown-linux-gnu"
-
 %struct.CPUARMState = type { [16 x i32], [32 x i64], i64, i32, i32, i32, i32, [8 x i64], [8 x i32], [8 x i32], [5 x i32], [5 x i32], i32, i32, i32, i32, i32, i32, i32, i32, i64, [4 x i64], [4 x i64], %struct.anon.14.271, %struct.anon.45, %struct.anon.46, i32, i32, %struct.anon.47, i64, i64, i64, i64, i32, %struct.anon.48, i32, [16 x %struct.CPUBreakpoint*], [16 x %struct.CPUWatchpoint*], i64, %struct.anon.49, i8*, %struct.arm_boot_info* }
 %struct.anon.14.271 = type { i32, %union.anon.15, %union.anon.15, i64, [4 x i64], i32, i64, i32, %union.anon.15, %union.anon.15, i64, [4 x %struct.TCR], %struct.TCR, i32, i32, %union.anon.23, i32, i32, i64, i64, %union.anon.23, %union.anon.15, [8 x i32], %union.anon.31, i64, %union.anon.15, i32, i32, i32, i64, i64, i32, i32, i32, i32, %union.anon.35, %union.anon.15, i32, %struct.EventNotifier, %union.anon.15, %union.anon.15, i64, i64, i64, %struct.QemuThread, i64, i64, i32, i64, [4 x %struct.Int128], i32, i32, i32, i32, i32, i32, i32, i32, i32, [16 x i64], [16 x i64], [16 x i64], [16 x i64], i64, i64, i64, i64, i64, i64, i64, i64 }
 %struct.TCR = type { i64, i32, i32 }
