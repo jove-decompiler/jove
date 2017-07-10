@@ -1405,6 +1405,23 @@ Relocations:
   ADDRESSOF    @ 201020           +0               printf                         *FUNCTION   *GLOBAL   @ 0 {0}
   ADDRESSOF    @ 201028           +0               atol                           *FUNCTION   *GLOBAL   @ 0 {0}
 
+Exported Functions:
+
+  _init                                    @ 558             
+  main                                     @ 5c0             
+  _start                                   @ 6b0             
+  deregister_tm_clones                     @ 6e0             
+  register_tm_clones                       @ 720             
+  __do_global_dtors_aux                    @ 770             
+  frame_dummy                              @ 7b0             
+  cn_add                                   @ 7c0             
+  cn_sub                                   @ 7d0             
+  cn_mul                                   @ 7e0             
+  cn_div                                   @ 800             
+  __libc_csu_init                          @ 850             
+  __libc_csu_fini                          @ 8c0             
+  _fini                                    @ 8c4             
+
 Translating x86_64 machine code to QEMU IR...
 
 7e0
@@ -1524,9 +1541,7 @@ Translating x86_64 machine code to QEMU IR...
   793
     note: direct call to 6e0
   798
-    note: unconditional jump to 1
-  1
-    note: no code @ 1
+    note: return
   7a8
     note: return
 8c0
@@ -1565,6 +1580,7 @@ Translating QEMU IR to LLVM...
     note: PC-relative expression @ 6cd
     note: PC-relative expression @ 6d4
   6da
+    warning: unreachable code @ 6da
 7c0
   7c0
 5a0
@@ -1670,11 +1686,6 @@ Translating QEMU IR to LLVM...
 ```
 #### LLVM
 ```llvm
-; ModuleID = 'complex-num.jv/bitcode/decompilation'
-source_filename = "complex-num"
-target datalayout = "e-m:e-i64:64-f80:128-n8:16:32:64-S128"
-target triple = "x86_64-unknown-linux-gnu"
-
 %struct.CPUX86State = type { [16 x i64], i64, i64, i64, i64, i64, i32, i32, i32, i32, [6 x %struct.SegmentCache], %struct.SegmentCache, %struct.SegmentCache, %struct.SegmentCache, %struct.SegmentCache, [5 x i64], i32, [4 x %struct.Int128], %struct.Int128, i64, i64, %struct.anon.13, i32, i16, i16, [8 x i8], [8 x i8], [8 x %union.FPReg], i16, i64, i64, %struct.float_status, %struct.floatx80, %struct.float_status, %struct.float_status, i32, [32 x %union.ZMMReg], %union.ZMMReg, %union.MMXReg, [8 x i64], i32, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, [3 x i64], [18 x i64], [18 x i64], i64, i32, %struct.anon.13, i64, i64, i64, i64, i64, i64, i64, i64, i64, [5 x i64], i64, i64, i64, i64, i64, [16 x i64], [4 x i64], [4 x i64], i32, i32, i64, [8 x i64], %union.anon.15, i32, i64, i64, i64, i16, i16, i16, i16, i32, i8, i8, i8, i32, i32, i32, i32, i32, i32, i32, [12 x i32], [12 x i32], [11 x i64], i64, [8 x %struct.Int128], i32, i32, i32, i8, i8, i32, i8, i64, i64, i8*, i64, i64, [40 x i64], i64, i16, i16, i16, i64, i64, i64, i32, i32, [8 x i8] }
 %struct.SegmentCache = type { i32, i64, i32, i32 }
 %struct.Int128 = type { i64, i64 }
@@ -1750,10 +1761,7 @@ define void @_start(i64 %rdx) local_unnamed_addr #0 {
   %7 = inttoptr i64 %6 to i64*
   store i64 1754, i64* %7, align 8, !noalias !0
   tail call void @__jove_indirect_call(void ()* nonnull @__libc_start_main)
-  br label %"0x6da"
-
-"0x6da":                                          ; preds = %"0x6da", %"0x6b0"
-  br label %"0x6da"
+  unreachable
 }
 
 ; Function Attrs: noinline norecurse nounwind
@@ -2366,14 +2374,25 @@ define void @__do_global_dtors_aux() local_unnamed_addr #2 {
   store i64 %7, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
   store i64 %3, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 5), align 8, !alias.scope !0
   %9 = tail call { i64 } @deregister_tm_clones()
-  unreachable
+  store i64 ptrtoint (%struct.__jove__bss* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 30) to i64), i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 0), align 8, !alias.scope !0
+  %rsp_22 = load i64, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i64 1, i64* bitcast (%struct.__jove__bss* getelementptr inbounds (%struct.__jove_sections, %struct.__jove_sections* @__jove_sections, i64 0, i32 30) to i64*), align 8, !noalias !0
+  %10 = add i64 %rsp_22, 16
+  %11 = inttoptr i64 %rsp_22 to i64*
+  %12 = load i64, i64* %11, align 8, !noalias !0
+  store i32 17, i32* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 6), align 8, !alias.scope !0
+  store i64 ptrtoint (void ()* @__cxa_finalize to i64), i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 3), align 8, !alias.scope !0
+  store i64 0, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 4), align 8, !alias.scope !0
+  store i64 %10, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i64 %12, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 5), align 8, !alias.scope !0
+  ret void
 
 "0x7a8.exit":                                     ; preds = %"0x770"
-  %10 = add i64 %rsp_1, 8
+  %13 = add i64 %rsp_1, 8
   store i32 14, i32* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 6), align 8, !alias.scope !0
   store i64 %0, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 3), align 8, !alias.scope !0
   store i64 0, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 4), align 8, !alias.scope !0
-  store i64 %10, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
+  store i64 %13, i64* getelementptr inbounds (%struct.CPUX86State, %struct.CPUX86State* @cpu_state, i64 0, i32 0, i64 4), align 8, !alias.scope !0
   ret void
 }
 
