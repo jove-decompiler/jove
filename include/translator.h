@@ -261,6 +261,7 @@ public:
 
 private:
   const bool noopt;
+  const bool well_behaved;
 
   llvm::object::ObjectFile &O;
 
@@ -411,7 +412,7 @@ private:
 
 public:
   translator(llvm::object::ObjectFile &, const std::string &Nm,
-             bool noopt = false);
+             bool noopt = false, bool well_behaved = false);
   ~translator();
 
   // given an entry point, translates to an LLVM function and its counterpart

@@ -200,8 +200,9 @@ static const uint8_t helpers_bitcode_data[] = {
 #include "helpers.cpp"
 };
 
-translator::translator(ObjectFile &O, const string &MNm, bool noopt)
-    : noopt(noopt), O(O), M(MNm, C),
+translator::translator(ObjectFile &O, const string &MNm, bool noopt,
+                       bool well_behaved)
+    : noopt(noopt), well_behaved(well_behaved), O(O), M(MNm, C),
       _HelperM(move(*getOwningLazyBitcodeModule(
           MemoryBuffer::getMemBuffer(StringRef(reinterpret_cast<const char *>(
                                                    &helpers_bitcode_data[0]),
@@ -2614,9 +2615,32 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
     // spill every global to the CPU state which is in the reaching definitions
     // OUT for this basic block, which is NOT a parameter
     //
-    tcg::global_set_t tospill =
-        bbprop.reachdef_out &
-        ~(callee[boost::graph_bundle].inputs & call_conv_arg_regs);
+    if (!well_behaved) {
+      tcg::global_set_t tospill = bbprop.reachdef_out & ~(call_conv_arg_regs);
+
+      auto reset_if_applicable = [&tospill](unsigned idx) -> void {
+        if (idx)
+          tospill.reset(idx);
+      };
+
+      reset_if_applicable(tcg::program_counter_global_index);
+      reset_if_applicable(tcg::return_address_global_index);
+
+      vector<unsigned> tospill_v;
+      explode_tcg_global_set(tospill_v, tospill);
+
+      for (unsigned gidx : tospill_v)
+        store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+    }
+
+    //
+    // spill every global to the CPU state which is in the reaching definitions
+    // OUT for this basic block, which *is* a parameter (but not in the target
+    // function's parameter list)
+    //
+    tcg::global_set_t tospill = bbprop.reachdef_out & call_conv_arg_regs;
+    for (unsigned idx : callee[boost::graph_bundle].params)
+      tospill.reset(idx);
 
     auto reset_if_applicable = [&tospill](unsigned idx) -> void {
       if (idx)
@@ -2664,24 +2688,29 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
         store_global_to_cpu_state(gvl, gidx);
     }
 
-    //
-    // reload every global from the CPUState that is in the liveness OUT of this
-    // basic block and that was not returned
-    //
-    tcg::global_set_t toreload =
-        bbprop.live_out &
-        ~(callee[boost::graph_bundle].outputs & call_conv_ret_regs);
+    if (!well_behaved) {
+      //
+      // reload every global from the CPUState that is in the liveness OUT of
+      // this
+      // basic block and that was not returned
+      //
+      tcg::global_set_t toreload =
+          bbprop.live_out &
+          ~(callee[boost::graph_bundle].outputs & call_conv_ret_regs);
 
-    vector<unsigned> toreload_v;
-    explode_tcg_global_set(toreload_v, toreload);
+      vector<unsigned> toreload_v;
+      explode_tcg_global_set(toreload_v, toreload);
 
-    for (unsigned gidx : toreload_v)
-      CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
+      for (unsigned gidx : toreload_v)
+        CreateStore(load_global_from_cpu_state(gidx), tcg_glb_llv_m[gidx]);
+    }
 
     b.CreateBr(f[succ].llbb);
   };
 
   auto on_indirect_call = [&](basic_block_t succ) -> void {
+    // TODO
+
     Value *pc = b.CreateIntToPtr(CreateLoad(pc_llv), ExternalFnPtrTy);
     b.CreateCall(IndirectCallFn(), ArrayRef<Value *>(pc));
 
@@ -2692,24 +2721,26 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_return = [&](void) -> void {
-    //
-    // store to CPU state the outputs which are not returned
-    //
-    tcg::global_set_t tostore =
-        f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
+    if (!well_behaved) {
+      //
+      // store to CPU state the outputs which are not returned
+      //
+      tcg::global_set_t tostore =
+          f[boost::graph_bundle].outputs & ~call_conv_ret_regs;
 
-    auto reset_if_applicable = [&tostore](unsigned idx) -> void {
-      if (idx)
-        tostore.reset(idx);
-    };
+      auto reset_if_applicable = [&tostore](unsigned idx) -> void {
+        if (idx)
+          tostore.reset(idx);
+      };
 
-    reset_if_applicable(tcg::program_counter_global_index);
-    reset_if_applicable(tcg::return_address_global_index);
+      reset_if_applicable(tcg::program_counter_global_index);
+      reset_if_applicable(tcg::return_address_global_index);
 
-    vector<unsigned> tostore_v;
-    explode_tcg_global_set(tostore_v, tostore);
-    for (unsigned gidx : tostore_v)
-      store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+      vector<unsigned> tostore_v;
+      explode_tcg_global_set(tostore_v, tostore);
+      for (unsigned gidx : tostore_v)
+        store_global_to_cpu_state(CreateLoad(tcg_glb_llv_m[gidx]), gidx);
+    }
 
     //
     // examine returned outputs
@@ -2750,6 +2781,8 @@ void translator::translate_tcg_to_llvm(function_t &f, basic_block_t bb) {
   };
 
   auto on_indirect_jump = [&](void) -> void {
+    // FIXME
+
     //
     // spill every global to the CPU state which is in the reaching definitions
     // OUT for this basic block (which is not a parameter of the indirect fn)

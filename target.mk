@@ -32,8 +32,8 @@ _CXXFLAGS := $(shell llvm-config --cxxflags) \
 			 -Wno-dollar-in-identifier-extension \
              $(shell pkg-config --cflags glib-2.0)
 
-_CFLAGS   := $(filter-out -fuse-ld=gold,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))))))))
-_CXXFLAGS := $(filter-out -fuse-ld=gold,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))))))
+_CFLAGS   := $(filter-out -fuse-ld=lld,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -DPIE,$(filter-out -fPIE,$(filter-out -g,$(filter-out -flto,$(filter-out -fno-inline,$(_CFLAGS)))))))))
+_CXXFLAGS := $(filter-out -fuse-ld=lld,$(filter-out -fstack-protector-strong,$(filter-out -DNDEBUG,$(filter-out -Wno-maybe-uninitialized,$(filter-out -flto,$(filter-out -fno-exceptions,$(filter-out -fno-inline,$(_CXXFLAGS))))))))
 
 #
 # jove-recompile
@@ -52,7 +52,7 @@ $(call res,jove-recompile): $($(call tool,recompile)_OBJS)
 	@echo CLANG++ $(notdir $@ $^)
 	@clang++ -o $@ \
 	  $(_CXXFLAGS) \
-	  -fuse-ld=gold \
+	  -fuse-ld=lld \
 	  $($(call tool,recompile)_OBJS) \
 	  $(llvm_dir)/lib/libLLVM.so \
 	  $(shell llvm-config --ldflags) \
@@ -148,7 +148,7 @@ $(call res,abi_callingconv_ret_regs).cpp: $(call res,abi_callingconv)
 #
 $(call res,abi_callingconv): $(call res,abi_callingconv).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=lld -lglib-2.0 -pthread
 
 $(call res,abi_callingconv).1.bc: $(call res,abi_callingconv).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -178,7 +178,7 @@ $(call res,tcgdefs).hpp: $(call res,tcgdefs)
 #
 $(call res,tcgdefs): $(call res,tcgdefs).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=lld -lglib-2.0 -pthread
 
 $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -198,7 +198,7 @@ $(call res,tcgdefs).bc: $(build_dir)/tcgdefs.c
 
 $(call res,tcgglobals): $(call res,tcgglobals).1.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 $< -fPIC -fuse-ld=gold -lglib-2.0 -pthread
+	@clang -o $@ -O3 $< -fPIC -fuse-ld=lld -lglib-2.0 -pthread
 
 $(call res,tcgglobals).1.bc: $(call res,tcgglobals).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
@@ -217,7 +217,7 @@ $(call res,tcgglobals).bc: $(build_dir)/tcgglobals.c
 #
 $(call res,libqemutcg).so: $(call res,libqemutcg).2.bc
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -shared -fPIC -g -O0 -fuse-ld=gold $< -lglib-2.0 -pthread
+	@clang -o $@ -shared -fPIC -g -O0 -fuse-ld=lld $< -lglib-2.0 -pthread
 
 $(call res,libqemutcg).2.bc: $(call res,libqemutcg).1.bc
 	@echo OPT $(notdir $@ $^)

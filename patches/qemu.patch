@@ -313,7 +313,7 @@ index 940ec8d981..e97a8ca0e1 100644
          /* misc */
          op = (insn >> 8) & 0xf;
 diff --git a/target-i386/translate.c b/target-i386/translate.c
-index 922347caf1..af8dc0a29e 100644
+index 922347caf1..80be74ba4a 100644
 --- a/target-i386/translate.c
 +++ b/target-i386/translate.c
 @@ -1865,20 +1865,21 @@ static AddressParts gen_lea_modrm_0(CPUX86State *env, DisasContext *s,
@@ -338,3 +338,91 @@ index 922347caf1..af8dc0a29e 100644
          case 2:
              disp = (int32_t)cpu_ldl_code(env, s->pc);
              s->pc += 4;
+@@ -2242,20 +2243,41 @@ static void gen_push_v(DisasContext *s, TCGv val)
+             new_esp = cpu_tmp4;
+             tcg_gen_mov_tl(new_esp, cpu_A0);
+         }
+         gen_lea_v_seg(s, a_ot, cpu_A0, R_SS, -1);
+     }
+ 
+     gen_op_st_v(s, d_ot, val, cpu_A0);
+     gen_op_mov_reg_v(a_ot, R_ESP, new_esp);
+ }
+ 
++/* Generate a push. It depends on ss32, addseg and dflag.  */
++static void gen_push_v_nost(DisasContext *s, TCGv val)
++{
++    TCGMemOp d_ot = mo_pushpop(s, s->dflag);
++    TCGMemOp a_ot = mo_stacksize(s);
++    int size = 1 << d_ot;
++    TCGv new_esp = cpu_A0;
++
++    tcg_gen_subi_tl(cpu_A0, cpu_regs[R_ESP], size);
++
++    if (!CODE64(s)) {
++        if (s->addseg) {
++            new_esp = cpu_tmp4;
++            tcg_gen_mov_tl(new_esp, cpu_A0);
++        }
++        gen_lea_v_seg(s, a_ot, cpu_A0, R_SS, -1);
++    }
++
++    gen_op_mov_reg_v(a_ot, R_ESP, new_esp);
++}
++
+ /* two step pop is necessary for precise exceptions */
+ static TCGMemOp gen_pop_T0(DisasContext *s)
+ {
+     TCGMemOp d_ot = mo_pushpop(s, s->dflag);
+ 
+     gen_lea_v_seg(s, mo_stacksize(s), cpu_regs[R_ESP], R_SS, -1);
+     gen_op_ld_v(s, d_ot, cpu_T0, cpu_A0);
+ 
+     return d_ot;
+ }
+@@ -4851,21 +4873,21 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
+                 opreg = rm;
+             gen_inc(s, ot, opreg, -1);
+             break;
+         case 2: /* call Ev */
+             /* XXX: optimize if memory (no 'and' is necessary) */
+             if (dflag == MO_16) {
+                 tcg_gen_ext16u_tl(cpu_T0, cpu_T0);
+             }
+             next_eip = s->pc - s->cs_base;
+             tcg_gen_movi_tl(cpu_T1, next_eip);
+-            gen_push_v(s, cpu_T1);
++            gen_push_v_nost(s, cpu_T1);
+             gen_op_jmp_v(cpu_T0);
+             gen_bnd_jmp(s);
+             gen_eob(s);
+             break;
+         case 3: /* lcall Ev */
+             gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
+             gen_add_A0_im(s, 1 << ot);
+             gen_op_ld_v(s, MO_16, cpu_T0, cpu_A0);
+         do_lcall:
+             if (s->pe && !s->vm86) {
+@@ -6333,21 +6355,21 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
+                 tval = (int16_t)insn_get(env, s, MO_16);
+             }
+             next_eip = s->pc - s->cs_base;
+             tval += next_eip;
+             if (dflag == MO_16) {
+                 tval &= 0xffff;
+             } else if (!CODE64(s)) {
+                 tval &= 0xffffffff;
+             }
+             tcg_gen_movi_tl(cpu_T0, next_eip);
+-            gen_push_v(s, cpu_T0);
++            gen_push_v_nost(s, cpu_T0);
+             gen_bnd_jmp(s);
+             gen_jmp(s, tval);
+         }
+         break;
+     case 0x9a: /* lcall im */
+         {
+             unsigned int selector, offset;
+ 
+             if (CODE64(s))
+                 goto illegal_op;

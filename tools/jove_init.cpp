@@ -25,7 +25,7 @@ namespace po = boost::program_options;
 namespace fs = boost::filesystem;
 
 namespace jove {
-static tuple<fs::path, fs::path, bool>
+static tuple<fs::path, fs::path, bool, bool>
 parse_command_line_arguments(int argc, char **argv);
 
 static void verify_arch(const ObjectFile *);
@@ -37,9 +37,9 @@ using namespace jove;
 
 int main(int argc, char **argv) {
   fs::path ifp, ofp;
-  bool noopt;
+  bool noopt, well_behaved;
 
-  tie(ifp, ofp, noopt) = parse_command_line_arguments(argc, argv);
+  tie(ifp, ofp, noopt, well_behaved) = parse_command_line_arguments(argc, argv);
 
 #if 0
   StringMap<cl::Option *> &optMap(cl::getRegisteredOptions());
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
   //
   // initialize translator
   //
-  translator T(*O, ifp.stem().string(), noopt);
+  translator T(*O, ifp.stem().string(), noopt, well_behaved);
 
   //
   // run translator
@@ -106,22 +106,27 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
-                                                             char **argv) {
+tuple<fs::path, fs::path, bool, bool>
+parse_command_line_arguments(int argc, char **argv) {
   fs::path ifp, ofp;
-  bool noopt = false;
+  bool noopt = false, well_behaved = false;
 
   try {
     po::options_description desc("Allowed options");
     desc.add_options()
       ("help,h", "produce help message")
 
-      ("input,i", po::value<fs::path>(&ifp), "input binary")
+      ("input,i", po::value<fs::path>(&ifp),
+       "input binary")
 
-      ("output,o", po::value<fs::path>(&ofp), "output bitcode file path")
+      ("output,o", po::value<fs::path>(&ofp),
+       "output bitcode file path")
 
       ("noopt,s", po::value<bool>(&noopt),
-      "produce unoptimized LLVM");
+       "produce unoptimized LLVM")
+
+      ("well-behaved,w", po::value<bool>(&well_behaved),
+       "the given code conforms to the ABI calling convention");
 
     po::positional_options_description p;
     p.add("input", -1);
@@ -133,7 +138,7 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
     po::notify(vm);
 
     if (vm.count("help") || !vm.count("input")) {
-      cout << "Usage: jove-init-<arch> [-o output] binary\n";
+      cout << "Usage: jove-init [-o output] binary\n";
       cout << desc;
       exit(1);
     }
@@ -153,7 +158,7 @@ tuple<fs::path, fs::path, bool> parse_command_line_arguments(int argc,
     abort();
   }
 
-  return make_tuple(ifp, ofp, noopt);
+  return make_tuple(ifp, ofp, noopt, well_behaved);
 }
 
 void verify_arch(const ObjectFile *Obj) {
@@ -172,7 +177,7 @@ void verify_arch(const ObjectFile *Obj) {
 #endif
 
   if (Obj->getArch() != archty) {
-    cerr << "error: architecture mismatch (run trans-obj-<arch>)" << endl;
+    cerr << "error: architecture mismatch" << endl;
     exit(1);
   }
 }
