@@ -176,9 +176,9 @@ $(call res,tcgdefs).hpp: $(call res,tcgdefs)
 #
 # tcgdefs
 #
-$(call res,tcgdefs): $(call res,tcgdefs).1.bc
+$(call res,tcgdefs): $(call res,tcgdefs).1.bc $(call res,libqemutcg).so
 	@echo CLANG $(notdir $@ $^)
-	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=lld -lglib-2.0 -pthread
+	@clang -o $@ -O3 -g $< -fPIC -fuse-ld=lld -lglib-2.0 -pthread -Wl,-rpath,$(targ_build_dir) $(call res,libqemutcg).so
 
 $(call res,tcgdefs).1.bc: $(call res,tcgdefs).0.bc
 	@echo LLKNIFE $(notdir $@ $^)
