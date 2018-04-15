@@ -17802,3 +17802,7 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
                   target_ulong size) {}
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
                      CPUState *cpu, TranslationBlock *tb) {}
+
+int main(int argc, char** argv) {
+  return 0;
+}
