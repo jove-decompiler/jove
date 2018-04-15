@@ -17803,6 +17803,157 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
                      CPUState *cpu, TranslationBlock *tb) {}
 
+/******************************************************************************/
+/*                                                                            */
+/* C++ driver                                                                 */
+/*                                                                            */
+/******************************************************************************/
+#include <iostream>
+#include <boost/filesystem.hpp>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/MC/MCContext.h>
+#include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCInstPrinter.h>
+
+namespace fs = boost::filesystem;
+namespace obj = llvm::object;
+
 int main(int argc, char** argv) {
+  (void)tcg_op_defs_max;
+
+  if (argc != 2 || !fs::exists(argv[1])) {
+    std::cerr << "usage: " << argv[0] << " objfile" << std::endl;
+    return 1;
+  }
+
+  // Initialize targets and assembly printers/parsers.
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllDisassemblers();
+
+  llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
+      obj::createBinary(argv[1]);
+
+  if (!BinaryOrErr ||
+      !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
+    std::cerr << "failed to open " << argv[1] << std::endl;
+    return 1;
+  }
+
+  obj::ObjectFile &O =
+      *llvm::cast<obj::ObjectFile>(BinaryOrErr.get().getBinary());
+
+  std::string ArchName;
+  llvm::Triple TheTriple = O.makeTriple();
+  std::string Error;
+
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  if (!TheTarget) {
+    std::cerr << "failed to lookup target: " << Error << std::endl;
+    return 1;
+  }
+
+  std::string TripleName = TheTriple.getTriple();
+  std::string MCPU;
+  llvm::SubtargetFeatures Features = O.getFeatures();
+
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
+      TheTarget->createMCRegInfo(TripleName));
+  if (!MRI) {
+    std::cerr << "no register info for target" << std::endl;
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
+      TheTarget->createMCAsmInfo(*MRI, TripleName));
+  if (!AsmInfo) {
+    std::cerr << "no assembly info" << std::endl;
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+  if (!STI) {
+    std::cerr << "no subtarget info" << std::endl;
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
+  if (!MII) {
+    std::cerr << "no instruction info" << std::endl;
+    return 1;
+  }
+
+  llvm::MCObjectFileInfo MOFI;
+  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
+
+  std::unique_ptr<llvm::MCDisassembler> DisAsm(
+      TheTarget->createMCDisassembler(*STI, Ctx));
+  if (!DisAsm) {
+    std::cerr << "no disassembler for target" << std::endl;
+    return 1;
+  }
+
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP) {
+    std::cerr << "no instruction printer" << std::endl;
+    return 1;
+  }
+
+  llvm::StringRef SectNm;
+  for (obj::SymbolRef Sym : O.symbols()) {
+    if (!Sym.getName() || Sym.getName()->empty() ||
+        !Sym.getType() || Sym.getType().get() != obj::SymbolRef::ST_Function ||
+        !Sym.getSection() || Sym.getSection().get() == O.section_end() ||
+        !Sym.getAddress() ||
+        !(Sym.getAddress().get() >= Sym.getSection().get()->getAddress()) ||
+        Sym.getSection().get()->getName(SectNm))
+      continue;
+
+    obj::SectionRef Sect = *Sym.getSection().get();
+
+    uint64_t Addr = Sym.getAddress().get();
+    uint64_t Base = Sect.getAddress();
+    uint64_t Offset = Addr - Base;
+
+    std::cout << Sym.getName()->str() << " @ " << SectNm.str() << "+0x"
+              << std::hex << Offset << std::endl;
+
+    llvm::StringRef BytesStr;
+    Sect.getContents(BytesStr);
+    llvm::ArrayRef<uint8_t> Bytes(
+        reinterpret_cast<const uint8_t *>(BytesStr.data()), BytesStr.size());
+
+    llvm::MCInst Inst;
+    uint64_t Size;
+    llvm::raw_ostream &DebugOut = llvm::nulls();
+    llvm::raw_ostream &CommentStream = llvm::nulls();
+    bool Disassembled = DisAsm->getInstruction(Inst, Size, Bytes.slice(Offset),
+                                               Addr, DebugOut, CommentStream);
+    if (!Disassembled) {
+      std::cerr << "failed to disassemble 0x" << std::hex << Addr << std::endl;
+      continue;
+    }
+
+    std::string str;
+    {
+      llvm::raw_string_ostream StrStream(str);
+      IP->printInst(&Inst, StrStream, "", *STI);
+    }
+    std::cout << str << std::endl;
+  }
+
   return 0;
 }
