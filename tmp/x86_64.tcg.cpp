@@ -281,8 +281,7 @@ typedef struct Visitor Visitor;
 #define QEMU_IS_ARRAY(x) (!__builtin_types_compatible_p(typeof(x), \
                                                         typeof(&(x)[0])))
 
-#define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
-                       QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 # define ATOMIC_REG_SIZE  8
 
@@ -568,7 +567,7 @@ typedef struct icount_decr_u16 {
 } icount_decr_u16;
 
 typedef struct CPUBreakpoint {
-    vaddr pc;
+    ::vaddr pc;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUBreakpoint) entry;
 } CPUBreakpoint;
@@ -591,9 +590,9 @@ typedef struct MemTxAttrs {
 } MemTxAttrs;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
+    ::vaddr vaddr;
+    ::vaddr len;
+    ::vaddr hitaddr;
     MemTxAttrs hitattrs;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUWatchpoint) entry;
@@ -651,7 +650,7 @@ typedef struct ObjectClass ObjectClass;
 struct Object
 {
     /*< private >*/
-    ObjectClass *class;
+    ObjectClass *clazz;
     ObjectFree *free;
     GHashTable *properties;
     uint32_t ref;
@@ -883,11 +882,11 @@ typedef struct ObjectProperty
 #define OBJECT(obj) \
     ((Object *)(obj))
 
-#define OBJECT_CLASS(class) \
-    ((ObjectClass *)(class))
+#define OBJECT_CLASS(clazz) \
+    ((ObjectClass *)(clazz))
 
-#define OBJECT_CLASS_CHECK(class_type, class, name) \
-    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(class), (name), \
+#define OBJECT_CLASS_CHECK(class_type, clazz, name) \
+    ((class_type *)object_class_dynamic_cast_assert(OBJECT_CLASS(clazz), (name), \
                                                __FILE__, __LINE__, __func__))
 
 struct TypeInfo
@@ -923,16 +922,16 @@ struct InterfaceClass
     Type interface_type;
 };
 
-Object *object_new(const char *typename);
+Object *object_new(const char *typenm);
 
 ObjectClass *object_class_dynamic_cast_assert(ObjectClass *klass,
-                                              const char *typename,
+                                              const char *typenm,
                                               const char *file, int line,
                                               const char *func);
 
 const char *object_class_get_name(ObjectClass *klass);
 
-ObjectClass *object_class_by_name(const char *typename);
+ObjectClass *object_class_by_name(const char *typenm);
 
 void object_ref(Object *obj);
 
@@ -1366,7 +1365,7 @@ typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
 
 #define CPU(obj) ((CPUState *)(obj))
 
-#define CPU_CLASS(class) OBJECT_CLASS_CHECK(CPUClass, (class), TYPE_CPU)
+#define CPU_CLASS(clazz) OBJECT_CLASS_CHECK(CPUClass, (clazz), TYPE_CPU)
 
 typedef enum MMUAccessType {
     MMU_DATA_LOAD  = 0,
@@ -1384,7 +1383,7 @@ typedef struct CPUClass {
     /*< public >*/
 
     ObjectClass *(*class_by_name)(const char *cpu_model);
-    void (*parse_features)(const char *typename, char *str, Error **errp);
+    void (*parse_features)(const char *typenm, char *str, Error **errp);
 
     void (*reset)(CPUState *cpu);
     int reset_dump_flags;
@@ -1449,7 +1448,7 @@ typedef struct CPUClass {
     bool gdb_stop_before_watchpoint;
 } CPUClass;
 
-ObjectClass *cpu_class_by_name(const char *typename, const char *cpu_model);
+ObjectClass *cpu_class_by_name(const char *typenm, const char *cpu_model);
 
 #define BP_GDB                0x10
 
@@ -2956,7 +2955,7 @@ static inline TCGArg temp_arg(TCGTemp *ts)
 static inline TCGTemp *tcgv_i32_temp(TCGv_i32 v)
 {
     uintptr_t o = (uintptr_t)v;
-    TCGTemp *t = (void *)tcg_ctx + o;
+    TCGTemp *t = (TCGTemp *)((char *)tcg_ctx + o);
     tcg_debug_assert(offsetof(TCGContext, temps[temp_idx(t)]) == o);
     return t;
 }
@@ -2989,7 +2988,7 @@ static inline TCGArg tcgv_ptr_arg(TCGv_ptr v)
 static inline TCGv_i32 temp_tcgv_i32(TCGTemp *t)
 {
     (void)temp_idx(t); /* trigger embedded assert */
-    return (TCGv_i32)((void *)t - (void *)tcg_ctx);
+    return (TCGv_i32)((char *)t - (char *)tcg_ctx);
 }
 
 static inline TCGv_i64 temp_tcgv_i64(TCGTemp *t)
@@ -4365,7 +4364,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1))                                                 \
 {                                                                       \
   TCGTemp *args[1] = { dh_arg(t1, 1) };                                 \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 1, args);                 \
+  tcg_gen_callN((void*)HELPER(name), dh_retvar(ret), 1, args);          \
 }
 
 #define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2)                    \
@@ -4373,7 +4372,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2))                             \
 {                                                                       \
   TCGTemp *args[2] = { dh_arg(t1, 1), dh_arg(t2, 2) };                  \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 2, args);                 \
+  tcg_gen_callN((void*)HELPER(name), dh_retvar(ret), 2, args);          \
 }
 
 #define DEF_HELPER_FLAGS_3(name, flags, ret, t1, t2, t3)                \
@@ -4381,7 +4380,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2), dh_arg_decl(t3, 3))         \
 {                                                                       \
   TCGTemp *args[3] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3) };   \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 3, args);                 \
+  tcg_gen_callN((void*)HELPER(name), dh_retvar(ret), 3, args);          \
 }
 
 #define DEF_HELPER_FLAGS_4(name, flags, ret, t1, t2, t3, t4)            \
@@ -4391,7 +4390,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[4] = { dh_arg(t1, 1), dh_arg(t2, 2),                    \
                      dh_arg(t3, 3), dh_arg(t4, 4) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 4, args);                 \
+  tcg_gen_callN((void*)HELPER(name), dh_retvar(ret), 4, args);          \
 }
 
 #define DEF_HELPER_FLAGS_5(name, flags, ret, t1, t2, t3, t4, t5)        \
@@ -4401,7 +4400,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[5] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3),     \
                      dh_arg(t4, 4), dh_arg(t5, 5) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 5, args);                 \
+  tcg_gen_callN((void*)HELPER(name), dh_retvar(ret), 5, args);          \
 }
 
 DEF_HELPER_FLAGS_4(cc_compute_all, TCG_CALL_NO_RWG_SE, tl, tl, tl, tl, int)
@@ -6295,10 +6294,10 @@ static TCGRegSet tcg_target_call_clobber_regs;
 TCGLabel *gen_new_label(void)
 {
     TCGContext *s = tcg_ctx;
-    TCGLabel *l = tcg_malloc(sizeof(TCGLabel));
+    TCGLabel *l = (TCGLabel *)tcg_malloc(sizeof(TCGLabel));
 
     *l = (TCGLabel){
-        .id = s->nb_labels++
+        .id = static_cast<unsigned>(s->nb_labels++)
     };
 
     return l;
@@ -6504,7 +6503,7 @@ static const TCGTargetOpDef tcg_target_op_defs[] = {
 #endif
 
     { INDEX_op_mb, { } },
-    { -1 },
+    { (TCGOpcode)-1 },
 };
 
 static const TCGTargetOpDef *tcg_target_op_def(TCGOpcode op)
@@ -6582,7 +6581,7 @@ static void tcg_target_init(TCGContext *s)
 
     /* We use negative offsets from "sp" so that we can distinguish
        stores that might pretend to be call arguments.  */
-    tcg_set_frame(s, TCG_REG_CALL_STACK,
+    tcg_set_frame(s, (TCGReg)TCG_REG_CALL_STACK,
                   -CPU_TEMP_BUF_NLONGS * sizeof(long),
                   CPU_TEMP_BUF_NLONGS * sizeof(long));
 }
@@ -6594,7 +6593,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
     
     if (size > TCG_POOL_CHUNK_SIZE) {
         /* big malloc: insert a new pool (XXX: could optimize) */
-        p = g_malloc(sizeof(TCGPool) + size);
+        p = (TCGPool *)g_malloc(sizeof(TCGPool) + size);
         p->size = size;
         p->next = s->pool_first_large;
         s->pool_first_large = p;
@@ -6609,7 +6608,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
             if (!p->next) {
             new_pool:
                 pool_size = TCG_POOL_CHUNK_SIZE;
-                p = g_malloc(sizeof(TCGPool) + pool_size);
+                p = (TCGPool *)g_malloc(sizeof(TCGPool) + pool_size);
                 p->size = pool_size;
                 p->next = NULL;
                 if (s->pool_current) 
@@ -6681,8 +6680,9 @@ void tcg_context_init(TCGContext *s)
         total_args += n;
     }
 
-    args_ct = g_malloc(sizeof(TCGArgConstraint) * total_args);
-    sorted_args = g_malloc(sizeof(int) * total_args);
+    args_ct =
+        (TCGArgConstraint *)g_malloc(sizeof(TCGArgConstraint) * total_args);
+    sorted_args = (int *)g_malloc(sizeof(int) * total_args);
 
     for(op = 0; op < NB_OPS; op++) {
         def = &tcg_op_defs[op];
@@ -6735,7 +6735,7 @@ void tcg_context_init(TCGContext *s)
 #endif
 
     tcg_debug_assert(!tcg_regset_test_reg(s->reserved_regs, TCG_AREG0));
-    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, TCG_AREG0, "env");
+    ts = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, (TCGReg)TCG_AREG0, "env");
     cpu_env = temp_tcgv_ptr(ts);
 }
 
@@ -6763,7 +6763,7 @@ static inline TCGTemp *tcg_temp_alloc(TCGContext *s)
 {
     int n = s->nb_temps++;
     tcg_debug_assert(n < TCG_MAX_TEMPS);
-    return memset(&s->temps[n], 0, sizeof(TCGTemp));
+    return (TCGTemp *)memset(&s->temps[n], 0, sizeof(TCGTemp));
 }
 
 static inline TCGTemp *tcg_global_alloc(TCGContext *s)
@@ -6918,7 +6918,7 @@ void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
     TCGHelperInfo *info;
     TCGOp *op;
 
-    info = g_hash_table_lookup(helper_table, (gpointer)func);
+    info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)func);
     flags = info->flags;
     sizemask = info->sizemask;
 
@@ -7136,7 +7136,7 @@ static void process_op_defs(TCGContext *s)
 {
     TCGOpcode op;
 
-    for (op = 0; op < NB_OPS; op++) {
+    for (op = (TCGOpcode)0; op < NB_OPS; op = (TCGOpcode)((int)op + 1)) {
         TCGOpDef *def = &tcg_op_defs[op];
         const TCGTargetOpDef *tdefs;
         TCGType type;
@@ -7828,12 +7828,12 @@ static inline void gen_op_add_reg_T0(TCGMemOp size, int reg)
 
 static inline void gen_op_ld_v(DisasContext *s, int idx, TCGv t0, TCGv a0)
 {
-    tcg_gen_qemu_ld_tl(t0, a0, s->mem_index, idx | MO_LE);
+    tcg_gen_qemu_ld_tl(t0, a0, s->mem_index, (TCGMemOp)(idx | MO_LE));
 }
 
 static inline void gen_op_st_v(DisasContext *s, int idx, TCGv t0, TCGv a0)
 {
-    tcg_gen_qemu_st_tl(t0, a0, s->mem_index, idx | MO_LE);
+    tcg_gen_qemu_st_tl(t0, a0, s->mem_index, (TCGMemOp)(idx | MO_LE));
 }
 
 static inline void gen_op_st_rm_T0_A0(DisasContext *s, int idx, int d)
@@ -7841,7 +7841,7 @@ static inline void gen_op_st_rm_T0_A0(DisasContext *s, int idx, int d)
     if (d == OR_TMP0) {
         gen_op_st_v(s, idx, cpu_T0, cpu_A0);
     } else {
-        gen_op_mov_reg_v(idx, d, cpu_T0);
+        gen_op_mov_reg_v((TCGMemOp)idx, d, cpu_T0);
     }
 }
 
@@ -8146,31 +8146,31 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
     case CC_OP_SUBB ... CC_OP_SUBQ:
         /* (DATA_TYPE)CC_SRCT < (DATA_TYPE)CC_SRC */
         size = s->cc_op - CC_OP_SUBB;
-        t1 = gen_ext_tl(cpu_tmp0, cpu_cc_src, size, false);
+        t1 = gen_ext_tl(cpu_tmp0, cpu_cc_src, (TCGMemOp)size, false);
         /* If no temporary was used, be careful not to alias t1 and t0.  */
         t0 = t1 == cpu_cc_src ? cpu_tmp0 : reg;
         tcg_gen_mov_tl(t0, cpu_cc_srcT);
-        gen_extu(size, t0);
+        gen_extu((TCGMemOp)size, t0);
         goto add_sub;
 
     case CC_OP_ADDB ... CC_OP_ADDQ:
         /* (DATA_TYPE)CC_DST < (DATA_TYPE)CC_SRC */
         size = s->cc_op - CC_OP_ADDB;
-        t1 = gen_ext_tl(cpu_tmp0, cpu_cc_src, size, false);
-        t0 = gen_ext_tl(reg, cpu_cc_dst, size, false);
+        t1 = gen_ext_tl(cpu_tmp0, cpu_cc_src, (TCGMemOp)size, false);
+        t0 = gen_ext_tl(reg, cpu_cc_dst, (TCGMemOp)size, false);
     add_sub:
         return (CCPrepare) { .cond = TCG_COND_LTU, .reg = t0,
-                             .reg2 = t1, .mask = -1, .use_reg2 = true };
+                             .reg2 = t1, .mask = (target_ulong)-1, .use_reg2 = true };
 
     case CC_OP_LOGICB ... CC_OP_LOGICQ:
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
 
     case CC_OP_INCB ... CC_OP_INCQ:
     case CC_OP_DECB ... CC_OP_DECQ:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
 
     case CC_OP_SHLB ... CC_OP_SHLQ:
         /* (CC_SRC >> (DATA_BITS - 1)) & 1 */
@@ -8181,17 +8181,17 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
 
     case CC_OP_MULB ... CC_OP_MULQ:
         return (CCPrepare) { .cond = TCG_COND_NE,
-                             .reg = cpu_cc_src, .mask = -1 };
+                             .reg = cpu_cc_src, .mask = (target_ulong)-1 };
 
     case CC_OP_BMILGB ... CC_OP_BMILGQ:
         size = s->cc_op - CC_OP_BMILGB;
-        t0 = gen_ext_tl(reg, cpu_cc_src, size, false);
-        return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = -1 };
+        t0 = gen_ext_tl(reg, cpu_cc_src, (TCGMemOp)size, false);
+        return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = (target_ulong)-1 };
 
     case CC_OP_ADCX:
     case CC_OP_ADCOX:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_dst,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
 
     case CC_OP_EFLAGS:
     case CC_OP_SARB ... CC_OP_SARQ:
@@ -8206,7 +8206,7 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
        gen_helper_cc_compute_c(reg, cpu_cc_dst, cpu_cc_src,
                                cpu_cc_src2, cpu_cc_op);
        return (CCPrepare) { .cond = TCG_COND_NE, .reg = reg,
-                            .mask = -1, .no_setcond = true };
+                            .mask = (target_ulong)-1, .no_setcond = true };
     }
 }
 
@@ -8231,12 +8231,12 @@ static CCPrepare gen_prepare_eflags_s(DisasContext *s, TCGv reg)
                              .mask = CC_S };
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
     default:
         {
-            TCGMemOp size = (s->cc_op - CC_OP_ADDB) & 3;
+            TCGMemOp size = (TCGMemOp)((s->cc_op - CC_OP_ADDB) & 3);
             TCGv t0 = gen_ext_tl(reg, cpu_cc_dst, size, true);
-            return (CCPrepare) { .cond = TCG_COND_LT, .reg = t0, .mask = -1 };
+            return (CCPrepare) { .cond = TCG_COND_LT, .reg = t0, .mask = (target_ulong)-1 };
         }
     }
 }
@@ -8247,10 +8247,10 @@ static CCPrepare gen_prepare_eflags_o(DisasContext *s, TCGv reg)
     case CC_OP_ADOX:
     case CC_OP_ADCOX:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src2,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
     default:
         gen_compute_eflags(s);
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
@@ -8271,15 +8271,15 @@ static CCPrepare gen_prepare_eflags_z(DisasContext *s, TCGv reg)
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
                              .mask = CC_Z };
     case CC_OP_CLR:
-        return (CCPrepare) { .cond = TCG_COND_ALWAYS, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_ALWAYS, .mask = (target_ulong)-1 };
     case CC_OP_POPCNT:
         return (CCPrepare) { .cond = TCG_COND_EQ, .reg = cpu_cc_src,
-                             .mask = -1 };
+                             .mask = (target_ulong)-1 };
     default:
         {
-            TCGMemOp size = (s->cc_op - CC_OP_ADDB) & 3;
+            TCGMemOp size = (TCGMemOp)((s->cc_op - CC_OP_ADDB) & 3);
             TCGv t0 = gen_ext_tl(reg, cpu_cc_dst, size, false);
-            return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = -1 };
+            return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = (target_ulong)-1 };
         }
     }
 }
@@ -8297,14 +8297,14 @@ static CCPrepare gen_prepare_cc(DisasContext *s, int b, TCGv reg)
     switch (s->cc_op) {
     case CC_OP_SUBB ... CC_OP_SUBQ:
         /* We optimize relational operators for the cmp/jcc case.  */
-        size = s->cc_op - CC_OP_SUBB;
+        size = (TCGMemOp)(s->cc_op - CC_OP_SUBB);
         switch (jcc_op) {
         case JCC_BE:
             tcg_gen_mov_tl(cpu_tmp4, cpu_cc_srcT);
             gen_extu(size, cpu_tmp4);
             t0 = gen_ext_tl(cpu_tmp0, cpu_cc_src, size, false);
             cc = (CCPrepare) { .cond = TCG_COND_LEU, .reg = cpu_tmp4,
-                               .reg2 = t0, .mask = -1, .use_reg2 = true };
+                               .reg2 = t0, .mask = (target_ulong)-1, .use_reg2 = true };
             break;
 
         case JCC_L:
@@ -8316,8 +8316,8 @@ static CCPrepare gen_prepare_cc(DisasContext *s, int b, TCGv reg)
             tcg_gen_mov_tl(cpu_tmp4, cpu_cc_srcT);
             gen_exts(size, cpu_tmp4);
             t0 = gen_ext_tl(cpu_tmp0, cpu_cc_src, size, true);
-            cc = (CCPrepare) { .cond = cond, .reg = cpu_tmp4,
-                               .reg2 = t0, .mask = -1, .use_reg2 = true };
+            cc = (CCPrepare) { .cond = (TCGCond)cond, .reg = cpu_tmp4,
+                               .reg2 = t0, .mask = (target_ulong)-1, .use_reg2 = true };
             break;
 
         default:
@@ -8666,14 +8666,14 @@ static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d)
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_add_tl(cpu_T0, cpu_tmp4, cpu_T1);
             tcg_gen_atomic_add_fetch_tl(cpu_T0, cpu_A0, cpu_T0,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_add_tl(cpu_T0, cpu_T0, cpu_T1);
             tcg_gen_add_tl(cpu_T0, cpu_T0, cpu_tmp4);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update3_cc(cpu_tmp4);
-        set_cc_op(s1, CC_OP_ADCB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_ADCB + ot));
         break;
     case OP_SBBL:
         gen_compute_eflags_c(s1, cpu_tmp4);
@@ -8681,31 +8681,31 @@ static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d)
             tcg_gen_add_tl(cpu_T0, cpu_T1, cpu_tmp4);
             tcg_gen_neg_tl(cpu_T0, cpu_T0);
             tcg_gen_atomic_add_fetch_tl(cpu_T0, cpu_A0, cpu_T0,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_sub_tl(cpu_T0, cpu_T0, cpu_T1);
             tcg_gen_sub_tl(cpu_T0, cpu_T0, cpu_tmp4);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update3_cc(cpu_tmp4);
-        set_cc_op(s1, CC_OP_SBBB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_SBBB + ot));
         break;
     case OP_ADDL:
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_atomic_add_fetch_tl(cpu_T0, cpu_A0, cpu_T1,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_add_tl(cpu_T0, cpu_T0, cpu_T1);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update2_cc();
-        set_cc_op(s1, CC_OP_ADDB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_ADDB + ot));
         break;
     case OP_SUBL:
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_neg_tl(cpu_T0, cpu_T1);
             tcg_gen_atomic_fetch_add_tl(cpu_cc_srcT, cpu_A0, cpu_T0,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
             tcg_gen_sub_tl(cpu_T0, cpu_cc_srcT, cpu_T1);
         } else {
             tcg_gen_mov_tl(cpu_cc_srcT, cpu_T0);
@@ -8713,47 +8713,47 @@ static void gen_op(DisasContext *s1, int op, TCGMemOp ot, int d)
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update2_cc();
-        set_cc_op(s1, CC_OP_SUBB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_SUBB + ot));
         break;
     default:
     case OP_ANDL:
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_atomic_and_fetch_tl(cpu_T0, cpu_A0, cpu_T1,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_and_tl(cpu_T0, cpu_T0, cpu_T1);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update1_cc();
-        set_cc_op(s1, CC_OP_LOGICB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_LOGICB + ot));
         break;
     case OP_ORL:
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_atomic_or_fetch_tl(cpu_T0, cpu_A0, cpu_T1,
-                                       s1->mem_index, ot | MO_LE);
+                                       s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_or_tl(cpu_T0, cpu_T0, cpu_T1);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update1_cc();
-        set_cc_op(s1, CC_OP_LOGICB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_LOGICB + ot));
         break;
     case OP_XORL:
         if (s1->prefix & PREFIX_LOCK) {
             tcg_gen_atomic_xor_fetch_tl(cpu_T0, cpu_A0, cpu_T1,
-                                        s1->mem_index, ot | MO_LE);
+                                        s1->mem_index, (TCGMemOp)(ot | MO_LE));
         } else {
             tcg_gen_xor_tl(cpu_T0, cpu_T0, cpu_T1);
             gen_op_st_rm_T0_A0(s1, ot, d);
         }
         gen_op_update1_cc();
-        set_cc_op(s1, CC_OP_LOGICB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_LOGICB + ot));
         break;
     case OP_CMPL:
         tcg_gen_mov_tl(cpu_cc_src, cpu_T1);
         tcg_gen_mov_tl(cpu_cc_srcT, cpu_T0);
         tcg_gen_sub_tl(cpu_cc_dst, cpu_T0, cpu_T1);
-        set_cc_op(s1, CC_OP_SUBB + ot);
+        set_cc_op(s1, (CCOp)(CC_OP_SUBB + ot));
         break;
     }
 }
@@ -8763,7 +8763,7 @@ static void gen_inc(DisasContext *s1, TCGMemOp ot, int d, int c)
     if (s1->prefix & PREFIX_LOCK) {
         tcg_gen_movi_tl(cpu_T0, c > 0 ? 1 : -1);
         tcg_gen_atomic_add_fetch_tl(cpu_T0, cpu_A0, cpu_T0,
-                                    s1->mem_index, ot | MO_LE);
+                                    s1->mem_index, (TCGMemOp)(ot | MO_LE));
     } else {
         if (d != OR_TMP0) {
             gen_op_mov_v_reg(ot, cpu_T0, d);
@@ -8776,7 +8776,7 @@ static void gen_inc(DisasContext *s1, TCGMemOp ot, int d, int c)
 
     gen_compute_eflags_c(s1, cpu_cc_src);
     tcg_gen_mov_tl(cpu_cc_dst, cpu_T0);
-    set_cc_op(s1, (c > 0 ? CC_OP_INCB : CC_OP_DECB) + ot);
+    set_cc_op(s1, (CCOp)((c > 0 ? CC_OP_INCB : CC_OP_DECB) + ot));
 }
 
 static void gen_shift_flags(DisasContext *s, TCGMemOp ot, TCGv result,
@@ -8896,7 +8896,7 @@ static void gen_shift_rm_im(DisasContext *s, TCGMemOp ot, int op1, int op2,
     if (op2 != 0) {
         tcg_gen_mov_tl(cpu_cc_src, cpu_tmp4);
         tcg_gen_mov_tl(cpu_cc_dst, cpu_T0);
-        set_cc_op(s, (is_right ? CC_OP_SARB : CC_OP_SHLB) + ot);
+        set_cc_op(s, (CCOp)((is_right ? CC_OP_SARB : CC_OP_SHLB) + ot));
     }
 }
 
@@ -10076,27 +10076,27 @@ typedef void (*SSEFunc_0_eppt)(TCGv_ptr env, TCGv_ptr reg_a, TCGv_ptr reg_b,
 
 static const SSEFunc_0_epp sse_op_table1[256][4] = {
     /* 3DNow! extensions */
-    [0x0e] = { SSE_DUMMY }, /* femms */
-    [0x0f] = { SSE_DUMMY }, /* pf... */
+    [0x0e] = { (SSEFunc_0_epp)SSE_DUMMY }, /* femms */
+    [0x0f] = { (SSEFunc_0_epp)SSE_DUMMY }, /* pf... */
     /* pure SSE operations */
-    [0x10] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
-    [0x11] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
-    [0x12] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
-    [0x13] = { SSE_SPECIAL, SSE_SPECIAL },  /* movlps, movlpd */
+    [0x10] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movups, movupd, movss, movsd */
+    [0x11] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movups, movupd, movss, movsd */
+    [0x12] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
+    [0x13] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movlps, movlpd */
     [0x14] = { gen_helper_punpckldq_xmm, gen_helper_punpcklqdq_xmm },
     [0x15] = { gen_helper_punpckhdq_xmm, gen_helper_punpckhqdq_xmm },
-    [0x16] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd, movshdup */
-    [0x17] = { SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd */
+    [0x16] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movhps, movhpd, movshdup */
+    [0x17] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movhps, movhpd */
 
-    [0x28] = { SSE_SPECIAL, SSE_SPECIAL },  /* movaps, movapd */
-    [0x29] = { SSE_SPECIAL, SSE_SPECIAL },  /* movaps, movapd */
-    [0x2a] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvtpi2ps, cvtpi2pd, cvtsi2ss, cvtsi2sd */
-    [0x2b] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movntps, movntpd, movntss, movntsd */
-    [0x2c] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvttps2pi, cvttpd2pi, cvttsd2si, cvttss2si */
-    [0x2d] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvtps2pi, cvtpd2pi, cvtsd2si, cvtss2si */
+    [0x28] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movaps, movapd */
+    [0x29] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movaps, movapd */
+    [0x2a] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvtpi2ps, cvtpi2pd, cvtsi2ss, cvtsi2sd */
+    [0x2b] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movntps, movntpd, movntss, movntsd */
+    [0x2c] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvttps2pi, cvttpd2pi, cvttsd2si, cvttss2si */
+    [0x2d] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvtps2pi, cvtpd2pi, cvtsd2si, cvtss2si */
     [0x2e] = { gen_helper_ucomiss, gen_helper_ucomisd },
     [0x2f] = { gen_helper_comiss, gen_helper_comisd },
-    [0x50] = { SSE_SPECIAL, SSE_SPECIAL }, /* movmskps, movmskpd */
+    [0x50] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movmskps, movmskpd */
     [0x51] = SSE_FOP(sqrt),
     [0x52] = { gen_helper_rsqrtps, NULL, gen_helper_rsqrtss, NULL },
     [0x53] = { gen_helper_rcpps, NULL, gen_helper_rcpss, NULL },
@@ -10119,8 +10119,8 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
                (SSEFunc_0_epp)gen_helper_shufpd }, /* XXX: casts */
 
     /* SSSE3, SSE4, MOVBE, CRC32, BMI1, BMI2, ADX.  */
-    [0x38] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
-    [0x3a] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
+    [0x38] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
+    [0x3a] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
 
     /* MMX ops and their SSE extensions */
     [0x60] = MMX_OP2(punpcklbw),
@@ -10137,35 +10137,35 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x6b] = MMX_OP2(packssdw),
     [0x6c] = { NULL, gen_helper_punpcklqdq_xmm },
     [0x6d] = { NULL, gen_helper_punpckhqdq_xmm },
-    [0x6e] = { SSE_SPECIAL, SSE_SPECIAL }, /* movd mm, ea */
-    [0x6f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, , movqdu */
+    [0x6e] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movd mm, ea */
+    [0x6f] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movq, movdqa, , movqdu */
     [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
                (SSEFunc_0_epp)gen_helper_pshufd_xmm,
                (SSEFunc_0_epp)gen_helper_pshufhw_xmm,
                (SSEFunc_0_epp)gen_helper_pshuflw_xmm }, /* XXX: casts */
-    [0x71] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftw */
-    [0x72] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftd */
-    [0x73] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftq */
+    [0x71] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftw */
+    [0x72] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftd */
+    [0x73] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftq */
     [0x74] = MMX_OP2(pcmpeqb),
     [0x75] = MMX_OP2(pcmpeqw),
     [0x76] = MMX_OP2(pcmpeql),
-    [0x77] = { SSE_DUMMY }, /* emms */
-    [0x78] = { NULL, SSE_SPECIAL, NULL, SSE_SPECIAL }, /* extrq_i, insertq_i */
+    [0x77] = { (SSEFunc_0_epp)SSE_DUMMY }, /* emms */
+    [0x78] = { NULL, (SSEFunc_0_epp)SSE_SPECIAL, NULL, (SSEFunc_0_epp)SSE_SPECIAL }, /* extrq_i, insertq_i */
     [0x79] = { NULL, gen_helper_extrq_r, NULL, gen_helper_insertq_r },
     [0x7c] = { NULL, gen_helper_haddpd, NULL, gen_helper_haddps },
     [0x7d] = { NULL, gen_helper_hsubpd, NULL, gen_helper_hsubps },
-    [0x7e] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movd, movd, , movq */
-    [0x7f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, movdqu */
-    [0xc4] = { SSE_SPECIAL, SSE_SPECIAL }, /* pinsrw */
-    [0xc5] = { SSE_SPECIAL, SSE_SPECIAL }, /* pextrw */
+    [0x7e] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movd, movd, , movq */
+    [0x7f] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movq, movdqa, movdqu */
+    [0xc4] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pinsrw */
+    [0xc5] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pextrw */
     [0xd0] = { NULL, gen_helper_addsubpd, NULL, gen_helper_addsubps },
     [0xd1] = MMX_OP2(psrlw),
     [0xd2] = MMX_OP2(psrld),
     [0xd3] = MMX_OP2(psrlq),
     [0xd4] = MMX_OP2(paddq),
     [0xd5] = MMX_OP2(pmullw),
-    [0xd6] = { NULL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
-    [0xd7] = { SSE_SPECIAL, SSE_SPECIAL }, /* pmovmskb */
+    [0xd6] = { NULL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
+    [0xd7] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pmovmskb */
     [0xd8] = MMX_OP2(psubusb),
     [0xd9] = MMX_OP2(psubusw),
     [0xda] = MMX_OP2(pminub),
@@ -10181,7 +10181,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0xe4] = MMX_OP2(pmulhuw),
     [0xe5] = MMX_OP2(pmulhw),
     [0xe6] = { NULL, gen_helper_cvttpd2dq, gen_helper_cvtdq2pd, gen_helper_cvtpd2dq },
-    [0xe7] = { SSE_SPECIAL , SSE_SPECIAL },  /* movntq, movntq */
+    [0xe7] = { (SSEFunc_0_epp)SSE_SPECIAL , (SSEFunc_0_epp)SSE_SPECIAL },  /* movntq, movntq */
     [0xe8] = MMX_OP2(psubsb),
     [0xe9] = MMX_OP2(psubsw),
     [0xea] = MMX_OP2(pminsw),
@@ -10190,7 +10190,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0xed] = MMX_OP2(paddsw),
     [0xee] = MMX_OP2(pmaxsw),
     [0xef] = MMX_OP2(pxor),
-    [0xf0] = { NULL, NULL, NULL, SSE_SPECIAL }, /* lddqu */
+    [0xf0] = { NULL, NULL, NULL, (SSEFunc_0_epp)SSE_SPECIAL }, /* lddqu */
     [0xf1] = MMX_OP2(psllw),
     [0xf2] = MMX_OP2(pslld),
     [0xf3] = MMX_OP2(psllq),
@@ -10294,7 +10294,7 @@ struct SSEOpHelper_epp {
 
 #define SSE42_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE42 }
 
-#define SSE41_SPECIAL { { NULL, SSE_SPECIAL }, CPUID_EXT_SSE41 }
+#define SSE41_SPECIAL { { NULL, (SSEFunc_0_epp)SSE_SPECIAL }, CPUID_EXT_SSE41 }
 
 #define PCLMULQDQ_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, \
         CPUID_EXT_PCLMULQDQ }
@@ -10359,6 +10359,8 @@ static const struct SSEOpHelper_epp sse_op_table6[256] = {
     [0xde] = AESNI_OP(aesdec),
     [0xdf] = AESNI_OP(aesdeclast),
 };
+
+#define SSE41_SPECIAL { { NULL, (SSEFunc_0_eppi)SSE_SPECIAL }, CPUID_EXT_SSE41 }
 
 static const struct SSEOpHelper_eppi sse_op_table7[256] = {
     [0x08] = SSE41_OP(roundps),
@@ -11158,11 +11160,11 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 gen_lea_modrm(env, s, modrm);
                 if ((b & 1) == 0) {
                     tcg_gen_qemu_ld_tl(cpu_T0, cpu_A0,
-                                       s->mem_index, ot | MO_BE);
+                                       s->mem_index, (TCGMemOp)(ot | MO_BE));
                     gen_op_mov_reg_v(ot, reg, cpu_T0);
                 } else {
                     tcg_gen_qemu_st_tl(cpu_regs[reg], cpu_A0,
-                                       s->mem_index, ot | MO_BE);
+                                       s->mem_index, (TCGMemOp)(ot | MO_BE));
                 }
                 break;
 
@@ -11177,7 +11179,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 tcg_gen_andc_tl(cpu_T0, cpu_regs[s->vex_v], cpu_T0);
                 gen_op_mov_reg_v(ot, reg, cpu_T0);
                 gen_op_update1_cc();
-                set_cc_op(s, CC_OP_LOGICB + ot);
+                set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
                 break;
 
             case 0x0f7: /* bextr Gy, Ey, By */
@@ -11215,7 +11217,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 
                     gen_op_mov_reg_v(ot, reg, cpu_T0);
                     gen_op_update1_cc();
-                    set_cc_op(s, CC_OP_LOGICB + ot);
+                    set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
                 }
                 break;
 
@@ -11243,7 +11245,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                 tcg_gen_andc_tl(cpu_T0, cpu_T0, cpu_A0);
                 gen_op_mov_reg_v(ot, reg, cpu_T0);
                 gen_op_update1_cc();
-                set_cc_op(s, CC_OP_BMILGB + ot);
+                set_cc_op(s, (CCOp)(CC_OP_BMILGB + ot));
                 break;
 
             case 0x3f6: /* mulx By, Gy, rdx, Ey */
@@ -11384,7 +11386,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                         tcg_temp_free(zero);
                         break;
                     }
-                    set_cc_op(s, end_op);
+                    set_cc_op(s, (CCOp)end_op);
                 }
                 break;
 
@@ -11437,7 +11439,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                     tcg_gen_and_tl(cpu_T0, cpu_T0, cpu_T1);
                     gen_op_mov_reg_v(ot, s->vex_v, cpu_T0);
                     gen_op_update2_cc();
-                    set_cc_op(s, CC_OP_BMILGB + ot);
+                    set_cc_op(s, (CCOp)(CC_OP_BMILGB + ot));
                     break;
 
                 case 2: /* blsmsk By,Ey */
@@ -11445,7 +11447,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                     tcg_gen_subi_tl(cpu_T0, cpu_T0, 1);
                     tcg_gen_xor_tl(cpu_T0, cpu_T0, cpu_cc_src);
                     tcg_gen_mov_tl(cpu_cc_dst, cpu_T0);
-                    set_cc_op(s, CC_OP_BMILGB + ot);
+                    set_cc_op(s, (CCOp)(CC_OP_BMILGB + ot));
                     break;
 
                 case 3: /* blsi By, Ey */
@@ -11453,7 +11455,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
                     tcg_gen_subi_tl(cpu_T0, cpu_T0, 1);
                     tcg_gen_and_tl(cpu_T0, cpu_T0, cpu_cc_src);
                     tcg_gen_mov_tl(cpu_cc_dst, cpu_T0);
-                    set_cc_op(s, CC_OP_BMILGB + ot);
+                    set_cc_op(s, (CCOp)(CC_OP_BMILGB + ot));
                     break;
 
                 default:
@@ -11826,7 +11828,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 
 static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 {
-    CPUX86State *env = cpu->env_ptr;
+    CPUX86State *env = (CPUX86State *)cpu->env_ptr;
     int b, prefixes;
     int shift;
     TCGMemOp ot, aflag, dflag;
@@ -12141,7 +12143,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             val = insn_get(env, s, ot);
             tcg_gen_movi_tl(cpu_T1, val);
             gen_op_testl_T0_T1_cc();
-            set_cc_op(s, CC_OP_LOGICB + ot);
+            set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
             break;
         case 2: /* not */
             if (s->prefix & PREFIX_LOCK) {
@@ -12150,7 +12152,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 }
                 tcg_gen_movi_tl(cpu_T0, ~0);
                 tcg_gen_atomic_xor_fetch_tl(cpu_T0, cpu_A0, cpu_T0,
-                                            s->mem_index, ot | MO_LE);
+                                            s->mem_index, (TCGMemOp)(ot | MO_LE));
             } else {
                 tcg_gen_not_tl(cpu_T0, cpu_T0);
                 if (mod != 3) {
@@ -12181,7 +12183,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_mov_tl(t2, t0);
                 tcg_gen_neg_tl(t1, t0);
                 tcg_gen_atomic_cmpxchg_tl(t0, a0, t0, t1,
-                                          s->mem_index, ot | MO_LE);
+                                          s->mem_index, (TCGMemOp)(ot | MO_LE));
                 tcg_temp_free(t1);
                 tcg_gen_brcond_tl(TCG_COND_NE, t0, t2, label1);
 
@@ -12198,7 +12200,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 }
             }
             gen_op_update_neg_cc();
-            set_cc_op(s, CC_OP_SUBB + ot);
+            set_cc_op(s, (CCOp)(CC_OP_SUBB + ot));
             break;
         case 4: /* mul */
             switch(ot) {
@@ -12362,7 +12364,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 /* operand size for jumps is 64 bit */
                 ot = MO_64;
             } else if (op == 3 || op == 5) {
-                ot = dflag != MO_16 ? MO_32 + (rex_w == 1) : MO_16;
+                ot = (TCGMemOp)(dflag != MO_16 ? MO_32 + (rex_w == 1) : MO_16);
             } else if (op == 6) {
                 /* default push size is 64 bit */
                 ot = mo_pushpop(s, dflag);
@@ -12464,7 +12466,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_ldst_modrm(env, s, modrm, ot, OR_TMP0, 0);
         gen_op_mov_v_reg(ot, cpu_T1, reg);
         gen_op_testl_T0_T1_cc();
-        set_cc_op(s, CC_OP_LOGICB + ot);
+        set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
         break;
 
     case 0xa8: /* test eAX, Iv */
@@ -12475,7 +12477,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_mov_v_reg(ot, cpu_T0, OR_EAX);
         tcg_gen_movi_tl(cpu_T1, val);
         gen_op_testl_T0_T1_cc();
-        set_cc_op(s, CC_OP_LOGICB + ot);
+        set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
         break;
 
     case 0x98: /* CWDE/CBW */
@@ -12577,7 +12579,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_mov_reg_v(ot, reg, cpu_T0);
             break;
         }
-        set_cc_op(s, CC_OP_MULB + ot);
+        set_cc_op(s, (CCOp)(CC_OP_MULB + ot));
         break;
     case 0x1c0:
     case 0x1c1: /* xadd Ev, Gv */
@@ -12596,7 +12598,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_lea_modrm(env, s, modrm);
             if (s->prefix & PREFIX_LOCK) {
                 tcg_gen_atomic_fetch_add_tl(cpu_T1, cpu_A0, cpu_T0,
-                                            s->mem_index, ot | MO_LE);
+                                            s->mem_index, (TCGMemOp)(ot | MO_LE));
                 tcg_gen_add_tl(cpu_T0, cpu_T0, cpu_T1);
             } else {
                 gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
@@ -12606,7 +12608,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_mov_reg_v(ot, reg, cpu_T1);
         }
         gen_op_update2_cc();
-        set_cc_op(s, CC_OP_ADDB + ot);
+        set_cc_op(s, (CCOp)(CC_OP_ADDB + ot));
         break;
     case 0x1b0:
     case 0x1b1: /* cmpxchg Ev, Gv */
@@ -12629,7 +12631,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 }
                 gen_lea_modrm(env, s, modrm);
                 tcg_gen_atomic_cmpxchg_tl(oldv, cpu_A0, cmpv, newv,
-                                          s->mem_index, ot | MO_LE);
+                                          s->mem_index, (TCGMemOp)(ot | MO_LE));
                 gen_op_mov_reg_v(ot, R_EAX, oldv);
             } else {
                 if (mod == 3) {
@@ -12659,7 +12661,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             tcg_gen_mov_tl(cpu_cc_src, oldv);
             tcg_gen_mov_tl(cpu_cc_srcT, cmpv);
             tcg_gen_sub_tl(cpu_cc_dst, cmpv, oldv);
-            set_cc_op(s, CC_OP_SUBB + ot);
+            set_cc_op(s, (CCOp)(CC_OP_SUBB + ot));
             tcg_temp_free(oldv);
             tcg_temp_free(newv);
             tcg_temp_free(cmpv);
@@ -12877,9 +12879,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             /* d_ot is the size of destination */
             d_ot = dflag;
             /* ot is the size of source */
-            ot = (b & 1) + MO_8;
+            ot = (TCGMemOp)((b & 1) + MO_8);
             /* s_ot is the sign+size of source */
-            s_ot = b & 8 ? MO_SIGN | ot : ot;
+            s_ot = (TCGMemOp)(b & 8 ? MO_SIGN | ot : ot);
 
             modrm = x86_ldub_code(env, s);
             reg = ((modrm >> 3) & 7) | rex_r;
@@ -13017,7 +13019,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_mov_v_reg(ot, cpu_T0, reg);
             /* for xchg, lock is implicit */
             tcg_gen_atomic_xchg_tl(cpu_T1, cpu_A0, cpu_T0,
-                                   s->mem_index, ot | MO_LE);
+                                   s->mem_index, (TCGMemOp)(ot | MO_LE));
             gen_op_mov_reg_v(ot, reg, cpu_T1);
         }
         break;
@@ -14159,17 +14161,17 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 break;
             case 1: /* bts */
                 tcg_gen_atomic_fetch_or_tl(cpu_T0, cpu_A0, cpu_tmp0,
-                                           s->mem_index, ot | MO_LE);
+                                           s->mem_index, (TCGMemOp)(ot | MO_LE));
                 break;
             case 2: /* btr */
                 tcg_gen_not_tl(cpu_tmp0, cpu_tmp0);
                 tcg_gen_atomic_fetch_and_tl(cpu_T0, cpu_A0, cpu_tmp0,
-                                            s->mem_index, ot | MO_LE);
+                                            s->mem_index, (TCGMemOp)(ot | MO_LE));
                 break;
             default:
             case 3: /* btc */
                 tcg_gen_atomic_fetch_xor_tl(cpu_T0, cpu_A0, cpu_tmp0,
-                                            s->mem_index, ot | MO_LE);
+                                            s->mem_index, (TCGMemOp)(ot | MO_LE));
                 break;
             }
             tcg_gen_shr_tl(cpu_tmp4, cpu_T0, cpu_T1);
@@ -14219,7 +14221,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                CC_DST alone, setting CC_SRC, and using a CC_OP_SAR of the
                same width.  */
             tcg_gen_mov_tl(cpu_cc_src, cpu_tmp4);
-            set_cc_op(s, ((s->cc_op - CC_OP_MULB) & 3) + CC_OP_SARB);
+            set_cc_op(s, (CCOp)(((s->cc_op - CC_OP_MULB) & 3) + CC_OP_SARB));
             break;
         default:
             /* Otherwise, generate EFLAGS and replace the C bit.  */
@@ -14256,12 +14258,12 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             /* For lzcnt/tzcnt, Z bit is defined related to the result.  */
             gen_op_update1_cc();
-            set_cc_op(s, CC_OP_BMILGB + ot);
+            set_cc_op(s, (CCOp)(CC_OP_BMILGB + ot));
         } else {
             /* For bsr/bsf, only the Z bit is defined and it is related
                to the input and not the result.  */
             tcg_gen_mov_tl(cpu_cc_dst, cpu_T0);
-            set_cc_op(s, CC_OP_LOGICB + ot);
+            set_cc_op(s, (CCOp)(CC_OP_LOGICB + ot));
 
             /* ??? The manual says that the output is undefined when the
                input is zero, but real hardware leaves it unchanged, and
@@ -15012,11 +15014,11 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 if (d_ot == MO_64) {
                     tcg_gen_ext32s_tl(cpu_T0, cpu_T0);
                 }
-                gen_op_mov_reg_v(d_ot, reg, cpu_T0);
+                gen_op_mov_reg_v((TCGMemOp)d_ot, reg, cpu_T0);
             } else {
                 gen_lea_modrm(env, s, modrm);
                 gen_op_ld_v(s, MO_32 | MO_SIGN, cpu_T0, cpu_A0);
-                gen_op_mov_reg_v(d_ot, reg, cpu_T0);
+                gen_op_mov_reg_v((TCGMemOp)d_ot, reg, cpu_T0);
             }
         } else
 #endif
@@ -15601,21 +15603,21 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 || (prefixes & PREFIX_LOCK)) {
                 goto illegal_op;
             }
-            tcg_gen_mb(TCG_MO_ST_ST | TCG_BAR_SC);
+            tcg_gen_mb((TCGBar)(TCG_MO_ST_ST | TCG_BAR_SC));
             break;
         case 0xe8 ... 0xef: /* lfence */
             if (!(s->cpuid_features & CPUID_SSE)
                 || (prefixes & PREFIX_LOCK)) {
                 goto illegal_op;
             }
-            tcg_gen_mb(TCG_MO_LD_LD | TCG_BAR_SC);
+            tcg_gen_mb((TCGBar)(TCG_MO_LD_LD | TCG_BAR_SC));
             break;
         case 0xf0 ... 0xf7: /* mfence */
             if (!(s->cpuid_features & CPUID_SSE2)
                 || (prefixes & PREFIX_LOCK)) {
                 goto illegal_op;
             }
-            tcg_gen_mb(TCG_MO_ALL | TCG_BAR_SC);
+            tcg_gen_mb((TCGBar)(TCG_MO_ALL | TCG_BAR_SC));
             break;
 
         default:
@@ -15692,7 +15694,7 @@ static int i386_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu,
                                       int max_insns)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUX86State *env = cpu->env_ptr;
+    CPUX86State *env = (CPUX86State *)cpu->env_ptr;
     uint32_t flags = dc->base.tb->flags;
     target_ulong cs_base = dc->base.tb->cs_base;
 
@@ -17770,13 +17772,13 @@ static inline TCGMemOp tcg_canonicalize_memop(TCGMemOp op, bool is64, bool st)
 
     switch (op & MO_SIZE) {
     case MO_8:
-        op &= ~MO_BSWAP;
+        op = (TCGMemOp)(op & ~MO_BSWAP);
         break;
     case MO_16:
         break;
     case MO_32:
         if (!is64) {
-            op &= ~MO_SIGN;
+            op = (TCGMemOp)(op & ~MO_SIGN);
         }
         break;
     case MO_64:
@@ -17786,7 +17788,7 @@ static inline TCGMemOp tcg_canonicalize_memop(TCGMemOp op, bool is64, bool st)
         break;
     }
     if (st) {
-        op &= ~MO_SIGN;
+        op = (TCGMemOp)(op & ~MO_SIGN);
     }
     return op;
 }
@@ -17829,17 +17831,17 @@ static void gen_ldst_i64(TCGOpcode opc, TCGv_i64 val, TCGv addr,
 static void tcg_gen_req_mo(TCGBar type)
 {
 #ifdef TCG_GUEST_DEFAULT_MO
-    type &= TCG_GUEST_DEFAULT_MO;
+    type = (TCGBar)(type & TCG_GUEST_DEFAULT_MO);
 #endif
-    type &= ~TCG_TARGET_DEFAULT_MO;
+    type = (TCGBar)(type & ~TCG_TARGET_DEFAULT_MO);
     if (type) {
-        tcg_gen_mb(type | TCG_BAR_SC);
+        tcg_gen_mb((TCGBar)(type | TCG_BAR_SC));
     }
 }
 
 void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 {
-    tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
+    tcg_gen_req_mo((TCGBar)(TCG_MO_LD_LD | TCG_MO_ST_LD));
     memop = tcg_canonicalize_memop(memop, 0, 0);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 0));
@@ -17848,7 +17850,7 @@ void tcg_gen_qemu_ld_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 
 void tcg_gen_qemu_st_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 {
-    tcg_gen_req_mo(TCG_MO_LD_ST | TCG_MO_ST_ST);
+    tcg_gen_req_mo((TCGBar)(TCG_MO_LD_ST | TCG_MO_ST_ST));
     memop = tcg_canonicalize_memop(memop, 0, 1);
     trace_guest_mem_before_tcg(tcg_ctx->cpu, cpu_env,
                                addr, trace_mem_get_info(memop, 1));
@@ -17857,7 +17859,7 @@ void tcg_gen_qemu_st_i32(TCGv_i32 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 
 void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 {
-    tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
+    tcg_gen_req_mo((TCGBar)(TCG_MO_LD_LD | TCG_MO_ST_LD));
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_ld_i32(TCGV_LOW(val), addr, idx, memop);
         if (memop & MO_SIGN) {
@@ -17876,7 +17878,7 @@ void tcg_gen_qemu_ld_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 
 void tcg_gen_qemu_st_i64(TCGv_i64 val, TCGv addr, TCGArg idx, TCGMemOp memop)
 {
-    tcg_gen_req_mo(TCG_MO_LD_ST | TCG_MO_ST_ST);
+    tcg_gen_req_mo((TCGBar)(TCG_MO_LD_ST | TCG_MO_ST_ST));
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_st_i32(TCGV_LOW(val), addr, idx, memop);
         return;
@@ -17943,13 +17945,13 @@ typedef void (*gen_atomic_op_i32)(TCGv_i32, TCGv_env, TCGv, TCGv_i32);
 # define WITH_ATOMIC64(X)
 
 static void * const table_cmpxchg[16] = {
-    [MO_8] = gen_helper_atomic_cmpxchgb,
-    [MO_16 | MO_LE] = gen_helper_atomic_cmpxchgw_le,
-    [MO_16 | MO_BE] = gen_helper_atomic_cmpxchgw_be,
-    [MO_32 | MO_LE] = gen_helper_atomic_cmpxchgl_le,
-    [MO_32 | MO_BE] = gen_helper_atomic_cmpxchgl_be,
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_cmpxchgq_le)
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_cmpxchgq_be)
+    [MO_8] = (void *)gen_helper_atomic_cmpxchgb,
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_cmpxchgw_le,
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_cmpxchgw_be,
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_cmpxchgl_le,
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_cmpxchgl_be,
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_cmpxchgq_le)
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_cmpxchgq_be)
 };
 
 void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
@@ -17961,9 +17963,9 @@ void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
         TCGv_i32 t1 = tcg_temp_new_i32();
         TCGv_i32 t2 = tcg_temp_new_i32();
 
-        tcg_gen_ext_i32(t2, cmpv, memop & MO_SIZE);
+        tcg_gen_ext_i32(t2, cmpv, (TCGMemOp)(memop & MO_SIZE));
 
-        tcg_gen_qemu_ld_i32(t1, addr, idx, memop & ~MO_SIGN);
+        tcg_gen_qemu_ld_i32(t1, addr, idx, (TCGMemOp)(memop & ~MO_SIGN));
         tcg_gen_movcond_i32(TCG_COND_EQ, t2, t1, t2, newv, t1);
         tcg_gen_qemu_st_i32(t2, addr, idx, memop);
         tcg_temp_free_i32(t2);
@@ -17977,7 +17979,7 @@ void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
     } else {
         gen_atomic_cx_i32 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i32)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -18005,9 +18007,9 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
         TCGv_i64 t1 = tcg_temp_new_i64();
         TCGv_i64 t2 = tcg_temp_new_i64();
 
-        tcg_gen_ext_i64(t2, cmpv, memop & MO_SIZE);
+        tcg_gen_ext_i64(t2, cmpv, (TCGMemOp)(memop & MO_SIZE));
 
-        tcg_gen_qemu_ld_i64(t1, addr, idx, memop & ~MO_SIGN);
+        tcg_gen_qemu_ld_i64(t1, addr, idx, (TCGMemOp)(memop & ~MO_SIGN));
         tcg_gen_movcond_i64(TCG_COND_EQ, t2, t1, t2, newv, t1);
         tcg_gen_qemu_st_i64(t2, addr, idx, memop);
         tcg_temp_free_i64(t2);
@@ -18047,7 +18049,7 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
 
         tcg_gen_extrl_i64_i32(c32, cmpv);
         tcg_gen_extrl_i64_i32(n32, newv);
-        tcg_gen_atomic_cmpxchg_i32(r32, addr, c32, n32, idx, memop & ~MO_SIGN);
+        tcg_gen_atomic_cmpxchg_i32(r32, addr, c32, n32, idx, (TCGMemOp)(memop & ~MO_SIGN));
         tcg_temp_free_i32(c32);
         tcg_temp_free_i32(n32);
 
@@ -18069,7 +18071,7 @@ static void do_nonatomic_op_i32(TCGv_i32 ret, TCGv addr, TCGv_i32 val,
 
     memop = tcg_canonicalize_memop(memop, 0, 0);
 
-    tcg_gen_qemu_ld_i32(t1, addr, idx, memop & ~MO_SIGN);
+    tcg_gen_qemu_ld_i32(t1, addr, idx, (TCGMemOp)(memop & ~MO_SIGN));
     gen(t2, t1, val);
     tcg_gen_qemu_st_i32(t2, addr, idx, memop);
 
@@ -18085,7 +18087,7 @@ static void do_atomic_op_i32(TCGv_i32 ret, TCGv addr, TCGv_i32 val,
 
     memop = tcg_canonicalize_memop(memop, 0, 0);
 
-    gen = table[memop & (MO_SIZE | MO_BSWAP)];
+    gen = (gen_atomic_op_i32)table[memop & (MO_SIZE | MO_BSWAP)];
     tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -18112,7 +18114,7 @@ static void do_nonatomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 
     memop = tcg_canonicalize_memop(memop, 1, 0);
 
-    tcg_gen_qemu_ld_i64(t1, addr, idx, memop & ~MO_SIGN);
+    tcg_gen_qemu_ld_i64(t1, addr, idx, (TCGMemOp)(memop & ~MO_SIGN));
     gen(t2, t1, val);
     tcg_gen_qemu_st_i64(t2, addr, idx, memop);
 
@@ -18123,13 +18125,13 @@ static void do_nonatomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 
 #define GEN_ATOMIC_HELPER(NAME, OP, NEW)                                \
 static void * const table_##NAME[16] = {                                \
-    [MO_8] = gen_helper_atomic_##NAME##b,                               \
-    [MO_16 | MO_LE] = gen_helper_atomic_##NAME##w_le,                   \
-    [MO_16 | MO_BE] = gen_helper_atomic_##NAME##w_be,                   \
-    [MO_32 | MO_LE] = gen_helper_atomic_##NAME##l_le,                   \
-    [MO_32 | MO_BE] = gen_helper_atomic_##NAME##l_be,                   \
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_##NAME##q_le)     \
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_##NAME##q_be)     \
+    [MO_8] = (void *)gen_helper_atomic_##NAME##b,                               \
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_##NAME##w_le,                   \
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_##NAME##w_be,                   \
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_##NAME##l_le,                   \
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_##NAME##l_be,                   \
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_##NAME##q_le)     \
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_##NAME##q_be)     \
 };                                                                      \
 void tcg_gen_atomic_##NAME##_i32                                        \
     (TCGv_i32 ret, TCGv addr, TCGv_i32 val, TCGArg idx, TCGMemOp memop) \
@@ -18184,7 +18186,7 @@ static void do_atomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
         TCGv_i32 r32 = tcg_temp_new_i32();
 
         tcg_gen_extrl_i64_i32(v32, val);
-        do_atomic_op_i32(r32, addr, v32, idx, memop & ~MO_SIGN, table);
+        do_atomic_op_i32(r32, addr, v32, idx, (TCGMemOp)(memop & ~MO_SIGN), table);
         tcg_temp_free_i32(v32);
 
         tcg_gen_extu_i32_i64(ret, r32);
@@ -18228,10 +18230,10 @@ void error_report_err(Error *err);
 
 extern Error *error_fatal;
 
-CPUState *cpu_create(const char *typename)
+CPUState *cpu_create(const char *typenm)
 {
     Error *err = NULL;
-    CPUState *cpu = CPU(object_new(typename));
+    CPUState *cpu = CPU(object_new(typenm));
     object_property_set_bool(OBJECT(cpu), true, "realized", &err);
     if (err != NULL) {
         error_report_err(err);
@@ -18241,7 +18243,7 @@ CPUState *cpu_create(const char *typename)
     return cpu;
 }
 
-const char *cpu_parse_cpu_model(const char *typename, const char *cpu_model)
+const char *cpu_parse_cpu_model(const char *typenm, const char *cpu_model)
 {
     ObjectClass *oc;
     CPUClass *cc;
@@ -18250,7 +18252,7 @@ const char *cpu_parse_cpu_model(const char *typename, const char *cpu_model)
 
     model_pieces = g_strsplit(cpu_model, ",", 2);
 
-    oc = cpu_class_by_name(typename, model_pieces[0]);
+    oc = cpu_class_by_name(typenm, model_pieces[0]);
     if (oc == NULL) {
         error_report("unable to find CPU model '%s'", model_pieces[0]);
         g_strfreev(model_pieces);
@@ -18264,22 +18266,22 @@ const char *cpu_parse_cpu_model(const char *typename, const char *cpu_model)
     return cpu_type;
 }
 
-CPUState *cpu_generic_init(const char *typename, const char *cpu_model)
+CPUState *cpu_generic_init(const char *typenm, const char *cpu_model)
 {
     /* TODO: all callers of cpu_generic_init() need to be converted to
      * call cpu_parse_features() only once, before calling cpu_generic_init().
      */
-    return cpu_create(cpu_parse_cpu_model(typename, cpu_model));
+    return cpu_create(cpu_parse_cpu_model(typenm, cpu_model));
 }
 
-ObjectClass *cpu_class_by_name(const char *typename, const char *cpu_model)
+ObjectClass *cpu_class_by_name(const char *typenm, const char *cpu_model)
 {
     CPUClass *cc;
 
     if (!cpu_model) {
         return NULL;
     }
-    cc = CPU_CLASS(object_class_by_name(typename));
+    cc = CPU_CLASS(object_class_by_name(typenm));
 
     return cc->class_by_name(cpu_model);
 }
@@ -18326,7 +18328,7 @@ typedef struct TypeImpl TypeImpl;
 
 struct InterfaceImpl
 {
-    const char *typename;
+    const char *typenm;
 };
 
 struct TypeImpl
@@ -18352,7 +18354,7 @@ struct TypeImpl
     const char *parent;
     TypeImpl *parent_type;
 
-    ObjectClass *class;
+    ObjectClass *clazz;
 
     int num_interfaces;
     InterfaceImpl interfaces[MAX_INTERFACES];
@@ -18373,12 +18375,12 @@ static GHashTable *type_table_get(void)
 
 static TypeImpl *type_table_lookup(const char *name)
 {
-    return g_hash_table_lookup(type_table_get(), name);
+    return (TypeImpl *)g_hash_table_lookup(type_table_get(), name);
 }
 
 static TypeImpl *type_new(const TypeInfo *info)
 {
-    TypeImpl *ti = g_malloc0(sizeof(*ti));
+    TypeImpl *ti = (TypeImpl *)g_malloc0(sizeof(*ti));
     int i;
 
     g_assert(info->name != NULL);
@@ -18406,7 +18408,7 @@ static TypeImpl *type_new(const TypeInfo *info)
     ti->abstract = info->abstract;
 
     for (i = 0; info->interfaces && info->interfaces[i].type; i++) {
-        ti->interfaces[i].typename = g_strdup(info->interfaces[i].type);
+        ti->interfaces[i].typenm = g_strdup(info->interfaces[i].type);
     }
     ti->num_interfaces = i;
 
@@ -18497,17 +18499,17 @@ static void type_initialize_interface(TypeImpl *ti, TypeImpl *interface_type,
     type_initialize(iface_impl);
     g_free((char *)info.name);
 
-    new_iface = (InterfaceClass *)iface_impl->class;
-    new_iface->concrete_class = ti->class;
+    new_iface = (InterfaceClass *)iface_impl->clazz;
+    new_iface->concrete_class = ti->clazz;
     new_iface->interface_type = interface_type;
 
-    ti->class->interfaces = g_slist_append(ti->class->interfaces,
-                                           iface_impl->class);
+    ti->clazz->interfaces = g_slist_append(ti->clazz->interfaces,
+                                           iface_impl->clazz);
 }
 
 static void object_property_free(gpointer data)
 {
-    ObjectProperty *prop = data;
+    ObjectProperty *prop = (ObjectProperty *)data;
 
     g_free(prop->name);
     g_free(prop->type);
@@ -18519,7 +18521,7 @@ static void type_initialize(TypeImpl *ti)
 {
     TypeImpl *parent;
 
-    if (ti->class) {
+    if (ti->clazz) {
         return;
     }
 
@@ -18532,7 +18534,7 @@ static void type_initialize(TypeImpl *ti)
         ti->abstract = true;
     }
 
-    ti->class = g_malloc0(ti->class_size);
+    ti->clazz = (ObjectClass *)g_malloc0(ti->class_size);
 
     parent = type_get_parent(ti);
     if (parent) {
@@ -18541,21 +18543,21 @@ static void type_initialize(TypeImpl *ti)
         int i;
 
         g_assert_cmpint(parent->class_size, <=, ti->class_size);
-        memcpy(ti->class, parent->class, parent->class_size);
-        ti->class->interfaces = NULL;
-        ti->class->properties = g_hash_table_new_full(
+        memcpy(ti->clazz, parent->clazz, parent->class_size);
+        ti->clazz->interfaces = NULL;
+        ti->clazz->properties = g_hash_table_new_full(
             g_str_hash, g_str_equal, g_free, object_property_free);
 
-        for (e = parent->class->interfaces; e; e = e->next) {
-            InterfaceClass *iface = e->data;
+        for (e = parent->clazz->interfaces; e; e = e->next) {
+            InterfaceClass *iface = (InterfaceClass *)e->data;
             ObjectClass *klass = OBJECT_CLASS(iface);
 
             type_initialize_interface(ti, iface->interface_type, klass->type);
         }
 
         for (i = 0; i < ti->num_interfaces; i++) {
-            TypeImpl *t = type_get_by_name(ti->interfaces[i].typename);
-            for (e = ti->class->interfaces; e; e = e->next) {
+            TypeImpl *t = type_get_by_name(ti->interfaces[i].typenm);
+            for (e = ti->clazz->interfaces; e; e = e->next) {
                 TypeImpl *target_type = OBJECT_CLASS(e->data)->type;
 
                 if (type_is_ancestor(target_type, t)) {
@@ -18570,21 +18572,21 @@ static void type_initialize(TypeImpl *ti)
             type_initialize_interface(ti, t, t);
         }
     } else {
-        ti->class->properties = g_hash_table_new_full(
+        ti->clazz->properties = g_hash_table_new_full(
             g_str_hash, g_str_equal, g_free, object_property_free);
     }
 
-    ti->class->type = ti;
+    ti->clazz->type = ti;
 
     while (parent) {
         if (parent->class_base_init) {
-            parent->class_base_init(ti->class, ti->class_data);
+            parent->class_base_init(ti->clazz, ti->class_data);
         }
         parent = type_get_parent(parent);
     }
 
     if (ti->class_init) {
-        ti->class_init(ti->class, ti->class_data);
+        ti->class_init(ti->clazz, ti->class_data);
     }
 }
 
@@ -18612,7 +18614,7 @@ static void object_post_init_with_type(Object *obj, TypeImpl *ti)
 
 static void object_initialize_with_type(void *data, size_t size, TypeImpl *type)
 {
-    Object *obj = data;
+    Object *obj = (Object *)data;
 
     g_assert(type != NULL);
     type_initialize(type);
@@ -18622,7 +18624,7 @@ static void object_initialize_with_type(void *data, size_t size, TypeImpl *type)
     g_assert_cmpint(size, >=, type->instance_size);
 
     memset(obj, 0, type->instance_size);
-    obj->class = type->class;
+    obj->clazz = type->clazz;
     object_ref(obj);
     obj->properties = g_hash_table_new_full(g_str_hash, g_str_equal,
                                             NULL, object_property_free);
@@ -18641,7 +18643,7 @@ static void object_property_del_all(Object *obj)
         released = false;
         g_hash_table_iter_init(&iter, obj->properties);
         while (g_hash_table_iter_next(&iter, &key, &value)) {
-            prop = value;
+            prop = (ObjectProperty *)value;
             if (prop->release) {
                 prop->release(obj, prop->name, prop->opaque);
                 prop->release = NULL;
@@ -18668,8 +18670,8 @@ static void object_deinit(Object *obj, TypeImpl *type)
 
 static void object_finalize(void *data)
 {
-    Object *obj = data;
-    TypeImpl *ti = obj->class->type;
+    Object *obj = (Object *)data;
+    TypeImpl *ti = obj->clazz->type;
 
     object_property_del_all(obj);
     object_deinit(obj, ti);
@@ -18687,50 +18689,50 @@ static Object *object_new_with_type(Type type)
     g_assert(type != NULL);
     type_initialize(type);
 
-    obj = g_malloc(type->instance_size);
+    obj = (Object *)g_malloc(type->instance_size);
     object_initialize_with_type(obj, type->instance_size, type);
     obj->free = g_free;
 
     return obj;
 }
 
-Object *object_new(const char *typename)
+Object *object_new(const char *typenm)
 {
-    TypeImpl *ti = type_get_by_name(typename);
+    TypeImpl *ti = type_get_by_name(typenm);
 
     return object_new_with_type(ti);
 }
 
-ObjectClass *object_class_dynamic_cast(ObjectClass *class,
-                                       const char *typename)
+ObjectClass *object_class_dynamic_cast(ObjectClass *clazz,
+                                       const char *typenm)
 {
     ObjectClass *ret = NULL;
     TypeImpl *target_type;
     TypeImpl *type;
 
-    if (!class) {
+    if (!clazz) {
         return NULL;
     }
 
     /* A simple fast path that can trigger a lot for leaf classes.  */
-    type = class->type;
-    if (type->name == typename) {
-        return class;
+    type = clazz->type;
+    if (type->name == typenm) {
+        return clazz;
     }
 
-    target_type = type_get_by_name(typename);
+    target_type = type_get_by_name(typenm);
     if (!target_type) {
-        /* target class type unknown, so fail the cast */
+        /* target clazz type unknown, so fail the cast */
         return NULL;
     }
 
-    if (type->class->interfaces &&
+    if (type->clazz->interfaces &&
             type_is_ancestor(target_type, type_interface)) {
         int found = 0;
         GSList *i;
 
-        for (i = class->interfaces; i; i = i->next) {
-            ObjectClass *target_class = i->data;
+        for (i = clazz->interfaces; i; i = i->next) {
+            ObjectClass *target_class = (ObjectClass *)i->data;
 
             if (type_is_ancestor(target_class->type, target_type)) {
                 ret = target_class;
@@ -18743,51 +18745,51 @@ ObjectClass *object_class_dynamic_cast(ObjectClass *class,
             ret = NULL;
         }
     } else if (type_is_ancestor(type, target_type)) {
-        ret = class;
+        ret = clazz;
     }
 
     return ret;
 }
 
-ObjectClass *object_class_dynamic_cast_assert(ObjectClass *class,
-                                              const char *typename,
+ObjectClass *object_class_dynamic_cast_assert(ObjectClass *clazz,
+                                              const char *typenm,
                                               const char *file, int line,
                                               const char *func)
 {
     ObjectClass *ret;
 
-    trace_object_class_dynamic_cast_assert(class ? class->type->name : "(null)",
-                                           typename, file, line, func);
+    trace_object_class_dynamic_cast_assert(clazz ? clazz->type->name : "(null)",
+                                           typenm, file, line, func);
 
 #ifdef CONFIG_QOM_CAST_DEBUG
     int i;
 
-    for (i = 0; class && i < OBJECT_CLASS_CAST_CACHE; i++) {
-        if (atomic_read(&class->class_cast_cache[i]) == typename) {
-            ret = class;
+    for (i = 0; clazz && i < OBJECT_CLASS_CAST_CACHE; i++) {
+        if (atomic_read(&clazz->class_cast_cache[i]) == typenm) {
+            ret = clazz;
             goto out;
         }
     }
 #else
-    if (!class || !class->interfaces) {
-        return class;
+    if (!clazz || !clazz->interfaces) {
+        return clazz;
     }
 #endif
 
-    ret = object_class_dynamic_cast(class, typename);
-    if (!ret && class) {
+    ret = object_class_dynamic_cast(clazz, typenm);
+    if (!ret && clazz) {
         fprintf(stderr, "%s:%d:%s: Object %p is not an instance of type %s\n",
-                file, line, func, class, typename);
+                file, line, func, clazz, typenm);
         abort();
     }
 
 #ifdef CONFIG_QOM_CAST_DEBUG
-    if (class && ret == class) {
+    if (clazz && ret == clazz) {
         for (i = 1; i < OBJECT_CLASS_CAST_CACHE; i++) {
-            atomic_set(&class->class_cast_cache[i - 1],
-                       atomic_read(&class->class_cast_cache[i]));
+            atomic_set(&clazz->class_cast_cache[i - 1],
+                       atomic_read(&clazz->class_cast_cache[i]));
         }
-        atomic_set(&class->class_cast_cache[i - 1], typename);
+        atomic_set(&clazz->class_cast_cache[i - 1], typenm);
     }
 out:
 #endif
@@ -18799,9 +18801,9 @@ const char *object_class_get_name(ObjectClass *klass)
     return klass->type->name;
 }
 
-ObjectClass *object_class_by_name(const char *typename)
+ObjectClass *object_class_by_name(const char *typenm)
 {
-    TypeImpl *type = type_get_by_name(typename);
+    TypeImpl *type = type_get_by_name(typenm);
 
     if (!type) {
         return NULL;
@@ -18809,7 +18811,7 @@ ObjectClass *object_class_by_name(const char *typename)
 
     type_initialize(type);
 
-    return type->class;
+    return type->clazz;
 }
 
 void object_ref(Object *obj)
