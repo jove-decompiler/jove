@@ -1,4 +1,4 @@
-#define CONFIG_CPUID_H 1
+//#define CONFIG_CPUID_H 1
 
 #define TARGET_X86_64 1
 
@@ -625,9 +625,9 @@ typedef enum {
 
 extern bool have_bmi1;
 
-#define TCG_TARGET_HAS_div_i32          1
-#define TCG_TARGET_HAS_rem_i32          1
-#define TCG_TARGET_HAS_div2_i32         0
+#define TCG_TARGET_HAS_div_i32          0
+#define TCG_TARGET_HAS_rem_i32          0
+#define TCG_TARGET_HAS_div2_i32         1
 #define TCG_TARGET_HAS_add2_i32         0
 #define TCG_TARGET_HAS_sub2_i32         0
 #define TCG_TARGET_HAS_bswap16_i32      1
@@ -1583,6 +1583,11 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
 
 #define OPC_BUF_SIZE 640
 
+/* XXX: make safe guess about sizes */
+#define MAX_OP_PER_INSTR 266
+
+#define OPC_MAX_SIZE (OPC_BUF_SIZE - MAX_OP_PER_INSTR)
+
 typedef int64_t tcg_target_long;
 
 typedef uint64_t tcg_target_ulong;
@@ -1604,7 +1609,7 @@ typedef enum TCGOpcode {
 
 #define tcg_regset_test_reg(d, r)  (((d) >> (r)) & 1)
 
-# define tcg_debug_assert(X) do { (void)(X); } while (0)
+# define tcg_debug_assert(X) assert(X)
 
 typedef uint8_t tcg_insn_unit;
 
@@ -17802,6 +17807,9 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
                   target_ulong size) {}
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
                      CPUState *cpu, TranslationBlock *tb) {}
+static inline void gen_tb_end(TranslationBlock *tb, int num_insns) {}
+static inline int tcg_op_buf_count(void) { return 0; }
+static inline bool tcg_op_buf_full(void) { return false; }
 
 /******************************************************************************/
 /*                                                                            */
@@ -17832,6 +17840,65 @@ int main(int argc, char** argv) {
     std::cerr << "usage: " << argv[0] << " objfile" << std::endl;
     return 1;
   }
+
+  //
+  // initialize TCG
+  //
+#if 0
+  CPUState _cpu_state;
+  _cpu_state.singlestep_enabled = 0;
+
+  //memset(&_cpu_state, 0, sizeof(_cpu_state));
+
+  CPUArchState _cpu_arch_state;
+
+  //memset(&_cpu_arch_state, 0, sizeof(_cpu_state));
+
+  _cpu_state.env_ptr = &_cpu_arch_state;
+
+  TCGContext _tcg_ctx;
+  tcg_context_init(&_tcg_ctx);
+  _tcg_ctx.cpu = &_cpu_state;
+
+  auto generate_tcg = [&](target_ulong pc) -> void {
+    tcg_func_start(&_tcg_ctx);
+
+    TranslationBlock tb;
+    tb.pc = pc;
+
+    DisasContext dc;
+    DisasContextBase& db = dc.base;
+
+    db.tb = &tb;
+    db.pc_first = tb.pc;
+    db.pc_next = db.pc_first;
+    db.is_jmp = DISAS_NEXT;
+    db.num_insns = 0;
+    db.singlestep_enabled = _cpu_state.singlestep_enabled;
+
+    i386_tr_tb_start(&db, &_cpu_state);
+    for (;;) {
+      db.num_insns++;
+
+      i386_tr_insn_start(&db, &_cpu_state);
+      i386_tr_translate_insn(&db, &_cpu_state);
+
+      /* Stop translation if translate_insn so indicated.  */
+      if (db.is_jmp != DISAS_NEXT)
+        break;
+
+      /* Stop translation if the output buffer is full,
+         or we have executed all of the allowed instructions.  */
+      if (tcg_op_buf_full()) {
+        db.is_jmp = DISAS_TOO_MANY;
+        break;
+      }
+    }
+
+    i386_tr_tb_stop(&db, &_cpu_state);
+    gen_tb_end(&tb, db.num_insns);
+  };
+#endif
 
   // Initialize targets and assembly printers/parsers.
   llvm::InitializeAllTargetInfos();

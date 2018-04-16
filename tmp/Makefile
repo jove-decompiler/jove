@@ -1,4 +1,4 @@
-CFLAGS := -Wall -Wno-macro-redefined -fPIC -flto -I qemu/tcg -I qemu/include -I qemu -I qemu/target/i386 -I qemu/accel/tcg -DNEED_CPU_H
+CFLAGS := -Wall -Wno-macro-redefined -fPIC -flto -I qemu/tcg -I qemu/include -I qemu -I qemu/target/i386 -I qemu/accel/tcg -DNEED_CPU_H -g -O1
 CXXFLAGS += -std=gnu++14 -fno-rtti -fno-exceptions
 LDFLAGS += $(shell pkg-config --libs glib-2.0)
 LDFLAGS += $(shell llvm-config --ldflags --libs)
