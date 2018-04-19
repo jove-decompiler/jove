@@ -1,9 +1,5 @@
 #define CONFIG_CPUID_H 1
 
-#define TARGET_X86_64 1
-
-#define CONFIG_USER_ONLY 1
-
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
 
 #define xglue(x, y) x ## y
@@ -463,6 +459,29 @@ static inline int ctpop64(uint64_t val)
 }
 
 # define ctzl   ctz64
+
+void pstrcpy(char *buf, int buf_size, const char *str);
+
+void pstrcpy(char *buf, int buf_size, const char *str)
+{
+    int c;
+    char *q = buf;
+
+    if (buf_size <= 0)
+        return;
+
+    for(;;) {
+        c = *str++;
+        if (c == 0 || q >= buf + buf_size - 1)
+            break;
+        *q++ = c;
+    }
+    *q = '\0';
+}
+
+#define TARGET_X86_64 1
+
+#define CONFIG_USER_ONLY 1
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -8438,8 +8457,6 @@ GEN_ATOMIC_HELPER(xchg, mov2, 0)
 
 #define USE_TCG_OPTIMIZATIONS
 
-void pstrcpy(char *buf, int buf_size, const char *str);
-
 #define R_386_PC32	2
 
 #define R_386_PC8	23
@@ -15894,7 +15911,7 @@ void tcg_optimize(TCGContext *s)
     }
 }
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 #define MEMSUFFIX _code
 

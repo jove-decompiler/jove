@@ -1,6 +1,7 @@
-CFLAGS := -Wall -Wno-macro-redefined -fPIC -flto -O3 -g
+CFLAGS := -Wall -Wno-macro-redefined -fPIC -flto -O1 -g
 CXXFLAGS := -std=gnu++14 -fno-rtti -fno-exceptions
-LDFLAGS := $(shell pkg-config --libs glib-2.0) \
+LDFLAGS := -fuse-ld=lld \
+           $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
            -lboost_filesystem \
 	   -lboost_system
@@ -31,6 +32,7 @@ QEMU_BUILD_DIR  := ~/qemu
 #   tcg_op_defs
 #   tb_gen_code
 #   translator_loop
+#   pstrcpy
 #
 # on x86_64:
 #   gen_intermediate_code
@@ -46,11 +48,11 @@ QEMU_BUILD_DIR  := ~/qemu
 
 .PHONY: gen-x86_64
 gen-x86_64:
-	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) tcg/tcg.c:1928l tcg/tcg.c:2114l tcg/tcg.c:4430l tcg/tcg-op.c:1193l tcg/optimize.c:604l tcg/tcg-common.c:35l accel/tcg/translate-all.c:1248l accel/tcg/translator.c:36l target/i386/translate.c:8571l > arch/x86_64/tcg.hpp
+	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) tcg/tcg.c:1928l tcg/tcg.c:2114l tcg/tcg.c:4430l tcg/tcg-op.c:1193l tcg/optimize.c:604l tcg/tcg-common.c:35l accel/tcg/translate-all.c:1248l accel/tcg/translator.c:36l target/i386/translate.c:8571l util/cutils.c:44l > arch/x86_64/tcg.hpp
 
 .PHONY: gen-aarch64
 gen-aarch64:
-	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) tcg/tcg.c:1575l tcg/tcg.c:1761l tcg/tcg.c:4077l tcg/tcg-op.c:1193l tcg/optimize.c:604l tcg/tcg-common.c:35l target/arm/translate-a64.c:11437l target/arm/translate.c:12441l accel/tcg/translate-all.c:1248l accel/tcg/translator.c:36l > arch/aarch64/tcg.hpp
+	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) tcg/tcg.c:1575l tcg/tcg.c:1761l tcg/tcg.c:4077l tcg/tcg-op.c:1193l tcg/optimize.c:604l tcg/tcg-common.c:35l target/arm/translate-a64.c:11437l target/arm/translate.c:12441l accel/tcg/translate-all.c:1248l accel/tcg/translator.c:36l util/cutils.c:44l > arch/aarch64/tcg.hpp
 
 .PHONY: clean
 clean:

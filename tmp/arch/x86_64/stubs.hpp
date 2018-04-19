@@ -616,22 +616,5 @@ uint32_t helper_atomic_xchgw_be (struct CPUX86State *, target_ulong, uint32_t) {
 uint32_t helper_atomic_xchgl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
 uint32_t helper_atomic_xchgl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
 
-//
-// global stubs
-//
-TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT = {0};
-TraceEvent _TRACE_GUEST_MEM_BEFORE_TRANS_EVENT = {0};
-uint16_t _TRACE_OBJECT_CLASS_DYNAMIC_CAST_ASSERT_DSTATE;
-int singlestep;
-int qemu_loglevel;
-int trace_events_enabled_count;
-unsigned long guest_base;
-FILE *qemu_logfile;
-int qemu_log(const char *fmt, ...) { return 0; }
-bool qemu_log_in_addr_range(uint64_t addr) { return false; }
-const char *lookup_symbol(target_ulong orig_addr) { return nullptr; }
-void target_disas(FILE *out, CPUState *cpu, target_ulong code,
-                  target_ulong size) {}
-
 #undef R_386_PC32 /* XXX */
 #undef R_386_PC8  /* XXX */

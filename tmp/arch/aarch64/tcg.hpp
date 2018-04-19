@@ -6757,8 +6757,6 @@ static inline void trace_translate_block(void * tb, uintptr_t pc, uint8_t * tb_c
     }
 }
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
-
 extern TraceEvent _TRACE_GUEST_MEM_BEFORE_TRANS_EVENT;
 
 extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;

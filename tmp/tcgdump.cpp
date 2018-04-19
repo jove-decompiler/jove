@@ -1,5 +1,27 @@
+static unsigned long guest_base_addr;
+#define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
+
 #include "tcg.hpp"
 #include "stubs.hpp"
+
+//
+// global stubs
+//
+TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT = {0};
+TraceEvent _TRACE_GUEST_MEM_BEFORE_TRANS_EVENT = {0};
+uint16_t _TRACE_OBJECT_CLASS_DYNAMIC_CAST_ASSERT_DSTATE;
+int singlestep;
+int qemu_loglevel;
+int trace_events_enabled_count;
+unsigned long guest_base;
+FILE *qemu_logfile;
+bool qemu_log_in_addr_range(uint64_t addr) { return false; }
+const char *lookup_symbol(target_ulong orig_addr) { return nullptr; }
+void target_disas(FILE *out, CPUState *cpu, target_ulong code,
+                  target_ulong size) {}
+void cpu_abort(CPUState *cpu, const char *fmt, ...) {
+  abort();
+}
 
 #include <iostream>
 #include <boost/filesystem.hpp>
@@ -18,6 +40,39 @@
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 
+int qemu_log(const char *fmt, ...) {
+  int size;
+  va_list ap;
+
+  /* Determine required size */
+
+  va_start(ap, fmt);
+  size = vsnprintf(nullptr, 0, fmt, ap);
+  va_end(ap);
+
+  if (size < 0)
+    return 0;
+
+  size++; /* For '\0' */
+  char *p = (char *)malloc(size);
+  if (!p)
+    return 0;
+
+  va_start(ap, fmt);
+  size = vsnprintf(p, size, fmt, ap);
+  va_end(ap);
+
+  if (size < 0) {
+    free(p);
+    return 0;
+  }
+
+  std::cout << p;
+  free(p);
+
+  return size;
+}
+
 int main(int argc, char** argv) {
   if (argc != 2 || !fs::exists(argv[1])) {
     std::cerr << "usage: " << argv[0] << " objfile" << std::endl;
@@ -28,13 +83,30 @@ int main(int argc, char** argv) {
   // initialize TCG
   //
   CPUState _cpu_state;
-  _cpu_state.singlestep_enabled = 0;
-
-  //memset(&_cpu_state, 0, sizeof(_cpu_state));
+  memset(&_cpu_state, 0, sizeof(_cpu_state));
 
   CPUArchState _cpu_arch_state;
+  memset(&_cpu_arch_state, 0, sizeof(_cpu_state));
 
-  //memset(&_cpu_arch_state, 0, sizeof(_cpu_state));
+#if defined(TARGET_X86_64)
+  _cpu_arch_state.eflags = 514;
+  _cpu_arch_state.hflags = 0x0040c0b3;
+  _cpu_arch_state.hflags2 = 1;
+  _cpu_arch_state.a20_mask = -1;
+  _cpu_arch_state.cr[0] = 0x80010001;
+  _cpu_arch_state.cr[4] = 0x00000220;
+  _cpu_arch_state.mxcsr = 0x00001f80;
+  _cpu_arch_state.xcr0 = 3;
+  _cpu_arch_state.msr_ia32_misc_enable = 1;
+  _cpu_arch_state.pat = 0x0007040600070406ULL;
+  _cpu_arch_state.smbase = 0x30000;
+  _cpu_arch_state.features[0] = 126614525;
+  _cpu_arch_state.features[1] = 2147491841;
+  _cpu_arch_state.features[5] = 563346429;
+  _cpu_arch_state.features[6] = 5;
+  _cpu_arch_state.user_features[0] = 2;
+#elif defined(TARGET_AARCH64)
+#endif
 
   _cpu_state.env_ptr = &_cpu_arch_state;
 
@@ -42,16 +114,21 @@ int main(int argc, char** argv) {
   tcg_context_init(&_tcg_ctx);
   _tcg_ctx.cpu = &_cpu_state;
 
-#if 0
   auto generate_tcg = [&](target_ulong pc) -> void {
     tcg_func_start(&_tcg_ctx);
 
     TranslationBlock tb;
+    memset(&tb, 0, sizeof(tb));
     tb.pc = pc;
+#if defined(TARGET_X86_64)
+    tb.flags = _cpu_arch_state.hflags;
+#elif defined(TARGET_AARCH64)
+#endif
 
     DisasContext dc;
-    DisasContextBase& db = dc.base;
+    memset(&dc, 0, sizeof(dc));
 
+    DisasContextBase& db = dc.base;
     db.tb = &tb;
     db.pc_first = tb.pc;
     db.pc_next = db.pc_first;
@@ -59,29 +136,9 @@ int main(int argc, char** argv) {
     db.num_insns = 0;
     db.singlestep_enabled = _cpu_state.singlestep_enabled;
 
-    i386_tr_tb_start(&db, &_cpu_state);
-    for (;;) {
-      db.num_insns++;
-
-      i386_tr_insn_start(&db, &_cpu_state);
-      i386_tr_translate_insn(&db, &_cpu_state);
-
-      /* Stop translation if translate_insn so indicated.  */
-      if (db.is_jmp != DISAS_NEXT)
-        break;
-
-      /* Stop translation if the output buffer is full,
-         or we have executed all of the allowed instructions.  */
-      if (tcg_op_buf_full()) {
-        db.is_jmp = DISAS_TOO_MANY;
-        break;
-      }
-    }
-
-    i386_tr_tb_stop(&db, &_cpu_state);
-    gen_tb_end(&tb, db.num_insns);
+    gen_intermediate_code(&_cpu_state, &tb);
+    tcg_dump_ops(&_tcg_ctx);
   };
-#endif
 
   // Initialize targets and assembly printers/parsers.
   llvm::InitializeAllTargetInfos();
@@ -202,7 +259,11 @@ int main(int argc, char** argv) {
       llvm::raw_string_ostream StrStream(str);
       IP->printInst(&Inst, StrStream, "", *STI);
     }
-    std::cout << str << std::endl;
+    std::cout << str << std::endl << std::endl;
+
+    guest_base_addr = Base;
+    guest_base = reinterpret_cast<unsigned long>(BytesStr.bytes_begin());
+    generate_tcg(Addr);
   }
 
   return 0;
