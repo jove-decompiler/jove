@@ -1,9 +1,5 @@
 #define CONFIG_CPUID_H 1
 
-#define TARGET_AARCH64 1
-
-#define CONFIG_USER_ONLY 1
-
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
 
 #define xglue(x, y) x ## y
@@ -336,28 +332,6 @@ extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
-#define CP_REG_ARM_COPROC_SHIFT        16
-
-#define CP_REG_ARM64_SYSREG            (0x0013 << CP_REG_ARM_COPROC_SHIFT)
-
-#define CP_REG_ARM64_SYSREG_OP0_SHIFT  14
-
-#define CP_REG_ARM64_SYSREG_OP1_SHIFT  11
-
-#define CP_REG_ARM64_SYSREG_CRN_SHIFT  7
-
-#define CP_REG_ARM64_SYSREG_CRM_SHIFT  3
-
-#define CP_REG_ARM64_SYSREG_OP2_SHIFT  0
-
-#define CP_REG_ARM64_SYSREG_CP (CP_REG_ARM64_SYSREG >> CP_REG_ARM_COPROC_SHIFT)
-
-#  define TARGET_LONG_BITS 64
-
-#define TCG_GUEST_DEFAULT_MO      (0)
-
-#define CPUArchState struct CPUARMState
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -493,6 +467,51 @@ static inline int ctpop64(uint64_t val)
 }
 
 # define ctzl   ctz64
+
+void pstrcpy(char *buf, int buf_size, const char *str);
+
+void pstrcpy(char *buf, int buf_size, const char *str)
+{
+    int c;
+    char *q = buf;
+
+    if (buf_size <= 0)
+        return;
+
+    for(;;) {
+        c = *str++;
+        if (c == 0 || q >= buf + buf_size - 1)
+            break;
+        *q++ = c;
+    }
+    *q = '\0';
+}
+
+#define TARGET_AARCH64 1
+
+#define CONFIG_USER_ONLY 1
+
+#define CP_REG_ARM_COPROC_SHIFT        16
+
+#define CP_REG_ARM64_SYSREG            (0x0013 << CP_REG_ARM_COPROC_SHIFT)
+
+#define CP_REG_ARM64_SYSREG_OP0_SHIFT  14
+
+#define CP_REG_ARM64_SYSREG_OP1_SHIFT  11
+
+#define CP_REG_ARM64_SYSREG_CRN_SHIFT  7
+
+#define CP_REG_ARM64_SYSREG_CRM_SHIFT  3
+
+#define CP_REG_ARM64_SYSREG_OP2_SHIFT  0
+
+#define CP_REG_ARM64_SYSREG_CP (CP_REG_ARM64_SYSREG >> CP_REG_ARM_COPROC_SHIFT)
+
+#  define TARGET_LONG_BITS 64
+
+#define TCG_GUEST_DEFAULT_MO      (0)
+
+#define CPUArchState struct CPUARMState
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -6757,6 +6776,8 @@ static inline void trace_translate_block(void * tb, uintptr_t pc, uint8_t * tb_c
     }
 }
 
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+
 extern TraceEvent _TRACE_GUEST_MEM_BEFORE_TRANS_EVENT;
 
 extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
@@ -9869,8 +9890,6 @@ static void tcg_gen_mov2_i64(TCGv_i64 r, TCGv_i64 a, TCGv_i64 b)
 GEN_ATOMIC_HELPER(xchg, mov2, 0)
 
 #define USE_TCG_OPTIMIZATIONS
-
-void pstrcpy(char *buf, int buf_size, const char *str);
 
 #define R_386_PC32	2
 
@@ -27879,6 +27898,33 @@ const TranslatorOps aarch64_translator_ops = {
     .tb_stop            = aarch64_tr_tb_stop,
     .disas_log          = aarch64_tr_disas_log,
 };
+
+int arm_rmode_to_sf(int rmode)
+{
+    switch (rmode) {
+    case FPROUNDING_TIEAWAY:
+        rmode = float_round_ties_away;
+        break;
+    case FPROUNDING_ODD:
+        /* FIXME: add support for TIEAWAY and ODD */
+        qemu_log_mask(LOG_UNIMP, "arm: unimplemented rounding mode: %d\n",
+                      rmode);
+    case FPROUNDING_TIEEVEN:
+    default:
+        rmode = float_round_nearest_even;
+        break;
+    case FPROUNDING_POSINF:
+        rmode = float_round_up;
+        break;
+    case FPROUNDING_NEGINF:
+        rmode = float_round_down;
+        break;
+    case FPROUNDING_ZERO:
+        rmode = float_round_to_zero;
+        break;
+    }
+    return rmode;
+}
 
 TCGOpDef tcg_op_defs[] = {
 #define DEF(s, oargs, iargs, cargs, flags) \

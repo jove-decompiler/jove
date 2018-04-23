@@ -1,7 +1,6 @@
 CFLAGS := -Wall -Wno-macro-redefined -fPIC -flto -O1 -g
 CXXFLAGS := -std=gnu++14 -fno-rtti -fno-exceptions
-LDFLAGS := -fuse-ld=lld \
-           $(shell pkg-config --libs glib-2.0) \
+LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
            -lboost_filesystem \
 	   -lboost_system
