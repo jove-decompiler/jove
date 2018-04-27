@@ -7650,7 +7650,7 @@ void tcg_gen_vec_shr16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 
 void tcg_gen_vec_sar8i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 void tcg_gen_vec_sar16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 

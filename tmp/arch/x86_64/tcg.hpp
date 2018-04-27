@@ -17172,7 +17172,7 @@ static void tcg_gen_mov2_i64(TCGv_i64 r, TCGv_i64 a, TCGv_i64 b)
 
 GEN_ATOMIC_HELPER(xchg, mov2, 0)
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 #define MEMSUFFIX _code
 
