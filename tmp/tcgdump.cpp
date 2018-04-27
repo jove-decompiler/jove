@@ -24,6 +24,7 @@ void cpu_abort(CPUState *cpu, const char *fmt, ...) {
 }
 
 #include <iostream>
+#include <memory>
 #include <boost/filesystem.hpp>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/TargetRegistry.h>
@@ -36,6 +37,9 @@ void cpu_abort(CPUState *cpu, const char *fmt, ...) {
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCInstPrinter.h>
+#include <llvm/Support/PrettyStackTrace.h>
+#include <llvm/Support/Signals.h>
+#include <llvm/Support/ManagedStatic.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -74,55 +78,78 @@ int qemu_log(const char *fmt, ...) {
 }
 
 int main(int argc, char** argv) {
+  llvm::StringRef ToolName = argv[0];
+  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
+  llvm::PrettyStackTraceProgram X(argc, argv);
+  llvm::llvm_shutdown_obj Y;
+
   if (argc != 2 || !fs::exists(argv[1])) {
     std::cerr << "usage: " << argv[0] << " objfile" << std::endl;
     return 1;
   }
 
-  //
-  // initialize TCG
-  //
-  CPUState _cpu_state;
-  memset(&_cpu_state, 0, sizeof(_cpu_state));
-
-  CPUArchState _cpu_arch_state;
-  memset(&_cpu_arch_state, 0, sizeof(_cpu_state));
-
 #if defined(TARGET_X86_64)
-  _cpu_arch_state.eflags = 514;
-  _cpu_arch_state.hflags = 0x0040c0b3;
-  _cpu_arch_state.hflags2 = 1;
-  _cpu_arch_state.a20_mask = -1;
-  _cpu_arch_state.cr[0] = 0x80010001;
-  _cpu_arch_state.cr[4] = 0x00000220;
-  _cpu_arch_state.mxcsr = 0x00001f80;
-  _cpu_arch_state.xcr0 = 3;
-  _cpu_arch_state.msr_ia32_misc_enable = 1;
-  _cpu_arch_state.pat = 0x0007040600070406ULL;
-  _cpu_arch_state.smbase = 0x30000;
-  _cpu_arch_state.features[0] = 126614525;
-  _cpu_arch_state.features[1] = 2147491841;
-  _cpu_arch_state.features[5] = 563346429;
-  _cpu_arch_state.features[6] = 5;
-  _cpu_arch_state.user_features[0] = 2;
+  std::unique_ptr<X86CPU> __cpu = std::make_unique<X86CPU>();
+  X86CPU& _cpu = *__cpu;
 #elif defined(TARGET_AARCH64)
+  std::unique_ptr<ARMCPU> __cpu = std::make_unique<ARMCPU>();
+  ARMCPU& _cpu = *__cpu;
 #endif
 
-  _cpu_state.env_ptr = &_cpu_arch_state;
+  // zero-initialize CPU
+  memset(&_cpu, 0, sizeof(_cpu));
+
+  _cpu.parent_obj.env_ptr = &_cpu.env;
+
+#if defined(TARGET_X86_64)
+  _cpu.env.eflags = 514;
+  _cpu.env.hflags = 0x0040c0b3;
+  _cpu.env.hflags2 = 1;
+  _cpu.env.a20_mask = -1;
+  _cpu.env.cr[0] = 0x80010001;
+  _cpu.env.cr[4] = 0x00000220;
+  _cpu.env.mxcsr = 0x00001f80;
+  _cpu.env.xcr0 = 3;
+  _cpu.env.msr_ia32_misc_enable = 1;
+  _cpu.env.pat = 0x0007040600070406ULL;
+  _cpu.env.smbase = 0x30000;
+  _cpu.env.features[0] = 126614525;
+  _cpu.env.features[1] = 2147491841;
+  _cpu.env.features[5] = 563346429;
+  _cpu.env.features[6] = 5;
+  _cpu.env.user_features[0] = 2;
+#elif defined(TARGET_AARCH64)
+  _cpu.env.aarch64 = 1;
+  _cpu.env.features = 192517101788915;
+#endif
 
   TCGContext _tcg_ctx;
+
+  // zero-initialize TCG
+  memset(&_tcg_ctx, 0, sizeof(_tcg_ctx));
+
   tcg_context_init(&_tcg_ctx);
-  _tcg_ctx.cpu = &_cpu_state;
+  _tcg_ctx.cpu = &_cpu.parent_obj;
+
+#if defined(TARGET_X86_64)
+  tcg_x86_init();
+#elif defined(TARGET_AARCH64)
+  arm_translate_init();
+#endif
 
   auto generate_tcg = [&](target_ulong pc) -> void {
     tcg_func_start(&_tcg_ctx);
 
     TranslationBlock tb;
+
+    // zero-initialize TB
     memset(&tb, 0, sizeof(tb));
+
     tb.pc = pc;
 #if defined(TARGET_X86_64)
-    tb.flags = _cpu_arch_state.hflags;
+    tb.flags = _cpu.env.hflags;
 #elif defined(TARGET_AARCH64)
+    tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
 #endif
 
     DisasContext dc;
@@ -134,9 +161,9 @@ int main(int argc, char** argv) {
     db.pc_next = db.pc_first;
     db.is_jmp = DISAS_NEXT;
     db.num_insns = 0;
-    db.singlestep_enabled = _cpu_state.singlestep_enabled;
+    db.singlestep_enabled = _cpu.parent_obj.singlestep_enabled;
 
-    gen_intermediate_code(&_cpu_state, &tb);
+    gen_intermediate_code(&_cpu.parent_obj, &tb);
     tcg_dump_ops(&_tcg_ctx);
   };
 

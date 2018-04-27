@@ -1,5 +1,6 @@
 #undef R_386_PC32 /* XXX */
 #undef R_386_PC8  /* XXX */
+#undef R_386_32   /* XXX */
 
 uint32_t helper_sxtb16 (uint32_t) { return 0; }
 uint32_t helper_uxtb16 (uint32_t) { return 0; }
@@ -56,6 +57,7 @@ uint32_t helper_usad8 (uint32_t, uint32_t) { return 0; }
 uint32_t helper_sel_flags (uint32_t, uint32_t, uint32_t) { return 0; }
 void helper_exception_internal (struct CPUARMState *, uint32_t) {}
 void helper_exception_with_syndrome (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
+void helper_exception_bkpt_insn (struct CPUARMState *, uint32_t) {}
 void helper_setend (struct CPUARMState *) {}
 void helper_wfi (struct CPUARMState *, uint32_t) {}
 void helper_wfe (struct CPUARMState *) {}
@@ -70,6 +72,7 @@ void helper_v7m_msr (struct CPUARMState *, uint32_t, uint32_t) {}
 uint32_t helper_v7m_mrs (struct CPUARMState *, uint32_t) { return 0; }
 void helper_v7m_bxns (struct CPUARMState *, uint32_t) {}
 void helper_v7m_blxns (struct CPUARMState *, uint32_t) {}
+uint32_t helper_v7m_tt (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
 void helper_access_check_cp_reg (struct CPUARMState *, void *, uint32_t, uint32_t) {}
 void helper_set_cp_reg (struct CPUARMState *, void *, uint32_t) {}
 uint32_t helper_get_cp_reg (struct CPUARMState *, void *) { return 0; }
@@ -114,16 +117,22 @@ void helper_vfp_cmpes (float32, float32, struct CPUARMState *) {}
 void helper_vfp_cmped (float64, float64, struct CPUARMState *) {}
 float64 helper_vfp_fcvtds (float32, struct CPUARMState *) { return (float64)0; }
 float32 helper_vfp_fcvtsd (float64, struct CPUARMState *) { return (float32)0; }
-float32 helper_vfp_uitos (uint32_t, void *) { return (float32)0; }
-float64 helper_vfp_uitod (uint32_t, void *) { return (float64)0; }
-float32 helper_vfp_sitos (uint32_t, void *) { return (float32)0; }
-float64 helper_vfp_sitod (uint32_t, void *) { return (float64)0; }
+float16 helper_vfp_uitoh (uint32_t, void *) { return 0; }
+float32 helper_vfp_uitos (uint32_t, void *) { return 0; }
+float64 helper_vfp_uitod (uint32_t, void *) { return 0; }
+float16 helper_vfp_sitoh (uint32_t, void *) { return 0; }
+float32 helper_vfp_sitos (uint32_t, void *) { return 0; }
+float64 helper_vfp_sitod (uint32_t, void *) { return 0; }
+uint32_t helper_vfp_touih (float16, void *) { return 0; }
 uint32_t helper_vfp_touis (float32, void *) { return 0; }
 uint32_t helper_vfp_touid (float64, void *) { return 0; }
+uint32_t helper_vfp_touizh (float16, void *) { return 0; }
 uint32_t helper_vfp_touizs (float32, void *) { return 0; }
 uint32_t helper_vfp_touizd (float64, void *) { return 0; }
+uint32_t helper_vfp_tosih (float16, void *) { return 0; }
 uint32_t helper_vfp_tosis (float32, void *) { return 0; }
 uint32_t helper_vfp_tosid (float64, void *) { return 0; }
+uint32_t helper_vfp_tosizh (float16, void *) { return 0; }
 uint32_t helper_vfp_tosizs (float32, void *) { return 0; }
 uint32_t helper_vfp_tosizd (float64, void *) { return 0; }
 uint32_t helper_vfp_toshs_round_to_zero (float32, uint32_t, void *) { return 0; }
@@ -134,6 +143,8 @@ uint64_t helper_vfp_toshd_round_to_zero (float64, uint32_t, void *) { return 0; 
 uint64_t helper_vfp_tosld_round_to_zero (float64, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_touhd_round_to_zero (float64, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_tould_round_to_zero (float64, uint32_t, void *) { return 0; }
+uint32_t helper_vfp_toulh (float16, uint32_t, void *) { return 0; }
+uint32_t helper_vfp_toslh (float16, uint32_t, void *) { return 0; }
 uint32_t helper_vfp_toshs (float32, uint32_t, void *) { return 0; }
 uint32_t helper_vfp_tosls (float32, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_tosqs (float32, uint32_t, void *) { return 0; }
@@ -146,37 +157,41 @@ uint64_t helper_vfp_tosqd (float64, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_touhd (float64, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_tould (float64, uint32_t, void *) { return 0; }
 uint64_t helper_vfp_touqd (float64, uint32_t, void *) { return 0; }
-float32 helper_vfp_shtos (uint32_t, uint32_t, void *) { return (float32)0; }
-float32 helper_vfp_sltos (uint32_t, uint32_t, void *) { return (float32)0; }
-float32 helper_vfp_sqtos (uint64_t, uint32_t, void *) { return (float32)0; }
-float32 helper_vfp_uhtos (uint32_t, uint32_t, void *) { return (float32)0; }
-float32 helper_vfp_ultos (uint32_t, uint32_t, void *) { return (float32)0; }
-float32 helper_vfp_uqtos (uint64_t, uint32_t, void *) { return (float32)0; }
-float64 helper_vfp_shtod (uint64_t, uint32_t, void *) { return (float64)0; }
-float64 helper_vfp_sltod (uint64_t, uint32_t, void *) { return (float64)0; }
-float64 helper_vfp_sqtod (uint64_t, uint32_t, void *) { return (float64)0; }
-float64 helper_vfp_uhtod (uint64_t, uint32_t, void *) { return (float64)0; }
-float64 helper_vfp_ultod (uint64_t, uint32_t, void *) { return (float64)0; }
-float64 helper_vfp_uqtod (uint64_t, uint32_t, void *) { return (float64)0; }
-uint32_t helper_set_rmode (uint32_t, struct CPUARMState *) { return 0; }
+float32 helper_vfp_shtos (uint32_t, uint32_t, void *) { return 0; }
+float32 helper_vfp_sltos (uint32_t, uint32_t, void *) { return 0; }
+float32 helper_vfp_sqtos (uint64_t, uint32_t, void *) { return 0; }
+float32 helper_vfp_uhtos (uint32_t, uint32_t, void *) { return 0; }
+float32 helper_vfp_ultos (uint32_t, uint32_t, void *) { return 0; }
+float32 helper_vfp_uqtos (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_shtod (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_sltod (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_sqtod (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_uhtod (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_ultod (uint64_t, uint32_t, void *) { return 0; }
+float64 helper_vfp_uqtod (uint64_t, uint32_t, void *) { return 0; }
+float16 helper_vfp_sltoh (uint32_t, uint32_t, void *) { return 0; }
+float16 helper_vfp_ultoh (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_set_rmode (uint32_t, void *) { return 0; }
 uint32_t helper_set_neon_rmode (uint32_t, struct CPUARMState *) { return 0; }
-float32 helper_vfp_fcvt_f16_to_f32 (uint32_t, struct CPUARMState *) { return (float32)0; }
+float32 helper_vfp_fcvt_f16_to_f32 (uint32_t, struct CPUARMState *) { return 0; }
 uint32_t helper_vfp_fcvt_f32_to_f16 (float32, struct CPUARMState *) { return 0; }
-float32 helper_neon_fcvt_f16_to_f32 (uint32_t, struct CPUARMState *) { return (float32)0; }
+float32 helper_neon_fcvt_f16_to_f32 (uint32_t, struct CPUARMState *) { return 0; }
 uint32_t helper_neon_fcvt_f32_to_f16 (float32, struct CPUARMState *) { return 0; }
-float64 helper_vfp_fcvt_f16_to_f64 (uint32_t, struct CPUARMState *) { return (float64)0; }
+float64 helper_vfp_fcvt_f16_to_f64 (uint32_t, struct CPUARMState *) { return 0; }
 uint32_t helper_vfp_fcvt_f64_to_f16 (float64, struct CPUARMState *) { return 0; }
 float64 helper_vfp_muladdd (float64, float64, float64, void *) { return (float64)0; }
 float32 helper_vfp_muladds (float32, float32, float32, void *) { return (float32)0; }
 float32 helper_recps_f32 (float32, float32, struct CPUARMState *) { return (float32)0; }
 float32 helper_rsqrts_f32 (float32, float32, struct CPUARMState *) { return (float32)0; }
+float16 helper_recpe_f16 (float16, void *) { return (float16)0; }
 float32 helper_recpe_f32 (float32, void *) { return (float32)0; }
 float64 helper_recpe_f64 (float64, void *) { return (float64)0; }
+float16 helper_rsqrte_f16 (float16, void *) { return (float16)0; }
 float32 helper_rsqrte_f32 (float32, void *) { return (float32)0; }
 float64 helper_rsqrte_f64 (float64, void *) { return (float64)0; }
 uint32_t helper_recpe_u32 (uint32_t, void *) { return 0; }
 uint32_t helper_rsqrte_u32 (uint32_t, void *) { return 0; }
-uint32_t helper_neon_tbl (struct CPUARMState *, uint32_t, uint32_t, uint32_t, uint32_t) { return 0; }
+uint32_t helper_neon_tbl (uint32_t, uint32_t, void *, uint32_t) { return 0; }
 uint32_t helper_shl_cc (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
 uint32_t helper_shr_cc (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
 uint32_t helper_sar_cc (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
@@ -328,8 +343,12 @@ uint32_t helper_neon_cnt_u8 (uint32_t) { return 0; }
 uint32_t helper_neon_rbit_u8 (uint32_t) { return 0; }
 uint32_t helper_neon_qdmulh_s16 (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
 uint32_t helper_neon_qrdmulh_s16 (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
+uint32_t helper_neon_qrdmlah_s16 (struct CPUARMState *, uint32_t, uint32_t, uint32_t) { return 0; }
+uint32_t helper_neon_qrdmlsh_s16 (struct CPUARMState *, uint32_t, uint32_t, uint32_t) { return 0; }
 uint32_t helper_neon_qdmulh_s32 (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
 uint32_t helper_neon_qrdmulh_s32 (struct CPUARMState *, uint32_t, uint32_t) { return 0; }
+uint32_t helper_neon_qrdmlah_s32 (struct CPUARMState *, int32_t, int32_t, int32_t) { return 0; }
+uint32_t helper_neon_qrdmlsh_s32 (struct CPUARMState *, int32_t, int32_t, int32_t) { return 0; }
 uint32_t helper_neon_narrow_u8 (uint64_t) { return 0; }
 uint32_t helper_neon_narrow_u16 (uint64_t) { return 0; }
 uint32_t helper_neon_unarrow_sat8 (struct CPUARMState *, uint64_t) { return 0; }
@@ -490,30 +509,51 @@ uint64_t helper_iwmmxt_packsq (struct CPUARMState *, uint64_t, uint64_t) { retur
 uint64_t helper_iwmmxt_muladdsl (uint64_t, uint32_t, uint32_t) { return 0; }
 uint64_t helper_iwmmxt_muladdsw (uint64_t, uint32_t, uint32_t) { return 0; }
 uint64_t helper_iwmmxt_muladdswl (uint64_t, uint32_t, uint32_t) { return 0; }
-void helper_neon_unzip8 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_unzip16 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qunzip8 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qunzip16 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qunzip32 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_zip8 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_zip16 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qzip8 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qzip16 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_neon_qzip32 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_crypto_aese (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
-void helper_crypto_aesmc (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
-void helper_crypto_sha1_3reg (struct CPUARMState *, uint32_t, uint32_t, uint32_t, uint32_t) {}
-void helper_crypto_sha1h (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_crypto_sha1su1 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_crypto_sha256h (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
-void helper_crypto_sha256h2 (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
-void helper_crypto_sha256su0 (struct CPUARMState *, uint32_t, uint32_t) {}
-void helper_crypto_sha256su1 (struct CPUARMState *, uint32_t, uint32_t, uint32_t) {}
+void helper_neon_unzip8 (void *, void *) {}
+void helper_neon_unzip16 (void *, void *) {}
+void helper_neon_qunzip8 (void *, void *) {}
+void helper_neon_qunzip16 (void *, void *) {}
+void helper_neon_qunzip32 (void *, void *) {}
+void helper_neon_zip8 (void *, void *) {}
+void helper_neon_zip16 (void *, void *) {}
+void helper_neon_qzip8 (void *, void *) {}
+void helper_neon_qzip16 (void *, void *) {}
+void helper_neon_qzip32 (void *, void *) {}
+void helper_crypto_aese (void *, void *, uint32_t) {}
+void helper_crypto_aesmc (void *, void *, uint32_t) {}
+void helper_crypto_sha1_3reg (void *, void *, void *, uint32_t) {}
+void helper_crypto_sha1h (void *, void *) {}
+void helper_crypto_sha1su1 (void *, void *) {}
+void helper_crypto_sha256h (void *, void *, void *) {}
+void helper_crypto_sha256h2 (void *, void *, void *) {}
+void helper_crypto_sha256su0 (void *, void *) {}
+void helper_crypto_sha256su1 (void *, void *, void *) {}
+void helper_crypto_sha512h (void *, void *, void *) {}
+void helper_crypto_sha512h2 (void *, void *, void *) {}
+void helper_crypto_sha512su0 (void *, void *) {}
+void helper_crypto_sha512su1 (void *, void *, void *) {}
+void helper_crypto_sm3tt (void *, void *, void *, uint32_t, uint32_t) {}
+void helper_crypto_sm3partw1 (void *, void *, void *) {}
+void helper_crypto_sm3partw2 (void *, void *, void *) {}
+void helper_crypto_sm4e (void *, void *) {}
+void helper_crypto_sm4ekey (void *, void *, void *) {}
 uint32_t helper_crc32 (uint32_t, uint32_t, uint32_t) { return 0; }
 uint32_t helper_crc32c (uint32_t, uint32_t, uint32_t) { return 0; }
 void helper_dc_zva (struct CPUARMState *, uint64_t) {}
 uint64_t helper_neon_pmull_64_lo (uint64_t, uint64_t) { return 0; }
 uint64_t helper_neon_pmull_64_hi (uint64_t, uint64_t) { return 0; }
+void helper_gvec_qrdmlah_s16 (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_qrdmlsh_s16 (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_qrdmlah_s32 (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_qrdmlsh_s32 (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcaddh (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcadds (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcaddd (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcmlah (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcmlah_idx (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcmlas (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcmlas_idx (void *, void *, void *, void *, uint32_t) {}
+void helper_gvec_fcmlad (void *, void *, void *, void *, uint32_t) {}
 uint64_t helper_udiv64 (uint64_t, uint64_t) { return 0; }
 int64_t helper_sdiv64 (int64_t, int64_t) { return 0; }
 uint64_t helper_rbit64 (uint64_t) { return 0; }
@@ -527,8 +567,10 @@ float64 helper_vfp_mulxd (float64, float64, void *) { return (float64)0; }
 uint64_t helper_neon_ceq_f64 (uint64_t, uint64_t, void *) { return 0; }
 uint64_t helper_neon_cge_f64 (uint64_t, uint64_t, void *) { return 0; }
 uint64_t helper_neon_cgt_f64 (uint64_t, uint64_t, void *) { return 0; }
+float16 helper_recpsf_f16 (float16, float16, void *) { return (float16)0; }
 float32 helper_recpsf_f32 (float32, float32, void *) { return (float32)0; }
 float64 helper_recpsf_f64 (float64, float64, void *) { return (float64)0; }
+float16 helper_rsqrtsf_f16 (float16, float16, void *) { return (float16)0; }
 float32 helper_rsqrtsf_f32 (float32, float32, void *) { return (float32)0; }
 float64 helper_rsqrtsf_f64 (float64, float64, void *) { return (float64)0; }
 uint64_t helper_neon_addlp_s8 (uint64_t) { return 0; }
@@ -537,6 +579,7 @@ uint64_t helper_neon_addlp_s16 (uint64_t) { return 0; }
 uint64_t helper_neon_addlp_u16 (uint64_t) { return 0; }
 float64 helper_frecpx_f64 (float64, void *) { return (float64)0; }
 float32 helper_frecpx_f32 (float32, void *) { return (float32)0; }
+float16 helper_frecpx_f16 (float16, void *) { return (float16)0; }
 float32 helper_fcvtx_f64_to_f32 (float64, struct CPUARMState *) { return (float32)0; }
 uint64_t helper_crc32_64 (uint64_t, uint64_t, uint32_t) { return 0; }
 uint64_t helper_crc32c_64 (uint64_t, uint64_t, uint32_t) { return 0; }
@@ -544,6 +587,36 @@ uint64_t helper_paired_cmpxchg64_le (struct CPUARMState *, uint64_t, uint64_t, u
 uint64_t helper_paired_cmpxchg64_le_parallel (struct CPUARMState *, uint64_t, uint64_t, uint64_t) { return 0; }
 uint64_t helper_paired_cmpxchg64_be (struct CPUARMState *, uint64_t, uint64_t, uint64_t) { return 0; }
 uint64_t helper_paired_cmpxchg64_be_parallel (struct CPUARMState *, uint64_t, uint64_t, uint64_t) { return 0; }
+float16 helper_advsimd_maxh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_minh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_maxnumh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_minnumh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_addh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_subh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_mulh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_divh (float16, float16, void *) { return (float16)0; }
+uint32_t helper_advsimd_ceq_f16 (float16, float16, void *) { return 0; }
+uint32_t helper_advsimd_cge_f16 (float16, float16, void *) { return 0; }
+uint32_t helper_advsimd_cgt_f16 (float16, float16, void *) { return 0; }
+uint32_t helper_advsimd_acge_f16 (float16, float16, void *) { return 0; }
+uint32_t helper_advsimd_acgt_f16 (float16, float16, void *) { return 0; }
+float16 helper_advsimd_mulxh (float16, float16, void *) { return (float16)0; }
+float16 helper_advsimd_muladdh (float16, float16, float16, void *) { return (float16)0; }
+uint32_t helper_advsimd_add2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_sub2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_mul2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_div2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_max2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_min2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_maxnum2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_minnum2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_mulx2h (uint32_t, uint32_t, void *) { return 0; }
+uint32_t helper_advsimd_muladd2h (uint32_t, uint32_t, uint32_t, void *) { return 0; }
+float16 helper_advsimd_rinth_exact (float16, void *) { return (float16)0; }
+float16 helper_advsimd_rinth (float16, void *) { return (float16)0; }
+uint32_t helper_advsimd_f16tosinth (float16, void *) { return 0; }
+uint32_t helper_advsimd_f16touinth (float16, void *) { return 0; }
+float16 helper_sqrt_f16 (float16, void *) { return (float16)0; }
 void helper_trace_guest_mem_before_exec_proxy (struct CPUARMState *, target_ulong, uint32_t) {}
 int32_t helper_div_i32 (int32_t, int32_t) { return 0; }
 int32_t helper_rem_i32 (int32_t, int32_t) { return 0; }
@@ -618,3 +691,99 @@ uint32_t helper_atomic_xchgw_le (struct CPUARMState *, target_ulong, uint32_t) {
 uint32_t helper_atomic_xchgw_be (struct CPUARMState *, target_ulong, uint32_t) { return 0; }
 uint32_t helper_atomic_xchgl_le (struct CPUARMState *, target_ulong, uint32_t) { return 0; }
 uint32_t helper_atomic_xchgl_be (struct CPUARMState *, target_ulong, uint32_t) { return 0; }
+void helper_gvec_mov (void *, void *, uint32_t) {}
+void helper_gvec_dup8 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup16 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup32 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup64 (void *, uint32_t, uint64_t) {}
+void helper_gvec_add8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_adds8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_sub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_subs8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_mul8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_muls8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_ssadd8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_neg8 (void *, void *, uint32_t) {}
+void helper_gvec_neg16 (void *, void *, uint32_t) {}
+void helper_gvec_neg32 (void *, void *, uint32_t) {}
+void helper_gvec_neg64 (void *, void *, uint32_t) {}
+void helper_gvec_not (void *, void *, uint32_t) {}
+void helper_gvec_and (void *, void *, void *, uint32_t) {}
+void helper_gvec_or (void *, void *, void *, uint32_t) {}
+void helper_gvec_xor (void *, void *, void *, uint32_t) {}
+void helper_gvec_andc (void *, void *, void *, uint32_t) {}
+void helper_gvec_orc (void *, void *, void *, uint32_t) {}
+void helper_gvec_ands (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_xors (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_ors (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_shl8i (void *, void *, uint32_t) {}
+void helper_gvec_shl16i (void *, void *, uint32_t) {}
+void helper_gvec_shl32i (void *, void *, uint32_t) {}
+void helper_gvec_shl64i (void *, void *, uint32_t) {}
+void helper_gvec_shr8i (void *, void *, uint32_t) {}
+void helper_gvec_shr16i (void *, void *, uint32_t) {}
+void helper_gvec_shr32i (void *, void *, uint32_t) {}
+void helper_gvec_shr64i (void *, void *, uint32_t) {}
+void helper_gvec_sar8i (void *, void *, uint32_t) {}
+void helper_gvec_sar16i (void *, void *, uint32_t) {}
+void helper_gvec_sar32i (void *, void *, uint32_t) {}
+void helper_gvec_sar64i (void *, void *, uint32_t) {}
+void helper_gvec_eq8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu64 (void *, void *, void *, uint32_t) {}
+
+const ARMCPRegInfo *get_arm_cp_reginfo(GHashTable *cpregs, uint32_t encoded_cp) { return nullptr; }
