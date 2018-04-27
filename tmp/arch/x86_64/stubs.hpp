@@ -1,6 +1,7 @@
-//
-// helper function stubs
-//
+#undef R_386_PC32 /* XXX */
+#undef R_386_PC8  /* XXX */
+#undef R_386_32   /* XXX */
+
 target_ulong helper_cc_compute_all (target_ulong, target_ulong, target_ulong, int) { return 0u; }
 target_ulong helper_cc_compute_c (target_ulong, target_ulong, target_ulong, int) { return 0u; }
 void helper_write_eflags (struct CPUX86State *, target_ulong, uint32_t) {}
@@ -615,6 +616,97 @@ uint32_t helper_atomic_xchgw_le (struct CPUX86State *, target_ulong, uint32_t) {
 uint32_t helper_atomic_xchgw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
 uint32_t helper_atomic_xchgl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
 uint32_t helper_atomic_xchgl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-
-#undef R_386_PC32 /* XXX */
-#undef R_386_PC8  /* XXX */
+void helper_gvec_mov (void *, void *, uint32_t) {}
+void helper_gvec_dup8 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup16 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup32 (void *, uint32_t, uint32_t) {}
+void helper_gvec_dup64 (void *, uint32_t, uint64_t) {}
+void helper_gvec_add8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_add64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_adds8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_adds64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_sub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_subs8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_subs64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_mul8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_mul64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_muls8 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls16 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls32 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_muls64 (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_ssadd8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ssadd64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_sssub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_usadd64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ussub64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_neg8 (void *, void *, uint32_t) {}
+void helper_gvec_neg16 (void *, void *, uint32_t) {}
+void helper_gvec_neg32 (void *, void *, uint32_t) {}
+void helper_gvec_neg64 (void *, void *, uint32_t) {}
+void helper_gvec_not (void *, void *, uint32_t) {}
+void helper_gvec_and (void *, void *, void *, uint32_t) {}
+void helper_gvec_or (void *, void *, void *, uint32_t) {}
+void helper_gvec_xor (void *, void *, void *, uint32_t) {}
+void helper_gvec_andc (void *, void *, void *, uint32_t) {}
+void helper_gvec_orc (void *, void *, void *, uint32_t) {}
+void helper_gvec_ands (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_xors (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_ors (void *, void *, uint64_t, uint32_t) {}
+void helper_gvec_shl8i (void *, void *, uint32_t) {}
+void helper_gvec_shl16i (void *, void *, uint32_t) {}
+void helper_gvec_shl32i (void *, void *, uint32_t) {}
+void helper_gvec_shl64i (void *, void *, uint32_t) {}
+void helper_gvec_shr8i (void *, void *, uint32_t) {}
+void helper_gvec_shr16i (void *, void *, uint32_t) {}
+void helper_gvec_shr32i (void *, void *, uint32_t) {}
+void helper_gvec_shr64i (void *, void *, uint32_t) {}
+void helper_gvec_sar8i (void *, void *, uint32_t) {}
+void helper_gvec_sar16i (void *, void *, uint32_t) {}
+void helper_gvec_sar32i (void *, void *, uint32_t) {}
+void helper_gvec_sar64i (void *, void *, uint32_t) {}
+void helper_gvec_eq8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_eq64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ne64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_lt64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_le64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_ltu64 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu8 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu16 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu32 (void *, void *, void *, uint32_t) {}
+void helper_gvec_leu64 (void *, void *, void *, uint32_t) {}

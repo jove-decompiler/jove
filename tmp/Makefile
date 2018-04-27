@@ -10,10 +10,10 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -lboost_filesystem \
 	   -lboost_system
 
-#ARCHS := x86_64 \
-#         aarch64
+ARCHS := x86_64 \
+         aarch64
 
-ARCHS := aarch64
+#ARCHS := aarch64
 
 all: $(foreach arch,$(ARCHS),$(arch)-tcgdump)
 
@@ -63,18 +63,23 @@ COMMON_SOURCE_LOCATIONS := $(_SL_TCG_GEN_ADDI_I64) \
                            $(_SL_TRANSLATOR_LOOP) \
                            $(_SL_PSTRCPY)
 
-_SL_X86_64_TCG_CONTEXT_INIT := tcg/tcg.c:1808l
-_SL_X86_64_TCG_FUNC_START   := tcg/tcg.c:1994l
-_SL_X86_64_TCG_GEN_CODE     := tcg/tcg.c:4367l
+_SL_X86_64_TCG_CONTEXT_INIT := tcg/tcg.c:2070l
+_SL_X86_64_TCG_FUNC_START   := tcg/tcg.c:2256l
+_SL_X86_64_TCG_GEN_CODE     := tcg/tcg.c:4633l
 
 _SL_X86_64_GEN_INTERMEDIATE_CODE  := target/i386/translate.c:8573l
 _SL_X86_64_TCG_X86_INIT           := target/i386/translate.c:8328l
+# _SL_X86_64_TCG_GEN_GVEC_NOT       := tcg/tcg-op-gvec.c:1357l
+# _SL_X86_64_TCG_GEN_LD_VEC         := tcg/tcg-op-vec.c:209l
 
 x86_64_SOURCE_LOCATIONS := $(_SL_X86_64_TCG_CONTEXT_INIT) \
                            $(_SL_X86_64_TCG_FUNC_START) \
                            $(_SL_X86_64_TCG_GEN_CODE) \
                            $(_SL_X86_64_GEN_INTERMEDIATE_CODE) \
                            $(_SL_X86_64_TCG_X86_INIT)
+
+#                           $(_SL_X86_64_TCG_GEN_GVEC_NOT) \
+#                           $(_SL_X86_64_TCG_GEN_LD_VEC)
 
 _SL_AARCH64_TCG_CONTEXT_INIT := tcg/tcg.c:1808l
 _SL_AARCH64_TCG_FUNC_START   := tcg/tcg.c:1994l
