@@ -24,25 +24,6 @@ void cpu_abort(CPUState *cpu, const char *fmt, ...) {
 }
 
 #include <iostream>
-#include <memory>
-#include <boost/filesystem.hpp>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
-
-namespace fs = boost::filesystem;
-namespace obj = llvm::object;
 
 int qemu_log(const char *fmt, ...) {
   int size;
@@ -76,6 +57,26 @@ int qemu_log(const char *fmt, ...) {
 
   return size;
 }
+
+#include <memory>
+#include <boost/filesystem.hpp>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
+#include <llvm/MC/MCContext.h>
+#include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCObjectFileInfo.h>
+#include <llvm/MC/MCRegisterInfo.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/Support/PrettyStackTrace.h>
+#include <llvm/Support/Signals.h>
+#include <llvm/Support/ManagedStatic.h>
+
+namespace fs = boost::filesystem;
+namespace obj = llvm::object;
 
 int main(int argc, char** argv) {
   llvm::StringRef ToolName = argv[0];
@@ -137,12 +138,12 @@ int main(int argc, char** argv) {
   arm_translate_init();
 #endif
 
-  auto generate_tcg = [&](target_ulong pc) -> void {
+  auto generate_tcg = [&](target_ulong pc) -> unsigned {
     tcg_func_start(&_tcg_ctx);
 
     TranslationBlock tb;
 
-    // zero-initialize TB
+    // zero-initialize TranslationBlock
     memset(&tb, 0, sizeof(tb));
 
     tb.pc = pc;
@@ -152,19 +153,9 @@ int main(int argc, char** argv) {
     tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
 #endif
 
-    DisasContext dc;
-    memset(&dc, 0, sizeof(dc));
-
-    DisasContextBase& db = dc.base;
-    db.tb = &tb;
-    db.pc_first = tb.pc;
-    db.pc_next = db.pc_first;
-    db.is_jmp = DISAS_NEXT;
-    db.num_insns = 0;
-    db.singlestep_enabled = _cpu.parent_obj.singlestep_enabled;
-
     gen_intermediate_code(&_cpu.parent_obj, &tb);
-    tcg_dump_ops(&_tcg_ctx);
+
+    return tb.icount;
   };
 
   // Initialize targets and assembly printers/parsers.
@@ -258,39 +249,58 @@ int main(int argc, char** argv) {
 
     obj::SectionRef Sect = *Sym.getSection().get();
 
-    uint64_t Addr = Sym.getAddress().get();
-    uint64_t Base = Sect.getAddress();
-    uint64_t Offset = Addr - Base;
-
-    std::cout << Sym.getName()->str() << " @ " << SectNm.str() << "+0x"
-              << std::hex << Offset << std::endl;
+    const uint64_t Addr = Sym.getAddress().get();
+    const uint64_t Base = Sect.getAddress();
 
     llvm::StringRef BytesStr;
     Sect.getContents(BytesStr);
     llvm::ArrayRef<uint8_t> Bytes(
         reinterpret_cast<const uint8_t *>(BytesStr.data()), BytesStr.size());
 
-    llvm::MCInst Inst;
-    uint64_t Size;
-    llvm::raw_ostream &DebugOut = llvm::nulls();
-    llvm::raw_ostream &CommentStream = llvm::nulls();
-    bool Disassembled = DisAsm->getInstruction(Inst, Size, Bytes.slice(Offset),
-                                               Addr, DebugOut, CommentStream);
-    if (!Disassembled) {
-      std::cerr << "failed to disassemble 0x" << std::hex << Addr << std::endl;
-      continue;
-    }
-
-    std::string str;
-    {
-      llvm::raw_string_ostream StrStream(str);
-      IP->printInst(&Inst, StrStream, "", *STI);
-    }
-    std::cout << str << std::endl << std::endl;
-
     guest_base_addr = Base;
     guest_base = reinterpret_cast<unsigned long>(BytesStr.bytes_begin());
-    generate_tcg(Addr);
+
+    //
+    // translate machine code to TCG
+    //
+    unsigned icount = generate_tcg(Addr);
+
+    //
+    // print machine code which was translated
+    //
+    uint64_t Offset = Addr - Base;
+    std::cout << Sym.getName()->str() << " @ " << SectNm.str() << "+0x"
+              << std::hex << Offset << std::endl;
+    for (unsigned i = 0; i < icount; ++i) {
+      llvm::MCInst Inst;
+      uint64_t Size;
+      llvm::raw_ostream &DebugOut = llvm::nulls();
+      llvm::raw_ostream &CommentStream = llvm::nulls();
+      bool Disassembled = DisAsm->getInstruction(
+          Inst, Size, Bytes.slice(Offset), Addr, DebugOut, CommentStream);
+      if (!Disassembled) {
+        std::cerr << "failed to disassemble 0x" << std::hex << Addr
+                  << std::endl;
+        break;
+      }
+      Offset += Size;
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP->printInst(&Inst, StrStream, "", *STI);
+      }
+      std::cout << str << std::endl;
+    }
+
+    std::cout << std::endl;
+
+    //
+    // print TCG
+    //
+    tcg_dump_ops(&_tcg_ctx);
+
+    std::cout << std::endl;
   }
 
   return 0;
