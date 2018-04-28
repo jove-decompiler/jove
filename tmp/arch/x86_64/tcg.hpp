@@ -3186,7 +3186,22 @@ static inline unsigned get_mmuidx(TCGMemOpIdx oi)
     return oi & 15;
 }
 
-uint64_t dup_const(unsigned vece, uint64_t c);
+/* Duplicate C as per VECE.  */
+uint64_t (dup_const)(unsigned vece, uint64_t c)
+{
+    switch (vece) {
+    case MO_8:
+        return 0x0101010101010101ull * (uint8_t)c;
+    case MO_16:
+        return 0x0001000100010001ull * (uint16_t)c;
+    case MO_32:
+        return 0x0000000100000001ull * (uint32_t)c;
+    case MO_64:
+        return c;
+    default:
+        g_assert_not_reached();
+    }
+}
 
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \

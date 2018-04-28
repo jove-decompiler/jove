@@ -14,7 +14,7 @@ int singlestep;
 int qemu_loglevel;
 int trace_events_enabled_count;
 unsigned long guest_base;
-FILE *qemu_logfile;
+FILE *qemu_logfile = stdout;
 bool qemu_log_in_addr_range(uint64_t addr) { return false; }
 const char *lookup_symbol(target_ulong orig_addr) { return nullptr; }
 void target_disas(FILE *out, CPUState *cpu, target_ulong code,
@@ -22,8 +22,6 @@ void target_disas(FILE *out, CPUState *cpu, target_ulong code,
 void cpu_abort(CPUState *cpu, const char *fmt, ...) {
   abort();
 }
-
-#include <iostream>
 
 int qemu_log(const char *fmt, ...) {
   int size;
@@ -52,7 +50,7 @@ int qemu_log(const char *fmt, ...) {
     return 0;
   }
 
-  std::cout << p;
+  fputs(p, qemu_logfile);
   free(p);
 
   return size;
@@ -85,7 +83,7 @@ int main(int argc, char** argv) {
   llvm::llvm_shutdown_obj Y;
 
   if (argc != 2 || !fs::exists(argv[1])) {
-    std::cerr << "usage: " << argv[0] << " objfile" << std::endl;
+    printf("usage: %s objfile\n", argv[0]);
     return 1;
   }
 
@@ -155,6 +153,16 @@ int main(int argc, char** argv) {
 
     gen_intermediate_code(&_cpu.parent_obj, &tb);
 
+    tcg_optimize(&_tcg_ctx);
+    liveness_pass_1(&_tcg_ctx);
+    if (_tcg_ctx.nb_indirects > 0) {
+      /* Replace indirect temps with direct temps.  */
+      if (liveness_pass_2(&_tcg_ctx)) {
+        /* If changes were made, re-run liveness.  */
+        liveness_pass_1(&_tcg_ctx);
+      }
+    }
+
     return tb.icount;
   };
 
@@ -168,7 +176,7 @@ int main(int argc, char** argv) {
 
   if (!BinaryOrErr ||
       !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
-    std::cerr << "failed to open " << argv[1] << std::endl;
+    fprintf(stderr, "failed to open %s\n", argv[1]);
     return 1;
   }
 
@@ -182,7 +190,7 @@ int main(int argc, char** argv) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    std::cerr << "failed to lookup target: " << Error << std::endl;
+    fprintf(stderr, "failed to lookup target: %s\n", Error.c_str());
     return 1;
   }
 
@@ -193,27 +201,27 @@ int main(int argc, char** argv) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    std::cerr << "no register info for target" << std::endl;
+    fprintf(stderr, "no register info for target\n");
     return 1;
   }
 
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) {
-    std::cerr << "no assembly info" << std::endl;
+    fprintf(stderr, "no assembly info\n");
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    std::cerr << "no subtarget info" << std::endl;
+    fprintf(stderr, "no subtarget info\n");
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    std::cerr << "no instruction info" << std::endl;
+    fprintf(stderr, "no instruction info\n");
     return 1;
   }
 
@@ -225,7 +233,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    std::cerr << "no disassembler for target" << std::endl;
+    fprintf(stderr, "no disassembler for target\n");
     return 1;
   }
 
@@ -233,7 +241,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    std::cerr << "no instruction printer" << std::endl;
+    fprintf(stderr, "no instruction printer\n");
     return 1;
   }
 
@@ -269,8 +277,8 @@ int main(int argc, char** argv) {
     // print machine code which was translated
     //
     uint64_t Offset = Addr - Base;
-    std::cout << Sym.getName()->str() << " @ " << SectNm.str() << "+0x"
-              << std::hex << Offset << std::endl;
+    printf("%s @ %s+%#lx\n", Sym.getName()->str().c_str(), SectNm.str().c_str(),
+           Offset);
     for (unsigned i = 0; i < icount; ++i) {
       llvm::MCInst Inst;
       uint64_t Size;
@@ -279,8 +287,8 @@ int main(int argc, char** argv) {
       bool Disassembled = DisAsm->getInstruction(
           Inst, Size, Bytes.slice(Offset), Addr, DebugOut, CommentStream);
       if (!Disassembled) {
-        std::cerr << "failed to disassemble 0x" << std::hex << Addr
-                  << std::endl;
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
         break;
       }
       Offset += Size;
@@ -290,17 +298,17 @@ int main(int argc, char** argv) {
         llvm::raw_string_ostream StrStream(str);
         IP->printInst(&Inst, StrStream, "", *STI);
       }
-      std::cout << str << std::endl;
+      puts(str.c_str());
     }
 
-    std::cout << std::endl;
+    fputc('\n', stdout);
 
     //
     // print TCG
     //
     tcg_dump_ops(&_tcg_ctx);
 
-    std::cout << std::endl;
+    fputc('\n', stdout);
   }
 
   return 0;
