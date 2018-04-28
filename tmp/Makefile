@@ -15,13 +15,19 @@ ARCHS := x86_64 \
 
 #ARCHS := aarch64
 
-all: $(foreach arch,$(ARCHS),$(arch)-tcgdump)
+all: $(foreach arch,$(ARCHS),$(arch)-tcgdump) $(foreach arch,$(ARCHS),$(arch)-tcgdefs)
 
 define tcgdump_template
-$(1)-tcgdump: tcgdump.cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp Makefile
+$(1)-tcgdump: tcgdump.cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
 	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach arch,$(ARCHS),$(eval $(call tcgdump_template,$(arch))))
+
+define tcgdefs_template
+$(1)-tcgdefs: tcgdefs.cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
+	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
+endef
+$(foreach arch,$(ARCHS),$(eval $(call tcgdefs_template,$(arch))))
 
 CLANG_EXTRICATE := ~/clang-extricate
 QEMU_SRC_DIR    := ~/qemu

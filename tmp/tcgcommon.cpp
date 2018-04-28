@@ -1,0 +1,146 @@
+static unsigned long guest_base_addr;
+#define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
+
+#include "tcg.hpp"
+#include "stubs.hpp"
+
+//
+// global stubs
+//
+TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT = {0};
+TraceEvent _TRACE_GUEST_MEM_BEFORE_TRANS_EVENT = {0};
+uint16_t _TRACE_OBJECT_CLASS_DYNAMIC_CAST_ASSERT_DSTATE;
+int singlestep;
+int qemu_loglevel;
+int trace_events_enabled_count;
+unsigned long guest_base;
+FILE *qemu_logfile = stdout;
+bool qemu_log_in_addr_range(uint64_t addr) { return false; }
+const char *lookup_symbol(target_ulong orig_addr) { return nullptr; }
+void target_disas(FILE *out, CPUState *cpu, target_ulong code,
+                  target_ulong size) {}
+void cpu_abort(CPUState *cpu, const char *fmt, ...) {
+  abort();
+}
+
+int qemu_log(const char *fmt, ...) {
+  int size;
+  va_list ap;
+
+  /* Determine required size */
+
+  va_start(ap, fmt);
+  size = vsnprintf(nullptr, 0, fmt, ap);
+  va_end(ap);
+
+  if (size < 0)
+    return 0;
+
+  size++; /* For '\0' */
+  char *p = (char *)malloc(size);
+  if (!p)
+    return 0;
+
+  va_start(ap, fmt);
+  size = vsnprintf(p, size, fmt, ap);
+  va_end(ap);
+
+  if (size < 0) {
+    free(p);
+    return 0;
+  }
+
+  fputs(p, qemu_logfile);
+  free(p);
+
+  return size;
+}
+
+namespace jove {
+
+struct tiny_code_generator_t {
+#if defined(TARGET_X86_64)
+  X86CPU _cpu;
+#elif defined(TARGET_AARCH64)
+  ARMCPU _cpu;
+#endif
+
+  TCGContext _tcg_ctx;
+
+  tiny_code_generator_t() {
+    // zero-initialize CPU
+    memset(&_cpu, 0, sizeof(_cpu));
+
+    _cpu.parent_obj.env_ptr = &_cpu.env;
+
+#if defined(TARGET_X86_64)
+    _cpu.env.eflags = 514;
+    _cpu.env.hflags = 0x0040c0b3;
+    _cpu.env.hflags2 = 1;
+    _cpu.env.a20_mask = -1;
+    _cpu.env.cr[0] = 0x80010001;
+    _cpu.env.cr[4] = 0x00000220;
+    _cpu.env.mxcsr = 0x00001f80;
+    _cpu.env.xcr0 = 3;
+    _cpu.env.msr_ia32_misc_enable = 1;
+    _cpu.env.pat = 0x0007040600070406ULL;
+    _cpu.env.smbase = 0x30000;
+    _cpu.env.features[0] = 126614525;
+    _cpu.env.features[1] = 2147491841;
+    _cpu.env.features[5] = 563346429;
+    _cpu.env.features[6] = 5;
+    _cpu.env.user_features[0] = 2;
+#elif defined(TARGET_AARCH64)
+    _cpu.env.aarch64 = 1;
+    _cpu.env.features = 192517101788915;
+#endif
+
+    // zero-initialize TCG
+    memset(&_tcg_ctx, 0, sizeof(_tcg_ctx));
+
+    tcg_context_init(&_tcg_ctx);
+    _tcg_ctx.cpu = &_cpu.parent_obj;
+
+#if defined(TARGET_X86_64)
+    tcg_x86_init();
+#elif defined(TARGET_AARCH64)
+    arm_translate_init();
+#endif
+  }
+
+  unsigned translate(target_ulong pc) {
+    tcg_func_start(&_tcg_ctx);
+
+    TranslationBlock tb;
+
+    // zero-initialize TranslationBlock
+    memset(&tb, 0, sizeof(tb));
+
+    tb.pc = pc;
+#if defined(TARGET_X86_64)
+    tb.flags = _cpu.env.hflags;
+#elif defined(TARGET_AARCH64)
+    tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
+#endif
+
+    gen_intermediate_code(&_cpu.parent_obj, &tb);
+
+    tcg_optimize(&_tcg_ctx);
+    liveness_pass_1(&_tcg_ctx);
+    if (_tcg_ctx.nb_indirects > 0) {
+      /* Replace indirect temps with direct temps.  */
+      if (liveness_pass_2(&_tcg_ctx)) {
+        /* If changes were made, re-run liveness.  */
+        liveness_pass_1(&_tcg_ctx);
+      }
+    }
+
+    return tb.icount;
+  }
+
+  void dump_operations(void) {
+    tcg_dump_ops(&_tcg_ctx);
+  }
+};
+
+}

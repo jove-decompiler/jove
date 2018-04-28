@@ -1,4 +1,6 @@
 x86_64-tcgdump
 aarch64-tcgdump
+aarch64-tcgdefs
+x86_64-tcgdefs
 *.so
 *.o
