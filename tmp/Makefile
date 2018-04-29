@@ -13,47 +13,28 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
 ARCHS := x86_64 \
          aarch64
 
-#ARCHS := aarch64
+TOOLS := dump \
+         defs \
+         constants
 
-all: $(foreach arch,$(ARCHS),$(arch)-tcgdump) $(foreach arch,$(ARCHS),$(arch)-tcgdefs)
+tcgtools = $(foreach arch,$(ARCHS),$(arch)-tcg$(1))
 
-define tcgdump_template
-$(1)-tcgdump: tcgdump.cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
+all: $(foreach tool,$(TOOLS),$(call tcgtools,$(tool)))
+
+define tcgtool_template
+$(1)-tcg$(2): tcg$(2).cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
 	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
 endef
-$(foreach arch,$(ARCHS),$(eval $(call tcgdump_template,$(arch))))
 
-define tcgdefs_template
-$(1)-tcgdefs: tcgdefs.cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
-	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
-endef
-$(foreach arch,$(ARCHS),$(eval $(call tcgdefs_template,$(arch))))
+$(foreach tool,$(TOOLS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
+
+#
+# for extricating QEMU code
+#
 
 CLANG_EXTRICATE := ~/clang-extricate
 QEMU_SRC_DIR    := ~/qemu
 QEMU_BUILD_DIR  := ~/qemu
-
-# functions:
-#   tcg_context_init
-#   tcg_func_start
-#   tcg_gen_code
-#   tcg_gen_addi_i64
-#   tcg_optimize
-#   tcg_op_defs
-#   tb_gen_code
-#   translator_loop
-#   pstrcpy
-#
-# on x86_64:
-#   gen_intermediate_code
-#   tcg_x86_init
-#
-# on aarch64:
-#   gen_intermediate_code
-#   aarch64_translator_ops
-#   arm_translate_init
-#   
-#
 
 _SL_TCG_GEN_ADDI_I64 := tcg/tcg-op.c:1175l
 _SL_TCG_OPTIMIZE     := tcg/optimize.c:592l
