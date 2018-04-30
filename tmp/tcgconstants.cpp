@@ -58,10 +58,7 @@ int main(int argc, char** argv) {
          "\n"
          "namespace jove {\n");
 
-#define __TCG_CONST(NM)                                                        \
-  do {                                                                         \
-    printf("constexpr int tcg_" #NM " = %d;\n", NM());                         \
-  } while (false)
+#define __TCG_CONST(NM) printf("constexpr int tcg_" #NM " = %d;\n", NM())
 
   __TCG_CONST(num_globals);
   __TCG_CONST(num_helpers);
