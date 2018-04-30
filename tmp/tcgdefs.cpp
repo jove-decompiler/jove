@@ -36,9 +36,9 @@ int main(int argc, char** argv) {
     return "";
   };
 
-  int N = tcg._tcg_ctx.nb_globals;
+  int N = tcg._ctx.nb_globals;
   for (int i = 0; i < N; i++) {
-    TCGTemp &ts = tcg._tcg_ctx.temps[i];
+    TCGTemp &ts = tcg._ctx.temps[i];
 
     printf("%s %s", string_of_tcg_type(ts.type), ts.name);
     if (ts.mem_base)

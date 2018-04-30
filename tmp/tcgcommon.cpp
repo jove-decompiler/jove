@@ -65,7 +65,7 @@ struct tiny_code_generator_t {
   ARMCPU _cpu;
 #endif
 
-  TCGContext _tcg_ctx;
+  TCGContext _ctx;
 
   tiny_code_generator_t() {
     // zero-initialize CPU
@@ -96,10 +96,10 @@ struct tiny_code_generator_t {
 #endif
 
     // zero-initialize TCG
-    memset(&_tcg_ctx, 0, sizeof(_tcg_ctx));
+    memset(&_ctx, 0, sizeof(_ctx));
 
-    tcg_context_init(&_tcg_ctx);
-    _tcg_ctx.cpu = &_cpu.parent_obj;
+    tcg_context_init(&_ctx);
+    _ctx.cpu = &_cpu.parent_obj;
 
 #if defined(TARGET_X86_64)
     tcg_x86_init();
@@ -109,7 +109,7 @@ struct tiny_code_generator_t {
   }
 
   unsigned translate(target_ulong pc) {
-    tcg_func_start(&_tcg_ctx);
+    tcg_func_start(&_ctx);
 
     TranslationBlock tb;
 
@@ -125,13 +125,13 @@ struct tiny_code_generator_t {
 
     gen_intermediate_code(&_cpu.parent_obj, &tb);
 
-    tcg_optimize(&_tcg_ctx);
-    liveness_pass_1(&_tcg_ctx);
-    if (_tcg_ctx.nb_indirects > 0) {
+    tcg_optimize(&_ctx);
+    liveness_pass_1(&_ctx);
+    if (_ctx.nb_indirects > 0) {
       /* Replace indirect temps with direct temps.  */
-      if (liveness_pass_2(&_tcg_ctx)) {
+      if (liveness_pass_2(&_ctx)) {
         /* If changes were made, re-run liveness.  */
-        liveness_pass_1(&_tcg_ctx);
+        liveness_pass_1(&_ctx);
       }
     }
 
@@ -139,7 +139,7 @@ struct tiny_code_generator_t {
   }
 
   void dump_operations(void) {
-    tcg_dump_ops(&_tcg_ctx);
+    tcg_dump_ops(&_ctx);
   }
 };
 

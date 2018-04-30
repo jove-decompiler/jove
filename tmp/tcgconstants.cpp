@@ -18,14 +18,14 @@ int main(int argc, char** argv) {
 
   jove::tiny_code_generator_t tcg;
 
-  auto num_globals = [&](void) -> int { return tcg._tcg_ctx.nb_globals; };
+  auto num_globals = [&](void) -> int { return tcg._ctx.nb_globals; };
   auto num_helpers = [&](void) -> int { return ARRAY_SIZE(all_helpers); };
   auto max_temps = [&](void) -> int { return TCG_MAX_TEMPS; };
 
   auto tcg_index_of_named_global = [&](const char *nm) -> int {
-    int N = tcg._tcg_ctx.nb_globals;
+    int N = tcg._ctx.nb_globals;
     for (int i = 0; i < N; i++) {
-      TCGTemp &ts = tcg._tcg_ctx.temps[i];
+      TCGTemp &ts = tcg._ctx.temps[i];
       if (strcmp(ts.name, nm) == 0)
         return i;
     }
