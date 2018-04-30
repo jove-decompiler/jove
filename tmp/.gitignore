@@ -1,8 +1,8 @@
-x86_64-tcgdump
-aarch64-tcgdump
-aarch64-tcgdefs
-x86_64-tcgdefs
-aarch64-tcgconstants
-x86_64-tcgconstants
+tcgdump-x86_64
+tcgdump-aarch64
+tcgdefs-x86_64
+tcgdefs-aarch64
+tcgconstants-x86_64
+tcgconstants-aarch64
 *.so
 *.o
