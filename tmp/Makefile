@@ -25,7 +25,6 @@ define tcgtool_template
 $(1)-tcg$(2): tcg$(2).cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
 	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
 endef
-
 $(foreach tool,$(TOOLS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
 
 #
@@ -96,7 +95,7 @@ $(foreach arch,$(ARCHS),$(eval $(call gen_template,$(arch))))
 
 .PHONY: clean
 clean:
-	rm -f $(foreach arch,$(ARCHS),$(arch)-tcgdump)
+	rm -f $(foreach tool,$(TOOLS),$(call tcgtools,$(tool)))
 
 #
 # qemu configure command
