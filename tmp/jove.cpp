@@ -232,15 +232,13 @@ void verify_arch(const obj::ObjectFile &Obj) {
 }
 
 void print_obj_info(const obj::ObjectFile &Obj) {
-  printf(
-      "File: %s\n"
-      "Format: %s\n"
-      "Arch: %s\n"
-      "AddressSize: %ubit\n",
-      Obj.getFileName().str().c_str(),
-      Obj.getFileFormatName().str().c_str(),
-      llvm::Triple::getArchTypeName(Obj.getArch()).str().c_str(),
-      8 * Obj.getBytesInAddress());
+  printf("File: %s\n"
+         "Format: %s\n"
+         "Arch: %s\n"
+         "AddressSize: %ubit\n",
+         Obj.getFileName().str().c_str(), Obj.getFileFormatName().str().c_str(),
+         llvm::Triple::getArchTypeName(Obj.getArch()).str().c_str(),
+         8 * Obj.getBytesInAddress());
 }
 
 }
