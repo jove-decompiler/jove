@@ -18,20 +18,22 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
 ARCHS := x86_64 \
          aarch64
 
-TOOLS := tcgdump \
-         tcgdefs \
-         tcgconstants \
-	 jove
+TOOLNMS := tcgdump \
+           tcgdefs \
+           tcgconstants \
+           jove
 
-tools = $(foreach arch,$(ARCHS),$(1)-$(arch))
+tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
 
-all: $(foreach tool,$(TOOLS),$(call tools,$(tool)))
+ALL_TOOLS := $(foreach tool,$(TOOLNMS),$(call tools,$(tool)))
+
+all: $(ALL_TOOLS)
 
 define tcgtool_template
-$(2)-$(1): $(2).cpp arch/$(1)/tcg.hpp arch/$(1)/stubs.hpp tcgcommon.cpp Makefile
-	clang++ -o $$@ -I arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
+bin/$(2)-$(1): tools/$(2).cpp lib/arch/$(1)/tcg.hpp lib/arch/$(1)/stubs.hpp lib/tcgcommon.hpp Makefile
+	clang++ -o $$@ -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
 endef
-$(foreach tool,$(TOOLS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
+$(foreach tool,$(TOOLNMS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
 
 #
 # for extricating QEMU code
@@ -120,7 +122,7 @@ $(foreach arch,$(ARCHS),$(foreach helper,$($(arch)_HELPERS),$(eval $(call helper
 
 .PHONY: clean
 clean:
-	rm -f $(foreach tool,$(TOOLS),$(call tools,$(tool)))
+	rm -f $(foreach tool,$(TOOLNMS),$(call tools,$(tool)))
 
 #
 # qemu configure command

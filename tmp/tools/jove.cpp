@@ -1,4 +1,4 @@
-#include "tcgcommon.cpp"
+#include "tcgcommon.hpp"
 
 #include <memory>
 #include <sstream>

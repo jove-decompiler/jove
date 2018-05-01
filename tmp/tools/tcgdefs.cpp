@@ -1,4 +1,4 @@
-#include "tcgcommon.cpp"
+#include "tcgcommon.hpp"
 
 #include <llvm/ADT/StringRef.h>
 #include <llvm/Support/PrettyStackTrace.h>
