@@ -122,7 +122,7 @@ $(foreach arch,$(ARCHS),$(foreach helper,$($(arch)_HELPERS),$(eval $(call helper
 
 .PHONY: clean
 clean:
-	rm -f $(foreach tool,$(TOOLNMS),$(call tools,$(tool)))
+	rm -f $(ALL_TOOLS)
 
 #
 # qemu configure command
