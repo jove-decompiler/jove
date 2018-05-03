@@ -21,7 +21,7 @@ ARCHS := x86_64 \
 TOOLNMS := tcgdump \
            tcgdefs \
            tcgconstants \
-           jove
+           jove-llvm
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
 
@@ -31,7 +31,7 @@ all: $(ALL_TOOLS)
 
 define tcgtool_template
 bin/$(2)-$(1): tools/$(2).cpp lib/arch/$(1)/tcg.hpp lib/arch/$(1)/stubs.hpp lib/tcgcommon.hpp Makefile
-	clang++ -o $$@ -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
+	clang++ -o $$@ -I include -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLNMS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
 
