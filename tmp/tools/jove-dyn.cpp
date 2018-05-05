@@ -96,7 +96,7 @@ int main(int argc, char** argv) {
   if (argc < 3 || !fs::exists(argv[1]) | !fs::exists(argv[2])) {
     fprintf(stderr, "%s <SHARED-OBJECT> <PROGRAM-ARG1> <PROGRAM-ARG2> ...\n",
             argv[0]);
-    exit(1);
+    return 1;
   }
 
   pid_t child = fork();
