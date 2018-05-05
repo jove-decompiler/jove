@@ -23,7 +23,7 @@
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Support/FileSystem.h>
 
-#include "jove.h"
+#include "jove/jove.h"
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;

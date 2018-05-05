@@ -33,7 +33,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#include "jove.h"
+#include "jove/jove.h"
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
@@ -41,7 +41,8 @@ namespace obj = llvm::object;
 
 namespace jove {
 
-static int do_child(int argc, char **argv);
+static int ChildProc(int argc, char **argv);
+static int ParentProc(pid_t child, int argc, char **argv);
 
 static void verify_arch(const obj::ObjectFile &);
 static void print_obj_info(const obj::ObjectFile &);
@@ -100,9 +101,78 @@ int main(int argc, char** argv) {
 
   pid_t child = fork();
   if (!child)
-    return jove::do_child(argc - 1, argv + 1);
+    return jove::ChildProc(argc - 1, argv + 1);
 
-  jove::tiny_code_generator_t tcg;
+  return jove::ParentProc(child, argc, argv);
+}
+
+namespace jove {
+
+bool update_view_of_virtual_memory(int child) {
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/maps", child);
+
+    fp = fopen(path, "r");
+  }
+
+  if (fp == NULL) {
+    return false;
+  }
+
+  allvms.clear();
+  vmm.clear();
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    int fields, dev_maj, dev_min, inode;
+    uint64_t min, max, offset;
+    char flag_r, flag_w, flag_x, flag_p;
+    char path[512] = "";
+    fields = sscanf(line,
+                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
+                    " %512s",
+                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &dev_maj, &dev_min, &inode, path);
+
+    if ((fields < 10) || (fields > 11)) {
+      continue;
+    }
+
+    auto intervl =
+        boost::icl::discrete_interval<uintptr_t>::right_open(min, max);
+
+    vm_properties_t vmprop;
+    vmprop.beg = min;
+    vmprop.end = max;
+    vmprop.off = offset;
+    vmprop.r = flag_r == 'r';
+    vmprop.w = flag_w == 'w';
+    vmprop.x = flag_x == 'x';
+    vmprop.p = flag_p == 'p';
+    vmprop.nm = path;
+
+    //
+    // create the mappings
+    //
+    allvms.insert(intervl);
+
+    vm_prop_set_t vmprops = {vmprop};
+    vmm.add(make_pair(intervl, vmprops));
+  }
+
+  free(line);
+  fclose(fp);
+
+  return true;
+}
+
+int ParentProc(pid_t child, int argc, char **argv) {
+  tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
   llvm::InitializeAllTargetInfos();
@@ -121,8 +191,8 @@ int main(int argc, char** argv) {
   obj::ObjectFile &O =
       *llvm::cast<obj::ObjectFile>(BinaryOrErr.get().getBinary());
 
-  jove::verify_arch(O);
-  jove::print_obj_info(O);
+  verify_arch(O);
+  print_obj_info(O);
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -306,13 +376,13 @@ int main(int argc, char** argv) {
 #endif
                          nullptr);
 
-        const char *nm = jove::name_of_syscall_number(no);
+        const char *nm = name_of_syscall_number(no);
         if (nm)
           fprintf(stderr, "syscall %s\n", nm);
         else
           fprintf(stderr, "syscall %ld\n", no);
 
-        if (!jove::update_view_of_virtual_memory(child)) {
+        if (!update_view_of_virtual_memory(child)) {
           fprintf(stderr, "failed to read virtual memory maps of child %d\n",
                   child);
           return 1;
@@ -320,8 +390,8 @@ int main(int argc, char** argv) {
 
         std::uintptr_t Base = 0;
 
-        for (auto &vm_prop_set : jove::vmm) {
-          const jove::vm_properties_t &vm_prop = *vm_prop_set.second.begin();
+        for (auto &vm_prop_set : vmm) {
+          const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
           if (vm_prop.off)
             continue;
 
@@ -441,7 +511,7 @@ int main(int argc, char** argv) {
 
         switch (stopsig) {
         case SIGSEGV: {
-          jove::update_view_of_virtual_memory(child);
+          update_view_of_virtual_memory(child);
 
           long pc = ptrace(PTRACE_PEEKUSER, child,
 #if defined(TARGET_X86_64)
@@ -455,11 +525,11 @@ int main(int argc, char** argv) {
 
           char buff[0x100];
           fprintf(stderr, "tracee SIGSEGV @ %s : *(%p)\n",
-                  jove::string_of_program_point(buff, pc), si.si_addr);
+                  string_of_program_point(buff, pc), si.si_addr);
         }
 
         default:
-          const char *signm = jove::name_of_signal_number(stopsig);
+          const char *signm = name_of_signal_number(stopsig);
           if (signm)
             fprintf(stderr, "delivering signal %s [%d]\n", signm, child);
           else
@@ -483,72 +553,7 @@ int main(int argc, char** argv) {
   return 0;
 }
 
-namespace jove {
-
-bool update_view_of_virtual_memory(int child) {
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-
-  {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/maps", child);
-
-    fp = fopen(path, "r");
-  }
-
-  if (fp == NULL) {
-    return false;
-  }
-
-  allvms.clear();
-  vmm.clear();
-
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
-
-    if ((fields < 10) || (fields > 11)) {
-      continue;
-    }
-
-    auto intervl =
-        boost::icl::discrete_interval<uintptr_t>::right_open(min, max);
-
-    vm_properties_t vmprop;
-    vmprop.beg = min;
-    vmprop.end = max;
-    vmprop.off = offset;
-    vmprop.r = flag_r == 'r';
-    vmprop.w = flag_w == 'w';
-    vmprop.x = flag_x == 'x';
-    vmprop.p = flag_p == 'p';
-    vmprop.nm = path;
-
-    //
-    // create the mappings
-    //
-    allvms.insert(intervl);
-
-    vm_prop_set_t vmprops = {vmprop};
-    vmm.add(make_pair(intervl, vmprops));
-  }
-
-  free(line);
-  fclose(fp);
-
-  return true;
-}
-
-int do_child(int argc, char **argv) {
+int ChildProc(int argc, char **argv) {
   //
   // child
   //
@@ -719,7 +724,7 @@ const char *name_of_signal_number(int num) {
   return nullptr;
 }
 
-const char *syscall_names[/* __NR_syscalls */ 400] = {
+static const char *syscall_names[/* __NR_syscalls */ 400] = {
 #define __SYSCALL(no, name) [no] = #name,
 #include <asm-generic/unistd.h>
 #undef __SYSCALL
