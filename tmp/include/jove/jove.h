@@ -1,6 +1,10 @@
+#pragma once
 #include <cstdint>
 #include <boost/graph/adjacency_list.hpp>
-#include <boost/icl/separate_interval_set.hpp>
+#include <set>
+#include <vector>
+
+//#include <boost/icl/separate_interval_set.hpp>
 //#include <boost/archive/text_oarchive.hpp>
 //#include <boost/archive/text_iarchive.hpp>
 
@@ -37,9 +41,16 @@ struct basic_block_properties_t {
 
 struct function_properties_t {
   struct {
-    boost::icl::separate_interval_set<unsigned> Arguments;
-    boost::icl::separate_interval_set<unsigned> LocalVars;
-  } Stack;
+    struct {
+      std::set<std::pair<unsigned, unsigned>> Arguments;
+      std::set<std::pair<unsigned, unsigned>> LocalVars;
+    } Stack;
+  } Analysis;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Analysis.Stack.Arguments &Analysis.Stack.LocalVars;
+  }
 };
 
 typedef boost::adjacency_list<
@@ -58,6 +69,11 @@ struct binary_t {
   struct {
     std::map<std::uintptr_t, function_t> Functions;
   } Analysis;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Data &Analysis.Functions;
+  }
 };
 
 struct decompilation_t {

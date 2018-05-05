@@ -5,9 +5,9 @@ CFLAGS := -Wall \
 	  -fno-omit-frame-pointer \
           -fPIC -flto -O1 -g
 
-CXXFLAGS := -std=gnu++14 \
-            -fno-rtti
+CXXFLAGS := -std=gnu++14
 
+#           -fno-rtti
 #	    -fno-exceptions
 
 LDFLAGS := $(shell pkg-config --libs glib-2.0) \
@@ -15,6 +15,7 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -lboost_filesystem \
 	   -lboost_system \
 	   -lboost_program_options \
+	   -lboost_serialization \
 	   -fuse-ld=lld
 
 ARCHS := x86_64 \
@@ -24,7 +25,8 @@ TOOLNMS := tcgdump \
            tcgdefs \
            tcgconstants \
            jove-llvm \
-	   jove-dyn
+	   jove-dyn \
+	   jove-init
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
 

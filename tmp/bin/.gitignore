@@ -3,5 +3,6 @@ tcgdefs-*
 tcgconstants-*
 jove-llvm-*
 jove-dyn-*
+jove-init-*
 *.so
 *.o
