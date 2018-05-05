@@ -1,16 +1,17 @@
 #include <cstdint>
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/icl/separate_interval_set.hpp>
 //#include <boost/archive/text_oarchive.hpp>
 //#include <boost/archive/text_iarchive.hpp>
 
 namespace jove {
 
-enum class terminator_inst_type : unsigned {
+enum class TERMINATOR : unsigned {
   UNCONDITIONAL_JUMP,
   CONDITIONAL_JUMP,
-  CALL,
   INDIRECT_CALL,
   INDIRECT_JUMP,
+  CALL,
   RETURN
 };
 
@@ -19,44 +20,52 @@ struct basic_block_properties_t {
   std::ptrdiff_t Len;
 
   struct {
-    terminator_inst_type Type;
+    TERMINATOR Type;
 
-    std::vector<std::uintptr_t> Callees;
+    struct {
+      std::set<std::uintptr_t> Local;
+
+      std::set<std::pair<std::string, std::uintptr_t>> NonLocal;
+    } Callees;
   } Term;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Len &Term.Type &Term.Callees;
+    ar &Addr &Len &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
   }
 };
 
 struct function_properties_t {
   struct {
-    struct {
-      std::set<std::pair<unsigned, unsigned>> Slots;
-    } Stack;
+    boost::icl::separate_interval_set<unsigned> Arguments;
+    boost::icl::separate_interval_set<unsigned> LocalVars;
+  } Stack;
+};
+
+typedef boost::adjacency_list<
+    boost::setS,              /* OutEdgeList */
+    boost::listS,             /* VertexList */
+    boost::bidirectionalS,    /* Directed */
+    basic_block_properties_t, /* VertexProperties */
+    boost::no_property,       /* EdgeProperties */
+    function_properties_t     /* GraphProperties */> function_t;
+
+typedef function_t::vertex_descriptor basic_block_t;
+
+struct binary_t {
+  std::vector<uint8_t> Data;
+
+  struct {
+    std::map<std::uintptr_t, function_t> Functions;
   } Analysis;
 };
 
-typedef boost::adjacency_list<boost::setS, /* no parallel edges */
-                              boost::listS,
-                              boost::bidirectionalS, /* directed graph */
-                              basic_block_properties_t,
-                              struct {},
-                              function_decompilation_properties_t>
-    function_t;
-
 struct decompilation_t {
-  struct {
-    std::string Name;
-    std::string Arch;
-  } Binary;
-
-  std::map<std::uintptr_t, function_t> Functions;
+  std::map<std::string, binary_t> Binaries;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Binary.Name &Binary.Arch &Functions;
+    ar &Binaries;
   }
 };
 

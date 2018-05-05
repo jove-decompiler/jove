@@ -2,6 +2,7 @@ CFLAGS := -Wall \
           -Wno-macro-redefined \
           -Wno-shift-count-negative \
           -Wno-initializer-overrides \
+	  -fno-omit-frame-pointer \
           -fPIC -flto -O1 -g
 
 CXXFLAGS := -std=gnu++14 \
@@ -13,7 +14,8 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
            -lboost_filesystem \
 	   -lboost_system \
-	   -lboost_program_options
+	   -lboost_program_options \
+	   -fuse-ld=lld
 
 ARCHS := x86_64 \
          aarch64
@@ -21,7 +23,8 @@ ARCHS := x86_64 \
 TOOLNMS := tcgdump \
            tcgdefs \
            tcgconstants \
-           jove-llvm
+           jove-llvm \
+	   jove-dyn
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
 
