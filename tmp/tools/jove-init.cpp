@@ -390,16 +390,75 @@ static bool translate_function(binary_t &binary,
   return true;
 }
 
+static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
+
 basic_block_t translate_basic_block(function_t &f,
                                     tiny_code_generator_t &tcg,
                                     target_ulong Addr) {
+  unsigned icount;
+  jove::terminator_info_t T;
+  std::tie(icount, T) = tcg.translate(Addr);
+
+#if 0
+  fprintf(stdout, "%s\n", string_of_terminator(T.Type));
+  tcg.dump_operations();
+  fputc('\n', stdout);
+#endif
+
+  if (T.Type == TERMINATOR::UNKNOWN)
+    return boost::graph_traits<function_t>::null_vertex();
+
   basic_block_t bb = boost::add_vertex(f);
   basic_block_properties_t& bbprop = f[bb];
   bbprop.Addr = Addr;
+  bbprop.Term.Type = T.Type;
 
-  unsigned icount = tcg.translate(Addr);
-  tcg.dump_operations();
-  fputc('\n', stdout);
+  BBMap[Addr] = bb;
+
+  //
+  // conduct analysis of last instruction (the terminator of the block) and
+  // (recursively) descend into branch targets, translating basic blocks
+  //
+  auto control_flow = [&](std::uintptr_t Target) -> void {
+    auto it = BBMap.find(Target);
+    if (it != BBMap.end()) {
+      boost::add_edge(bb, (*it).second, f);
+      return;
+    }
+
+    basic_block_t succ = translate_basic_block(f, tcg, Target);
+    if (succ != boost::graph_traits<function_t>::null_vertex())
+      boost::add_edge(bb, succ, f);
+  };
+
+  switch (T.Type) {
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    control_flow(T._unconditional_jump.Target);
+    break;
+
+  case TERMINATOR::CONDITIONAL_JUMP:
+    control_flow(T._conditional_jump.NextPC);
+    control_flow(T._conditional_jump.Target);
+    break;
+
+  case TERMINATOR::CALL:
+    bbprop.Term.Callees.Local.insert(T._call.Target);
+    control_flow(T._call.NextPC);
+    break;
+
+  case TERMINATOR::INDIRECT_CALL:
+    control_flow(T._call.NextPC);
+    break;
+
+  case TERMINATOR::INDIRECT_JUMP:
+    break;
+
+  case TERMINATOR::RETURN:
+    break;
+
+  default:
+    abort();
+  }
 
   return bb;
 }

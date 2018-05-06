@@ -1,3 +1,5 @@
+#include "jove/jove.h"
+
 static unsigned long guest_base_addr;
 #define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
 
@@ -113,10 +115,10 @@ struct tiny_code_generator_t {
     guest_base = reinterpret_cast<unsigned long>(contents);
   }
 
-  unsigned translate(target_ulong pc) {
+  std::pair<unsigned, terminator_info_t> translate(target_ulong pc) {
     tcg_func_start(&_ctx);
 
-    TranslationBlock tb;
+    struct TranslationBlock tb;
 
     // zero-initialize TranslationBlock
     memset(&tb, 0, sizeof(tb));
@@ -140,7 +142,7 @@ struct tiny_code_generator_t {
       }
     }
 
-    return tb.icount;
+    return std::make_pair(tb.icount, tb.jove.T);
   }
 
   void dump_operations(void) {

@@ -11,6 +11,7 @@
 namespace jove {
 
 enum class TERMINATOR : unsigned {
+  UNKNOWN,
   UNCONDITIONAL_JUMP,
   CONDITIONAL_JUMP,
   INDIRECT_CALL,
@@ -19,9 +20,58 @@ enum class TERMINATOR : unsigned {
   RETURN
 };
 
+inline const char *string_of_terminator(TERMINATOR TermTy) {
+  if (TermTy == TERMINATOR::UNCONDITIONAL_JUMP) {
+    return "UNCONDITIONAL_JUMP";
+  } else if (TermTy == TERMINATOR::CONDITIONAL_JUMP) {
+    return "CONDITIONAL_JUMP";
+  } else if (TermTy == TERMINATOR::INDIRECT_CALL) {
+    return "INDIRECT_CALL";
+  } else if (TermTy == TERMINATOR::INDIRECT_JUMP) {
+    return "INDIRECT_JUMP";
+  } else if (TermTy == TERMINATOR::CALL) {
+    return "CALL";
+  } else if (TermTy == TERMINATOR::RETURN) {
+    return "RETURN";
+  } else {
+    return "UNKNOWN";
+  }
+}
+
+struct terminator_info_t {
+  TERMINATOR Type;
+
+  union {
+    struct {
+      std::uintptr_t Target;
+    } _unconditional_jump;
+
+    struct {
+      std::uintptr_t Target;
+      std::uintptr_t NextPC;
+    } _conditional_jump;
+
+    struct {
+      std::uintptr_t Target;
+      std::uintptr_t NextPC;
+    } _call;
+
+    struct {
+      std::uintptr_t NextPC;
+    } _indirect_call;
+
+    struct {
+      /* deliberately left empty */
+    } _indirect_jump;
+
+    struct {
+      /* deliberately left empty */
+    } _return;
+  };
+};
+
 struct basic_block_properties_t {
   std::uintptr_t Addr;
-  std::ptrdiff_t Len;
 
   struct {
     TERMINATOR Type;
@@ -35,7 +85,7 @@ struct basic_block_properties_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Len &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
+    ar &Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
   }
 };
 

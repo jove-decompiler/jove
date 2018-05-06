@@ -134,7 +134,10 @@ int main(int argc, char **argv) {
     // translate machine code to TCG
     //
     tcg.set_section(Base, SecContentsStr.bytes_begin());
-    unsigned icount = tcg.translate(Addr);
+
+    unsigned icount;
+    jove::terminator_info_t T;
+    std::tie(icount, T) = tcg.translate(Addr);
 
     //
     // print machine code which was translated
