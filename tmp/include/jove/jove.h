@@ -20,38 +20,6 @@ enum class TERMINATOR : unsigned {
   RETURN
 };
 
-struct terminator_info_t {
-  TERMINATOR Type;
-
-  union {
-    struct {
-      std::uintptr_t Target;
-    } _unconditional_jump;
-
-    struct {
-      std::uintptr_t Target;
-      std::uintptr_t NextPC;
-    } _conditional_jump;
-
-    struct {
-      std::uintptr_t Target;
-      std::uintptr_t NextPC;
-    } _call;
-
-    struct {
-      std::uintptr_t NextPC;
-    } _indirect_call;
-
-    struct {
-      /* deliberately left empty */
-    } _indirect_jump;
-
-    struct {
-      /* deliberately left empty */
-    } _return;
-  };
-};
-
 struct basic_block_properties_t {
   std::uintptr_t Addr;
   std::ptrdiff_t Size;
@@ -135,5 +103,37 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
     return "UNKNOWN";
   }
 }
+
+struct terminator_info_t {
+  TERMINATOR Type;
+
+  union {
+    struct {
+      std::uintptr_t Target;
+    } _unconditional_jump;
+
+    struct {
+      std::uintptr_t Target;
+      std::uintptr_t NextPC;
+    } _conditional_jump;
+
+    struct {
+      std::uintptr_t Target;
+      std::uintptr_t NextPC;
+    } _call;
+
+    struct {
+      std::uintptr_t NextPC;
+    } _indirect_call;
+
+    struct {
+      /* deliberately left empty */
+    } _indirect_jump;
+
+    struct {
+      /* deliberately left empty */
+    } _return;
+  };
+};
 
 }

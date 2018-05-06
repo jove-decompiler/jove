@@ -311,8 +311,10 @@ int initialize_decompilation(void) {
     llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
     const std::uintptr_t Addr = Sym.st_value;
     std::ptrdiff_t Offset = Addr - SectBase;
+    assert(Offset >= 0);
     llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
-    printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(), Offset);
+    printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(),
+           static_cast<std::uintptr_t>(Offset));
 
     //
     // prepare TCG
@@ -368,7 +370,7 @@ int initialize_decompilation(void) {
 
 static basic_block_t translate_basic_block(function_t &fn,
                                            tiny_code_generator_t &tcg,
-                                           target_ulong Addr);
+                                           const target_ulong Addr);
 
 static bool translate_function(binary_t &binary,
                                tiny_code_generator_t &tcg,
@@ -394,7 +396,7 @@ static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
 
 basic_block_t translate_basic_block(function_t &f,
                                     tiny_code_generator_t &tcg,
-                                    target_ulong Addr) {
+                                    const target_ulong Addr) {
   unsigned Size;
   jove::terminator_info_t T;
   std::tie(Size, T) = tcg.translate(Addr);
