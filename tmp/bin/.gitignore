@@ -6,3 +6,4 @@ jove-dyn-*
 jove-init-*
 *.so
 *.o
+*.jv

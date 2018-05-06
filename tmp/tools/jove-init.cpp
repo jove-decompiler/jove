@@ -5,6 +5,7 @@
 #include <fstream>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
+#include <llvm/Object/ELF.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -169,21 +170,62 @@ int initialize_decompilation(void) {
     return 1;
   }
 
-#define unwrapOrBail(ExpectedVal)                                              \
+  //
+  // initialize the decompilation of the given binary by exploring every defined
+  // exported function
+  //
+  decompilation_t decompilation;
+  binary_t &binary =
+      decompilation.Binaries[fs::canonical(cmdline.input).string()];
+
+  binary.Data.resize(Buffer->getBufferSize());
+  memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+
+  auto write_decompilation = [&](void) -> void {
+    std::ofstream ofs(cmdline.output.string());
+
+    boost::archive::text_oarchive oa(ofs);
+    oa << decompilation;
+  };
+
+#define unwrapOrBail(__ExpectedVal)                                            \
   ({                                                                           \
-    auto E = (ExpectedVal);                                                    \
-    if (!E) {                                                                  \
-      fprintf(stderr, "error (%s)\n", #ExpectedVal);                           \
+    auto __E = (__ExpectedVal);                                                \
+    if (!__E) {                                                                \
+      fprintf(stderr, "error (%s)\n", #__ExpectedVal);                         \
       return 1;                                                                \
     }                                                                          \
-    *E;                                                                        \
+                                                                               \
+    *__E;                                                                      \
   })
 
-  const ELFT &ELF = *O.getELFFile();
+  const ELFT &E = *O.getELFFile();
 
   typedef typename ELFT::Elf_Shdr Elf_Shdr;
   typedef typename ELFT::Elf_Sym Elf_Sym;
   typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFT::Elf_Word Elf_Word;
+
+  //
+  // get the extended symbol table index section, if it exists
+  //
+  struct {
+    llvm::ArrayRef<Elf_Word> Table;
+    bool Found;
+  } Shndx;
+
+  Shndx.Found = false;
+  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+    if (Sec.sh_type != llvm::ELF::SHT_SYMTAB_SHNDX)
+      continue;
+
+    Shndx.Table = unwrapOrBail(E.getSHNDXTable(Sec));
+
+    if (Shndx.Found) {
+      fprintf(stderr, "invalid ELF: multiple SHT_SYMTAB_SHNDX sections\n");
+      return 1;
+    }
+  }
 
   //
   // get the dynamic symbols (those are the ones that matter to the dynamic
@@ -196,30 +238,37 @@ int initialize_decompilation(void) {
   } Dyn;
 
   Dyn.Found = false;
-  for (const Elf_Shdr &Sec : unwrapOrBail(ELF.sections())) {
+  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
     if (Sec.sh_type != llvm::ELF::SHT_DYNSYM)
       continue;
 
     if (Dyn.Found) {
-      fprintf(stderr, "multiple SHT_DYNSYM sections\n");
+      fprintf(stderr, "malformed ELF: multiple SHT_DYNSYM sections\n");
       return 1;
     }
 
-    Dyn.StringTable = unwrapOrBail(ELF.getStringTableForSymtab(Sec));
+    Dyn.StringTable = unwrapOrBail(E.getStringTableForSymtab(Sec));
     Dyn.Symbols = Elf_Sym_Range(
-        reinterpret_cast<const Elf_Sym *>(ELF.base() + Sec.sh_offset),
-        reinterpret_cast<const Elf_Sym *>(ELF.base() + Sec.sh_offset +
+        reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset),
+        reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset +
                                           Sec.sh_size));
 
     Dyn.Found = true;
   }
 
   if (!Dyn.Found) {
-    fprintf(stderr, "failed to find SHT_DYNSYM section\n");
+    fprintf(stderr, "malformed ELF: failed to find SHT_DYNSYM section\n");
     return 1;
   }
 
-  for (Elf_Sym Sym : Dyn.Symbols) {
+  if (Dyn.Symbols.empty()) {
+    write_decompilation();
+    return 0;
+  }
+
+  const Elf_Sym *FirstSym = Dyn.Symbols.begin();
+
+  for (const Elf_Sym &Sym : Dyn.Symbols) {
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
 
@@ -228,19 +277,74 @@ int initialize_decompilation(void) {
 
     llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
     fprintf(stderr, "Symbol %s\n", Nm.str().c_str());
-  }
 
-  decompilation_t decompilation;
-  binary_t &binary =
-      decompilation.Binaries[fs::canonical(cmdline.input).string()];
-  binary.Data.resize(Buffer->getBufferSize());
-  memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+    unsigned SectIndex = Sym.st_shndx;
+    if (SectIndex == llvm::ELF::SHN_XINDEX) {
+      if (!Shndx.Found) {
+        fprintf(stderr, "malformed ELF: no extended symbol table index\n");
+        return 1;
+      }
 
-  {
-    std::ofstream ofs(cmdline.output.string());
+      SectIndex = unwrapOrBail(obj::getExtendedSymbolTableIndex<obj::ELF64LE>(
+          &Sym, FirstSym, Shndx.Table));
+    }
 
-    boost::archive::text_oarchive oa(ofs);
-    oa << decompilation;
+    const Elf_Shdr *Sec = unwrapOrBail(E.getSection(SectIndex));
+
+    const std::uintptr_t Base = Sec->sh_addr;
+    const std::uintptr_t Addr = Sym.st_value;
+
+    llvm::ArrayRef<uint8_t> SecContents =
+        unwrapOrBail(E.getSectionContents(Sec));
+
+    //
+    // TCG
+    //
+    guest_base_addr = Base;
+    guest_base = reinterpret_cast<unsigned long>(SecContents.data());
+
+    //
+    // translate machine code to TCG
+    //
+    unsigned icount = tcg.translate(Addr);
+
+    //
+    // print machine code which was translated
+    //
+    std::ptrdiff_t Offset = Addr - Base;
+    llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(Sec));
+    printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(), Offset);
+
+    for (unsigned i = 0; i < icount; ++i) {
+      llvm::MCInst Inst;
+      uint64_t Size;
+      llvm::raw_ostream &DebugOut = llvm::nulls();
+      llvm::raw_ostream &CommentStream = llvm::nulls();
+      bool Disassembled = DisAsm->getInstruction(
+          Inst, Size, SecContents.slice(Offset), Addr, DebugOut, CommentStream);
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
+        break;
+      }
+      Offset += Size;
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP->printInst(&Inst, StrStream, "", *STI);
+      }
+      puts(str.c_str());
+    }
+
+    fputc('\n', stdout);
+
+    //
+    // print TCG
+    //
+    tcg.dump_operations();
+
+    fputc('\n', stdout);
   }
 
   return 0;
