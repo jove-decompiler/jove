@@ -294,17 +294,16 @@ int initialize_decompilation(void) {
           &Sym, Dyn.Symbols.begin(), Shndx.Table));
     }
 
-    const Elf_Shdr *Sec = unwrapOrBail(E.getSection(SectIndex));
+    const Elf_Shdr &Sec = *unwrapOrBail(E.getSection(SectIndex));
 
-    const std::uintptr_t Base = Sec->sh_addr;
+    const std::uintptr_t Base = Sec.sh_addr;
     const std::uintptr_t Addr = Sym.st_value;
-
-    llvm::ArrayRef<uint8_t> SecContents =
-        unwrapOrBail(E.getSectionContents(Sec));
 
     //
     // translate machine code to TCG
     //
+    llvm::ArrayRef<uint8_t> SecContents =
+        unwrapOrBail(E.getSectionContents(&Sec));
     tcg.set_section(Base, SecContents.data());
     unsigned icount = tcg.translate(Addr);
 
@@ -312,7 +311,7 @@ int initialize_decompilation(void) {
     // print machine code which was translated
     //
     std::ptrdiff_t Offset = Addr - Base;
-    llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(Sec));
+    llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
     printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(), Offset);
 
     for (unsigned i = 0; i < icount; ++i) {
