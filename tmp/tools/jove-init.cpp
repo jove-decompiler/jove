@@ -347,6 +347,8 @@ int initialize_decompilation(void) {
     fputc('\n', stdout);
   }
 
+  write_decompilation();
+
   return 0;
 }
 
