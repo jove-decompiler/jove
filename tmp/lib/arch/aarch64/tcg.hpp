@@ -2788,6 +2788,10 @@ struct TranslationBlock {
      */
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_list_first;
+
+    struct {
+      jove::terminator_info_t T;
+    } jove;
 };
 
 static inline uint32_t tb_cflags(const TranslationBlock *tb)

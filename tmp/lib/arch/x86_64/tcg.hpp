@@ -2178,6 +2178,10 @@ struct TranslationBlock {
      */
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_list_first;
+
+    struct {
+      jove::terminator_info_t T;
+    } jove;
 };
 
 static inline uint32_t tb_cflags(const TranslationBlock *tb)
@@ -23717,6 +23721,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(cpu_T0);
         gen_bnd_jmp(s);
         gen_jr(s, cpu_T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xc3: /* ret */
         ot = gen_pop_T0(s);
@@ -23725,6 +23731,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(cpu_T0);
         gen_bnd_jmp(s);
         gen_jr(s, cpu_T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xca: /* lret im */
         val = x86_ldsw_code(env, s);
@@ -23791,6 +23799,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_push_v(s, cpu_T0);
             gen_bnd_jmp(s);
             gen_jmp(s, tval);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+            s->base.tb->jove.T._call.Target = tval;
         }
         break;
     case 0x9a: /* lcall im */
@@ -23821,6 +23832,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0xea: /* ljmp im */
         {
@@ -23843,6 +23857,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             tval &= 0xffff;
         }
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0x70 ... 0x7f: /* jcc Jb */
         tval = (int8_t)insn_get(env, s, MO_8);
@@ -23861,6 +23878,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jcc(s, b, tval, next_eip);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = tval;
+        s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         break;
 
     case 0x190 ... 0x19f: /* setcc Gv */
