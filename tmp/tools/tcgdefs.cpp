@@ -5,7 +5,7 @@
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   llvm::StringRef ToolName = argv[0];
   llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
   llvm::PrettyStackTraceProgram X(argc, argv);

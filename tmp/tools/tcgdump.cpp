@@ -20,7 +20,7 @@
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   llvm::StringRef ToolName = argv[0];
   llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
   llvm::PrettyStackTraceProgram X(argc, argv);

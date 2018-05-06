@@ -49,7 +49,7 @@ static void print_obj_info(const obj::ObjectFile &);
 static int initialize_decompilation(void);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   llvm::StringRef ToolName = argv[0];
   llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
   llvm::PrettyStackTraceProgram X(argc, argv);
@@ -188,6 +188,7 @@ int initialize_decompilation(void) {
     oa << decompilation;
   };
 
+  // XXX I don't like the fact that this is a macro.
 #define unwrapOrBail(__ExpectedVal)                                            \
   ({                                                                           \
     auto __E = (__ExpectedVal);                                                \
@@ -211,6 +212,7 @@ int initialize_decompilation(void) {
   //
   struct {
     llvm::ArrayRef<Elf_Word> Table;
+
     bool Found;
   } Shndx;
 
@@ -219,12 +221,14 @@ int initialize_decompilation(void) {
     if (Sec.sh_type != llvm::ELF::SHT_SYMTAB_SHNDX)
       continue;
 
-    Shndx.Table = unwrapOrBail(E.getSHNDXTable(Sec));
-
     if (Shndx.Found) {
       fprintf(stderr, "invalid ELF: multiple SHT_SYMTAB_SHNDX sections\n");
       return 1;
     }
+
+    Shndx.Table = unwrapOrBail(E.getSHNDXTable(Sec));
+
+    Shndx.Found = true;
   }
 
   //
@@ -234,6 +238,7 @@ int initialize_decompilation(void) {
   struct {
     llvm::StringRef StringTable;
     Elf_Sym_Range Symbols;
+
     bool Found;
   } Dyn;
 

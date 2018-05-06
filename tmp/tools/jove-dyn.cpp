@@ -87,7 +87,7 @@ const char *name_of_syscall_number(int no);
 
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   llvm::StringRef ToolName = argv[0];
   llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
   llvm::PrettyStackTraceProgram X(argc, argv);

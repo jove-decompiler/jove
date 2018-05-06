@@ -44,7 +44,7 @@ static void verify_arch(const obj::ObjectFile &);
 static void print_obj_info(const obj::ObjectFile &);
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv) {
   llvm::StringRef ToolName = argv[0];
   llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
   llvm::PrettyStackTraceProgram X(argc, argv);
