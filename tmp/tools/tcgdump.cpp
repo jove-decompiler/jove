@@ -124,26 +124,22 @@ int main(int argc, char **argv) {
 
     obj::SectionRef Sect = *Sym.getSection().get();
 
-    const uint64_t Addr = Sym.getAddress().get();
-    const uint64_t Base = Sect.getAddress();
+    const std::uintptr_t Addr = Sym.getAddress().get();
+    const std::uintptr_t Base = Sect.getAddress();
 
-    llvm::StringRef BytesStr;
-    Sect.getContents(BytesStr);
-    llvm::ArrayRef<uint8_t> Bytes(
-        reinterpret_cast<const uint8_t *>(BytesStr.data()), BytesStr.size());
-
-    guest_base_addr = Base;
-    guest_base = reinterpret_cast<unsigned long>(BytesStr.bytes_begin());
+    llvm::StringRef SecContentsStr;
+    Sect.getContents(SecContentsStr);
 
     //
     // translate machine code to TCG
     //
+    tcg.set_section(Base, SecContentsStr.bytes_begin());
     unsigned icount = tcg.translate(Addr);
 
     //
     // print machine code which was translated
     //
-    uint64_t Offset = Addr - Base;
+    std::ptrdiff_t Offset = Addr - Base;
     printf("%s @ %s+%#lx\n", Sym.getName()->str().c_str(), SectNm.str().c_str(),
            Offset);
     for (unsigned i = 0; i < icount; ++i) {
@@ -151,8 +147,11 @@ int main(int argc, char **argv) {
       uint64_t Size;
       llvm::raw_ostream &DebugOut = llvm::nulls();
       llvm::raw_ostream &CommentStream = llvm::nulls();
+      llvm::ArrayRef<uint8_t> SecContents(
+          reinterpret_cast<const uint8_t *>(SecContentsStr.data()),
+          SecContentsStr.size());
       bool Disassembled = DisAsm->getInstruction(
-          Inst, Size, Bytes.slice(Offset), Addr, DebugOut, CommentStream);
+          Inst, Size, SecContents.slice(Offset), Addr, DebugOut, CommentStream);
       if (!Disassembled) {
         fprintf(stderr, "failed to disassemble %p\n",
                 reinterpret_cast<void *>(Addr));

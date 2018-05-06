@@ -108,6 +108,11 @@ struct tiny_code_generator_t {
 #endif
   }
 
+  void set_section(target_ulong base, const void *contents) {
+    guest_base_addr = base;
+    guest_base = reinterpret_cast<unsigned long>(contents);
+  }
+
   unsigned translate(target_ulong pc) {
     tcg_func_start(&_ctx);
 

@@ -271,8 +271,9 @@ int initialize_decompilation(void) {
     return 0;
   }
 
-  const Elf_Sym *FirstSym = Dyn.Symbols.begin();
-
+  //
+  // iterate dynamic (!undefined) functions
+  //
   for (const Elf_Sym &Sym : Dyn.Symbols) {
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
@@ -281,7 +282,6 @@ int initialize_decompilation(void) {
       continue;
 
     llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
-    fprintf(stderr, "Symbol %s\n", Nm.str().c_str());
 
     unsigned SectIndex = Sym.st_shndx;
     if (SectIndex == llvm::ELF::SHN_XINDEX) {
@@ -291,7 +291,7 @@ int initialize_decompilation(void) {
       }
 
       SectIndex = unwrapOrBail(obj::getExtendedSymbolTableIndex<obj::ELF64LE>(
-          &Sym, FirstSym, Shndx.Table));
+          &Sym, Dyn.Symbols.begin(), Shndx.Table));
     }
 
     const Elf_Shdr *Sec = unwrapOrBail(E.getSection(SectIndex));
@@ -303,14 +303,9 @@ int initialize_decompilation(void) {
         unwrapOrBail(E.getSectionContents(Sec));
 
     //
-    // TCG
-    //
-    guest_base_addr = Base;
-    guest_base = reinterpret_cast<unsigned long>(SecContents.data());
-
-    //
     // translate machine code to TCG
     //
+    tcg.set_section(Base, SecContents.data());
     unsigned icount = tcg.translate(Addr);
 
     //
