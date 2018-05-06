@@ -135,32 +135,36 @@ int main(int argc, char **argv) {
     //
     tcg.set_section(Base, SecContentsStr.bytes_begin());
 
-    unsigned icount;
+    unsigned BBSize;
     jove::terminator_info_t T;
-    std::tie(icount, T) = tcg.translate(Addr);
+    std::tie(BBSize, T) = tcg.translate(Addr);
 
     //
     // print machine code which was translated
     //
     std::ptrdiff_t Offset = Addr - Base;
+    assert(Offset >= 0);
     printf("%s @ %s+%#lx\n", Sym.getName()->str().c_str(), SectNm.str().c_str(),
-           Offset);
-    for (unsigned i = 0; i < icount; ++i) {
+           static_cast<std::uintptr_t>(Offset));
+
+    uint64_t InstLen;
+    for (std::uintptr_t A = Addr; A < Addr + BBSize; A += InstLen) {
       llvm::MCInst Inst;
-      uint64_t Size;
       llvm::raw_ostream &DebugOut = llvm::nulls();
       llvm::raw_ostream &CommentStream = llvm::nulls();
       llvm::ArrayRef<uint8_t> SecContents(
           reinterpret_cast<const uint8_t *>(SecContentsStr.data()),
           SecContentsStr.size());
-      bool Disassembled = DisAsm->getInstruction(
-          Inst, Size, SecContents.slice(Offset), Addr, DebugOut, CommentStream);
+
+      Offset = A - Base;
+      bool Disassembled =
+          DisAsm->getInstruction(Inst, InstLen, SecContents.slice(Offset), Addr,
+                                 DebugOut, CommentStream);
       if (!Disassembled) {
         fprintf(stderr, "failed to disassemble %p\n",
                 reinterpret_cast<void *>(Addr));
         break;
       }
-      Offset += Size;
 
       std::string str;
       {

@@ -395,9 +395,9 @@ static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
 basic_block_t translate_basic_block(function_t &f,
                                     tiny_code_generator_t &tcg,
                                     target_ulong Addr) {
-  unsigned icount;
+  unsigned Size;
   jove::terminator_info_t T;
-  std::tie(icount, T) = tcg.translate(Addr);
+  std::tie(Size, T) = tcg.translate(Addr);
 
 #if 0
   fprintf(stdout, "%s\n", string_of_terminator(T.Type));
@@ -405,12 +405,15 @@ basic_block_t translate_basic_block(function_t &f,
   fputc('\n', stdout);
 #endif
 
-  if (T.Type == TERMINATOR::UNKNOWN)
+  if (T.Type == TERMINATOR::UNKNOWN) {
+    fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
     return boost::graph_traits<function_t>::null_vertex();
+  }
 
   basic_block_t bb = boost::add_vertex(f);
   basic_block_properties_t& bbprop = f[bb];
   bbprop.Addr = Addr;
+  bbprop.Size = Size;
   bbprop.Term.Type = T.Type;
 
   BBMap[Addr] = bb;

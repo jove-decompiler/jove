@@ -20,24 +20,6 @@ enum class TERMINATOR : unsigned {
   RETURN
 };
 
-inline const char *string_of_terminator(TERMINATOR TermTy) {
-  if (TermTy == TERMINATOR::UNCONDITIONAL_JUMP) {
-    return "UNCONDITIONAL_JUMP";
-  } else if (TermTy == TERMINATOR::CONDITIONAL_JUMP) {
-    return "CONDITIONAL_JUMP";
-  } else if (TermTy == TERMINATOR::INDIRECT_CALL) {
-    return "INDIRECT_CALL";
-  } else if (TermTy == TERMINATOR::INDIRECT_JUMP) {
-    return "INDIRECT_JUMP";
-  } else if (TermTy == TERMINATOR::CALL) {
-    return "CALL";
-  } else if (TermTy == TERMINATOR::RETURN) {
-    return "RETURN";
-  } else {
-    return "UNKNOWN";
-  }
-}
-
 struct terminator_info_t {
   TERMINATOR Type;
 
@@ -72,6 +54,7 @@ struct terminator_info_t {
 
 struct basic_block_properties_t {
   std::uintptr_t Addr;
+  std::ptrdiff_t Size;
 
   struct {
     TERMINATOR Type;
@@ -134,5 +117,23 @@ struct decompilation_t {
     ar &Binaries;
   }
 };
+
+inline const char *string_of_terminator(TERMINATOR TermTy) {
+  if (TermTy == TERMINATOR::UNCONDITIONAL_JUMP) {
+    return "UNCONDITIONAL_JUMP";
+  } else if (TermTy == TERMINATOR::CONDITIONAL_JUMP) {
+    return "CONDITIONAL_JUMP";
+  } else if (TermTy == TERMINATOR::INDIRECT_CALL) {
+    return "INDIRECT_CALL";
+  } else if (TermTy == TERMINATOR::INDIRECT_JUMP) {
+    return "INDIRECT_JUMP";
+  } else if (TermTy == TERMINATOR::CALL) {
+    return "CALL";
+  } else if (TermTy == TERMINATOR::RETURN) {
+    return "RETURN";
+  } else {
+    return "UNKNOWN";
+  }
+}
 
 }

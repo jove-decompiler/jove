@@ -142,7 +142,7 @@ struct tiny_code_generator_t {
       }
     }
 
-    return std::make_pair(tb.icount, tb.jove.T);
+    return std::make_pair(tb.size, tb.jove.T);
   }
 
   void dump_operations(void) {
