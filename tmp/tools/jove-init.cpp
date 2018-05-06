@@ -37,16 +37,10 @@ namespace po = boost::program_options;
 namespace obj = llvm::object;
 
 namespace jove {
-static struct {
-  fs::path input;
-  fs::path output;
-} cmdline;
 
-int parse_command_line_arguments(int argc, char **argv);
-
-static bool verify_arch(const obj::ObjectFile &);
-static void print_obj_info(const obj::ObjectFile &);
+static int parse_command_line_arguments(int argc, char **argv);
 static int initialize_decompilation(void);
+
 }
 
 int main(int argc, char **argv) {
@@ -60,6 +54,18 @@ int main(int argc, char **argv) {
 }
 
 namespace jove {
+
+static bool verify_arch(const obj::ObjectFile &);
+static void print_obj_info(const obj::ObjectFile &);
+
+static struct {
+  fs::path input;
+  fs::path output;
+} cmdline;
+
+static bool translate_function(binary_t &,
+                               tiny_code_generator_t &,
+                               target_ulong Addr);
 
 int initialize_decompilation(void) {
   tiny_code_generator_t tcg;
@@ -281,8 +287,9 @@ int initialize_decompilation(void) {
     if (Sym.isUndefined())
       continue;
 
-    llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
-
+    //
+    // get section
+    //
     unsigned SectIndex = Sym.st_shndx;
     if (SectIndex == llvm::ELF::SHN_XINDEX) {
       if (!Shndx.Found) {
@@ -293,27 +300,34 @@ int initialize_decompilation(void) {
       SectIndex = unwrapOrBail(obj::getExtendedSymbolTableIndex<obj::ELF64LE>(
           &Sym, Dyn.Symbols.begin(), Shndx.Table));
     }
-
     const Elf_Shdr &Sec = *unwrapOrBail(E.getSection(SectIndex));
-
-    const std::uintptr_t Base = Sec.sh_addr;
-    const std::uintptr_t Addr = Sym.st_value;
-
-    //
-    // translate machine code to TCG
-    //
+    const std::uintptr_t SectBase = Sec.sh_addr;
     llvm::ArrayRef<uint8_t> SecContents =
         unwrapOrBail(E.getSectionContents(&Sec));
-    tcg.set_section(Base, SecContents.data());
-    unsigned icount = tcg.translate(Addr);
 
     //
-    // print machine code which was translated
+    // print function
     //
-    std::ptrdiff_t Offset = Addr - Base;
+    llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
+    const std::uintptr_t Addr = Sym.st_value;
+    std::ptrdiff_t Offset = Addr - SectBase;
     llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
     printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(), Offset);
 
+    //
+    // prepare TCG
+    //
+    tcg.set_section(SectBase, SecContents.data());
+
+    //
+    // translate function
+    //
+    translate_function(binary, tcg, Addr);
+
+#if 0
+    //
+    // print machine code which was translated
+    //
     for (unsigned i = 0; i < icount; ++i) {
       llvm::MCInst Inst;
       uint64_t Size;
@@ -344,11 +358,50 @@ int initialize_decompilation(void) {
     tcg.dump_operations();
 
     fputc('\n', stdout);
+#endif
   }
 
   write_decompilation();
 
   return 0;
+}
+
+static basic_block_t translate_basic_block(function_t &fn,
+                                           tiny_code_generator_t &tcg,
+                                           target_ulong Addr);
+
+static bool translate_function(binary_t &binary,
+                               tiny_code_generator_t &tcg,
+                               target_ulong Addr) {
+  if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end())
+    return false;
+
+  basic_block_t entry;
+  {
+    function_t &fn = binary.Analysis.Functions[Addr];
+    entry = translate_basic_block(fn, tcg, Addr);
+  }
+
+  if (entry == boost::graph_traits<function_t>::null_vertex()) {
+    binary.Analysis.Functions.erase(binary.Analysis.Functions.find(Addr));
+    return false;
+  }
+
+  return true;
+}
+
+basic_block_t translate_basic_block(function_t &f,
+                                    tiny_code_generator_t &tcg,
+                                    target_ulong Addr) {
+  basic_block_t bb = boost::add_vertex(f);
+  basic_block_properties_t& bbprop = f[bb];
+  bbprop.Addr = Addr;
+
+  unsigned icount = tcg.translate(Addr);
+  tcg.dump_operations();
+  fputc('\n', stdout);
+
+  return bb;
 }
 
 int parse_command_line_arguments(int argc, char **argv) {
