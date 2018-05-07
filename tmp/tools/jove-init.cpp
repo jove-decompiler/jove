@@ -320,11 +320,10 @@ int initialize_decompilation(void) {
     std::ptrdiff_t Offset = Addr - SectBase;
     assert(Offset >= 0);
     llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
-    printf("%s @ %s+%#lx [0x%lx]\n",
+    printf("%s @ %s+%#lx\n",
            Nm.str().c_str(),
            SectNm.str().c_str(),
-           static_cast<std::uintptr_t>(Offset),
-           static_cast<std::uintptr_t>(Sec.sh_size));
+           static_cast<std::uintptr_t>(Offset));
 
     //
     // prepare TCG
@@ -384,10 +383,14 @@ static basic_block_t translate_basic_block(function_t &,
                                            disas_t,
                                            const target_ulong Addr);
 
+static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
+
 static bool translate_function(binary_t &binary,
                                tiny_code_generator_t &tcg,
                                disas_t dis,
                                target_ulong Addr) {
+  BBMap.clear();
+
   if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end())
     return false;
 
@@ -404,8 +407,6 @@ static bool translate_function(binary_t &binary,
 
   return true;
 }
-
-static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
 
 basic_block_t translate_basic_block(function_t &f,
                                     tiny_code_generator_t &tcg,
