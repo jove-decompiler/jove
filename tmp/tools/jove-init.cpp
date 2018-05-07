@@ -422,31 +422,6 @@ basic_block_t translate_basic_block(function_t &f,
     return boost::graph_traits<function_t>::null_vertex();
   }
 
-  {
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-    uint64_t InstLen;
-    llvm::MCInst Inst;
-
-    std::ptrdiff_t Offset = T.Addr - guest_base_addr /* XXX */;
-    bool Disassembled =
-        DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), T.Addr,
-                              llvm::nulls(), llvm::nulls());
-
-    if (!Disassembled) {
-      fprintf(stderr, "failed to disassemble 0x%lx\n", T.Addr);
-    } else {
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP.printInst(&Inst, StrStream, "", STI);
-      }
-      puts(str.c_str());
-    }
-  }
-
   if (T.Type == TERMINATOR::UNREACHABLE) {
     basic_block_t bb = boost::add_vertex(f);
     basic_block_properties_t &bbprop = f[bb];
