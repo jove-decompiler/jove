@@ -1,5 +1,6 @@
 #include "tcgcommon.hpp"
 
+#include <tuple>
 #include <memory>
 #include <sstream>
 #include <fstream>
@@ -63,8 +64,15 @@ static struct {
   fs::path output;
 } cmdline;
 
+typedef std::tuple<llvm::MCDisassembler &,
+                   const llvm::MCSubtargetInfo &,
+                   llvm::MCInstPrinter &> disas_t;
+
+static llvm::ArrayRef<uint8_t> SecContents;
+
 static bool translate_function(binary_t &,
                                tiny_code_generator_t &,
+                               disas_t,
                                target_ulong Addr);
 
 int initialize_decompilation(void) {
@@ -302,8 +310,7 @@ int initialize_decompilation(void) {
     }
     const Elf_Shdr &Sec = *unwrapOrBail(E.getSection(SectIndex));
     const std::uintptr_t SectBase = Sec.sh_addr;
-    llvm::ArrayRef<uint8_t> SecContents =
-        unwrapOrBail(E.getSectionContents(&Sec));
+    SecContents = unwrapOrBail(E.getSectionContents(&Sec));
 
     //
     // print function
@@ -324,7 +331,8 @@ int initialize_decompilation(void) {
     //
     // translate function
     //
-    translate_function(binary, tcg, Addr);
+    translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
+                       Addr);
 
 #if 0
     //
@@ -368,12 +376,14 @@ int initialize_decompilation(void) {
   return 0;
 }
 
-static basic_block_t translate_basic_block(function_t &fn,
-                                           tiny_code_generator_t &tcg,
+static basic_block_t translate_basic_block(function_t &,
+                                           tiny_code_generator_t &,
+                                           disas_t,
                                            const target_ulong Addr);
 
 static bool translate_function(binary_t &binary,
                                tiny_code_generator_t &tcg,
+                               disas_t dis,
                                target_ulong Addr) {
   if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end())
     return false;
@@ -381,7 +391,7 @@ static bool translate_function(binary_t &binary,
   basic_block_t entry;
   {
     function_t &fn = binary.Analysis.Functions[Addr];
-    entry = translate_basic_block(fn, tcg, Addr);
+    entry = translate_basic_block(fn, tcg, dis, Addr);
   }
 
   if (entry == boost::graph_traits<function_t>::null_vertex()) {
@@ -396,6 +406,7 @@ static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
 
 basic_block_t translate_basic_block(function_t &f,
                                     tiny_code_generator_t &tcg,
+                                    disas_t dis,
                                     const target_ulong Addr) {
   unsigned Size;
   jove::terminator_info_t T;
@@ -409,6 +420,34 @@ basic_block_t translate_basic_block(function_t &f,
 
   if (T.Type == TERMINATOR::UNKNOWN) {
     fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
+
+    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+    llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+    uint64_t InstLen;
+    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
+      std::ptrdiff_t Offset = A - guest_base_addr /* XXX */;
+
+      llvm::MCInst Inst;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), A,
+                                llvm::nulls(), llvm::nulls());
+
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
+        break;
+      }
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP.printInst(&Inst, StrStream, "", STI);
+      }
+      puts(str.c_str());
+    }
+
     return boost::graph_traits<function_t>::null_vertex();
   }
 
@@ -431,7 +470,7 @@ basic_block_t translate_basic_block(function_t &f,
       return;
     }
 
-    basic_block_t succ = translate_basic_block(f, tcg, Target);
+    basic_block_t succ = translate_basic_block(f, tcg, dis, Target);
     if (succ != boost::graph_traits<function_t>::null_vertex())
       boost::add_edge(bb, succ, f);
   };
