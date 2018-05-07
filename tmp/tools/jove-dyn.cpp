@@ -2,7 +2,7 @@
 
 #include <memory>
 #include <sstream>
-#include <set>
+#include <fstream>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
 #include <llvm/Object/ELFObjectFile.h>
@@ -34,6 +34,12 @@
 #include <unistd.h>
 
 #include "jove/jove.h"
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
@@ -42,8 +48,9 @@ namespace obj = llvm::object;
 namespace jove {
 
 static int ChildProc(int argc, char **argv);
-static int ParentProc(pid_t child, int argc, char **argv);
-
+static int ParentProc(pid_t child,
+                      const char *decompilation_path,
+                      const char *binary_path);
 }
 
 int main(int argc, char **argv) {
@@ -52,17 +59,21 @@ int main(int argc, char **argv) {
   llvm::PrettyStackTraceProgram X(argc, argv);
   llvm::llvm_shutdown_obj Y;
 
-  if (argc < 3 || !fs::exists(argv[1]) | !fs::exists(argv[2])) {
-    fprintf(stderr, "%s <SHARED-OBJECT> <PROGRAM-ARG1> <PROGRAM-ARG2> ...\n",
+  if (argc < 4 ||
+      !fs::exists(argv[1]) ||
+      !fs::exists(argv[2]) ||
+      !fs::exists(argv[3])) {
+    fprintf(stderr,
+            "usage: %s <DECOMPILATION.jv> <ELF> <PROG> [<ARG1> <ARG2> ...]\n",
             argv[0]);
     return 1;
   }
 
   pid_t child = fork();
   if (!child)
-    return jove::ChildProc(argc - 1, argv + 1);
+    return jove::ChildProc(argc - 2, argv + 2);
 
-  return jove::ParentProc(child, argc, argv);
+  return jove::ParentProc(child, argv[1], argv[2]);
 }
 
 namespace jove {
@@ -109,9 +120,19 @@ static const char *string_of_program_point(char (&out)[N], uintptr_t pc) {
 }
 
 static const char *name_of_signal_number(int);
-static const char *name_of_syscall_number(int no);
+static const char *name_of_syscall_number(int);
 
-int ParentProc(pid_t child, int argc, char **argv) {
+int ParentProc(pid_t child,
+               const char *decompilation_path,
+               const char *binary_path) {
+  decompilation_t decompilation;
+  {
+    std::ifstream ifs(decompilation_path);
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
@@ -120,11 +141,11 @@ int ParentProc(pid_t child, int argc, char **argv) {
   llvm::InitializeAllDisassemblers();
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(argv[1]);
+      obj::createBinary(binary_path);
 
   if (!BinaryOrErr ||
       !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
-    fprintf(stderr, "failed to open %s\n", argv[1]);
+    fprintf(stderr, "failed to open %s\n", binary_path);
     return 1;
   }
 
@@ -306,6 +327,7 @@ int ParentProc(pid_t child, int argc, char **argv) {
         // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
         // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
         //
+#if 0
         long no = ptrace(PTRACE_PEEKUSER, child,
 #if defined(TARGET_X86_64)
                          __builtin_offsetof(struct user, regs.orig_rax),
@@ -346,6 +368,7 @@ int ParentProc(pid_t child, int argc, char **argv) {
 
         if (Base)
           fprintf(stderr, "%s @ %" PRIx64 "\n", argv[1], Base);
+#endif
 
         //
         // is this a system call enter or exit stop?

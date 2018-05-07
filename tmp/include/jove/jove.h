@@ -38,7 +38,7 @@ struct basic_block_properties_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
+    ar &Addr &Size &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
   }
 };
 
