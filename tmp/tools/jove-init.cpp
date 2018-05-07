@@ -121,8 +121,6 @@ int initialize_decompilation(void) {
     return 1;
   }
 
-  //print_obj_info(O);
-
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
   std::string Error;
@@ -403,7 +401,7 @@ basic_block_t translate_basic_block(function_t &f,
       llvm::MCInst Inst;
       bool Disassembled =
           DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), A,
-                                llvm::errs(), llvm::errs());
+                                llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
         fprintf(stderr, "failed to disassemble %p\n",
@@ -563,16 +561,6 @@ bool verify_arch(const obj::ObjectFile &Obj) {
 #endif
 
   return Obj.getArch() == archty;
-}
-
-void print_obj_info(const obj::ObjectFile &Obj) {
-  printf("File: %s\n"
-         "Format: %s\n"
-         "Arch: %s\n"
-         "AddressSize: %ubit\n",
-         Obj.getFileName().str().c_str(), Obj.getFileFormatName().str().c_str(),
-         llvm::Triple::getArchTypeName(Obj.getArch()).str().c_str(),
-         8 * Obj.getBytesInAddress());
 }
 
 }
