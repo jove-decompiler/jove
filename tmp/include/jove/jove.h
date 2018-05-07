@@ -17,7 +17,8 @@ enum class TERMINATOR : unsigned {
   INDIRECT_CALL,
   INDIRECT_JUMP,
   CALL,
-  RETURN
+  RETURN,
+  UNREACHABLE
 };
 
 struct basic_block_properties_t {
@@ -99,6 +100,8 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
     return "CALL";
   } else if (TermTy == TERMINATOR::RETURN) {
     return "RETURN";
+  } else if (TermTy == TERMINATOR::UNREACHABLE) {
+    return "UNREACHABLE";
   } else {
     return "UNKNOWN";
   }
@@ -133,6 +136,10 @@ struct terminator_info_t {
     struct {
       /* deliberately left empty */
     } _return;
+
+    struct {
+      /* deliberately left empty */
+    } _unreachable;
   };
 };
 

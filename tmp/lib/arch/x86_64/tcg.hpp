@@ -18440,6 +18440,10 @@ static inline void gen_repz_ ## op(DisasContext *s, TCGMemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s->aflag, l2);                                          \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 #define GEN_REPZ2(op)                                                         \
@@ -18458,6 +18462,10 @@ static inline void gen_repz_ ## op(DisasContext *s, TCGMemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s->aflag, l2);                                          \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 GEN_REPZ(movs)
@@ -19744,6 +19752,8 @@ static void gen_exception(DisasContext *s, int trapno, target_ulong cur_eip)
 static void gen_illegal_opcode(DisasContext *s)
 {
     gen_exception(s, EXCP06_ILLOP, s->pc_start - s->cs_base);
+
+    s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
 static void gen_unknown_opcode(CPUX86State *env, DisasContext *s)
@@ -22302,6 +22312,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_jmp_v(cpu_T0);
             gen_bnd_jmp(s);
             gen_jr(s, cpu_T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 3: /* lcall Ev */
             gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
@@ -22321,6 +22334,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(cpu_tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, cpu_tmp4);
+
+            next_eip = s->pc - s->cs_base;
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 4: /* jmp Ev */
             if (dflag == MO_16) {
@@ -22329,6 +22346,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_jmp_v(cpu_T0);
             gen_bnd_jmp(s);
             gen_jr(s, cpu_T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 5: /* ljmp Ev */
             gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
@@ -22345,6 +22364,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(cpu_tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, cpu_tmp4);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 6: /* push Ev */
             gen_push_v(s, cpu_T0);
@@ -23757,6 +23778,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_stack_update(s, val + (2 << dflag));
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xcb: /* lret */
         val = 0;
@@ -23780,6 +23803,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             set_cc_op(s, CC_OP_EFLAGS);
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xe8: /* call im */
         {
@@ -23800,8 +23825,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_bnd_jmp(s);
             gen_jmp(s, tval);
 
-            s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
             s->base.tb->jove.T._call.Target = tval;
+            s->base.tb->jove.T._call.NextPC = next_eip;
         }
         break;
     case 0x9a: /* lcall im */
