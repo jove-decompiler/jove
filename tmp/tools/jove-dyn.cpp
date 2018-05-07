@@ -136,6 +136,13 @@ int ParentProc(pid_t child,
     ia >> decompilation;
   }
 
+  auto write_decompilation = [&](void) -> void {
+    std::ofstream ofs(decompilation_path);
+
+    boost::archive::text_oarchive oa(ofs);
+    oa << decompilation;
+  };
+
   //
   // find the given binary in the decompilation
   //
@@ -339,7 +346,7 @@ int ParentProc(pid_t child,
 
     if (unlikely(child < 0)) {
       fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
-      return 0;
+      break;
     }
 
     if (likely(WIFSTOPPED(status))) {
@@ -551,6 +558,7 @@ int ParentProc(pid_t child,
     }
   }
 
+  write_decompilation();
   return 0;
 }
 
