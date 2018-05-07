@@ -15,8 +15,7 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -lboost_filesystem \
 	   -lboost_system \
 	   -lboost_program_options \
-	   -lboost_serialization \
-	   -fuse-ld=lld
+	   -lboost_serialization
 
 ARCHS := x86_64 \
          aarch64

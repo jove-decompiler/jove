@@ -62,6 +62,7 @@ static void print_obj_info(const obj::ObjectFile &);
 static struct {
   fs::path input;
   fs::path output;
+  bool verbose;
 } cmdline;
 
 typedef std::tuple<llvm::MCDisassembler &,
@@ -120,7 +121,7 @@ int initialize_decompilation(void) {
     return 1;
   }
 
-  print_obj_info(O);
+  //print_obj_info(O);
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -320,10 +321,9 @@ int initialize_decompilation(void) {
     std::ptrdiff_t Offset = Addr - SectBase;
     assert(Offset >= 0);
     llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
-    printf("%s @ %s+%#lx\n",
-           Nm.str().c_str(),
-           SectNm.str().c_str(),
-           static_cast<std::uintptr_t>(Offset));
+    if (cmdline.verbose)
+      printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(),
+             static_cast<std::uintptr_t>(Offset));
 
     //
     // prepare TCG
@@ -532,6 +532,7 @@ basic_block_t translate_basic_block(function_t &f,
 int parse_command_line_arguments(int argc, char **argv) {
   fs::path &ifp = cmdline.input;
   fs::path &ofp = cmdline.output;
+  bool &verbose = cmdline.verbose;
 
   try {
     po::options_description desc("Allowed options");
@@ -542,7 +543,10 @@ int parse_command_line_arguments(int argc, char **argv) {
        "input binary")
 
       ("output,o", po::value<fs::path>(&ofp),
-       "output file path");
+       "output file path")
+
+      ("verbose,v", po::value<bool>(&verbose)->default_value(false),
+       "be verbose");
 
     po::positional_options_description p;
     p.add("input", -1);
