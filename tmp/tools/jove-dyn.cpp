@@ -44,12 +44,39 @@ namespace jove {
 static int ChildProc(int argc, char **argv);
 static int ParentProc(pid_t child, int argc, char **argv);
 
-static void verify_arch(const obj::ObjectFile &);
-static void print_obj_info(const obj::ObjectFile &);
+}
+
+int main(int argc, char **argv) {
+  llvm::StringRef ToolName = argv[0];
+  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
+  llvm::PrettyStackTraceProgram X(argc, argv);
+  llvm::llvm_shutdown_obj Y;
+
+  if (argc < 3 || !fs::exists(argv[1]) | !fs::exists(argv[2])) {
+    fprintf(stderr, "%s <SHARED-OBJECT> <PROGRAM-ARG1> <PROGRAM-ARG2> ...\n",
+            argv[0]);
+    return 1;
+  }
+
+  pid_t child = fork();
+  if (!child)
+    return jove::ChildProc(argc - 1, argv + 1);
+
+  return jove::ParentProc(child, argc, argv);
+}
+
+namespace jove {
+
 static bool update_view_of_virtual_memory(int child);
 
+static void verify_arch(const obj::ObjectFile &);
+static void print_obj_info(const obj::ObjectFile &);
+
 struct vm_properties_t {
-  uintptr_t beg, end, off;
+  std::uintptr_t beg;
+  std::uintptr_t end;
+  std::ptrdiff_t off;
+
   bool r, w, x; /* unix permissions */
   bool p;       /* private memory? (i.e. not shared) */
 
@@ -82,94 +109,7 @@ static const char *string_of_program_point(char (&out)[N], uintptr_t pc) {
 }
 
 static const char *name_of_signal_number(int);
-
-const char *name_of_syscall_number(int no);
-
-}
-
-int main(int argc, char **argv) {
-  llvm::StringRef ToolName = argv[0];
-  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::llvm_shutdown_obj Y;
-
-  if (argc < 3 || !fs::exists(argv[1]) | !fs::exists(argv[2])) {
-    fprintf(stderr, "%s <SHARED-OBJECT> <PROGRAM-ARG1> <PROGRAM-ARG2> ...\n",
-            argv[0]);
-    return 1;
-  }
-
-  pid_t child = fork();
-  if (!child)
-    return jove::ChildProc(argc - 1, argv + 1);
-
-  return jove::ParentProc(child, argc, argv);
-}
-
-namespace jove {
-
-bool update_view_of_virtual_memory(int child) {
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-
-  {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/maps", child);
-
-    fp = fopen(path, "r");
-  }
-
-  if (fp == NULL) {
-    return false;
-  }
-
-  allvms.clear();
-  vmm.clear();
-
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
-
-    if ((fields < 10) || (fields > 11)) {
-      continue;
-    }
-
-    auto intervl =
-        boost::icl::discrete_interval<uintptr_t>::right_open(min, max);
-
-    vm_properties_t vmprop;
-    vmprop.beg = min;
-    vmprop.end = max;
-    vmprop.off = offset;
-    vmprop.r = flag_r == 'r';
-    vmprop.w = flag_w == 'w';
-    vmprop.x = flag_x == 'x';
-    vmprop.p = flag_p == 'p';
-    vmprop.nm = path;
-
-    //
-    // create the mappings
-    //
-    allvms.insert(intervl);
-
-    vm_prop_set_t vmprops = {vmprop};
-    vmm.add(make_pair(intervl, vmprops));
-  }
-
-  free(line);
-  fclose(fp);
-
-  return true;
-}
+static const char *name_of_syscall_number(int no);
 
 int ParentProc(pid_t child, int argc, char **argv) {
   tiny_code_generator_t tcg;
@@ -611,6 +551,69 @@ void verify_arch(const obj::ObjectFile &Obj) {
     fprintf(stderr, "error: architecture mismatch\n");
     exit(1);
   }
+}
+
+bool update_view_of_virtual_memory(int child) {
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/maps", child);
+
+    fp = fopen(path, "r");
+  }
+
+  if (fp == NULL) {
+    return false;
+  }
+
+  allvms.clear();
+  vmm.clear();
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    int fields, dev_maj, dev_min, inode;
+    uint64_t min, max, offset;
+    char flag_r, flag_w, flag_x, flag_p;
+    char path[512] = "";
+    fields = sscanf(line,
+                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
+                    " %512s",
+                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &dev_maj, &dev_min, &inode, path);
+
+    if ((fields < 10) || (fields > 11)) {
+      continue;
+    }
+
+    auto intervl =
+        boost::icl::discrete_interval<uintptr_t>::right_open(min, max);
+
+    vm_properties_t vmprop;
+    vmprop.beg = min;
+    vmprop.end = max;
+    vmprop.off = offset;
+    vmprop.r = flag_r == 'r';
+    vmprop.w = flag_w == 'w';
+    vmprop.x = flag_x == 'x';
+    vmprop.p = flag_p == 'p';
+    vmprop.nm = path;
+
+    //
+    // create the mappings
+    //
+    allvms.insert(intervl);
+
+    vm_prop_set_t vmprops = {vmprop};
+    vmm.add(make_pair(intervl, vmprops));
+  }
+
+  free(line);
+  fclose(fp);
+
+  return true;
 }
 
 void print_obj_info(const obj::ObjectFile &Obj) {

@@ -26,6 +26,7 @@ struct basic_block_properties_t {
   std::ptrdiff_t Size;
 
   struct {
+    std::uintptr_t Addr;
     TERMINATOR Type;
 
     struct {
@@ -37,7 +38,7 @@ struct basic_block_properties_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
+    ar &Addr &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
   }
 };
 
@@ -109,6 +110,7 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
 
 struct terminator_info_t {
   TERMINATOR Type;
+  std::uintptr_t Addr;
 
   union {
     struct {
