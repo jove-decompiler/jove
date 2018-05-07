@@ -333,44 +333,10 @@ int initialize_decompilation(void) {
     //
     // translate function
     //
-    translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
-                       Addr);
-
-#if 0
-    //
-    // print machine code which was translated
-    //
-    for (unsigned i = 0; i < icount; ++i) {
-      llvm::MCInst Inst;
-      uint64_t Size;
-      llvm::raw_ostream &DebugOut = llvm::nulls();
-      llvm::raw_ostream &CommentStream = llvm::nulls();
-      bool Disassembled = DisAsm->getInstruction(
-          Inst, Size, SecContents.slice(Offset), Addr, DebugOut, CommentStream);
-      if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n",
-                reinterpret_cast<void *>(Addr));
-        break;
-      }
-      Offset += Size;
-
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP->printInst(&Inst, StrStream, "", *STI);
-      }
-      puts(str.c_str());
-    }
-
-    fputc('\n', stdout);
-
-    //
-    // print TCG
-    //
-    tcg.dump_operations();
-
-    fputc('\n', stdout);
-#endif
+    if (!translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
+                            Addr))
+      fprintf(stderr, "failed to translate %s @ %s+%#lx\n", Nm.str().c_str(),
+              SectNm.str().c_str(), static_cast<std::uintptr_t>(Offset));
   }
 
   write_decompilation();
@@ -389,10 +355,11 @@ static bool translate_function(binary_t &binary,
                                tiny_code_generator_t &tcg,
                                disas_t dis,
                                target_ulong Addr) {
-  BBMap.clear();
+  if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end()) {
+    return true;
+  }
 
-  if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end())
-    return false;
+  BBMap.clear();
 
   basic_block_t entry;
   {
