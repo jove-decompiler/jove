@@ -57,7 +57,6 @@ int main(int argc, char **argv) {
 namespace jove {
 
 static bool verify_arch(const obj::ObjectFile &);
-static void print_obj_info(const obj::ObjectFile &);
 
 static struct {
   fs::path input;
