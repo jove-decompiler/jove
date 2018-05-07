@@ -166,7 +166,7 @@ int ParentProc(pid_t child,
         memcmp(&binary.Data[0],
                BinFileBuffer->getBufferStart(),
                binary.Data.size()) != 0) {
-      fprintf(stderr, "binary contents %s have changed\n", binary_path);
+      fprintf(stderr, "contents of binary %s have changed\n", binary_path);
       return 1;
     }
   }
