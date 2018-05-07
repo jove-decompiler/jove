@@ -125,12 +125,50 @@ static const char *name_of_syscall_number(int);
 int ParentProc(pid_t child,
                const char *decompilation_path,
                const char *binary_path) {
+  //
+  // parse the existing decompilation file
+  //
   decompilation_t decompilation;
   {
     std::ifstream ifs(decompilation_path);
 
     boost::archive::text_iarchive ia(ifs);
     ia >> decompilation;
+  }
+
+  //
+  // find the given binary in the decompilation
+  //
+  auto it =
+      decompilation.Binaries.find(fs::canonical(binary_path).string().c_str());
+  if (it == decompilation.Binaries.end()) {
+    fprintf(stderr, "binary %s not found in %s", binary_path,
+            decompilation_path);
+    return 1;
+  }
+
+  binary_t& binary = (*it).second;
+
+  {
+    //
+    // let's be sure that the binary hasn't changed a bit
+    //
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BinFileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(binary_path);
+
+    if (std::error_code EC = BinFileOrErr.getError()) {
+      fprintf(stderr, "failed to open binary %s\n", binary_path);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &BinFileBuffer = BinFileOrErr.get();
+    if (binary.Data.size() != BinFileBuffer->getBufferSize() ||
+        memcmp(&binary.Data[0],
+               BinFileBuffer->getBufferStart(),
+               binary.Data.size()) != 0) {
+      fprintf(stderr, "binary contents %s have changed\n", binary_path);
+      return 1;
+    }
   }
 
   tiny_code_generator_t tcg;
