@@ -1,5 +1,6 @@
 #include "tcgcommon.hpp"
 
+#include <tuple>
 #include <numeric>
 #include <memory>
 #include <sstream>
@@ -126,8 +127,13 @@ static const char *name_of_signal_number(int);
 
 static std::uintptr_t BinaryLoadAddress = 0;
 
+typedef std::tuple<llvm::MCDisassembler &,
+                   const llvm::MCSubtargetInfo &,
+                   llvm::MCInstPrinter &> disas_t;
+
 static void install_breakpoints(pid_t child,
                                 binary_t &,
+                                disas_t,
                                 std::uintptr_t LoadAddress);
 
 int ParentProc(pid_t child,
@@ -422,7 +428,10 @@ int ParentProc(pid_t child,
         std::uintptr_t Base = search_address_space(binary_path);
         if (Base) {
           fprintf(stdout, "%s @ %" PRIx64 "\n", binary_path, Base);
-          install_breakpoints(child, binary, Base);
+          install_breakpoints(child,
+                              binary,
+                              disas_t(*DisAsm, std::cref(*STI), *IP),
+                              Base);
 
           BinaryLoadAddress = Base;
         }
@@ -578,6 +587,7 @@ static std::unordered_map<void *, std::vector<uint8_t>> brkpts;
 
 void install_breakpoints(pid_t child,
                          binary_t &binary,
+                         disas_t dis,
                          std::uintptr_t LoadAddress) {
   auto relocate = [=](std::uintptr_t Addr) -> std::uintptr_t {
     return Addr + LoadAddress;
@@ -656,6 +666,33 @@ void install_breakpoints(pid_t child,
     }
 
     idx += N;
+  }
+
+  //
+  // disassemble the instructions at the breakpoints
+  //
+  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+  const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+  llvm::MCInstPrinter &IP = std::get<2>(dis);
+  for (const std::pair<void *, std::vector<uint8_t>> &pair : brkpts) {
+    uint64_t InstLen;
+    llvm::MCInst Inst;
+    bool Disassembled =
+        DisAsm.getInstruction(Inst, InstLen, pair.second,
+                              reinterpret_cast<std::uintptr_t>(pair.first),
+                              llvm::nulls(), llvm::nulls());
+
+    if (!Disassembled) {
+      fprintf(stderr, "failed to disassemble %p\n", pair.first);
+      break;
+    }
+
+    std::string str;
+    {
+      llvm::raw_string_ostream StrStream(str);
+      IP.printInst(&Inst, StrStream, "", STI);
+    }
+    puts(str.c_str());
   }
 }
 
