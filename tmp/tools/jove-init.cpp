@@ -428,6 +428,7 @@ basic_block_t translate_basic_block(function_t &f,
     bbprop.Addr = 0x0;
     bbprop.Size = -1;
     bbprop.Term.Type = TERMINATOR::UNREACHABLE;
+    bbprop.Term.Addr = T.Addr;
     return bb;
   }
 
@@ -436,6 +437,7 @@ basic_block_t translate_basic_block(function_t &f,
   bbprop.Addr = Addr;
   bbprop.Size = Size;
   bbprop.Term.Type = T.Type;
+  bbprop.Term.Addr = T.Addr;
 
   BBMap[Addr] = bb;
 

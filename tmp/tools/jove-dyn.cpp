@@ -32,6 +32,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <asm/unistd.h>
 
 #include "jove/jove.h"
 #include <boost/archive/text_iarchive.hpp>
@@ -63,7 +64,7 @@ int main(int argc, char **argv) {
       !fs::exists(argv[1]) ||
       !fs::exists(argv[2]) ||
       !fs::exists(argv[3])) {
-    fprintf(stderr,
+    fprintf(stdout,
             "usage: %s <DECOMPILATION.jv> <ELF> <PROG> [<ARG1> <ARG2> ...]\n",
             argv[0]);
     return 1;
@@ -120,7 +121,10 @@ static const char *string_of_program_point(char (&out)[N], uintptr_t pc) {
 }
 
 static const char *name_of_signal_number(int);
-static const char *name_of_syscall_number(int);
+
+static std::uintptr_t BinaryLoadAddress = 0;
+
+static void install_breakpoints(binary_t &, std::uintptr_t LoadAddress);
 
 int ParentProc(pid_t child,
                const char *decompilation_path,
@@ -265,12 +269,12 @@ int ParentProc(pid_t child,
   //
   // observe the (initial) signal-delivery-stop
   //
-  fprintf(stderr, "parent: waiting for initial stop of child %d...\n", child);
+  fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
   int status;
   do
     waitpid(child, &status, 0);
   while (!WIFSTOPPED(status));
-  fprintf(stderr, "parent: initial stop observed\n");
+  fprintf(stdout, "parent: initial stop observed\n");
 
   //
   // select ptrace options
@@ -318,18 +322,18 @@ int ParentProc(pid_t child,
   //
   // set those options
   //
-  fprintf(stderr, "parent: setting ptrace options...\n");
+  fprintf(stdout, "parent: setting ptrace options...\n");
   ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
-  fprintf(stderr, "ptrace options set!\n");
+  fprintf(stdout, "ptrace options set!\n");
 
   siginfo_t si;
   long sig = 0;
 
   for (;;) {
     if (likely(!(child < 0))) {
-      if (unlikely(ptrace(PTRACE_SYSCALL, child, nullptr,
-                          reinterpret_cast<void *>(sig)) < 0))
-        fprintf(stderr, "failed to PTRACE_SYSCALL : %s [%d]\n", strerror(errno),
+      if (unlikely(ptrace(BinaryLoadAddress ? PTRACE_CONT : PTRACE_SYSCALL,
+                          child, nullptr, reinterpret_cast<void *>(sig)) < 0))
+        fprintf(stdout, "failed to resume tracee : %s [%d]\n", strerror(errno),
                 child);
     }
 
@@ -345,7 +349,7 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+      fprintf(stdout, "waitpid failed : %s\n", strerror(errno));
       break;
     }
 
@@ -372,48 +376,52 @@ int ParentProc(pid_t child,
         // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
         // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
         //
-#if 0
         long no = ptrace(PTRACE_PEEKUSER, child,
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
                          __builtin_offsetof(struct user, regs.orig_rax),
-#elif defined(TARGET_AARCH64)
-                         __builtin_offsetof(struct user, regs.r15),
+#elif defined(__arm64__)
+                         __builtin_offsetof(struct user, regs.r8),
 #else
 #error "unknown architecture"
 #endif
                          nullptr);
 
-        const char *nm = name_of_syscall_number(no);
-        if (nm)
-          fprintf(stderr, "syscall %s\n", nm);
-        else
-          fprintf(stderr, "syscall %ld\n", no);
+        if (no != __NR_mmap)
+          continue;
 
         if (!update_view_of_virtual_memory(child)) {
-          fprintf(stderr, "failed to read virtual memory maps of child %d\n",
+          fprintf(stdout, "failed to read virtual memory maps of child %d\n",
                   child);
           return 1;
         }
 
-        std::uintptr_t Base = 0;
+        auto search_address_space = [&](const char *path) -> std::uintptr_t {
+          std::uintptr_t Base = 0;
 
-        for (auto &vm_prop_set : vmm) {
-          const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
-          if (vm_prop.off)
-            continue;
+          for (auto &vm_prop_set : vmm) {
+            const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
+            if (vm_prop.off)
+              continue;
 
-          if (vm_prop.nm.empty())
-            continue;
+            if (vm_prop.nm.empty())
+              continue;
 
-          if (fs::equivalent(vm_prop.nm, argv[1])) {
-            Base = vm_prop.beg;
-            break;
+            if (fs::equivalent(vm_prop.nm, path)) {
+              Base = vm_prop.beg;
+              break;
+            }
           }
-        }
 
-        if (Base)
-          fprintf(stderr, "%s @ %" PRIx64 "\n", argv[1], Base);
-#endif
+          return Base;
+        };
+
+        std::uintptr_t Base = search_address_space(binary_path);
+        if (Base) {
+          fprintf(stdout, "%s @ %" PRIx64 "\n", binary_path, Base);
+          install_breakpoints(binary, Base);
+
+          BinaryLoadAddress = Base;
+        }
 
         //
         // is this a system call enter or exit stop?
@@ -427,44 +435,44 @@ int ParentProc(pid_t child,
         //
         switch (event) {
         case PTRACE_EVENT_VFORK:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
           break;
         case PTRACE_EVENT_FORK:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
           break;
         case PTRACE_EVENT_CLONE: {
           pid_t new_child;
           ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
                   new_child, child);
           break;
         }
         case PTRACE_EVENT_VFORK_DONE:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n", child);
           break;
         case PTRACE_EVENT_EXEC:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
           break;
         case PTRACE_EVENT_EXIT:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
           break;
         case PTRACE_EVENT_STOP:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
           break;
         case PTRACE_EVENT_SECCOMP:
-          fprintf(stderr, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n", child);
+          fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n", child);
           break;
         default:
           if (ptrace(PTRACE_GETSIGINFO, child, 0l, &si) == -1) {
-            fprintf(stderr,
+            fprintf(stdout,
                     "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
                     event, strerror(errno), child);
           } else {
             if (si.si_code == TRAP_BRKPT) {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
               constexpr unsigned forward_offset = 4;
-#elif defined(TARGET_AARCH64)
+#elif defined(__arm64__)
               constexpr unsigned forward_offset = 4;
 #else
 #error "unknown architecture"
@@ -475,9 +483,9 @@ int ParentProc(pid_t child,
               // jump past the breakpoint
               //
               ptrace(PTRACE_POKEUSER, child,
-#ifdef TARGET_X86_64
+#if defined(__x86_64__)
                      __builtin_offsetof(struct user, regs.rip),
-#elif defined(TARGET_AARCH64)
+#elif defined(__arm64__)
                      __builtin_offsetof(struct user, regs.r15),
 #else
 #error "unknown architecture"
@@ -488,15 +496,15 @@ int ParentProc(pid_t child,
               // detach from tracing this thread
               //
               if (ptrace(PTRACE_DETACH, child, nullptr, nullptr) == -1) {
-                fprintf(stderr, "failed to detach from %d : %s\n", child,
+                fprintf(stdout, "failed to detach from %d : %s\n", child,
                         strerror(errno));
               } else {
-                fprintf(stderr, "detached from %d\n", child);
+                fprintf(stdout, "detached from %d\n", child);
 
                 child = -1;
               }
             } else {
-              fprintf(stderr, "unknown ptrace event %u @ %p [%d]\n", event,
+              fprintf(stdout, "unknown ptrace event %u @ %p [%d]\n", event,
                       si.si_addr, child);
             }
           }
@@ -507,7 +515,7 @@ int ParentProc(pid_t child,
         // (3) group-stop
         //
 
-        fprintf(stderr, "ptrace group-stop [%d]\n", child);
+        fprintf(stdout, "ptrace group-stop [%d]\n", child);
 
         // When restarting a tracee from a ptrace-stop other than
         // signal-delivery-stop, recommended practice is to always pass 0 in
@@ -522,9 +530,9 @@ int ParentProc(pid_t child,
           update_view_of_virtual_memory(child);
 
           long pc = ptrace(PTRACE_PEEKUSER, child,
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
                            __builtin_offsetof(struct user, regs.rip),
-#elif defined(TARGET_AARCH64)
+#elif defined(__arm64__)
                            __builtin_offsetof(struct user, regs.r15),
 #else
 #error "unknown architecture"
@@ -532,16 +540,16 @@ int ParentProc(pid_t child,
                            nullptr);
 
           char buff[0x100];
-          fprintf(stderr, "tracee SIGSEGV @ %s : *(%p)\n",
+          fprintf(stdout, "tracee SIGSEGV @ %s : *(%p)\n",
                   string_of_program_point(buff, pc), si.si_addr);
         }
 
         default:
           const char *signm = name_of_signal_number(stopsig);
           if (signm)
-            fprintf(stderr, "delivering signal %s [%d]\n", signm, child);
+            fprintf(stdout, "delivering signal %s [%d]\n", signm, child);
           else
-            fprintf(stderr, "delivering signal number %d [%d]\n", stopsig,
+            fprintf(stdout, "delivering signal number %d [%d]\n", stopsig,
                     child);
 
           // deliver it
@@ -553,13 +561,32 @@ int ParentProc(pid_t child,
       //
       // the child terminated
       //
-      fprintf(stderr, "child %d terminated\n", child);
+      fprintf(stdout, "child %d terminated\n", child);
       child = -1;
     }
   }
 
   write_decompilation();
   return 0;
+}
+
+void install_breakpoints(binary_t &binary, std::uintptr_t LoadAddress) {
+  for (auto it = binary.Analysis.Functions.begin();
+       it != binary.Analysis.Functions.end(); ++it) {
+    function_t &f = (*it).second;
+
+    function_t::vertex_iterator vi, vi_end;
+    for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
+      basic_block_t bb = *vi;
+      if (!(f[bb].Term.Type == TERMINATOR::INDIRECT_CALL ||
+            f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP))
+        continue;
+
+      fprintf(stdout, "%s @ 0x%lx\n",
+              string_of_terminator(f[bb].Term.Type),
+              f[bb].Term.Addr);
+    }
+  }
 }
 
 int ChildProc(int argc, char **argv) {
@@ -608,9 +635,9 @@ int ChildProc(int argc, char **argv) {
 }
 
 void verify_arch(const obj::ObjectFile &Obj) {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(TARGET_AARCH64)
+#elif defined(__arm64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
 #else
 #error "unknown architecture"
@@ -794,16 +821,6 @@ const char *name_of_signal_number(int num) {
   }
 
   return nullptr;
-}
-
-static const char *syscall_names[/* __NR_syscalls */ 400] = {
-#define __SYSCALL(no, name) [no] = #name,
-#include <asm-generic/unistd.h>
-#undef __SYSCALL
-};
-
-const char *name_of_syscall_number(int no) {
-  return syscall_names[no];
 }
 
 }
