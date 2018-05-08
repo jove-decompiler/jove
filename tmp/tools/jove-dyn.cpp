@@ -1,5 +1,6 @@
 #include "tcgcommon.hpp"
 
+#include <numeric>
 #include <memory>
 #include <sstream>
 #include <fstream>
@@ -33,6 +34,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <asm/unistd.h>
+#include <sys/uio.h>
 
 #include "jove/jove.h"
 #include <boost/archive/text_iarchive.hpp>
@@ -124,7 +126,9 @@ static const char *name_of_signal_number(int);
 
 static std::uintptr_t BinaryLoadAddress = 0;
 
-static void install_breakpoints(binary_t &, std::uintptr_t LoadAddress);
+static void install_breakpoints(pid_t child,
+                                binary_t &,
+                                std::uintptr_t LoadAddress);
 
 int ParentProc(pid_t child,
                const char *decompilation_path,
@@ -418,7 +422,7 @@ int ParentProc(pid_t child,
         std::uintptr_t Base = search_address_space(binary_path);
         if (Base) {
           fprintf(stdout, "%s @ %" PRIx64 "\n", binary_path, Base);
-          install_breakpoints(binary, Base);
+          install_breakpoints(child, binary, Base);
 
           BinaryLoadAddress = Base;
         }
@@ -570,22 +574,88 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-void install_breakpoints(binary_t &binary, std::uintptr_t LoadAddress) {
+static std::unordered_map<void *, std::vector<uint8_t>> brkpts;
+
+void install_breakpoints(pid_t child,
+                         binary_t &binary,
+                         std::uintptr_t LoadAddress) {
+  auto relocate = [=](std::uintptr_t Addr) -> std::uintptr_t {
+    return Addr + LoadAddress;
+  };
+
+  std::vector<struct iovec> remote_iovs;
+  std::vector<struct iovec> local_iovs;
+
+  {
+    unsigned M = std::accumulate(
+        binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(),
+        binary.Analysis.Functions.size(),
+        [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
+            -> unsigned { return acc + boost::num_vertices(pair.second); });
+
+    remote_iovs.reserve(M);
+    local_iovs.reserve(M);
+  }
+
   for (auto it = binary.Analysis.Functions.begin();
        it != binary.Analysis.Functions.end(); ++it) {
     function_t &f = (*it).second;
 
     function_t::vertex_iterator vi, vi_end;
     for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-      basic_block_t bb = *vi;
-      if (!(f[bb].Term.Type == TERMINATOR::INDIRECT_CALL ||
-            f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP))
+      basic_block_properties_t bbprop = f[*vi];
+      if (!(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
+            bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP))
         continue;
 
-      fprintf(stdout, "%s @ 0x%lx\n",
-              string_of_terminator(f[bb].Term.Type),
-              f[bb].Term.Addr);
+      struct iovec remote_iov;
+      remote_iov.iov_base =
+          reinterpret_cast<void *>(relocate(bbprop.Term.Addr));
+      remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
+      remote_iovs.push_back(remote_iov);
+
+      std::vector<uint8_t> &brkpt = brkpts[remote_iov.iov_base];
+      brkpt.resize(remote_iov.iov_len);
+
+      struct iovec local_iov;
+      local_iov.iov_base = brkpt.data();
+      local_iov.iov_len = brkpt.size();
+
+      local_iovs.push_back(local_iov);
     }
+  }
+
+  // we are limited by MAX_RW_COUNT, so we do this in multiple steps
+  assert(remote_iovs.size() == local_iovs.size());
+  constexpr ssize_t step = 1024;
+
+  unsigned idx = 0;
+  for (ssize_t left = remote_iovs.size(); left > 0; left -= step) {
+    ssize_t N = std::min(step, left);
+
+    ssize_t res =
+        process_vm_readv(child, &local_iovs[idx], N, &remote_iovs[idx], N, 0);
+
+    ssize_t expected =
+        std::accumulate(local_iovs.begin() + idx,
+                        local_iovs.begin() + idx + N,
+                        0l, [](long acc, const struct iovec &iov) -> unsigned {
+                          return acc + iov.iov_len;
+                        });
+
+    if (res != expected) {
+      if (res < 0)
+        fprintf(stderr, "process_vm_readv failed (expected %ld) : %s\n",
+                expected, strerror(errno));
+      else
+        fprintf(stderr,
+                "process_vm_readv transferred %ld bytes, but expected %ld\n",
+                res, expected);
+
+      exit(1);
+    }
+
+    idx += N;
   }
 }
 
