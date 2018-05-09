@@ -150,7 +150,7 @@ struct IndirectBranchInfo {
   IndirectBranchInfo() : proc(nullptr) {}
 };
 
-static std::unordered_map<void *, IndirectBranchInfo> IndBranchInsns;
+static std::unordered_map<std::uintptr_t, IndirectBranchInfo> IndBranchInsns;
 
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
@@ -521,19 +521,20 @@ int ParentProc(pid_t child,
                     "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
                     event, strerror(errno), child);
           } else {
-            if (si.si_code == TRAP_BRKPT) {
-              auto it = IndBranchInsns.find(si.si_addr);
-              if (it == IndBranchInsns.end()) {
-                fprintf(stderr, "unknown breakpoint @ %p\n", si.si_addr);
-                return 1;
-              }
+            std::uintptr_t pc =
+                ptrace(PTRACE_PEEKUSER, child,
+                       __builtin_offsetof(struct user, regs.rip), nullptr);
 
-              breakpoint_handler_t proc = (*it).second.proc;
-              proc(child);
-            } else {
-              fprintf(stderr, "unknown ptrace event %u @ %p [%d]\n", event,
-                      si.si_addr, child);
+            auto it = IndBranchInsns.find(pc - 1);
+            if (it == IndBranchInsns.end()) {
+              fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
+              return 1;
             }
+
+            fprintf(stdout, "breakpoint @ 0x%lx\n", pc);
+
+            breakpoint_handler_t proc = (*it).second.proc;
+            proc(child);
           }
           break;
         }
@@ -642,16 +643,16 @@ void install_breakpoints(pid_t child,
         if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
           continue;
 
-        void *ptr = reinterpret_cast<void *>(va_of_rva(bbprop.Term.Addr));
+        std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
 
-        if (IndBranchInsns.find(ptr) != IndBranchInsns.end())
+        if (IndBranchInsns.find(termpc) != IndBranchInsns.end())
           continue;
 
         struct iovec remote_iov;
-        remote_iov.iov_base = ptr;
+        remote_iov.iov_base = reinterpret_cast<void *>(termpc);
         remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
 
-        IndirectBranchInfo &indbr = IndBranchInsns[remote_iov.iov_base];
+        IndirectBranchInfo &indbr = IndBranchInsns[termpc];
         indbr.insn.resize(remote_iov.iov_len);
 
         struct iovec local_iov;
@@ -668,27 +669,6 @@ void install_breakpoints(pid_t child,
   };
 
   auto write_breakpoints_into_child = [&](void) -> void {
-    std::vector<struct iovec> local_iovs;
-    std::vector<struct iovec> remote_iovs;
-
-    local_iovs.reserve(M);
-    remote_iovs.reserve(M);
-
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-    // see text_poke_bp in arch/x86/kernel/alternative.c
-    uint64_t _brkpt = 0xcccccccccccccccc; /* int3 */
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-    // see bug_break_hook in arch/arm64/kernel/traps.c
-    uint64_t _brkpt = 0x00000000f2000800;
-#else
-    // XXX TODO
-    uint64_t _brkpt = 0xdeaddeaddeaddead;
-    return;
-#endif
-
-    const struct iovec _brkpt_local_iov = {.iov_base = &_brkpt,
-                                           .iov_len = sizeof(_brkpt)};
-
     //
     // disassemble the indirect branch instructions, figure out what kind they
     // are and how we can deal with them
@@ -707,7 +687,7 @@ void install_breakpoints(pid_t child,
                                 llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n", (*it).first);
+        fprintf(stderr, "failed to disassemble 0x%lx\n", (*it).first);
         continue;
       }
 
@@ -726,6 +706,7 @@ void install_breakpoints(pid_t child,
 #elif defined(TARGET_AARCH64) && defined(__arm64__)
           // XXX TODO
 #else
+          // XXX this should be an error.
 #endif
         default:
           return nullptr;
@@ -737,25 +718,42 @@ void install_breakpoints(pid_t child,
         continue;
       indbr.proc = proc;
 
-      struct iovec _brkpt_remote_iov = {.iov_base = (*it).first,
-                                        .iov_len = sizeof(_brkpt)};
-      long request = PTRACE_POKEDATA;
-      long pid = child;
-      unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
-      unsigned long data = brkpt;
+      uint64_t word;
 
-      syscall(PTRACE_POKEDATA, 
-      //ptrace(PTRACE_POKEDATA, child, (*it).first, 
+      {
+        long request = PTRACE_PEEKDATA;
+        long pid = child;
+        unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
+        unsigned long data = reinterpret_cast<unsigned long>(&word);
 
-      fprintf(stderr, "_brkpt_remote_iov.iov_base=%p\n",
-              _brkpt_remote_iov.iov_base);
+        if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+          fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
+          continue;
+        }
+      }
 
-      local_iovs.push_back(_brkpt_local_iov);
-      remote_iovs.push_back(_brkpt_remote_iov);
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+      reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+      reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
+#else
+      // XXX this should be an error.
+#endif
+
+      {
+        long request = PTRACE_POKEDATA;
+        long pid = child;
+        unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
+        unsigned long data = word;
+
+        if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+          fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
+          continue;
+        }
+      }
+
+      fprintf(stdout, "breakpoint placed @ 0x%lx\n", (*it).first);
     }
-
-    if (!_process_vm_writev(child, local_iovs, remote_iovs))
-      exit(1);
   };
 
   initialize_indirect_branch_instructions_map();
