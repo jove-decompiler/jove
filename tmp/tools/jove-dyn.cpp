@@ -586,19 +586,19 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-static std::unordered_map<void *, std::vector<uint8_t>> brkpts;
+static std::unordered_map<void *, std::vector<uint8_t>> IndBranchInsns;
 static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
 static bool _process_vm_writev(pid_t pid,
-                              const std::vector<struct iovec> &local_iovs,
-                              const std::vector<struct iovec> &remote_iovs);
+                               const std::vector<struct iovec> &local_iovs,
+                               const std::vector<struct iovec> &remote_iovs);
 
 void install_breakpoints(pid_t child,
                          binary_t &binary,
                          disas_t dis,
                          std::uintptr_t LoadAddress) {
-  auto relocate = [=](std::uintptr_t Addr) -> std::uintptr_t {
+  auto relocate = [LoadAddress](std::uintptr_t Addr) -> std::uintptr_t {
     return Addr + LoadAddress;
   };
 
@@ -625,13 +625,17 @@ void install_breakpoints(pid_t child,
       if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
         continue;
 
+      void *ptr = reinterpret_cast<void *>(relocate(bbprop.Term.Addr));
+
+      if (IndBranchInsns.find(ptr) != IndBranchInsns.end())
+        continue;
+
       struct iovec remote_iov;
-      remote_iov.iov_base =
-          reinterpret_cast<void *>(relocate(bbprop.Term.Addr));
+      remote_iov.iov_base = ptr;
       remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
       remote_iovs.push_back(remote_iov);
 
-      std::vector<uint8_t> &brkpt = brkpts[remote_iov.iov_base];
+      std::vector<uint8_t> &brkpt = IndBranchInsns[remote_iov.iov_base];
       brkpt.resize(remote_iov.iov_len);
 
       struct iovec local_iov;
@@ -651,7 +655,7 @@ void install_breakpoints(pid_t child,
   llvm::MCDisassembler &DisAsm = std::get<0>(dis);
   const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
   llvm::MCInstPrinter &IP = std::get<2>(dis);
-  for (const std::pair<void *, std::vector<uint8_t>> &pair : brkpts) {
+  for (const std::pair<void *, std::vector<uint8_t>> &pair : IndBranchInsns) {
     uint64_t InstLen;
     llvm::MCInst Inst;
     bool Disassembled =
