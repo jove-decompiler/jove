@@ -607,8 +607,7 @@ void install_breakpoints(pid_t child,
 
   {
     unsigned M = std::accumulate(
-        binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(),
-        binary.Analysis.Functions.size(),
+        binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
         [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
             -> unsigned { return acc + boost::num_vertices(pair.second); });
 
