@@ -587,6 +587,9 @@ static std::unordered_map<void *, std::vector<uint8_t>> brkpts;
 static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
+static bool _process_vm_writev(pid_t pid,
+                              const std::vector<struct iovec> &local_iovs,
+                              const std::vector<struct iovec> &remote_iovs);
 
 void install_breakpoints(pid_t child,
                          binary_t &binary,
@@ -685,9 +688,10 @@ void install_breakpoints(pid_t child,
   }
 }
 
-bool _process_vm_readv(pid_t pid,
-                       const std::vector<struct iovec> &local_iovs,
-                       const std::vector<struct iovec> &remote_iovs) {
+template <bool IsRead>
+static bool _process_vm_rwv(pid_t pid,
+                            const std::vector<struct iovec> &local_iovs,
+                            const std::vector<struct iovec> &remote_iovs) {
   // kernel caps at MAX_RW_COUNT, so we do this in multiple steps
   assert(remote_iovs.size() == local_iovs.size());
   constexpr ssize_t step = 1024;
@@ -696,8 +700,10 @@ bool _process_vm_readv(pid_t pid,
   for (ssize_t left = remote_iovs.size(); left > 0; left -= step) {
     ssize_t N = std::min(step, left);
 
-    ssize_t res =
-        process_vm_readv(pid, &local_iovs[idx], N, &remote_iovs[idx], N, 0);
+    ssize_t res = IsRead ? process_vm_readv(pid, &local_iovs[idx], N,
+                                            &remote_iovs[idx], N, 0)
+                         : process_vm_writev(pid, &local_iovs[idx], N,
+                                             &remote_iovs[idx], N, 0);
 
     ssize_t expected =
         std::accumulate(local_iovs.begin() + idx,
@@ -722,6 +728,18 @@ bool _process_vm_readv(pid_t pid,
   }
 
   return true;
+}
+
+bool _process_vm_readv(pid_t pid,
+                       const std::vector<struct iovec> &local_iovs,
+                       const std::vector<struct iovec> &remote_iovs) {
+  return _process_vm_rwv<true>(pid, local_iovs, remote_iovs);
+}
+
+bool _process_vm_writev(pid_t pid,
+                        const std::vector<struct iovec> &local_iovs,
+                        const std::vector<struct iovec> &remote_iovs) {
+  return _process_vm_rwv<false>(pid, local_iovs, remote_iovs);
 }
 
 int ChildProc(int argc, char **argv) {
