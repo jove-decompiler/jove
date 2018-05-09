@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -34,6 +36,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <asm/unistd.h>
 #include <sys/uio.h>
 
@@ -133,6 +136,21 @@ static const char *string_of_program_point(char (&out)[N], uintptr_t pc) {
 static const char *name_of_signal_number(int);
 
 static std::uintptr_t BinaryLoadAddress = 0;
+
+//
+// breakpoint handlers are responsible for emulating the semantics of the
+// indirect control flow instructions
+//
+typedef void (*breakpoint_handler_t)(pid_t);
+
+struct IndirectBranchInfo {
+  std::vector<uint8_t> insn;
+  breakpoint_handler_t proc;
+
+  IndirectBranchInfo() : proc(nullptr) {}
+};
+
+static std::unordered_map<void *, IndirectBranchInfo> IndBranchInsns;
 
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
@@ -504,39 +522,14 @@ int ParentProc(pid_t child,
                     event, strerror(errno), child);
           } else {
             if (si.si_code == TRAP_BRKPT) {
-#if defined(__x86_64__)
-              constexpr unsigned forward_offset = 4;
-#elif defined(__arm64__)
-              constexpr unsigned forward_offset = 4;
-#else
-#error "unknown architecture"
-#endif
-              uintptr_t pc = reinterpret_cast<uintptr_t>(si.si_addr);
-
-              //
-              // jump past the breakpoint
-              //
-              ptrace(PTRACE_POKEUSER, child,
-#if defined(__x86_64__)
-                     __builtin_offsetof(struct user, regs.rip),
-#elif defined(__arm64__)
-                     __builtin_offsetof(struct user, regs.r15),
-#else
-#error "unknown architecture"
-#endif
-                     pc + forward_offset);
-
-              //
-              // detach from tracing this thread
-              //
-              if (ptrace(PTRACE_DETACH, child, nullptr, nullptr) == -1) {
-                fprintf(stdout, "failed to detach from %d : %s\n", child,
-                        strerror(errno));
-              } else {
-                fprintf(stdout, "detached from %d\n", child);
-
-                child = -1;
+              auto it = IndBranchInsns.find(si.si_addr);
+              if (it == IndBranchInsns.end()) {
+                fprintf(stderr, "unknown breakpoint @ %p\n", si.si_addr);
+                return 1;
               }
+
+              breakpoint_handler_t proc = (*it).second.proc;
+              proc(child);
             } else {
               fprintf(stderr, "unknown ptrace event %u @ %p [%d]\n", event,
                       si.si_addr, child);
@@ -586,7 +579,6 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-static std::unordered_map<void *, std::vector<uint8_t>> IndBranchInsns;
 static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
@@ -594,104 +586,180 @@ static bool _process_vm_writev(pid_t pid,
                                const std::vector<struct iovec> &local_iovs,
                                const std::vector<struct iovec> &remote_iovs);
 
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+template <unsigned UserStructOffset>
+void _JMP64r_handler(pid_t child) {
+  std::uintptr_t new_pc =
+      ptrace(PTRACE_PEEKUSER,
+             child,
+             UserStructOffset,
+             nullptr);
+
+  ptrace(PTRACE_POKEUSER,
+         child,
+         __builtin_offsetof(struct user, regs.rip),
+         new_pc);
+}
+
+static breakpoint_handler_t handler_of_JMP64r(unsigned op0) {
+  switch (op0) {
+  case llvm::X86::RAX:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rax)>;
+    break;
+  default:
+    return nullptr;
+  }
+}
+#endif
+
 void install_breakpoints(pid_t child,
                          binary_t &binary,
                          disas_t dis,
                          std::uintptr_t LoadAddress) {
+  unsigned M = std::accumulate(
+      binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
+      [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
+          -> unsigned { return acc + boost::num_vertices(pair.second); });
+
   auto va_of_rva = [LoadAddress](std::uintptr_t Addr) -> std::uintptr_t {
     return Addr + LoadAddress;
   };
 
-  std::vector<struct iovec> remote_iovs;
-  std::vector<struct iovec> local_iovs;
-
-  {
-    unsigned M = std::accumulate(
-        binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
-        [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
-            -> unsigned { return acc + boost::num_vertices(pair.second); });
+  auto initialize_indirect_branch_instructions_map = [&](void) -> void {
+    std::vector<struct iovec> remote_iovs;
+    std::vector<struct iovec> local_iovs;
 
     remote_iovs.reserve(M);
     local_iovs.reserve(M);
-  }
 
-  for (auto it = binary.Analysis.Functions.begin();
-       it != binary.Analysis.Functions.end(); ++it) {
-    function_t &f = (*it).second;
+    for (auto it = binary.Analysis.Functions.begin();
+         it != binary.Analysis.Functions.end(); ++it) {
+      function_t &f = (*it).second;
 
-    function_t::vertex_iterator vi, vi_end;
-    for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-      basic_block_properties_t bbprop = f[*vi];
-      if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
-        continue;
+      function_t::vertex_iterator vi, vi_end;
+      for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
+        basic_block_properties_t bbprop = f[*vi];
+        if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
+          continue;
 
-      void *ptr = reinterpret_cast<void *>(va_of_rva(bbprop.Term.Addr));
+        void *ptr = reinterpret_cast<void *>(va_of_rva(bbprop.Term.Addr));
 
-      if (IndBranchInsns.find(ptr) != IndBranchInsns.end())
-        continue;
+        if (IndBranchInsns.find(ptr) != IndBranchInsns.end())
+          continue;
 
-      struct iovec remote_iov;
-      remote_iov.iov_base = ptr;
-      remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
-      remote_iovs.push_back(remote_iov);
+        struct iovec remote_iov;
+        remote_iov.iov_base = ptr;
+        remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
 
-      std::vector<uint8_t> &insn_bytes = IndBranchInsns[remote_iov.iov_base];
-      insn_bytes.resize(remote_iov.iov_len);
+        IndirectBranchInfo &indbr = IndBranchInsns[remote_iov.iov_base];
+        indbr.insn.resize(remote_iov.iov_len);
 
-      struct iovec local_iov;
-      local_iov.iov_base = insn_bytes.data();
-      local_iov.iov_len = insn_bytes.size();
+        struct iovec local_iov;
+        local_iov.iov_base = indbr.insn.data();
+        local_iov.iov_len = indbr.insn.size();
 
-      local_iovs.push_back(local_iov);
-    }
-  }
-
-  if (!_process_vm_readv(child, local_iovs, remote_iovs))
-    exit(1);
-
-  //
-  // disassemble the instructions at the breakpoints
-  //
-  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-  const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-  llvm::MCInstPrinter &IP = std::get<2>(dis);
-  for (const std::pair<void *, std::vector<uint8_t>> &pair : IndBranchInsns) {
-    uint64_t InstLen;
-    llvm::MCInst Inst;
-    bool Disassembled =
-        DisAsm.getInstruction(Inst, InstLen, pair.second,
-                              reinterpret_cast<std::uintptr_t>(pair.first),
-                              llvm::nulls(), llvm::nulls());
-
-    if (!Disassembled) {
-      fprintf(stderr, "failed to disassemble %p\n", pair.first);
-      break;
-    }
-
-    std::string str;
-    {
-      llvm::raw_string_ostream StrStream(str);
-      IP.printInst(&Inst, StrStream, "", STI);
-
-#if 1
-      StrStream << " getOpcode()=" << Inst.getOpcode();
-      StrStream << " getNumOperands()=" << Inst.getNumOperands();
-      for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-        const llvm::MCOperand &Op = Inst.getOperand(i);
-        if (Op.isReg())
-          StrStream << " getReg()=" << Op.getReg();
-        else if (Op.isImm())
-          StrStream << " getImm()=" << Op.getImm();
-        else
-          StrStream << " <unknown>";
+        remote_iovs.push_back(remote_iov);
+        local_iovs.push_back(local_iov);
       }
-#else
-      const llvm::MCInstrDesc &desc = MII->get(Inst.getOpcode());
-      StrStream << " " << MII->getName(Inst.getOpcode());
-#endif
     }
-    puts(str.c_str());
-  }
+
+    if (!_process_vm_readv(child, local_iovs, remote_iovs))
+      exit(1);
+  };
+
+  auto write_breakpoints_into_child = [&](void) -> void {
+    std::vector<struct iovec> local_iovs;
+    std::vector<struct iovec> remote_iovs;
+
+    local_iovs.reserve(M);
+    remote_iovs.reserve(M);
+
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+    // see text_poke_bp in arch/x86/kernel/alternative.c
+    uint64_t _brkpt = 0xcccccccccccccccc; /* int3 */
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+    // see bug_break_hook in arch/arm64/kernel/traps.c
+    uint64_t _brkpt = 0x00000000f2000800;
+#else
+    // XXX TODO
+    uint64_t _brkpt = 0xdeaddeaddeaddead;
+    return;
+#endif
+
+    const struct iovec _brkpt_local_iov = {.iov_base = &_brkpt,
+                                           .iov_len = sizeof(_brkpt)};
+
+    //
+    // disassemble the indirect branch instructions, figure out what kind they
+    // are and how we can deal with them
+    //
+    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+    llvm::MCInstPrinter &IP = std::get<2>(dis);
+    for (auto it = IndBranchInsns.begin(); it != IndBranchInsns.end(); ++it) {
+      IndirectBranchInfo &indbr = (*it).second;
+
+      uint64_t InstLen;
+      llvm::MCInst Inst;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, indbr.insn,
+                                reinterpret_cast<std::uintptr_t>((*it).first),
+                                llvm::nulls(), llvm::nulls());
+
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n", (*it).first);
+        continue;
+      }
+
+      auto handler_of_breakpoint =
+          [](llvm::MCInst &Inst) -> breakpoint_handler_t {
+        switch (Inst.getOpcode()) {
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+        case llvm::X86::JMP64m:
+          assert(Inst.getNumOperands() == 5);
+          return nullptr;
+
+        case llvm::X86::JMP64r:
+          assert(Inst.getNumOperands() == 1);
+          assert(Inst.getOperand(0).isReg());
+          return handler_of_JMP64r(Inst.getOperand(0).getReg());
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+          // XXX TODO
+#else
+#endif
+        default:
+          return nullptr;
+        }
+      };
+
+      breakpoint_handler_t proc = handler_of_breakpoint(Inst);
+      if (!proc)
+        continue;
+      indbr.proc = proc;
+
+      struct iovec _brkpt_remote_iov = {.iov_base = (*it).first,
+                                        .iov_len = sizeof(_brkpt)};
+      long request = PTRACE_POKEDATA;
+      long pid = child;
+      unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
+      unsigned long data = brkpt;
+
+      syscall(PTRACE_POKEDATA, 
+      //ptrace(PTRACE_POKEDATA, child, (*it).first, 
+
+      fprintf(stderr, "_brkpt_remote_iov.iov_base=%p\n",
+              _brkpt_remote_iov.iov_base);
+
+      local_iovs.push_back(_brkpt_local_iov);
+      remote_iovs.push_back(_brkpt_remote_iov);
+    }
+
+    if (!_process_vm_writev(child, local_iovs, remote_iovs))
+      exit(1);
+  };
+
+  initialize_indirect_branch_instructions_map();
+  write_breakpoints_into_child();
 }
 
 template <bool IsRead>
@@ -700,11 +768,16 @@ static bool _process_vm_rwv(pid_t pid,
                             const std::vector<struct iovec> &remote_iovs) {
   // kernel caps at MAX_RW_COUNT, so we do this in multiple steps
   assert(remote_iovs.size() == local_iovs.size());
-  constexpr ssize_t step = 1024;
+  // This macro has different values in different kernel versions. The latest
+  // versions of the kernel use 1024 and this is good choice.  Since the C
+  // library implementation of readv/writev is able to emulate the functionality
+  // even if the currently running kernel does not support this large value the
+  // readv/writev call will not fail because of this.
+  constexpr ssize_t ___IOV_MAX = 1024;
 
   unsigned idx = 0;
-  for (ssize_t left = remote_iovs.size(); left > 0; left -= step) {
-    ssize_t N = std::min(step, left);
+  for (ssize_t left = remote_iovs.size(); left > 0; left -= ___IOV_MAX) {
+    ssize_t N = std::min(___IOV_MAX, left);
 
     ssize_t res = IsRead ? process_vm_readv(pid, &local_iovs[idx], N,
                                             &remote_iovs[idx], N, 0)
@@ -720,12 +793,12 @@ static bool _process_vm_rwv(pid_t pid,
 
     if (res != expected) {
       if (res < 0)
-        fprintf(stderr, "process_vm_readv failed (expected %ld) : %s\n",
-                expected, strerror(errno));
+        fprintf(stderr, "process_vm_%sv failed (expected %ld) : %s (%d)\n",
+                IsRead ? "read" : "write", expected, strerror(errno), errno);
       else
         fprintf(stderr,
-                "process_vm_readv transferred %ld bytes, but expected %ld\n",
-                res, expected);
+                "process_vm_%sv transferred %ld bytes, but expected %ld\n",
+                IsRead ? "read" : "write", res, expected);
 
       return false;
     }
