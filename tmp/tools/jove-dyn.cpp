@@ -82,10 +82,11 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+static constexpr bool debugMode = false;
+
 static bool update_view_of_virtual_memory(int child);
 
 static void verify_arch(const obj::ObjectFile &);
-static void print_obj_info(const obj::ObjectFile &);
 
 struct vm_properties_t {
   std::uintptr_t beg;
@@ -212,7 +213,6 @@ int ParentProc(pid_t child,
       *llvm::cast<obj::ObjectFile>(BinaryOrErr.get().getBinary());
 
   verify_arch(O);
-  print_obj_info(O);
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -279,12 +279,14 @@ int ParentProc(pid_t child,
   //
   // observe the (initial) signal-delivery-stop
   //
-  fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
+  if (debugMode)
+    fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
   int status;
   do
     waitpid(child, &status, 0);
   while (!WIFSTOPPED(status));
-  fprintf(stdout, "parent: initial stop observed\n");
+  if (debugMode)
+    fprintf(stdout, "parent: initial stop observed\n");
 
   //
   // select ptrace options
@@ -332,9 +334,11 @@ int ParentProc(pid_t child,
   //
   // set those options
   //
-  fprintf(stdout, "parent: setting ptrace options...\n");
+  if (debugMode)
+    fprintf(stdout, "parent: setting ptrace options...\n");
   ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
-  fprintf(stdout, "ptrace options set!\n");
+  if (debugMode)
+    fprintf(stdout, "ptrace options set!\n");
 
   siginfo_t si;
   long sig = 0;
@@ -343,7 +347,7 @@ int ParentProc(pid_t child,
     if (likely(!(child < 0))) {
       if (unlikely(ptrace(BinaryLoadAddress ? PTRACE_CONT : PTRACE_SYSCALL,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-        fprintf(stdout, "failed to resume tracee : %s [%d]\n", strerror(errno),
+        fprintf(stderr, "failed to resume tracee : %s [%d]\n", strerror(errno),
                 child);
     }
 
@@ -359,7 +363,8 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      fprintf(stdout, "waitpid failed : %s\n", strerror(errno));
+      if (debugMode)
+        fprintf(stdout, "waitpid failed : %s\n", strerror(errno));
       break;
     }
 
@@ -400,7 +405,7 @@ int ParentProc(pid_t child,
           continue;
 
         if (!update_view_of_virtual_memory(child)) {
-          fprintf(stdout, "failed to read virtual memory maps of child %d\n",
+          fprintf(stderr, "failed to read virtual memory maps of child %d\n",
                   child);
           return 1;
         }
@@ -448,37 +453,47 @@ int ParentProc(pid_t child,
         //
         switch (event) {
         case PTRACE_EVENT_VFORK:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
           break;
         case PTRACE_EVENT_FORK:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
           break;
         case PTRACE_EVENT_CLONE: {
           pid_t new_child;
           ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
-                  new_child, child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
+                    new_child, child);
           break;
         }
         case PTRACE_EVENT_VFORK_DONE:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n",
+                    child);
           break;
         case PTRACE_EVENT_EXEC:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
           break;
         case PTRACE_EVENT_EXIT:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
           break;
         case PTRACE_EVENT_STOP:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
           break;
         case PTRACE_EVENT_SECCOMP:
-          fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n", child);
+          if (debugMode)
+            fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n",
+                    child);
           break;
         default:
           if (ptrace(PTRACE_GETSIGINFO, child, 0l, &si) == -1) {
-            fprintf(stdout,
+            fprintf(stderr,
                     "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
                     event, strerror(errno), child);
           } else {
@@ -517,7 +532,7 @@ int ParentProc(pid_t child,
                 child = -1;
               }
             } else {
-              fprintf(stdout, "unknown ptrace event %u @ %p [%d]\n", event,
+              fprintf(stderr, "unknown ptrace event %u @ %p [%d]\n", event,
                       si.si_addr, child);
             }
           }
@@ -528,7 +543,8 @@ int ParentProc(pid_t child,
         // (3) group-stop
         //
 
-        fprintf(stdout, "ptrace group-stop [%d]\n", child);
+        if (debugMode)
+          fprintf(stdout, "ptrace group-stop [%d]\n", child);
 
         // When restarting a tracee from a ptrace-stop other than
         // signal-delivery-stop, recommended practice is to always pass 0 in
@@ -537,44 +553,25 @@ int ParentProc(pid_t child,
         //
         // (4) signal-delivery-stop
         //
-
-        switch (stopsig) {
-        case SIGSEGV: {
-          update_view_of_virtual_memory(child);
-
-          long pc = ptrace(PTRACE_PEEKUSER, child,
-#if defined(__x86_64__)
-                           __builtin_offsetof(struct user, regs.rip),
-#elif defined(__arm64__)
-                           __builtin_offsetof(struct user, regs.r15),
-#else
-#error "unknown architecture"
-#endif
-                           nullptr);
-
-          char buff[0x100];
-          fprintf(stdout, "tracee SIGSEGV @ %s : *(%p)\n",
-                  string_of_program_point(buff, pc), si.si_addr);
-        }
-
-        default:
+        if (debugMode) {
           const char *signm = name_of_signal_number(stopsig);
           if (signm)
             fprintf(stdout, "delivering signal %s [%d]\n", signm, child);
           else
             fprintf(stdout, "delivering signal number %d [%d]\n", stopsig,
                     child);
-
-          // deliver it
-          sig = stopsig;
-          break;
         }
+
+        // deliver it
+        sig = stopsig;
       }
     } else {
       //
       // the child terminated
       //
-      fprintf(stdout, "child %d terminated\n", child);
+      if (debugMode)
+        fprintf(stdout, "child %d terminated\n", child);
+
       child = -1;
     }
   }
@@ -817,16 +814,6 @@ bool update_view_of_virtual_memory(int child) {
   fclose(fp);
 
   return true;
-}
-
-void print_obj_info(const obj::ObjectFile &Obj) {
-  printf("File: %s\n"
-         "Format: %s\n"
-         "Arch: %s\n"
-         "AddressSize: %ubit\n",
-         Obj.getFileName().str().c_str(), Obj.getFileFormatName().str().c_str(),
-         llvm::Triple::getArchTypeName(Obj.getArch()).str().c_str(),
-         8 * Obj.getBytesInAddress());
 }
 
 const char *name_of_signal_number(int num) {
