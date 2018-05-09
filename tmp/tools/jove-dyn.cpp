@@ -48,6 +48,9 @@
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
 
+#define GET_REGINFO_ENUM
+#include "LLVMGenRegisterInfo.hpp"
+
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 namespace obj = llvm::object;
