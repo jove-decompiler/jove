@@ -531,7 +531,7 @@ int ParentProc(pid_t child,
               return 1;
             }
 
-            fprintf(stdout, "breakpoint @ 0x%lx\n", pc);
+            //fprintf(stdout, "breakpoint @ 0x%lx\n", pc);
 
             breakpoint_handler_t proc = (*it).second.proc;
             proc(child);
@@ -583,9 +583,6 @@ int ParentProc(pid_t child,
 static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
-static bool _process_vm_writev(pid_t pid,
-                               const std::vector<struct iovec> &local_iovs,
-                               const std::vector<struct iovec> &remote_iovs);
 
 #if defined(TARGET_X86_64) && defined(__x86_64__)
 template <unsigned UserStructOffset>
@@ -714,8 +711,21 @@ void install_breakpoints(pid_t child,
       };
 
       breakpoint_handler_t proc = handler_of_breakpoint(Inst);
-      if (!proc)
+      if (!proc) {
+#if 0
+        Inst.getOpcode();
+#endif
+        std::string str;
+        {
+          llvm::raw_string_ostream StrStream(str);
+          IP.printInst(&Inst, StrStream, "", STI);
+        }
+
+        fprintf(stderr, "failed to place breakpoint @ 0x%lx %s\n",
+                (*it).first, str.c_str());
         continue;
+      }
+
       indbr.proc = proc;
 
       uint64_t word;
@@ -811,12 +821,6 @@ bool _process_vm_readv(pid_t pid,
                        const std::vector<struct iovec> &local_iovs,
                        const std::vector<struct iovec> &remote_iovs) {
   return _process_vm_rwv<true>(pid, local_iovs, remote_iovs);
-}
-
-bool _process_vm_writev(pid_t pid,
-                        const std::vector<struct iovec> &local_iovs,
-                        const std::vector<struct iovec> &remote_iovs) {
-  return _process_vm_rwv<false>(pid, local_iovs, remote_iovs);
 }
 
 int ChildProc(int argc, char **argv) {
