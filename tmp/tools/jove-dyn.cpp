@@ -598,7 +598,7 @@ void install_breakpoints(pid_t child,
                          binary_t &binary,
                          disas_t dis,
                          std::uintptr_t LoadAddress) {
-  auto relocate = [LoadAddress](std::uintptr_t Addr) -> std::uintptr_t {
+  auto va_of_rva = [LoadAddress](std::uintptr_t Addr) -> std::uintptr_t {
     return Addr + LoadAddress;
   };
 
@@ -625,7 +625,7 @@ void install_breakpoints(pid_t child,
       if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
         continue;
 
-      void *ptr = reinterpret_cast<void *>(relocate(bbprop.Term.Addr));
+      void *ptr = reinterpret_cast<void *>(va_of_rva(bbprop.Term.Addr));
 
       if (IndBranchInsns.find(ptr) != IndBranchInsns.end())
         continue;
@@ -635,12 +635,12 @@ void install_breakpoints(pid_t child,
       remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
       remote_iovs.push_back(remote_iov);
 
-      std::vector<uint8_t> &brkpt = IndBranchInsns[remote_iov.iov_base];
-      brkpt.resize(remote_iov.iov_len);
+      std::vector<uint8_t> &insn_bytes = IndBranchInsns[remote_iov.iov_base];
+      insn_bytes.resize(remote_iov.iov_len);
 
       struct iovec local_iov;
-      local_iov.iov_base = brkpt.data();
-      local_iov.iov_len = brkpt.size();
+      local_iov.iov_base = insn_bytes.data();
+      local_iov.iov_len = insn_bytes.size();
 
       local_iovs.push_back(local_iov);
     }
