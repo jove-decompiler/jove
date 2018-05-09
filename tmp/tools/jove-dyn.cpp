@@ -292,7 +292,7 @@ int ParentProc(pid_t child,
     return 1;
   }
 
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+  int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
@@ -587,7 +587,7 @@ static bool _process_vm_readv(pid_t pid,
 #if defined(TARGET_X86_64) && defined(__x86_64__)
 template <unsigned UserStructOffset>
 void _JMP64r_handler(pid_t child) {
-  std::uintptr_t new_pc =
+  std::uintptr_t target =
       ptrace(PTRACE_PEEKUSER,
              child,
              UserStructOffset,
@@ -596,14 +596,56 @@ void _JMP64r_handler(pid_t child) {
   ptrace(PTRACE_POKEUSER,
          child,
          __builtin_offsetof(struct user, regs.rip),
-         new_pc);
+         target);
 }
 
-static breakpoint_handler_t handler_of_JMP64r(unsigned op0) {
-  switch (op0) {
+static breakpoint_handler_t handler_of_JMP64r(unsigned reg0) {
+  switch (reg0) {
   case llvm::X86::RAX:
     return _JMP64r_handler<__builtin_offsetof(struct user, regs.rax)>;
-    break;
+  case llvm::X86::RBP:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rbp)>;
+  case llvm::X86::RBX:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rbx)>;
+  case llvm::X86::RCX:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rcx)>;
+  case llvm::X86::RDI:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rdi)>;
+  case llvm::X86::RDX:
+    return _JMP64r_handler<__builtin_offsetof(struct user, regs.rdx)>;
+  default:
+    return nullptr;
+  }
+}
+
+template <unsigned UserStructOffset>
+void _JMP64m_handler(pid_t child) {
+  std::uintptr_t target =
+      ptrace(PTRACE_PEEKUSER,
+             child,
+             UserStructOffset,
+             nullptr);
+
+  ptrace(PTRACE_POKEUSER,
+         child,
+         __builtin_offsetof(struct user, regs.rip),
+         target);
+}
+
+static breakpoint_handler_t handler_of_JMP64m(unsigned reg0, int64_t imm) {
+  switch (reg0) {
+  case llvm::X86::RAX:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rax)>;
+  case llvm::X86::RBP:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rbp)>;
+  case llvm::X86::RBX:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rbx)>;
+  case llvm::X86::RCX:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rcx)>;
+  case llvm::X86::RDI:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rdi)>;
+  case llvm::X86::RDX:
+    return _JMP64m_handler<__builtin_offsetof(struct user, regs.rdx)>;
   default:
     return nullptr;
   }
@@ -692,9 +734,9 @@ void install_breakpoints(pid_t child,
           [](llvm::MCInst &Inst) -> breakpoint_handler_t {
         switch (Inst.getOpcode()) {
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-        case llvm::X86::JMP64m:
-          assert(Inst.getNumOperands() == 5);
-          return nullptr;
+        case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
+          return handler_of_JMP64m(Inst.getOperand(0).getReg(),
+                                   Inst.getOperand(3).getImm());
 
         case llvm::X86::JMP64r:
           assert(Inst.getNumOperands() == 1);
@@ -712,9 +754,6 @@ void install_breakpoints(pid_t child,
 
       breakpoint_handler_t proc = handler_of_breakpoint(Inst);
       if (!proc) {
-#if 0
-        Inst.getOpcode();
-#endif
         std::string str;
         {
           llvm::raw_string_ostream StrStream(str);
@@ -723,6 +762,32 @@ void install_breakpoints(pid_t child,
 
         fprintf(stderr, "failed to place breakpoint @ 0x%lx %s\n",
                 (*it).first, str.c_str());
+
+#if 1
+        fprintf(stderr, "[opcode: %u]", Inst.getOpcode());
+        for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+          const llvm::MCOperand &opnd = Inst.getOperand(i);
+
+          char buff[0x100];
+          if (opnd.isReg()) {
+            snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
+          } else if (opnd.isImm()) {
+            snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
+          } else if (opnd.isFPImm()) {
+            snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
+          } else if (opnd.isExpr()) {
+            snprintf(buff, sizeof(buff), "<expr>");
+          } else if (opnd.isInst()) {
+            snprintf(buff, sizeof(buff), "<inst>");
+          } else {
+            snprintf(buff, sizeof(buff), "<unknown>");
+          }
+
+          fprintf(stderr, " %u:%s", i, buff);
+        }
+        fprintf(stderr, "\n");
+#endif
+
         continue;
       }
 
