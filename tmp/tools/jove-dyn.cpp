@@ -45,6 +45,9 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 
+#define GET_INSTRINFO_ENUM
+#include "LLVMGenInstrInfo.hpp"
+
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 namespace obj = llvm::object;
@@ -581,6 +584,9 @@ int ParentProc(pid_t child,
 }
 
 static std::unordered_map<void *, std::vector<uint8_t>> brkpts;
+static bool _process_vm_readv(pid_t pid,
+                              const std::vector<struct iovec> &local_iovs,
+                              const std::vector<struct iovec> &remote_iovs);
 
 void install_breakpoints(pid_t child,
                          binary_t &binary,
@@ -611,8 +617,7 @@ void install_breakpoints(pid_t child,
     function_t::vertex_iterator vi, vi_end;
     for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
       basic_block_properties_t bbprop = f[*vi];
-      if (!(bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
-            bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP))
+      if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP)
         continue;
 
       struct iovec remote_iov;
@@ -632,38 +637,8 @@ void install_breakpoints(pid_t child,
     }
   }
 
-  // we are limited by MAX_RW_COUNT, so we do this in multiple steps
-  assert(remote_iovs.size() == local_iovs.size());
-  constexpr ssize_t step = 1024;
-
-  unsigned idx = 0;
-  for (ssize_t left = remote_iovs.size(); left > 0; left -= step) {
-    ssize_t N = std::min(step, left);
-
-    ssize_t res =
-        process_vm_readv(child, &local_iovs[idx], N, &remote_iovs[idx], N, 0);
-
-    ssize_t expected =
-        std::accumulate(local_iovs.begin() + idx,
-                        local_iovs.begin() + idx + N,
-                        0l, [](long acc, const struct iovec &iov) -> unsigned {
-                          return acc + iov.iov_len;
-                        });
-
-    if (res != expected) {
-      if (res < 0)
-        fprintf(stderr, "process_vm_readv failed (expected %ld) : %s\n",
-                expected, strerror(errno));
-      else
-        fprintf(stderr,
-                "process_vm_readv transferred %ld bytes, but expected %ld\n",
-                res, expected);
-
-      exit(1);
-    }
-
-    idx += N;
-  }
+  if (!_process_vm_readv(child, local_iovs, remote_iovs))
+    exit(1);
 
   //
   // disassemble the instructions at the breakpoints
@@ -688,9 +663,65 @@ void install_breakpoints(pid_t child,
     {
       llvm::raw_string_ostream StrStream(str);
       IP.printInst(&Inst, StrStream, "", STI);
+
+#if 1
+      StrStream << " getOpcode()=" << Inst.getOpcode();
+      StrStream << " getNumOperands()=" << Inst.getNumOperands();
+      for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+        const llvm::MCOperand &Op = Inst.getOperand(i);
+        if (Op.isReg())
+          StrStream << " getReg()=" << Op.getReg();
+        else if (Op.isImm())
+          StrStream << " getImm()=" << Op.getImm();
+        else
+          StrStream << " <unknown>";
+      }
+#else
+      const llvm::MCInstrDesc &desc = MII->get(Inst.getOpcode());
+      StrStream << " " << MII->getName(Inst.getOpcode());
+#endif
     }
     puts(str.c_str());
   }
+}
+
+bool _process_vm_readv(pid_t pid,
+                       const std::vector<struct iovec> &local_iovs,
+                       const std::vector<struct iovec> &remote_iovs) {
+  // kernel caps at MAX_RW_COUNT, so we do this in multiple steps
+  assert(remote_iovs.size() == local_iovs.size());
+  constexpr ssize_t step = 1024;
+
+  unsigned idx = 0;
+  for (ssize_t left = remote_iovs.size(); left > 0; left -= step) {
+    ssize_t N = std::min(step, left);
+
+    ssize_t res =
+        process_vm_readv(pid, &local_iovs[idx], N, &remote_iovs[idx], N, 0);
+
+    ssize_t expected =
+        std::accumulate(local_iovs.begin() + idx,
+                        local_iovs.begin() + idx + N,
+                        0l, [](long acc, const struct iovec &iov) -> unsigned {
+                          return acc + iov.iov_len;
+                        });
+
+    if (res != expected) {
+      if (res < 0)
+        fprintf(stderr, "process_vm_readv failed (expected %ld) : %s\n",
+                expected, strerror(errno));
+      else
+        fprintf(stderr,
+                "process_vm_readv transferred %ld bytes, but expected %ld\n",
+                res, expected);
+
+      return false;
+    }
+
+    idx += N;
+  }
+
+  return true;
 }
 
 int ChildProc(int argc, char **argv) {
