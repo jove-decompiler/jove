@@ -119,23 +119,19 @@ typedef std::set<vm_properties_t> vm_prop_set_t;
 static boost::icl::interval_set<uintptr_t> allvms;
 static boost::icl::split_interval_map<uintptr_t, vm_prop_set_t> vmm;
 
-template <size_t N>
-static const char *string_of_program_point(char (&out)[N], uintptr_t pc) {
-  auto it = vmm.find(pc);
-  if (it == vmm.end() || (*(*it).second.begin()).nm.empty()) {
-    snprintf(out, sizeof(out), "0x%08lx", static_cast<unsigned long>(pc));
-  } else {
-    const vm_properties_t &vmprop = *(*it).second.begin();
-
-    long module_offset = pc - vmprop.beg + vmprop.off;
-    snprintf(out, sizeof(out), "%s+%#lx", vmprop.nm.c_str(), module_offset);
-  }
-  return out;
-}
-
 static const char *name_of_signal_number(int);
 
 static std::uintptr_t BinaryLoadAddress = 0;
+static std::uintptr_t BinaryLoadAddressEnd = 0;
+
+static std::uintptr_t va_of_rva(std::uintptr_t Addr) {
+  return Addr + BinaryLoadAddress;
+}
+
+static std::uintptr_t rva_of_va(std::uintptr_t Addr) {
+  assert(Addr >= BinaryLoadAddress && Addr < BinaryLoadAddressEnd);
+  return Addr - BinaryLoadAddress;
+}
 
 //
 // breakpoint handlers are responsible for emulating the semantics of the
@@ -156,10 +152,7 @@ typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
-static void install_breakpoints(pid_t child,
-                                binary_t &,
-                                disas_t,
-                                std::uintptr_t LoadAddress);
+static void install_breakpoints(pid_t, binary_t &, disas_t);
 
 // returns the value of the given LLVM MC register in the user struct area
 static long LoadReg(pid_t child, unsigned reg);
@@ -437,9 +430,8 @@ int ParentProc(pid_t child,
           return 1;
         }
 
-        auto search_address_space = [&](const char *path) -> std::uintptr_t {
-          std::uintptr_t Base = 0;
-
+        auto search_address_space =
+            [&](const char *path) -> std::pair<std::uintptr_t, std::uintptr_t> {
           for (auto &vm_prop_set : vmm) {
             const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
             if (vm_prop.off)
@@ -448,25 +440,21 @@ int ParentProc(pid_t child,
             if (vm_prop.nm.empty())
               continue;
 
-            if (fs::equivalent(vm_prop.nm, path)) {
-              Base = vm_prop.beg;
-              break;
-            }
+            if (fs::equivalent(vm_prop.nm, path))
+              return std::make_pair(vm_prop.beg, vm_prop.end);
           }
 
-          return Base;
+          return std::make_pair(0ul, 0ul);
         };
 
-        std::uintptr_t Base = search_address_space(binary_path);
-        if (Base) {
-          fprintf(stdout, "found binary %s in address space @ %" PRIx64 "\n",
-                  binary_path, Base);
-          install_breakpoints(child,
-                              binary,
-                              disas_t(*DisAsm, std::cref(*STI), *IP),
-                              Base);
+        std::tie(BinaryLoadAddress, BinaryLoadAddressEnd) =
+            search_address_space(binary_path);
 
-          BinaryLoadAddress = Base;
+        if (BinaryLoadAddress) {
+          fprintf(stdout, "found binary %s in address space @ 0x%lx\n",
+                  binary_path, BinaryLoadAddress);
+          install_breakpoints(child, binary,
+                              disas_t(*DisAsm, std::cref(*STI), *IP));
         }
 
         //
@@ -474,212 +462,247 @@ int ParentProc(pid_t child,
         //
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
+
         //
         // PTRACE_EVENT stops (2) are observed by the tracer as waitpid(2)
         // returning with WIFSTOPPED(status), and WSTOPSIG(status) returns
         // SIGTRAP.
         //
-        switch (event) {
-        case PTRACE_EVENT_VFORK:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
-          break;
-        case PTRACE_EVENT_FORK:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
-          break;
-        case PTRACE_EVENT_CLONE: {
-          pid_t new_child;
-          ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
+        if (likely(event)) {
+          switch (event) {
+          case PTRACE_EVENT_VFORK:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n",
+                      child);
+            break;
+          case PTRACE_EVENT_FORK:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
+            break;
+          case PTRACE_EVENT_CLONE: {
+            pid_t new_child;
+            ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
-                    new_child, child);
-          break;
-        }
-        case PTRACE_EVENT_VFORK_DONE:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n",
-                    child);
-          break;
-        case PTRACE_EVENT_EXEC:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
-          break;
-        case PTRACE_EVENT_EXIT:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
-          break;
-        case PTRACE_EVENT_STOP:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
-          break;
-        case PTRACE_EVENT_SECCOMP:
-          if (debugMode)
-            fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n",
-                    child);
-          break;
-        default:
-          if (ptrace(PTRACE_GETSIGINFO, child, 0l, &si) == -1) {
-            fprintf(stderr,
-                    "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
-                    event, strerror(errno), child);
-          } else {
-            //
-            // rewind before the breakpoint instruction
-            //
-            std::uintptr_t pc = 0;
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
+                      new_child, child);
+            break;
+          }
+          case PTRACE_EVENT_VFORK_DONE:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n",
+                      child);
+            break;
+          case PTRACE_EVENT_EXEC:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+            break;
+          case PTRACE_EVENT_EXIT:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
+            break;
+          case PTRACE_EVENT_STOP:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
+            break;
+          case PTRACE_EVENT_SECCOMP:
+            if (debugMode)
+              fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n",
+                      child);
+            break;
+          }
+        } else {
+          //
+          // rewind before the breakpoint instruction
+          //
+          std::uintptr_t pc = 0;
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-            pc = ptrace(PTRACE_PEEKUSER, child,
-                        __builtin_offsetof(struct user, regs.rip), nullptr);
+          pc = ptrace(PTRACE_PEEKUSER, child,
+                      __builtin_offsetof(struct user, regs.rip), nullptr);
 
-            pc -= 1;
+          pc -= 1;
 #else
-            (void)pc;
+          (void)pc;
 #endif
 
-            auto it = IndBranchInsns.find(pc);
-            if (it == IndBranchInsns.end()) {
-              fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
-              return 1;
+          auto it = IndBranchInsns.find(pc);
+          if (it == IndBranchInsns.end()) {
+            fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
+            return 1;
+          }
+
+          auto &tup = (*it).second;
+
+          function_t &f = *std::get<0>(tup);
+          basic_block_t bb = std::get<1>(tup);
+          IndirectBranchInfo &IndBrInfo = std::get<2>(tup);
+
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+          pc += IndBrInfo.InsnBytes.size();
+          ptrace(PTRACE_POKEUSER, child,
+                 __builtin_offsetof(struct user, regs.rip), pc);
+#endif
+
+          llvm::MCInst &Inst = IndBrInfo.Inst;
+
+          //
+          // helpers
+          //
+          auto RegValue = [&](unsigned r) -> unsigned long {
+            return LoadReg(child, r);
+          };
+
+          auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
+            uint64_t word;
+
+            long request = PTRACE_PEEKDATA;
+            long pid = child;
+            unsigned long addr = a;
+            unsigned long data = reinterpret_cast<unsigned long>(&word);
+
+            if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+              fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
+              exit(1);
             }
 
-            auto &tup = (*it).second;
+            return word;
+          };
 
-            function_t &f = *std::get<0>(tup);
-            basic_block_t bb = std::get<1>(tup);
-            IndirectBranchInfo &IndBrInfo = std::get<2>(tup);
+          auto StoreWord = [&](std::uintptr_t a, unsigned long word) -> void {
+            long request = PTRACE_POKEDATA;
+            long pid = child;
+            unsigned long addr = a;
+            unsigned long data = word;
 
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-            pc += IndBrInfo.InsnBytes.size();
-            ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.rip), pc);
-#endif
+            if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+              fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
+              exit(1);
+            }
+          };
 
-            llvm::MCInst &Inst = IndBrInfo.Inst;
-
-            //
-            // helpers
-            //
-            auto RegValue = [&](unsigned r) -> unsigned long {
-              return LoadReg(child, r);
-            };
-
-            auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
-              uint64_t word;
-
-              long request = PTRACE_PEEKDATA;
-              long pid = child;
-              unsigned long addr = a;
-              unsigned long data = reinterpret_cast<unsigned long>(&word);
-
-              if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-                fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n",
-                        strerror(errno));
-                exit(1);
-              }
-
-              return word;
-            };
-
-            auto StoreWord = [&](std::uintptr_t a, unsigned long word) -> void {
-              long request = PTRACE_POKEDATA;
-              long pid = child;
-              unsigned long addr = a;
-              unsigned long data = word;
-
-              if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-                fprintf(stderr, "PTRACE_POKEDATA failed : %s\n",
-                        strerror(errno));
-                exit(1);
-              }
-            };
-
-            auto GetTarget = [&](void) -> std::uintptr_t {
-              switch (Inst.getOpcode()) {
+          auto GetTarget = [&](void) -> std::uintptr_t {
+            switch (Inst.getOpcode()) {
 #if defined(TARGET_X86_64)
-              case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
-                assert(Inst.getOperand(0).isReg());
-                assert(Inst.getOperand(3).isImm());
-                return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                                Inst.getOperand(3).getImm());
+            case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
+              assert(Inst.getOperand(0).isReg());
+              assert(Inst.getOperand(3).isImm());
+              return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                              Inst.getOperand(3).getImm());
 
-              case llvm::X86::JMP64r: /* jmp reg0 */
-                assert(Inst.getOperand(0).isReg());
-                return RegValue(Inst.getOperand(0).getReg());
+            case llvm::X86::JMP64r: /* jmp reg0 */
+              assert(Inst.getOperand(0).isReg());
+              return RegValue(Inst.getOperand(0).getReg());
 
-              case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
-                assert(Inst.getOperand(0).isReg());
-                assert(Inst.getOperand(3).isImm());
-                return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                                Inst.getOperand(3).getImm());
+            case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
+              assert(Inst.getOperand(0).isReg());
+              assert(Inst.getOperand(3).isImm());
+              return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                              Inst.getOperand(3).getImm());
 
-              case llvm::X86::CALL64r: /* call rax */
-                assert(Inst.getOperand(0).isReg());
-                return RegValue(Inst.getOperand(0).getReg());
+            case llvm::X86::CALL64r: /* call rax */
+              assert(Inst.getOperand(0).isReg());
+              return RegValue(Inst.getOperand(0).getReg());
 #elif defined(TARGET_AARCH64)
 #endif
-              default:
-                fprintf(stderr, "unimplemented indirect branch opcode %u\n",
-                        Inst.getOpcode());
-                exit(1);
+            default:
+              fprintf(stderr, "unimplemented indirect branch opcode %u\n",
+                      Inst.getOpcode());
+              exit(1);
+            }
+          };
+
+          std::uintptr_t target = GetTarget();
+          bool isNewTarget = false;
+          bool isLocal =
+              target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
+
+          if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+            if (isLocal) {
+            } else {
+              if (!update_view_of_virtual_memory(child)) {
+                fprintf(stderr,
+                        "failed to read virtual memory maps of child %d\n",
+                        child);
+                return 1;
               }
-            };
 
-            std::uintptr_t target = GetTarget();
+              auto vmm_it = vmm.find(target);
+              if (vmm_it == vmm.end()) {
+                fprintf(stderr,
+                        "indirect branch target 0x%lx not found in address "
+                        "space; assuming the application is in the process "
+                        "of exiting\n",
+                        target);
+                break;
+              }
 
-            if (!update_view_of_virtual_memory(child)) {
-              fprintf(stderr,
-                      "failed to read virtual memory maps of child %d\n",
-                      child);
-              return 1;
+              const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+              if (!vmprop.nm.empty())
+                fprintf(stderr, "indirect jump to non-local pc: %s+0x%lx\n",
+                        vmprop.nm.c_str(), target - vmprop.beg);
+              else
+                fprintf(stderr,
+                        "indirect jump to unknown non-local pc: 0x%lx\n",
+                        target);
             }
+          } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+            if (isLocal) {
+              isNewTarget =
+                  f[bb].Term.Callees.Local.insert(rva_of_va(target)).second;
+            } else {
+              if (!update_view_of_virtual_memory(child)) {
+                fprintf(stderr,
+                        "failed to read virtual memory maps of child %d\n",
+                        child);
+                return 1;
+              }
 
-            auto vmm_it = vmm.find(target);
-            if (vmm_it == vmm.end()) {
-              fprintf(
-                  stderr,
-                  "indirect branch target 0x%lx not found in address space\n",
-                  target);
-              return 1;
+              auto vmm_it = vmm.find(target);
+              if (vmm_it == vmm.end()) {
+                fprintf(stderr,
+                        "indirect branch target 0x%lx not found in address "
+                        "space; assuming the application is in the process "
+                        "of exiting\n",
+                        target);
+                break;
+              }
+
+              const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+              if (!vmprop.nm.empty())
+                fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
+                        target - vmprop.beg);
             }
+          } else {
+            abort();
+          }
 
-            const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-            if (vmprop.nm.empty())
-              fprintf(stderr, "0x%lx\n", target);
-            else
-              fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
-                      target - vmprop.beg);
-
-            //
-            // if the instruction is a call, we need to emulate the semantics of
-            // saving the return address
-            //
-            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+          //
+          // if the instruction is a call, we need to emulate the semantics of
+          // saving the return address
+          //
+          if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-              std::uintptr_t sp =
-                  ptrace(PTRACE_PEEKUSER, child,
-                         __builtin_offsetof(struct user, regs.rsp), nullptr);
-              sp -= sizeof(std::uintptr_t);
-              StoreWord(sp, pc);
-              ptrace(PTRACE_POKEUSER, child,
-                     __builtin_offsetof(struct user, regs.rsp), sp);
-#endif
-            }
-
-            //
-            // set program counter to what it should be (had we not inserted a
-            // software breakpoint)
-            //
-#if defined(TARGET_X86_64) && defined(__x86_64__)
+            std::uintptr_t sp =
+                ptrace(PTRACE_PEEKUSER, child,
+                       __builtin_offsetof(struct user, regs.rsp), nullptr);
+            sp -= sizeof(std::uintptr_t);
+            StoreWord(sp, pc);
             ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.rip), target);
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-            ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.pc), target);
+                   __builtin_offsetof(struct user, regs.rsp), sp);
 #endif
           }
-          break;
+
+          //
+          // set program counter to what it should be (had we not inserted a
+          // software breakpoint)
+          //
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+          ptrace(PTRACE_POKEUSER, child,
+                 __builtin_offsetof(struct user, regs.rip), target);
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+          ptrace(PTRACE_POKEUSER, child,
+                 __builtin_offsetof(struct user, regs.pc), target);
+#endif
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
         //
@@ -793,16 +816,11 @@ long LoadReg(pid_t child, unsigned reg) {
 
 void install_breakpoints(pid_t child,
                          binary_t &binary,
-                         disas_t dis,
-                         std::uintptr_t LoadAddress) {
+                         disas_t dis) {
   unsigned M = std::accumulate(
       binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
       [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
           -> unsigned { return acc + boost::num_vertices(pair.second); });
-
-  auto va_of_rva = [LoadAddress](std::uintptr_t Addr) -> std::uintptr_t {
-    return Addr + LoadAddress;
-  };
 
   auto initialize_indirect_branch_instructions_map = [&](void) -> void {
     std::vector<struct iovec> remote_iovs;
