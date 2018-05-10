@@ -459,7 +459,8 @@ int ParentProc(pid_t child,
 
         std::uintptr_t Base = search_address_space(binary_path);
         if (Base) {
-          fprintf(stdout, "%s @ %" PRIx64 "\n", binary_path, Base);
+          fprintf(stdout, "found binary %s in address space @ %" PRIx64 "\n",
+                  binary_path, Base);
           install_breakpoints(child,
                               binary,
                               disas_t(*DisAsm, std::cref(*STI), *IP),
@@ -533,6 +534,8 @@ int ParentProc(pid_t child,
                         __builtin_offsetof(struct user, regs.rip), nullptr);
 
             pc -= 1;
+#else
+            (void)pc;
 #endif
 
             auto it = IndBranchInsns.find(pc);
@@ -614,7 +617,6 @@ int ParentProc(pid_t child,
               case llvm::X86::CALL64r: /* call rax */
                 assert(Inst.getOperand(0).isReg());
                 return RegValue(Inst.getOperand(0).getReg());
-
 #elif defined(TARGET_AARCH64)
 #endif
               default:
@@ -626,12 +628,35 @@ int ParentProc(pid_t child,
 
             std::uintptr_t target = GetTarget();
 
+            if (!update_view_of_virtual_memory(child)) {
+              fprintf(stderr,
+                      "failed to read virtual memory maps of child %d\n",
+                      child);
+              return 1;
+            }
+
+            auto vmm_it = vmm.find(target);
+            if (vmm_it == vmm.end()) {
+              fprintf(
+                  stderr,
+                  "indirect branch target 0x%lx not found in address space\n",
+                  target);
+              return 1;
+            }
+
+            const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+            if (vmprop.nm.empty())
+              fprintf(stderr, "0x%lx\n", target);
+            else
+              fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
+                      target - vmprop.beg);
+
             //
             // if the instruction is a call, we need to emulate the semantics of
             // saving the return address
             //
-#if defined(TARGET_X86_64) && defined(__x86_64__)
             if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+#if defined(TARGET_X86_64) && defined(__x86_64__)
               std::uintptr_t sp =
                   ptrace(PTRACE_PEEKUSER, child,
                          __builtin_offsetof(struct user, regs.rsp), nullptr);
@@ -639,11 +664,8 @@ int ParentProc(pid_t child,
               StoreWord(sp, pc);
               ptrace(PTRACE_POKEUSER, child,
                      __builtin_offsetof(struct user, regs.rsp), sp);
-            }
 #endif
-
-            //fprintf(stdout, "pc=0x%lx opcode=%u target=0x%lx\n", pc,
-            //        Inst.getOpcode(), target);
+            }
 
             //
             // set program counter to what it should be (had we not inserted a
