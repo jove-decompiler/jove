@@ -522,19 +522,14 @@ int ParentProc(pid_t child,
                     "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
                     event, strerror(errno), child);
           } else {
+            // rewind before the breakpoint instruction
             std::uintptr_t pc =
                 ptrace(PTRACE_PEEKUSER, child,
                        __builtin_offsetof(struct user, regs.rip), nullptr);
 
-            // rewind before the breakpoint instruction
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-            pc -= 1; /* 0xcc */
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-            pc -= 4; /* 0xf2000800 */
+            pc -= 1;
 #endif
-
-            ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.rip), pc);
 
             auto it = IndBranchInsns.find(pc);
             if (it == IndBranchInsns.end()) {
@@ -542,27 +537,33 @@ int ParentProc(pid_t child,
               return 1;
             }
 
-            auto GetTarget = [&](void) -> std::uintptr_t {
-              llvm::MCInst &Inst = (*it).second.Inst;
+            IndirectBranchInfo &IndBrInfo = (*it).second;
 
-              auto RegVal = [&](unsigned r) -> long {
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+            pc += IndBrInfo.InsnBytes.size();
+            ptrace(PTRACE_POKEUSER, child,
+                   __builtin_offsetof(struct user, regs.rip), pc);
+#endif
+
+            llvm::MCInst &Inst = IndBrInfo.Inst;
+
+            auto GetTarget = [&](void) -> std::uintptr_t {
+              auto RegValue = [&](unsigned r) -> unsigned long {
                 return LoadReg(child, r);
               };
 
               auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
                 uint64_t word;
 
-                {
-                  long request = PTRACE_PEEKDATA;
-                  long pid = child;
-                  unsigned long addr = reinterpret_cast<unsigned long>(a);
-                  unsigned long data = reinterpret_cast<unsigned long>(&word);
+                long request = PTRACE_PEEKDATA;
+                long pid = child;
+                unsigned long addr = a;
+                unsigned long data = reinterpret_cast<unsigned long>(&word);
 
-                  if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-                    fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n",
-                            strerror(errno));
-                    exit(1);
-                  }
+                if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+                  fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n",
+                          strerror(errno));
+                  exit(1);
                 }
 
                 return word;
@@ -573,15 +574,14 @@ int ParentProc(pid_t child,
               case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
                 assert(Inst.getOperand(0).isReg());
                 assert(Inst.getOperand(3).isImm());
-                return LoadAddr(RegVal(Inst.getOperand(0).getReg()) +
+                return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
                                 Inst.getOperand(3).getImm());
 
-              case llvm::X86::JMP64r: /* jmp [reg0] */
+              case llvm::X86::JMP64r: /* jmp reg0 */
                 assert(Inst.getOperand(0).isReg());
-                return RegVal(Inst.getOperand(0).getReg());
+                return RegValue(Inst.getOperand(0).getReg());
 #elif defined(TARGET_AARCH64)
 #endif
-
               default:
                 fprintf(stderr, "unimplemented indirect branch opcode %u\n",
                         Inst.getOpcode());
@@ -590,6 +590,9 @@ int ParentProc(pid_t child,
             };
 
             std::uintptr_t target = GetTarget();
+
+            //fprintf(stdout, "pc=0x%lx opcode=%u target=0x%lx\n", pc,
+            //        Inst.getOpcode(), target);
 
             //
             // set program counter to what it should be (had we not inserted a
@@ -600,9 +603,7 @@ int ParentProc(pid_t child,
                    __builtin_offsetof(struct user, regs.rip), target);
 #elif defined(TARGET_AARCH64) && defined(__arm64__)
             ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.rip), target);
-#else
-            abort();
+                   __builtin_offsetof(struct user, regs.pc), target);
 #endif
           }
           break;
@@ -655,7 +656,7 @@ static bool _process_vm_readv(pid_t pid,
 
 // returns the offset into the user struct for the given LLVM register obtained
 // via the instruction disassembler.
-static long RegOffset(unsigned reg) {
+static unsigned long RegOffset(unsigned reg) {
   switch (reg) {
 #if defined(TARGET_X86_64) && defined(__x86_64__)
   case llvm::X86::RAX:
@@ -714,7 +715,7 @@ static long RegOffset(unsigned reg) {
 
 // returns the value of the given LLVM MC register in the user struct area
 long LoadReg(pid_t child, unsigned reg) {
-  return ptrace(PTRACE_PEEKUSER, child, RegOffset(reg), 0l);
+  return ptrace(PTRACE_PEEKUSER, child, RegOffset(reg), nullptr);
 }
 
 void install_breakpoints(pid_t child,
@@ -793,48 +794,11 @@ void install_breakpoints(pid_t child,
       assert(Disassembled);
 
 #if defined(TARGET_X86_64)
-      if (Inst.getOpcode() != llvm::X86::JMP64r)
+      if (Inst.getOpcode() != llvm::X86::JMP64r &&
+          Inst.getOpcode() != llvm::X86::JMP64m)
         continue;
 #elif defined(TARGET_AARCH64)
       continue;
-#endif
-
-#if 0
-      if (!proc) {
-        std::string str;
-        {
-          llvm::raw_string_ostream StrStream(str);
-          IP.printInst(&Inst, StrStream, "", STI);
-        }
-
-        fprintf(stderr, "failed to place breakpoint @ 0x%lx %s\n",
-                (*it).first, str.c_str());
-
-        fprintf(stderr, "[opcode: %u]", Inst.getOpcode());
-        for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-          const llvm::MCOperand &opnd = Inst.getOperand(i);
-
-          char buff[0x100];
-          if (opnd.isReg()) {
-            snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
-          } else if (opnd.isImm()) {
-            snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
-          } else if (opnd.isFPImm()) {
-            snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
-          } else if (opnd.isExpr()) {
-            snprintf(buff, sizeof(buff), "<expr>");
-          } else if (opnd.isInst()) {
-            snprintf(buff, sizeof(buff), "<inst>");
-          } else {
-            snprintf(buff, sizeof(buff), "<unknown>");
-          }
-
-          fprintf(stderr, " %u:%s", i, buff);
-        }
-        fprintf(stderr, "\n");
-
-        continue;
-      }
 #endif
 
       uint64_t word;
@@ -872,6 +836,39 @@ void install_breakpoints(pid_t child,
       }
 
       fprintf(stdout, "breakpoint placed @ 0x%lx\n", (*it).first);
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP.printInst(&Inst, StrStream, "", STI);
+      }
+
+      fprintf(stdout, "%s\n", str.c_str());
+
+#if 1
+      fprintf(stdout, "[opcode: %u]", Inst.getOpcode());
+      for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+        const llvm::MCOperand &opnd = Inst.getOperand(i);
+
+        char buff[0x100];
+        if (opnd.isReg()) {
+          snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
+        } else if (opnd.isImm()) {
+          snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
+        } else if (opnd.isFPImm()) {
+          snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
+        } else if (opnd.isExpr()) {
+          snprintf(buff, sizeof(buff), "<expr>");
+        } else if (opnd.isInst()) {
+          snprintf(buff, sizeof(buff), "<inst>");
+        } else {
+          snprintf(buff, sizeof(buff), "<unknown>");
+        }
+
+        fprintf(stdout, " %u:%s", i, buff);
+      }
+      fprintf(stdout, "\n");
+#endif
     }
   };
 
