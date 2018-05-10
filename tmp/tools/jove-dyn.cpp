@@ -607,6 +607,12 @@ int ParentProc(pid_t child,
                 assert(Inst.getOperand(3).isImm());
                 return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
                                 Inst.getOperand(3).getImm());
+
+              case llvm::X86::CALL64r: /* call rax */
+                isCall = true;
+                assert(Inst.getOperand(0).isReg());
+                return RegValue(Inst.getOperand(0).getReg());
+
 #elif defined(TARGET_AARCH64)
 #endif
               default:
@@ -836,7 +842,8 @@ void install_breakpoints(pid_t child,
 #if defined(TARGET_X86_64)
       if (Inst.getOpcode() != llvm::X86::JMP64r &&
           Inst.getOpcode() != llvm::X86::JMP64m &&
-          Inst.getOpcode() != llvm::X86::CALL64m) {
+          Inst.getOpcode() != llvm::X86::CALL64m &&
+          Inst.getOpcode() != llvm::X86::CALL64r) {
         fprintf(stdout, "could not place breakpoint @ 0x%lx\n", (*it).first);
 
         std::string str;
@@ -904,7 +911,7 @@ void install_breakpoints(pid_t child,
         }
       }
 
-      fprintf(stdout, "breakpoint placed @ 0x%lx\n", (*it).first);
+      //fprintf(stdout, "breakpoint placed @ 0x%lx\n", (*it).first);
     }
   };
 
