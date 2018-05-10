@@ -148,7 +148,9 @@ struct IndirectBranchInfo {
   llvm::MCInst Inst;
 };
 
-static std::unordered_map<std::uintptr_t, IndirectBranchInfo> IndBranchInsns;
+static std::unordered_map<
+    std::uintptr_t, std::tuple<function_t *, basic_block_t, IndirectBranchInfo>>
+    IndBranchInsns;
 
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
@@ -522,12 +524,14 @@ int ParentProc(pid_t child,
                     "PTRACE_GETSIGINFO failed (unknown ptrace event %u) : %s [%d]\n",
                     event, strerror(errno), child);
           } else {
+            //
             // rewind before the breakpoint instruction
-            std::uintptr_t pc =
-                ptrace(PTRACE_PEEKUSER, child,
-                       __builtin_offsetof(struct user, regs.rip), nullptr);
-
+            //
+            std::uintptr_t pc = 0;
 #if defined(TARGET_X86_64) && defined(__x86_64__)
+            pc = ptrace(PTRACE_PEEKUSER, child,
+                        __builtin_offsetof(struct user, regs.rip), nullptr);
+
             pc -= 1;
 #endif
 
@@ -537,7 +541,11 @@ int ParentProc(pid_t child,
               return 1;
             }
 
-            IndirectBranchInfo &IndBrInfo = (*it).second;
+            auto& tup = (*it).second;
+
+            function_t &f = *std::get<0>(tup);
+            basic_block_t bb = std::get<1>(tup);
+            IndirectBranchInfo &IndBrInfo = std::get<2>(tup);
 
 #if defined(TARGET_X86_64) && defined(__x86_64__)
             pc += IndBrInfo.InsnBytes.size();
@@ -789,7 +797,8 @@ void install_breakpoints(pid_t child,
 
       function_t::vertex_iterator vi, vi_end;
       for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-        basic_block_properties_t bbprop = f[*vi];
+        basic_block_t bb = *vi;
+        basic_block_properties_t bbprop = f[bb];
         if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
             bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
           continue;
@@ -799,11 +808,15 @@ void install_breakpoints(pid_t child,
         if (IndBranchInsns.find(termpc) != IndBranchInsns.end())
           continue;
 
+        auto& tup = IndBranchInsns[termpc];
+        std::get<0>(tup) = &f;
+        std::get<1>(tup) = bb;
+
         struct iovec remote_iov;
         remote_iov.iov_base = reinterpret_cast<void *>(termpc);
         remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
 
-        IndirectBranchInfo &indbr = IndBranchInsns[termpc];
+        IndirectBranchInfo &indbr = std::get<2>(IndBranchInsns[termpc]);
         indbr.InsnBytes.resize(remote_iov.iov_len);
 
         struct iovec local_iov;
@@ -828,7 +841,7 @@ void install_breakpoints(pid_t child,
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
     llvm::MCInstPrinter &IP = std::get<2>(dis);
     for (auto it = IndBranchInsns.begin(); it != IndBranchInsns.end(); ++it) {
-      IndirectBranchInfo &indbr = (*it).second;
+      IndirectBranchInfo &indbr = std::get<2>((*it).second);
       llvm::MCInst &Inst = indbr.Inst;
 
       uint64_t InstLen;
