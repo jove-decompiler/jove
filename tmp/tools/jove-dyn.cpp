@@ -541,7 +541,7 @@ int ParentProc(pid_t child,
               return 1;
             }
 
-            auto& tup = (*it).second;
+            auto &tup = (*it).second;
 
             function_t &f = *std::get<0>(tup);
             basic_block_t bb = std::get<1>(tup);
@@ -554,10 +554,6 @@ int ParentProc(pid_t child,
 #endif
 
             llvm::MCInst &Inst = IndBrInfo.Inst;
-
-            // if the instruction is a call, we need to emulate the semantics of
-            // saving the return address
-            bool isCall = false;
 
             //
             // helpers
@@ -610,14 +606,12 @@ int ParentProc(pid_t child,
                 return RegValue(Inst.getOperand(0).getReg());
 
               case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
-                isCall = true;
                 assert(Inst.getOperand(0).isReg());
                 assert(Inst.getOperand(3).isImm());
                 return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
                                 Inst.getOperand(3).getImm());
 
               case llvm::X86::CALL64r: /* call rax */
-                isCall = true;
                 assert(Inst.getOperand(0).isReg());
                 return RegValue(Inst.getOperand(0).getReg());
 
@@ -632,8 +626,12 @@ int ParentProc(pid_t child,
 
             std::uintptr_t target = GetTarget();
 
+            //
+            // if the instruction is a call, we need to emulate the semantics of
+            // saving the return address
+            //
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-            if (isCall) {
+            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
               std::uintptr_t sp =
                   ptrace(PTRACE_PEEKUSER, child,
                          __builtin_offsetof(struct user, regs.rsp), nullptr);
@@ -808,7 +806,7 @@ void install_breakpoints(pid_t child,
         if (IndBranchInsns.find(termpc) != IndBranchInsns.end())
           continue;
 
-        auto& tup = IndBranchInsns[termpc];
+        auto &tup = IndBranchInsns[termpc];
         std::get<0>(tup) = &f;
         std::get<1>(tup) = bb;
 
