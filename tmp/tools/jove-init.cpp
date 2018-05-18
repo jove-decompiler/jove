@@ -422,16 +422,6 @@ basic_block_t translate_basic_block(function_t &f,
     return boost::graph_traits<function_t>::null_vertex();
   }
 
-  if (T.Type == TERMINATOR::UNREACHABLE) {
-    basic_block_t bb = boost::add_vertex(f);
-    basic_block_properties_t &bbprop = f[bb];
-    bbprop.Addr = 0x0;
-    bbprop.Size = -1;
-    bbprop.Term.Type = TERMINATOR::UNREACHABLE;
-    bbprop.Term.Addr = T.Addr;
-    return bb;
-  }
-
   basic_block_t bb = boost::add_vertex(f);
   basic_block_properties_t& bbprop = f[bb];
   bbprop.Addr = Addr;
@@ -483,9 +473,8 @@ basic_block_t translate_basic_block(function_t &f,
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
-    break;
-
   case TERMINATOR::RETURN:
+  case TERMINATOR::UNREACHABLE:
     break;
 
   default:
