@@ -164,6 +164,11 @@ static void on_breakpoint(pid_t, binary_t &, disas_t);
 
 static bool SeenExec = false;
 
+static unsigned long _ptrace_peekuser(pid_t, unsigned user_offset);
+static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
+static void _ptrace_pokedata(pid_t child, std::uintptr_t addr,
+                             unsigned long data);
+
 int ParentProc(pid_t child,
                const char *decompilation_path,
                const char *binary_path) {
@@ -391,7 +396,7 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      fprintf(stdout, "waitpid gave %d : %s\n", child, strerror(errno));
+      printf("exiting gracefully : %s\n", strerror(errno));
       break;
     }
 
@@ -418,18 +423,19 @@ int ParentProc(pid_t child,
         // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
         // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
         //
-        long no = ptrace(PTRACE_PEEKUSER, child,
+        {
+          unsigned long syscall_num =
+              _ptrace_peekuser(child,
 #if defined(__x86_64__)
-                         __builtin_offsetof(struct user, regs.orig_rax),
+                               __builtin_offsetof(struct user, regs.orig_rax)
 #elif defined(__arm64__)
-                         __builtin_offsetof(struct user, regs.r8),
-#else
-#error "unknown architecture"
+                               __builtin_offsetof(struct user, regs.r8)
 #endif
-                         nullptr);
+              );
 
-        if (no != __NR_mmap)
-          continue;
+          if (syscall_num != __NR_mmap)
+            continue;
+        }
 
         if (!update_view_of_virtual_memory(child)) {
           fprintf(stderr, "failed to read virtual memory maps of child %d\n",
@@ -700,19 +706,7 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
         continue;
       }
 
-      uint64_t word;
-
-      {
-        long request = PTRACE_PEEKDATA;
-        long pid = child;
-        unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
-        unsigned long data = reinterpret_cast<unsigned long>(&word);
-
-        if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-          fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
-          continue;
-        }
-      }
+      unsigned long word = _ptrace_peekdata(child, (*it).first);
 
 #if defined(TARGET_X86_64) && defined(__x86_64__)
       reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
@@ -720,19 +714,10 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
       reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
 #endif
 
-      {
-        long request = PTRACE_POKEDATA;
-        long pid = child;
-        unsigned long addr = reinterpret_cast<unsigned long>((*it).first);
-        unsigned long data = word;
+      _ptrace_pokedata(child, (*it).first, word);
 
-        if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-          fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
-          continue;
-        }
-      }
-
-      //fprintf(stdout, "breakpoint placed @ 0x%lx\n", (*it).first);
+      if (debugMode)
+        printf("breakpoint placed @ 0x%lx\n", (*it).first);
     }
   };
 
@@ -978,6 +963,50 @@ void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
   ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.pc),
          target);
 #endif
+}
+
+unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
+  unsigned long res;
+
+  unsigned long _request = PTRACE_PEEKUSER;
+  unsigned long _pid = child;
+  unsigned long _addr = user_offset;
+  unsigned long _data = reinterpret_cast<unsigned long>(&res);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    fprintf(stderr, "PTRACE_PEEKUSER failed : %s\n", strerror(errno));
+    abort();
+  }
+
+  return res;
+}
+
+unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
+  unsigned long res;
+
+  unsigned long _request = PTRACE_PEEKDATA;
+  unsigned long _pid = child;
+  unsigned long _addr = addr;
+  unsigned long _data = reinterpret_cast<unsigned long>(&res);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
+    abort();
+  }
+
+  return res;
+}
+
+void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
+  unsigned long _request = PTRACE_POKEDATA;
+  unsigned long _pid = child;
+  unsigned long _addr = addr;
+  unsigned long _data = data;
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
+    abort();
+  }
 }
 
 template <bool IsRead>
