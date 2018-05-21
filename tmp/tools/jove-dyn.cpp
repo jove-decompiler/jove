@@ -95,7 +95,7 @@ static constexpr bool debugMode = false;
 
 static bool update_view_of_virtual_memory(int child);
 
-static void verify_arch(const obj::ObjectFile &);
+static bool verify_arch(const obj::ObjectFile &);
 
 struct vm_properties_t {
   std::uintptr_t beg;
@@ -114,10 +114,29 @@ struct vm_properties_t {
   bool operator<(const vm_properties_t &vm) const { return beg < vm.beg; }
 };
 
+struct section_properties_t {
+  std::uintptr_t beg;
+  std::uintptr_t end;
+
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+
+  bool operator==(const section_properties_t &sect) const {
+    return beg == sect.beg && end == sect.end;
+  }
+
+  bool operator<(const section_properties_t &sect) const {
+    return beg < sect.beg;
+  }
+};
+
 typedef std::set<vm_properties_t> vm_prop_set_t;
+typedef std::set<section_properties_t> section_prop_set_t;
 
 static boost::icl::interval_set<uintptr_t> allvms;
+
 static boost::icl::split_interval_map<uintptr_t, vm_prop_set_t> vmm;
+static boost::icl::split_interval_map<uintptr_t, section_prop_set_t> sectm;
 
 static const char *name_of_signal_number(int);
 
@@ -159,12 +178,21 @@ typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
+static llvm::ArrayRef<uint8_t> SecContents;
+
+static basic_block_t
+translate_basic_block(function_t &, tiny_code_generator_t &, disas_t,
+                      std::unordered_map<std::uintptr_t, basic_block_t> &BBMap,
+                      const target_ulong Addr);
+
 static void install_breakpoints(pid_t, binary_t &, disas_t);
-static void on_breakpoint(pid_t, binary_t &, disas_t);
+static void on_breakpoint(pid_t, binary_t &, tiny_code_generator_t &, disas_t);
 static bool search_address_space_for_binary(pid_t, const char *binary_path);
 
 static bool SeenExec = false;
 
+static void _ptrace_pokeuser(pid_t child, unsigned user_offset,
+                             unsigned long data);
 static unsigned long _ptrace_peekuser(pid_t, unsigned user_offset);
 static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
 static void _ptrace_pokedata(pid_t child, std::uintptr_t addr,
@@ -173,6 +201,13 @@ static void _ptrace_pokedata(pid_t child, std::uintptr_t addr,
 int ParentProc(pid_t child,
                const char *decompilation_path,
                const char *binary_path) {
+  tiny_code_generator_t tcg;
+
+  // Initialize targets and assembly printers/parsers.
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllDisassemblers();
+
   //
   // parse the existing decompilation file
   //
@@ -204,48 +239,51 @@ int ParentProc(pid_t child,
 
   binary_t &binary = (*it).second;
 
-  {
-    //
-    // let's be sure that the binary hasn't changed a bit
-    //
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BinFileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary_path);
+  //
+  // let's be sure that the binary hasn't changed a bit
+  //
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+      llvm::MemoryBuffer::getFileOrSTDIN(binary_path);
 
-    if (std::error_code EC = BinFileOrErr.getError()) {
-      fprintf(stderr, "failed to open binary %s\n", binary_path);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &BinFileBuffer = BinFileOrErr.get();
-    if (binary.Data.size() != BinFileBuffer->getBufferSize() ||
-        memcmp(&binary.Data[0],
-               BinFileBuffer->getBufferStart(),
-               binary.Data.size()) != 0) {
-      fprintf(stderr, "contents of binary %s have changed\n", binary_path);
-      return 1;
-    }
+  if (std::error_code EC = FileOrErr.getError()) {
+    fprintf(stderr, "failed to open binary %s\n", binary_path);
+    return 1;
   }
 
-  tiny_code_generator_t tcg;
+  std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
+  std::unique_ptr<llvm::MemoryBuffer> &BinFileBuffer = FileOrErr.get();
+  if (binary.Data.size() != BinFileBuffer->getBufferSize() ||
+      memcmp(&binary.Data[0], BinFileBuffer->getBufferStart(),
+             binary.Data.size()) != 0) {
+    fprintf(stderr, "contents of binary %s have changed\n", binary_path);
+    return 1;
+  }
 
-  llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(binary_path);
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(Buffer->getMemBufferRef());
 
-  if (!BinaryOrErr ||
-      !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
+  if (!BinOrErr) {
     fprintf(stderr, "failed to open %s\n", binary_path);
     return 1;
   }
 
-  obj::ObjectFile &O =
-      *llvm::cast<obj::ObjectFile>(BinaryOrErr.get().getBinary());
+  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
-  verify_arch(O);
+  typedef typename obj::ELF64LEObjectFile ELFO;
+  typedef typename obj::ELF64LEFile ELFT;
+
+  if (!llvm::isa<ELFO>(Bin.get())) {
+    fprintf(stderr, "%s is not ELF64LEObjectFile\n", binary_path);
+    return 1;
+  }
+
+  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+  if (!verify_arch(O)) {
+    fprintf(stderr, "architecture mismatch of input\n");
+    return 1;
+  }
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -307,6 +345,51 @@ int ParentProc(pid_t child,
   if (!IP) {
     fprintf(stderr, "no instruction printer\n");
     return 1;
+  }
+
+  //
+  // build section map
+  //
+#define unwrapOrBail(__ExpectedVal)                                            \
+  ({                                                                           \
+    auto __E = (__ExpectedVal);                                                \
+    if (!__E) {                                                                \
+      fprintf(stderr, "error (%s)\n", #__ExpectedVal);                         \
+      return 1;                                                                \
+    }                                                                          \
+                                                                               \
+    *__E;                                                                      \
+  })
+
+  const ELFT &E = *O.getELFFile();
+
+  typedef typename ELFT::Elf_Shdr Elf_Shdr;
+
+  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+      continue;
+
+    llvm::Expected<llvm::ArrayRef<uint8_t>> _contents =
+        E.getSectionContents(&Sec);
+
+    if (!_contents)
+      continue;
+
+    section_properties_t sectprop;
+    sectprop.beg = Sec.sh_addr;
+    sectprop.end = Sec.sh_addr + Sec.sh_size;
+
+    sectprop.name = unwrapOrBail(E.getSectionName(&Sec));
+    sectprop.contents = *_contents;
+
+    auto intervl = boost::icl::discrete_interval<uintptr_t>::right_open(
+        sectprop.beg, sectprop.end);
+
+    section_prop_set_t sectprops = {sectprop};
+    sectm.add(std::make_pair(intervl, sectprops));
+
+    if (debugMode)
+      printf("[0x%lx, 0x%lx)\n", sectprop.beg, sectprop.end);
   }
 
   //
@@ -381,8 +464,8 @@ int ParentProc(pid_t child,
       if (unlikely(ptrace(SeenExec && !BinaryLoadAddress ? PTRACE_SYSCALL
                                                          : PTRACE_CONT,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-        fprintf(stderr, "failed to resume tracee : %s [%d]\n", strerror(errno),
-                child);
+        if (debugMode)
+          fprintf(stderr, "failed to resume tracee (%s)\n", strerror(errno));
     }
 
     //
@@ -397,7 +480,7 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      printf("exiting gracefully : %s\n", strerror(errno));
+      printf("exiting... (%s)\n", strerror(errno));
       break;
     }
 
@@ -456,48 +539,51 @@ int ParentProc(pid_t child,
           switch (event) {
           case PTRACE_EVENT_VFORK:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK) [%d]\n",
-                      child);
+              printf("ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
             break;
           case PTRACE_EVENT_FORK:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
+              printf("ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
             break;
           case PTRACE_EVENT_CLONE: {
             pid_t new_child;
             ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
-                      new_child, child);
+              printf("ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
+                     new_child, child);
             break;
           }
           case PTRACE_EVENT_VFORK_DONE:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n",
-                      child);
+              printf("ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n", child);
             break;
           case PTRACE_EVENT_EXEC:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+              printf("ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
             SeenExec = true;
             break;
           case PTRACE_EVENT_EXIT:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
+              printf("ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
             break;
           case PTRACE_EVENT_STOP:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
+              printf("ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
             break;
           case PTRACE_EVENT_SECCOMP:
             if (debugMode)
-              fprintf(stdout, "ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n",
-                      child);
+              printf("ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n", child);
             break;
           }
         } else {
-          on_breakpoint(child, binary, disas_t(*DisAsm, std::cref(*STI), *IP));
+          try {
+            on_breakpoint(child, binary, tcg,
+                          disas_t(*DisAsm, std::cref(*STI), *IP));
+          } catch (const std::exception& e) {
+            fprintf(stderr, "failed to process indirect branch target : %s\n",
+                    e.what());
+          }
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
         //
@@ -607,8 +693,10 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
       }
     }
 
-    if (!_process_vm_readv(child, local_iovs, remote_iovs))
+    if (!_process_vm_readv(child, local_iovs, remote_iovs)) {
+      fprintf(stderr, "failed to install breakpoints\n");
       exit(1);
+    }
   };
 
   auto place_breakpoints = [&](void) -> void {
@@ -696,44 +784,54 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
   place_breakpoints();
 }
 
-void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
+static constexpr unsigned ProgramCounterUserOffset =
+#if defined(__x86_64__)
+    __builtin_offsetof(struct user, regs.rip)
+#elif defined(__arm64__)
+    __builtin_offsetof(struct user, regs.pc)
+#endif
+    ;
+
+void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
+                   disas_t dis) {
+  //
+  // get program counter
+  //
+  std::uintptr_t pc = _ptrace_peekuser(child, ProgramCounterUserOffset);
+
   //
   // rewind before the breakpoint instruction
   //
-  std::uintptr_t pc = 0;
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-  pc = ptrace(PTRACE_PEEKUSER, child, __builtin_offsetof(struct user, regs.rip),
-              nullptr);
-
-  pc -= 1;
-#else
-  (void)pc;
+#if defined(__x86_64__)
+  pc -= 1; /* int3 */
 #endif
 
+  //
+  // lookup indirect branch info
+  //
   auto it = indbrs.find(pc);
   if (it == indbrs.end()) {
-    fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
-    return;
+    fprintf(stderr, "unknown breakpoint @ 0x%lx", pc);
+    abort();
   }
 
   indirect_branch_t &IndBrInfo = (*it).second;
+
+  //
+  // update program counter so it is as it should be
+  //
+  pc += IndBrInfo.InsnBytes.size();
+  _ptrace_pokeuser(child, ProgramCounterUserOffset, pc);
+
+  //
+  // shorthand-functions for reading the tracee's memory and registers
+  //
   function_t &f = IndBrInfo.f;
   basic_block_t bb = IndBrInfo.bb;
-
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-  pc += IndBrInfo.InsnBytes.size();
-  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rip), pc);
-#endif
-
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
-  //
-  // helpers
-  //
   auto RegValue = [child](unsigned llreg) -> unsigned long {
-    // returns the offset into the user struct for the given LLVM register
-    // obtained via the instruction disassembler.
-    auto UserOffsetOfLLVMReg = [](unsigned llreg) -> unsigned long {
+    auto UserOffsetOfLLVMReg = [](unsigned llreg) -> unsigned {
       switch (llreg) {
 #if defined(TARGET_X86_64) && defined(__x86_64__)
       case llvm::X86::RAX:
@@ -793,23 +891,9 @@ void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
     return ptrace(PTRACE_PEEKUSER, child, UserOffsetOfLLVMReg(llreg), nullptr);
   };
 
-#if defined(TARGET_X86_64)
-  auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
-    uint64_t word;
-
-    unsigned long request = PTRACE_PEEKDATA;
-    unsigned long pid = child;
-    unsigned long addr = a;
-    unsigned long data = reinterpret_cast<unsigned long>(&word);
-
-    if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-      fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
-      exit(1);
-    }
-
-    return word;
+  auto LoadAddr = [&](std::uintptr_t addr) -> std::uintptr_t {
+    return _ptrace_peekdata(child, addr);
   };
-#endif
 
   auto GetTarget = [&](void) -> std::uintptr_t {
     switch (Inst.getOpcode()) {
@@ -846,6 +930,29 @@ void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
   };
 
   std::uintptr_t target = GetTarget();
+
+  //
+  // if the instruction is a call, we need to emulate the semantics of
+  // saving the return address on the stack for certain architectures
+  //
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+  if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+    std::uintptr_t sp =
+        _ptrace_peekuser(child, __builtin_offsetof(struct user, regs.rsp));
+    sp -= sizeof(std::uintptr_t);
+    _ptrace_pokedata(child, sp, pc);
+    _ptrace_pokeuser(child, __builtin_offsetof(struct user, regs.rsp), sp);
+  }
+#endif
+
+  //
+  // set program counter to be branch target
+  //
+  _ptrace_pokeuser(child, ProgramCounterUserOffset, target);
+
+  //
+  // update the decompilation based on the target
+  //
   bool isNewTarget = false;
   bool isLocal = target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
 
@@ -856,84 +963,175 @@ void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
       if (BBMaps.find(&f) == BBMaps.end())
         initialize_basic_block_map(f);
 
+      basic_block_t target_bb = boost::graph_traits<function_t>::null_vertex();
+
       auto &BBMap = BBMaps[&f];
-      auto it = BBMap.find(target);
-      if (it != BBMap.end()) {
-        isNewTarget = boost::add_edge(bb, (*it).second, f).second;
+      auto bb_it = BBMap.find(target);
+      if (bb_it == BBMap.end()) {
+        //
+        // we need to translate new code!
+        //
+        std::uintptr_t rva = rva_of_va(target);
+        auto sectit = sectm.find(rva);
+        if (sectit == sectm.end())
+          throw std::runtime_error("bad relative virtual address");
+
+        const section_properties_t &sectprop = *(*sectit).second.begin();
+        tcg.set_section(sectprop.beg, sectprop.contents.data());
+
+        if (debugMode)
+          printf("translating 0x%lx...\n", rva);
+
+        target_bb = translate_basic_block(f, tcg, dis, BBMap, rva);
       } else {
-        // translate code!
+        target_bb = (*bb_it).second;
       }
+
+      if (target_bb != boost::graph_traits<function_t>::null_vertex())
+        isNewTarget = boost::add_edge(bb, target_bb, f).second;
     } else {
       abort();
     }
   } else { /* non-local */
-    if (!update_view_of_virtual_memory(child)) {
-      fprintf(stderr, "failed to read virtual memory maps of child %d\n",
-              child);
-      exit(1);
-    }
+    if (!update_view_of_virtual_memory(child))
+      throw std::runtime_error("failed to read virtual memory maps of child");
 
     auto vmm_it = vmm.find(target);
-    if (vmm_it == vmm.end()) {
-      fprintf(stderr,
-              "indirect branch target 0x%lx not found in address "
-              "space; assuming the application is in the process "
-              "of exiting\n",
-              target);
+    if (vmm_it == vmm.end())
+      throw std::runtime_error("mysterious non-local pc");
+
+    // we only consider targets which are backed by an executable file
+    const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+    if (!vmprop.nm.empty()) {
+      if (debugMode)
+        fprintf(stderr, "(non-local target) %s+0x%lx\n", vmprop.nm.c_str(),
+                target - vmprop.beg + vmprop.off);
+
+      if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+      } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+        // this is a tail call
+      } else {
+        abort();
+      }
+    }
+  }
+
+  if (isNewTarget)
+    printf("0x%016lx\n", target);
+}
+
+basic_block_t
+translate_basic_block(function_t &f,
+                      tiny_code_generator_t &tcg,
+                      disas_t dis,
+                      std::unordered_map<std::uintptr_t, basic_block_t> &BBMap,
+                      const target_ulong Addr) {
+  unsigned Size;
+  jove::terminator_info_t T;
+  std::tie(Size, T) = tcg.translate(Addr);
+
+#if 0
+  fprintf(stdout, "%s\n", string_of_terminator(T.Type));
+  tcg.dump_operations();
+  fputc('\n', stdout);
+#endif
+
+  if (T.Type == TERMINATOR::UNKNOWN) {
+    fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
+
+    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+    llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+    uint64_t InstLen;
+    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
+      std::ptrdiff_t Offset = A - guest_base_addr /* XXX */;
+
+      llvm::MCInst Inst;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), A,
+                                llvm::nulls(), llvm::nulls());
+
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
+        break;
+      }
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP.printInst(&Inst, StrStream, "", STI);
+      }
+      puts(str.c_str());
+    }
+
+    tcg.dump_operations();
+    fputc('\n', stdout);
+
+    return boost::graph_traits<function_t>::null_vertex();
+  }
+
+  basic_block_t bb = boost::add_vertex(f);
+  basic_block_properties_t& bbprop = f[bb];
+  bbprop.Addr = Addr;
+  bbprop.Size = Size;
+  bbprop.Term.Type = T.Type;
+  bbprop.Term.Addr = T.Addr;
+
+  BBMap[Addr] = bb;
+
+  //
+  // conduct analysis of last instruction (the terminator of the block) and
+  // (recursively) descend into branch targets, translating basic blocks
+  //
+  auto control_flow = [&](std::uintptr_t Target) -> void {
+    if (!Target) {
+      fprintf(stderr, "what the hell happened @ 0x%lx (%s)\n", Addr,
+              string_of_terminator(bbprop.Term.Type));
       return;
     }
 
-    const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-    if (!vmprop.nm.empty())
-      fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(), target - vmprop.beg);
-
-    if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      // this is a tail call
-    } else {
-      abort();
+    auto it = BBMap.find(Target);
+    if (it != BBMap.end()) {
+      boost::add_edge(bb, (*it).second, f);
+      return;
     }
+
+    basic_block_t succ = translate_basic_block(f, tcg, dis, BBMap, Target);
+    if (succ != boost::graph_traits<function_t>::null_vertex())
+      boost::add_edge(bb, succ, f);
+  };
+
+  switch (T.Type) {
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    control_flow(T._unconditional_jump.Target);
+    break;
+
+  case TERMINATOR::CONDITIONAL_JUMP:
+    control_flow(T._conditional_jump.Target);
+    control_flow(T._conditional_jump.NextPC);
+    break;
+
+  case TERMINATOR::CALL:
+    bbprop.Term.Callees.Local.insert(T._call.Target);
+    control_flow(T._call.NextPC);
+    break;
+
+  case TERMINATOR::INDIRECT_CALL:
+    control_flow(T._indirect_call.NextPC);
+    break;
+
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::RETURN:
+  case TERMINATOR::UNREACHABLE:
+    break;
+
+  default:
+    abort();
   }
 
-  //
-  // if the instruction is a call, we need to emulate the semantics of
-  // saving the return address for certain architectures
-  //
-  if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-    auto StoreWord = [&](std::uintptr_t a, unsigned long word) -> void {
-      unsigned long request = PTRACE_POKEDATA;
-      unsigned long pid = child;
-      unsigned long addr = a;
-      unsigned long data = word;
-
-      if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-        fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
-        exit(1);
-      }
-    };
-
-    std::uintptr_t sp =
-        ptrace(PTRACE_PEEKUSER, child,
-               __builtin_offsetof(struct user, regs.rsp), nullptr);
-    sp -= sizeof(std::uintptr_t);
-    StoreWord(sp, pc);
-    ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rsp),
-           sp);
-#endif
-  }
-
-  //
-  // set program counter to what it should be (had we not inserted a
-  // software breakpoint)
-  //
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rip),
-         target);
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.pc),
-         target);
-#endif
+  return bb;
 }
 
 bool search_address_space_for_binary(pid_t child, const char *binary_path) {
@@ -944,9 +1142,10 @@ bool search_address_space_for_binary(pid_t child, const char *binary_path) {
 
   for (auto &vm_prop_set : vmm) {
     const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
+    if (!vm_prop.x)
+      continue;
     if (vm_prop.off)
       continue;
-
     if (vm_prop.nm.empty())
       continue;
 
@@ -960,6 +1159,16 @@ bool search_address_space_for_binary(pid_t child, const char *binary_path) {
   return false;
 }
 
+void _ptrace_pokeuser(pid_t child, unsigned user_offset, unsigned long data) {
+  unsigned long _request = PTRACE_POKEUSER;
+  unsigned long _pid = child;
+  unsigned long _addr = user_offset;
+  unsigned long _data = data;
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error("PTRACE_POKEUSER failed");
+}
+
 unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
   unsigned long res;
 
@@ -968,10 +1177,8 @@ unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
   unsigned long _addr = user_offset;
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    fprintf(stderr, "PTRACE_PEEKUSER failed : %s\n", strerror(errno));
-    abort();
-  }
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error("PTRACE_PEEKUSER failed");
 
   return res;
 }
@@ -984,10 +1191,8 @@ unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
   unsigned long _addr = addr;
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
-    abort();
-  }
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error("PTRACE_PEEKDATA failed");
 
   return res;
 }
@@ -998,10 +1203,8 @@ void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
   unsigned long _addr = addr;
   unsigned long _data = data;
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
-    abort();
-  }
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error("PTRACE_POKEDATA failed");
 }
 
 template <bool IsRead>
@@ -1102,19 +1305,16 @@ int ChildProc(int argc, char **argv) {
   return execve(argv[1], execve_args.data(), ::environ);
 }
 
-void verify_arch(const obj::ObjectFile &Obj) {
-#if defined(__x86_64__)
+bool verify_arch(const obj::ObjectFile &Obj) {
+#if defined(TARGET_X86_64)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(__arm64__)
+#elif defined(TARGET_AARCH64)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
 #else
 #error "unknown architecture"
 #endif
 
-  if (Obj.getArch() != archty) {
-    fprintf(stderr, "error: architecture mismatch\n");
-    exit(1);
-  }
+  return Obj.getArch() == archty;
 }
 
 bool update_view_of_virtual_memory(int child) {
