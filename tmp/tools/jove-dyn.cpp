@@ -161,6 +161,8 @@ static void on_breakpoint(pid_t, binary_t &, disas_t);
 // returns the value of the given LLVM MC register in the user struct area
 static long LoadReg(pid_t child, unsigned reg);
 
+static bool SeenExec = false;
+
 int ParentProc(pid_t child,
                const char *decompilation_path,
                const char *binary_path) {
@@ -369,7 +371,8 @@ int ParentProc(pid_t child,
 
   for (;;) {
     if (likely(!(child < 0))) {
-      if (unlikely(ptrace(BinaryLoadAddress ? PTRACE_CONT : PTRACE_SYSCALL,
+      if (unlikely(ptrace(SeenExec && !BinaryLoadAddress ? PTRACE_SYSCALL
+                                                         : PTRACE_CONT,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
         fprintf(stderr, "failed to resume tracee : %s [%d]\n", strerror(errno),
                 child);
@@ -500,6 +503,7 @@ int ParentProc(pid_t child,
           case PTRACE_EVENT_EXEC:
             if (debugMode)
               fprintf(stdout, "ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+            SeenExec = true;
             break;
           case PTRACE_EVENT_EXIT:
             if (debugMode)
