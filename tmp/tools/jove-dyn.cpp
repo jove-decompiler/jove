@@ -76,9 +76,8 @@ int main(int argc, char **argv) {
       !fs::exists(argv[1]) ||
       !fs::exists(argv[2]) ||
       !fs::exists(argv[3])) {
-    fprintf(stdout,
-            "usage: %s <DECOMPILATION.jv> <ELF> <PROG> [<ARG1> <ARG2> ...]\n",
-            argv[0]);
+    printf("usage: %s <DECOMPILATION.jv> <ELF> <PROG> [<ARG1> <ARG2> ...]\n",
+           argv[0]);
     return 1;
   }
 
@@ -627,6 +626,30 @@ int ParentProc(pid_t child,
   return 0;
 }
 
+template <size_t N>
+const char *description_of_program_counter(char (&out)[N], std::uintptr_t pc) {
+  auto simple_desc = [&](void) -> const char * {
+    snprintf(out, sizeof(out), "0x%lx", pc);
+    return &out[0];
+  };
+
+  auto vm_it = vmm.find(pc);
+  if (vm_it == vmm.end()) {
+    return simple_desc();
+  } else {
+    const vm_prop_set_t &vmprops = (*vm_it).second;
+    const vm_properties_t &vmprop = *vmprops.begin();
+
+    if (vmprop.nm.empty())
+      return simple_desc();
+
+    snprintf(out, sizeof(out), "%s %#lx",
+             fs::path(vmprop.nm).string().c_str(),
+             pc - vmprop.beg);
+    return &out[0];
+  }
+}
+
 void initialize_basic_block_map(function_t &f) {
   auto &BBMap = BBMaps[&f];
   assert(BBMap.empty());
@@ -1016,8 +1039,10 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
     }
   }
 
-  if (isNewTarget)
-    printf("0x%016lx\n", target);
+  if (isNewTarget) {
+    char buff[0x100];
+    puts(description_of_program_counter(buff, target));
+  }
 }
 
 basic_block_t
