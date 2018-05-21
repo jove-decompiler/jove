@@ -161,6 +161,7 @@ typedef std::tuple<llvm::MCDisassembler &,
 
 static void install_breakpoints(pid_t, binary_t &, disas_t);
 static void on_breakpoint(pid_t, binary_t &, disas_t);
+static bool search_address_space_for_binary(pid_t, const char *binary_path);
 
 static bool SeenExec = false;
 
@@ -416,7 +417,7 @@ int ParentProc(pid_t child,
       // examination, because it returns the value (status>>8) & 0xff.)
       //
       const int stopsig = WSTOPSIG(status);
-      if (likely(stopsig == (SIGTRAP | 0x80))) {
+      if (stopsig == (SIGTRAP | 0x80)) {
         //
         // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
         // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
@@ -437,42 +438,12 @@ int ParentProc(pid_t child,
             continue;
         }
 
-        if (!update_view_of_virtual_memory(child)) {
-          fprintf(stderr, "failed to read virtual memory maps of child %d\n",
-                  child);
-          return 1;
-        }
-
-        auto search_address_space =
-            [&](const char *path) -> std::pair<std::uintptr_t, std::uintptr_t> {
-          for (auto &vm_prop_set : vmm) {
-            const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
-            if (vm_prop.off)
-              continue;
-
-            if (vm_prop.nm.empty())
-              continue;
-
-            if (fs::equivalent(vm_prop.nm, path))
-              return std::make_pair(vm_prop.beg, vm_prop.end);
-          }
-
-          return std::make_pair(0ul, 0ul);
-        };
-
-        std::tie(BinaryLoadAddress, BinaryLoadAddressEnd) =
-            search_address_space(binary_path);
-
-        if (BinaryLoadAddress) {
+        if (search_address_space_for_binary(child, binary_path)) {
           fprintf(stdout, "found binary %s in address space @ 0x%lx\n",
                   binary_path, BinaryLoadAddress);
           install_breakpoints(child, binary,
                               disas_t(*DisAsm, std::cref(*STI), *IP));
         }
-
-        //
-        // is this a system call enter or exit stop?
-        //
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
 
@@ -963,6 +934,30 @@ void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
   ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.pc),
          target);
 #endif
+}
+
+bool search_address_space_for_binary(pid_t child, const char *binary_path) {
+  if (!update_view_of_virtual_memory(child)) {
+    fprintf(stderr, "failed to read virtual memory maps of child %d\n", child);
+    return false;
+  }
+
+  for (auto &vm_prop_set : vmm) {
+    const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
+    if (vm_prop.off)
+      continue;
+
+    if (vm_prop.nm.empty())
+      continue;
+
+    if (fs::equivalent(vm_prop.nm, binary_path)) {
+      BinaryLoadAddress = vm_prop.beg;
+      BinaryLoadAddressEnd = vm_prop.end;
+      return true;
+    }
+  }
+
+  return false;
 }
 
 unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
