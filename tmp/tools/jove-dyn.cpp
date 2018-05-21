@@ -139,20 +139,24 @@ static std::uintptr_t rva_of_va(std::uintptr_t Addr) {
 //
 typedef void (*breakpoint_handler_t)(pid_t);
 
-struct IndirectBranchInfo {
+struct indirect_branch_t {
+  function_t &f;
+  basic_block_t bb;
+
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
+
+  indirect_branch_t(function_t &f, basic_block_t bb) : f(f), bb(bb) {}
 };
 
-static std::unordered_map<
-    std::uintptr_t, std::tuple<function_t *, basic_block_t, IndirectBranchInfo>>
-    IndBranchInsns;
+static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
 
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
 static void install_breakpoints(pid_t, binary_t &, disas_t);
+static void on_breakpoint(pid_t, binary_t &, disas_t);
 
 // returns the value of the given LLVM MC register in the user struct area
 static long LoadReg(pid_t child, unsigned reg);
@@ -189,7 +193,7 @@ int ParentProc(pid_t child,
     return 1;
   }
 
-  binary_t& binary = (*it).second;
+  binary_t &binary = (*it).second;
 
   {
     //
@@ -525,17 +529,15 @@ int ParentProc(pid_t child,
           (void)pc;
 #endif
 
-          auto it = IndBranchInsns.find(pc);
-          if (it == IndBranchInsns.end()) {
+          auto it = indbrs.find(pc);
+          if (it == indbrs.end()) {
             fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
             return 1;
           }
 
-          auto &tup = (*it).second;
-
-          function_t &f = *std::get<0>(tup);
-          basic_block_t bb = std::get<1>(tup);
-          IndirectBranchInfo &IndBrInfo = std::get<2>(tup);
+          indirect_branch_t &IndBrInfo = (*it).second;
+          function_t &f = IndBrInfo.f;
+          basic_block_t bb = IndBrInfo.bb;
 
 #if defined(TARGET_X86_64) && defined(__x86_64__)
           pc += IndBrInfo.InsnBytes.size();
@@ -843,18 +845,18 @@ void install_breakpoints(pid_t child,
 
         std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
 
-        if (IndBranchInsns.find(termpc) != IndBranchInsns.end())
+        if (indbrs.find(termpc) != indbrs.end())
           continue;
 
-        auto &tup = IndBranchInsns[termpc];
-        std::get<0>(tup) = &f;
-        std::get<1>(tup) = bb;
+        indirect_branch_t &indbr =
+            (*indbrs.emplace(std::uintptr_t(termpc), indirect_branch_t(f, bb))
+                  .first)
+                .second;
 
         struct iovec remote_iov;
         remote_iov.iov_base = reinterpret_cast<void *>(termpc);
         remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
 
-        IndirectBranchInfo &indbr = std::get<2>(IndBranchInsns[termpc]);
         indbr.InsnBytes.resize(remote_iov.iov_len);
 
         struct iovec local_iov;
@@ -878,8 +880,8 @@ void install_breakpoints(pid_t child,
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
     llvm::MCInstPrinter &IP = std::get<2>(dis);
-    for (auto it = IndBranchInsns.begin(); it != IndBranchInsns.end(); ++it) {
-      IndirectBranchInfo &indbr = std::get<2>((*it).second);
+    for (auto it = indbrs.begin(); it != indbrs.end(); ++it) {
+      indirect_branch_t &indbr = (*it).second;
       llvm::MCInst &Inst = indbr.Inst;
 
       uint64_t InstLen;
