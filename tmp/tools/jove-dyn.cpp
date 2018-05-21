@@ -162,9 +162,6 @@ typedef std::tuple<llvm::MCDisassembler &,
 static void install_breakpoints(pid_t, binary_t &, disas_t);
 static void on_breakpoint(pid_t, binary_t &, disas_t);
 
-// returns the value of the given LLVM MC register in the user struct area
-static long LoadReg(pid_t child, unsigned reg);
-
 static bool SeenExec = false;
 
 int ParentProc(pid_t child,
@@ -394,8 +391,7 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      if (debugMode)
-        fprintf(stdout, "waitpid failed : %s\n", strerror(errno));
+      fprintf(stdout, "waitpid gave %d : %s\n", child, strerror(errno));
       break;
     }
 
@@ -479,7 +475,7 @@ int ParentProc(pid_t child,
         // returning with WIFSTOPPED(status), and WSTOPSIG(status) returns
         // SIGTRAP.
         //
-        if (likely(event)) {
+        if (unlikely(event)) {
           switch (event) {
           case PTRACE_EVENT_VFORK:
             if (debugMode)
@@ -524,184 +520,7 @@ int ParentProc(pid_t child,
             break;
           }
         } else {
-          //
-          // rewind before the breakpoint instruction
-          //
-          std::uintptr_t pc = 0;
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-          pc = ptrace(PTRACE_PEEKUSER, child,
-                      __builtin_offsetof(struct user, regs.rip), nullptr);
-
-          pc -= 1;
-#else
-          (void)pc;
-#endif
-
-          auto it = indbrs.find(pc);
-          if (it == indbrs.end()) {
-            fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
-            return 1;
-          }
-
-          indirect_branch_t &IndBrInfo = (*it).second;
-          function_t &f = IndBrInfo.f;
-          basic_block_t bb = IndBrInfo.bb;
-
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-          pc += IndBrInfo.InsnBytes.size();
-          ptrace(PTRACE_POKEUSER, child,
-                 __builtin_offsetof(struct user, regs.rip), pc);
-#endif
-
-          llvm::MCInst &Inst = IndBrInfo.Inst;
-
-          //
-          // helpers
-          //
-          auto RegValue = [&](unsigned r) -> unsigned long {
-            return LoadReg(child, r);
-          };
-
-          auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
-            uint64_t word;
-
-            long request = PTRACE_PEEKDATA;
-            long pid = child;
-            unsigned long addr = a;
-            unsigned long data = reinterpret_cast<unsigned long>(&word);
-
-            if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-              fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
-              exit(1);
-            }
-
-            return word;
-          };
-
-          auto StoreWord = [&](std::uintptr_t a, unsigned long word) -> void {
-            long request = PTRACE_POKEDATA;
-            long pid = child;
-            unsigned long addr = a;
-            unsigned long data = word;
-
-            if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
-              fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
-              exit(1);
-            }
-          };
-
-          auto GetTarget = [&](void) -> std::uintptr_t {
-            switch (Inst.getOpcode()) {
-#if defined(TARGET_X86_64)
-            case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
-              assert(Inst.getOperand(0).isReg());
-              assert(Inst.getOperand(3).isImm());
-              return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                              Inst.getOperand(3).getImm());
-
-            case llvm::X86::JMP64r: /* jmp reg0 */
-              assert(Inst.getOperand(0).isReg());
-              return RegValue(Inst.getOperand(0).getReg());
-
-            case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
-              assert(Inst.getOperand(0).isReg());
-              assert(Inst.getOperand(3).isImm());
-              return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                              Inst.getOperand(3).getImm());
-
-            case llvm::X86::CALL64r: /* call rax */
-              assert(Inst.getOperand(0).isReg());
-              return RegValue(Inst.getOperand(0).getReg());
-#elif defined(TARGET_AARCH64)
-#endif
-            default:
-              fprintf(stderr, "unimplemented indirect branch opcode %u\n",
-                      Inst.getOpcode());
-              exit(1);
-            }
-          };
-
-          std::uintptr_t target = GetTarget();
-          bool isNewTarget = false;
-          bool isLocal =
-              target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
-
-          if (isLocal) {
-            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-              isNewTarget =
-                  f[bb].Term.Callees.Local.insert(rva_of_va(target)).second;
-            } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-              if (BBMaps.find(&f) == BBMaps.end())
-                initialize_basic_block_map(f);
-
-              auto &BBMap = BBMaps[&f];
-              auto it = BBMap.find(target);
-              if (it != BBMap.end()) {
-                isNewTarget = boost::add_edge(bb, (*it).second, f).second;
-              } else {
-                // translate code!
-              }
-            } else {
-              abort();
-            }
-          } else { /* non-local */
-            if (!update_view_of_virtual_memory(child)) {
-              fprintf(stderr,
-                      "failed to read virtual memory maps of child %d\n",
-                      child);
-              return 1;
-            }
-
-            auto vmm_it = vmm.find(target);
-            if (vmm_it == vmm.end()) {
-              fprintf(stderr,
-                      "indirect branch target 0x%lx not found in address "
-                      "space; assuming the application is in the process "
-                      "of exiting\n",
-                      target);
-              break;
-            }
-
-            const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-            if (!vmprop.nm.empty())
-              fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
-                      target - vmprop.beg);
-
-            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-            } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-              // this is a tail call
-            } else {
-              abort();
-            }
-          }
-
-          //
-          // if the instruction is a call, we need to emulate the semantics of
-          // saving the return address for certain architectures
-          //
-          if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-            std::uintptr_t sp =
-                ptrace(PTRACE_PEEKUSER, child,
-                       __builtin_offsetof(struct user, regs.rsp), nullptr);
-            sp -= sizeof(std::uintptr_t);
-            StoreWord(sp, pc);
-            ptrace(PTRACE_POKEUSER, child,
-                   __builtin_offsetof(struct user, regs.rsp), sp);
-#endif
-          }
-
-          //
-          // set program counter to what it should be (had we not inserted a
-          // software breakpoint)
-          //
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-          ptrace(PTRACE_POKEUSER, child,
-                 __builtin_offsetof(struct user, regs.rip), target);
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-          ptrace(PTRACE_POKEUSER, child,
-                 __builtin_offsetof(struct user, regs.pc), target);
-#endif
+          on_breakpoint(child, binary, disas_t(*DisAsm, std::cref(*STI), *IP));
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
         //
@@ -761,73 +580,7 @@ static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
 
-// returns the offset into the user struct for the given LLVM register obtained
-// via the instruction disassembler.
-static unsigned long RegOffset(unsigned reg) {
-  switch (reg) {
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-  case llvm::X86::RAX:
-    return __builtin_offsetof(struct user, regs.rax);
-  case llvm::X86::RBP:
-    return __builtin_offsetof(struct user, regs.rbp);
-  case llvm::X86::RBX:
-    return __builtin_offsetof(struct user, regs.rbx);
-  case llvm::X86::RCX:
-    return __builtin_offsetof(struct user, regs.rcx);
-  case llvm::X86::RDI:
-    return __builtin_offsetof(struct user, regs.rdi);
-  case llvm::X86::RDX:
-    return __builtin_offsetof(struct user, regs.rdx);
-  case llvm::X86::RIP:
-    return __builtin_offsetof(struct user, regs.rip);
-  case llvm::X86::RSI:
-    return __builtin_offsetof(struct user, regs.rsi);
-  case llvm::X86::RSP:
-    return __builtin_offsetof(struct user, regs.rsp);
-  case llvm::X86::R8:
-    return __builtin_offsetof(struct user, regs.r8);
-  case llvm::X86::R9:
-    return __builtin_offsetof(struct user, regs.r9);
-  case llvm::X86::R10:
-    return __builtin_offsetof(struct user, regs.r10);
-  case llvm::X86::R11:
-    return __builtin_offsetof(struct user, regs.r11);
-  case llvm::X86::R12:
-    return __builtin_offsetof(struct user, regs.r12);
-  case llvm::X86::R13:
-    return __builtin_offsetof(struct user, regs.r13);
-  case llvm::X86::R14:
-    return __builtin_offsetof(struct user, regs.r14);
-  case llvm::X86::R15:
-    return __builtin_offsetof(struct user, regs.r15);
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-  case llvm::AArch64::X0:
-    return __builtin_offsetof(struct user, regs.x0);
-  case llvm::AArch64::X1:
-    return __builtin_offsetof(struct user, regs.x1);
-  case llvm::AArch64::X2:
-    return __builtin_offsetof(struct user, regs.x2);
-  case llvm::AArch64::X3:
-    return __builtin_offsetof(struct user, regs.x3);
-  case llvm::AArch64::X4:
-    return __builtin_offsetof(struct user, regs.x4);
-  case llvm::AArch64::X5:
-    return __builtin_offsetof(struct user, regs.x5);
-#endif
-  default:
-    fprintf(stderr, "RegOffset: unimplemented reg %u\n", reg);
-    exit(1);
-  }
-}
-
-// returns the value of the given LLVM MC register in the user struct area
-long LoadReg(pid_t child, unsigned reg) {
-  return ptrace(PTRACE_PEEKUSER, child, RegOffset(reg), nullptr);
-}
-
-void install_breakpoints(pid_t child,
-                         binary_t &binary,
-                         disas_t dis) {
+void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
   unsigned M = std::accumulate(
       binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
       [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
@@ -901,11 +654,18 @@ void install_breakpoints(pid_t child,
 
       assert(Disassembled);
 
+      auto opcode_handled = [](unsigned opc) -> bool {
 #if defined(TARGET_X86_64)
-      if (Inst.getOpcode() != llvm::X86::JMP64r &&
-          Inst.getOpcode() != llvm::X86::JMP64m &&
-          Inst.getOpcode() != llvm::X86::CALL64m &&
-          Inst.getOpcode() != llvm::X86::CALL64r) {
+        return opc == llvm::X86::JMP64r
+            || opc == llvm::X86::JMP64m
+            || opc == llvm::X86::CALL64m
+            || opc == llvm::X86::CALL64r;
+#elif defined(TARGET_AARCH64)
+        return opc == llvm::AArch64::BLR;
+#endif
+      };
+
+      if (!opcode_handled(Inst.getOpcode())) {
         fprintf(stdout, "could not place breakpoint @ 0x%lx\n", (*it).first);
 
         std::string str;
@@ -939,7 +699,6 @@ void install_breakpoints(pid_t child,
         fprintf(stdout, "\n");
         continue;
       }
-#endif
 
       uint64_t word;
 
@@ -979,6 +738,246 @@ void install_breakpoints(pid_t child,
 
   initialize_indirect_branch_instructions_map();
   place_breakpoints();
+}
+
+void on_breakpoint(pid_t child, binary_t &binary, disas_t dis) {
+  //
+  // rewind before the breakpoint instruction
+  //
+  std::uintptr_t pc = 0;
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+  pc = ptrace(PTRACE_PEEKUSER, child, __builtin_offsetof(struct user, regs.rip),
+              nullptr);
+
+  pc -= 1;
+#else
+  (void)pc;
+#endif
+
+  auto it = indbrs.find(pc);
+  if (it == indbrs.end()) {
+    fprintf(stderr, "unknown breakpoint @ 0x%lx\n", pc);
+    return;
+  }
+
+  indirect_branch_t &IndBrInfo = (*it).second;
+  function_t &f = IndBrInfo.f;
+  basic_block_t bb = IndBrInfo.bb;
+
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+  pc += IndBrInfo.InsnBytes.size();
+  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rip), pc);
+#endif
+
+  llvm::MCInst &Inst = IndBrInfo.Inst;
+
+  //
+  // helpers
+  //
+  auto RegValue = [child](unsigned llreg) -> unsigned long {
+    // returns the offset into the user struct for the given LLVM register
+    // obtained via the instruction disassembler.
+    auto UserOffsetOfLLVMReg = [](unsigned llreg) -> unsigned long {
+      switch (llreg) {
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+      case llvm::X86::RAX:
+        return __builtin_offsetof(struct user, regs.rax);
+      case llvm::X86::RBP:
+        return __builtin_offsetof(struct user, regs.rbp);
+      case llvm::X86::RBX:
+        return __builtin_offsetof(struct user, regs.rbx);
+      case llvm::X86::RCX:
+        return __builtin_offsetof(struct user, regs.rcx);
+      case llvm::X86::RDI:
+        return __builtin_offsetof(struct user, regs.rdi);
+      case llvm::X86::RDX:
+        return __builtin_offsetof(struct user, regs.rdx);
+      case llvm::X86::RIP:
+        return __builtin_offsetof(struct user, regs.rip);
+      case llvm::X86::RSI:
+        return __builtin_offsetof(struct user, regs.rsi);
+      case llvm::X86::RSP:
+        return __builtin_offsetof(struct user, regs.rsp);
+      case llvm::X86::R8:
+        return __builtin_offsetof(struct user, regs.r8);
+      case llvm::X86::R9:
+        return __builtin_offsetof(struct user, regs.r9);
+      case llvm::X86::R10:
+        return __builtin_offsetof(struct user, regs.r10);
+      case llvm::X86::R11:
+        return __builtin_offsetof(struct user, regs.r11);
+      case llvm::X86::R12:
+        return __builtin_offsetof(struct user, regs.r12);
+      case llvm::X86::R13:
+        return __builtin_offsetof(struct user, regs.r13);
+      case llvm::X86::R14:
+        return __builtin_offsetof(struct user, regs.r14);
+      case llvm::X86::R15:
+        return __builtin_offsetof(struct user, regs.r15);
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+      case llvm::AArch64::X0:
+        return __builtin_offsetof(struct user, regs.x0);
+      case llvm::AArch64::X1:
+        return __builtin_offsetof(struct user, regs.x1);
+      case llvm::AArch64::X2:
+        return __builtin_offsetof(struct user, regs.x2);
+      case llvm::AArch64::X3:
+        return __builtin_offsetof(struct user, regs.x3);
+      case llvm::AArch64::X4:
+        return __builtin_offsetof(struct user, regs.x4);
+      case llvm::AArch64::X5:
+        return __builtin_offsetof(struct user, regs.x5);
+#endif
+      default:
+        fprintf(stderr, "RegOffset: unimplemented llvm reg %u\n", llreg);
+        exit(1);
+      }
+    };
+
+    return ptrace(PTRACE_PEEKUSER, child, UserOffsetOfLLVMReg(llreg), nullptr);
+  };
+
+#if defined(TARGET_X86_64)
+  auto LoadAddr = [&](std::uintptr_t a) -> std::uintptr_t {
+    uint64_t word;
+
+    unsigned long request = PTRACE_PEEKDATA;
+    unsigned long pid = child;
+    unsigned long addr = a;
+    unsigned long data = reinterpret_cast<unsigned long>(&word);
+
+    if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+      fprintf(stderr, "PTRACE_PEEKDATA failed : %s\n", strerror(errno));
+      exit(1);
+    }
+
+    return word;
+  };
+#endif
+
+  auto GetTarget = [&](void) -> std::uintptr_t {
+    switch (Inst.getOpcode()) {
+#if defined(TARGET_X86_64)
+    case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(3).isImm());
+      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                      Inst.getOperand(3).getImm());
+
+    case llvm::X86::JMP64r: /* jmp reg0 */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+
+    case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(3).isImm());
+      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                      Inst.getOperand(3).getImm());
+
+    case llvm::X86::CALL64r: /* call rax */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+#elif defined(TARGET_AARCH64)
+    case llvm::AArch64::BLR: /* blr x3 */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+#endif
+    default:
+      fprintf(stderr, "unimplemented indirect branch opcode %u\n",
+              Inst.getOpcode());
+      exit(1);
+    }
+  };
+
+  std::uintptr_t target = GetTarget();
+  bool isNewTarget = false;
+  bool isLocal = target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
+
+  if (isLocal) {
+    if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+      isNewTarget = f[bb].Term.Callees.Local.insert(rva_of_va(target)).second;
+    } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+      if (BBMaps.find(&f) == BBMaps.end())
+        initialize_basic_block_map(f);
+
+      auto &BBMap = BBMaps[&f];
+      auto it = BBMap.find(target);
+      if (it != BBMap.end()) {
+        isNewTarget = boost::add_edge(bb, (*it).second, f).second;
+      } else {
+        // translate code!
+      }
+    } else {
+      abort();
+    }
+  } else { /* non-local */
+    if (!update_view_of_virtual_memory(child)) {
+      fprintf(stderr, "failed to read virtual memory maps of child %d\n",
+              child);
+      exit(1);
+    }
+
+    auto vmm_it = vmm.find(target);
+    if (vmm_it == vmm.end()) {
+      fprintf(stderr,
+              "indirect branch target 0x%lx not found in address "
+              "space; assuming the application is in the process "
+              "of exiting\n",
+              target);
+      return;
+    }
+
+    const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+    if (!vmprop.nm.empty())
+      fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(), target - vmprop.beg);
+
+    if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+    } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+      // this is a tail call
+    } else {
+      abort();
+    }
+  }
+
+  //
+  // if the instruction is a call, we need to emulate the semantics of
+  // saving the return address for certain architectures
+  //
+  if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+    auto StoreWord = [&](std::uintptr_t a, unsigned long word) -> void {
+      unsigned long request = PTRACE_POKEDATA;
+      unsigned long pid = child;
+      unsigned long addr = a;
+      unsigned long data = word;
+
+      if (syscall(__NR_ptrace, request, pid, addr, data) < 0) {
+        fprintf(stderr, "PTRACE_POKEDATA failed : %s\n", strerror(errno));
+        exit(1);
+      }
+    };
+
+    std::uintptr_t sp =
+        ptrace(PTRACE_PEEKUSER, child,
+               __builtin_offsetof(struct user, regs.rsp), nullptr);
+    sp -= sizeof(std::uintptr_t);
+    StoreWord(sp, pc);
+    ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rsp),
+           sp);
+#endif
+  }
+
+  //
+  // set program counter to what it should be (had we not inserted a
+  // software breakpoint)
+  //
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.rip),
+         target);
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+  ptrace(PTRACE_POKEUSER, child, __builtin_offsetof(struct user, regs.pc),
+         target);
+#endif
 }
 
 template <bool IsRead>
