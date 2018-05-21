@@ -479,7 +479,7 @@ int ParentProc(pid_t child,
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      printf("exiting... (%s)\n", strerror(errno));
+      fprintf(stderr, "exiting... (%s)\n", strerror(errno));
       break;
     }
 
@@ -521,7 +521,7 @@ int ParentProc(pid_t child,
         }
 
         if (search_address_space_for_binary(child, binary_path)) {
-          fprintf(stdout, "found binary %s in address space @ 0x%lx\n",
+          fprintf(stderr, "found binary %s in address space @ 0x%lx\n",
                   binary_path, BinaryLoadAddress);
           install_breakpoints(child, binary,
                               disas_t(*DisAsm, std::cref(*STI), *IP));
