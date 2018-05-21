@@ -150,6 +150,10 @@ struct indirect_branch_t {
 };
 
 static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
+static std::unordered_map<function_t *,
+                          std::unordered_map<std::uintptr_t, basic_block_t>>
+    BBMaps;
+static void initialize_basic_block_map(function_t &);
 
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
@@ -622,69 +626,58 @@ int ParentProc(pid_t child,
           bool isLocal =
               target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
 
-          if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-            if (isLocal) {
-            } else {
-              if (!update_view_of_virtual_memory(child)) {
-                fprintf(stderr,
-                        "failed to read virtual memory maps of child %d\n",
-                        child);
-                return 1;
-              }
-
-              auto vmm_it = vmm.find(target);
-              if (vmm_it == vmm.end()) {
-                fprintf(stderr,
-                        "indirect branch target 0x%lx not found in address "
-                        "space; assuming the application is in the process "
-                        "of exiting\n",
-                        target);
-                break;
-              }
-
-              const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-              if (!vmprop.nm.empty())
-                fprintf(stderr, "indirect jump to non-local pc: %s+0x%lx\n",
-                        vmprop.nm.c_str(), target - vmprop.beg);
-              else
-                fprintf(stderr,
-                        "indirect jump to unknown non-local pc: 0x%lx\n",
-                        target);
-            }
-          } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-            if (isLocal) {
+          if (isLocal) {
+            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
               isNewTarget =
                   f[bb].Term.Callees.Local.insert(rva_of_va(target)).second;
+            } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+              if (BBMaps.find(&f) == BBMaps.end())
+                initialize_basic_block_map(f);
+
+              auto &BBMap = BBMaps[&f];
+              auto it = BBMap.find(target);
+              if (it != BBMap.end()) {
+                isNewTarget = boost::add_edge(bb, (*it).second, f).second;
+              } else {
+                // translate code!
+              }
             } else {
-              if (!update_view_of_virtual_memory(child)) {
-                fprintf(stderr,
-                        "failed to read virtual memory maps of child %d\n",
-                        child);
-                return 1;
-              }
-
-              auto vmm_it = vmm.find(target);
-              if (vmm_it == vmm.end()) {
-                fprintf(stderr,
-                        "indirect branch target 0x%lx not found in address "
-                        "space; assuming the application is in the process "
-                        "of exiting\n",
-                        target);
-                break;
-              }
-
-              const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-              if (!vmprop.nm.empty())
-                fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
-                        target - vmprop.beg);
+              abort();
             }
-          } else {
-            abort();
+          } else { /* non-local */
+            if (!update_view_of_virtual_memory(child)) {
+              fprintf(stderr,
+                      "failed to read virtual memory maps of child %d\n",
+                      child);
+              return 1;
+            }
+
+            auto vmm_it = vmm.find(target);
+            if (vmm_it == vmm.end()) {
+              fprintf(stderr,
+                      "indirect branch target 0x%lx not found in address "
+                      "space; assuming the application is in the process "
+                      "of exiting\n",
+                      target);
+              break;
+            }
+
+            const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
+            if (!vmprop.nm.empty())
+              fprintf(stderr, "%s+0x%lx\n", vmprop.nm.c_str(),
+                      target - vmprop.beg);
+
+            if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+            } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+              // this is a tail call
+            } else {
+              abort();
+            }
           }
 
           //
           // if the instruction is a call, we need to emulate the semantics of
-          // saving the return address
+          // saving the return address for certain architectures
           //
           if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
 #if defined(TARGET_X86_64) && defined(__x86_64__)
@@ -750,6 +743,18 @@ int ParentProc(pid_t child,
 
   write_decompilation();
   return 0;
+}
+
+void initialize_basic_block_map(function_t &f) {
+  auto &BBMap = BBMaps[&f];
+  assert(BBMap.empty());
+
+  function_t::vertex_iterator vi, vi_end;
+  for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
+    basic_block_t bb = *vi;
+
+    BBMap[f[bb].Addr] = bb;
+  }
 }
 
 static bool _process_vm_readv(pid_t pid,
