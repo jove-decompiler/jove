@@ -626,27 +626,18 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-template <size_t N>
-const char *description_of_program_counter(char (&out)[N], std::uintptr_t pc) {
-  auto simple_desc = [&](void) -> const char * {
-    snprintf(out, sizeof(out), "0x%lx", pc);
-    return &out[0];
-  };
-
+void describe_program_counter(std::uintptr_t pc) {
   auto vm_it = vmm.find(pc);
   if (vm_it == vmm.end()) {
-    return simple_desc();
+    return;
   } else {
     const vm_prop_set_t &vmprops = (*vm_it).second;
     const vm_properties_t &vmprop = *vmprops.begin();
 
     if (vmprop.nm.empty())
-      return simple_desc();
+      return;
 
-    snprintf(out, sizeof(out), "%s %#lx",
-             fs::path(vmprop.nm).string().c_str(),
-             pc - vmprop.beg);
-    return &out[0];
+    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg);
   }
 }
 
@@ -832,9 +823,10 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   //
   // lookup indirect branch info
   //
-  auto it = indbrs.find(pc);
+  const std::uintptr_t _pc = pc;
+  auto it = indbrs.find(_pc);
   if (it == indbrs.end()) {
-    fprintf(stderr, "unknown breakpoint @ 0x%lx", pc);
+    fprintf(stderr, "unknown breakpoint @ 0x%lx", _pc);
     abort();
   }
 
@@ -1040,8 +1032,8 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   }
 
   if (isNewTarget) {
-    char buff[0x100];
-    puts(description_of_program_counter(buff, target));
+    describe_program_counter(_pc);
+    describe_program_counter(target);
   }
 }
 
