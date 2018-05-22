@@ -4,6 +4,7 @@ tcgconstants-*
 jove-llvm-*
 jove-dyn-*
 jove-init-*
+jove-dump-*
 *.so
 *.o
 *.jv
