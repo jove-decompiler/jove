@@ -86,6 +86,11 @@ int dump(void) {
                            [](unsigned acc, const auto &pair) -> unsigned {
                              return acc + boost::num_vertices(pair.second);
                            }));
+    printf("%u Branches.\n",
+           std::accumulate(fns.begin(), fns.end(), 0u,
+                           [](unsigned acc, const auto &pair) -> unsigned {
+                             return acc + boost::num_edges(pair.second);
+                           }));
   }
 
   return 0;
