@@ -97,9 +97,9 @@ namespace jove {
 
 static constexpr bool debugMode = false;
 
-static bool update_view_of_virtual_memory(int child);
-
 static bool verify_arch(const obj::ObjectFile &);
+
+static bool update_view_of_virtual_memory(int child);
 
 struct vm_properties_t {
   std::uintptr_t beg;
@@ -119,18 +119,15 @@ struct vm_properties_t {
 };
 
 struct section_properties_t {
-  std::uintptr_t beg;
-  std::uintptr_t end;
-
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
 
   bool operator==(const section_properties_t &sect) const {
-    return beg == sect.beg && end == sect.end;
+    return name == sect.name;
   }
 
   bool operator<(const section_properties_t &sect) const {
-    return beg < sect.beg;
+    return name < sect.name;
   }
 };
 
@@ -167,9 +164,25 @@ typedef std::tuple<llvm::MCDisassembler &,
                    llvm::MCInstPrinter &> disas_t;
 
 static void initialize_translation_maps(binary_t &);
-static void install_breakpoints(pid_t, binary_t &, disas_t &);
+
+static bool search_address_space_for_binary(pid_t, const char *path);
+
+static void initialize_indirect_branch_map(pid_t, binary_t &, disas_t &);
+
+struct indirect_branch_t {
+  basic_block_t bb;
+
+  std::vector<uint8_t> InsnBytes;
+  llvm::MCInst Inst;
+};
+
+static void place_breakpoint_at_indirect_branch(
+    pid_t child, std::pair<const std::uintptr_t, indirect_branch_t> &pair,
+    disas_t &dis);
+
+static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
+
 static void on_breakpoint(pid_t, binary_t &, tiny_code_generator_t &, disas_t &);
-static bool search_address_space_for_binary(pid_t, const char *binary_path);
 
 static bool SeenExec = false;
 
@@ -511,8 +524,13 @@ int ParentProc(pid_t child,
         if (search_address_space_for_binary(child, binary_path)) {
           fprintf(stderr, "found binary %s in address space @ 0x%lx\n",
                   binary_path, BinaryLoadAddress);
-          install_breakpoints(child, binary, dis);
           initialize_translation_maps(binary);
+          initialize_indirect_branch_map(child, binary, dis);
+
+          // place breakpoints for the indirect branches that we know about
+          // right now
+          for (auto it = indbrs.begin(); it != indbrs.end(); ++it)
+            place_breakpoint_at_indirect_branch(child, *it, dis);
         }
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
@@ -613,7 +631,8 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-static basic_block_index_t translate_basic_block(binary_t &,
+static basic_block_index_t translate_basic_block(pid_t,
+                                                 binary_t &,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
@@ -621,7 +640,8 @@ static basic_block_index_t translate_basic_block(binary_t &,
 static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
 static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
-static function_index_t translate_function(binary_t &binary,
+static function_index_t translate_function(pid_t child,
+                                           binary_t &binary,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
@@ -636,12 +656,13 @@ static function_index_t translate_function(binary_t &binary,
   binary.Analysis.Functions.resize(res + 1);
   function_t &f = binary.Analysis.Functions.back();
 
-  f.Entry = translate_basic_block(binary, tcg, dis, Addr);
+  f.Entry = translate_basic_block(child, binary, tcg, dis, Addr);
 
   return res;
 }
 
-basic_block_index_t translate_basic_block(binary_t &binary,
+basic_block_index_t translate_basic_block(pid_t child,
+                                          binary_t &binary,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
@@ -678,6 +699,15 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
+
+    if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
+        bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
+
+      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
+
+      indirect_branch_t &indbr = indbrs[termpc];
+      indbr.bb = bb;
+    }
   }
 
   BBMap[Addr] = bbidx;
@@ -694,7 +724,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     auto it = BBMap.find(Target);
     succidx = it != BBMap.end()
                   ? (*it).second
-                  : translate_basic_block(binary, tcg, dis, Target);
+                  : translate_basic_block(child, binary, tcg, dis, Target);
 
     basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
     boost::add_edge(bb, succ, binary.Analysis.ICFG);
@@ -712,12 +742,13 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
   case TERMINATOR::CALL: {
     function_index_t f_idx =
-        translate_function(binary, tcg, dis, T._call.Target);
+        translate_function(child, binary, tcg, dis, T._call.Target);
 
     {
       basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
       std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
 
+      // TODO optimize below
       if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
         Callees.push_back(f_idx);
         std::sort(Callees.begin(), Callees.end());
@@ -761,146 +792,88 @@ void initialize_translation_maps(binary_t &binary) {
   }
 }
 
-struct indirect_branch_t {
-  basic_block_t bb;
+void initialize_indirect_branch_map(pid_t child, binary_t &binary,
+                                    disas_t &dis) {
+  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
 
-  std::vector<uint8_t> InsnBytes;
-  llvm::MCInst Inst;
-};
+  interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
+  for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
+       vi != vi_end; ++vi) {
+    basic_block_t bb = *vi;
+    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
+        bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
+      continue;
 
-static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
+    indirect_branch_t &indbr = indbrs[va_of_rva(bbprop.Term.Addr)];
+    indbr.bb = bb;
+    indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 
-static bool _process_vm_readv(pid_t pid,
-                              const std::vector<struct iovec> &local_iovs,
-                              const std::vector<struct iovec> &remote_iovs);
+    auto sectit = sectm.find(bbprop.Term.Addr);
+    assert(sectit != sectm.end());
+    const section_properties_t &sectprop = *(*sectit).second.begin();
 
-void install_breakpoints(pid_t child, binary_t &binary, disas_t &dis) {
-  unsigned M = boost::num_vertices(binary.Analysis.ICFG);
+    fprintf(stderr, "bbprop.Term.Addr=%lx\n", bbprop.Term.Addr);
+    fprintf(stderr, "sectprop.beg=%lx\n", (*sectit).first.lower());
 
-  auto initialize_indirect_branch_instructions_map = [&](void) -> void {
-    std::vector<struct iovec> remote_iovs;
-    std::vector<struct iovec> local_iovs;
+    memcpy(&indbr.InsnBytes[0],
+           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+           indbr.InsnBytes.size());
 
-    remote_iovs.reserve(M);
-    local_iovs.reserve(M);
-
-    interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
-    for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
-         vi != vi_end; ++vi) {
-      basic_block_t bb = *vi;
-      basic_block_properties_t bbprop = binary.Analysis.ICFG[bb];
-      if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
-          bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
-        continue;
-
-      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
-
-      indirect_branch_t &indbr = indbrs[termpc];
-      indbr.bb = bb;
-
-      struct iovec remote_iov;
-      remote_iov.iov_base = reinterpret_cast<void *>(termpc);
-      remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
-
-      indbr.InsnBytes.resize(remote_iov.iov_len);
-
-      struct iovec local_iov;
-      local_iov.iov_base = indbr.InsnBytes.data();
-      local_iov.iov_len = indbr.InsnBytes.size();
-
-      remote_iovs.push_back(remote_iov);
-      local_iovs.push_back(local_iov);
-    }
-
-    if (!_process_vm_readv(child, local_iovs, remote_iovs)) {
-      fprintf(stderr, "failed to install breakpoints\n");
-      exit(1);
-    }
-  };
-
-  auto place_breakpoints = [&](void) -> void {
     //
-    // disassemble the indirect branch instructions, figure out what kind they
-    // are and how we can deal with them
+    // now that we have the bytes for each indirect branch, disassemble them
     //
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-    for (auto it = indbrs.begin(); it != indbrs.end(); ++it) {
-      indirect_branch_t &indbr = (*it).second;
-      llvm::MCInst &Inst = indbr.Inst;
+    llvm::MCInst &Inst = indbr.Inst;
 
-      uint64_t InstLen;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
-                                reinterpret_cast<std::uintptr_t>((*it).first),
-                                llvm::nulls(), llvm::nulls());
+    uint64_t InstLen;
+    bool Disassembled =
+        DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr,
+                              llvm::nulls(), llvm::nulls());
+    assert(Disassembled);
+  }
+}
 
-      assert(Disassembled);
+static void dump_llvm_mcinst(FILE *, llvm::MCInst &, disas_t &);
 
-      auto opcode_handled = [](unsigned opc) -> bool {
+void place_breakpoint_at_indirect_branch(
+    pid_t child, std::pair<const std::uintptr_t, indirect_branch_t> &pair,
+    disas_t &dis) {
+  std::uintptr_t Addr = pair.first;
+  indirect_branch_t &indbr = pair.second;
+  llvm::MCInst &Inst = indbr.Inst;
+
+  auto is_opcode_handled = [](unsigned opc) -> bool {
 #if defined(TARGET_X86_64)
-        return opc == llvm::X86::JMP64r
-            || opc == llvm::X86::JMP64m
-            || opc == llvm::X86::CALL64m
-            || opc == llvm::X86::CALL64r;
+    return opc == llvm::X86::JMP64r ||
+           opc == llvm::X86::JMP64m ||
+           opc == llvm::X86::CALL64m ||
+           opc == llvm::X86::CALL64r;
 #elif defined(TARGET_AARCH64)
-        return opc == llvm::AArch64::BLR;
+    return opc == llvm::AArch64::BLR;
 #endif
-      };
-
-      if (!opcode_handled(Inst.getOpcode())) {
-        fprintf(stdout, "could not place breakpoint @ 0x%lx\n", (*it).first);
-
-        std::string str;
-        {
-          llvm::raw_string_ostream StrStream(str);
-          IP.printInst(&Inst, StrStream, "", STI);
-        }
-
-        fprintf(stdout, "%s\n", str.c_str());
-        fprintf(stdout, "[opcode: %u]", Inst.getOpcode());
-        for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-          const llvm::MCOperand &opnd = Inst.getOperand(i);
-
-          char buff[0x100];
-          if (opnd.isReg()) {
-            snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
-          } else if (opnd.isImm()) {
-            snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
-          } else if (opnd.isFPImm()) {
-            snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
-          } else if (opnd.isExpr()) {
-            snprintf(buff, sizeof(buff), "<expr>");
-          } else if (opnd.isInst()) {
-            snprintf(buff, sizeof(buff), "<inst>");
-          } else {
-            snprintf(buff, sizeof(buff), "<unknown>");
-          }
-
-          fprintf(stdout, " %u:%s", i, buff);
-        }
-        fprintf(stdout, "\n");
-        continue;
-      }
-
-      unsigned long word = _ptrace_peekdata(child, (*it).first);
-
-#if defined(TARGET_X86_64) && defined(__x86_64__)
-      reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
-      reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
-#endif
-
-      _ptrace_pokedata(child, (*it).first, word);
-
-      if (debugMode)
-        printf("breakpoint placed @ 0x%lx\n", (*it).first);
-    }
   };
 
-  initialize_indirect_branch_instructions_map();
-  place_breakpoints();
+  if (!is_opcode_handled(Inst.getOpcode())) {
+    fprintf(stderr, "could not place breakpoint @ 0x%lx\n", Addr);
+    dump_llvm_mcinst(stderr, Inst, dis);
+    return;
+  }
+
+  // read a word of the branch instruction
+  unsigned long word = _ptrace_peekdata(child, Addr);
+
+  // insert breakpoint
+#if defined(TARGET_X86_64) && defined(__x86_64__)
+  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
+#elif defined(TARGET_AARCH64) && defined(__arm64__)
+  reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
+#endif
+
+  // write the word back
+  _ptrace_pokedata(child, Addr, word);
+
+  if (debugMode)
+    fprintf(stderr, "breakpoint placed @ 0x%lx\n", Addr);
 }
 
 static void describe_program_counter(std::uintptr_t pc);
@@ -1082,7 +1055,7 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   if (isLocal) {
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
       function_index_t f_idx =
-          translate_function(binary, tcg, dis, rva_of_va(target));
+          translate_function(child, binary, tcg, dis, rva_of_va(target));
 
       {
         basic_block_properties_t &bbprop = ICFG[bb];
@@ -1097,7 +1070,7 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
       }
     } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
       basic_block_index_t target_bb_idx =
-          translate_basic_block(binary, tcg, dis, rva_of_va(target));
+          translate_basic_block(child, binary, tcg, dis, rva_of_va(target));
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
@@ -1142,6 +1115,7 @@ bool search_address_space_for_binary(pid_t child, const char *binary_path) {
 
   for (auto &vm_prop_set : vmm) {
     const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
+
     if (!vm_prop.x)
       continue;
     if (vm_prop.off)
@@ -1205,59 +1179,6 @@ void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
 
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
     throw std::runtime_error("PTRACE_POKEDATA failed");
-}
-
-template <bool IsRead>
-static bool _process_vm_rwv(pid_t pid,
-                            const std::vector<struct iovec> &local_iovs,
-                            const std::vector<struct iovec> &remote_iovs) {
-  assert(remote_iovs.size() == local_iovs.size());
-
-  // __IOV_MAX: this macro has different values in different kernel versions.
-  // The latest versions of the kernel use 1024 and this is good choice. Since
-  // the C library implementation of readv/writev is able to emulate the
-  // functionality even if the currently running kernel does not support this
-  // large value the readv/writev call will not fail because of this.
-  constexpr ssize_t ___IOV_MAX = 1024;
-
-  unsigned idx = 0;
-  for (ssize_t left = remote_iovs.size(); left > 0; left -= ___IOV_MAX) {
-    ssize_t N = std::min(___IOV_MAX, left);
-
-    ssize_t res = IsRead ? process_vm_readv(pid, &local_iovs[idx], N,
-                                            &remote_iovs[idx], N, 0)
-                         : process_vm_writev(pid, &local_iovs[idx], N,
-                                             &remote_iovs[idx], N, 0);
-
-    ssize_t expected =
-        std::accumulate(local_iovs.begin() + idx,
-                        local_iovs.begin() + idx + N,
-                        0l, [](long acc, const struct iovec &iov) -> unsigned {
-                          return acc + iov.iov_len;
-                        });
-
-    if (res != expected) {
-      if (res < 0)
-        fprintf(stderr, "process_vm_%sv failed (expected %ld) : %s (%d)\n",
-                IsRead ? "read" : "write", expected, strerror(errno), errno);
-      else
-        fprintf(stderr,
-                "process_vm_%sv transferred %ld bytes, but expected %ld\n",
-                IsRead ? "read" : "write", res, expected);
-
-      return false;
-    }
-
-    idx += N;
-  }
-
-  return true;
-}
-
-bool _process_vm_readv(pid_t pid,
-                       const std::vector<struct iovec> &local_iovs,
-                       const std::vector<struct iovec> &remote_iovs) {
-  return _process_vm_rwv<true>(pid, local_iovs, remote_iovs);
 }
 
 int ChildProc(int argc, char **argv) {
@@ -1375,6 +1296,40 @@ bool update_view_of_virtual_memory(int child) {
   fclose(fp);
 
   return true;
+}
+
+void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
+  const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+  llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+  std::string str;
+  {
+    llvm::raw_string_ostream StrStream(str);
+    IP.printInst(&Inst, StrStream, "", STI);
+  }
+
+  fprintf(out, "%s\n", str.c_str());
+  fprintf(out, "[opcode: %u]", Inst.getOpcode());
+  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+    const llvm::MCOperand &opnd = Inst.getOperand(i);
+
+    char buff[0x100];
+    if (opnd.isReg())
+      snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
+    else if (opnd.isImm())
+      snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
+    else if (opnd.isFPImm())
+      snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
+    else if (opnd.isExpr())
+      snprintf(buff, sizeof(buff), "<expr>");
+    else if (opnd.isInst())
+      snprintf(buff, sizeof(buff), "<inst>");
+    else
+      snprintf(buff, sizeof(buff), "<unknown>");
+
+    fprintf(out, " %u:%s", i, buff);
+  }
+  fprintf(out, "\n");
 }
 
 void describe_program_counter(std::uintptr_t pc) {
