@@ -129,13 +129,13 @@ struct section_properties_t {
   }
 };
 
-typedef std::set<vm_properties_t> vm_prop_set_t;
-typedef std::set<section_properties_t> section_prop_set_t;
+typedef std::set<section_properties_t> section_properties_set_t;
+static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
+    sectm;
 
-static boost::icl::interval_set<uintptr_t> allvms;
+typedef std::set<vm_properties_t> vm_properties_set_t;
 
-static boost::icl::split_interval_map<uintptr_t, vm_prop_set_t> vmm;
-static boost::icl::split_interval_map<uintptr_t, section_prop_set_t> sectm;
+static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
 
 static const char *name_of_signal_number(int);
 
@@ -157,35 +157,13 @@ static std::uintptr_t rva_of_va(std::uintptr_t Addr) {
 //
 typedef void (*breakpoint_handler_t)(pid_t);
 
-struct indirect_branch_t {
-  function_t &f;
-  basic_block_t bb;
-
-  std::vector<uint8_t> InsnBytes;
-  llvm::MCInst Inst;
-
-  indirect_branch_t(function_t &f, basic_block_t bb) : f(f), bb(bb) {}
-};
-
-static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
-static std::unordered_map<function_t *,
-                          std::unordered_map<std::uintptr_t, basic_block_t>>
-    BBMaps;
-static void initialize_basic_block_map(function_t &);
-
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
-static llvm::ArrayRef<uint8_t> SecContents;
-
-static basic_block_t
-translate_basic_block(function_t &, tiny_code_generator_t &, disas_t,
-                      std::unordered_map<std::uintptr_t, basic_block_t> &BBMap,
-                      const target_ulong Addr);
-
-static void install_breakpoints(pid_t, binary_t &, disas_t);
-static void on_breakpoint(pid_t, binary_t &, tiny_code_generator_t &, disas_t);
+static void initialize_translation_maps(binary_t &);
+static void install_breakpoints(pid_t, binary_t &, disas_t &);
+static void on_breakpoint(pid_t, binary_t &, tiny_code_generator_t &, disas_t &);
 static bool search_address_space_for_binary(pid_t, const char *binary_path);
 
 static bool SeenExec = false;
@@ -316,11 +294,8 @@ int ParentProc(pid_t child,
   }
 
   std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-
-  std::unique_ptr<llvm::MemoryBuffer> &BinFileBuffer = FileOrErr.get();
-  if (binary.Data.size() != BinFileBuffer->getBufferSize() ||
-      memcmp(&binary.Data[0], BinFileBuffer->getBufferStart(),
-             binary.Data.size()) != 0) {
+  if (binary.Data.size() != Buffer->getBufferSize() ||
+      memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
     fprintf(stderr, "contents of binary %s have changed\n", binary_path);
     return 1;
   }
@@ -415,47 +390,53 @@ int ParentProc(pid_t child,
   //
   // build section map
   //
-#define unwrapOrBail(__ExpectedVal)                                            \
-  ({                                                                           \
-    auto __E = (__ExpectedVal);                                                \
-    if (!__E) {                                                                \
-      fprintf(stderr, "error (%s)\n", #__ExpectedVal);                         \
-      return 1;                                                                \
-    }                                                                          \
-                                                                               \
-    *__E;                                                                      \
-  })
-
   const ELFT &E = *O.getELFFile();
 
   typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
 
-  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+  //
+  // build section map
+  //
+  llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+  if (!sections) {
+    fprintf(stderr, "error: could not get ELF sections\n");
+    return 1;
+  }
+
+  for (const Elf_Shdr &Sec : *sections) {
     if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
       continue;
 
-    llvm::Expected<llvm::ArrayRef<uint8_t>> _contents =
+    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
         E.getSectionContents(&Sec);
 
-    if (!_contents)
+    if (!contents)
       continue;
 
-    section_properties_t sectprop;
-    sectprop.beg = Sec.sh_addr;
-    sectprop.end = Sec.sh_addr + Sec.sh_size;
+    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
 
-    sectprop.name = unwrapOrBail(E.getSectionName(&Sec));
-    sectprop.contents = *_contents;
+    if (!name)
+      continue;
 
     auto intervl = boost::icl::discrete_interval<uintptr_t>::right_open(
-        sectprop.beg, sectprop.end);
+        Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
-    section_prop_set_t sectprops = {sectprop};
+    section_properties_t sectprop;
+    sectprop.name = *name;
+    sectprop.contents = *contents;
+
+    section_properties_set_t sectprops = {sectprop};
     sectm.add(std::make_pair(intervl, sectprops));
 
     if (debugMode)
-      printf("[0x%lx, 0x%lx)\n", sectprop.beg, sectprop.end);
+      fprintf(stderr, "%-20s [0x%lx, 0x%lx)\n",
+             sectprop.name.data(),
+             intervl.lower(),
+             intervl.upper());
   }
+
+  disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
   siginfo_t si;
   long sig = 0;
@@ -525,8 +506,8 @@ int ParentProc(pid_t child,
         if (search_address_space_for_binary(child, binary_path)) {
           fprintf(stderr, "found binary %s in address space @ 0x%lx\n",
                   binary_path, BinaryLoadAddress);
-          install_breakpoints(child, binary,
-                              disas_t(*DisAsm, std::cref(*STI), *IP));
+          install_breakpoints(child, binary, dis);
+          initialize_translation_maps(binary);
         }
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
@@ -579,8 +560,7 @@ int ParentProc(pid_t child,
           }
         } else {
           try {
-            on_breakpoint(child, binary, tcg,
-                          disas_t(*DisAsm, std::cref(*STI), *IP));
+            on_breakpoint(child, binary, tcg, dis);
           } catch (const std::exception& e) {
             fprintf(stderr, "failed to process indirect branch target : %s\n",
                     e.what());
@@ -628,42 +608,169 @@ int ParentProc(pid_t child,
   return 0;
 }
 
-void describe_program_counter(std::uintptr_t pc) {
-  auto vm_it = vmm.find(pc);
-  if (vm_it == vmm.end()) {
-    return;
-  } else {
-    const vm_prop_set_t &vmprops = (*vm_it).second;
-    const vm_properties_t &vmprop = *vmprops.begin();
+static basic_block_index_t translate_basic_block(binary_t &,
+                                                 tiny_code_generator_t &,
+                                                 disas_t &,
+                                                 const target_ulong Addr);
 
-    if (vmprop.nm.empty())
-      return;
+static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
+static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
-    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg);
+static function_index_t translate_function(binary_t &binary,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t &dis,
+                                           target_ulong Addr) {
+  {
+    auto it = FuncMap.find(Addr);
+    if (it != FuncMap.end())
+      return (*it).second;
+  }
+
+  function_index_t res = binary.Analysis.Functions.size();
+  FuncMap[Addr] = res;
+  binary.Analysis.Functions.resize(res + 1);
+  function_t &f = binary.Analysis.Functions.back();
+
+  f.Entry = translate_basic_block(binary, tcg, dis, Addr);
+
+  return res;
+}
+
+basic_block_index_t translate_basic_block(binary_t &binary,
+                                          tiny_code_generator_t &tcg,
+                                          disas_t &dis,
+                                          const target_ulong Addr) {
+  {
+    auto it = BBMap.find(Addr);
+    if (it != BBMap.end())
+      return (*it).second;
+  }
+
+  printf("%lx ", Addr);
+
+  auto sectit = sectm.find(Addr);
+  if (sectit == sectm.end()) {
+    fprintf(stderr, "error: bad address (0x%lx)\n", Addr);
+    abort();
+  }
+  const section_properties_t &sectprop = *(*sectit).second.begin();
+  tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
+
+  unsigned Size;
+  jove::terminator_info_t T;
+  std::tie(Size, T) = tcg.translate(Addr);
+
+  if (T.Type == TERMINATOR::UNKNOWN) {
+    fprintf(stderr, "error: bad terminator @ %#lx\n", Addr);
+    abort();
+  }
+
+  basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
+  basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
+  {
+    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    bbprop.Addr = Addr;
+    bbprop.Size = Size;
+    bbprop.Term.Type = T.Type;
+    bbprop.Term.Addr = T.Addr;
+  }
+
+  BBMap[Addr] = bbidx;
+
+  //
+  // conduct analysis of last instruction (the terminator of the block) and
+  // (recursively) descend into branch targets, translating basic blocks
+  //
+  auto control_flow = [&](std::uintptr_t Target) -> void {
+    assert(Target);
+
+    basic_block_index_t succidx;
+
+    auto it = BBMap.find(Target);
+    succidx = it != BBMap.end()
+                  ? (*it).second
+                  : translate_basic_block(binary, tcg, dis, Target);
+
+    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+    boost::add_edge(bb, succ, binary.Analysis.ICFG);
+  };
+
+  switch (T.Type) {
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    control_flow(T._unconditional_jump.Target);
+    break;
+
+  case TERMINATOR::CONDITIONAL_JUMP:
+    control_flow(T._conditional_jump.Target);
+    control_flow(T._conditional_jump.NextPC);
+    break;
+
+  case TERMINATOR::CALL: {
+    function_index_t f_idx =
+        translate_function(binary, tcg, dis, T._call.Target);
+
+    {
+      basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+      std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
+
+      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
+        Callees.push_back(f_idx);
+        std::sort(Callees.begin(), Callees.end());
+      }
+    }
+
+    control_flow(T._call.NextPC);
+    break;
+  }
+
+  case TERMINATOR::INDIRECT_CALL:
+    control_flow(T._indirect_call.NextPC);
+    break;
+
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::RETURN:
+  case TERMINATOR::UNREACHABLE:
+    break;
+
+  default:
+    abort();
+  }
+
+  return bbidx;
+}
+
+void initialize_translation_maps(binary_t &binary) {
+  for (basic_block_index_t bb_idx = 0;
+       bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+    basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+
+    BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
+  }
+
+  for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+       ++f_idx) {
+    function_t &f = binary.Analysis.Functions[f_idx];
+    basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+
+    FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
   }
 }
 
-void initialize_basic_block_map(function_t &f) {
-  auto &BBMap = BBMaps[&f];
-  assert(BBMap.empty());
+struct indirect_branch_t {
+  basic_block_t bb;
 
-  function_t::vertex_iterator vi, vi_end;
-  for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-    basic_block_t bb = *vi;
+  std::vector<uint8_t> InsnBytes;
+  llvm::MCInst Inst;
+};
 
-    BBMap[f[bb].Addr] = bb;
-  }
-}
+static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
 
 static bool _process_vm_readv(pid_t pid,
                               const std::vector<struct iovec> &local_iovs,
                               const std::vector<struct iovec> &remote_iovs);
 
-void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
-  unsigned M = std::accumulate(
-      binary.Analysis.Functions.begin(), binary.Analysis.Functions.end(), 0u,
-      [](unsigned acc, const std::pair<std::uintptr_t, function_t> &pair)
-          -> unsigned { return acc + boost::num_vertices(pair.second); });
+void install_breakpoints(pid_t child, binary_t &binary, disas_t &dis) {
+  unsigned M = boost::num_vertices(binary.Analysis.ICFG);
 
   auto initialize_indirect_branch_instructions_map = [&](void) -> void {
     std::vector<struct iovec> remote_iovs;
@@ -672,41 +779,32 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
     remote_iovs.reserve(M);
     local_iovs.reserve(M);
 
-    for (auto it = binary.Analysis.Functions.begin();
-         it != binary.Analysis.Functions.end(); ++it) {
-      function_t &f = (*it).second;
+    interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
+    for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
+         vi != vi_end; ++vi) {
+      basic_block_t bb = *vi;
+      basic_block_properties_t bbprop = binary.Analysis.ICFG[bb];
+      if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
+          bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
+        continue;
 
-      function_t::vertex_iterator vi, vi_end;
-      for (std::tie(vi, vi_end) = boost::vertices(f); vi != vi_end; ++vi) {
-        basic_block_t bb = *vi;
-        basic_block_properties_t bbprop = f[bb];
-        if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
-            bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
-          continue;
+      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
 
-        std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
+      indirect_branch_t &indbr = indbrs[termpc];
+      indbr.bb = bb;
 
-        if (indbrs.find(termpc) != indbrs.end())
-          continue;
+      struct iovec remote_iov;
+      remote_iov.iov_base = reinterpret_cast<void *>(termpc);
+      remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
 
-        indirect_branch_t &indbr =
-            (*indbrs.emplace(std::uintptr_t(termpc), indirect_branch_t(f, bb))
-                  .first)
-                .second;
+      indbr.InsnBytes.resize(remote_iov.iov_len);
 
-        struct iovec remote_iov;
-        remote_iov.iov_base = reinterpret_cast<void *>(termpc);
-        remote_iov.iov_len = bbprop.Size - (bbprop.Term.Addr - bbprop.Addr);
+      struct iovec local_iov;
+      local_iov.iov_base = indbr.InsnBytes.data();
+      local_iov.iov_len = indbr.InsnBytes.size();
 
-        indbr.InsnBytes.resize(remote_iov.iov_len);
-
-        struct iovec local_iov;
-        local_iov.iov_base = indbr.InsnBytes.data();
-        local_iov.iov_len = indbr.InsnBytes.size();
-
-        remote_iovs.push_back(remote_iov);
-        local_iovs.push_back(local_iov);
-      }
+      remote_iovs.push_back(remote_iov);
+      local_iovs.push_back(local_iov);
     }
 
     if (!_process_vm_readv(child, local_iovs, remote_iovs)) {
@@ -800,6 +898,8 @@ void install_breakpoints(pid_t child, binary_t &binary, disas_t dis) {
   place_breakpoints();
 }
 
+static void describe_program_counter(std::uintptr_t pc);
+
 static constexpr unsigned ProgramCounterUserOffset =
 #if defined(__x86_64__)
     __builtin_offsetof(struct user, regs.rip)
@@ -809,7 +909,9 @@ static constexpr unsigned ProgramCounterUserOffset =
     ;
 
 void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
-                   disas_t dis) {
+                   disas_t &dis) {
+  interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+
   //
   // get program counter
   //
@@ -843,7 +945,6 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   //
   // shorthand-functions for reading the tracee's memory and registers
   //
-  function_t &f = IndBrInfo.f;
   basic_block_t bb = IndBrInfo.bb;
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
@@ -953,7 +1054,7 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   // saving the return address on the stack for certain architectures
   //
 #if defined(TARGET_X86_64) && defined(__x86_64__)
-  if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
     std::uintptr_t sp =
         _ptrace_peekuser(child, __builtin_offsetof(struct user, regs.rsp));
     sp -= sizeof(std::uintptr_t);
@@ -974,38 +1075,27 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   bool isLocal = target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
 
   if (isLocal) {
-    if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-      isNewTarget = f[bb].Term.Callees.Local.insert(rva_of_va(target)).second;
-    } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      if (BBMaps.find(&f) == BBMaps.end())
-        initialize_basic_block_map(f);
+    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+      function_index_t f_idx =
+          translate_function(binary, tcg, dis, rva_of_va(target));
 
-      basic_block_t target_bb = boost::graph_traits<function_t>::null_vertex();
+      {
+        basic_block_properties_t &bbprop = ICFG[bb];
+        std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
 
-      auto &BBMap = BBMaps[&f];
-      auto bb_it = BBMap.find(target);
-      if (bb_it == BBMap.end()) {
-        //
-        // we need to translate new code!
-        //
-        std::uintptr_t rva = rva_of_va(target);
-        auto sectit = sectm.find(rva);
-        if (sectit == sectm.end())
-          throw std::runtime_error("bad relative virtual address");
+        if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
+          isNewTarget = true;
 
-        const section_properties_t &sectprop = *(*sectit).second.begin();
-        tcg.set_section(sectprop.beg, sectprop.contents.data());
-
-        if (debugMode)
-          printf("translating 0x%lx...\n", rva);
-
-        target_bb = translate_basic_block(f, tcg, dis, BBMap, rva);
-      } else {
-        target_bb = (*bb_it).second;
+          Callees.push_back(f_idx);
+          std::sort(Callees.begin(), Callees.end());
+        }
       }
+    } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+      basic_block_index_t target_bb_idx =
+          translate_basic_block(binary, tcg, dis, rva_of_va(target));
+      basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
-      if (target_bb != boost::graph_traits<function_t>::null_vertex())
-        isNewTarget = boost::add_edge(bb, target_bb, f).second;
+      isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
     } else {
       abort();
     }
@@ -1024,8 +1114,8 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
         fprintf(stderr, "(non-local target) %s+0x%lx\n", vmprop.nm.c_str(),
                 target - vmprop.beg + vmprop.off);
 
-      if (f[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-      } else if (f[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+      } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
         // this is a tail call
       } else {
         abort();
@@ -1037,120 +1127,6 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
     describe_program_counter(_pc);
     describe_program_counter(target);
   }
-}
-
-basic_block_t
-translate_basic_block(function_t &f,
-                      tiny_code_generator_t &tcg,
-                      disas_t dis,
-                      std::unordered_map<std::uintptr_t, basic_block_t> &BBMap,
-                      const target_ulong Addr) {
-  unsigned Size;
-  jove::terminator_info_t T;
-  std::tie(Size, T) = tcg.translate(Addr);
-
-#if 0
-  fprintf(stdout, "%s\n", string_of_terminator(T.Type));
-  tcg.dump_operations();
-  fputc('\n', stdout);
-#endif
-
-  if (T.Type == TERMINATOR::UNKNOWN) {
-    fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
-
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-    uint64_t InstLen;
-    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - guest_base_addr /* XXX */;
-
-      llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), A,
-                                llvm::nulls(), llvm::nulls());
-
-      if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n",
-                reinterpret_cast<void *>(Addr));
-        break;
-      }
-
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP.printInst(&Inst, StrStream, "", STI);
-      }
-      puts(str.c_str());
-    }
-
-    tcg.dump_operations();
-    fputc('\n', stdout);
-
-    return boost::graph_traits<function_t>::null_vertex();
-  }
-
-  basic_block_t bb = boost::add_vertex(f);
-  basic_block_properties_t& bbprop = f[bb];
-  bbprop.Addr = Addr;
-  bbprop.Size = Size;
-  bbprop.Term.Type = T.Type;
-  bbprop.Term.Addr = T.Addr;
-
-  BBMap[Addr] = bb;
-
-  //
-  // conduct analysis of last instruction (the terminator of the block) and
-  // (recursively) descend into branch targets, translating basic blocks
-  //
-  auto control_flow = [&](std::uintptr_t Target) -> void {
-    if (!Target) {
-      fprintf(stderr, "what the hell happened @ 0x%lx (%s)\n", Addr,
-              string_of_terminator(bbprop.Term.Type));
-      return;
-    }
-
-    auto it = BBMap.find(Target);
-    if (it != BBMap.end()) {
-      boost::add_edge(bb, (*it).second, f);
-      return;
-    }
-
-    basic_block_t succ = translate_basic_block(f, tcg, dis, BBMap, Target);
-    if (succ != boost::graph_traits<function_t>::null_vertex())
-      boost::add_edge(bb, succ, f);
-  };
-
-  switch (T.Type) {
-  case TERMINATOR::UNCONDITIONAL_JUMP:
-    control_flow(T._unconditional_jump.Target);
-    break;
-
-  case TERMINATOR::CONDITIONAL_JUMP:
-    control_flow(T._conditional_jump.Target);
-    control_flow(T._conditional_jump.NextPC);
-    break;
-
-  case TERMINATOR::CALL:
-    bbprop.Term.Callees.Local.insert(T._call.Target);
-    control_flow(T._call.NextPC);
-    break;
-
-  case TERMINATOR::INDIRECT_CALL:
-    control_flow(T._indirect_call.NextPC);
-    break;
-
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::RETURN:
-  case TERMINATOR::UNREACHABLE:
-    break;
-
-  default:
-    abort();
-  }
-
-  return bb;
 }
 
 bool search_address_space_for_binary(pid_t child, const char *binary_path) {
@@ -1353,7 +1329,6 @@ bool update_view_of_virtual_memory(int child) {
     return false;
   }
 
-  allvms.clear();
   vmm.clear();
 
   while ((read = getline(&line, &len, fp)) != -1) {
@@ -1387,9 +1362,7 @@ bool update_view_of_virtual_memory(int child) {
     //
     // create the mappings
     //
-    allvms.insert(intervl);
-
-    vm_prop_set_t vmprops = {vmprop};
+    vm_properties_set_t vmprops = {vmprop};
     vmm.add(make_pair(intervl, vmprops));
   }
 
@@ -1397,6 +1370,21 @@ bool update_view_of_virtual_memory(int child) {
   fclose(fp);
 
   return true;
+}
+
+void describe_program_counter(std::uintptr_t pc) {
+  auto vm_it = vmm.find(pc);
+  if (vm_it == vmm.end()) {
+    return;
+  } else {
+    const vm_properties_set_t &vmprops = (*vm_it).second;
+    const vm_properties_t &vmprop = *vmprops.begin();
+
+    if (vmprop.nm.empty())
+      return;
+
+    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg);
+  }
 }
 
 const char *name_of_signal_number(int num) {
