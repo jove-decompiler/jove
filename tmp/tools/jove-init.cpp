@@ -346,9 +346,8 @@ static function_index_t translate_function(binary_t &binary,
   function_index_t res = binary.Analysis.Functions.size();
   FuncMap[Addr] = res;
   binary.Analysis.Functions.resize(res + 1);
-  function_t &f = binary.Analysis.Functions.back();
-
-  f.Entry = translate_basic_block(binary, tcg, dis, Addr);
+  binary.Analysis.Functions[res].Entry =
+      translate_basic_block(binary, tcg, dis, Addr);
 
   return res;
 }

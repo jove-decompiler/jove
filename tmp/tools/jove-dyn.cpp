@@ -654,9 +654,8 @@ static function_index_t translate_function(pid_t child,
   function_index_t res = binary.Analysis.Functions.size();
   FuncMap[Addr] = res;
   binary.Analysis.Functions.resize(res + 1);
-  function_t &f = binary.Analysis.Functions.back();
-
-  f.Entry = translate_basic_block(child, binary, tcg, dis, Addr);
+  binary.Analysis.Functions[res].Entry =
+      translate_basic_block(child, binary, tcg, dis, Addr);
 
   return res;
 }
@@ -672,7 +671,8 @@ basic_block_index_t translate_basic_block(pid_t child,
       return (*it).second;
   }
 
-  printf("%lx ", Addr);
+  if (debugMode)
+    fprintf(stderr, "%lx\n", Addr);
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
@@ -897,7 +897,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     fprintf(stderr, "breakpoint placed @ 0x%lx\n", Addr);
 }
 
-static void describe_program_counter(std::uintptr_t pc);
+static bool describe_program_counter(std::uintptr_t pc);
 
 static constexpr unsigned ProgramCounterUserOffset =
 #if defined(__x86_64__)
@@ -1123,7 +1123,8 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   }
 
   if (isNewTarget) {
-    describe_program_counter(_pc);
+    bool desc_pc = describe_program_counter(_pc);
+    assert(desc_pc);
     describe_program_counter(target);
   }
 }
@@ -1353,18 +1354,19 @@ void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
   fprintf(out, "\n");
 }
 
-void describe_program_counter(std::uintptr_t pc) {
+bool describe_program_counter(std::uintptr_t pc) {
   auto vm_it = vmm.find(pc);
   if (vm_it == vmm.end()) {
-    return;
+    return false;
   } else {
     const vm_properties_set_t &vmprops = (*vm_it).second;
     const vm_properties_t &vmprop = *vmprops.begin();
 
     if (vmprop.nm.empty())
-      return;
+      return false;
 
     printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg);
+    return true;
   }
 }
 
