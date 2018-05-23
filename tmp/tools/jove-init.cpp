@@ -27,7 +27,11 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
+#if 0
 #include <boost/archive/text_oarchive.hpp>
+#else
+#include <boost/archive/binary_oarchive.hpp>
+#endif
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -211,7 +215,7 @@ int initialize_decompilation(void) {
   auto write_decompilation = [&](void) -> void {
     std::ofstream ofs(cmdline.output.string());
 
-    boost::archive::text_oarchive oa(ofs);
+    boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
   };
 

@@ -41,8 +41,13 @@
 #include <sys/uio.h>
 
 #include "jove/jove.h"
+#if 0
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#else
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
+#endif
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -256,14 +261,14 @@ int ParentProc(pid_t child,
   {
     std::ifstream ifs(decompilation_path);
 
-    boost::archive::text_iarchive ia(ifs);
+    boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
   }
 
   auto write_decompilation = [&](void) -> void {
     std::ofstream ofs(decompilation_path);
 
-    boost::archive::text_oarchive oa(ofs);
+    boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
   };
 

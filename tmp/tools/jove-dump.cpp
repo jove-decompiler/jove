@@ -26,8 +26,11 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
+#if 0
 #include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
+#else
+#include <boost/archive/binary_iarchive.hpp>
+#endif
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -69,7 +72,7 @@ int dump(void) {
   {
     std::ifstream ifs(cmdline.input.string());
 
-    boost::archive::text_iarchive ia(ifs);
+    boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
   }
 
