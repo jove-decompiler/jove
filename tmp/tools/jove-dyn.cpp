@@ -1017,7 +1017,9 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
 
   auto GetTarget = [&](void) -> std::uintptr_t {
     switch (Inst.getOpcode()) {
+
 #if defined(TARGET_X86_64)
+
     case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(3).isImm());
@@ -1040,11 +1042,15 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
     case llvm::X86::CALL64r: /* call rax */
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
+
 #elif defined(TARGET_AARCH64)
+
     case llvm::AArch64::BLR: /* blr x3 */
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
+
 #endif
+
     default:
       fprintf(stderr, "unimplemented indirect branch opcode %u\n",
               Inst.getOpcode());

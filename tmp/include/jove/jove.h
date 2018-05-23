@@ -20,9 +20,9 @@ enum class TERMINATOR : unsigned {
   UNREACHABLE
 };
 
-typedef unsigned binary_index_t;
-typedef unsigned function_index_t;
-typedef unsigned basic_block_index_t;
+typedef uint16_t binary_index_t;
+typedef uint32_t function_index_t;
+typedef uint32_t basic_block_index_t;
 
 struct basic_block_properties_t {
   std::uintptr_t Addr;
