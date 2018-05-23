@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
-#include <boost/graph/adjacency_list.hpp>
 #include <vector>
+#include <boost/graph/adjacency_list.hpp>
 
 //#include <boost/icl/separate_interval_set.hpp>
 //#include <boost/archive/text_oarchive.hpp>
@@ -79,13 +79,13 @@ struct binary_t {
   std::vector<uint8_t> Data;
 
   struct {
-    interprocedural_control_flow_graph_t ICFG;
     std::vector<function_t> Functions;
+    interprocedural_control_flow_graph_t ICFG;
   } Analysis;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Path &Data &Analysis.ICFG &Analysis.Functions;
+    ar &Path &Data &Analysis.Functions &Analysis.ICFG;
   }
 };
 
@@ -99,22 +99,23 @@ struct decompilation_t {
 };
 
 inline const char *string_of_terminator(TERMINATOR TermTy) {
-  if (TermTy == TERMINATOR::UNCONDITIONAL_JUMP) {
-    return "UNCONDITIONAL_JUMP";
-  } else if (TermTy == TERMINATOR::CONDITIONAL_JUMP) {
-    return "CONDITIONAL_JUMP";
-  } else if (TermTy == TERMINATOR::INDIRECT_CALL) {
-    return "INDIRECT_CALL";
-  } else if (TermTy == TERMINATOR::INDIRECT_JUMP) {
-    return "INDIRECT_JUMP";
-  } else if (TermTy == TERMINATOR::CALL) {
-    return "CALL";
-  } else if (TermTy == TERMINATOR::RETURN) {
-    return "RETURN";
-  } else if (TermTy == TERMINATOR::UNREACHABLE) {
-    return "UNREACHABLE";
-  } else {
+  switch (TermTy) {
+  case TERMINATOR::UNKNOWN:
     return "UNKNOWN";
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    return "UNCONDITIONAL_JUMP";
+  case TERMINATOR::CONDITIONAL_JUMP:
+    return "CONDITIONAL_JUMP";
+  case TERMINATOR::INDIRECT_CALL:
+    return "INDIRECT_CALL";
+  case TERMINATOR::INDIRECT_JUMP:
+    return "INDIRECT_JUMP";
+  case TERMINATOR::CALL:
+    return "CALL";
+  case TERMINATOR::RETURN:
+    return "RETURN";
+  case TERMINATOR::UNREACHABLE:
+    return "UNREACHABLE";
   }
 }
 
