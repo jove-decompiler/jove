@@ -907,8 +907,11 @@ static constexpr unsigned ProgramCounterUserOffset =
 #endif
     ;
 
+static bool is_address_in_global_offset_table(std::uintptr_t);
+
 void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
                    disas_t &dis) {
+  bool __got = false;
   interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
 
   //
@@ -1025,11 +1028,14 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
-    case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
+    case llvm::X86::CALL64m: { /* call qword ptr [rip + 3071542] */
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(3).isImm());
-      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                      Inst.getOperand(3).getImm());
+      std::uintptr_t pcptr =
+          RegValue(Inst.getOperand(0).getReg()) + Inst.getOperand(3).getImm();
+      __got = is_address_in_global_offset_table(pcptr);
+      return LoadAddr(pcptr);
+    }
 
     case llvm::X86::CALL64r: /* call rax */
       assert(Inst.getOperand(0).isReg());
@@ -1099,6 +1105,8 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
       abort();
     }
   } else { /* non-local */
+    return;
+
     if (!update_view_of_virtual_memory(child))
       throw std::runtime_error("failed to read virtual memory maps of child");
 
@@ -1122,11 +1130,25 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
     }
   }
 
-  if (isNewTarget) {
+  if (isNewTarget && !__got) {
     bool desc_pc = describe_program_counter(_pc);
     assert(desc_pc);
     describe_program_counter(target);
   }
+}
+
+bool is_address_in_global_offset_table(std::uintptr_t Addr) {
+  if (!(Addr >= BinaryLoadAddress && Addr < BinaryLoadAddressEnd))
+    return false;
+
+  Addr = rva_of_va(Addr);
+
+  auto sectit = sectm.find(Addr);
+  if (sectit == sectm.end())
+    return false;
+
+  const section_properties_t &sectprop = *(*sectit).second.begin();
+  return sectprop.name == ".got";
 }
 
 bool search_address_space_for_binary(pid_t child, const char *binary_path) {
