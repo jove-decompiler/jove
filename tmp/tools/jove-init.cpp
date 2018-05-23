@@ -32,6 +32,7 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/icl/split_interval_map.hpp>
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
@@ -68,10 +69,25 @@ typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
-static llvm::ArrayRef<uint8_t> SecContents;
+struct section_properties_t {
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+
+  bool operator==(const section_properties_t &sect) const {
+    return name == sect.name;
+  }
+
+  bool operator<(const section_properties_t &sect) const {
+    return name < sect.name;
+  }
+};
+
+typedef std::set<section_properties_t> section_properties_set_t;
+static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
+    sectm;
 
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
-                                           disas_t, target_ulong Addr);
+                                           disas_t &, target_ulong Addr);
 
 int initialize_decompilation(void) {
   tiny_code_generator_t tcg;
@@ -219,6 +235,40 @@ int initialize_decompilation(void) {
   typedef typename ELFT::Elf_Word Elf_Word;
 
   //
+  // build section map
+  //
+  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+      continue;
+
+    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+        E.getSectionContents(&Sec);
+
+    if (!contents)
+      continue;
+
+    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+    if (!name)
+      continue;
+
+    auto intervl = boost::icl::discrete_interval<uintptr_t>::right_open(
+        Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+    section_properties_t sectprop;
+    sectprop.name = *name;
+    sectprop.contents = *contents;
+
+    section_properties_set_t sectprops = {sectprop};
+    sectm.add(std::make_pair(intervl, sectprops));
+
+    printf("%-20s [0x%lx, 0x%lx)\n",
+           sectprop.name.data(),
+           intervl.lower(),
+           intervl.upper());
+  }
+
+  //
   // get the extended symbol table index section, if it exists
   //
   struct {
@@ -282,6 +332,8 @@ int initialize_decompilation(void) {
     return 0;
   }
 
+  disas_t dis(*DisAsm, std::cref(*STI), *IP);
+
   //
   // iterate dynamic (!undefined) functions
   //
@@ -292,46 +344,10 @@ int initialize_decompilation(void) {
     if (Sym.isUndefined())
       continue;
 
-    //
-    // get section
-    //
-    unsigned SectIndex = Sym.st_shndx;
-    if (SectIndex == llvm::ELF::SHN_XINDEX) {
-      if (!Shndx.Found) {
-        fprintf(stderr, "malformed ELF: no extended symbol table index\n");
-        return 1;
-      }
-
-      SectIndex = unwrapOrBail(obj::getExtendedSymbolTableIndex<obj::ELF64LE>(
-          &Sym, Dyn.Symbols.begin(), Shndx.Table));
-    }
-    const Elf_Shdr &Sec = *unwrapOrBail(E.getSection(SectIndex));
-    const std::uintptr_t SectBase = Sec.sh_addr;
-    SecContents = unwrapOrBail(E.getSectionContents(&Sec));
-
-    //
-    // print function
-    //
-    llvm::StringRef Nm = unwrapOrBail(Sym.getName(Dyn.StringTable));
-    const std::uintptr_t Addr = Sym.st_value;
-    std::ptrdiff_t Offset = Addr - SectBase;
-    assert(Offset >= 0);
-    llvm::StringRef SectNm = unwrapOrBail(E.getSectionName(&Sec));
-    if (cmdline.verbose)
-      printf("%s @ %s+%#lx\n", Nm.str().c_str(), SectNm.str().c_str(),
-             static_cast<std::uintptr_t>(Offset));
-
-    //
-    // prepare TCG
-    //
-    tcg.set_section(SectBase, SecContents.data());
-
-    //
-    // translate function
-    //
-    translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
-                       Addr);
+    translate_function(binary, tcg, dis, Sym.st_value);
   }
+
+  putchar('\n');
 
   write_decompilation();
   return 0;
@@ -339,7 +355,7 @@ int initialize_decompilation(void) {
 
 static basic_block_index_t translate_basic_block(binary_t &,
                                                  tiny_code_generator_t &,
-                                                 disas_t,
+                                                 disas_t &,
                                                  const target_ulong Addr);
 
 static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
@@ -347,10 +363,8 @@ static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
 static function_index_t translate_function(binary_t &binary,
                                            tiny_code_generator_t &tcg,
-                                           disas_t dis,
+                                           disas_t &dis,
                                            target_ulong Addr) {
-  printf("%s: 0x%lx\n", __FUNCTION__, Addr);
-
   {
     auto it = FuncMap.find(Addr);
     if (it != FuncMap.end())
@@ -369,53 +383,30 @@ static function_index_t translate_function(binary_t &binary,
 
 basic_block_index_t translate_basic_block(binary_t &binary,
                                           tiny_code_generator_t &tcg,
-                                          disas_t dis,
+                                          disas_t &dis,
                                           const target_ulong Addr) {
-  printf("%s: 0x%lx\n", __FUNCTION__, Addr);
-
   {
     auto it = BBMap.find(Addr);
     if (it != BBMap.end())
       return (*it).second;
   }
 
+  printf("%lx ", Addr);
+
+  auto sectit = sectm.find(Addr);
+  if (sectit == sectm.end()) {
+    fprintf(stderr, "error: bad address (0x%lx)\n", Addr);
+    abort();
+  }
+  const section_properties_t &sectprop = *(*sectit).second.begin();
+  tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
+
   unsigned Size;
   jove::terminator_info_t T;
   std::tie(Size, T) = tcg.translate(Addr);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
-
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-    uint64_t InstLen;
-    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - guest_base_addr /* XXX */;
-
-      llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, SecContents.slice(Offset), A,
-                                llvm::nulls(), llvm::nulls());
-
-      if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n",
-                reinterpret_cast<void *>(Addr));
-        break;
-      }
-
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP.printInst(&Inst, StrStream, "", STI);
-      }
-      puts(str.c_str());
-    }
-
-    tcg.dump_operations();
-    fputc('\n', stdout);
-
+    fprintf(stderr, "error: bad terminator @ %#lx\n", Addr);
     abort();
   }
 
