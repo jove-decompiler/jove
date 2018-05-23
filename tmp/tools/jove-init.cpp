@@ -481,7 +481,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     abort();
   }
 
-  return bb;
+  return bbidx;
 }
 
 int parse_command_line_arguments(int argc, char **argv) {
