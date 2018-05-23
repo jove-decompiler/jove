@@ -176,9 +176,8 @@ struct indirect_branch_t {
   llvm::MCInst Inst;
 };
 
-static void place_breakpoint_at_indirect_branch(
-    pid_t child, std::pair<const std::uintptr_t, indirect_branch_t> &pair,
-    disas_t &dis);
+static void place_breakpoint_at_indirect_branch(pid_t, std::uintptr_t Addr,
+                                                indirect_branch_t &, disas_t &);
 
 static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
 
@@ -530,7 +529,8 @@ int ParentProc(pid_t child,
           // place breakpoints for the indirect branches that we know about
           // right now
           for (auto it = indbrs.begin(); it != indbrs.end(); ++it)
-            place_breakpoint_at_indirect_branch(child, *it, dis);
+            place_breakpoint_at_indirect_branch(child, (*it).first,
+                                                (*it).second, dis);
         }
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
@@ -700,13 +700,38 @@ basic_block_index_t translate_basic_block(pid_t child,
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
 
+    //
+    // if it's an indirect branch, we need to (1) add it to the indirect branch
+    // map and (2) install a breakpoint at the correct program counter
+    //
     if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
         bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-
       std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
 
       indirect_branch_t &indbr = indbrs[termpc];
       indbr.bb = bb;
+      indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+
+      auto sectit = sectm.find(bbprop.Term.Addr);
+      assert(sectit != sectm.end());
+      const section_properties_t &sectprop = *(*sectit).second.begin();
+
+      memcpy(&indbr.InsnBytes[0],
+             &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+             indbr.InsnBytes.size());
+
+      //
+      // now that we have the bytes for each indirect branch, disassemble them
+      //
+      llvm::MCInst &Inst = indbr.Inst;
+      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+      uint64_t InstLen;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
+                                bbprop.Term.Addr, llvm::nulls(), llvm::nulls());
+      assert(Disassembled);
+
+      place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
     }
   }
 
@@ -813,9 +838,6 @@ void initialize_indirect_branch_map(pid_t child, binary_t &binary,
     assert(sectit != sectm.end());
     const section_properties_t &sectprop = *(*sectit).second.begin();
 
-    fprintf(stderr, "bbprop.Term.Addr=%lx\n", bbprop.Term.Addr);
-    fprintf(stderr, "sectprop.beg=%lx\n", (*sectit).first.lower());
-
     memcpy(&indbr.InsnBytes[0],
            &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
            indbr.InsnBytes.size());
@@ -835,11 +857,10 @@ void initialize_indirect_branch_map(pid_t child, binary_t &binary,
 
 static void dump_llvm_mcinst(FILE *, llvm::MCInst &, disas_t &);
 
-void place_breakpoint_at_indirect_branch(
-    pid_t child, std::pair<const std::uintptr_t, indirect_branch_t> &pair,
-    disas_t &dis) {
-  std::uintptr_t Addr = pair.first;
-  indirect_branch_t &indbr = pair.second;
+void place_breakpoint_at_indirect_branch(pid_t child,
+                                         std::uintptr_t Addr,
+                                         indirect_branch_t &indbr,
+                                         disas_t &dis) {
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
