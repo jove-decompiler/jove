@@ -215,29 +215,23 @@ int initialize_decompilation(void) {
     oa << decompilation;
   };
 
-  // XXX I don't like the fact that this is a macro.
-#define unwrapOrBail(__ExpectedVal)                                            \
-  ({                                                                           \
-    auto __E = (__ExpectedVal);                                                \
-    if (!__E) {                                                                \
-      fprintf(stderr, "error (%s)\n", #__ExpectedVal);                         \
-      return 1;                                                                \
-    }                                                                          \
-                                                                               \
-    *__E;                                                                      \
-  })
-
   const ELFT &E = *O.getELFFile();
 
   typedef typename ELFT::Elf_Shdr Elf_Shdr;
   typedef typename ELFT::Elf_Sym Elf_Sym;
   typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Word Elf_Word;
+  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
 
   //
   // build section map
   //
-  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+  llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+  if (!sections) {
+    fprintf(stderr, "error: could not get ELF sections\n");
+    return 1;
+  }
+
+  for (const Elf_Shdr &Sec : *sections) {
     if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
       continue;
 
@@ -269,42 +263,17 @@ int initialize_decompilation(void) {
   }
 
   //
-  // get the extended symbol table index section, if it exists
-  //
-  struct {
-    llvm::ArrayRef<Elf_Word> Table;
-
-    bool Found;
-  } Shndx;
-
-  Shndx.Found = false;
-  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
-    if (Sec.sh_type != llvm::ELF::SHT_SYMTAB_SHNDX)
-      continue;
-
-    if (Shndx.Found) {
-      fprintf(stderr, "invalid ELF: multiple SHT_SYMTAB_SHNDX sections\n");
-      return 1;
-    }
-
-    Shndx.Table = unwrapOrBail(E.getSHNDXTable(Sec));
-
-    Shndx.Found = true;
-  }
-
-  //
   // get the dynamic symbols (those are the ones that matter to the dynamic
   // linker)
   //
   struct {
-    llvm::StringRef StringTable;
     Elf_Sym_Range Symbols;
 
     bool Found;
   } Dyn;
 
   Dyn.Found = false;
-  for (const Elf_Shdr &Sec : unwrapOrBail(E.sections())) {
+  for (const Elf_Shdr &Sec : *sections) {
     if (Sec.sh_type != llvm::ELF::SHT_DYNSYM)
       continue;
 
@@ -313,7 +282,6 @@ int initialize_decompilation(void) {
       return 1;
     }
 
-    Dyn.StringTable = unwrapOrBail(E.getStringTableForSymtab(Sec));
     Dyn.Symbols = Elf_Sym_Range(
         reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset),
         reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset +
@@ -323,7 +291,7 @@ int initialize_decompilation(void) {
   }
 
   if (!Dyn.Found) {
-    fprintf(stderr, "malformed ELF: failed to find SHT_DYNSYM section\n");
+    fprintf(stderr, "error: failed to find SHT_DYNSYM section\n");
     return 1;
   }
 
