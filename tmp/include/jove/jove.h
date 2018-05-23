@@ -1,7 +1,6 @@
 #pragma once
 #include <cstdint>
 #include <boost/graph/adjacency_list.hpp>
-#include <set>
 #include <vector>
 
 //#include <boost/icl/separate_interval_set.hpp>
@@ -21,6 +20,10 @@ enum class TERMINATOR : unsigned {
   UNREACHABLE
 };
 
+typedef unsigned binary_index_t;
+typedef unsigned function_index_t;
+typedef unsigned basic_block_index_t;
+
 struct basic_block_properties_t {
   std::uintptr_t Addr;
   std::ptrdiff_t Size;
@@ -30,57 +33,64 @@ struct basic_block_properties_t {
     TERMINATOR Type;
 
     struct {
-      std::set<std::uintptr_t> Local;
-
-      std::set<std::pair<std::string, std::uintptr_t>> NonLocal;
+      std::vector<function_index_t> Local;
+      std::vector<std::pair<binary_index_t, function_index_t>> NonLocal;
     } Callees;
   } Term;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Size &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees.NonLocal;
+    ar &Addr &Size &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees
+        .NonLocal;
   }
 };
 
-struct function_properties_t {
+typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
+                              boost::vecS,             /* VertexList */
+                              boost::bidirectionalS,   /* Directed */
+                              basic_block_properties_t /* VertexProperties */>
+    interprocedural_control_flow_graph_t;
+
+typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
+
+inline basic_block_t NullBasicBlock(void) {
+  return boost::graph_traits<
+      interprocedural_control_flow_graph_t>::null_vertex();
+}
+
+struct function_t {
+  basic_block_index_t Entry;
+
   struct {
     struct {
-      std::set<std::pair<unsigned, unsigned>> Arguments;
-      std::set<std::pair<unsigned, unsigned>> LocalVars;
+      std::vector<std::pair<unsigned, unsigned>> Arguments;
+      std::vector<std::pair<unsigned, unsigned>> LocalVars;
     } Stack;
   } Analysis;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Analysis.Stack.Arguments &Analysis.Stack.LocalVars;
+    ar &Entry &Analysis.Stack.Arguments &Analysis.Stack.LocalVars;
   }
 };
 
-typedef boost::adjacency_list<
-    boost::setS,              /* OutEdgeList */
-    boost::listS,             /* VertexList */
-    boost::bidirectionalS,    /* Directed */
-    basic_block_properties_t, /* VertexProperties */
-    boost::no_property,       /* EdgeProperties */
-    function_properties_t     /* GraphProperties */> function_t;
-
-typedef function_t::vertex_descriptor basic_block_t;
-
 struct binary_t {
+  std::string Path;
   std::vector<uint8_t> Data;
 
   struct {
-    std::map<std::uintptr_t, function_t> Functions;
+    interprocedural_control_flow_graph_t ICFG;
+    std::vector<function_t> Functions;
   } Analysis;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Data &Analysis.Functions;
+    ar &Path &Data &Analysis.ICFG &Analysis.Functions;
   }
 };
 
 struct decompilation_t {
-  std::map<std::string, binary_t> Binaries;
+  std::vector<binary_t> Binaries;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {

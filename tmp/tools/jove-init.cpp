@@ -70,10 +70,8 @@ typedef std::tuple<llvm::MCDisassembler &,
 
 static llvm::ArrayRef<uint8_t> SecContents;
 
-static bool translate_function(binary_t &,
-                               tiny_code_generator_t &,
-                               disas_t,
-                               target_ulong Addr);
+static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
+                                           disas_t, target_ulong Addr);
 
 int initialize_decompilation(void) {
   tiny_code_generator_t tcg;
@@ -187,9 +185,10 @@ int initialize_decompilation(void) {
   // exported function
   //
   decompilation_t decompilation;
-  binary_t &binary =
-      decompilation.Binaries[fs::canonical(cmdline.input).string()];
+  decompilation.Binaries.resize(1);
+  binary_t &binary = decompilation.Binaries.front();
 
+  binary.Path = fs::canonical(cmdline.input).string();
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
 
@@ -330,61 +329,59 @@ int initialize_decompilation(void) {
     //
     // translate function
     //
-    if (!translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
-                            Addr))
-      fprintf(stderr, "failed to translate %s @ %s+%#lx\n", Nm.str().c_str(),
-              SectNm.str().c_str(), static_cast<std::uintptr_t>(Offset));
+    translate_function(binary, tcg, disas_t(*DisAsm, std::cref(*STI), *IP),
+                       Addr);
   }
 
   write_decompilation();
-
   return 0;
 }
 
-static basic_block_t translate_basic_block(function_t &,
-                                           tiny_code_generator_t &,
-                                           disas_t,
-                                           const target_ulong Addr);
+static basic_block_index_t translate_basic_block(binary_t &,
+                                                 tiny_code_generator_t &,
+                                                 disas_t,
+                                                 const target_ulong Addr);
 
-static std::unordered_map<std::uintptr_t, basic_block_t> BBMap;
+static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
+static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
-static bool translate_function(binary_t &binary,
-                               tiny_code_generator_t &tcg,
-                               disas_t dis,
-                               target_ulong Addr) {
-  if (binary.Analysis.Functions.find(Addr) != binary.Analysis.Functions.end()) {
-    return true;
-  }
+static function_index_t translate_function(binary_t &binary,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t dis,
+                                           target_ulong Addr) {
+  printf("%s: 0x%lx\n", __FUNCTION__, Addr);
 
-  BBMap.clear();
-
-  basic_block_t entry;
   {
-    function_t &fn = binary.Analysis.Functions[Addr];
-    entry = translate_basic_block(fn, tcg, dis, Addr);
+    auto it = FuncMap.find(Addr);
+    if (it != FuncMap.end())
+      return (*it).second;
   }
 
-  if (entry == boost::graph_traits<function_t>::null_vertex()) {
-    binary.Analysis.Functions.erase(binary.Analysis.Functions.find(Addr));
-    return false;
-  }
+  function_index_t res = binary.Analysis.Functions.size();
+  FuncMap[Addr] = res;
+  binary.Analysis.Functions.resize(res + 1);
+  function_t &f = binary.Analysis.Functions.back();
 
-  return true;
+  f.Entry = translate_basic_block(binary, tcg, dis, Addr);
+
+  return res;
 }
 
-basic_block_t translate_basic_block(function_t &f,
-                                    tiny_code_generator_t &tcg,
-                                    disas_t dis,
-                                    const target_ulong Addr) {
+basic_block_index_t translate_basic_block(binary_t &binary,
+                                          tiny_code_generator_t &tcg,
+                                          disas_t dis,
+                                          const target_ulong Addr) {
+  printf("%s: 0x%lx\n", __FUNCTION__, Addr);
+
+  {
+    auto it = BBMap.find(Addr);
+    if (it != BBMap.end())
+      return (*it).second;
+  }
+
   unsigned Size;
   jove::terminator_info_t T;
   std::tie(Size, T) = tcg.translate(Addr);
-
-#if 0
-  fprintf(stdout, "%s\n", string_of_terminator(T.Type));
-  tcg.dump_operations();
-  fputc('\n', stdout);
-#endif
 
   if (T.Type == TERMINATOR::UNKNOWN) {
     fprintf(stderr, "unknown terminator @ %#lx\n", Addr);
@@ -419,38 +416,37 @@ basic_block_t translate_basic_block(function_t &f,
     tcg.dump_operations();
     fputc('\n', stdout);
 
-    return boost::graph_traits<function_t>::null_vertex();
+    abort();
   }
 
-  basic_block_t bb = boost::add_vertex(f);
-  basic_block_properties_t& bbprop = f[bb];
-  bbprop.Addr = Addr;
-  bbprop.Size = Size;
-  bbprop.Term.Type = T.Type;
-  bbprop.Term.Addr = T.Addr;
+  basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
+  basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
+  {
+    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    bbprop.Addr = Addr;
+    bbprop.Size = Size;
+    bbprop.Term.Type = T.Type;
+    bbprop.Term.Addr = T.Addr;
+  }
 
-  BBMap[Addr] = bb;
+  BBMap[Addr] = bbidx;
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
   //
   auto control_flow = [&](std::uintptr_t Target) -> void {
-    if (!Target) {
-      fprintf(stderr, "what the hell happened @ 0x%lx (%s)\n", Addr,
-              string_of_terminator(bbprop.Term.Type));
-      return;
-    }
+    assert(Target);
+
+    basic_block_index_t succidx;
 
     auto it = BBMap.find(Target);
-    if (it != BBMap.end()) {
-      boost::add_edge(bb, (*it).second, f);
-      return;
-    }
+    succidx = it != BBMap.end()
+                  ? (*it).second
+                  : translate_basic_block(binary, tcg, dis, Target);
 
-    basic_block_t succ = translate_basic_block(f, tcg, dis, Target);
-    if (succ != boost::graph_traits<function_t>::null_vertex())
-      boost::add_edge(bb, succ, f);
+    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+    boost::add_edge(bb, succ, binary.Analysis.ICFG);
   };
 
   switch (T.Type) {
@@ -463,10 +459,23 @@ basic_block_t translate_basic_block(function_t &f,
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL:
-    bbprop.Term.Callees.Local.insert(T._call.Target);
+  case TERMINATOR::CALL: {
+    function_index_t f_idx =
+        translate_function(binary, tcg, dis, T._call.Target);
+
+    {
+      basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+      std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
+
+      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
+        Callees.push_back(f_idx);
+        std::sort(Callees.begin(), Callees.end());
+      }
+    }
+
     control_flow(T._call.NextPC);
     break;
+  }
 
   case TERMINATOR::INDIRECT_CALL:
     control_flow(T._indirect_call.NextPC);

@@ -3,7 +3,7 @@ CFLAGS := -Wall \
           -Wno-shift-count-negative \
           -Wno-initializer-overrides \
 	  -fno-omit-frame-pointer \
-          -fPIC -flto -O3 -g
+          -fPIC -flto -O1 -g
 
 CXXFLAGS := -std=gnu++14
 

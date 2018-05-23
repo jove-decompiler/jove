@@ -200,6 +200,70 @@ static void _ptrace_pokedata(pid_t child, std::uintptr_t addr,
 int ParentProc(pid_t child,
                const char *decompilation_path,
                const char *binary_path) {
+  //
+  // observe the (initial) signal-delivery-stop
+  //
+  if (debugMode)
+    fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
+  int status;
+  do
+    waitpid(child, &status, 0);
+  while (!WIFSTOPPED(status));
+  if (debugMode)
+    fprintf(stdout, "parent: initial stop observed\n");
+
+  //
+  // select ptrace options
+  //
+  int ptrace_options = 0;
+
+  // When delivering system call traps, set bit 7 in the signal number (i.e.,
+  // deliver SIGTRAP|0x80). This makes it easy for the tracer to distinguish
+  // normal traps from those caused by a system call. Note:
+  // PTRACE_O_TRACESYSGOOD may not work on all architectures.
+  ptrace_options |= PTRACE_O_TRACESYSGOOD;
+
+  // Send a SIGKILL signal to the tracee if the tracer exits. This option is
+  // useful for ptrace jailers that want to ensure that tracees can never escape
+  // the tracer's control.
+  ptrace_options |= PTRACE_O_EXITKILL;
+
+  // Stop the tracee at the next clone(2) and automatically start tracing the
+  // newly cloned process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
+  // if PTRACE_SEIZE was used.
+  //
+  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG. This
+  // option may not catch clone(2) calls in all cases.  If the tracee calls
+  // clone(2) with the CLONE_VFORK flag, PTRACE_EVENT_VFORK will be delivered
+  // instead if PTRACE_O_TRACEVFORK is set; otherwise if the tracee calls
+  // clone(2) with the exit signal set to SIGCHLD, PTRACE_EVENT_FORK will be
+  // delivered if PTRACE_O_TRACEFORK is set.
+  ptrace_options |= PTRACE_O_TRACECLONE;
+
+  // Stop the tracee at the next execve(2).
+  ptrace_options |= PTRACE_O_TRACEEXEC;
+
+  // Stop the tracee at the next fork(2) and automatically start tracing the
+  // newly forked process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
+  // if PTRACE_SEIZE was used.
+  ptrace_options |= PTRACE_O_TRACEFORK;
+
+  // Stop the tracee at the next vfork(2) and automatically start tracing the
+  // newly vforked process, which will start with a SIGSTOP, or
+  // PTRACE_EVENT_STOP if PTRACE_SEIZE was used.
+  //
+  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG.
+  ptrace_options |= PTRACE_O_TRACEVFORK;
+
+  //
+  // set those options
+  //
+  if (debugMode)
+    fprintf(stdout, "parent: setting ptrace options...\n");
+  ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
+  if (debugMode)
+    fprintf(stdout, "ptrace options set!\n");
+
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
@@ -228,15 +292,17 @@ int ParentProc(pid_t child,
   //
   // find the given binary in the decompilation
   //
-  auto it =
-      decompilation.Binaries.find(fs::canonical(binary_path).string().c_str());
-  if (it == decompilation.Binaries.end()) {
+  auto get_binary = [&](void) -> binary_t & {
+    for (binary_t &binary : decompilation.Binaries)
+      if (fs::equivalent(binary.Path, binary_path))
+        return binary;
+
     fprintf(stderr, "binary %s not found in %s", binary_path,
             decompilation_path);
-    return 1;
-  }
+    exit(1);
+  };
 
-  binary_t &binary = (*it).second;
+  binary_t &binary = get_binary();
 
   //
   // let's be sure that the binary hasn't changed a bit
@@ -390,70 +456,6 @@ int ParentProc(pid_t child,
     if (debugMode)
       printf("[0x%lx, 0x%lx)\n", sectprop.beg, sectprop.end);
   }
-
-  //
-  // observe the (initial) signal-delivery-stop
-  //
-  if (debugMode)
-    fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
-  int status;
-  do
-    waitpid(child, &status, 0);
-  while (!WIFSTOPPED(status));
-  if (debugMode)
-    fprintf(stdout, "parent: initial stop observed\n");
-
-  //
-  // select ptrace options
-  //
-  int ptrace_options = 0;
-
-  // When delivering system call traps, set bit 7 in the signal number (i.e.,
-  // deliver SIGTRAP|0x80). This makes it easy for the tracer to distinguish
-  // normal traps from those caused by a system call. Note:
-  // PTRACE_O_TRACESYSGOOD may not work on all architectures.
-  ptrace_options |= PTRACE_O_TRACESYSGOOD;
-
-  // Send a SIGKILL signal to the tracee if the tracer exits. This option is
-  // useful for ptrace jailers that want to ensure that tracees can never escape
-  // the tracer's control.
-  ptrace_options |= PTRACE_O_EXITKILL;
-
-  // Stop the tracee at the next clone(2) and automatically start tracing the
-  // newly cloned process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
-  // if PTRACE_SEIZE was used.
-  //
-  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG. This
-  // option may not catch clone(2) calls in all cases.  If the tracee calls
-  // clone(2) with the CLONE_VFORK flag, PTRACE_EVENT_VFORK will be delivered
-  // instead if PTRACE_O_TRACEVFORK is set; otherwise if the tracee calls
-  // clone(2) with the exit signal set to SIGCHLD, PTRACE_EVENT_FORK will be
-  // delivered if PTRACE_O_TRACEFORK is set.
-  ptrace_options |= PTRACE_O_TRACECLONE;
-
-  // Stop the tracee at the next execve(2).
-  ptrace_options |= PTRACE_O_TRACEEXEC;
-
-  // Stop the tracee at the next fork(2) and automatically start tracing the
-  // newly forked process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
-  // if PTRACE_SEIZE was used.
-  ptrace_options |= PTRACE_O_TRACEFORK;
-
-  // Stop the tracee at the next vfork(2) and automatically start tracing the
-  // newly vforked process, which will start with a SIGSTOP, or
-  // PTRACE_EVENT_STOP if PTRACE_SEIZE was used.
-  //
-  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG.
-  ptrace_options |= PTRACE_O_TRACEVFORK;
-
-  //
-  // set those options
-  //
-  if (debugMode)
-    fprintf(stdout, "parent: setting ptrace options...\n");
-  ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
-  if (debugMode)
-    fprintf(stdout, "ptrace options set!\n");
 
   siginfo_t si;
   long sig = 0;

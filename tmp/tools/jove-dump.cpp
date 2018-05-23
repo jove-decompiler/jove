@@ -73,24 +73,12 @@ int dump(void) {
     ia >> decompilation;
   }
 
-  printf("%ld Binaries.\n", decompilation.Binaries.size());
-  for (const auto &entry : decompilation.Binaries) {
-    printf("%s\n", entry.first.c_str());
+  for (binary_t &binary : decompilation.Binaries) {
+    printf("%s\n", binary.Path.c_str());
 
-    const auto &binary = entry.second;
-    const auto &fns = binary.Analysis.Functions;
-
-    printf("%ld Functions.\n", fns.size());
-    printf("%u Basic Blocks.\n",
-           std::accumulate(fns.begin(), fns.end(), 0u,
-                           [](unsigned acc, const auto &pair) -> unsigned {
-                             return acc + boost::num_vertices(pair.second);
-                           }));
-    printf("%u Branches.\n",
-           std::accumulate(fns.begin(), fns.end(), 0u,
-                           [](unsigned acc, const auto &pair) -> unsigned {
-                             return acc + boost::num_edges(pair.second);
-                           }));
+    printf("  %lu Functions.\n", binary.Analysis.Functions.size());
+    printf("  %lu Basic Blocks.\n", boost::num_vertices(binary.Analysis.ICFG));
+    printf("  %lu Branches.\n", boost::num_edges(binary.Analysis.ICFG));
   }
 
   return 0;
