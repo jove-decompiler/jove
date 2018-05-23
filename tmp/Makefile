@@ -26,7 +26,7 @@ TOOLNMS := tcgdump \
            tcgconstants \
            jove-llvm \
 	   jove-dyn \
-	   jove-init \
+	   jove-add \
 	   jove-dump
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))

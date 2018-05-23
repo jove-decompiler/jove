@@ -27,11 +27,8 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
-#if 0
-#include <boost/archive/text_oarchive.hpp>
-#else
+#include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
-#endif
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -205,8 +202,15 @@ int initialize_decompilation(void) {
   // exported function
   //
   decompilation_t decompilation;
-  decompilation.Binaries.resize(1);
-  binary_t &binary = decompilation.Binaries.front();
+  if (fs::exists(cmdline.output)) {
+    std::ifstream ifs(cmdline.output.string());
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
+  decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
+  binary_t &binary = decompilation.Binaries.back();
 
   binary.Path = fs::canonical(cmdline.input).string();
   binary.Data.resize(Buffer->getBufferSize());
@@ -484,25 +488,19 @@ int parse_command_line_arguments(int argc, char **argv) {
     po::notify(vm);
 
     if (vm.count("help") || !vm.count("input") || !vm.count("output")) {
-      printf("Usage: %s [-o output] binary\n", argv[0]);
+      printf("Usage: %s -o decompilation.jv binary\n", argv[0]);
       std::string desc_s;
       {
         std::ostringstream oss(desc_s);
         oss << desc;
       }
-      printf("%s", desc_s.c_str());
+      puts(desc_s.c_str());
       return 1;
     }
 
     if (!fs::exists(ifp)) {
       fprintf(stderr, "given input %s does not exist\n", ifp.string().c_str());
       return 1;
-    }
-
-    if (!vm.count("output")) {
-      ofp = ifp;
-      ofp.replace_extension("jv");
-      ofp = ofp.filename();
     }
   } catch (std::exception &e) {
     fprintf(stderr, "%s\n", e.what());
