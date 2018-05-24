@@ -1,10 +1,15 @@
 #include "tcgcommon.hpp"
 
+#include <unistd.h>
+#include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sched.h>
 #include <tuple>
 #include <thread>
+#include <chrono>
 #include <memory>
+#include <mutex>
+#include <queue>
 #include <sstream>
 #include <fstream>
 #include <boost/filesystem.hpp>
@@ -54,11 +59,15 @@ static struct {
   fs::path jove_add_path;
   fs::path input;
   fs::path output;
+  fs::path tmpdir;
   bool verbose;
   unsigned threads;
 } cmdline;
 
 static unsigned num_cpus(void);
+static void spawn_workers(const std::vector<std::string> &binary_paths);
+
+static std::queue<std::string> Q;
 
 int initialize_decompilation(void) {
   //
@@ -152,8 +161,7 @@ int initialize_decompilation(void) {
   // parse the standard output from the dynamic linker
   //
   std::vector<std::string> binary_paths;
-
-  puts(dynlink_stdout.c_str());
+  binary_paths.push_back(fs::canonical(cmdline.input).string());
 
   std::string::size_type pos = 0;
   for (;;) {
@@ -169,25 +177,73 @@ int initialize_decompilation(void) {
     if (space_pos == std::string::npos)
       break;
 
-    binary_paths.push_back(dynlink_stdout.substr(pos, space_pos - pos));
-  }
-
-  if (!cmdline.threads)
-    cmdline.threads = num_cpus();
-
-  for (const std::string& binary_path : binary_paths) {
-    if (!fs::exists(binary_path)) {
-      fprintf(stderr, "error: invalid binary path '%s'\n", binary_path.c_str());
+    std::string path = dynlink_stdout.substr(pos, space_pos - pos);
+    if (!fs::exists(path)) {
+      fprintf(stderr, "error: invalid binary path '%s'\n", path.c_str());
       return 1;
     }
 
-    puts(binary_path.c_str());
+    binary_paths.push_back(fs::canonical(path).string());
   }
+
+  for (const std::string& path : binary_paths)
+    Q.push(path);
 
   //
   // merge the intermediate decompilation files
   //
+  spawn_workers(binary_paths);
   return 0;
+}
+
+static std::mutex mtx;
+
+static void worker(void) {
+  auto pop_path = [](std::string &out) -> bool {
+    std::lock_guard<std::mutex> lck(mtx);
+
+    if (Q.empty()) {
+      return false;
+    } else {
+      out = Q.front();
+      Q.pop();
+      return true;
+    }
+  };
+
+  std::string path;
+  while (pop_path(path)) {
+    fs::path jvfp(cmdline.tmpdir.string() + path);
+    jvfp.replace_extension("jv");
+
+    printf("path=%s jvfp=%s jvfp.parent_path()=%s [%ld]\n", path.c_str(),
+           jvfp.string().c_str(), jvfp.parent_path().string().c_str(),
+           syscall(__NR_gettid));
+
+    fs::create_directories(jvfp.parent_path());
+  }
+}
+
+void spawn_workers(const std::vector<std::string> &binary_paths) {
+  std::vector<std::thread> workers;
+
+  unsigned N = cmdline.threads;
+  if (!N)
+    N = num_cpus();
+
+  workers.reserve(N);
+  for (unsigned i = 0; i < N; ++i)
+    workers.push_back(std::thread(worker));
+
+  for (std::thread &t : workers)
+    t.join();
+
+  for (const std::string &path : binary_paths) {
+    fs::path jvfp(cmdline.tmpdir.string() + path);
+    jvfp.replace_extension("jv");
+
+    printf("%s\n", jvfp.string().c_str());
+  }
 }
 
 unsigned num_cpus(void) {
@@ -206,11 +262,16 @@ int parse_command_line_arguments(int argc, char **argv) {
   fs::path &ofp = cmdline.output;
   bool &verbose = cmdline.verbose;
   unsigned &threads = cmdline.threads;
+  fs::path &tmpdir = cmdline.tmpdir;
 
   try {
     po::options_description desc("Allowed options");
     desc.add_options()
       ("help,h", "produce help message")
+
+      ("tmp-dir,d", po::value<fs::path>(&tmpdir)
+         ->default_value("/tmp/jove-add-" ___JOVE_ARCH_NAME),
+       "Path to jove-add")
 
       ("path-to-jove-add,a", po::value<fs::path>(&jove_add_path)
          ->default_value(boost::dll::program_location().parent_path() /
@@ -263,6 +324,15 @@ int parse_command_line_arguments(int argc, char **argv) {
     fprintf(stderr, "%s\n", e.what());
     return 1;
   }
+
+  fs::create_directories(tmpdir);
+
+  char buff[0x2000];
+  snprintf(buff, sizeof(buff), "%s/XXXXXX", tmpdir.string().c_str());
+
+  mkdtemp(buff);
+  assert(fs::exists(buff));
+  tmpdir = buff;
 
   return 0;
 }
