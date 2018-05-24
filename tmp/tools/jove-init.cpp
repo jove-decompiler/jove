@@ -193,6 +193,12 @@ int initialize_decompilation(void) {
   // merge the intermediate decompilation files
   //
   spawn_workers(binary_paths);
+
+  for (const std::string &path : binary_paths) {
+    fs::path jvfp(cmdline.tmpdir.string() + path);
+    jvfp.replace_extension("jv");
+  }
+
   return 0;
 }
 
@@ -216,10 +222,6 @@ static void worker(void) {
     fs::path jvfp(cmdline.tmpdir.string() + path);
     jvfp.replace_extension("jv");
 
-    printf("path=%s jvfp=%s jvfp.parent_path()=%s [%ld]\n", path.c_str(),
-           jvfp.string().c_str(), jvfp.parent_path().string().c_str(),
-           syscall(__NR_gettid));
-
     fs::create_directories(jvfp.parent_path());
   }
 }
@@ -237,13 +239,6 @@ void spawn_workers(const std::vector<std::string> &binary_paths) {
 
   for (std::thread &t : workers)
     t.join();
-
-  for (const std::string &path : binary_paths) {
-    fs::path jvfp(cmdline.tmpdir.string() + path);
-    jvfp.replace_extension("jv");
-
-    printf("%s\n", jvfp.string().c_str());
-  }
 }
 
 unsigned num_cpus(void) {
