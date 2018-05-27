@@ -17,12 +17,17 @@ enum class TERMINATOR : unsigned {
   INDIRECT_JUMP,
   CALL,
   RETURN,
-  UNREACHABLE
+  UNREACHABLE,
+  NONE
 };
 
 typedef uint16_t binary_index_t;
 typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
+
+constexpr binary_index_t invalid_binary_index = 0xffff;
+constexpr function_index_t invalid_function_index = 0xffffffff;
+constexpr basic_block_index_t invalid_basic_block_index = 0xffffffff;
 
 struct basic_block_properties_t {
   std::uintptr_t Addr;
@@ -116,6 +121,8 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
     return "RETURN";
   case TERMINATOR::UNREACHABLE:
     return "UNREACHABLE";
+  case TERMINATOR::NONE:
+    return "NONE";
   }
 }
 
@@ -153,6 +160,10 @@ struct terminator_info_t {
     struct {
       /* deliberately left empty */
     } _unreachable;
+
+    struct {
+      /* deliberately left empty */
+    } _none;
   };
 };
 

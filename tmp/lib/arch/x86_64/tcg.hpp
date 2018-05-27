@@ -23993,6 +23993,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             /* abort translation because TF/AC flag may change */
             gen_jmp_im(s->pc - s->cs_base);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9e: /* sahf */
@@ -24286,6 +24288,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(pc_start - s->cs_base);
             gen_helper_pause(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9b: /* fwait */
@@ -24298,6 +24302,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         break;
     case 0xcc: /* int3 */
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xcd: /* int N */
         val = x86_ldub_code(env, s);
@@ -24306,6 +24312,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         } else {
             gen_interrupt(s, val, pc_start - s->cs_base, s->pc - s->cs_base);
         }
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xce: /* into */
         if (CODE64(s))
@@ -24435,6 +24443,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(tval);
             gen_set_label(l2);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            s->base.tb->jove.T._conditional_jump.Target = tval;
+            s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         }
         break;
     case 0x130: /* wrmsr */
@@ -24500,6 +24512,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
            after the syscall insn completes. This allows #DB to not be
            generated after one has entered CPL0 if TF is set in FMASK.  */
         gen_eob_worker(s, false, true);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0x107: /* sysret */
         if (!s->pe) {
@@ -24532,6 +24546,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_helper_hlt(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
         }
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
         break;
     case 0x100:
         modrm = x86_ldub_code(env, s);
@@ -26862,6 +26877,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+              tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 

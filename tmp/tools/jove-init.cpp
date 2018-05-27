@@ -189,14 +189,35 @@ int initialize_decompilation(void) {
   for (const std::string& path : binary_paths)
     Q.push(path);
 
+  spawn_workers(binary_paths);
+
   //
   // merge the intermediate decompilation files
   //
-  spawn_workers(binary_paths);
+  decompilation_t final_decompilation;
+  final_decompilation.Binaries.reserve(binary_paths.size());
 
   for (const std::string &path : binary_paths) {
     fs::path jvfp(cmdline.tmpdir.string() + path);
     jvfp.replace_extension("jv");
+
+    decompilation_t decompilation;
+    {
+      std::ifstream ifs(jvfp.string());
+
+      boost::archive::binary_iarchive ia(ifs);
+      ia >> decompilation;
+    }
+
+    assert(decompilation.Binaries.size() == 1);
+    final_decompilation.Binaries.push_back(decompilation.Binaries.front());
+  }
+
+  {
+    std::ofstream ofs(cmdline.output.string());
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << final_decompilation;
   }
 
   return 0;
@@ -223,6 +244,63 @@ static void worker(void) {
     jvfp.replace_extension("jv");
 
     fs::create_directories(jvfp.parent_path());
+
+    printf("%s\n", path.c_str());
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+      fprintf(stderr, "fork failed : %s\n", strerror(errno));
+      exit(1);
+    }
+
+    //
+    // are we the child?
+    //
+    if (pid == 0) {
+      std::vector<char> _argv0;
+      _argv0.resize(cmdline.jove_add_path.string().size() + 1);
+      strncpy(&_argv0[0], cmdline.jove_add_path.string().c_str(),
+              _argv0.size());
+
+      char _argv1[] = {'-', 'o', '\0'};
+
+      std::vector<char> _argv2;
+      _argv2.resize(jvfp.string().size() + 1);
+      strncpy(&_argv2[0], jvfp.string().c_str(), _argv2.size());
+
+      std::vector<char> _argv3;
+      _argv3.resize(path.size() + 1);
+      strncpy(&_argv3[0], path.c_str(), _argv3.size());
+
+      char *_argv[5] = {&_argv0[0],
+                        &_argv1[0],
+                        &_argv2[0],
+                        &_argv3[0],
+                        nullptr};
+
+      execve(cmdline.jove_add_path.string().c_str(), _argv, ::environ);
+      return;
+    }
+
+    //
+    // as the parent, we'll wait for the child to exit
+    //
+    int wstatus;
+    do {
+      if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+        fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+        return;
+      }
+    } while (!WIFEXITED(wstatus));
+
+    //
+    // check exit code
+    //
+    if (WEXITSTATUS(wstatus) != 0) {
+      fprintf(stderr, "error: jove-add returned nonzero exit status : %d\n",
+              WEXITSTATUS(wstatus));
+      return;
+    }
   }
 }
 

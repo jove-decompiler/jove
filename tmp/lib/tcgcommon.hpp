@@ -130,6 +130,7 @@ struct tiny_code_generator_t {
     tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
 #endif
     tb.jove.T.Addr = pc;
+    tb.jove.T.Type = TERMINATOR::UNKNOWN;
 
     gen_intermediate_code(&_cpu.parent_obj, &tb);
 

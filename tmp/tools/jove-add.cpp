@@ -323,7 +323,7 @@ int initialize_decompilation(void) {
     translate_function(binary, tcg, dis, Sym.st_value);
   }
 
-  putchar('\n');
+  //putchar('\n');
 
   write_decompilation();
   return 0;
@@ -366,23 +366,58 @@ basic_block_index_t translate_basic_block(binary_t &binary,
       return (*it).second;
   }
 
-  printf("%lx ", Addr);
+  //printf("%lx ", Addr);
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
-    fprintf(stderr, "error: bad address (0x%lx)\n", Addr);
-    abort();
+    fprintf(stderr, "warning: no section for address 0x%lx\n", Addr);
+    return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
   tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
 
-  unsigned Size;
+  unsigned Size = 0;
   jove::terminator_info_t T;
-  std::tie(Size, T) = tcg.translate(Addr);
+  do {
+    unsigned size;
+    std::tie(size, T) = tcg.translate(Addr + Size);
+
+    Size += size;
+  } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    fprintf(stderr, "error: bad terminator @ %#lx\n", Addr);
-    abort();
+    fprintf(stderr, "error: unknown terminator @ %#lx\n", Addr);
+
+    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+    llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+    uint64_t InstLen;
+    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
+      std::ptrdiff_t Offset = A - (*sectit).first.lower();
+
+      llvm::MCInst Inst;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
+                                A, llvm::nulls(), llvm::nulls());
+
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
+        break;
+      }
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP.printInst(&Inst, StrStream, "", STI);
+      }
+      puts(str.c_str());
+    }
+
+    tcg.dump_operations();
+    fputc('\n', stdout);
+    return invalid_basic_block_index;
   }
 
   basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
@@ -411,8 +446,10 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                   ? (*it).second
                   : translate_basic_block(binary, tcg, dis, Target);
 
-    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
-    boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    if (succidx != invalid_basic_block_index) {
+      basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+      boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    }
   };
 
   switch (T.Type) {
