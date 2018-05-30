@@ -27,6 +27,7 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
+#define BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/serialization/map.hpp>
@@ -254,8 +255,9 @@ int initialize_decompilation(void) {
     if (!name)
       continue;
 
-    auto intervl = boost::icl::discrete_interval<uintptr_t>::right_open(
-        Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+    boost::icl::interval<std::uintptr_t>::type intervl =
+        boost::icl::interval<std::uintptr_t>::right_open(
+            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
     section_properties_t sectprop;
     sectprop.name = *name;
@@ -264,10 +266,12 @@ int initialize_decompilation(void) {
     section_properties_set_t sectprops = {sectprop};
     sectm.add(std::make_pair(intervl, sectprops));
 
+#if 1
     printf("%-20s [0x%lx, 0x%lx)\n",
            sectprop.name.data(),
            intervl.lower(),
            intervl.upper());
+#endif
   }
 
   //
@@ -418,6 +422,24 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     tcg.dump_operations();
     fputc('\n', stdout);
     return invalid_basic_block_index;
+  }
+
+  auto is_invalid_terminator = [&](void) -> bool {
+    if (T.Type == TERMINATOR::CALL) {
+      if (sectm.find(T._call.Target) == sectm.end()) {
+        fprintf(stderr,
+                "warning: call to bad address 0x%lx\n",
+                T._call.Target);
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  if (is_invalid_terminator()) {
+    fprintf(stderr, "assuming unreachable code\n");
+    T.Type = TERMINATOR::UNREACHABLE;
   }
 
   basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);

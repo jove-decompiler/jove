@@ -26870,6 +26870,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+              tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 

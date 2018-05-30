@@ -2,23 +2,28 @@ CFLAGS := -Wall \
           -Wno-macro-redefined \
           -Wno-shift-count-negative \
           -Wno-initializer-overrides \
-	  -fno-omit-frame-pointer \
-          -fPIC -flto -O1 -g
+          -fno-omit-frame-pointer \
+          -Og \
+          -g \
+          -flto
 
-CXXFLAGS := -std=gnu++14
+CXXFLAGS := -std=gnu++14 \
+            -fexceptions
 
 #           -fno-rtti
 #	    -fno-exceptions
 
 LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
-	   -ldl \
-	   -pthread \
+           -ldl \
+           -pthread \
            -lboost_filesystem \
-	   -lboost_system \
-	   -lboost_program_options \
-	   -lboost_serialization
-#	   -fuse-ld=lld
+           -lboost_system \
+           -lboost_program_options \
+           -lboost_serialization \
+           -flto \
+           -g \
+           -fuse-ld=lld
 
 ARCHS := x86_64 \
          aarch64
@@ -33,16 +38,25 @@ TOOLNMS := tcgdump \
 	   jove-dump
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
+deps = $(foreach arch,$(ARCHS),bin/$(1)-$(arch).d)
+objs = $(foreach arch,$(ARCHS),bin/$(1)-$(arch).o)
 
 ALL_TOOLS := $(foreach tool,$(TOOLNMS),$(call tools,$(tool)))
+ALL_OBJS := $(foreach tool,$(TOOLNMS),$(call objs,$(tool)))
+ALL_DEPS := $(foreach tool,$(TOOLNMS),$(call deps,$(tool)))
 
 all: $(ALL_TOOLS)
 
 define tcgtool_template
-bin/$(2)-$(1): tools/$(2).cpp lib/arch/$(1)/tcg.hpp lib/arch/$(1)/stubs.hpp lib/tcgcommon.hpp Makefile
-	clang++ -o $$@ -I include -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) $$< $(LDFLAGS)
+bin/$(2)-$(1): bin/$(2)-$(1).o
+	clang++ -o $$@ -I include -I lib -I lib/arch/$(1) $$< $(LDFLAGS)
+
+bin/$(2)-$(1).o: tools/$(2).cpp Makefile
+	clang++ -o $$@ -c -I include -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) -MMD $$<
 endef
 $(foreach tool,$(TOOLNMS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
+
+-include $(ALL_DEPS)
 
 #
 # for extricating QEMU code
@@ -131,7 +145,7 @@ $(foreach arch,$(ARCHS),$(foreach helper,$($(arch)_HELPERS),$(eval $(call helper
 
 .PHONY: clean
 clean:
-	rm -f $(ALL_TOOLS)
+	rm -f $(ALL_TOOLS) $(ALL_OBJS) $(ALL_DEPS)
 
 #
 # qemu configure command

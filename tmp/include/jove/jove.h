@@ -9,7 +9,7 @@
 
 namespace jove {
 
-enum class TERMINATOR : unsigned {
+enum class TERMINATOR : uint8_t {
   UNKNOWN,
   UNCONDITIONAL_JUMP,
   CONDITIONAL_JUMP,

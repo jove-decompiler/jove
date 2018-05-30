@@ -27,8 +27,6 @@
 #include <llvm/IR/Module.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/Support/FileSystem.h>
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
 #include <sys/user.h>
@@ -41,17 +39,16 @@
 #include <sys/uio.h>
 
 #include "jove/jove.h"
-#if 0
-#include <boost/archive/text_iarchive.hpp>
-#include <boost/archive/text_oarchive.hpp>
-#else
+#define BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
+#include <boost/icl/interval_set.hpp>
+#include <boost/icl/split_interval_map.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
-#endif
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/dynamic_bitset.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -66,9 +63,7 @@ namespace obj = llvm::object;
 namespace jove {
 
 static int ChildProc(int argc, char **argv);
-static int ParentProc(pid_t child,
-                      const char *decompilation_path,
-                      const char *binary_path);
+static int ParentProc(pid_t child, const char *decompilation_path);
 }
 
 int main(int argc, char **argv) {
@@ -77,29 +72,29 @@ int main(int argc, char **argv) {
   llvm::PrettyStackTraceProgram X(argc, argv);
   llvm::llvm_shutdown_obj Y;
 
-  if (argc < 4 ||
-      !fs::exists(argv[1]) ||
-      !fs::exists(argv[2]) ||
-      !fs::exists(argv[3])) {
-    printf("usage: %s <DECOMPILATION.jv> <ELF> <PROG> [<ARG1> <ARG2> ...]\n",
+  if (argc < 3 || !fs::exists(argv[1]) || !fs::exists(argv[2])) {
+    printf("usage: %s <DECOMPILATION.jv> <PROG> [<ARG1> <ARG2> ...]\n",
            argv[0]);
     return 1;
   }
 
   pid_t child = fork();
   if (!child)
-    return jove::ChildProc(argc - 2, argv + 2);
+    return jove::ChildProc(argc, argv);
 
-  return jove::ParentProc(child, argv[1], argv[2]);
+  return jove::ParentProc(child, argv[1]);
 }
 
 namespace jove {
 
+decompilation_t decompilation;
+
 static constexpr bool debugMode = false;
 
 static bool verify_arch(const obj::ObjectFile &);
-
 static bool update_view_of_virtual_memory(int child);
+
+static bool SeenExec = false;
 
 struct vm_properties_t {
   std::uintptr_t beg;
@@ -117,6 +112,9 @@ struct vm_properties_t {
 
   bool operator<(const vm_properties_t &vm) const { return beg < vm.beg; }
 };
+typedef std::set<vm_properties_t> vm_properties_set_t;
+
+static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
 
 struct section_properties_t {
   llvm::StringRef name;
@@ -130,71 +128,71 @@ struct section_properties_t {
     return name < sect.name;
   }
 };
-
 typedef std::set<section_properties_t> section_properties_set_t;
-static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
-    sectm;
 
-typedef std::set<vm_properties_t> vm_properties_set_t;
+// we have a BB & Func map for each binary_t
+struct binary_state_t {
+  std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
+  std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
+  boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
+      SectMap;
 
-static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
+  struct {
+    std::uintptr_t LoadAddr, LoadAddrEnd;
+  } dyn;
+};
 
-static const char *name_of_signal_number(int);
+static std::vector<binary_state_t> BinStateVec;
+static boost::dynamic_bitset<> BinFoundVec;
+static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
-static std::uintptr_t BinaryLoadAddress = 0;
-static std::uintptr_t BinaryLoadAddressEnd = 0;
-
-static std::uintptr_t va_of_rva(std::uintptr_t Addr) {
-  return Addr + BinaryLoadAddress;
-}
-
-static std::uintptr_t rva_of_va(std::uintptr_t Addr) {
-  assert(Addr >= BinaryLoadAddress && Addr < BinaryLoadAddressEnd);
-  return Addr - BinaryLoadAddress;
-}
-
-//
-// breakpoint handlers are responsible for emulating the semantics of the
-// indirect control flow instructions
-//
-typedef void (*breakpoint_handler_t)(pid_t);
-
-typedef std::tuple<llvm::MCDisassembler &,
-                   const llvm::MCSubtargetInfo &,
-                   llvm::MCInstPrinter &> disas_t;
-
-static void initialize_translation_maps(binary_t &);
-
-static bool search_address_space_for_binary(pid_t, const char *path);
-
-static void initialize_indirect_branch_map(pid_t, binary_t &, disas_t &);
+typedef std::set<binary_index_t> binary_index_set_t;
+static boost::icl::split_interval_map<std::uintptr_t, binary_index_set_t>
+    AddressSpace;
 
 struct indirect_branch_t {
+  binary_index_t binary_idx;
   basic_block_t bb;
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
 };
 
+static std::unordered_map<std::uintptr_t, indirect_branch_t> IndBrMap;
+
+static const char *name_of_signal_number(int);
+
+static std::uintptr_t va_of_rva(std::uintptr_t Addr, binary_index_t idx) {
+  assert(idx < BinStateVec.size());
+  assert(BinStateVec[idx].dyn.LoadAddr);
+
+  return Addr + BinStateVec[idx].dyn.LoadAddr;
+}
+
+static std::uintptr_t rva_of_va(std::uintptr_t Addr, binary_index_t idx) {
+  assert(idx < BinStateVec.size());
+  assert(BinStateVec[idx].dyn.LoadAddr);
+  assert(Addr >= BinStateVec[idx].dyn.LoadAddr);
+  assert(Addr < BinStateVec[idx].dyn.LoadAddrEnd);
+
+  return Addr - BinStateVec[idx].dyn.LoadAddr;
+}
+
+typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
+                   llvm::MCInstPrinter &>
+    disas_t;
+
+static void search_address_space_for_binaries(pid_t, disas_t &);
 static void place_breakpoint_at_indirect_branch(pid_t, std::uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
+static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 
-static std::unordered_map<std::uintptr_t, indirect_branch_t> indbrs;
-
-static void on_breakpoint(pid_t, binary_t &, tiny_code_generator_t &, disas_t &);
-
-static bool SeenExec = false;
-
-static void _ptrace_pokeuser(pid_t child, unsigned user_offset,
-                             unsigned long data);
+static void _ptrace_pokeuser(pid_t, unsigned user_offset, unsigned long data);
 static unsigned long _ptrace_peekuser(pid_t, unsigned user_offset);
 static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
-static void _ptrace_pokedata(pid_t child, std::uintptr_t addr,
-                             unsigned long data);
+static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
 
-int ParentProc(pid_t child,
-               const char *decompilation_path,
-               const char *binary_path) {
+int ParentProc(pid_t child, const char *decompilation_path) {
   //
   // observe the (initial) signal-delivery-stop
   //
@@ -210,45 +208,9 @@ int ParentProc(pid_t child,
   //
   // select ptrace options
   //
-  int ptrace_options = 0;
-
-  // When delivering system call traps, set bit 7 in the signal number (i.e.,
-  // deliver SIGTRAP|0x80). This makes it easy for the tracer to distinguish
-  // normal traps from those caused by a system call. Note:
-  // PTRACE_O_TRACESYSGOOD may not work on all architectures.
-  ptrace_options |= PTRACE_O_TRACESYSGOOD;
-
-  // Send a SIGKILL signal to the tracee if the tracer exits. This option is
-  // useful for ptrace jailers that want to ensure that tracees can never escape
-  // the tracer's control.
-  ptrace_options |= PTRACE_O_EXITKILL;
-
-  // Stop the tracee at the next clone(2) and automatically start tracing the
-  // newly cloned process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
-  // if PTRACE_SEIZE was used.
-  //
-  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG. This
-  // option may not catch clone(2) calls in all cases.  If the tracee calls
-  // clone(2) with the CLONE_VFORK flag, PTRACE_EVENT_VFORK will be delivered
-  // instead if PTRACE_O_TRACEVFORK is set; otherwise if the tracee calls
-  // clone(2) with the exit signal set to SIGCHLD, PTRACE_EVENT_FORK will be
-  // delivered if PTRACE_O_TRACEFORK is set.
-  ptrace_options |= PTRACE_O_TRACECLONE;
-
-  // Stop the tracee at the next execve(2).
-  ptrace_options |= PTRACE_O_TRACEEXEC;
-
-  // Stop the tracee at the next fork(2) and automatically start tracing the
-  // newly forked process, which will start with a SIGSTOP, or PTRACE_EVENT_STOP
-  // if PTRACE_SEIZE was used.
-  ptrace_options |= PTRACE_O_TRACEFORK;
-
-  // Stop the tracee at the next vfork(2) and automatically start tracing the
-  // newly vforked process, which will start with a SIGSTOP, or
-  // PTRACE_EVENT_STOP if PTRACE_SEIZE was used.
-  //
-  // The PID of the new process can be retrieved with PTRACE_GETEVENTMSG.
-  ptrace_options |= PTRACE_O_TRACEVFORK;
+  int ptrace_options = PTRACE_O_TRACESYSGOOD | PTRACE_O_EXITKILL |
+                       PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
+                       PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK;
 
   //
   // set those options
@@ -269,7 +231,6 @@ int ParentProc(pid_t child,
   //
   // parse the existing decompilation file
   //
-  decompilation_t decompilation;
   {
     std::ifstream ifs(decompilation_path);
 
@@ -277,73 +238,144 @@ int ParentProc(pid_t child,
     ia >> decompilation;
   }
 
-  auto write_decompilation = [&](void) -> void {
-    std::ofstream ofs(decompilation_path);
+  //
+  // verify that the binaries did not change on-disk
+  //
+  for (binary_t &binary : decompilation.Binaries) {
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
-    boost::archive::binary_oarchive oa(ofs);
-    oa << decompilation;
-  };
+    if (std::error_code EC = FileOrErr.getError()) {
+      fprintf(stderr, "failed to open binary %s in given decompilation\n",
+              binary.Path.c_str());
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+    if (binary.Data.size() != Buffer->getBufferSize() ||
+        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+      fprintf(stderr, "contents of binary %s have changed\n",
+              binary.Path.c_str());
+      return 1;
+    }
+  }
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
 
   //
-  // find the given binary in the decompilation
+  // initialize state associated with every binary
   //
-  auto get_binary = [&](void) -> binary_t & {
-    for (binary_t &binary : decompilation.Binaries)
-      if (fs::equivalent(binary.Path, binary_path))
-        return binary;
+  BinStateVec.resize(decompilation.Binaries.size());
+  for (binary_index_t i = 0; i < decompilation.Binaries.size(); ++i) {
+    binary_t &binary = decompilation.Binaries[i];
+    binary_state_t &st = BinStateVec[i];
 
-    fprintf(stderr, "binary %s not found in %s", binary_path,
-            decompilation_path);
-    exit(1);
-  };
+    // add to path -> index map
+    BinPathToIdxMap[binary.Path] = i;
 
-  binary_t &binary = get_binary();
+    //
+    // build FuncMap
+    //
+    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+         ++f_idx) {
+      function_t &f = binary.Analysis.Functions[f_idx];
+      assert(f.Entry != invalid_basic_block_index);
+      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+    }
+
+    //
+    // build BBMap
+    //
+    for (basic_block_index_t bb_idx = 0;
+         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+
+      st.BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
+    }
+
+    //
+    // build section map
+    //
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      fprintf(stderr, "failed to create binary from %s data\n",
+              binary.Path.c_str());
+      return 1;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    typedef typename obj::ELF64LEObjectFile ELFO;
+    typedef typename obj::ELF64LEFile ELFT;
+
+    if (!llvm::isa<ELFO>(Bin.get())) {
+      fprintf(stderr, "%s is not ELF64LEObjectFile\n", binary.Path.c_str());
+      return 1;
+    }
+
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+    TheTriple = O.makeTriple();
+    Features = O.getFeatures();
+
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+
+    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+    if (!sections) {
+      fprintf(stderr, "error: could not get ELF sections for binary %s\n",
+              binary.Path.c_str());
+      return 1;
+    }
+
+    for (const Elf_Shdr &Sec : *sections) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+          E.getSectionContents(&Sec);
+
+      if (!contents)
+        continue;
+
+      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+      if (!name)
+        continue;
+
+      boost::icl::interval<std::uintptr_t>::type intervl =
+          boost::icl::interval<std::uintptr_t>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      section_properties_t sectprop;
+      sectprop.name = *name;
+      sectprop.contents = *contents;
+
+      section_properties_set_t sectprops = {sectprop};
+      st.SectMap.add(std::make_pair(intervl, sectprops));
+
+      if (debugMode)
+        fprintf(stderr, "%-20s [0x%lx, 0x%lx)\n", sectprop.name.data(),
+                intervl.lower(), intervl.upper());
+    }
+  }
+
+  BinFoundVec.resize(decompilation.Binaries.size());
 
   //
-  // let's be sure that the binary hasn't changed a bit
+  // initialize the LLVM objects necessary for disassembling instructions
   //
-  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(binary_path);
-
-  if (std::error_code EC = FileOrErr.getError()) {
-    fprintf(stderr, "failed to open binary %s\n", binary_path);
-    return 1;
-  }
-
-  std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-  if (binary.Data.size() != Buffer->getBufferSize() ||
-      memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-    fprintf(stderr, "contents of binary %s have changed\n", binary_path);
-    return 1;
-  }
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(Buffer->getMemBufferRef());
-
-  if (!BinOrErr) {
-    fprintf(stderr, "failed to open %s\n", binary_path);
-    return 1;
-  }
-
-  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-  typedef typename obj::ELF64LEObjectFile ELFO;
-  typedef typename obj::ELF64LEFile ELFT;
-
-  if (!llvm::isa<ELFO>(Bin.get())) {
-    fprintf(stderr, "%s is not ELF64LEObjectFile\n", binary_path);
-    return 1;
-  }
-
-  ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-  if (!verify_arch(O)) {
-    fprintf(stderr, "architecture mismatch of input\n");
-    return 1;
-  }
-
   std::string ArchName;
-  llvm::Triple TheTriple = O.makeTriple();
   std::string Error;
 
   const llvm::Target *TheTarget =
@@ -355,7 +387,6 @@ int ParentProc(pid_t child,
 
   std::string TripleName = TheTriple.getTriple();
   std::string MCPU;
-  llvm::SubtargetFeatures Features = O.getFeatures();
 
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
@@ -404,55 +435,6 @@ int ParentProc(pid_t child,
     return 1;
   }
 
-  //
-  // build section map
-  //
-  const ELFT &E = *O.getELFFile();
-
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
-  //
-  // build section map
-  //
-  llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-  if (!sections) {
-    fprintf(stderr, "error: could not get ELF sections\n");
-    return 1;
-  }
-
-  for (const Elf_Shdr &Sec : *sections) {
-    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-      continue;
-
-    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-        E.getSectionContents(&Sec);
-
-    if (!contents)
-      continue;
-
-    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-    if (!name)
-      continue;
-
-    auto intervl = boost::icl::discrete_interval<uintptr_t>::right_open(
-        Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-    section_properties_t sectprop;
-    sectprop.name = *name;
-    sectprop.contents = *contents;
-
-    section_properties_set_t sectprops = {sectprop};
-    sectm.add(std::make_pair(intervl, sectprops));
-
-    if (debugMode)
-      fprintf(stderr, "%-20s [0x%lx, 0x%lx)\n",
-             sectprop.name.data(),
-             intervl.lower(),
-             intervl.upper());
-  }
-
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
   siginfo_t si;
@@ -460,7 +442,7 @@ int ParentProc(pid_t child,
 
   for (;;) {
     if (likely(!(child < 0))) {
-      if (unlikely(ptrace(SeenExec && !BinaryLoadAddress ? PTRACE_SYSCALL
+      if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
                                                          : PTRACE_CONT,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
         if (debugMode)
@@ -507,31 +489,26 @@ int ParentProc(pid_t child,
         // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
         //
         {
-          unsigned long syscall_num =
-              _ptrace_peekuser(child,
+          unsigned long syscall_num;
+
+          try {
+            syscall_num =
+                _ptrace_peekuser(child,
 #if defined(__x86_64__)
-                               __builtin_offsetof(struct user, regs.orig_rax)
+                                 __builtin_offsetof(struct user, regs.orig_rax)
 #elif defined(__arm64__)
-                               __builtin_offsetof(struct user, regs.r8)
+                                 __builtin_offsetof(struct user, regs.r8)
 #endif
-              );
+                );
+          } catch (...) {
+            continue;
+          }
 
           if (syscall_num != __NR_mmap)
             continue;
         }
 
-        if (search_address_space_for_binary(child, binary_path)) {
-          fprintf(stderr, "found binary %s in address space @ 0x%lx\n",
-                  binary_path, BinaryLoadAddress);
-          initialize_translation_maps(binary);
-          initialize_indirect_branch_map(child, binary, dis);
-
-          // place breakpoints for the indirect branches that we know about
-          // right now
-          for (auto it = indbrs.begin(); it != indbrs.end(); ++it)
-            place_breakpoint_at_indirect_branch(child, (*it).first,
-                                                (*it).second, dis);
-        }
+        search_address_space_for_binaries(child, dis);
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
 
@@ -583,10 +560,12 @@ int ParentProc(pid_t child,
           }
         } else {
           try {
-            on_breakpoint(child, binary, tcg, dis);
+            on_breakpoint(child, tcg, dis);
           } catch (const std::exception& e) {
             fprintf(stderr, "failed to process indirect branch target : %s\n",
                     e.what());
+          } catch (...) {
+            fprintf(stderr, "failed to process indirect branch target\n");
           }
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
@@ -627,24 +606,32 @@ int ParentProc(pid_t child,
     }
   }
 
-  write_decompilation();
+#if 0
+  {
+    std::ofstream ofs(decompilation_path);
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << decompilation;
+  }
+#endif
+
   return 0;
 }
 
 static basic_block_index_t translate_basic_block(pid_t,
-                                                 binary_t &,
+                                                 binary_index_t binary_idx,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
-static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
-
 static function_index_t translate_function(pid_t child,
-                                           binary_t &binary,
+                                           binary_index_t binary_idx,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
+  binary_t &binary = decompilation.Binaries[binary_idx];
+  auto &FuncMap = BinStateVec[binary_idx].FuncMap;
+
   {
     auto it = FuncMap.find(Addr);
     if (it != FuncMap.end())
@@ -655,40 +642,95 @@ static function_index_t translate_function(pid_t child,
   FuncMap[Addr] = res;
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
-      translate_basic_block(child, binary, tcg, dis, Addr);
+      translate_basic_block(child, binary_idx, tcg, dis, Addr);
 
   return res;
 }
 
-basic_block_index_t translate_basic_block(pid_t child,
-                                          binary_t &binary,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis,
-                                          const target_ulong Addr) {
+basic_block_index_t
+translate_basic_block(pid_t child,
+                      binary_index_t binary_idx,
+                      tiny_code_generator_t &tcg,
+                      disas_t &dis,
+                      const target_ulong Addr) {
+  binary_t &binary = decompilation.Binaries[binary_idx];
+  auto &BBMap = BinStateVec[binary_idx].BBMap;
+
   {
     auto it = BBMap.find(Addr);
     if (it != BBMap.end())
       return (*it).second;
   }
 
-  if (debugMode)
-    fprintf(stderr, "%lx\n", Addr);
-
-  auto sectit = sectm.find(Addr);
-  if (sectit == sectm.end()) {
-    fprintf(stderr, "error: bad address (0x%lx)\n", Addr);
-    abort();
+  auto &SectMap = BinStateVec[binary_idx].SectMap;
+  auto sectit = SectMap.find(Addr);
+  if (sectit == SectMap.end()) {
+    fprintf(stderr, "warning: no section for address 0x%lx\n", Addr);
+    return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
   tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
 
-  unsigned Size;
+  unsigned Size = 0;
   jove::terminator_info_t T;
-  std::tie(Size, T) = tcg.translate(Addr);
+  do {
+    unsigned size;
+    std::tie(size, T) = tcg.translate(Addr + Size);
+
+    Size += size;
+  } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    fprintf(stderr, "error: bad terminator @ %#lx\n", Addr);
-    abort();
+    fprintf(stderr, "error: unknown terminator @ %#lx\n", Addr);
+
+    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+    llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+    uint64_t InstLen;
+    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
+      std::ptrdiff_t Offset = A - (*sectit).first.lower();
+
+      llvm::MCInst Inst;
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
+                                A, llvm::nulls(), llvm::nulls());
+
+      if (!Disassembled) {
+        fprintf(stderr, "failed to disassemble %p\n",
+                reinterpret_cast<void *>(Addr));
+        break;
+      }
+
+      std::string str;
+      {
+        llvm::raw_string_ostream StrStream(str);
+        IP.printInst(&Inst, StrStream, "", STI);
+      }
+      puts(str.c_str());
+    }
+
+    tcg.dump_operations();
+    fputc('\n', stdout);
+    return invalid_basic_block_index;
+  }
+
+  auto is_invalid_terminator = [&](void) -> bool {
+    if (T.Type == TERMINATOR::CALL) {
+      if (SectMap.find(T._call.Target) == SectMap.end()) {
+        fprintf(stderr,
+                "warning: call to bad address 0x%lx\n",
+                T._call.Target);
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  if (is_invalid_terminator()) {
+    fprintf(stderr, "assuming unreachable code\n");
+    T.Type = TERMINATOR::UNREACHABLE;
   }
 
   basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
@@ -706,14 +748,14 @@ basic_block_index_t translate_basic_block(pid_t child,
     //
     if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
         bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr);
+      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
 
-      indirect_branch_t &indbr = indbrs[termpc];
+      indirect_branch_t &indbr = IndBrMap[termpc];
       indbr.bb = bb;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 
-      auto sectit = sectm.find(bbprop.Term.Addr);
-      assert(sectit != sectm.end());
+      auto sectit = SectMap.find(bbprop.Term.Addr);
+      assert(sectit != SectMap.end());
       const section_properties_t &sectprop = *(*sectit).second.begin();
 
       memcpy(&indbr.InsnBytes[0],
@@ -749,10 +791,12 @@ basic_block_index_t translate_basic_block(pid_t child,
     auto it = BBMap.find(Target);
     succidx = it != BBMap.end()
                   ? (*it).second
-                  : translate_basic_block(child, binary, tcg, dis, Target);
+                  : translate_basic_block(child, binary_idx, tcg, dis, Target);
 
-    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
-    boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    if (succidx != invalid_basic_block_index) {
+      basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+      boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    }
   };
 
   switch (T.Type) {
@@ -767,13 +811,12 @@ basic_block_index_t translate_basic_block(pid_t child,
 
   case TERMINATOR::CALL: {
     function_index_t f_idx =
-        translate_function(child, binary, tcg, dis, T._call.Target);
+        translate_function(child, binary_idx, tcg, dis, T._call.Target);
 
     {
       basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
       std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
 
-      // TODO optimize below
       if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
         Callees.push_back(f_idx);
         std::sort(Callees.begin(), Callees.end());
@@ -798,61 +841,6 @@ basic_block_index_t translate_basic_block(pid_t child,
   }
 
   return bbidx;
-}
-
-void initialize_translation_maps(binary_t &binary) {
-  for (basic_block_index_t bb_idx = 0;
-       bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-    basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-
-    BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
-  }
-
-  for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-       ++f_idx) {
-    function_t &f = binary.Analysis.Functions[f_idx];
-    basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-
-    FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
-  }
-}
-
-void initialize_indirect_branch_map(pid_t child, binary_t &binary,
-                                    disas_t &dis) {
-  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
-  interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
-  for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
-       vi != vi_end; ++vi) {
-    basic_block_t bb = *vi;
-    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
-    if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
-        bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
-      continue;
-
-    indirect_branch_t &indbr = indbrs[va_of_rva(bbprop.Term.Addr)];
-    indbr.bb = bb;
-    indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-
-    auto sectit = sectm.find(bbprop.Term.Addr);
-    assert(sectit != sectm.end());
-    const section_properties_t &sectprop = *(*sectit).second.begin();
-
-    memcpy(&indbr.InsnBytes[0],
-           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-           indbr.InsnBytes.size());
-
-    //
-    // now that we have the bytes for each indirect branch, disassemble them
-    //
-    llvm::MCInst &Inst = indbr.Inst;
-
-    uint64_t InstLen;
-    bool Disassembled =
-        DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr,
-                              llvm::nulls(), llvm::nulls());
-    assert(Disassembled);
-  }
 }
 
 static void dump_llvm_mcinst(FILE *, llvm::MCInst &, disas_t &);
@@ -907,12 +895,11 @@ static constexpr unsigned ProgramCounterUserOffset =
 #endif
     ;
 
-static bool is_address_in_global_offset_table(std::uintptr_t);
+static bool is_address_in_global_offset_table(std::uintptr_t Addr,
+                                              binary_index_t);
 
-void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
-                   disas_t &dis) {
+void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   bool __got = false;
-  interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
 
   //
   // get program counter
@@ -930,13 +917,21 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   // lookup indirect branch info
   //
   const std::uintptr_t _pc = pc;
-  auto it = indbrs.find(_pc);
-  if (it == indbrs.end()) {
-    fprintf(stderr, "unknown breakpoint @ 0x%lx", _pc);
-    abort();
-  }
 
-  indirect_branch_t &IndBrInfo = (*it).second;
+  auto indirect_branch_of_address =
+      [](std::uintptr_t addr) -> indirect_branch_t & {
+    auto it = IndBrMap.find(addr);
+    if (it == IndBrMap.end()) {
+      fprintf(stderr, "unknown breakpoint @ 0x%lx", addr);
+      abort();
+    }
+
+    return (*it).second;
+  };
+
+  indirect_branch_t &IndBrInfo = indirect_branch_of_address(_pc);
+  binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
+  interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
 
   //
   // update program counter so it is as it should be
@@ -1035,7 +1030,7 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
       assert(Inst.getOperand(3).isImm());
       std::uintptr_t pcptr =
           RegValue(Inst.getOperand(0).getReg()) + Inst.getOperand(3).getImm();
-      __got = is_address_in_global_offset_table(pcptr);
+      __got = is_address_in_global_offset_table(pcptr, IndBrInfo.binary_idx);
       return LoadAddr(pcptr);
     }
 
@@ -1079,16 +1074,28 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
   //
   _ptrace_pokeuser(child, ProgramCounterUserOffset, target);
 
+  if (debugMode)
+    fprintf(stderr, "target=0x%lx\n", target);
+
+#if 0
   //
   // update the decompilation based on the target
   //
+  auto it = AddressSpace.find(target);
+  if (it == AddressSpace.end()) {
+    fprintf(stderr, "warning: unknown target 0x%lx\n", target);
+    return;
+  }
+
+  binary_index_t binary_idx = *(*it).second.begin();
+
   bool isNewTarget = false;
-  bool isLocal = target >= BinaryLoadAddress && target < BinaryLoadAddressEnd;
+  bool isLocal = IndBrInfo.binary_idx == binary_idx;
 
   if (isLocal) {
     if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-      function_index_t f_idx =
-          translate_function(child, binary, tcg, dis, rva_of_va(target));
+      function_index_t f_idx = translate_function(
+          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
 
       {
         basic_block_properties_t &bbprop = ICFG[bb];
@@ -1102,8 +1109,8 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
         }
       }
     } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      basic_block_index_t target_bb_idx =
-          translate_basic_block(child, binary, tcg, dis, rva_of_va(target));
+      basic_block_index_t target_bb_idx = translate_basic_block(
+          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
@@ -1111,8 +1118,10 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
       abort();
     }
   } else { /* non-local */
+    //fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
     return;
 
+#if 0
     if (!update_view_of_virtual_memory(child))
       throw std::runtime_error("failed to read virtual memory maps of child");
 
@@ -1134,33 +1143,164 @@ void on_breakpoint(pid_t child, binary_t &binary, tiny_code_generator_t &tcg,
         abort();
       }
     }
+#endif
   }
+#endif
 
-  if (isNewTarget && !__got) {
-    bool desc_pc = describe_program_counter(_pc);
-    assert(desc_pc);
-    describe_program_counter(target);
-  }
+  //if (isNewTarget && !__got)
+    describe_program_counter(_pc) && describe_program_counter(target);
 }
 
-bool is_address_in_global_offset_table(std::uintptr_t Addr) {
-  if (!(Addr >= BinaryLoadAddress && Addr < BinaryLoadAddressEnd))
+bool is_address_in_global_offset_table(std::uintptr_t Addr,
+                                       binary_index_t binary_idx) {
+  if (!(Addr >= BinStateVec[binary_idx].dyn.LoadAddr &&
+        Addr < BinStateVec[binary_idx].dyn.LoadAddrEnd))
     return false;
 
-  Addr = rva_of_va(Addr);
+  Addr = rva_of_va(Addr, binary_idx);
+  auto &SectMap = BinStateVec[binary_idx].SectMap;
 
-  auto sectit = sectm.find(Addr);
-  if (sectit == sectm.end())
+  auto sectit = SectMap.find(Addr);
+  if (sectit == SectMap.end())
     return false;
 
   const section_properties_t &sectprop = *(*sectit).second.begin();
   return sectprop.name == ".got";
 }
 
-bool search_address_space_for_binary(pid_t child, const char *binary_path) {
+static const std::unordered_set<std::string> bad_bins = {
+    //"surf",
+    "libX11.so.6.3.0",
+    "libwebkit2gtk-4.0.so.37.28.2",
+    "libgtk-3.so.0.2200.30",
+    "libgdk-3.so.0.2200.30",
+    "libgobject-2.0.so.0.5600.1",
+    "libglib-2.0.so.0.5600.1",
+    "libxcb.so.1.1.0",
+    "libdl-2.27.so",
+    "libGL.so.1.0.0",
+    "libEGL.so.1.0.0",
+    "librt-2.27.so",
+    "libpango-1.0.so.0.4200.1",
+    "libatk-1.0.so.0.22810.1",
+    "libcairo.so.2.11512.0",
+    "libgdk_pixbuf-2.0.so.0.3600.12",
+    "libgio-2.0.so.0.5600.1",
+    "libnotify.so.4.0.0",
+    "libxml2.so.2.9.8",
+    "libxslt.so.1.1.32",
+    "libjavascriptcoregtk-4.0.so.18.7.10",
+    "libicuuc.so.61.1",
+    "libpthread-2.27.so",
+    "libicui18n.so.61.1",
+    "libwoff2dec.so.1.0.2",
+    "libfontconfig.so.1.11.1",
+    "libc-2.27.so",
+    "libstdc++.so.6.0.25",
+    "libgcc_s.so.1",
+    "libpthread-2.27.so",
+    "libm-2.27.so",
+    "libXi.so.6.1.0",
+    "libXfixes.so.3.1.0",
+    "libunwind.so.8.0.1",
+    "libsystemd.so.0.22.0",
+    "libXext.so.6.4.0",
+    "libffi.so.6.0.4",
+    "libpcre.so.1.2.10",
+    "libXau.so.6.0.0",
+    "libXdmcp.so.6.0.0",
+    "libGLX.so.0.0.0",
+    "libGLdispatch.so.0.0.0",
+    "libthai.so.0.3.0",
+    "libfribidi.so.0.4.0",
+    "libpixman-1.so.0.34.0",
+    "libxcb-shm.so.0.0.0",
+    "libxcb-render.so.0.0.0",
+    "libXrender.so.1.3.0",
+    "libresolv-2.27.so",
+    "libmount.so.1.1.0",
+    "liblzma.so.5.2.4",
+    "libwoff2common.so.1.0.2",
+    "libbrotlidec.so.1.0.4",
+    "libexpat.so.1.6.7",
+    "libuuid.so.1.3.0",
+    "libbz2.so.1.0.6",
+    "libgraphite2.so.3.0.1",
+    "libgpg-error.so.0.24.2",
+    "libdw-0.170.so",
+    "liborc-0.4.so.0.28.0",
+    "libgstallocators-1.0.so.0.1401.0",
+    "libX11-xcb.so.1.0.0",
+    "libdrm.so.2.4.0",
+    "libgbm.so.1.0.0",
+    "libgudev-1.0.so.0.2.0",
+    "libgssapi_krb5.so.2.2",
+    "libdbus-1.so.3.19.7",
+    "libatspi.so.0.0.1",
+    "libdatrie.so.1.3.3",
+    "libblkid.so.1.1.0",
+    "libbrotlicommon.so.1.0.4",
+    "libelf-0.170.so",
+    "libudev.so.1.6.10",
+    "libkrb5.so.3.3",
+    "libk5crypto.so.3.1",
+    "libcom_err.so.2.1",
+    "libkrb5support.so.0.1",
+    "libkeyutils.so.1.6",
+    "libcairo-gobject.so.2.11512.0",
+    "libatk-bridge-2.0.so.0.0.0",
+    "libepoxy.so.0.0.0",
+    "libpangoft2-1.0.so.0.4200.1",
+    "libXinerama.so.1.0.0",
+    "libXrandr.so.2.2.0",
+    "libXcursor.so.1.0.2",
+    "libxkbcommon.so.0.0.0",
+    "libwayland-cursor.so.0.0.0",
+    "libXext.so.6.4.0",
+    "libxslt.so.1.1.32",
+    //"libsqlite3.so.0.8.6",
+    "libjavascriptcoregtk-4.0.so.18.7.10",
+    "libicuuc.so.61.1",
+    "libicui18n.so.61.1",
+    "libwoff2dec.so.1.0.2",
+    "libfontconfig.so.1.11.1",
+    "libfreetype.so.6.16.1",
+    "libharfbuzz.so.0.10706.0",
+    "libharfbuzz-icu.so.0.10706.0",
+    "libgcrypt.so.20.2.2",
+    "libgstapp-1.0.so.0.1401.0",
+    "libgstbase-1.0.so.0.1401.0",
+    "libgstreamer-1.0.so.0.1401.0",
+    "libgstpbutils-1.0.so.0.1401.0",
+    "libgstaudio-1.0.so.0.1401.0",
+    "libgsttag-1.0.so.0.1401.0",
+    "libgstvideo-1.0.so.0.1401.0",
+    "libgstgl-1.0.so.0.1401.0",
+    "libgstfft-1.0.so.0.1401.0",
+    "libjpeg.so.8.1.2",
+    "libpng16.so.16.34.0",
+    "libwebp.so.7.0.2",
+    "libwebpdemux.so.2.0.4",
+    "libenchant-2.so.2.2.3",
+    "libgmodule-2.0.so.0.5600.1",
+    "libsecret-1.so.0.0.0",
+    "libsoup-2.4.so.1.8.0",
+    "libtasn1.so.6.5.5",
+    "libhyphen.so.0.3.0",
+    "libXcomposite.so.1.0.0",
+    "libXdamage.so.1.1.0",
+    "libz.so.1.2.11",
+    "libwayland-server.so.0.1.0",
+    "libwayland-egl.so.1.0.0",
+    "libwayland-client.so.0.3.0",
+    //"libpangocairo-1.0.so.0.4200.1",
+    //"liblz4.so.1.8.2"
+};
+
+void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (!update_view_of_virtual_memory(child)) {
     fprintf(stderr, "failed to read virtual memory maps of child %d\n", child);
-    return false;
+    return;
   }
 
   for (auto &vm_prop_set : vmm) {
@@ -1172,15 +1312,83 @@ bool search_address_space_for_binary(pid_t child, const char *binary_path) {
       continue;
     if (vm_prop.nm.empty())
       continue;
+    if (!fs::exists(vm_prop.nm))
+      continue;
 
-    if (fs::equivalent(vm_prop.nm, binary_path)) {
-      BinaryLoadAddress = vm_prop.beg;
-      BinaryLoadAddressEnd = vm_prop.end;
-      return true;
+    std::string Path = fs::canonical(vm_prop.nm).string();
+    auto it = BinPathToIdxMap.find(Path);
+    if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
+      binary_index_t binary_idx = (*it).second;
+      BinFoundVec.set(binary_idx);
+
+      fprintf(stderr, "found binary %s @ [0x%lx, 0x%lx)\n",
+              Path.c_str(),
+              vm_prop.beg,
+              vm_prop.end);
+
+      binary_state_t &st = BinStateVec[binary_idx];
+
+      st.dyn.LoadAddr = vm_prop.beg;
+      st.dyn.LoadAddrEnd = vm_prop.end;
+
+      boost::icl::interval<std::uintptr_t>::type intervl =
+          boost::icl::interval<std::uintptr_t>::right_open(vm_prop.beg,
+                                                           vm_prop.end);
+      binary_index_set_t bin_idx_set = {binary_idx};
+      AddressSpace.add(std::make_pair(intervl, bin_idx_set));
+
+      if (bad_bins.find(fs::path(Path).filename().string()) != bad_bins.end())
+        continue;
+
+      binary_t &binary = decompilation.Binaries[binary_idx];
+
+      // place breakpoints for indirect branches
+      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+
+      unsigned cnt = 0;
+      interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
+      for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
+           vi != vi_end; ++vi) {
+        basic_block_t bb = *vi;
+        basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+        if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
+            bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
+          continue;
+
+        std::uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
+
+        indirect_branch_t &indbr = IndBrMap[Addr];
+        indbr.binary_idx = binary_idx;
+        indbr.bb = bb;
+        indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+
+        auto sectit = st.SectMap.find(bbprop.Term.Addr);
+        assert(sectit != st.SectMap.end());
+        const section_properties_t &sectprop = *(*sectit).second.begin();
+
+        memcpy(&indbr.InsnBytes[0],
+               &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+               indbr.InsnBytes.size());
+
+        //
+        // now that we have the bytes for each indirect branch, disassemble them
+        //
+        llvm::MCInst &Inst = indbr.Inst;
+
+        uint64_t InstLen;
+        bool Disassembled = DisAsm.getInstruction(
+            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
+            llvm::nulls());
+        assert(Disassembled);
+
+        place_breakpoint_at_indirect_branch(child, Addr, indbr, dis);
+        ++cnt;
+      }
+
+      fprintf(stderr, "placed %u breakpoints in %s\n", cnt,
+              binary.Path.c_str());
     }
   }
-
-  return false;
 }
 
 void _ptrace_pokeuser(pid_t child, unsigned user_offset, unsigned long data) {
@@ -1189,8 +1397,12 @@ void _ptrace_pokeuser(pid_t child, unsigned user_offset, unsigned long data) {
   unsigned long _addr = user_offset;
   unsigned long _data = data;
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error("PTRACE_POKEUSER failed");
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    char buff[0x100];
+    snprintf(buff, sizeof(buff), "PTRACE_POKEUSER failed : %s",
+             strerror(errno));
+    throw std::runtime_error(buff);
+  }
 }
 
 unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
@@ -1201,8 +1413,12 @@ unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
   unsigned long _addr = user_offset;
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error("PTRACE_PEEKUSER failed");
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    char buff[0x100];
+    snprintf(buff, sizeof(buff), "PTRACE_PEEKUSER failed : %s",
+             strerror(errno));
+    throw std::runtime_error(buff);
+  }
 
   return res;
 }
@@ -1215,8 +1431,12 @@ unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
   unsigned long _addr = addr;
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error("PTRACE_PEEKDATA failed");
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    char buff[0x100];
+    snprintf(buff, sizeof(buff), "PTRACE_PEEKDATA failed : %s",
+             strerror(errno));
+    throw std::runtime_error(buff);
+  }
 
   return res;
 }
@@ -1227,14 +1447,19 @@ void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
   unsigned long _addr = addr;
   unsigned long _data = data;
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error("PTRACE_POKEDATA failed");
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
+    char buff[0x100];
+    snprintf(buff, sizeof(buff), "PTRACE_POKEDATA failed : %s",
+             strerror(errno));
+    throw std::runtime_error(buff);
+  }
 }
 
 int ChildProc(int argc, char **argv) {
   //
   // child
   //
+  char *prog_path = argv[2];
 
   //
   // the request
@@ -1251,29 +1476,13 @@ int ChildProc(int argc, char **argv) {
   // signal-delivery-stop.
   //
 
-  //
-  // we have to do this little dance because of C++ const-ness
-  //
-  unsigned N = argc - 1;
+  std::vector<char *> _argv;
+  _argv.reserve(argc + 1);
+  for (unsigned i = 2; i < argc; ++i)
+    _argv.push_back(argv[i]);
+  _argv.push_back(nullptr);
 
-  std::vector<std::vector<char>> execve_arg_datas;
-  execve_arg_datas.resize(N);
-
-  for (int i = 0; i < N; ++i) {
-    unsigned M = strlen(argv[i + 1]);
-
-    std::vector<char>& execve_arg_data = execve_arg_datas[i];
-    execve_arg_data.resize(M + 1);
-    strncpy(&execve_arg_data[0], argv[i + 1], execve_arg_data.size());
-  }
-
-  std::vector<char *> execve_args;
-  execve_args.resize(N);
-  for (unsigned i = 0; i < N; ++i)
-    execve_args[i] = execve_arg_datas[i].data();
-  execve_args.push_back(nullptr);
-
-  return execve(argv[1], execve_args.data(), ::environ);
+  return execve(prog_path, _argv.data(), ::environ);
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
@@ -1322,8 +1531,8 @@ bool update_view_of_virtual_memory(int child) {
       continue;
     }
 
-    auto intervl =
-        boost::icl::discrete_interval<uintptr_t>::right_open(min, max);
+    boost::icl::interval<std::uintptr_t>::type intervl =
+        boost::icl::interval<std::uintptr_t>::right_open(min, max);
 
     vm_properties_t vmprop;
     vmprop.beg = min;
@@ -1393,7 +1602,7 @@ bool describe_program_counter(std::uintptr_t pc) {
     if (vmprop.nm.empty())
       return false;
 
-    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg);
+    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg + vmprop.off);
     return true;
   }
 }
