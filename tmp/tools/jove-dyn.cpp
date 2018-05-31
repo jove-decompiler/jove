@@ -64,6 +64,7 @@ namespace jove {
 
 static int ChildProc(int argc, char **argv);
 static int ParentProc(pid_t child, const char *decompilation_path);
+
 }
 
 int main(int argc, char **argv) {
@@ -647,13 +648,11 @@ static function_index_t translate_function(pid_t child,
   return res;
 }
 
-basic_block_index_t
-translate_basic_block(pid_t child,
-                      binary_index_t binary_idx,
-                      tiny_code_generator_t &tcg,
-                      disas_t &dis,
-                      const target_ulong Addr) {
-  binary_t &binary = decompilation.Binaries[binary_idx];
+basic_block_index_t translate_basic_block(pid_t child,
+                                          binary_index_t binary_idx,
+                                          tiny_code_generator_t &tcg,
+                                          disas_t &dis,
+                                          const target_ulong Addr) {
   auto &BBMap = BinStateVec[binary_idx].BBMap;
 
   {
@@ -733,6 +732,7 @@ translate_basic_block(pid_t child,
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
+  binary_t &binary = decompilation.Binaries[binary_idx];
   basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
   basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
   {
@@ -751,12 +751,9 @@ translate_basic_block(pid_t child,
       std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
 
       indirect_branch_t &indbr = IndBrMap[termpc];
+      indbr.binary_idx = binary_idx;
       indbr.bb = bb;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-
-      auto sectit = SectMap.find(bbprop.Term.Addr);
-      assert(sectit != SectMap.end());
-      const section_properties_t &sectprop = *(*sectit).second.begin();
 
       memcpy(&indbr.InsnBytes[0],
              &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
@@ -766,11 +763,12 @@ translate_basic_block(pid_t child,
       // now that we have the bytes for each indirect branch, disassemble them
       //
       llvm::MCInst &Inst = indbr.Inst;
+
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
       uint64_t InstLen;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
-                                bbprop.Term.Addr, llvm::nulls(), llvm::nulls());
+      bool Disassembled = DisAsm.getInstruction(
+        Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
+        llvm::nulls());
       assert(Disassembled);
 
       place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
@@ -1077,7 +1075,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   if (debugMode)
     fprintf(stderr, "target=0x%lx\n", target);
 
-#if 0
+#if 1
   //
   // update the decompilation based on the target
   //
@@ -1147,7 +1145,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   }
 #endif
 
-  //if (isNewTarget && !__got)
+  if (isNewTarget && !__got)
     describe_program_counter(_pc) && describe_program_counter(target);
 }
 
@@ -1169,132 +1167,125 @@ bool is_address_in_global_offset_table(std::uintptr_t Addr,
 }
 
 static const std::unordered_set<std::string> bad_bins = {
-    //"surf",
-    "libX11.so.6.3.0",
-    "libwebkit2gtk-4.0.so.37.28.2",
-    "libgtk-3.so.0.2200.30",
-    "libgdk-3.so.0.2200.30",
-    "libgobject-2.0.so.0.5600.1",
-    "libglib-2.0.so.0.5600.1",
-    "libxcb.so.1.1.0",
-    "libdl-2.27.so",
-    "libGL.so.1.0.0",
     "libEGL.so.1.0.0",
-    "librt-2.27.so",
-    "libpango-1.0.so.0.4200.1",
-    "libatk-1.0.so.0.22810.1",
-    "libcairo.so.2.11512.0",
-    "libgdk_pixbuf-2.0.so.0.3600.12",
-    "libgio-2.0.so.0.5600.1",
-    "libnotify.so.4.0.0",
-    "libxml2.so.2.9.8",
-    "libxslt.so.1.1.32",
-    "libjavascriptcoregtk-4.0.so.18.7.10",
-    "libicuuc.so.61.1",
-    "libpthread-2.27.so",
-    "libicui18n.so.61.1",
-    "libwoff2dec.so.1.0.2",
-    "libfontconfig.so.1.11.1",
-    "libc-2.27.so",
-    "libstdc++.so.6.0.25",
-    "libgcc_s.so.1",
-    "libpthread-2.27.so",
-    "libm-2.27.so",
-    "libXi.so.6.1.0",
-    "libXfixes.so.3.1.0",
-    "libunwind.so.8.0.1",
-    "libsystemd.so.0.22.0",
-    "libXext.so.6.4.0",
-    "libffi.so.6.0.4",
-    "libpcre.so.1.2.10",
-    "libXau.so.6.0.0",
-    "libXdmcp.so.6.0.0",
+    "libGL.so.1.0.0",
     "libGLX.so.0.0.0",
     "libGLdispatch.so.0.0.0",
-    "libthai.so.0.3.0",
-    "libfribidi.so.0.4.0",
-    "libpixman-1.so.0.34.0",
-    "libxcb-shm.so.0.0.0",
-    "libxcb-render.so.0.0.0",
-    "libXrender.so.1.3.0",
-    "libresolv-2.27.so",
-    "libmount.so.1.1.0",
-    "liblzma.so.5.2.4",
-    "libwoff2common.so.1.0.2",
-    "libbrotlidec.so.1.0.4",
-    "libexpat.so.1.6.7",
-    "libuuid.so.1.3.0",
-    "libbz2.so.1.0.6",
-    "libgraphite2.so.3.0.1",
-    "libgpg-error.so.0.24.2",
-    "libdw-0.170.so",
-    "liborc-0.4.so.0.28.0",
-    "libgstallocators-1.0.so.0.1401.0",
     "libX11-xcb.so.1.0.0",
-    "libdrm.so.2.4.0",
-    "libgbm.so.1.0.0",
-    "libgudev-1.0.so.0.2.0",
-    "libgssapi_krb5.so.2.2",
-    "libdbus-1.so.3.19.7",
-    "libatspi.so.0.0.1",
-    "libdatrie.so.1.3.3",
-    "libblkid.so.1.1.0",
-    "libbrotlicommon.so.1.0.4",
-    "libelf-0.170.so",
-    "libudev.so.1.6.10",
-    "libkrb5.so.3.3",
-    "libk5crypto.so.3.1",
-    "libcom_err.so.2.1",
-    "libkrb5support.so.0.1",
-    "libkeyutils.so.1.6",
-    "libcairo-gobject.so.2.11512.0",
-    "libatk-bridge-2.0.so.0.0.0",
-    "libepoxy.so.0.0.0",
-    "libpangoft2-1.0.so.0.4200.1",
+    "libX11.so.6.3.0",
+    "libXau.so.6.0.0",
+    "libXcomposite.so.1.0.0",
+    "libXcursor.so.1.0.2",
+    "libXdamage.so.1.1.0",
+    "libXdmcp.so.6.0.0",
+    "libXext.so.6.4.0",
+    "libXfixes.so.3.1.0",
+    "libXi.so.6.1.0",
     "libXinerama.so.1.0.0",
     "libXrandr.so.2.2.0",
-    "libXcursor.so.1.0.2",
-    "libxkbcommon.so.0.0.0",
-    "libwayland-cursor.so.0.0.0",
-    "libXext.so.6.4.0",
-    "libxslt.so.1.1.32",
-    //"libsqlite3.so.0.8.6",
-    "libjavascriptcoregtk-4.0.so.18.7.10",
-    "libicuuc.so.61.1",
-    "libicui18n.so.61.1",
-    "libwoff2dec.so.1.0.2",
+    "libXrender.so.1.3.0",
+    "libatk-1.0.so.0.22810.1",
+    "libatk-bridge-2.0.so.0.0.0",
+    "libatspi.so.0.0.1",
+    "libblkid.so.1.1.0",
+    "libbrotlicommon.so.1.0.4",
+    "libbrotlidec.so.1.0.4",
+    "libbz2.so.1.0.6",
+    "libc-2.27.so",
+    "libcairo-gobject.so.2.11512.0",
+    "libcairo.so.2.11512.0",
+    "libcom_err.so.2.1",
+    "libdatrie.so.1.3.3",
+    "libdbus-1.so.3.19.7",
+    "libdl-2.27.so",
+    "libdrm.so.2.4.0",
+    "libdw-0.170.so",
+    "libelf-0.170.so",
+    "libenchant-2.so.2.2.3",
+    "libepoxy.so.0.0.0",
+    "libexpat.so.1.6.7",
+    "libffi.so.6.0.4",
     "libfontconfig.so.1.11.1",
     "libfreetype.so.6.16.1",
-    "libharfbuzz.so.0.10706.0",
-    "libharfbuzz-icu.so.0.10706.0",
+    "libfribidi.so.0.4.0",
+    "libgbm.so.1.0.0",
+    "libgcc_s.so.1",
     "libgcrypt.so.20.2.2",
+    "libgdk-3.so.0.2200.30",
+    "libgdk_pixbuf-2.0.so.0.3600.12",
+    "libgio-2.0.so.0.5600.1",
+    "libglib-2.0.so.0.5600.1",
+    "libgmodule-2.0.so.0.5600.1",
+    "libgobject-2.0.so.0.5600.1",
+    "libgpg-error.so.0.24.2",
+    "libgraphite2.so.3.0.1",
+    "libgssapi_krb5.so.2.2",
+    "libgstallocators-1.0.so.0.1401.0",
     "libgstapp-1.0.so.0.1401.0",
-    "libgstbase-1.0.so.0.1401.0",
-    "libgstreamer-1.0.so.0.1401.0",
-    "libgstpbutils-1.0.so.0.1401.0",
     "libgstaudio-1.0.so.0.1401.0",
+    "libgstbase-1.0.so.0.1401.0",
+    "libgstfft-1.0.so.0.1401.0",
+    "libgstgl-1.0.so.0.1401.0",
+    "libgstpbutils-1.0.so.0.1401.0",
+    "libgstreamer-1.0.so.0.1401.0",
     "libgsttag-1.0.so.0.1401.0",
     "libgstvideo-1.0.so.0.1401.0",
-    "libgstgl-1.0.so.0.1401.0",
-    "libgstfft-1.0.so.0.1401.0",
+    "libgtk-3.so.0.2200.30",
+    "libgudev-1.0.so.0.2.0",
+    "libharfbuzz-icu.so.0.10706.0",
+    "libharfbuzz.so.0.10706.0",
+    "libhyphen.so.0.3.0",
+    "libicui18n.so.61.1",
+    "libicuuc.so.61.1",
+    "libjavascriptcoregtk-4.0.so.18.7.10",
     "libjpeg.so.8.1.2",
+    "libk5crypto.so.3.1",
+    "libkeyutils.so.1.6",
+    "libkrb5.so.3.3",
+    "libkrb5support.so.0.1",
+    "liblz4.so.1.8.2",
+    "liblzma.so.5.2.4",
+    "libm-2.27.so",
+    "libmount.so.1.1.0",
+    "libnotify.so.4.0.0",
+    "liborc-0.4.so.0.28.0",
+    "libpango-1.0.so.0.4200.1",
+    "libpangocairo-1.0.so.0.4200.1",
+    "libpangoft2-1.0.so.0.4200.1",
+    "libpcre.so.1.2.10",
+    "libpixman-1.so.0.34.0",
     "libpng16.so.16.34.0",
-    "libwebp.so.7.0.2",
-    "libwebpdemux.so.2.0.4",
-    "libenchant-2.so.2.2.3",
-    "libgmodule-2.0.so.0.5600.1",
+    "libpthread-2.27.so",
+    "libpthread-2.27.so",
+    "libresolv-2.27.so",
+    "librt-2.27.so",
     "libsecret-1.so.0.0.0",
     "libsoup-2.4.so.1.8.0",
+    //"libsqlite3.so.0.8.6",
+    "libstdc++.so.6.0.25",
+    "libsystemd.so.0.22.0",
     "libtasn1.so.6.5.5",
-    "libhyphen.so.0.3.0",
-    "libXcomposite.so.1.0.0",
-    "libXdamage.so.1.1.0",
-    "libz.so.1.2.11",
-    "libwayland-server.so.0.1.0",
-    "libwayland-egl.so.1.0.0",
+    "libthai.so.0.3.0",
+    "libudev.so.1.6.10",
+    "libunwind.so.8.0.1",
+    "libuuid.so.1.3.0",
     "libwayland-client.so.0.3.0",
-    //"libpangocairo-1.0.so.0.4200.1",
-    //"liblz4.so.1.8.2"
+    "libwayland-cursor.so.0.0.0",
+    "libwayland-egl.so.1.0.0",
+    "libwayland-server.so.0.1.0",
+    "libwebkit2gtk-4.0.so.37.28.2",
+    "libwebp.so.7.0.2",
+    "libwebpdemux.so.2.0.4",
+    "libwoff2common.so.1.0.2",
+    "libwoff2dec.so.1.0.2",
+    "libxcb-render.so.0.0.0",
+    "libxcb-shm.so.0.0.0",
+    "libxcb.so.1.1.0",
+    "libxkbcommon.so.0.0.0",
+    "libxml2.so.2.9.8",
+    "libxslt.so.1.1.32",
+    "libz.so.1.2.11",
+    "surf",
 };
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
