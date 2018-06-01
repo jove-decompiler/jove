@@ -1355,9 +1355,9 @@ static const std::unordered_set<std::string> bad_bins = {
 #endif
     "libxcb-render.so.0.0.0",
     "libxcb-shm.so.0.0.0",
+#if 0
     "libxcb.so.1.1.0",
     "libxkbcommon.so.0.0.0",
-#if 0
     "libxml2.so.2.9.8",
     "libxslt.so.1.1.32",
     "libz.so.1.2.11",
