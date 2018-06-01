@@ -1236,7 +1236,7 @@ bool is_address_in_global_offset_table(std::uintptr_t Addr,
 }
 
 static const std::unordered_set<std::string> bad_bins = {
-    "libEGL.so.1.0.0",
+    //"libEGL.so.1.0.0",
     "libGL.so.1.0.0",
     "libGLX.so.0.0.0",
     "libGLdispatch.so.0.0.0",
@@ -1261,6 +1261,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libbrotlidec.so.1.0.4",
     "libbz2.so.1.0.6",
     "libc-2.27.so",
+#if 0
     "libcairo-gobject.so.2.11512.0",
     "libcairo.so.2.11512.0",
     "libcom_err.so.2.1",
@@ -1280,10 +1281,11 @@ static const std::unordered_set<std::string> bad_bins = {
     "libgbm.so.1.0.0",
     "libgcc_s.so.1",
     "libgcrypt.so.20.2.2",
+#endif
     "libgdk-3.so.0.2200.30",
     "libgdk_pixbuf-2.0.so.0.3600.12",
-    "libgio-2.0.so.0.5600.1",
     "libglib-2.0.so.0.5600.1",
+    "libgio-2.0.so.0.5600.1",
     "libgmodule-2.0.so.0.5600.1",
     "libgobject-2.0.so.0.5600.1",
     "libgpg-error.so.0.24.2",
@@ -1301,6 +1303,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libgstvideo-1.0.so.0.1401.0",
     "libgtk-3.so.0.2200.30",
     "libgudev-1.0.so.0.2.0",
+#if 0
     "libharfbuzz-icu.so.0.10706.0",
     "libharfbuzz.so.0.10706.0",
     "libhyphen.so.0.3.0",
@@ -1314,7 +1317,9 @@ static const std::unordered_set<std::string> bad_bins = {
     "libkrb5support.so.0.1",
     "liblz4.so.1.8.2",
     "liblzma.so.5.2.4",
+#endif
     "libm-2.27.so",
+#if 0
     "libmount.so.1.1.0",
     "libnotify.so.4.0.0",
     "liborc-0.4.so.0.28.0",
@@ -1324,19 +1329,26 @@ static const std::unordered_set<std::string> bad_bins = {
     "libpcre.so.1.2.10",
     "libpixman-1.so.0.34.0",
     "libpng16.so.16.34.0",
+#endif
     "libpthread-2.27.so",
-    "libpthread-2.27.so",
+#if 0
     "libresolv-2.27.so",
+#endif
     "librt-2.27.so",
+#if 0
     "libsecret-1.so.0.0.0",
     "libsoup-2.4.so.1.8.0",
-    //"libsqlite3.so.0.8.6",
+    "libsqlite3.so.0.8.6",
+#endif
     "libstdc++.so.6.0.25",
+#if 0
     "libsystemd.so.0.22.0",
     "libtasn1.so.6.5.5",
     "libthai.so.0.3.0",
     "libudev.so.1.6.10",
+#endif
     "libunwind.so.8.0.1",
+#if 0
     "libuuid.so.1.3.0",
     "libwayland-client.so.0.3.0",
     "libwayland-cursor.so.0.0.0",
@@ -1354,7 +1366,8 @@ static const std::unordered_set<std::string> bad_bins = {
     "libxml2.so.2.9.8",
     "libxslt.so.1.1.32",
     "libz.so.1.2.11",
-    //"surf",
+    "surf",
+#endif
 };
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
