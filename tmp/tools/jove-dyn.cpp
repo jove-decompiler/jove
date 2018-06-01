@@ -607,14 +607,12 @@ int ParentProc(pid_t child, const char *decompilation_path) {
     }
   }
 
-#if 0
   {
     std::ofstream ofs(decompilation_path);
 
     boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
   }
-#endif
 
   return 0;
 }
@@ -1348,31 +1346,31 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
         std::uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
 
-        indirect_branch_t &indbr = IndBrMap[Addr];
-        indbr.binary_idx = binary_idx;
-        indbr.bb = bb;
-        indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+        indirect_branch_t &IndBrInfo = IndBrMap[Addr];
+        IndBrInfo.binary_idx = binary_idx;
+        IndBrInfo.bb = bb;
+        IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 
         auto sectit = st.SectMap.find(bbprop.Term.Addr);
         assert(sectit != st.SectMap.end());
         const section_properties_t &sectprop = *(*sectit).second.begin();
 
-        memcpy(&indbr.InsnBytes[0],
+        memcpy(&IndBrInfo.InsnBytes[0],
                &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-               indbr.InsnBytes.size());
+               IndBrInfo.InsnBytes.size());
 
         //
         // now that we have the bytes for each indirect branch, disassemble them
         //
-        llvm::MCInst &Inst = indbr.Inst;
+        llvm::MCInst &Inst = IndBrInfo.Inst;
 
         uint64_t InstLen;
         bool Disassembled = DisAsm.getInstruction(
-            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
+            Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
             llvm::nulls());
         assert(Disassembled);
 
-        place_breakpoint_at_indirect_branch(child, Addr, indbr, dis);
+        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
         ++cnt;
       }
 
