@@ -1348,7 +1348,6 @@ static const std::unordered_set<std::string> bad_bins = {
     "libudev.so.1.6.10",
 #endif
     "libunwind.so.8.0.1",
-#if 0
     "libuuid.so.1.3.0",
     "libwayland-client.so.0.3.0",
     "libwayland-cursor.so.0.0.0",
@@ -1365,6 +1364,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libxkbcommon.so.0.0.0",
     "libxml2.so.2.9.8",
     "libxslt.so.1.1.32",
+#if 0
     "libz.so.1.2.11",
     "surf",
 #endif
