@@ -1341,11 +1341,11 @@ static const std::unordered_set<std::string> bad_bins = {
     "libudev.so.1.6.10",
     "libunwind.so.8.0.1",
     "libuuid.so.1.3.0",
-#endif
     "libwayland-client.so.0.3.0",
     "libwayland-cursor.so.0.0.0",
     "libwayland-egl.so.1.0.0",
     "libwayland-server.so.0.1.0",
+#endif
     "libwebkit2gtk-4.0.so.37.28.2",
 #if 0
     "libwebp.so.7.0.2",
