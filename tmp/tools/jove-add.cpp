@@ -65,6 +65,7 @@ static struct {
   fs::path input;
   fs::path output;
   bool verbose;
+  bool entry;
 } cmdline;
 
 typedef std::tuple<llvm::MCDisassembler &,
@@ -266,7 +267,7 @@ int initialize_decompilation(void) {
     section_properties_set_t sectprops = {sectprop};
     sectm.add(std::make_pair(intervl, sectprops));
 
-#if 1
+#if 0
     printf("%-20s [0x%lx, 0x%lx)\n",
            sectprop.name.data(),
            intervl.lower(),
@@ -317,6 +318,10 @@ int initialize_decompilation(void) {
   //
   // iterate dynamic (!undefined) functions
   //
+  if (cmdline.entry) {
+    translate_function(binary, tcg, dis, E.getHeader()->e_entry);
+  }
+
   for (const Elf_Sym &Sym : Dyn.Symbols) {
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
@@ -522,11 +527,14 @@ int parse_command_line_arguments(int argc, char **argv) {
   fs::path &ifp = cmdline.input;
   fs::path &ofp = cmdline.output;
   bool &verbose = cmdline.verbose;
+  bool &entry = cmdline.entry;
 
   try {
     po::options_description desc("Allowed options");
     desc.add_options()
       ("help,h", "produce help message")
+
+      ("entry,e", "treat the input as an executable object")
 
       ("input,i", po::value<fs::path>(&ifp),
        "input binary")
@@ -534,8 +542,7 @@ int parse_command_line_arguments(int argc, char **argv) {
       ("output,o", po::value<fs::path>(&ofp),
        "output file path")
 
-      ("verbose,v", po::value<bool>(&verbose)->default_value(false),
-       "be verbose");
+      ("verbose,v", "be verbose");
 
     po::positional_options_description p;
     p.add("input", -1);
@@ -561,6 +568,10 @@ int parse_command_line_arguments(int argc, char **argv) {
       fprintf(stderr, "given input %s does not exist\n", ifp.string().c_str());
       return 1;
     }
+
+    ifp = fs::canonical(ifp);
+    entry = vm.count("entry") != 0;
+    verbose = vm.count("verbose") != 0;
   } catch (std::exception &e) {
     fprintf(stderr, "%s\n", e.what());
     return 1;

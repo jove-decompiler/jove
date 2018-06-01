@@ -63,8 +63,7 @@ namespace obj = llvm::object;
 namespace jove {
 
 static int ChildProc(int argc, char **argv);
-static int ParentProc(pid_t child, const char *decompilation_path);
-
+static int ParentProc(pid_t child, int argc, char **argv);
 }
 
 int main(int argc, char **argv) {
@@ -74,8 +73,10 @@ int main(int argc, char **argv) {
   llvm::llvm_shutdown_obj Y;
 
   if (argc < 3 || !fs::exists(argv[1]) || !fs::exists(argv[2])) {
-    printf("usage: %s <DECOMPILATION.jv> <PROG> [<ARG1> <ARG2> ...]\n",
-           argv[0]);
+    printf("usage: %s <DECOMPILATION.jv> <PROG> [<ARG1> <ARG2> ...]\n"
+           "or\n"
+           "(git)  %s <DECOMPILATION/> <PROG> [<ARG1> <ARG2> ...]\n",
+           argv[0], argv[0]);
     return 1;
   }
 
@@ -83,7 +84,7 @@ int main(int argc, char **argv) {
   if (!child)
     return jove::ChildProc(argc, argv);
 
-  return jove::ParentProc(child, argv[1]);
+  return jove::ParentProc(child, argc, argv);
 }
 
 namespace jove {
@@ -91,6 +92,8 @@ namespace jove {
 decompilation_t decompilation;
 
 static constexpr bool debugMode = false;
+
+static bool git = false;
 
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(int child);
@@ -193,7 +196,11 @@ static unsigned long _ptrace_peekuser(pid_t, unsigned user_offset);
 static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
 static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
 
-int ParentProc(pid_t child, const char *decompilation_path) {
+static int await_process_completion(pid_t);
+
+int ParentProc(pid_t child, int argc, char **argv) {
+  const char *decompilation_path = argv[1];
+
   //
   // observe the (initial) signal-delivery-stop
   //
@@ -229,11 +236,15 @@ int ParentProc(pid_t child, const char *decompilation_path) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
+  git = fs::is_directory(decompilation_path);
+
   //
   // parse the existing decompilation file
   //
   {
-    std::ifstream ifs(decompilation_path);
+    std::ifstream ifs(
+        git ? (std::string(decompilation_path) + "/decompilation.jv")
+            : decompilation_path);
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
@@ -607,14 +618,74 @@ int ParentProc(pid_t child, const char *decompilation_path) {
     }
   }
 
+  //
+  // write decompilation
+  //
   {
-    std::ofstream ofs(decompilation_path);
+    std::ofstream ofs(
+        git ? (std::string(decompilation_path) + "/decompilation.jv")
+            : decompilation_path);
 
     boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
   }
 
+  //
+  // git commit
+  //
+  if (git) {
+    const pid_t pid = fork();
+    if (!pid) { /* child */
+      chdir(decompilation_path);
+
+      std::string msg;
+      for (unsigned i = 2; i < argc; ++i) {
+        if (i != 2)
+          msg += '\'';
+
+        msg += argv[i];
+
+        if (i != 2)
+          msg += '\'';
+
+        if (i + 1 < argc)
+          msg += ' ';
+      }
+
+      std::vector<char> _msg;
+      _msg.resize(msg.size() + 1);
+      strncpy(&_msg[0], msg.c_str(), _msg.size());
+
+      char _argv0[] = {'/', 'u', 's', 'r', '/', 'b', 'i',
+                       'n', '/', 'g', 'i', 't', '\0'};
+      char _argv1[] = {'c', 'o', 'm', 'm', 'i', 't', '\0'};
+      char _argv2[] = {'.', '\0'};
+      char _argv3[] = {'-', 'm', '\0'};
+      char *_argv4 = &_msg[0];
+      char *_argv[6] = {&_argv0[0], &_argv1[0], &_argv2[0],
+                        &_argv3[0], &_argv4[0], nullptr};
+      return execve(&_argv0[0], _argv, ::environ);
+    }
+
+    if (int ret = await_process_completion(pid))
+      return ret;
+  }
+
   return 0;
+}
+
+int await_process_completion(pid_t pid) {
+  int wstatus;
+  do {
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+      if (errno != EINTR) {
+        fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+        abort();
+      }
+    }
+  } while (!WIFEXITED(wstatus));
+
+  return WEXITSTATUS(wstatus);
 }
 
 static basic_block_index_t translate_basic_block(pid_t,
@@ -1283,7 +1354,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libxml2.so.2.9.8",
     "libxslt.so.1.1.32",
     "libz.so.1.2.11",
-    "surf",
+    //"surf",
 };
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
