@@ -1349,10 +1349,12 @@ static const std::unordered_set<std::string> bad_bins = {
     "libwayland-egl.so.1.0.0",
     "libwayland-server.so.0.1.0",
     "libwebkit2gtk-4.0.so.37.28.2",
+#if 0
     "libwebp.so.7.0.2",
     "libwebpdemux.so.2.0.4",
     "libwoff2common.so.1.0.2",
     "libwoff2dec.so.1.0.2",
+#endif
     "libxcb-render.so.0.0.0",
     "libxcb-shm.so.0.0.0",
     "libxcb.so.1.1.0",
