@@ -1239,12 +1239,12 @@ bool is_address_in_global_offset_table(std::uintptr_t Addr,
 static const std::unordered_set<std::string> bad_bins = {
 #if 0
     "libEGL.so.1.0.0",
-#endif
     "libGL.so.1.0.0",
     "libGLX.so.0.0.0",
+#endif
     "libGLdispatch.so.0.0.0",
-    "libX11-xcb.so.1.0.0",
-    "libX11.so.6.3.0",
+    "libX11-xcb.so.1.0.0",    /* XXX BAD */
+    "libX11.so.6.3.0",        /* XXX BAD */
 #if 0
     "libXau.so.6.0.0",
     "libXcomposite.so.1.0.0",
