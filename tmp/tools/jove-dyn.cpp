@@ -1281,7 +1281,6 @@ static const std::unordered_set<std::string> bad_bins = {
     "libgbm.so.1.0.0",
     "libgcc_s.so.1",
     "libgcrypt.so.20.2.2",
-#endif
     "libgdk-3.so.0.2200.30",
     "libgdk_pixbuf-2.0.so.0.3600.12",
     "libglib-2.0.so.0.5600.1",
@@ -1303,7 +1302,6 @@ static const std::unordered_set<std::string> bad_bins = {
     "libgstvideo-1.0.so.0.1401.0",
     "libgtk-3.so.0.2200.30",
     "libgudev-1.0.so.0.2.0",
-#if 0
     "libharfbuzz-icu.so.0.10706.0",
     "libharfbuzz.so.0.10706.0",
     "libhyphen.so.0.3.0",
