@@ -1241,8 +1241,8 @@ static const std::unordered_set<std::string> bad_bins = {
     "libEGL.so.1.0.0",
     "libGL.so.1.0.0",
     "libGLX.so.0.0.0",
-#endif
     "libGLdispatch.so.0.0.0",
+#endif
     "libX11-xcb.so.1.0.0",    /* XXX BAD */
     "libX11.so.6.3.0",        /* XXX BAD */
 #if 0
