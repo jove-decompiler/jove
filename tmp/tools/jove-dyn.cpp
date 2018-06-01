@@ -1253,6 +1253,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libXinerama.so.1.0.0",
     "libXrandr.so.2.2.0",
     "libXrender.so.1.3.0",
+#if 0
     "libatk-1.0.so.0.22810.1",
     "libatk-bridge-2.0.so.0.0.0",
     "libatspi.so.0.0.1",
@@ -1261,7 +1262,6 @@ static const std::unordered_set<std::string> bad_bins = {
     "libbrotlidec.so.1.0.4",
     "libbz2.so.1.0.6",
     "libc-2.27.so",
-#if 0
     "libcairo-gobject.so.2.11512.0",
     "libcairo.so.2.11512.0",
     "libcom_err.so.2.1",
