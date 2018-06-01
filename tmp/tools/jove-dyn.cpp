@@ -1326,13 +1326,9 @@ static const std::unordered_set<std::string> bad_bins = {
     "libpcre.so.1.2.10",
     "libpixman-1.so.0.34.0",
     "libpng16.so.16.34.0",
-#endif
     "libpthread-2.27.so",
-#if 0
     "libresolv-2.27.so",
-#endif
     "librt-2.27.so",
-#if 0
     "libsecret-1.so.0.0.0",
     "libsoup-2.4.so.1.8.0",
     "libsqlite3.so.0.8.6",
