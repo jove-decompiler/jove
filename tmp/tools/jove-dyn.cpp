@@ -1150,7 +1150,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    fprintf(stderr, "warning: unknown target 0x%lx\n", target);
+    if (debugMode)
+      fprintf(stderr, "warning: unknown target 0x%lx\n", target);
     return;
   }
 
@@ -1315,9 +1316,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libkrb5support.so.0.1",
     "liblz4.so.1.8.2",
     "liblzma.so.5.2.4",
-#endif
     "libm-2.27.so",
-#if 0
     "libmount.so.1.1.0",
     "libnotify.so.4.0.0",
     "liborc-0.4.so.0.28.0",
@@ -1337,9 +1336,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libsecret-1.so.0.0.0",
     "libsoup-2.4.so.1.8.0",
     "libsqlite3.so.0.8.6",
-#endif
     "libstdc++.so.6.0.25",
-#if 0
     "libsystemd.so.0.22.0",
     "libtasn1.so.6.5.5",
     "libthai.so.0.3.0",
