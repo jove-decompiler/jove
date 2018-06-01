@@ -1242,8 +1242,8 @@ static const std::unordered_set<std::string> bad_bins = {
     "libGL.so.1.0.0",
     "libGLX.so.0.0.0",
     "libGLdispatch.so.0.0.0",
+    "libX11-xcb.so.1.0.0",
 #endif
-    "libX11-xcb.so.1.0.0",    /* XXX BAD */
     "libX11.so.6.3.0",        /* XXX BAD */
 #if 0
     "libXau.so.6.0.0",
@@ -1346,7 +1346,7 @@ static const std::unordered_set<std::string> bad_bins = {
     "libwayland-egl.so.1.0.0",
     "libwayland-server.so.0.1.0",
 #endif
-    "libwebkit2gtk-4.0.so.37.28.2",
+    "libwebkit2gtk-4.0.so.37.28.2", /* XXX BAD */
 #if 0
     "libwebp.so.7.0.2",
     "libwebpdemux.so.2.0.4",
