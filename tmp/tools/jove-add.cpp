@@ -1,4 +1,5 @@
 #include "tcgcommon.hpp"
+#include "sha3.hpp"
 
 #include <tuple>
 #include <memory>
@@ -62,8 +63,10 @@ namespace jove {
 static bool verify_arch(const obj::ObjectFile &);
 
 static struct {
-  fs::path input;
-  fs::path output;
+  fs::path JoveDir;
+
+  fs::path InputPath;
+  fs::path OutputPath;
   bool verbose;
   bool entry;
 } cmdline;
@@ -101,21 +104,25 @@ int initialize_decompilation(void) {
   llvm::InitializeAllDisassemblers();
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-      llvm::MemoryBuffer::getFileOrSTDIN(cmdline.input.string());
+      llvm::MemoryBuffer::getFileOrSTDIN(cmdline.InputPath.string());
 
   if (std::error_code EC = FileOrErr.getError()) {
     fprintf(stderr, "failed to open %s\n",
-            cmdline.input.string().c_str());
+            cmdline.InputPath.string().c_str());
     return 1;
   }
 
   std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
 
+  std::string s = sha3(Buffer->getBuffer());
+  printf("%s\n", s.c_str());
+  return 0;
+
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(Buffer->getMemBufferRef());
 
   if (!BinOrErr) {
-    fprintf(stderr, "failed to open %s\n", cmdline.input.string().c_str());
+    fprintf(stderr, "failed to open %s\n", cmdline.InputPath.string().c_str());
     return 1;
   }
 
@@ -126,7 +133,7 @@ int initialize_decompilation(void) {
 
   if (!llvm::isa<ELFO>(Bin.get())) {
     fprintf(stderr, "%s is not ELF64LEObjectFile\n",
-            cmdline.input.string().c_str());
+            cmdline.InputPath.string().c_str());
     return 1;
   }
 
@@ -204,8 +211,8 @@ int initialize_decompilation(void) {
   // exported function
   //
   decompilation_t decompilation;
-  if (fs::exists(cmdline.output)) {
-    std::ifstream ifs(cmdline.output.string());
+  if (fs::exists(cmdline.OutputPath)) {
+    std::ifstream ifs(cmdline.OutputPath.string());
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
@@ -214,12 +221,12 @@ int initialize_decompilation(void) {
   decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
   binary_t &binary = decompilation.Binaries.back();
 
-  binary.Path = fs::canonical(cmdline.input).string();
+  binary.Path = fs::canonical(cmdline.InputPath).string();
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
 
   auto write_decompilation = [&](void) -> void {
-    std::ofstream ofs(cmdline.output.string());
+    std::ofstream ofs(cmdline.OutputPath.string());
 
     boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
@@ -524,10 +531,13 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 }
 
 int parse_command_line_arguments(int argc, char **argv) {
-  fs::path &ifp = cmdline.input;
-  fs::path &ofp = cmdline.output;
+  fs::path &JoveDir = cmdline.JoveDir;
+  fs::path &InputPath = cmdline.InputPath;
+  fs::path &OutputPath = cmdline.OutputPath;
   bool &verbose = cmdline.verbose;
   bool &entry = cmdline.entry;
+
+  const char *home_dir = getenv("HOME");
 
   try {
     po::options_description desc("Allowed options");
@@ -536,10 +546,14 @@ int parse_command_line_arguments(int argc, char **argv) {
 
       ("entry,e", "treat the input as an executable object")
 
-      ("input,i", po::value<fs::path>(&ifp),
+      ("jove-dir",
+       po::value<fs::path>(&JoveDir)->default_value(fs::path(home_dir) / ".jove"),
+       "path to jove directory")
+
+      ("input,i", po::value<fs::path>(&InputPath),
        "input binary")
 
-      ("output,o", po::value<fs::path>(&ofp),
+      ("output,o", po::value<fs::path>(&OutputPath),
        "output file path")
 
       ("verbose,v", "be verbose");
@@ -564,12 +578,22 @@ int parse_command_line_arguments(int argc, char **argv) {
       return 1;
     }
 
-    if (!fs::exists(ifp)) {
-      fprintf(stderr, "given input %s does not exist\n", ifp.string().c_str());
+    if (!fs::exists(InputPath)) {
+      fprintf(stderr, "given input %s does not exist\n",
+              InputPath.string().c_str());
       return 1;
     }
 
-    ifp = fs::canonical(ifp);
+    if (!fs::exists(JoveDir))
+      fs::create_directory(JoveDir);
+
+    if (!is_directory(JoveDir)) {
+      fprintf(stderr, "jove directory %s does not exist\n",
+              JoveDir.string().c_str());
+      return 1;
+    }
+
+    InputPath = fs::canonical(InputPath);
     entry = vm.count("entry") != 0;
     verbose = vm.count("verbose") != 0;
   } catch (std::exception &e) {

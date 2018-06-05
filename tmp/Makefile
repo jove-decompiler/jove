@@ -32,10 +32,10 @@ TOOLNMS := tcgdump \
            tcgdefs \
            tcgconstants \
            jove-llvm \
-	   jove-dyn \
-	   jove-add \
-	   jove-init \
-	   jove-dump
+           jove-dyn \
+           jove-add \
+           jove-init \
+           jove-dump
 
 tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
 deps = $(foreach arch,$(ARCHS),bin/$(1)-$(arch).d)
