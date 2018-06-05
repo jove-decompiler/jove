@@ -67,6 +67,7 @@ static struct {
 
   fs::path InputPath;
   fs::path OutputPath;
+
   bool verbose;
   bool entry;
 } cmdline;

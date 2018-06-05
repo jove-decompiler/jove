@@ -52,15 +52,14 @@ static __attribute__((always_inline)) void put_unaligned_le64(u64 val, void *p)
 constexpr unsigned KECCAK_ROUNDS = 24;
 
 static const u64 keccakf_rndc[24] = {
-	0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
-	0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
-	0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
-	0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
-	0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
-	0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
-	0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
-	0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL
-};
+    0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
+    0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
+    0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
+    0x0000000000000088ULL, 0x0000000080008009ULL, 0x000000008000000aULL,
+    0x000000008000808bULL, 0x800000000000008bULL, 0x8000000000008089ULL,
+    0x8000000000008003ULL, 0x8000000000008002ULL, 0x8000000000000080ULL,
+    0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
+    0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
 
 static void keccakf_round(u64 st[25])
 {
@@ -221,7 +220,7 @@ static int sha3_256_update(struct sha3_state *sctx,
   return 0;
 }
 
-static int sha3_256_final(struct sha3_state *sctx, u8 *out) {
+static void sha3_256_final(struct sha3_state *sctx, u8 *out) {
   unsigned int i, inlen = sctx->partial;
   constexpr unsigned digest_size = SHA3_256_DIGEST_SIZE;
   __le64 *digest = (__le64 *)out;
@@ -242,7 +241,6 @@ static int sha3_256_final(struct sha3_state *sctx, u8 *out) {
     put_unaligned_le32(sctx->st[i], (__le32 *)digest);
 
   memset(sctx, 0, sizeof(*sctx));
-  return 0;
 }
 
 }
@@ -293,7 +291,7 @@ static const char byte_to_hexchars[256][2] = {
     {'f', 'c'}, {'f', 'd'}, {'f', 'e'}, {'f', 'f'}};
 
 template <typename T>
-static std::string sha3(T arr) {
+static std::string sha3(const T &arr) {
   crypto::sha3_state sctx;
 
   crypto::sha3_256_init(&sctx);
