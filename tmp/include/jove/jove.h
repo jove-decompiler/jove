@@ -8,8 +8,9 @@
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/set.hpp>
-//#include <boost/unordered_map.hpp>
-//#include <boost/unordered_set.hpp>
+#include <boost/unordered_map.hpp>
+#include <boost/unordered_set.hpp>
+#include "jove/macros.h"
 
 namespace jove {
 
@@ -39,37 +40,25 @@ typedef uint16_t binary_index_t;
 typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
 
-typedef boost::interprocess::basic_string<
-    char, std::char_traits<char>,
-    boost::interprocess::allocator<
-        char, boost::interprocess::managed_shared_memory::segment_manager>>
-    shmstring_t;
+typedef boost::interprocess::allocator<
+    char, boost::interprocess::managed_shared_memory::segment_manager>
+    shmstring_alloc_t;
 
-#define _DECLARE_SHARED_MEMORY_MAP(Name, KeyType, MappedType)                  \
-  typedef KeyType Name##_KeyType;                                              \
-  typedef MappedType Name##_MappedType;                                        \
-  typedef std::pair<const Name##_KeyType, Name##_MappedType> Name##_ValueType; \
-  typedef boost::interprocess::allocator<                                      \
-      Name##_ValueType,                                                        \
-      boost::interprocess::managed_shared_memory::segment_manager>             \
-      Name##_AllocType;                                                        \
-  typedef boost::interprocess::map<Name##_KeyType, Name##_MappedType,          \
-                                   std::less<Name##_KeyType>,                  \
-                                   Name##_AllocType>                           \
-      Name##_Type;                                                             \
-  Name##_AllocType Name##_alloc;                                               \
-  Name##_Type &Name;
+typedef boost::interprocess::basic_string<char, std::char_traits<char>,
+                                          shmstring_alloc_t>
+    shmstring_t;
 
 class index_t {
   boost::interprocess::managed_shared_memory segment;
 
-  boost::interprocess::interprocess_mutex &mtx;
-
+  _DECLARE_INTERPROCESS_MUTEX(mtx)
   _DECLARE_SHARED_MEMORY_MAP(binary_index_map, shmstring_t, binary_index_t)
+
 public:
   index_t()
       : segment(boost::interprocess::open_or_create, "index", 0x100000 /* 1 MiB */),
-        mtx(*segment.find_or_construct<boost::interprocess::interprocess_mutex>("mtx")())
+        _DEFINE_INTERPROCESS_MUTEX(mtx),
+        _DEFINE_SHARED_MEMORY_MAP(binary_index_map, 32)
   {}
 };
 
