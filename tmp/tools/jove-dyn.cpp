@@ -72,11 +72,8 @@ int main(int argc, char **argv) {
   llvm::PrettyStackTraceProgram X(argc, argv);
   llvm::llvm_shutdown_obj Y;
 
-  if (argc < 3 || !fs::exists(argv[1]) || !fs::exists(argv[2])) {
-    printf("usage: %s <DECOMPILATION.jv> <PROG> [<ARG1> <ARG2> ...]\n"
-           "or\n"
-           "(git)  %s <DECOMPILATION/> <PROG> [<ARG1> <ARG2> ...]\n",
-           argv[0], argv[0]);
+  if (argc < 2 || !fs::exists(argv[1])) {
+    printf("usage: %s <PROG> [<ARG1> <ARG2> ...]\n", argv[0]);
     return 1;
   }
 
@@ -89,11 +86,7 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-decompilation_t decompilation;
-
 static constexpr bool debugMode = false;
-
-static bool git = false;
 
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(int child);
@@ -199,8 +192,6 @@ static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
 static int await_process_completion(pid_t);
 
 int ParentProc(pid_t child, int argc, char **argv) {
-  const char *decompilation_path = argv[1];
-
   //
   // observe the (initial) signal-delivery-stop
   //
@@ -236,153 +227,8 @@ int ParentProc(pid_t child, int argc, char **argv) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
-  git = fs::is_directory(decompilation_path);
-
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::ifstream ifs(
-        git ? (std::string(decompilation_path) + "/decompilation.jv")
-            : decompilation_path);
-
-    boost::archive::binary_iarchive ia(ifs);
-    ia >> decompilation;
-  }
-
-  //
-  // verify that the binaries did not change on-disk
-  //
-  for (binary_t &binary : decompilation.Binaries) {
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      fprintf(stderr, "failed to open binary %s in given decompilation\n",
-              binary.Path.c_str());
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-    if (binary.Data.size() != Buffer->getBufferSize() ||
-        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      fprintf(stderr, "contents of binary %s have changed\n",
-              binary.Path.c_str());
-      return 1;
-    }
-  }
-
   llvm::Triple TheTriple;
   llvm::SubtargetFeatures Features;
-
-  //
-  // initialize state associated with every binary
-  //
-  BinStateVec.resize(decompilation.Binaries.size());
-  for (binary_index_t i = 0; i < decompilation.Binaries.size(); ++i) {
-    binary_t &binary = decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
-
-    // add to path -> index map
-    BinPathToIdxMap[binary.Path] = i;
-
-    //
-    // build FuncMap
-    //
-    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-         ++f_idx) {
-      function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != invalid_basic_block_index);
-      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
-    }
-
-    //
-    // build BBMap
-    //
-    for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-
-      st.BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
-    }
-
-    //
-    // build section map
-    //
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      fprintf(stderr, "failed to create binary from %s data\n",
-              binary.Path.c_str());
-      return 1;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-    typedef typename obj::ELF64LEObjectFile ELFO;
-    typedef typename obj::ELF64LEFile ELFT;
-
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      fprintf(stderr, "%s is not ELF64LEObjectFile\n", binary.Path.c_str());
-      return 1;
-    }
-
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
-
-    const ELFT &E = *O.getELFFile();
-
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
-    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-    if (!sections) {
-      fprintf(stderr, "error: could not get ELF sections for binary %s\n",
-              binary.Path.c_str());
-      return 1;
-    }
-
-    for (const Elf_Shdr &Sec : *sections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-          E.getSectionContents(&Sec);
-
-      if (!contents)
-        continue;
-
-      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-      if (!name)
-        continue;
-
-      boost::icl::interval<std::uintptr_t>::type intervl =
-          boost::icl::interval<std::uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-      section_properties_t sectprop;
-      sectprop.name = *name;
-      sectprop.contents = *contents;
-
-      section_properties_set_t sectprops = {sectprop};
-      st.SectMap.add(std::make_pair(intervl, sectprops));
-
-      if (debugMode)
-        fprintf(stderr, "%-20s [0x%lx, 0x%lx)\n", sectprop.name.data(),
-                intervl.lower(), intervl.upper());
-    }
-  }
-
-  BinFoundVec.resize(decompilation.Binaries.size());
 
   //
   // initialize the LLVM objects necessary for disassembling instructions
@@ -618,59 +464,6 @@ int ParentProc(pid_t child, int argc, char **argv) {
     }
   }
 
-  //
-  // write decompilation
-  //
-  {
-    std::ofstream ofs(
-        git ? (std::string(decompilation_path) + "/decompilation.jv")
-            : decompilation_path);
-
-    boost::archive::binary_oarchive oa(ofs);
-    oa << decompilation;
-  }
-
-  //
-  // git commit
-  //
-  if (git) {
-    const pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(decompilation_path);
-
-      std::string msg;
-      for (unsigned i = 2; i < argc; ++i) {
-        if (i != 2)
-          msg += '\'';
-
-        msg += argv[i];
-
-        if (i != 2)
-          msg += '\'';
-
-        if (i + 1 < argc)
-          msg += ' ';
-      }
-
-      std::vector<char> _msg;
-      _msg.resize(msg.size() + 1);
-      strncpy(&_msg[0], msg.c_str(), _msg.size());
-
-      char _argv0[] = {'/', 'u', 's', 'r', '/', 'b', 'i',
-                       'n', '/', 'g', 'i', 't', '\0'};
-      char _argv1[] = {'c', 'o', 'm', 'm', 'i', 't', '\0'};
-      char _argv2[] = {'.', '\0'};
-      char _argv3[] = {'-', 'm', '\0'};
-      char *_argv4 = &_msg[0];
-      char *_argv[6] = {&_argv0[0], &_argv1[0], &_argv2[0],
-                        &_argv3[0], &_argv4[0], nullptr};
-      return execve(&_argv0[0], _argv, ::environ);
-    }
-
-    if (int ret = await_process_completion(pid))
-      return ret;
-  }
-
   return 0;
 }
 
@@ -699,7 +492,7 @@ static function_index_t translate_function(pid_t child,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
-  binary_t &binary = decompilation.Binaries[binary_idx];
+#if 0
   auto &FuncMap = BinStateVec[binary_idx].FuncMap;
 
   {
@@ -715,6 +508,9 @@ static function_index_t translate_function(pid_t child,
       translate_basic_block(child, binary_idx, tcg, dis, Addr);
 
   return res;
+#else
+  return invalid_function_index;
+#endif
 }
 
 basic_block_index_t translate_basic_block(pid_t child,
@@ -722,6 +518,7 @@ basic_block_index_t translate_basic_block(pid_t child,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
+#if 0
   auto &BBMap = BinStateVec[binary_idx].BBMap;
 
   {
@@ -908,6 +705,9 @@ basic_block_index_t translate_basic_block(pid_t child,
   }
 
   return bbidx;
+#else
+  return invalid_basic_block_index;
+#endif
 }
 
 static void dump_llvm_mcinst(FILE *, llvm::MCInst &, disas_t &);
@@ -966,6 +766,7 @@ static bool is_address_in_global_offset_table(std::uintptr_t Addr,
                                               binary_index_t);
 
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
+#if 0
   bool __got = false;
 
   //
@@ -1217,6 +1018,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
   if (isNewTarget && !__got)
     describe_program_counter(_pc) && describe_program_counter(target);
+#endif
 }
 
 bool is_address_in_global_offset_table(std::uintptr_t Addr,
@@ -1364,6 +1166,7 @@ static const std::unordered_set<std::string> bad_bins = {
 };
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
+#if 0
   if (!update_view_of_virtual_memory(child)) {
     fprintf(stderr, "failed to read virtual memory maps of child %d\n", child);
     return;
@@ -1455,6 +1258,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
               binary.Path.c_str());
     }
   }
+#endif
 }
 
 void _ptrace_pokeuser(pid_t child, unsigned user_offset, unsigned long data) {

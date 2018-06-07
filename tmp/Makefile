@@ -8,7 +8,8 @@ CFLAGS := -Wall \
           -flto
 
 CXXFLAGS := -std=gnu++14 \
-            -fexceptions
+            -fexceptions \
+            -DBOOST_INTERPROCESS_SHARED_DIR_FUNC
 
 #           -fno-rtti
 #	    -fno-exceptions
