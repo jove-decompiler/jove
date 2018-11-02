@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
     if (ec)
       return 1;
 
-    llvm::WriteBitcodeToFile(&M, os);
+    llvm::WriteBitcodeToFile(M, os);
   }
 
   return 0;
