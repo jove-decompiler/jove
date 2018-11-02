@@ -93,9 +93,8 @@ typedef std::set<section_properties_t> section_properties_set_t;
 static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
     sectm;
 
-static function_index_t translate_function(tiny_code_generator_t &,
-                                           disas_t &,
-                                           target_ulong Addr);
+static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
+                                           disas_t &, target_ulong Addr);
 
 int initialize_decompilation(void) {
   tiny_code_generator_t tcg;
@@ -116,11 +115,8 @@ int initialize_decompilation(void) {
 
   std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
 
-  sha3_digest_t digest;
-  sha3(Buffer->getBuffer(), digest);
-  std::string digest_s = string_of_sha3_digest(digest);
-
-  printf("%s\n", digest_s.c_str());
+  std::string s = sha3(Buffer->getBuffer());
+  printf("%s\n", s.c_str());
   return 0;
 
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
@@ -212,8 +208,31 @@ int initialize_decompilation(void) {
   }
 
   //
-  // explore every defined exported function
+  // initialize the decompilation of the given binary by exploring every defined
+  // exported function
   //
+  decompilation_t decompilation;
+  if (fs::exists(cmdline.OutputPath)) {
+    std::ifstream ifs(cmdline.OutputPath.string());
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
+  decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
+  binary_t &binary = decompilation.Binaries.back();
+
+  binary.Path = fs::canonical(cmdline.InputPath).string();
+  binary.Data.resize(Buffer->getBufferSize());
+  memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+
+  auto write_decompilation = [&](void) -> void {
+    std::ofstream ofs(cmdline.OutputPath.string());
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << decompilation;
+  };
+
   const ELFT &E = *O.getELFFile();
 
   typedef typename ELFT::Elf_Shdr Elf_Shdr;
@@ -297,12 +316,10 @@ int initialize_decompilation(void) {
     return 1;
   }
 
-#if 0
   if (Dyn.Symbols.empty()) {
     write_decompilation();
     return 0;
   }
-#endif
 
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
@@ -310,7 +327,7 @@ int initialize_decompilation(void) {
   // iterate dynamic (!undefined) functions
   //
   if (cmdline.entry) {
-    translate_function(tcg, dis, E.getHeader()->e_entry);
+    translate_function(binary, tcg, dis, E.getHeader()->e_entry);
   }
 
   for (const Elf_Sym &Sym : Dyn.Symbols) {
@@ -320,20 +337,27 @@ int initialize_decompilation(void) {
     if (Sym.isUndefined())
       continue;
 
-    translate_function(tcg, dis, Sym.st_value);
+    translate_function(binary, tcg, dis, Sym.st_value);
   }
 
+  //putchar('\n');
+
+  write_decompilation();
   return 0;
 }
 
-static basic_block_index_t translate_basic_block(tiny_code_generator_t &,
+static basic_block_index_t translate_basic_block(binary_t &,
+                                                 tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-static function_index_t translate_function(tiny_code_generator_t &tcg,
+static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
+static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
+
+static function_index_t translate_function(binary_t &binary,
+                                           tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
-#if 0
   {
     auto it = FuncMap.find(Addr);
     if (it != FuncMap.end())
@@ -347,15 +371,12 @@ static function_index_t translate_function(tiny_code_generator_t &tcg,
       translate_basic_block(binary, tcg, dis, Addr);
 
   return res;
-#else
-  return invalid_function_index;
-#endif
 }
 
-basic_block_index_t translate_basic_block(tiny_code_generator_t &tcg,
+basic_block_index_t translate_basic_block(binary_t &binary,
+                                          tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
-#if 0
   {
     auto it = BBMap.find(Addr);
     if (it != BBMap.end())
@@ -478,7 +499,7 @@ basic_block_index_t translate_basic_block(tiny_code_generator_t &tcg,
 
   case TERMINATOR::CALL: {
     function_index_t f_idx =
-        translate_function(tcg, dis, T._call.Target);
+        translate_function(binary, tcg, dis, T._call.Target);
 
     {
       basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
@@ -508,9 +529,6 @@ basic_block_index_t translate_basic_block(tiny_code_generator_t &tcg,
   }
 
   return bbidx;
-#else
-  return invalid_basic_block_index;
-#endif
 }
 
 int parse_command_line_arguments(int argc, char **argv) {

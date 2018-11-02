@@ -26,6 +26,15 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
+#if 0
+#include <boost/archive/text_iarchive.hpp>
+#else
+#include <boost/archive/binary_iarchive.hpp>
+#endif
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
@@ -59,6 +68,22 @@ int main(int argc, char **argv) {
 namespace jove {
 
 int dump(void) {
+  decompilation_t decompilation;
+  {
+    std::ifstream ifs(cmdline.input.string());
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
+  for (binary_t &binary : decompilation.Binaries) {
+    printf("%s\n", binary.Path.c_str());
+
+    printf("  %lu Functions.\n", binary.Analysis.Functions.size());
+    printf("  %lu Basic Blocks.\n", boost::num_vertices(binary.Analysis.ICFG));
+    printf("  %lu Branches.\n", boost::num_edges(binary.Analysis.ICFG));
+  }
+
   return 0;
 }
 
@@ -72,7 +97,7 @@ int parse_command_line_arguments(int argc, char **argv) {
       ("help,h", "produce help message")
 
       ("input,i", po::value<fs::path>(&ifp),
-       "input binary")
+       "input decompilation")
 
       ("functions,f", po::value<bool>(&fns)->default_value(false),
        "print information related to functions");
@@ -87,7 +112,7 @@ int parse_command_line_arguments(int argc, char **argv) {
     po::notify(vm);
 
     if (vm.count("help") || !vm.count("input")) {
-      printf("Usage: %s [-f] binary\n", argv[0]);
+      printf("Usage: %s [-f] decompilation.jv\n", argv[0]);
       std::string desc_s;
       {
         std::ostringstream oss(desc_s);

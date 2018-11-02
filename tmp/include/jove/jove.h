@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#define BOOST_INTERPROCESS_SHARED_DIR_FUNC
 #include <boost/interprocess/managed_shared_memory.hpp>
 #include <boost/interprocess/allocators/allocator.hpp>
 #include <boost/interprocess/containers/vector.hpp>
@@ -7,10 +8,8 @@
 #include <boost/interprocess/sync/interprocess_mutex.hpp>
 #include <boost/interprocess/containers/map.hpp>
 #include <boost/interprocess/containers/set.hpp>
-#include <boost/functional/hash.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
-#include <boost/array.hpp>
 #include "jove/macros.h"
 
 namespace jove {
@@ -27,18 +26,9 @@ enum class TERMINATOR : uint8_t {
   NONE
 };
 
-typedef uint16_t binary_index_t;
-typedef uint32_t function_index_t;
-typedef uint32_t basic_block_index_t;
-typedef uint16_t section_index_t;
-
-struct function_t {
-  basic_block_index_t Entry;
-};
-
 struct basic_block_t {
   uint64_t Addr;
-  uint32_t Size;
+  uint16_t Size;
 
   struct {
     uint8_t Size;
@@ -46,69 +36,10 @@ struct basic_block_t {
   } Term;
 };
 
-struct section_t {
-  uint64_t Addr;
-  uint32_t Size;
+typedef uint16_t binary_index_t;
+typedef uint32_t function_index_t;
+typedef uint32_t basic_block_index_t;
 
-  shmstring_t Name;
-};
-
-constexpr unsigned SHA3_256_DIGEST_SIZE = 256 / 8;
-typedef boost::array<uint8_t, SHA3_256_DIGEST_SIZE> sha3_digest_t;
-
-class index_t {
-  boost::interprocess::managed_shared_memory segment;
-
-  _DECLARE_INTERPROCESS_MUTEX(mtx)
-  _DECLARE_SHARED_MEMORY_MAP(binary_index_map, sha3_digest_t, binary_index_t)
-
-public:
-  index_t()
-      : segment(boost::interprocess::open_or_create, "index",
-                0x100000 /* 1 MiB */),
-      _DEFINE_INTERPROCESS_MUTEX(mtx),
-      _DEFINE_SHARED_MEMORY_MAP(binary_index_map, 32) {}
-};
-
-class analysis_t {
-  boost::interprocess::managed_shared_memory segment;
-
-  _DECLARE_INTERPROCESS_MUTEX(mtx)
-  _DECLARE_SHARED_MEMORY_VECTOR(BBVec, basic_block_t)
-
-  typedef boost::interprocess::allocator<
-      basic_block_index_t,
-      boost::interprocess::managed_shared_memory::segment_manager>
-      basic_block_index_set_alloc_t;
-  typedef boost::interprocess::set<basic_block_index_t,
-                                   std::less<basic_block_index_t>,
-                                   basic_block_index_set_alloc_t>
-      basic_block_index_set_t;
-
-  _DECLARE_SHARED_MEMORY_MAP(InEdgesMap, basic_block_index_t,
-                             basic_block_index_set_t)
-  _DECLARE_SHARED_MEMORY_MAP(OutEdgesMap, basic_block_index_t,
-                             basic_block_index_set_t)
-
-  _DECLARE_SHARED_MEMORY_VECTOR(FnVec, function_t)
-
-  _DECLARE_SHARED_MEMORY_MAP(AddrBBMap, uint64_t, basic_block_index_t)
-  _DECLARE_SHARED_MEMORY_MAP(AddrFnMap, uint64_t, function_index_t)
-
-public:
-  analysis_t(const sha3_digest_t &digest)
-      : segment(boost::interprocess::open_or_create, "analysis",
-                0x100000000 /* 4 GiB */),
-        _DEFINE_INTERPROCESS_MUTEX(mtx),
-        _DEFINE_SHARED_MEMORY_VECTOR(BBVec),
-        _DEFINE_SHARED_MEMORY_MAP(InEdgesMap, 16),
-        _DEFINE_SHARED_MEMORY_MAP(OutEdgesMap, 16),
-        _DEFINE_SHARED_MEMORY_VECTOR(FnVec),
-        _DEFINE_SHARED_MEMORY_MAP(AddrBBMap, 16),
-        _DEFINE_SHARED_MEMORY_MAP(AddrFnMap, 16) {}
-};
-
-#if 0
 typedef boost::interprocess::allocator<
     char, boost::interprocess::managed_shared_memory::segment_manager>
     shmstring_alloc_t;
@@ -116,11 +47,115 @@ typedef boost::interprocess::allocator<
 typedef boost::interprocess::basic_string<char, std::char_traits<char>,
                                           shmstring_alloc_t>
     shmstring_t;
-#endif
+
+class index_t {
+  boost::interprocess::managed_shared_memory segment;
+
+  _DECLARE_INTERPROCESS_MUTEX(mtx)
+  _DECLARE_SHARED_MEMORY_MAP(binary_index_map, shmstring_t, binary_index_t)
+
+public:
+  index_t()
+      : segment(boost::interprocess::open_or_create, "index", 0x100000 /* 1 MiB */),
+        _DEFINE_INTERPROCESS_MUTEX(mtx),
+        _DEFINE_SHARED_MEMORY_MAP(binary_index_map, 32)
+  {}
+};
+
+class analysis_t {
+  boost::interprocess::managed_shared_memory segment;
+
+  boost::interprocess::interprocess_mutex &mtx;
+
+  boost::interprocess::vector<
+      basic_block_t,
+      boost::interprocess::allocator<
+          basic_block_t,
+          boost::interprocess::managed_shared_memory::segment_manager>>
+      BBVec;
+
+public:
+  analysis_t(const std::string& hash) {
+  }
+};
 
 constexpr binary_index_t invalid_binary_index = 0xffff;
 constexpr function_index_t invalid_function_index = 0xffffffff;
 constexpr basic_block_index_t invalid_basic_block_index = 0xffffffff;
+
+struct basic_block_properties_t {
+  std::uintptr_t Addr;
+  std::ptrdiff_t Size;
+
+  struct {
+    std::uintptr_t Addr;
+    TERMINATOR Type;
+
+    struct {
+      std::vector<function_index_t> Local;
+      std::vector<std::pair<binary_index_t, function_index_t>> NonLocal;
+    } Callees;
+  } Term;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Addr &Size &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees
+        .NonLocal;
+  }
+};
+
+typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
+                              boost::vecS,             /* VertexList */
+                              boost::bidirectionalS,   /* Directed */
+                              basic_block_properties_t /* VertexProperties */>
+    interprocedural_control_flow_graph_t;
+
+typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
+
+inline basic_block_t NullBasicBlock(void) {
+  return boost::graph_traits<
+      interprocedural_control_flow_graph_t>::null_vertex();
+}
+
+struct function_t {
+  basic_block_index_t Entry;
+
+  struct {
+    struct {
+      std::vector<std::pair<unsigned, unsigned>> Arguments;
+      std::vector<std::pair<unsigned, unsigned>> LocalVars;
+    } Stack;
+  } Analysis;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Entry &Analysis.Stack.Arguments &Analysis.Stack.LocalVars;
+  }
+};
+
+struct binary_t {
+  std::string Path;
+  std::vector<uint8_t> Data;
+
+  struct {
+    std::vector<function_t> Functions;
+    interprocedural_control_flow_graph_t ICFG;
+  } Analysis;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Path &Data &Analysis.Functions &Analysis.ICFG;
+  }
+};
+
+struct decompilation_t {
+  std::vector<binary_t> Binaries;
+
+  template <class Archive>
+  void serialize(Archive &ar, const unsigned int) {
+    ar &Binaries;
+  }
+};
 
 inline const char *string_of_terminator(TERMINATOR TermTy) {
   switch (TermTy) {

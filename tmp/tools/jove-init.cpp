@@ -70,6 +70,8 @@ static void spawn_workers(const std::vector<std::string> &binary_paths);
 
 static std::queue<std::string> Q;
 
+static int await_process_completion(pid_t);
+
 int initialize_decompilation(void) {
   //
   // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
@@ -192,6 +194,139 @@ int initialize_decompilation(void) {
 
   spawn_workers(binary_paths);
 
+  //
+  // merge the intermediate decompilation files
+  //
+  decompilation_t final_decompilation;
+  final_decompilation.Binaries.reserve(binary_paths.size());
+
+  for (const std::string &path : binary_paths) {
+    fs::path jvfp(cmdline.tmpdir.string() + path);
+    jvfp.replace_extension("jv");
+
+    decompilation_t decompilation;
+    {
+      std::ifstream ifs(jvfp.string());
+
+      boost::archive::binary_iarchive ia(ifs);
+      ia >> decompilation;
+    }
+
+    assert(decompilation.Binaries.size() == 1);
+    final_decompilation.Binaries.push_back(decompilation.Binaries.front());
+  }
+
+  if (fs::exists(cmdline.output)) {
+    if (cmdline.verbose)
+      printf("output already exists ; deleting\n");
+
+    if (fs::is_directory(cmdline.output)) {
+      fs::remove_all(cmdline.output);
+    } else {
+      fs::remove(cmdline.output);
+    }
+  }
+
+  fs::path output_file_path;
+  if (cmdline.git) {
+    bool succ = fs::create_directory(cmdline.output);
+    assert(succ);
+    output_file_path = cmdline.output / "decompilation.jv";
+  } else {
+    output_file_path = cmdline.output;
+  }
+
+  {
+    std::ofstream ofs(output_file_path.string());
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << final_decompilation;
+  }
+
+  if (cmdline.git) {
+    std::vector<char> _argv0;
+    _argv0.resize(cmdline.git_path.string().size() + 1);
+    strncpy(&_argv0[0], cmdline.git_path.string().c_str(), _argv0.size());
+
+    //
+    // git init
+    //
+    {
+      const pid_t pid = fork();
+      if (!pid) { /* child */
+        chdir(cmdline.output.string().c_str());
+
+        char _argv1[] = {'i', 'n', 'i', 't', '\0'};
+        char *_argv[3] = {&_argv0[0], &_argv1[0], nullptr};
+        return execve(cmdline.git_path.string().c_str(), _argv, ::environ);
+      }
+
+      if (int ret = await_process_completion(pid))
+        return ret;
+    }
+
+    //
+    // Append '[diff "jv"]\n        textconv = jove-dump-x86_64' to .git/config
+    //
+    assert(fs::exists(cmdline.output / ".git" / "config"));
+    {
+      std::ofstream ofs((cmdline.output / ".git" / "config").string(),
+                        std::ios_base::out | std::ios_base::app);
+      ofs << "\n[diff \"jv\"]\n        textconv = jove-dump-x86_64";
+    }
+
+    //
+    // Write '*.jv diff=jv' to .git/info/attributes
+    //
+    assert(!fs::exists(cmdline.output / ".git" / "info" / "attributes"));
+    {
+      std::ofstream ofs(
+          (cmdline.output / ".git" / "info" / "attributes").string());
+      ofs << "*.jv diff=jv";
+    }
+
+    //
+    // git add
+    //
+    {
+      const pid_t pid = fork();
+      if (!pid) { /* child */
+        chdir(cmdline.output.string().c_str());
+
+        char _argv1[] = {'a', 'd', 'd', '\0'};
+        char _argv2[] = {'d', 'e', 'c', 'o', 'm', 'p', 'i', 'l', 'a',
+                         't', 'i', 'o', 'n', '.', 'j', 'v', '\0'};
+        char *_argv[4] = {&_argv0[0], &_argv1[0], &_argv2[0], nullptr};
+        return execve(cmdline.git_path.string().c_str(), _argv, ::environ);
+      }
+
+      if (int ret = await_process_completion(pid))
+        return ret;
+    }
+
+    //
+    // git commit
+    //
+    {
+      const pid_t pid = fork();
+      if (!pid) { /* child */
+        chdir(cmdline.output.string().c_str());
+
+        char _argv1[] = {'c', 'o', 'm', 'm', 'i', 't', '\0'};
+        char _argv2[] = {'.', '\0'};
+        char _argv3[] = {'-', 'm', '\0'};
+        char _argv4[] = {'i', 'n', 'i', 't', 'i', 'a', 'l', ' ',
+                         'c', 'o', 'm', 'm', 'i', 't', '\0'};
+        char *_argv[6] = {&_argv0[0], &_argv1[0], &_argv2[0],
+                          &_argv3[0], &_argv4[0], nullptr};
+        return execve(cmdline.git_path.string().c_str(), _argv, ::environ);
+      }
+
+      if (int ret = await_process_completion(pid))
+        return ret;
+    }
+  }
+
   return 0;
 }
 
@@ -212,6 +347,97 @@ static void worker(void) {
 
   std::string path;
   while (pop_path(path)) {
+    fs::path jvfp(cmdline.tmpdir.string() + path);
+    jvfp.replace_extension("jv");
+
+    fs::create_directories(jvfp.parent_path());
+
+    printf("%s\n", path.c_str());
+
+    const pid_t pid = fork();
+    if (pid < 0) {
+      fprintf(stderr, "fork failed : %s\n", strerror(errno));
+      exit(1);
+    }
+
+    //
+    // are we the child?
+    //
+    if (pid == 0) {
+      std::vector<char> _argv0;
+      _argv0.resize(cmdline.jove_add_path.string().size() + 1);
+      strncpy(&_argv0[0], cmdline.jove_add_path.string().c_str(),
+              _argv0.size());
+
+      char _argv1[] = {'-', 'o', '\0'};
+
+      std::vector<char> _argv2;
+      _argv2.resize(jvfp.string().size() + 1);
+      strncpy(&_argv2[0], jvfp.string().c_str(), _argv2.size());
+
+      std::vector<char> _argv3;
+      _argv3.resize(path.size() + 1);
+      strncpy(&_argv3[0], path.c_str(), _argv3.size());
+
+      if (cmdline.input.string() == path) {
+        char _argv4[] = {'-', 'e', '\0'};
+
+        char *_argv[6] = {
+          &_argv0[0],
+          &_argv1[0],
+          &_argv2[0],
+          &_argv3[0],
+          &_argv4[0],
+          nullptr
+        };
+
+        printf("%s %s %s %s %s\n",
+               &_argv0[0],
+               &_argv1[0],
+               &_argv2[0],
+               &_argv3[0],
+               &_argv4[0]);
+
+        execve(cmdline.jove_add_path.string().c_str(), _argv, ::environ);
+      } else {
+        char *_argv[5] = {
+          &_argv0[0],
+          &_argv1[0],
+          &_argv2[0],
+          &_argv3[0],
+          nullptr
+        };
+
+        printf("%s %s %s %s\n",
+               &_argv0[0],
+               &_argv1[0],
+               &_argv2[0],
+               &_argv3[0]);
+
+        execve(cmdline.jove_add_path.string().c_str(), _argv, ::environ);
+      }
+      return;
+    }
+
+    //
+    // as the parent, we'll wait for the child to exit
+    //
+    int wstatus;
+    do {
+      if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+        fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+        return;
+      }
+    } while (!WIFEXITED(wstatus));
+
+    //
+    // check exit code
+    //
+    if (WEXITSTATUS(wstatus) != 0) {
+      fprintf(stderr, "error: jove-add returned nonzero exit status : %d\n",
+              WEXITSTATUS(wstatus));
+      return;
+    }
   }
 }
 
@@ -228,6 +454,20 @@ void spawn_workers(const std::vector<std::string> &binary_paths) {
 
   for (std::thread &t : workers)
     t.join();
+}
+
+int await_process_completion(pid_t pid) {
+  int wstatus;
+  do {
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+      if (errno != EINTR) {
+        fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+        abort();
+      }
+    }
+  } while (!WIFEXITED(wstatus));
+
+  return WEXITSTATUS(wstatus);
 }
 
 unsigned num_cpus(void) {

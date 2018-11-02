@@ -1,6 +1,5 @@
 #include <string>
 #include <cstdint>
-#include <boost/array.hpp>
 #include <llvm/ADT/ArrayRef.h>
 
 namespace jove {
@@ -292,15 +291,14 @@ static const char byte_to_hexchars[256][2] = {
     {'f', 'c'}, {'f', 'd'}, {'f', 'e'}, {'f', 'f'}};
 
 template <typename T>
-static void sha3(const T &arr, sha3_digest_t &out) {
+static std::string sha3(const T &arr) {
   crypto::sha3_state sctx;
 
   crypto::sha3_256_init(&sctx);
   crypto::sha3_256_update(&sctx, (const crypto::u8 *)arr.data(), arr.size());
-  crypto::sha3_256_final(&sctx, &out[0]);
-}
+  crypto::u8 digest[crypto::SHA3_256_DIGEST_SIZE];
+  crypto::sha3_256_final(&sctx, digest);
 
-static std::string string_of_sha3_digest(const sha3_digest_t &digest) {
   std::string res;
   res.resize(2 * crypto::SHA3_256_DIGEST_SIZE);
 
