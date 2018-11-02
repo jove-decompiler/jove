@@ -300,12 +300,12 @@ static std::string sha3(const T &arr) {
   crypto::sha3_256_final(&sctx, digest);
 
   std::string res;
-  res.resize(2 * crypto::SHA3_256_DIGEST_SIZE);
+  res.reserve(2 * crypto::SHA3_256_DIGEST_SIZE);
 
 #pragma unroll
   for (unsigned i = 0; i < crypto::SHA3_256_DIGEST_SIZE; ++i) {
-    res[2 * i + 0] = byte_to_hexchars[digest[i]][0];
-    res[2 * i + 1] = byte_to_hexchars[digest[i]][1];
+    res += byte_to_hexchars[digest[i]][0];
+    res += byte_to_hexchars[digest[i]][1];
   }
 
   return res;

@@ -1,15 +1,11 @@
 #pragma once
 #include <cstdint>
-#define BOOST_INTERPROCESS_SHARED_DIR_FUNC
-#include <boost/interprocess/managed_shared_memory.hpp>
-#include <boost/interprocess/allocators/allocator.hpp>
-#include <boost/interprocess/containers/vector.hpp>
-#include <boost/interprocess/containers/string.hpp>
-#include <boost/interprocess/sync/interprocess_mutex.hpp>
-#include <boost/interprocess/containers/map.hpp>
-#include <boost/interprocess/containers/set.hpp>
-//#include <boost/unordered_map.hpp>
-//#include <boost/unordered_set.hpp>
+#include <vector>
+#include <boost/graph/adjacency_list.hpp>
+
+//#include <boost/icl/separate_interval_set.hpp>
+//#include <boost/archive/text_oarchive.hpp>
+//#include <boost/archive/text_iarchive.hpp>
 
 namespace jove {
 
@@ -25,70 +21,9 @@ enum class TERMINATOR : uint8_t {
   NONE
 };
 
-struct basic_block_t {
-  uint64_t Addr;
-  uint16_t Size;
-
-  struct {
-    uint8_t Size;
-    TERMINATOR Type;
-  } Term;
-};
-
 typedef uint16_t binary_index_t;
 typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
-
-typedef boost::interprocess::basic_string<
-    char, std::char_traits<char>,
-    boost::interprocess::allocator<
-        char, boost::interprocess::managed_shared_memory::segment_manager>>
-    shmstring_t;
-
-#define _DECLARE_SHARED_MEMORY_MAP(Name, KeyType, MappedType)                  \
-  typedef KeyType Name##_KeyType;                                              \
-  typedef MappedType Name##_MappedType;                                        \
-  typedef std::pair<const Name##_KeyType, Name##_MappedType> Name##_ValueType; \
-  typedef boost::interprocess::allocator<                                      \
-      Name##_ValueType,                                                        \
-      boost::interprocess::managed_shared_memory::segment_manager>             \
-      Name##_AllocType;                                                        \
-  typedef boost::interprocess::map<Name##_KeyType, Name##_MappedType,          \
-                                   std::less<Name##_KeyType>,                  \
-                                   Name##_AllocType>                           \
-      Name##_Type;                                                             \
-  Name##_AllocType Name##_alloc;                                               \
-  Name##_Type &Name;
-
-class index_t {
-  boost::interprocess::managed_shared_memory segment;
-
-  boost::interprocess::interprocess_mutex &mtx;
-
-  _DECLARE_SHARED_MEMORY_MAP(binary_index_map, shmstring_t, binary_index_t)
-public:
-  index_t()
-      : segment(boost::interprocess::open_or_create, "index", 0x100000 /* 1 MiB */),
-        mtx(*segment.find_or_construct<boost::interprocess::interprocess_mutex>("mtx")())
-  {}
-};
-
-class analysis_t {
-  boost::interprocess::managed_shared_memory segment;
-
-  boost::interprocess::interprocess_mutex &mtx;
-
-  boost::interprocess::vector<
-      basic_block_t,
-      boost::interprocess::allocator<
-          basic_block_t,
-          boost::interprocess::managed_shared_memory::segment_manager>>
-      BBVec;
-
-public:
-  analysis_t(const std::string& hash) {
-  }
-};
 
 constexpr binary_index_t invalid_binary_index = 0xffff;
 constexpr function_index_t invalid_function_index = 0xffffffff;
