@@ -115,10 +115,6 @@ int initialize_decompilation(void) {
 
   std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
 
-  std::string s = sha3(Buffer->getBuffer());
-  printf("%s\n", s.c_str());
-  return 0;
-
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(Buffer->getMemBufferRef());
 
