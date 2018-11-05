@@ -8,6 +8,7 @@
 #include <llvm/Support/ScopedPrinter.h>
 
 #include <fstream>
+#include <algorithm>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/map.hpp>
@@ -23,6 +24,9 @@ namespace opts {
   cl::list<std::string> InputFilenames(cl::Positional,
     cl::desc("<input jove files>"),
     cl::OneOrMore);
+
+  cl::opt<bool> Compact("compact",
+    cl::desc("Print functions as list of basic-blocks addresses"));
 
   cl::opt<bool> Graphviz("graphviz",
     cl::desc("Produce control-flow graphs for each function"));
@@ -59,17 +63,29 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
     for (const auto &F : B.Analysis.Functions) {
       basic_block_t entry = boost::vertex(F.Entry, ICFG);
-      Writer.printHex("Function", ICFG[entry].Addr);
-      ScopedIndent _(Writer);
 
-      std::vector<basic_block_t> reached;
-      reached.reserve(boost::num_vertices(ICFG));
+      std::vector<basic_block_t> blocks;
+      blocks.reserve(boost::num_vertices(ICFG));
 
-      reached_visitor vis(reached);
+      reached_visitor vis(blocks);
       boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
 
-      for (basic_block_t bb : reached)
-        Writer.printHex("BB", ICFG[bb].Addr);
+      std::vector<uint64_t> addrs;
+      addrs.resize(blocks.size());
+
+      std::transform(
+          blocks.begin(), blocks.end(), addrs.begin(),
+          [&](basic_block_t bb) -> uint64_t { return ICFG[bb].Addr; });
+
+      if (opts::Compact) {
+        Writer.printHexList("Fn", addrs);
+      } else {
+        Writer.printHex("Fn", ICFG[entry].Addr);
+        ScopedIndent _(Writer);
+
+        llvm::for_each(
+            addrs, [&](uint64_t addr) -> void { Writer.printHex("bb", addr); });
+      }
     }
   }
 }
@@ -94,5 +110,6 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
 
   llvm::for_each(opts::InputFilenames, jove::dumpInput);
+
   return 0;
 }
