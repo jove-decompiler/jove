@@ -38,7 +38,10 @@ static void dumpInput(llvm::StringRef File) {
 
   for (jove::binary_t &binary : decompilation.Binaries) {
     Writer.printString("File", binary.Path);
-    Writer.printString("Arch", ___JOVE_ARCH_NAME);
+
+    Writer.indent();
+    Writer.printBinary(llvm::StringRef(), binary.Data);
+    Writer.unindent();
 
 #if 0
     printf("  %lu Functions.\n", binary.Analysis.Functions.size());
