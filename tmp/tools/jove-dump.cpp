@@ -1,44 +1,24 @@
-#include "tcgcommon.hpp"
-
-#include <memory>
-#include <fstream>
-#include <sstream>
-#include <numeric>
-#include <boost/filesystem.hpp>
-#include <boost/program_options.hpp>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/MC/MCContext.h>
-#include <llvm/MC/MCAsmInfo.h>
-#include <llvm/MC/MCDisassembler/MCDisassembler.h>
-#include <llvm/MC/MCObjectFileInfo.h>
-#include <llvm/MC/MCRegisterInfo.h>
-#include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
 #include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
+#include <boost/filesystem.hpp>
+#include <boost/program_options.hpp>
 #if 0
 #include <boost/archive/text_iarchive.hpp>
 #else
 #include <boost/archive/binary_iarchive.hpp>
 #endif
+#include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/PrettyStackTrace.h>
+#include <llvm/Support/Signals.h>
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
-namespace obj = llvm::object;
 
 namespace jove {
 
