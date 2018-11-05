@@ -93,13 +93,9 @@ int parse_command_line_arguments(int argc, char **argv) {
 
     if (vm.count("help") || !vm.count("input")) {
       printf("Usage: %s [-f] decompilation.jv\n", argv[0]);
-      std::string desc_s;
-      {
-        std::ostringstream oss(desc_s);
-        oss << desc;
-      }
-
-      puts(desc_s.c_str());
+      std::ostringstream oss;
+      oss << desc;
+      puts(oss.str().c_str());
       return 1;
     }
 
