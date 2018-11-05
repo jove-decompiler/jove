@@ -60,19 +60,16 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     for (const auto &F : B.Analysis.Functions) {
       basic_block_t entry = boost::vertex(F.Entry, ICFG);
       Writer.printHex("Function", ICFG[entry].Addr);
+      ScopedIndent _(Writer);
 
-      {
-        ScopedIndent _(Writer);
+      std::vector<basic_block_t> reached;
+      reached.reserve(boost::num_vertices(ICFG));
 
-        std::vector<basic_block_t> reached;
-        reached.reserve(boost::num_vertices(ICFG));
+      reached_visitor vis(reached);
+      boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
 
-        reached_visitor vis(reached);
-        boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
-
-        for (basic_block_t bb : reached)
-          Writer.printHex("BB", ICFG[bb].Addr);
-      }
+      for (basic_block_t bb : reached)
+        Writer.printHex("BB", ICFG[bb].Addr);
     }
   }
 }
