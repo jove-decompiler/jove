@@ -1,114 +1,58 @@
-#include <llvm/Support/PrettyStackTrace.h>
-
 #include "jove/jove.h"
-#include <boost/filesystem.hpp>
-#include <boost/program_options.hpp>
-#if 0
-#include <boost/archive/text_iarchive.hpp>
-#else
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/DataTypes.h>
+#include <llvm/Support/Debug.h>
+#include <llvm/Support/FileSystem.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/ScopedPrinter.h>
+
+#include <fstream>
 #include <boost/archive/binary_iarchive.hpp>
-#endif
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
 
-namespace fs = boost::filesystem;
-namespace po = boost::program_options;
+namespace cl = llvm::cl;
 
-namespace jove {
+namespace opts {
+  cl::list<std::string> InputFilenames(cl::Positional,
+    cl::desc("<input jove files>"),
+    cl::OneOrMore);
 
-static struct {
-  fs::path input;
-
-  struct {
-    bool fns;
-  } dump;
-} cmdline;
-
-static int parse_command_line_arguments(int argc, char **argv);
-static int dump(void);
-
+  cl::opt<bool> Graphviz("graphviz",
+    cl::desc("Produce control-flow graphs for each function"));
 }
 
-int main(int argc, char **argv) {
-  llvm::StringRef ToolName = argv[0];
-  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::llvm_shutdown_obj Y;
+static void dumpInput(llvm::StringRef File) {
+  llvm::ScopedPrinter Writer(llvm::outs());
 
-  return jove::parse_command_line_arguments(argc, argv) ||
-         jove::dump();
-}
-
-namespace jove {
-
-int dump(void) {
-  decompilation_t decompilation;
+  jove::decompilation_t decompilation;
   {
-    std::ifstream ifs(cmdline.input.string());
+    std::ifstream ifs(File);
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
   }
 
-  for (binary_t &binary : decompilation.Binaries) {
-    printf("%s\n", binary.Path.c_str());
+  for (jove::binary_t &binary : decompilation.Binaries) {
+    Writer.printString("File", binary.Path);
+    Writer.printString("Arch", ___JOVE_ARCH_NAME);
 
+#if 0
     printf("  %lu Functions.\n", binary.Analysis.Functions.size());
     printf("  %lu Basic Blocks.\n", boost::num_vertices(binary.Analysis.ICFG));
     printf("  %lu Branches.\n", boost::num_edges(binary.Analysis.ICFG));
+#endif
   }
-
-  return 0;
 }
 
-int parse_command_line_arguments(int argc, char **argv) {
-  fs::path &ifp = cmdline.input;
-  bool &fns = cmdline.dump.fns;
+int main(int argc, char **argv) {
+  llvm::InitLLVM X(argc, argv);
 
-  try {
-    po::options_description desc("Allowed options");
-    desc.add_options()
-      ("help,h", "produce help message")
+  cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
 
-      ("input,i", po::value<fs::path>(&ifp),
-       "input decompilation")
-
-      ("functions,f", po::value<bool>(&fns)->default_value(false),
-       "print information related to functions");
-
-    po::positional_options_description p;
-    p.add("input", -1);
-
-    po::variables_map vm;
-    po::store(
-        po::command_line_parser(argc, argv).options(desc).positional(p).run(),
-        vm);
-    po::notify(vm);
-
-    if (vm.count("help") || !vm.count("input")) {
-      printf("Usage: %s [-f] decompilation.jv\n", argv[0]);
-      std::ostringstream oss;
-      oss << desc;
-      puts(oss.str().c_str());
-      return 1;
-    }
-
-    if (!fs::exists(ifp)) {
-      fprintf(stderr, "given input %s does not exist\n", ifp.string().c_str());
-      return 1;
-    }
-  } catch (std::exception &e) {
-    fprintf(stderr, "%s\n", e.what());
-    return 1;
-  }
-
+  llvm::for_each(opts::InputFilenames, dumpInput);
   return 0;
-}
-
 }
