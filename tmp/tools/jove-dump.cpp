@@ -75,7 +75,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 }
 
 static void dumpInput(llvm::StringRef File) {
-  jove::decompilation_t decompilation;
+  decompilation_t decompilation;
   {
     std::ifstream ifs(File);
 
