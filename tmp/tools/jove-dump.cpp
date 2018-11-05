@@ -13,6 +13,9 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
+#include <boost/graph/breadth_first_search.hpp>
+#include <boost/pending/indirect_cmp.hpp>
+#include <boost/range/irange.hpp>
 
 namespace cl = llvm::cl;
 
@@ -25,9 +28,56 @@ namespace opts {
     cl::desc("Produce control-flow graphs for each function"));
 }
 
-static void dumpInput(llvm::StringRef File) {
+namespace jove {
+
+struct reached_visitor : boost::default_bfs_visitor {
+  std::vector<basic_block_t> &out;
+
+  reached_visitor(std::vector<basic_block_t> &out) : out(out) {}
+
+  void discover_vertex(basic_block_t bb,
+                       const interprocedural_control_flow_graph_t &) const {
+    out.push_back(bb);
+  }
+};
+
+struct ScopedIndent {
+  llvm::ScopedPrinter &SP;
+
+  ScopedIndent(llvm::ScopedPrinter &SP) : SP(SP) { SP.indent(); }
+  ~ScopedIndent() { SP.unindent(); }
+};
+
+static void dumpDecompilation(const decompilation_t& decompilation) {
   llvm::ScopedPrinter Writer(llvm::outs());
 
+  for (const auto &B : decompilation.Binaries) {
+    Writer.printString("Binary", B.Path);
+    ScopedIndent _(Writer);
+
+    const auto &ICFG = B.Analysis.ICFG;
+
+    for (const auto &F : B.Analysis.Functions) {
+      basic_block_t entry = boost::vertex(F.Entry, ICFG);
+      Writer.printHex("Function", ICFG[entry].Addr);
+
+      {
+        ScopedIndent _(Writer);
+
+        std::vector<basic_block_t> reached;
+        reached.reserve(boost::num_vertices(ICFG));
+
+        reached_visitor vis(reached);
+        boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
+
+        for (basic_block_t bb : reached)
+          Writer.printHex("BB", ICFG[bb].Addr);
+      }
+    }
+  }
+}
+
+static void dumpInput(llvm::StringRef File) {
   jove::decompilation_t decompilation;
   {
     std::ifstream ifs(File);
@@ -36,19 +86,9 @@ static void dumpInput(llvm::StringRef File) {
     ia >> decompilation;
   }
 
-  for (jove::binary_t &binary : decompilation.Binaries) {
-    Writer.printString("File", binary.Path);
+  dumpDecompilation(decompilation);
+}
 
-    Writer.indent();
-    Writer.printBinary(llvm::StringRef(), binary.Data);
-    Writer.unindent();
-
-#if 0
-    printf("  %lu Functions.\n", binary.Analysis.Functions.size());
-    printf("  %lu Basic Blocks.\n", boost::num_vertices(binary.Analysis.ICFG));
-    printf("  %lu Branches.\n", boost::num_edges(binary.Analysis.ICFG));
-#endif
-  }
 }
 
 int main(int argc, char **argv) {
@@ -56,6 +96,6 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
 
-  llvm::for_each(opts::InputFilenames, dumpInput);
+  llvm::for_each(opts::InputFilenames, jove::dumpInput);
   return 0;
 }
