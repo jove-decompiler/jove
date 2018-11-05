@@ -1,5 +1,3 @@
-#include "tcgcommon.hpp"
-
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -26,12 +24,6 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
-
-#if defined(TARGET_X86_64)
-#define ___JOVE_ARCH_NAME "x86_64"
-#elif defined(TARGET_AARCH64)
-#define ___JOVE_ARCH_NAME "aarch64"
-#endif
 
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;

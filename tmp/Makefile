@@ -52,7 +52,7 @@ bin/$(2)-$(1): bin/$(2)-$(1).o
 	clang++ -o $$@ -I include -I lib -I lib/arch/$(1) $$< $(LDFLAGS)
 
 bin/$(2)-$(1).o: tools/$(2).cpp Makefile
-	clang++ -o $$@ -c -I include -I lib -I lib/arch/$(1) $(CFLAGS) $(CXXFLAGS) -MMD $$<
+	clang++ -o $$@ -c -I include -I lib -I lib/arch/$(1) -D___JOVE_ARCH_NAME=\"$(1)\" $(CFLAGS) $(CXXFLAGS) -MMD $$<
 endef
 $(foreach tool,$(TOOLNMS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
 
