@@ -30,7 +30,7 @@ namespace opts {
 
 namespace jove {
 
-struct reached_visitor : boost::default_bfs_visitor {
+struct reached_visitor : public boost::default_bfs_visitor {
   std::vector<basic_block_t> &out;
 
   reached_visitor(std::vector<basic_block_t> &out) : out(out) {}
