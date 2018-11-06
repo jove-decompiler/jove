@@ -123,8 +123,6 @@ typedef boost::format fmt;
 
 decompilation_t decompilation;
 
-static constexpr bool debugMode = false;
-
 static bool git = false;
 
 static bool verify_arch(const obj::ObjectFile &);
@@ -565,42 +563,49 @@ int ParentProc(pid_t child) {
         if (unlikely(event)) {
           switch (event) {
           case PTRACE_EVENT_VFORK:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_VFORK) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
+                           << "]\n";
             break;
           case PTRACE_EVENT_FORK:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_FORK) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_FORK) [" << child
+                           << "]\n";
             break;
           case PTRACE_EVENT_CLONE: {
             pid_t new_child;
             ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_CLONE) -> %d [%d]\n",
-                     new_child, child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_CLONE) -> "
+                           << new_child << " [" << child << "]\n";
             break;
           }
           case PTRACE_EVENT_VFORK_DONE:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_VFORK_DONE) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
+                           << child << "]\n";
             break;
           case PTRACE_EVENT_EXEC:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_EXEC) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
+                           << "]\n";
             SeenExec = true;
             break;
           case PTRACE_EVENT_EXIT:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_EXIT) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
+                           << "]\n";
             break;
           case PTRACE_EVENT_STOP:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_STOP) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_STOP) [" << child
+                           << "]\n";
             break;
           case PTRACE_EVENT_SECCOMP:
-            if (debugMode)
-              printf("ptrace event (PTRACE_EVENT_SECCOMP) [%d]\n", child);
+            if (opts::VeryVerbose)
+              llvm::errs() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
+                           << "]\n";
             break;
           }
         } else {
@@ -978,7 +983,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // write the word back
   _ptrace_pokedata(child, Addr, word);
 
-  if (debugMode)
+  if (opts::VeryVerbose)
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
@@ -1171,7 +1176,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   _ptrace_pokeuser(child, ProgramCounterUserOffset, target);
 
-  if (debugMode)
+  if (opts::VeryVerbose)
     llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
 
 #if 1
@@ -1250,10 +1255,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   }
 #endif
 
-  //if (isNewTarget /* && !__got */)
-  printf("%s -> %s\n",
-         description_of_program_counter(_pc).c_str(),
-         description_of_program_counter(target).c_str());
+  llvm::errs() << description_of_program_counter(_pc) << " -> "
+               << description_of_program_counter(target) << '\n';
 }
 
 bool is_address_in_global_offset_table(std::uintptr_t Addr,
