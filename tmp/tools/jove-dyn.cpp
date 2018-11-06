@@ -1186,7 +1186,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       abort();
     }
   } else { /* non-local */
-    //fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
+    fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
     return;
 
 #if 0
@@ -1374,8 +1374,10 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
     if (!vm_prop.x)
       continue;
+#if 0
     if (vm_prop.off)
       continue;
+#endif
     if (vm_prop.nm.empty())
       continue;
     if (!fs::exists(vm_prop.nm))
@@ -1387,15 +1389,15 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       binary_index_t binary_idx = (*it).second;
       BinFoundVec.set(binary_idx);
 
-      fprintf(stderr, "found binary %s @ [0x%lx, 0x%lx)\n",
-              Path.c_str(),
-              vm_prop.beg,
-              vm_prop.end);
-
       binary_state_t &st = BinStateVec[binary_idx];
 
-      st.dyn.LoadAddr = vm_prop.beg;
+      st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
       st.dyn.LoadAddrEnd = vm_prop.end;
+
+      fprintf(stderr, "found binary %s @ [0x%lx, 0x%lx)\n",
+              Path.c_str(),
+              st.dyn.LoadAddr,
+              st.dyn.LoadAddrEnd);
 
       boost::icl::interval<std::uintptr_t>::type intervl =
           boost::icl::interval<std::uintptr_t>::right_open(vm_prop.beg,
@@ -1403,8 +1405,10 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       binary_index_set_t bin_idx_set = {binary_idx};
       AddressSpace.add(std::make_pair(intervl, bin_idx_set));
 
+#if 0
       if (bad_bins.find(fs::path(Path).filename().string()) != bad_bins.end())
         continue;
+#endif
 
       binary_t &binary = decompilation.Binaries[binary_idx];
 
