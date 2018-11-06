@@ -1669,13 +1669,8 @@ void dump_llvm_mcinst(llvm::MCInst &Inst, disas_t &dis) {
   const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
   llvm::MCInstPrinter &IP = std::get<2>(dis);
 
-  std::string str;
-  {
-    llvm::raw_string_ostream StrStream(str);
-    IP.printInst(&Inst, StrStream, "", STI);
-  }
-
-  llvm::errs() << str.c_str() << '\n';
+  IP.printInst(&Inst, llvm::errs(), "", STI);
+  llvm::errs() << '\n';
   llvm::errs() << "[opcode: " << Inst.getOpcode() << ']';
   for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
     const llvm::MCOperand &opnd = Inst.getOperand(i);
