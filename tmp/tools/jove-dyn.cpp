@@ -9,24 +9,30 @@
 #include <fstream>
 #include <boost/filesystem.hpp>
 #include <boost/program_options.hpp>
-#include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Support/TargetRegistry.h>
-#include <llvm/Support/TargetSelect.h>
-#include <llvm/MC/MCContext.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>
+#include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/MC/MCInstrInfo.h>
-#include <llvm/MC/MCInstPrinter.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/DataTypes.h>
+#include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/PrettyStackTrace.h>
+#include <llvm/Support/ScopedPrinter.h>
+#include <llvm/Support/Signals.h>
+#include <llvm/Support/TargetRegistry.h>
+#include <llvm/Support/TargetSelect.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
 #include <sys/user.h>
@@ -49,6 +55,7 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/dynamic_bitset.hpp>
+#include <boost/format.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -59,35 +66,57 @@
 namespace fs = boost::filesystem;
 namespace po = boost::program_options;
 namespace obj = llvm::object;
+namespace cl = llvm::cl;
+
+namespace opts {
+  static cl::opt<std::string> Prog(cl::Positional,
+    cl::desc("<program>"),
+    cl::Required);
+
+  static cl::list<std::string> Args("args",
+    cl::CommaSeparated,
+    cl::desc("<arg_1,arg_2,...,arg_n>"));
+
+  static cl::opt<std::string> jv("decompilation",
+                                 cl::desc("Jove decompilation"),
+                                 cl::Required);
+
+  static cl::opt<bool> Verbose("verbose",
+    cl::desc("Print extra information on indirect branch targets"));
+}
 
 namespace jove {
 
-static int ChildProc(int argc, char **argv);
-static int ParentProc(pid_t child, int argc, char **argv);
+static int ChildProc(void);
+static int ParentProc(pid_t child);
+
 }
 
 int main(int argc, char **argv) {
-  llvm::StringRef ToolName = argv[0];
-  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::llvm_shutdown_obj Y;
+  llvm::InitLLVM X(argc, argv);
 
-  if (argc < 3 || !fs::exists(argv[1]) || !fs::exists(argv[2])) {
-    printf("usage: %s <DECOMPILATION.jv> <PROG> [<ARG1> <ARG2> ...]\n"
-           "or\n"
-           "(git)  %s <DECOMPILATION/> <PROG> [<ARG1> <ARG2> ...]\n",
-           argv[0], argv[0]);
+  cl::ParseCommandLineOptions(argc, argv, "Jove Dynamic Analysis\n");
+
+  if (!fs::exists(opts::Prog)) {
+    llvm::errs() << "program does not exist\n";
+    return 1;
+  }
+
+  if (!fs::exists(opts::jv)) {
+    llvm::errs() << "decompilation does not exist\n";
     return 1;
   }
 
   pid_t child = fork();
   if (!child)
-    return jove::ChildProc(argc, argv);
+    return jove::ChildProc();
 
-  return jove::ParentProc(child, argc, argv);
+  return jove::ParentProc(child);
 }
 
 namespace jove {
+
+typedef boost::format fmt;
 
 decompilation_t decompilation;
 
@@ -198,9 +227,7 @@ static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
 
 static int await_process_completion(pid_t);
 
-int ParentProc(pid_t child, int argc, char **argv) {
-  const char *decompilation_path = argv[1];
-
+int ParentProc(pid_t child) {
   //
   // observe the (initial) signal-delivery-stop
   //
@@ -236,15 +263,13 @@ int ParentProc(pid_t child, int argc, char **argv) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
-  git = fs::is_directory(decompilation_path);
+  git = fs::is_directory(opts::jv);
 
   //
   // parse the existing decompilation file
   //
   {
-    std::ifstream ifs(
-        git ? (std::string(decompilation_path) + "/decompilation.jv")
-            : decompilation_path);
+    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
@@ -622,9 +647,8 @@ int ParentProc(pid_t child, int argc, char **argv) {
   // write decompilation
   //
   {
-    std::ofstream ofs(
-        git ? (std::string(decompilation_path) + "/decompilation.jv")
-            : decompilation_path);
+    std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
+                          : opts::jv);
 
     boost::archive::binary_oarchive oa(ofs);
     oa << decompilation;
@@ -636,20 +660,14 @@ int ParentProc(pid_t child, int argc, char **argv) {
   if (git) {
     const pid_t pid = fork();
     if (!pid) { /* child */
-      chdir(decompilation_path);
+      chdir(opts::jv.c_str());
 
-      std::string msg;
-      for (unsigned i = 2; i < argc; ++i) {
-        if (i != 2)
-          msg += '\'';
-
-        msg += argv[i];
-
-        if (i != 2)
-          msg += '\'';
-
-        if (i + 1 < argc)
-          msg += ' ';
+      std::string msg(opts::Prog);
+      for (const std::string &arg : opts::Args) {
+        msg.push_back(' ');
+        msg.push_back('\'');
+        msg.append(arg);
+        msg.push_back('\'');
       }
 
       std::vector<char> _msg;
@@ -952,7 +970,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     fprintf(stderr, "breakpoint placed @ 0x%lx\n", Addr);
 }
 
-static bool describe_program_counter(std::uintptr_t pc);
+static std::string description_of_program_counter(std::uintptr_t);
 
 static constexpr unsigned ProgramCounterUserOffset =
 #if defined(__x86_64__)
@@ -966,7 +984,7 @@ static bool is_address_in_global_offset_table(std::uintptr_t Addr,
                                               binary_index_t);
 
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
-  bool __got = false;
+  //bool __got = false;
 
   //
   // get program counter
@@ -1097,7 +1115,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       assert(Inst.getOperand(3).isImm());
       std::uintptr_t pcptr =
           RegValue(Inst.getOperand(0).getReg()) + Inst.getOperand(3).getImm();
-      __got = is_address_in_global_offset_table(pcptr, IndBrInfo.binary_idx);
+      //__got = is_address_in_global_offset_table(pcptr, IndBrInfo.binary_idx);
       return LoadAddr(pcptr);
     }
 
@@ -1150,8 +1168,14 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    if (debugMode)
-      fprintf(stderr, "warning: unknown target 0x%lx\n", target);
+    update_view_of_virtual_memory(child);
+    it = AddressSpace.find(target);
+  }
+
+  if (it == AddressSpace.end()) {
+    if (opts::Verbose)
+      fprintf(stderr, "warning: unknown %s\n",
+              description_of_program_counter(target).c_str());
     return;
   }
 
@@ -1186,8 +1210,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       abort();
     }
   } else { /* non-local */
-    fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
-    return;
+    //fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
 
 #if 0
     if (!update_view_of_virtual_memory(child))
@@ -1215,8 +1238,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   }
 #endif
 
-  if (isNewTarget && !__got)
-    describe_program_counter(_pc) && describe_program_counter(target);
+  //if (isNewTarget /* && !__got */)
+  printf("%s -> %s\n",
+         description_of_program_counter(_pc).c_str(),
+         description_of_program_counter(target).c_str());
 }
 
 bool is_address_in_global_offset_table(std::uintptr_t Addr,
@@ -1525,12 +1550,7 @@ void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
   }
 }
 
-int ChildProc(int argc, char **argv) {
-  //
-  // child
-  //
-  char *prog_path = argv[2];
-
+int ChildProc(void) {
   //
   // the request
   //
@@ -1546,13 +1566,17 @@ int ChildProc(int argc, char **argv) {
   // signal-delivery-stop.
   //
 
-  std::vector<char *> _argv;
-  _argv.reserve(argc + 1);
-  for (unsigned i = 2; i < argc; ++i)
-    _argv.push_back(argv[i]);
-  _argv.push_back(nullptr);
+  std::vector<char *> argv;
+  argv.resize(opts::Args.size());
+  std::transform(opts::Args.begin(), opts::Args.end(), argv.begin(),
+                 [](const std::string &arg) -> char * {
+                   return const_cast<char *>(arg.c_str());
+                 });
 
-  return execve(prog_path, _argv.data(), ::environ);
+  argv.insert(argv.begin(), const_cast<char *>(opts::Prog.c_str()));
+  argv.push_back(nullptr);
+
+  return execve(opts::Prog.c_str(), argv.data(), ::environ);
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
@@ -1661,19 +1685,22 @@ void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
   fprintf(out, "\n");
 }
 
-bool describe_program_counter(std::uintptr_t pc) {
+std::string description_of_program_counter(std::uintptr_t pc) {
+  auto simple_desc = [=](void) -> std::string {
+    return (fmt("%#lx") % pc).str();
+  };
+
   auto vm_it = vmm.find(pc);
   if (vm_it == vmm.end()) {
-    return false;
+    return simple_desc();
   } else {
     const vm_properties_set_t &vmprops = (*vm_it).second;
     const vm_properties_t &vmprop = *vmprops.begin();
 
     if (vmprop.nm.empty())
-      return false;
+      return simple_desc();
 
-    printf("%s %#lx\n", vmprop.nm.c_str(), pc - vmprop.beg + vmprop.off);
-    return true;
+    return (fmt("%s+%#lx") % vmprop.nm % (pc - vmprop.beg + vmprop.off)).str();
   }
 }
 
