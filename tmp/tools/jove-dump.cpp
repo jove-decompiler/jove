@@ -17,6 +17,7 @@
 #include <boost/graph/breadth_first_search.hpp>
 #include <boost/pending/indirect_cmp.hpp>
 #include <boost/range/irange.hpp>
+#include <boost/format.hpp>
 
 namespace cl = llvm::cl;
 
@@ -33,6 +34,8 @@ namespace opts {
 }
 
 namespace jove {
+
+typedef boost::format fmt;
 
 struct reached_visitor : public boost::default_bfs_visitor {
   std::vector<basic_block_t> &out;
@@ -70,21 +73,24 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       reached_visitor vis(blocks);
       boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
 
-      std::vector<uint64_t> addrs;
-      addrs.resize(blocks.size());
-
-      std::transform(
-          blocks.begin(), blocks.end(), addrs.begin(),
-          [&](basic_block_t bb) -> uint64_t { return ICFG[bb].Addr; });
-
       if (opts::Compact) {
+        std::vector<uint64_t> addrs;
+        addrs.resize(blocks.size());
+
+        std::transform(
+            blocks.begin(), blocks.end(), addrs.begin(),
+            [&](basic_block_t bb) -> uint64_t { return ICFG[bb].Addr; });
+
         Writer.printHexList("Fn", addrs);
       } else {
         Writer.printHex("Fn", ICFG[entry].Addr);
         ScopedIndent _(Writer);
 
-        llvm::for_each(
-            addrs, [&](uint64_t addr) -> void { Writer.printHex("bb", addr); });
+        for (basic_block_t bb : blocks) {
+          Writer.printHex(
+              (fmt("bb %s") % string_of_terminator(ICFG[bb].Term.Type)).str(),
+              ICFG[bb].Addr);
+        }
       }
     }
   }
