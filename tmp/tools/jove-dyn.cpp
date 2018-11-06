@@ -1001,11 +1001,6 @@ static bool is_address_in_global_offset_table(std::uintptr_t Addr,
                                               binary_index_t);
 
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
-  //bool __got = false;
-
-  //
-  // get program counter
-  //
   std::uintptr_t pc = _ptrace_peekuser(child, ProgramCounterUserOffset);
 
   //
@@ -1179,16 +1174,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   if (opts::VeryVerbose)
     llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
 
-#if 1
   //
   // update the decompilation based on the target
   //
   auto it = AddressSpace.find(target);
-  if (it == AddressSpace.end()) {
-    update_view_of_virtual_memory(child);
-    it = AddressSpace.find(target);
-  }
-
   if (it == AddressSpace.end()) {
     if (opts::Verbose)
       llvm::errs() << "warning: unknown binary for "
@@ -1201,35 +1190,42 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   bool isNewTarget = false;
   bool isLocal = IndBrInfo.binary_idx == binary_idx;
 
-  if (isLocal) {
-    if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-      function_index_t f_idx = translate_function(
-          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
+  const char *print_prefix = "";
 
-      {
-        basic_block_properties_t &bbprop = ICFG[bb];
-        std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
+  if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+    function_index_t f_idx = translate_function(child, binary_idx, tcg, dis,
+                                                rva_of_va(target, binary_idx));
 
-        if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
-          isNewTarget = true;
+#if 0
+      std::vector<function_index_t> &Callees = ICFG[bb].Term.Callees.Local;
 
-          Callees.push_back(f_idx);
-          std::sort(Callees.begin(), Callees.end());
-        }
+      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
+        isNewTarget = true;
+
+        Callees.push_back(f_idx);
+        std::sort(Callees.begin(), Callees.end());
       }
-    } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+#endif
+
+  } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
+    if (isLocal) {
       basic_block_index_t target_bb_idx = translate_basic_block(
           child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
     } else {
-      abort();
+      print_prefix = "non-local indirect jump: ";
     }
+  } else {
+    abort();
+  }
+
+#if 0
   } else { /* non-local */
     //llvm::errs() << (fmt("warning: non-local target @ %#lx") % target).str() << '\n';
 
-#if 0
+
     if (!update_view_of_virtual_memory(child))
       throw std::runtime_error("failed to read virtual memory maps of child");
 
@@ -1251,11 +1247,11 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         abort();
       }
     }
-#endif
   }
 #endif
 
-  llvm::errs() << description_of_program_counter(_pc) << " -> "
+  llvm::errs() << print_prefix
+               << description_of_program_counter(_pc) << " -> "
                << description_of_program_counter(target) << '\n';
 }
 
