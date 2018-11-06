@@ -78,7 +78,6 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         Writer.printHexList("Fn", addrs);
       } else {
-        Writer.printHex("Function", ICFG[entry].Addr);
         llvm::ListScope _(Writer);
 
         for (basic_block_t bb : blocks) {
