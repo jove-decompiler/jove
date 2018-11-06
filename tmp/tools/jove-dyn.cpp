@@ -83,6 +83,9 @@ namespace opts {
 
   static cl::opt<bool> Verbose("verbose",
     cl::desc("Print extra information on indirect branch targets"));
+
+  static cl::opt<bool> VeryVerbose("veryverbose",
+    cl::desc("Print information helpful for debugging ptrace"));
 }
 
 namespace jove {
@@ -231,14 +234,17 @@ int ParentProc(pid_t child) {
   //
   // observe the (initial) signal-delivery-stop
   //
-  if (debugMode)
-    fprintf(stdout, "parent: waiting for initial stop of child %d...\n", child);
+  if (opts::VeryVerbose)
+    llvm::errs() << "parent: waiting for initial stop of child " << child
+                 << "...\n";
+
   int status;
   do
     waitpid(child, &status, 0);
   while (!WIFSTOPPED(status));
-  if (debugMode)
-    fprintf(stdout, "parent: initial stop observed\n");
+
+  if (opts::VeryVerbose)
+    llvm::errs() << "parent: initial stop observed\n";
 
   //
   // select ptrace options
@@ -250,11 +256,13 @@ int ParentProc(pid_t child) {
   //
   // set those options
   //
-  if (debugMode)
-    fprintf(stdout, "parent: setting ptrace options...\n");
+  if (opts::VeryVerbose)
+    llvm::errs() << "parent: setting ptrace options...\n";
+
   ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
-  if (debugMode)
-    fprintf(stdout, "ptrace options set!\n");
+
+  if (opts::VeryVerbose)
+    llvm::errs() << "ptrace options set!\n";
 
   tiny_code_generator_t tcg;
 
@@ -283,16 +291,15 @@ int ParentProc(pid_t child) {
         llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
     if (std::error_code EC = FileOrErr.getError()) {
-      fprintf(stderr, "failed to open binary %s in given decompilation\n",
-              binary.Path.c_str());
+      llvm::errs() << "failed to open binary " << binary.Path
+                   << " in given decompilation\n";
       return 1;
     }
 
     std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
     if (binary.Data.size() != Buffer->getBufferSize() ||
         memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      fprintf(stderr, "contents of binary %s have changed\n",
-              binary.Path.c_str());
+      llvm::errs() << "contents of binary " << binary.Path << "have changed\n";
       return 1;
     }
   }
@@ -343,8 +350,7 @@ int ParentProc(pid_t child) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      fprintf(stderr, "failed to create binary from %s data\n",
-              binary.Path.c_str());
+      llvm::errs() << "failed to create binary from " << binary.Path << '\n';
       return 1;
     }
 
@@ -354,7 +360,7 @@ int ParentProc(pid_t child) {
     typedef typename obj::ELF64LEFile ELFT;
 
     if (!llvm::isa<ELFO>(Bin.get())) {
-      fprintf(stderr, "%s is not ELF64LEObjectFile\n", binary.Path.c_str());
+      llvm::errs() << binary.Path << " is not ELF64LEObjectFile\n";
       return 1;
     }
 
@@ -370,8 +376,8 @@ int ParentProc(pid_t child) {
 
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
-      fprintf(stderr, "error: could not get ELF sections for binary %s\n",
-              binary.Path.c_str());
+      llvm::errs() << "error: could not get ELF sections for binary "
+                   << binary.Path << '\n';
       return 1;
     }
 
@@ -401,9 +407,12 @@ int ParentProc(pid_t child) {
       section_properties_set_t sectprops = {sectprop};
       st.SectMap.add(std::make_pair(intervl, sectprops));
 
-      if (debugMode)
-        fprintf(stderr, "%-20s [0x%lx, 0x%lx)\n", sectprop.name.data(),
-                intervl.lower(), intervl.upper());
+      if (opts::VeryVerbose)
+        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)") %
+                         std::string(sectprop.name) % intervl.lower() %
+                         intervl.upper())
+                            .str()
+                     << '\n';
     }
   }
 
@@ -418,7 +427,7 @@ int ParentProc(pid_t child) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    fprintf(stderr, "failed to lookup target: %s\n", Error.c_str());
+    llvm::errs() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
@@ -428,27 +437,27 @@ int ParentProc(pid_t child) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    fprintf(stderr, "no register info for target\n");
+    llvm::errs() << "no register info for target\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) {
-    fprintf(stderr, "no assembly info\n");
+    llvm::errs() << "no assembly info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    fprintf(stderr, "no subtarget info\n");
+    llvm::errs() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    fprintf(stderr, "no instruction info\n");
+    llvm::errs() << "no instruction info\n";
     return 1;
   }
 
@@ -460,7 +469,7 @@ int ParentProc(pid_t child) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    fprintf(stderr, "no disassembler for target\n");
+    llvm::errs() << "no disassembler for target\n";
     return 1;
   }
 
@@ -468,7 +477,7 @@ int ParentProc(pid_t child) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    fprintf(stderr, "no instruction printer\n");
+    llvm::errs() << "no instruction printer\n";
     return 1;
   }
 
@@ -482,8 +491,7 @@ int ParentProc(pid_t child) {
       if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
                                                          : PTRACE_CONT,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-        if (debugMode)
-          fprintf(stderr, "failed to resume tracee (%s)\n", strerror(errno));
+        llvm::errs() << "failed to resume tracee : " << strerror(errno) << '\n';
     }
 
     //
@@ -498,7 +506,7 @@ int ParentProc(pid_t child) {
     child = waitpid(-1, &status, __WALL);
 
     if (unlikely(child < 0)) {
-      fprintf(stderr, "exiting... (%s)\n", strerror(errno));
+      llvm::errs() << "exiting... (" << strerror(errno) << ")\n";
       break;
     }
 
@@ -599,10 +607,10 @@ int ParentProc(pid_t child) {
           try {
             on_breakpoint(child, tcg, dis);
           } catch (const std::exception& e) {
-            fprintf(stderr, "failed to process indirect branch target : %s\n",
-                    e.what());
+            llvm::errs() << "failed to process indirect branch target : "
+                         << e.what() << '\n';
           } catch (...) {
-            fprintf(stderr, "failed to process indirect branch target\n");
+            llvm::errs() << "failed to process indirect branch target\n";
           }
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
@@ -610,8 +618,8 @@ int ParentProc(pid_t child) {
         // (3) group-stop
         //
 
-        if (debugMode)
-          fprintf(stdout, "ptrace group-stop [%d]\n", child);
+        if (opts::VeryVerbose)
+          llvm::errs() << "ptrace group-stop [" << child << "]\n";
 
         // When restarting a tracee from a ptrace-stop other than
         // signal-delivery-stop, recommended practice is to always pass 0 in
@@ -620,13 +628,14 @@ int ParentProc(pid_t child) {
         //
         // (4) signal-delivery-stop
         //
-        if (debugMode) {
+        if (opts::VeryVerbose) {
           const char *signm = name_of_signal_number(stopsig);
           if (signm)
-            fprintf(stdout, "delivering signal %s [%d]\n", signm, child);
+            llvm::errs() << "delivering signal " << signm << " [" << child
+                         << "]\n";
           else
-            fprintf(stdout, "delivering signal number %d [%d]\n", stopsig,
-                    child);
+            llvm::errs() << "delivering signal number " << stopsig << " ["
+                         << child << "]\n";
         }
 
         // deliver it
@@ -636,8 +645,8 @@ int ParentProc(pid_t child) {
       //
       // the child terminated
       //
-      if (debugMode)
-        fprintf(stdout, "child %d terminated\n", child);
+      if (opts::VeryVerbose)
+        llvm::errs() << "child " << child << " terminated\n";
 
       child = -1;
     }
@@ -697,7 +706,7 @@ int await_process_completion(pid_t pid) {
   do {
     if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
       if (errno != EINTR) {
-        fprintf(stderr, "waitpid failed : %s\n", strerror(errno));
+        llvm::errs() << "waitpid failed : " << strerror(errno) << '\n';
         abort();
       }
     }
@@ -751,7 +760,8 @@ basic_block_index_t translate_basic_block(pid_t child,
   auto &SectMap = BinStateVec[binary_idx].SectMap;
   auto sectit = SectMap.find(Addr);
   if (sectit == SectMap.end()) {
-    fprintf(stderr, "warning: no section for address 0x%lx\n", Addr);
+    llvm::errs() << (fmt("warning: no section for address 0x%lx") % Addr).str()
+                 << '\n';
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
@@ -767,7 +777,8 @@ basic_block_index_t translate_basic_block(pid_t child,
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    fprintf(stderr, "error: unknown terminator @ %#lx\n", Addr);
+    llvm::errs() << (fmt("error: unknown terminator @ %#lx") % Addr).str()
+                 << '\n';
 
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
@@ -783,8 +794,8 @@ basic_block_index_t translate_basic_block(pid_t child,
                                 A, llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n",
-                reinterpret_cast<void *>(Addr));
+        llvm::errs() << (fmt("failed to disassemble %#lx") % Addr).str()
+                     << '\n';
         break;
       }
 
@@ -804,9 +815,9 @@ basic_block_index_t translate_basic_block(pid_t child,
   auto is_invalid_terminator = [&](void) -> bool {
     if (T.Type == TERMINATOR::CALL) {
       if (SectMap.find(T._call.Target) == SectMap.end()) {
-        fprintf(stderr,
-                "warning: call to bad address 0x%lx\n",
-                T._call.Target);
+        llvm::errs()
+            << (fmt("warning: call to bad address %#lx") % T._call.Target).str()
+            << '\n';
         return true;
       }
     }
@@ -815,7 +826,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   };
 
   if (is_invalid_terminator()) {
-    fprintf(stderr, "assuming unreachable code\n");
+    llvm::errs() << "assuming unreachable code\n";
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
@@ -928,7 +939,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   return bbidx;
 }
 
-static void dump_llvm_mcinst(FILE *, llvm::MCInst &, disas_t &);
+static void dump_llvm_mcinst(llvm::MCInst &, disas_t &);
 
 void place_breakpoint_at_indirect_branch(pid_t child,
                                          std::uintptr_t Addr,
@@ -948,8 +959,9 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   };
 
   if (!is_opcode_handled(Inst.getOpcode())) {
-    fprintf(stderr, "could not place breakpoint @ 0x%lx\n", Addr);
-    dump_llvm_mcinst(stderr, Inst, dis);
+    llvm::errs() << (fmt("could not place breakpoint @ 0x%lx") % Addr).str()
+                 << '\n';
+    dump_llvm_mcinst(Inst, dis);
     return;
   }
 
@@ -967,7 +979,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   _ptrace_pokedata(child, Addr, word);
 
   if (debugMode)
-    fprintf(stderr, "breakpoint placed @ 0x%lx\n", Addr);
+    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 static std::string description_of_program_counter(std::uintptr_t);
@@ -1007,7 +1019,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       [](std::uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
-      fprintf(stderr, "unknown breakpoint @ 0x%lx", addr);
+      llvm::errs() << (fmt("unknown breakpoint @ %#lx") % addr).str();
       abort();
     }
 
@@ -1083,7 +1095,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         return __builtin_offsetof(struct user, regs.x5);
 #endif
       default:
-        fprintf(stderr, "RegOffset: unimplemented llvm reg %u\n", llreg);
+        llvm::errs() << "RegOffset: unimplemented llvm reg " << llreg << '\n';
         exit(1);
       }
     };
@@ -1132,8 +1144,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #endif
 
     default:
-      fprintf(stderr, "unimplemented indirect branch opcode %u\n",
-              Inst.getOpcode());
+      llvm::errs() << "unimplemented indirect branch opcode "
+                   << Inst.getOpcode() << '\n';
       exit(1);
     }
   };
@@ -1160,7 +1172,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   _ptrace_pokeuser(child, ProgramCounterUserOffset, target);
 
   if (debugMode)
-    fprintf(stderr, "target=0x%lx\n", target);
+    llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
 
 #if 1
   //
@@ -1174,8 +1186,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
   if (it == AddressSpace.end()) {
     if (opts::Verbose)
-      fprintf(stderr, "warning: unknown %s\n",
-              description_of_program_counter(target).c_str());
+      llvm::errs() << "warning: unknown binary for "
+                   << description_of_program_counter(target) << '\n';
     return;
   }
 
@@ -1210,7 +1222,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       abort();
     }
   } else { /* non-local */
-    //fprintf(stderr, "warning: non-local target @ 0x%lx\n", target);
+    //llvm::errs() << (fmt("warning: non-local target @ %#lx") % target).str() << '\n';
 
 #if 0
     if (!update_view_of_virtual_memory(child))
@@ -1390,7 +1402,8 @@ static const std::unordered_set<std::string> bad_bins = {
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (!update_view_of_virtual_memory(child)) {
-    fprintf(stderr, "failed to read virtual memory maps of child %d\n", child);
+    llvm::errs() << "failed to read virtual memory maps of child " << child
+                 << '\n';
     return;
   }
 
@@ -1419,10 +1432,11 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
       st.dyn.LoadAddrEnd = vm_prop.end;
 
-      fprintf(stderr, "found binary %s @ [0x%lx, 0x%lx)\n",
-              Path.c_str(),
-              st.dyn.LoadAddr,
-              st.dyn.LoadAddrEnd);
+      llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)") %
+                       Path %
+                       st.dyn.LoadAddr %
+                       st.dyn.LoadAddrEnd).str()
+                   << '\n';
 
       boost::icl::interval<std::uintptr_t>::type intervl =
           boost::icl::interval<std::uintptr_t>::right_open(vm_prop.beg,
@@ -1480,8 +1494,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         ++cnt;
       }
 
-      fprintf(stderr, "placed %u breakpoints in %s\n", cnt,
-              binary.Path.c_str());
+      llvm::errs() << "placed " << cnt << " breakpoints in " << binary.Path
+                   << '\n';
     }
   }
 }
@@ -1651,7 +1665,7 @@ bool update_view_of_virtual_memory(int child) {
   return true;
 }
 
-void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
+void dump_llvm_mcinst(llvm::MCInst &Inst, disas_t &dis) {
   const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
   llvm::MCInstPrinter &IP = std::get<2>(dis);
 
@@ -1661,8 +1675,8 @@ void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
     IP.printInst(&Inst, StrStream, "", STI);
   }
 
-  fprintf(out, "%s\n", str.c_str());
-  fprintf(out, "[opcode: %u]", Inst.getOpcode());
+  llvm::errs() << str.c_str() << '\n';
+  llvm::errs() << "[opcode: " << Inst.getOpcode() << ']';
   for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
     const llvm::MCOperand &opnd = Inst.getOperand(i);
 
@@ -1680,9 +1694,9 @@ void dump_llvm_mcinst(FILE *out, llvm::MCInst &Inst, disas_t &dis) {
     else
       snprintf(buff, sizeof(buff), "<unknown>");
 
-    fprintf(out, " %u:%s", i, buff);
+    llvm::errs() << (fmt(" %u:%s") % i % buff).str();
   }
-  fprintf(out, "\n");
+  llvm::errs() << '\n';
 }
 
 std::string description_of_program_counter(std::uintptr_t pc) {
