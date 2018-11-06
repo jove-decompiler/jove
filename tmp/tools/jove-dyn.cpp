@@ -804,12 +804,8 @@ basic_block_index_t translate_basic_block(pid_t child,
         break;
       }
 
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP.printInst(&Inst, StrStream, "", STI);
-      }
-      puts(str.c_str());
+      IP.printInst(&Inst, llvm::errs(), "", STI);
+      llvm::errs() << '\n';
     }
 
     tcg.dump_operations();
