@@ -50,19 +50,12 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
-struct ScopedIndent {
-  llvm::ScopedPrinter &SP;
-
-  ScopedIndent(llvm::ScopedPrinter &SP) : SP(SP) { SP.indent(); }
-  ~ScopedIndent() { SP.unindent(); }
-};
-
 static void dumpDecompilation(const decompilation_t& decompilation) {
   llvm::ScopedPrinter Writer(llvm::outs());
 
   for (const auto &B : decompilation.Binaries) {
     Writer.printString("Binary", B.Path);
-    ScopedIndent _(Writer);
+    llvm::ListScope _(Writer);
 
     const auto &ICFG = B.Analysis.ICFG;
 
@@ -85,13 +78,22 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         Writer.printHexList("Fn", addrs);
       } else {
-        Writer.printHex("Fn", ICFG[entry].Addr);
-        ScopedIndent _(Writer);
+        Writer.printHex("Function", ICFG[entry].Addr);
+        llvm::ListScope _(Writer);
 
         for (basic_block_t bb : blocks) {
-          Writer.printHex(
-              (fmt("bb %s") % string_of_terminator(ICFG[bb].Term.Type)).str(),
-              ICFG[bb].Addr);
+          llvm::DictScope _(Writer);
+
+          Writer.printHex("Addr", ICFG[bb].Addr);
+          Writer.printNumber("Size", ICFG[bb].Size);
+
+          {
+            llvm::DictScope _(Writer);
+
+            Writer.printHex("Addr", ICFG[bb].Term.Addr);
+            Writer.printString("Type",
+                               description_of_terminator(ICFG[bb].Term.Type));
+          }
         }
       }
     }

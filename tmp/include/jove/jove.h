@@ -126,6 +126,29 @@ inline const char *string_of_terminator(TERMINATOR TermTy) {
   }
 }
 
+inline const char *description_of_terminator(TERMINATOR TermTy) {
+  switch (TermTy) {
+  case TERMINATOR::UNKNOWN:
+    return "<?>";
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    return "<unconditional jump>";
+  case TERMINATOR::CONDITIONAL_JUMP:
+    return "<conditional jump>";
+  case TERMINATOR::INDIRECT_CALL:
+    return "<indirect call>";
+  case TERMINATOR::INDIRECT_JUMP:
+    return "<indirect jump>";
+  case TERMINATOR::CALL:
+    return "<call>";
+  case TERMINATOR::RETURN:
+    return "<return>";
+  case TERMINATOR::UNREACHABLE:
+    return "<unreachable>";
+  case TERMINATOR::NONE:
+    return "<none>";
+  }
+}
+
 struct terminator_info_t {
   TERMINATOR Type;
   std::uintptr_t Addr;
