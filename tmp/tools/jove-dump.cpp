@@ -9,6 +9,7 @@
 
 #include <fstream>
 #include <algorithm>
+#include <boost/filesystem.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/map.hpp>
@@ -19,6 +20,7 @@
 #include <boost/range/irange.hpp>
 #include <boost/format.hpp>
 
+namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 
 namespace opts {
@@ -96,10 +98,11 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
   }
 }
 
-static void dumpInput(llvm::StringRef File) {
+static void dumpInput(const std::string &Path) {
   decompilation_t decompilation;
   {
-    std::ifstream ifs(File);
+    std::ifstream ifs(fs::is_directory(Path) ? Path + "/decompilation.jv"
+                                             : Path);
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> decompilation;
@@ -114,6 +117,13 @@ int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
   cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
+
+  for (const std::string &Path : opts::InputFilenames) {
+    if (!fs::exists(Path)) {
+      llvm::errs() << Path << " does not exist\n";
+      return 1;
+    }
+  }
 
   llvm::for_each(opts::InputFilenames, jove::dumpInput);
 
