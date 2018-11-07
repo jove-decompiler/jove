@@ -69,12 +69,12 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
 
       if (opts::Compact) {
-        std::vector<uint64_t> addrs;
+        std::vector<uintptr_t> addrs;
         addrs.resize(blocks.size());
 
         std::transform(
             blocks.begin(), blocks.end(), addrs.begin(),
-            [&](basic_block_t bb) -> uint64_t { return ICFG[bb].Addr; });
+            [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
 
         Writer.printHexList("Fn", addrs);
       } else {
@@ -82,6 +82,24 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         for (basic_block_t bb : blocks) {
           llvm::DictScope _(Writer);
+
+          {
+            auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
+
+            std::vector<uintptr_t> preds;
+            preds.resize(
+                std::distance(inv_adj_it_pair.first, inv_adj_it_pair.second));
+
+            std::transform(inv_adj_it_pair.first, inv_adj_it_pair.second,
+                           preds.begin(),
+                           [&](basic_block_t target) -> uintptr_t {
+                             return ICFG[target].Addr;
+                           });
+
+            Writer.printHexList("Predecessors", preds);
+          }
+
+          Writer.getOStream() << '\n';
 
           Writer.printHex("Addr", ICFG[bb].Addr);
           Writer.printNumber("Size", ICFG[bb].Size);
@@ -92,6 +110,22 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             Writer.printHex("Addr", ICFG[bb].Term.Addr);
             Writer.printString("Type",
                                description_of_terminator(ICFG[bb].Term.Type));
+          }
+
+          Writer.getOStream() << '\n';
+
+          {
+            auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+
+            std::vector<uintptr_t> succs;
+            succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
+
+            std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
+                           [&](basic_block_t target) -> uintptr_t {
+                             return ICFG[target].Addr;
+                           });
+
+            Writer.printHexList("Successors", succs);
           }
         }
       }
