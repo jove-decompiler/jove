@@ -1186,7 +1186,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   bool isNewTarget = false;
   bool isLocal = IndBrInfo.binary_idx == binary_idx;
 
-  const char *print_prefix = "";
+  const char *print_prefix = "(call) ";
 
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
     function_index_t f_idx = translate_function(child, binary_idx, tcg, dis,
@@ -1210,8 +1210,12 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
+
+      print_prefix = "(jump) ";
     } else {
-      print_prefix = "non-local indirect jump: ";
+      // it's a tail-call
+      function_index_t f_idx = translate_function(
+          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
     }
   } else {
     abort();
@@ -1704,7 +1708,9 @@ std::string description_of_program_counter(std::uintptr_t pc) {
     if (vmprop.nm.empty())
       return simple_desc();
 
-    return (fmt("%s+%#lx") % vmprop.nm % (pc - vmprop.beg + vmprop.off)).str();
+    std::string str = fs::path(vmprop.nm).filename().string();
+    uintptr_t off = pc - vmprop.beg + vmprop.off;
+    return (fmt("%s+%#lx") % str % off).str();
   }
 }
 
