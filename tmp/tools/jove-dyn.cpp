@@ -1,5 +1,3 @@
-#define _GNU_SOURCE
-
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -45,7 +43,6 @@
 #include <sys/uio.h>
 
 #include "jove/jove.h"
-#define BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/archive/binary_iarchive.hpp>
@@ -121,7 +118,7 @@ namespace jove {
 
 typedef boost::format fmt;
 
-decompilation_t decompilation;
+static decompilation_t decompilation;
 
 static bool git = false;
 

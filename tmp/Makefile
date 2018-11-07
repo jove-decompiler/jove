@@ -5,10 +5,12 @@ CFLAGS := -Wall \
           -fno-omit-frame-pointer \
           -Og \
           -g \
-          -flto
+          -flto \
+          -D_GNU_SOURCE
 
 CXXFLAGS := -std=gnu++14 \
-            -fexceptions
+            -fexceptions \
+            -DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 
 #           -fno-rtti
 #	    -fno-exceptions

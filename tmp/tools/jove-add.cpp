@@ -28,7 +28,6 @@
 #include <llvm/Support/FileSystem.h>
 
 #include "jove/jove.h"
-#define BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/serialization/map.hpp>
