@@ -10,10 +10,10 @@ struct complex_t {
 
 #define NOINL __attribute__ ((noinline))
 
-NOINL struct complex_t cn_add(struct complex_t a, struct complex_t b);
-NOINL struct complex_t cn_sub(struct complex_t a, struct complex_t b);
-NOINL struct complex_t cn_mul(struct complex_t a, struct complex_t b);
-NOINL struct complex_t cn_div(struct complex_t a, struct complex_t b);
+NOINL struct complex_t cn_add(struct complex_t, struct complex_t);
+NOINL struct complex_t cn_sub(struct complex_t, struct complex_t);
+NOINL struct complex_t cn_mul(struct complex_t, struct complex_t);
+NOINL struct complex_t cn_div(struct complex_t, struct complex_t);
 
 NOINL void ltos(char *out, long I);
 
