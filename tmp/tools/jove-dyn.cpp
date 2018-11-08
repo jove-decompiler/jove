@@ -1576,17 +1576,23 @@ int ChildProc(void) {
   // signal-delivery-stop.
   //
 
-  std::vector<char *> argv;
-  argv.resize(opts::Args.size());
-  std::transform(opts::Args.begin(), opts::Args.end(), argv.begin(),
+  std::vector<char *> arg_vec;
+  arg_vec.resize(opts::Args.size());
+  std::transform(opts::Args.begin(), opts::Args.end(), arg_vec.begin(),
                  [](const std::string &arg) -> char * {
                    return const_cast<char *>(arg.c_str());
                  });
 
-  argv.insert(argv.begin(), const_cast<char *>(opts::Prog.c_str()));
-  argv.push_back(nullptr);
+  arg_vec.insert(arg_vec.begin(), const_cast<char *>(opts::Prog.c_str()));
+  arg_vec.push_back(nullptr);
 
-  return execve(opts::Prog.c_str(), argv.data(), ::environ);
+  std::vector<char *> env_vec;
+  for (char **env = ::environ; *env; ++env)
+    env_vec.push_back(*env);
+  env_vec.push_back(const_cast<char *>("LD_BIND_NOW=1"));
+  env_vec.push_back(nullptr);
+
+  return execve(opts::Prog.c_str(), arg_vec.data(), env_vec.data());
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
