@@ -903,23 +903,12 @@ basic_block_index_t translate_basic_block(pid_t child,
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL: {
-    function_index_t f_idx =
+  case TERMINATOR::CALL:
+    binary.Analysis.ICFG[bb].Term._call.Target =
         translate_function(child, binary_idx, tcg, dis, T._call.Target);
-
-    {
-      basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
-      std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
-
-      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
-        Callees.push_back(f_idx);
-        std::sort(Callees.begin(), Callees.end());
-      }
-    }
 
     control_flow(T._call.NextPC);
     break;
-  }
 
   case TERMINATOR::INDIRECT_CALL:
     control_flow(T._indirect_call.NextPC);
@@ -1189,17 +1178,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     function_index_t f_idx = translate_function(child, binary_idx, tcg, dis,
                                                 rva_of_va(target, binary_idx));
 
-#if 0
-      std::vector<function_index_t> &Callees = ICFG[bb].Term.Callees.Local;
-
-      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
-        isNewTarget = true;
-
-        Callees.push_back(f_idx);
-        std::sort(Callees.begin(), Callees.end());
-      }
-#endif
-
+    isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     if (isLocal) {
       basic_block_index_t target_bb_idx = translate_basic_block(
@@ -1213,6 +1192,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       // it's a tail-call
       function_index_t f_idx = translate_function(
           child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
+
+      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
     }
   } else {
     abort();

@@ -492,23 +492,12 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL: {
-    function_index_t f_idx =
+  case TERMINATOR::CALL:
+    binary.Analysis.ICFG[bb].Term._call.Target =
         translate_function(binary, tcg, dis, T._call.Target);
-
-    {
-      basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
-      std::vector<function_index_t> &Callees = bbprop.Term.Callees.Local;
-
-      if (!std::binary_search(Callees.begin(), Callees.end(), f_idx)) {
-        Callees.push_back(f_idx);
-        std::sort(Callees.begin(), Callees.end());
-      }
-    }
 
     control_flow(T._call.NextPC);
     break;
-  }
 
   case TERMINATOR::INDIRECT_CALL:
     control_flow(T._indirect_call.NextPC);

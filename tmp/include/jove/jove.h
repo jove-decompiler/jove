@@ -30,23 +30,23 @@ constexpr function_index_t invalid_function_index = 0xffffffff;
 constexpr basic_block_index_t invalid_basic_block_index = 0xffffffff;
 
 struct basic_block_properties_t {
-  std::uintptr_t Addr;
-  std::ptrdiff_t Size;
+  uintptr_t Addr;
+  unsigned Size;
 
   struct {
-    std::uintptr_t Addr;
+    uintptr_t Addr;
     TERMINATOR Type;
 
     struct {
-      std::vector<function_index_t> Local;
-      std::vector<std::pair<binary_index_t, function_index_t>> NonLocal;
-    } Callees;
+      function_index_t Target;
+    } _call;
   } Term;
+
+  std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr &Size &Term.Addr &Term.Type &Term.Callees.Local &Term.Callees
-        .NonLocal;
+    ar &Addr &Size &Term.Addr &Term.Type &Term._call.Target &DynTargets;
   }
 };
 
@@ -66,16 +66,9 @@ inline basic_block_t NullBasicBlock(void) {
 struct function_t {
   basic_block_index_t Entry;
 
-  struct {
-    struct {
-      std::vector<std::pair<unsigned, unsigned>> Arguments;
-      std::vector<std::pair<unsigned, unsigned>> LocalVars;
-    } Stack;
-  } Analysis;
-
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Entry &Analysis.Stack.Arguments &Analysis.Stack.LocalVars;
+    ar &Entry;
   }
 };
 
