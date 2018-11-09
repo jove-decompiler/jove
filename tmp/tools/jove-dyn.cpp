@@ -6,7 +6,6 @@
 #include <sstream>
 #include <fstream>
 #include <boost/filesystem.hpp>
-#include <boost/program_options.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -61,7 +60,6 @@
 #include "LLVMGenRegisterInfo.hpp"
 
 namespace fs = boost::filesystem;
-namespace po = boost::program_options;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
@@ -75,8 +73,8 @@ namespace opts {
     cl::desc("<arg_1,arg_2,...,arg_n>"));
 
   static cl::opt<std::string> jv("decompilation",
-                                 cl::desc("Jove decompilation"),
-                                 cl::Required);
+    cl::desc("Jove decompilation"),
+    cl::Required);
 
   static cl::opt<bool> Verbose("verbose",
     cl::desc("Print extra information on indirect branch targets"));
