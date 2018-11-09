@@ -13,11 +13,11 @@ typedef unsigned char u8;
 typedef unsigned int u32;
 typedef unsigned long long u64;
 
-static __attribute__((always_inline)) __u64 __le64_to_cpup(const __le64 *p) {
+inline __attribute__((always_inline)) __u64 __le64_to_cpup(const __le64 *p) {
   return (__u64)*p;
 }
 
-static inline __u64 rol64(__u64 word, unsigned int shift) {
+inline __u64 rol64(__u64 word, unsigned int shift) {
   return (word << shift) | (word >> (64 - shift));
 }
 
@@ -34,24 +34,24 @@ struct sha3_state {
   u8 buf[SHA3_224_BLOCK_SIZE];
 };
 
-static __attribute__((always_inline)) u64 get_unaligned_le64(const void *p)
+inline __attribute__((always_inline)) u64 get_unaligned_le64(const void *p)
 {
 	return __le64_to_cpup((__le64 *)p);
 }
 
-static __attribute__((always_inline)) void put_unaligned_le32(u32 val, void *p)
+inline __attribute__((always_inline)) void put_unaligned_le32(u32 val, void *p)
 {
 	*((__le32 *)p) = val;
 }
 
-static __attribute__((always_inline)) void put_unaligned_le64(u64 val, void *p)
+inline __attribute__((always_inline)) void put_unaligned_le64(u64 val, void *p)
 {
 	*((__le64 *)p) = val;
 }
 
 constexpr unsigned KECCAK_ROUNDS = 24;
 
-static const u64 keccakf_rndc[24] = {
+constexpr u64 keccakf_rndc[24] = {
     0x0000000000000001ULL, 0x0000000000008082ULL, 0x800000000000808aULL,
     0x8000000080008000ULL, 0x000000000000808bULL, 0x0000000080000001ULL,
     0x8000000080008081ULL, 0x8000000000008009ULL, 0x000000000000008aULL,
@@ -61,7 +61,7 @@ static const u64 keccakf_rndc[24] = {
     0x000000000000800aULL, 0x800000008000000aULL, 0x8000000080008081ULL,
     0x8000000000008080ULL, 0x0000000080000001ULL, 0x8000000080008008ULL};
 
-static void keccakf_round(u64 st[25])
+inline void keccakf_round(u64 st[25])
 {
 	u64 t[5], tt, bc[5];
 
@@ -164,7 +164,7 @@ static void keccakf_round(u64 st[25])
 	st[24] ^= bc[ 4];
 }
 
-static void keccakf(u64 st[25]) {
+inline void keccakf(u64 st[25]) {
   int round;
 
 #pragma unroll
@@ -175,7 +175,7 @@ static void keccakf(u64 st[25]) {
   }
 }
 
-static void sha3_256_init(struct sha3_state *sctx) {
+inline void sha3_256_init(struct sha3_state *sctx) {
   unsigned int digest_size = SHA3_256_DIGEST_SIZE;
 
   sctx->rsiz = 200 - 2 * digest_size;
@@ -185,7 +185,7 @@ static void sha3_256_init(struct sha3_state *sctx) {
   memset(sctx->st, 0, sizeof(sctx->st));
 }
 
-static int sha3_256_update(struct sha3_state *sctx,
+inline int sha3_256_update(struct sha3_state *sctx,
                            const u8 *data,
                            unsigned int len) {
   unsigned int done;
@@ -220,7 +220,7 @@ static int sha3_256_update(struct sha3_state *sctx,
   return 0;
 }
 
-static void sha3_256_final(struct sha3_state *sctx, u8 *out) {
+inline void sha3_256_final(struct sha3_state *sctx, u8 *out) {
   unsigned int i, inlen = sctx->partial;
   constexpr unsigned digest_size = SHA3_256_DIGEST_SIZE;
   __le64 *digest = (__le64 *)out;
