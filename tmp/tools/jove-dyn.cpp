@@ -118,8 +118,6 @@ typedef boost::format fmt;
 
 static decompilation_t decompilation;
 
-static bool git = false;
-
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(int child);
 
@@ -264,7 +262,7 @@ int ParentProc(pid_t child) {
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllDisassemblers();
 
-  git = fs::is_directory(opts::jv);
+  bool git = fs::is_directory(opts::jv);
 
   //
   // parse the existing decompilation file
