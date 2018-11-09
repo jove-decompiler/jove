@@ -412,8 +412,8 @@ int await_process_completion(pid_t pid) {
 unsigned num_cpus(void) {
   cpu_set_t cpu_mask;
   if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    fprintf(stderr, "sched_getaffinity failed : %s\n", strerror(errno));
-    exit(1);
+    llvm::errs() << "sched_getaffinity failed : " << strerror(errno) << '\n';
+    abort();
   }
 
   return CPU_COUNT(&cpu_mask);
