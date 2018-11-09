@@ -55,7 +55,7 @@ namespace opts {
 }
 
 namespace jove {
-static int initialize_decompilation(void);
+static int add(void);
 }
 
 int main(int argc, char **argv) {
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  return jove::initialize_decompilation();
+  return jove::add();
 }
 
 namespace jove {
@@ -101,7 +101,7 @@ static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
                                            disas_t &, target_ulong Addr);
 
-int initialize_decompilation(void) {
+int add(void) {
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.

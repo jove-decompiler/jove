@@ -55,7 +55,7 @@ namespace opts {
 }
 
 namespace jove {
-static int initialize_decompilation(void);
+static int init(void);
 }
 
 int main(int argc, char **argv) {
@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "Jove Init\n");
 
-  return jove::initialize_decompilation();
+  return jove::init();
 }
 
 namespace jove {
@@ -78,7 +78,7 @@ static int await_process_completion(pid_t);
 
 static std::string jove_add_path;
 
-int initialize_decompilation(void) {
+int init(void) {
   jove_add_path = (boost::dll::program_location().parent_path() /
                    std::string("jove-add-" ___JOVE_ARCH_NAME))
                       .string();
