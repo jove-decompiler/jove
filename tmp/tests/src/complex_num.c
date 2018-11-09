@@ -15,6 +15,8 @@ NOINL struct complex_t cn_sub(struct complex_t, struct complex_t);
 NOINL struct complex_t cn_mul(struct complex_t, struct complex_t);
 NOINL struct complex_t cn_div(struct complex_t, struct complex_t);
 
+NOINL void print_complex(struct complex_t);
+
 NOINL void ltos(char *out, long I);
 
 int main(int argc, char **argv) {
@@ -47,23 +49,7 @@ int main(int argc, char **argv) {
     return 1;
   };
 
-  {
-    char buff[65];
-    ltos(buff, c.real);
-    fputs(buff, stdout);
-  }
-
-  putchar('+');
-
-  {
-    char buff[65];
-    ltos(buff, c.imag);
-    fputs(buff, stdout);
-  }
-
-  putchar('i');
-  putchar('\n');
-
+  print_complex(c);
   return 0;
 }
 
@@ -126,4 +112,26 @@ void ltos(char *out, long I) {
     *out++ = *p;
 
   *out++ = '\0';
+}
+
+void print_complex(struct complex_t c) {
+  {
+    char buff[65];
+    ltos(buff, c.real);
+
+    fputs(buff, stdout);
+  }
+
+  putchar('+');
+
+  {
+    char buff[65];
+    ltos(buff, c.imag);
+
+    fputs(buff, stdout);
+  }
+
+  putchar('i');
+  putchar('\n');
+
 }
