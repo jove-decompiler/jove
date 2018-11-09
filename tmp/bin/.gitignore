@@ -1,11 +1,2 @@
-tcgdump-*
-tcgdefs-*
-tcgconstants-*
-jove-llvm-*
-jove-dyn-*
-jove-init-*
-jove-dump-*
-jove-add-*
-*.so
-*.o
-*.jv
+*
+!.gitignore
