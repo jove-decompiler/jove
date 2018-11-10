@@ -8186,6 +8186,7 @@ static TCGOp *icount_start_insn;
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
+#if 0
     TCGv_i32 count, imm;
 
     tcg_ctx->exitreq_label = gen_new_label();
@@ -8218,10 +8219,12 @@ static inline void gen_tb_start(TranslationBlock *tb)
     }
 
     tcg_temp_free_i32(count);
+#endif
 }
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+#if 0
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */
@@ -8230,6 +8233,7 @@ static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 
     gen_set_label(tcg_ctx->exitreq_label);
     tcg_gen_exit_tb((uintptr_t)tb + TB_EXIT_REQUESTED);
+#endif
 }
 
 static inline void gen_io_start(void)
