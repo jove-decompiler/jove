@@ -12,8 +12,8 @@ CFLAGS := -Weverything \
 #
 # important directories
 #
-SRCDIR := $(ROOT_DIR)/src
-BINDIR := $(ROOT_DIR)/bin
+SRCDIR := src
+BINDIR := bin
 
 #
 # find tests
