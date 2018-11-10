@@ -13,21 +13,29 @@
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCInstPrinter.h>
+#include <llvm/Support/CommandLine.h>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/InitLLVM.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
+namespace cl = llvm::cl;
+
+namespace opts {
+  static cl::opt<std::string> Binary(cl::Positional,
+    cl::desc("<binary>"),
+    cl::Required);
+}
 
 int main(int argc, char **argv) {
-  llvm::StringRef ToolName = argv[0];
-  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::llvm_shutdown_obj Y;
+  llvm::InitLLVM X(argc, argv);
 
-  if (argc != 2 || !fs::exists(argv[1])) {
-    printf("usage: %s objfile\n", argv[0]);
+  cl::ParseCommandLineOptions(argc, argv, "TCG Dump\n");
+
+  if (!fs::exists(opts::Binary)) {
+    llvm::errs() << "given binary " << opts::Binary << " does not exist\n";
     return 1;
   }
 
@@ -39,7 +47,7 @@ int main(int argc, char **argv) {
   llvm::InitializeAllDisassemblers();
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
-      obj::createBinary(argv[1]);
+      obj::createBinary(opts::Binary);
 
   if (!BinaryOrErr ||
       !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
