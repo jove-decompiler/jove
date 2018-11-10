@@ -9904,6 +9904,9 @@ static void disas_uncond_b_reg(DisasContext *s, uint32_t insn)
         return;
     }
 
+    if (opc == 2)
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+
     switch (opc) {
     case 0: /* BR */
     case 1: /* BLR */
