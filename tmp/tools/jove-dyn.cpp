@@ -528,14 +528,13 @@ int ParentProc(pid_t child) {
           unsigned long syscall_num;
 
           try {
-            syscall_num =
-                _ptrace_peekuser(child,
+            syscall_num = _ptrace_peekuser(child,
 #if defined(__x86_64__)
-                                 __builtin_offsetof(struct user, regs.orig_rax)
-#elif defined(__arm64__)
-                                 __builtin_offsetof(struct user, regs.r8)
+                __builtin_offsetof(struct user_regs_struct, orig_rax)
+#elif defined(__aarch64__)
+                __builtin_offsetof(struct user_regs_struct, regs[8])
 #endif
-                );
+              );
           } catch (...) {
             continue;
           }
@@ -954,7 +953,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // insert breakpoint
 #if defined(TARGET_X86_64) && defined(__x86_64__)
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
+#elif defined(TARGET_AARCH64) && defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
 #endif
 
@@ -969,9 +968,9 @@ static std::string description_of_program_counter(std::uintptr_t);
 
 static constexpr unsigned ProgramCounterUserOffset =
 #if defined(__x86_64__)
-    __builtin_offsetof(struct user, regs.rip)
-#elif defined(__arm64__)
-    __builtin_offsetof(struct user, regs.pc)
+    __builtin_offsetof(struct user_regs_struct, rip)
+#elif defined(__aarch64__)
+    __builtin_offsetof(struct user_regs_struct, pc)
 #endif
     ;
 
@@ -1023,54 +1022,54 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   auto RegValue = [child](unsigned llreg) -> unsigned long {
     auto UserOffsetOfLLVMReg = [](unsigned llreg) -> unsigned {
       switch (llreg) {
-#if defined(TARGET_X86_64) && defined(__x86_64__)
+#if defined(__x86_64__)
       case llvm::X86::RAX:
-        return __builtin_offsetof(struct user, regs.rax);
+        return __builtin_offsetof(struct user_regs_struct, rax);
       case llvm::X86::RBP:
-        return __builtin_offsetof(struct user, regs.rbp);
+        return __builtin_offsetof(struct user_regs_struct, rbp);
       case llvm::X86::RBX:
-        return __builtin_offsetof(struct user, regs.rbx);
+        return __builtin_offsetof(struct user_regs_struct, rbx);
       case llvm::X86::RCX:
-        return __builtin_offsetof(struct user, regs.rcx);
+        return __builtin_offsetof(struct user_regs_struct, rcx);
       case llvm::X86::RDI:
-        return __builtin_offsetof(struct user, regs.rdi);
+        return __builtin_offsetof(struct user_regs_struct, rdi);
       case llvm::X86::RDX:
-        return __builtin_offsetof(struct user, regs.rdx);
+        return __builtin_offsetof(struct user_regs_struct, rdx);
       case llvm::X86::RIP:
-        return __builtin_offsetof(struct user, regs.rip);
+        return __builtin_offsetof(struct user_regs_struct, rip);
       case llvm::X86::RSI:
-        return __builtin_offsetof(struct user, regs.rsi);
+        return __builtin_offsetof(struct user_regs_struct, rsi);
       case llvm::X86::RSP:
-        return __builtin_offsetof(struct user, regs.rsp);
+        return __builtin_offsetof(struct user_regs_struct, rsp);
       case llvm::X86::R8:
-        return __builtin_offsetof(struct user, regs.r8);
+        return __builtin_offsetof(struct user_regs_struct, r8);
       case llvm::X86::R9:
-        return __builtin_offsetof(struct user, regs.r9);
+        return __builtin_offsetof(struct user_regs_struct, r9);
       case llvm::X86::R10:
-        return __builtin_offsetof(struct user, regs.r10);
+        return __builtin_offsetof(struct user_regs_struct, r10);
       case llvm::X86::R11:
-        return __builtin_offsetof(struct user, regs.r11);
+        return __builtin_offsetof(struct user_regs_struct, r11);
       case llvm::X86::R12:
-        return __builtin_offsetof(struct user, regs.r12);
+        return __builtin_offsetof(struct user_regs_struct, r12);
       case llvm::X86::R13:
-        return __builtin_offsetof(struct user, regs.r13);
+        return __builtin_offsetof(struct user_regs_struct, r13);
       case llvm::X86::R14:
-        return __builtin_offsetof(struct user, regs.r14);
+        return __builtin_offsetof(struct user_regs_struct, r14);
       case llvm::X86::R15:
-        return __builtin_offsetof(struct user, regs.r15);
-#elif defined(TARGET_AARCH64) && defined(__arm64__)
+        return __builtin_offsetof(struct user_regs_struct, r15);
+#elif defined(__aarch64__)
       case llvm::AArch64::X0:
-        return __builtin_offsetof(struct user, regs.x0);
+        return __builtin_offsetof(struct user_regs_struct, regs[0]);
       case llvm::AArch64::X1:
-        return __builtin_offsetof(struct user, regs.x1);
+        return __builtin_offsetof(struct user_regs_struct, regs[1]);
       case llvm::AArch64::X2:
-        return __builtin_offsetof(struct user, regs.x2);
+        return __builtin_offsetof(struct user_regs_struct, regs[2]);
       case llvm::AArch64::X3:
-        return __builtin_offsetof(struct user, regs.x3);
+        return __builtin_offsetof(struct user_regs_struct, regs[3]);
       case llvm::AArch64::X4:
-        return __builtin_offsetof(struct user, regs.x4);
+        return __builtin_offsetof(struct user_regs_struct, regs[4]);
       case llvm::AArch64::X5:
-        return __builtin_offsetof(struct user, regs.x5);
+        return __builtin_offsetof(struct user_regs_struct, regs[5]);
 #endif
       default:
         llvm::errs() << "RegOffset: unimplemented llvm reg " << llreg << '\n';

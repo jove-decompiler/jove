@@ -1,6 +1,6 @@
-#undef R_386_PC32 /* XXX */
-#undef R_386_PC8  /* XXX */
-#undef R_386_32   /* XXX */
+#undef R_AARCH64_JUMP26 /* XXX */
+#undef R_AARCH64_CONDBR19 /* XXX */
+#undef R_AARCH64_CALL26 /* XXX */
 
 uint32_t helper_sxtb16 (uint32_t) { return 0; }
 uint32_t helper_uxtb16 (uint32_t) { return 0; }
