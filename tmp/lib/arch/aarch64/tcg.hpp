@@ -9421,6 +9421,12 @@ static void disas_comp_b_imm(DisasContext *s, uint32_t insn)
     tcg_gen_brcondi_i64(op ? TCG_COND_NE : TCG_COND_EQ,
                         tcg_cmp, 0, label_match);
 
+    {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = addr;
+        s->base.tb->jove.T._conditional_jump.NextPC = s->pc;
+    }
+
     gen_goto_tb64(s, 0, s->pc);
     gen_set_label(label_match);
     gen_goto_tb64(s, 1, addr);
@@ -9444,6 +9450,11 @@ static void disas_test_b_imm(DisasContext *s, uint32_t insn)
     tcg_gen_brcondi_i64(op ? TCG_COND_NE : TCG_COND_EQ,
                         tcg_cmp, 0, label_match);
     tcg_temp_free_i64(tcg_cmp);
+    {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = addr;
+        s->base.tb->jove.T._conditional_jump.NextPC = s->pc;
+    }
     gen_goto_tb64(s, 0, s->pc);
     gen_set_label(label_match);
     gen_goto_tb64(s, 1, addr);
@@ -9465,10 +9476,18 @@ static void disas_cond_b_imm(DisasContext *s, uint32_t insn)
         /* genuinely conditional branches */
         TCGLabel *label_match = gen_new_label();
         arm_gen_test_cc(cond, label_match);
+        {
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            s->base.tb->jove.T._conditional_jump.Target = addr;
+            s->base.tb->jove.T._conditional_jump.NextPC = s->pc;
+        }
         gen_goto_tb64(s, 0, s->pc);
         gen_set_label(label_match);
         gen_goto_tb64(s, 1, addr);
     } else {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = addr;
+
         /* 0xe and 0xf are both "always" conditions */
         gen_goto_tb64(s, 0, addr);
     }
@@ -9911,7 +9930,11 @@ static void disas_uncond_b_reg(DisasContext *s, uint32_t insn)
         return;
     }
 
-    if (opc == 2)
+    if (opc == 0)
+        s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
+    else if (opc == 1)
+        s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+    else if (opc == 2)
         s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
 
     switch (opc) {
