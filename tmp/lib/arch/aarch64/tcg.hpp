@@ -9390,6 +9390,13 @@ static void disas_uncond_b_imm(DisasContext *s, uint32_t insn)
     if (insn & (1U << 31)) {
         /* BL Branch with link */
         tcg_gen_movi_i64(cpu_reg(s, 30), s->pc);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+        s->base.tb->jove.T._call.Target = addr;
+        s->base.tb->jove.T._call.NextPC = s->pc;
+    } else {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = addr;
     }
 
     /* B Branch / BL Branch with link */
