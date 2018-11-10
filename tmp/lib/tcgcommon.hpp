@@ -61,9 +61,9 @@ int qemu_log(const char *fmt, ...) {
 namespace jove {
 
 struct tiny_code_generator_t {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
   X86CPU _cpu;
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
   ARMCPU _cpu;
 #endif
 
@@ -75,7 +75,7 @@ struct tiny_code_generator_t {
 
     _cpu.parent_obj.env_ptr = &_cpu.env;
 
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
     _cpu.env.eflags = 514;
     _cpu.env.hflags = 0x0040c0b3;
     _cpu.env.hflags2 = 1;
@@ -92,7 +92,7 @@ struct tiny_code_generator_t {
     _cpu.env.features[5] = 563346429;
     _cpu.env.features[6] = 5;
     _cpu.env.user_features[0] = 2;
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
     _cpu.env.aarch64 = 1;
     _cpu.env.features = 192517101788915;
 #endif
@@ -103,9 +103,9 @@ struct tiny_code_generator_t {
     tcg_context_init(&_ctx);
     _ctx.cpu = &_cpu.parent_obj;
 
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
     tcg_x86_init();
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
     arm_translate_init();
 #endif
   }
@@ -124,9 +124,9 @@ struct tiny_code_generator_t {
     memset(&tb, 0, sizeof(tb));
 
     tb.pc = pc;
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
     tb.flags = _cpu.env.hflags;
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
     tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
 #endif
     tb.jove.T.Addr = pc;
