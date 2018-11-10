@@ -9930,12 +9930,14 @@ static void disas_uncond_b_reg(DisasContext *s, uint32_t insn)
         return;
     }
 
-    if (opc == 0)
+    if (opc == 0) {
         s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
-    else if (opc == 1)
+    } else if (opc == 1) {
         s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
-    else if (opc == 2)
+        s->base.tb->jove.T._indirect_call.NextPC = s->pc;
+    } else if (opc == 2) {
         s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+    }
 
     switch (opc) {
     case 0: /* BR */
@@ -46489,6 +46491,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             db->is_jmp = DISAS_TOO_MANY;
             break;
         }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
