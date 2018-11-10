@@ -190,6 +190,8 @@ int main(int argc, char **argv) {
     tcg.dump_operations();
 
     fputc('\n', stdout);
+    puts(description_of_terminator(T.Type));
+    fputc('\n', stdout);
   }
 
   return 0;
