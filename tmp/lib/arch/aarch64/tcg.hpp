@@ -243,7 +243,7 @@ typedef struct QEMUTimer QEMUTimer;
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern int qemu_icache_linesize;
+int qemu_icache_linesize;
 
 #define CP_REG_ARM_COPROC_SHIFT        16
 
@@ -586,7 +586,7 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
 
 #define CPUArchState struct CPUARMState
 
-extern bool tcg_allowed;
+bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -792,7 +792,7 @@ struct QemuThread {
     pthread_t thread;
 };
 
-void qemu_mutex_lock_impl(QemuMutex *mutex, const char *file, const int line);
+void qemu_mutex_lock_impl(QemuMutex *mutex, const char *file, const int line) {}
 
 #define qemu_mutex_lock(mutex) \
         qemu_mutex_lock_impl(mutex, __FILE__, __LINE__)
@@ -800,7 +800,7 @@ void qemu_mutex_lock_impl(QemuMutex *mutex, const char *file, const int line);
 #define qemu_mutex_unlock(mutex) \
         qemu_mutex_unlock_impl(mutex, __FILE__, __LINE__)
 
-void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line);
+void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line) {}
 
 #define CPU(obj) ((CPUState *)(obj))
 
@@ -965,7 +965,7 @@ QTAILQ_HEAD(CPUTailQ, CPUState);
 
 #define CPU_FOREACH(cpu) QTAILQ_FOREACH(cpu, &cpus, node)
 
-extern struct CPUTailQ cpus;
+struct CPUTailQ cpus;
 
 static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
 {
@@ -976,7 +976,7 @@ static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
     }
 }
 
-void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data);
+void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data) {}
 
 #define BP_CPU                0x20
 
@@ -2440,7 +2440,7 @@ extern unsigned long guest_base;
 
 #define TARGET_PAGE_MASK ~(TARGET_PAGE_SIZE - 1)
 
-extern uintptr_t qemu_host_page_size;
+uintptr_t qemu_host_page_size;
 
 #define PAGE_READ      0x0001
 
@@ -2450,7 +2450,7 @@ extern uintptr_t qemu_host_page_size;
 
 #define PAGE_BITS      (PAGE_READ | PAGE_WRITE | PAGE_EXEC)
 
-extern intptr_t qemu_host_page_mask;
+intptr_t qemu_host_page_mask;
 
 int page_get_flags(target_ulong address);
 
@@ -2615,9 +2615,9 @@ struct qht {
 
 typedef void (*qht_iter_func_t)(struct qht *ht, void *p, uint32_t h, void *up);
 
-bool qht_insert(struct qht *ht, void *p, uint32_t hash);
+bool qht_insert(struct qht *ht, void *p, uint32_t hash) { return false; }
 
-bool qht_reset_size(struct qht *ht, size_t n_elems);
+bool qht_reset_size(struct qht *ht, size_t n_elems) { return false; }
 
 void qht_iter(struct qht *ht, qht_iter_func_t func, void *userp);
 
@@ -2695,7 +2695,7 @@ void qemu_log_flush(void);
 
 void gen_intermediate_code(CPUState *cpu, struct TranslationBlock *tb);
 
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
+void cpu_loop_exit(CPUState *cpu) {}
 
 #define CODE_GEN_ALIGN           16
 
@@ -2770,11 +2770,11 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
     return atomic_read(&tb->cflags);
 }
 
-void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
+void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr) {}
 
-void mmap_unlock(void);
+void mmap_unlock(void) {}
 
-bool have_mmap_lock(void);
+bool have_mmap_lock(void) { return false; }
 
 static inline tb_page_addr_t get_page_addr_code(CPUArchState *env1, target_ulong addr)
 {
@@ -7621,7 +7621,7 @@ void tcg_gen_vec_shr16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 
 void tcg_gen_vec_sar8i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 void tcg_gen_vec_sar16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t);
 
