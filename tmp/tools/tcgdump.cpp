@@ -190,7 +190,29 @@ int main(int argc, char **argv) {
     tcg.dump_operations();
 
     fputc('\n', stdout);
-    puts(description_of_terminator(T.Type));
+    printf("%s @ %#lx\n", description_of_terminator(T.Type), T.Addr);
+    switch (T.Type) {
+    case jove::TERMINATOR::UNCONDITIONAL_JUMP:
+      printf("Target: %#lx\n", T._unconditional_jump.Target);
+      break;
+
+    case jove::TERMINATOR::CONDITIONAL_JUMP:
+      printf("Target: %#lx\n", T._conditional_jump.Target);
+      printf("NextPC: %#lx\n", T._conditional_jump.NextPC);
+      break;
+
+    case jove::TERMINATOR::INDIRECT_CALL:
+      printf("NextPC: %#lx\n", T._indirect_call.NextPC);
+      break;
+
+    case jove::TERMINATOR::CALL:
+      printf("Target: %#lx\n", T._call.Target);
+      printf("NextPC: %#lx\n", T._call.NextPC);
+      break;
+
+    default:
+      break;
+    }
     fputc('\n', stdout);
   }
 
