@@ -2894,7 +2894,7 @@ struct TCGContext {
     target_ulong gen_insn_data[TCG_MAX_INSNS][TARGET_INSN_START_WORDS];
 };
 
-extern __thread TCGContext *tcg_ctx;
+extern TCGContext *tcg_ctx;
 
 extern TCGv_env cpu_env;
 
@@ -26288,11 +26288,11 @@ static int v_l2_levels;
 
 static void *l1_map[V_L1_MAX_SIZE];
 
-__thread TCGContext *tcg_ctx;
+TCGContext *tcg_ctx;
 
 TBContext tb_ctx;
 
-static __thread int have_tb_lock;
+static int have_tb_lock;
 
 #define assert_tb_locked() tcg_debug_assert(have_tb_lock)
 
