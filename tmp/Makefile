@@ -1,19 +1,24 @@
-CFLAGS := -Wall \
-          -Wno-macro-redefined \
-          -Wno-shift-count-negative \
-          -Wno-initializer-overrides \
-          -fno-omit-frame-pointer \
-          -Og \
-          -g \
-          -flto \
-          -D_GNU_SOURCE
+ARCH := $(shell uname -m)
 
+#
+# build flags
+#
 CXXFLAGS := -std=gnu++14 \
+            -Wall \
+            -Wno-macro-redefined \
+            -Wno-shift-count-negative \
+            -Wno-initializer-overrides \
+            -fno-omit-frame-pointer \
             -fexceptions \
+            -flto \
+            -Og \
+            -g \
+            -I include \
+            -I lib \
+            -I lib/arch/$(ARCH) \
+            -D___JOVE_ARCH_NAME=\"$(ARCH)\" \
+            -D_GNU_SOURCE \
             -DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
-
-#           -fno-rtti
-#	    -fno-exceptions
 
 LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
@@ -24,41 +29,34 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -lboost_program_options \
            -lboost_serialization \
            -flto \
-           -g \
+           -O3 \
            -fuse-ld=lld
 
-ARCHS := x86_64 \
-         aarch64
+#
+# important directories
+#
+SRCDIR := tools
+BINDIR := bin
 
-TOOLNMS := tcgdump \
-           tcgdefs \
-           tcgconstants \
-           jove-llvm \
-           jove-dyn \
-           jove-add \
-           jove-init \
-           jove-dump
+#
+# find tools
+#
+SRCS  := $(wildcard $(SRCDIR)/*.cpp)
+TOOLS := $(patsubst $(SRCDIR)/%.cpp,%,$(SRCS))
+BINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
 
-tools = $(foreach arch,$(ARCHS),bin/$(1)-$(arch))
-deps = $(foreach arch,$(ARCHS),bin/$(1)-$(arch).d)
-objs = $(foreach arch,$(ARCHS),bin/$(1)-$(arch).o)
+all: $(BINS)
 
-ALL_TOOLS := $(foreach tool,$(TOOLNMS),$(call tools,$(tool)))
-ALL_OBJS := $(foreach tool,$(TOOLNMS),$(call objs,$(tool)))
-ALL_DEPS := $(foreach tool,$(TOOLNMS),$(call deps,$(tool)))
+define build_tool_template
+$(BINDIR)/$(1): $(BINDIR)/$(1).o
+	@echo LD $(1)
+	@clang++ -o $$@ $$< $(LDFLAGS)
 
-all: $(ALL_TOOLS)
-
-define tcgtool_template
-bin/$(2)-$(1): bin/$(2)-$(1).o
-	clang++ -o $$@ -I include -I lib -I lib/arch/$(1) $$< $(LDFLAGS)
-
-bin/$(2)-$(1).o: tools/$(2).cpp Makefile
-	clang++ -o $$@ -c -I include -I lib -I lib/arch/$(1) -D___JOVE_ARCH_NAME=\"$(1)\" $(CFLAGS) $(CXXFLAGS) -MMD $$<
+$(BINDIR)/$(1).o: $(SRCDIR)/$(1).cpp
+	@echo CXX $(1)
+	@clang++ -o $$@ -c $(CXXFLAGS) $$<
 endef
-$(foreach tool,$(TOOLNMS),$(foreach arch,$(ARCHS),$(eval $(call tcgtool_template,$(arch),$(tool)))))
-
--include $(ALL_DEPS)
+$(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
 #
 # for extricating QEMU code
