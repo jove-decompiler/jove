@@ -79,9 +79,9 @@ static int await_process_completion(pid_t);
 static std::string jove_add_path;
 
 int init(void) {
-  jove_add_path = (boost::dll::program_location().parent_path() /
-                   std::string("jove-add-" ___JOVE_ARCH_NAME))
-                      .string();
+  jove_add_path =
+      (boost::dll::program_location().parent_path() / std::string("jove-add"))
+          .string();
   if (!fs::exists(jove_add_path)) {
     llvm::errs() << "could not find jove-add at " << jove_add_path << '\n';
     return 1;
