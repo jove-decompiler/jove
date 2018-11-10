@@ -9,8 +9,8 @@ CXXFLAGS := -std=gnu++14 \
             -Wno-shift-count-negative \
             -Wno-initializer-overrides \
             -fno-omit-frame-pointer \
+            -fvisibility=hidden \
             -fexceptions \
-            -flto \
             -ferror-limit=0 \
             -Og \
             -g \
@@ -28,10 +28,7 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -lboost_filesystem \
            -lboost_system \
            -lboost_program_options \
-           -lboost_serialization \
-           -flto \
-           -O3 \
-           -fuse-ld=gold
+           -lboost_serialization
 
 #
 # important directories
@@ -45,24 +42,19 @@ BINDIR := bin
 SRCS  := $(wildcard $(SRCDIR)/*.cpp)
 TOOLS := $(patsubst $(SRCDIR)/%.cpp,%,$(SRCS))
 BINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
-OBJS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).o)
 
 all: $(BINS)
 
 define build_tool_template
-$(BINDIR)/$(1): $(BINDIR)/$(1).o
-	@echo LD $(1)
-	@clang++ -o $$@ $$< $(LDFLAGS)
-
-$(BINDIR)/$(1).o: $(SRCDIR)/$(1).cpp
+$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp lib/arch/$(ARCH)/tcg.hpp
 	@echo CXX $(1)
-	@clang++ -o $$@ -c $(CXXFLAGS) $$<
+	@clang++ -o $$@ $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
 .PHONY: clean
 clean:
-	rm -f $(BINS) $(OBJS)
+	rm -f $(BINS)
 
 #
 # for extricating QEMU code
