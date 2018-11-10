@@ -26,6 +26,7 @@
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/WithColor.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -40,6 +41,8 @@
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
+
+using llvm::WithColor;
 
 namespace opts {
   static cl::opt<std::string> Input("input",
@@ -419,8 +422,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    llvm::errs() << "error: unknown terminator @ " << (fmt("%#lx") % Addr).str()
-                 << '\n';
+    WithColor::error() << "error: unknown terminator @ "
+                       << (fmt("%#lx") % Addr).str() << '\n';
 
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
@@ -436,8 +439,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                                 A, llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
-        llvm::errs() << "failed to disassemble " << (fmt("%#lx") % Addr).str()
-                     << '\n';
+        WithColor::error() << "failed to disassemble "
+                           << (fmt("%#lx") % Addr).str() << '\n';
         break;
       }
 
@@ -445,8 +448,11 @@ basic_block_index_t translate_basic_block(binary_t &binary,
       llvm::errs() << '\n';
     }
 
+#if 0
     tcg.dump_operations();
     fputc('\n', stdout);
+#endif
+
     return invalid_basic_block_index;
   }
 
