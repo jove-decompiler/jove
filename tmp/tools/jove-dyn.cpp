@@ -954,7 +954,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #if defined(TARGET_X86_64) && defined(__x86_64__)
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(TARGET_AARCH64) && defined(__aarch64__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0xf2000800;
+  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
 #endif
 
   // write the word back
@@ -985,6 +985,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
 #if defined(__x86_64__)
   pc -= 1; /* int3 */
+#elif defined(__aarch64__)
+  pc -= 4; /* brk */
 #endif
 
   //
