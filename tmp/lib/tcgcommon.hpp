@@ -133,7 +133,7 @@ struct tiny_code_generator_t {
     tb.jove.T.Type = TERMINATOR::UNKNOWN;
 
     gen_intermediate_code(&_cpu.parent_obj, &tb);
-
+#if 0
     tcg_optimize(&_ctx);
     liveness_pass_1(&_ctx);
     if (_ctx.nb_indirects > 0) {
@@ -143,7 +143,7 @@ struct tiny_code_generator_t {
         liveness_pass_1(&_ctx);
       }
     }
-
+#endif
     return std::make_pair(tb.size, tb.jove.T);
   }
 
