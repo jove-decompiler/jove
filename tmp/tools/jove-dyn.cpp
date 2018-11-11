@@ -42,16 +42,19 @@
 #include <sys/uio.h>
 
 #include "jove/jove.h"
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
+#include <boost/dynamic_bitset.hpp>
+#include <boost/format.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
+#include <boost/icl/interval_set.hpp>
+#include <boost/icl/split_interval_map.hpp>
+#include <boost/preprocessor/cat.hpp>
+#include <boost/preprocessor/repetition/repeat.hpp>
+#include <boost/preprocessor/repetition/repeat_from_to.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
-#include <boost/graph/adj_list_serialize.hpp>
-#include <boost/dynamic_bitset.hpp>
-#include <boost/format.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -596,14 +599,7 @@ int ParentProc(pid_t child) {
             break;
           }
         } else {
-          try {
-            on_breakpoint(child, tcg, dis);
-          } catch (const std::exception& e) {
-            llvm::errs() << "failed to process indirect branch target : "
-                         << e.what() << '\n';
-          } catch (...) {
-            llvm::errs() << "failed to process indirect branch target\n";
-          }
+          on_breakpoint(child, tcg, dis);
         }
       } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
         //
@@ -916,7 +912,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   return bbidx;
 }
 
-static void dump_llvm_mcinst(llvm::MCInst &, disas_t &);
+static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
 void place_breakpoint_at_indirect_branch(pid_t child,
                                          uintptr_t Addr,
@@ -931,16 +927,14 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            opc == llvm::X86::CALL64m ||
            opc == llvm::X86::CALL64r;
 #elif defined(__aarch64__)
-    return opc == llvm::AArch64::BLR;
+    return opc == llvm::AArch64::BLR ||
+           opc == llvm::AArch64::BR;
 #endif
   };
 
-  if (!is_opcode_handled(Inst.getOpcode())) {
-    llvm::errs() << (fmt("could not place breakpoint @ 0x%lx") % Addr).str()
-                 << '\n';
-    dump_llvm_mcinst(Inst, dis);
-    return;
-  }
+  if (!is_opcode_handled(Inst.getOpcode()))
+    throw std::runtime_error((fmt("could not place breakpoint @ %#lx\n%s") %
+                              Addr % StringOfMCInst(Inst, dis)).str());
 
   // read a word of the branch instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
@@ -974,7 +968,7 @@ struct ScopedGPR {
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   ScopedGPR _scoped_gpr(child);
 
-  struct user_regs_struct &gpr = _scoped_gpr.gpr;
+  auto &gpr = _scoped_gpr.gpr;
 
   auto &pc =
 #if defined(__x86_64__)
@@ -990,7 +984,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #if defined(__x86_64__)
   pc -= 1; /* int3 */
 #elif defined(__aarch64__)
-  pc -= 4; /* brk */
+  //pc -= 4; /* brk */
 #endif
 
   //
@@ -1042,36 +1036,27 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       return gpr.rsi;
     case llvm::X86::RSP:
       return gpr.rsp;
-    case llvm::X86::R8:
-      return gpr.r8;
-    case llvm::X86::R9:
-      return gpr.r9;
-    case llvm::X86::R10:
-      return gpr.r10;
-    case llvm::X86::R11:
-      return gpr.r11;
-    case llvm::X86::R12:
-      return gpr.r12;
-    case llvm::X86::R13:
-      return gpr.r13;
-    case llvm::X86::R14:
-      return gpr.r14;
-    case llvm::X86::R15:
-      return gpr.r15;
+
+#define __REG_CASE(n, i, data)                                                 \
+  case BOOST_PP_CAT(llvm::X86::R, i):                                          \
+    return BOOST_PP_CAT(gpr.r, i);
+
+BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
+
+#undef __REG_CASE
+
 #elif defined(__aarch64__)
-    case llvm::AArch64::X0:
-      return gpr.regs[0];
-    case llvm::AArch64::X1:
-      return gpr.regs[1];
-    case llvm::AArch64::X2:
-      return gpr.regs[2];
-    case llvm::AArch64::X3:
-      return gpr.regs[3];
-    case llvm::AArch64::X4:
-      return gpr.regs[4];
-    case llvm::AArch64::X5:
-      return gpr.regs[5];
+
+#define __REG_CASE(n, i, data)                                                 \
+  case BOOST_PP_CAT(llvm::AArch64::X, i):                                      \
+    return gpr.regs[i];
+
+BOOST_PP_REPEAT(29, __REG_CASE, void)
+
+#undef __REG_CASE
+
 #endif
+
     default:
       abort();
     }
@@ -1096,14 +1081,11 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
-    case llvm::X86::CALL64m: { /* call qword ptr [rip + 3071542] */
+    case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(3).isImm());
-      uintptr_t pcptr =
-          RegValue(Inst.getOperand(0).getReg()) + Inst.getOperand(3).getImm();
-      //__got = is_address_in_global_offset_table(pcptr, IndBrInfo.binary_idx);
-      return LoadAddr(pcptr);
-    }
+      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                      Inst.getOperand(3).getImm());
 
     case llvm::X86::CALL64r: /* call rax */
       assert(Inst.getOperand(0).isReg());
@@ -1115,6 +1097,9 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
+    case llvm::AArch64::BR: /* br x17 */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
 #endif
 
     default:
@@ -1128,12 +1113,14 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   // if the instruction is a call, we need to emulate the semantics of
   // saving the return address on the stack for certain architectures
   //
-#if defined(__x86_64__)
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+#if defined(__x86_64__)
     gpr.rsp -= sizeof(uintptr_t);
     _ptrace_pokedata(child, gpr.rsp, pc);
-  }
+#elif defined(__aarch64__)
+    gpr.regs[30 /* lr */] = pc;
 #endif
+  }
 
   //
   // set program counter to be branch target
@@ -1185,35 +1172,6 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   } else {
     abort();
   }
-
-#if 0
-  } else { /* non-local */
-    //llvm::errs() << (fmt("warning: non-local target @ %#lx") % target).str() << '\n';
-
-
-    if (!update_view_of_virtual_memory(child))
-      throw std::runtime_error("failed to read virtual memory maps of child");
-
-    auto vmm_it = vmm.find(target);
-    if (vmm_it == vmm.end())
-      throw std::runtime_error("mysterious non-local pc");
-
-    // we only consider targets which are backed by an executable file
-    const vm_properties_t &vmprop = *(*vmm_it).second.cbegin();
-    if (!vmprop.nm.empty()) {
-      if (debugMode)
-        fprintf(stderr, "(non-local target) %s+0x%lx\n", vmprop.nm.c_str(),
-                target - vmprop.beg + vmprop.off);
-
-      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-      } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-        // this is a tail call
-      } else {
-        abort();
-      }
-    }
-  }
-#endif
 
   llvm::errs() << print_prefix
                << description_of_program_counter(_pc) << " -> "
@@ -1618,33 +1576,43 @@ bool update_view_of_virtual_memory(int child) {
   return true;
 }
 
-void dump_llvm_mcinst(llvm::MCInst &Inst, disas_t &dis) {
+std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
   const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
   llvm::MCInstPrinter &IP = std::get<2>(dis);
 
-  IP.printInst(&Inst, llvm::errs(), "", STI);
-  llvm::errs() << '\n';
-  llvm::errs() << "[opcode: " << Inst.getOpcode() << ']';
-  for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-    const llvm::MCOperand &opnd = Inst.getOperand(i);
+  std::string res;
 
-    char buff[0x100];
-    if (opnd.isReg())
-      snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
-    else if (opnd.isImm())
-      snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
-    else if (opnd.isFPImm())
-      snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
-    else if (opnd.isExpr())
-      snprintf(buff, sizeof(buff), "<expr>");
-    else if (opnd.isInst())
-      snprintf(buff, sizeof(buff), "<inst>");
-    else
-      snprintf(buff, sizeof(buff), "<unknown>");
+  {
+    llvm::raw_string_ostream ss(res);
 
-    llvm::errs() << (fmt(" %u:%s") % i % buff).str();
+    IP.printInst(&Inst, ss, "", STI);
+
+    ss << '\n';
+    ss << "[opcode: " << Inst.getOpcode() << ']';
+    for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+      const llvm::MCOperand &opnd = Inst.getOperand(i);
+
+      char buff[0x100];
+      if (opnd.isReg())
+        snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
+      else if (opnd.isImm())
+        snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
+      else if (opnd.isFPImm())
+        snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
+      else if (opnd.isExpr())
+        snprintf(buff, sizeof(buff), "<expr>");
+      else if (opnd.isInst())
+        snprintf(buff, sizeof(buff), "<inst>");
+      else
+        snprintf(buff, sizeof(buff), "<unknown>");
+
+      ss << (fmt(" %u:%s") % i % buff).str();
+    }
+
+    ss << '\n';
   }
-  llvm::errs() << '\n';
+
+  return res;
 }
 
 std::string description_of_program_counter(uintptr_t pc) {
