@@ -42,19 +42,22 @@ BINDIR := bin
 SRCS  := $(wildcard $(SRCDIR)/*.cpp)
 TOOLS := $(patsubst $(SRCDIR)/%.cpp,%,$(SRCS))
 BINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
+DEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
 
 all: $(BINS)
 
 define build_tool_template
-$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp lib/arch/$(ARCH)/tcg.hpp
+$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp
 	@echo CXX $(1)
-	@clang++ -o $$@ $(CXXFLAGS) $$< $(LDFLAGS)
+	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
+-include $(DEPS)
+
 .PHONY: clean
 clean:
-	rm -f $(BINS)
+	rm -f $(BINS) $(DEPS)
 
 #
 # for extricating QEMU code
