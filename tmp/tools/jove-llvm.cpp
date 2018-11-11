@@ -99,11 +99,10 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+//
+// Types
+//
 typedef boost::format fmt;
-
-static decompilation_t decompilation;
-
-static binary_index_t binary_idx = invalid_binary_index;
 
 struct section_properties_t {
   llvm::StringRef name;
@@ -119,101 +118,126 @@ struct section_properties_t {
 };
 typedef std::set<section_properties_t> section_properties_set_t;
 
-// we have a BB & Func map for each binary_t
 struct binary_state_t {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;
   std::unordered_map<uintptr_t, basic_block_index_t> BBMap;
   boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 };
 
-static std::vector<binary_state_t> BinStateVec;
-
-#if 0
-typedef std::set<binary_index_t> binary_index_set_t;
-static boost::icl::split_interval_map<std::uintptr_t, binary_index_set_t>
-    AddressSpace;
-#endif
-
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
 
-static void initModuleSectionVariables(llvm::Module &);
+//
+// Globals
+//
+static decompilation_t Decompilation;
+static binary_index_t BinaryIndex = invalid_binary_index;
+
+static std::vector<binary_state_t> BinStateVec;
+
+static llvm::Triple TheTriple;
+static llvm::SubtargetFeatures Features;
+
+static const llvm::Target *TheTarget;
+static std::unique_ptr<const llvm::MCRegisterInfo> MRI;
+static std::unique_ptr<const llvm::MCAsmInfo> AsmInfo;
+static std::unique_ptr<const llvm::MCSubtargetInfo> STI;
+static std::unique_ptr<const llvm::MCInstrInfo> MII;
+static std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
+static std::unique_ptr<llvm::MCContext> MCCtx;
+static std::unique_ptr<llvm::MCDisassembler> DisAsm;
+static std::unique_ptr<llvm::MCInstPrinter> IP;
+
+static std::unique_ptr<tiny_code_generator_t> TCG;
+
+static std::unique_ptr<llvm::LLVMContext> Context;
+static std::unique_ptr<llvm::Module> Module;
+
+//
+// Stages
+//
+static int ParseDecompilation(void);
+static int FindBinary(void);
+static int InitStateForBinaries(void);
+static int InitModule(void);
+static int ParseBinaryRelocations(void);
+static int InitModuleSectionVariables(void);
+static int PrepareToTranslateCode(void);
+static int WriteModule(void);
 
 int llvm(void) {
-  bool git = fs::is_directory(opts::jv);
+  return ParseDecompilation()
+      || FindBinary()
+      || InitStateForBinaries()
+      || InitModule()
+      || ParseBinaryRelocations()
+      || InitModuleSectionVariables()
+      || PrepareToTranslateCode()
+      || WriteModule();
+}
 
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
+int ParseDecompilation(void) {
+  std::ifstream ifs(
+      fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-    boost::archive::binary_iarchive ia(ifs);
-    ia >> decompilation;
-  }
+  boost::archive::binary_iarchive ia(ifs);
+  ia >> Decompilation;
 
-  //
-  // find the given binary in the decompilation
-  //
-  for (unsigned idx = 0; idx < decompilation.Binaries.size(); ++idx) {
-    binary_t &binary = decompilation.Binaries[idx];
+  return 0;
+}
+
+int FindBinary(void) {
+  for (unsigned idx = 0; idx < Decompilation.Binaries.size(); ++idx) {
+    binary_t &binary = Decompilation.Binaries[idx];
 
     if (fs::path(binary.Path).filename().string() == opts::Binary) {
-      binary_idx = idx;
-      break;
+      BinaryIndex = idx;
+      return 0;
     }
   }
 
-  if (binary_idx == invalid_binary_index) {
-    WithColor::error() << "binary " << opts::Binary
-                       << " not found in given decompilation\n";
-    return 1;
-  }
+  WithColor::error() << "binary " << opts::Binary
+                     << " not found in given decompilation\n";
+  return 1;
+}
 
-  tiny_code_generator_t tcg;
+int InitStateForBinaries(void) {
+  BinStateVec.resize(Decompilation.Binaries.size());
+  for (binary_index_t bin_idx = 0;
+       bin_idx < Decompilation.Binaries.size();
+       ++bin_idx) {
+    const binary_t &binary = Decompilation.Binaries[bin_idx];
+    const interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  //
-  // initialize state associated with every binary
-  //
-  BinStateVec.resize(decompilation.Binaries.size());
-  for (binary_index_t i = 0; i < decompilation.Binaries.size(); ++i) {
-    binary_t &binary = decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
+    binary_state_t &st = BinStateVec[bin_idx];
 
     //
-    // build FuncMap
+    // FuncMap
     //
-    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+    for (function_index_t f_idx = 0;
+         f_idx < binary.Analysis.Functions.size();
          ++f_idx) {
-      function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != invalid_basic_block_index);
-      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+      const function_t &f = binary.Analysis.Functions[f_idx];
+
+      st.FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = f_idx;
     }
 
     //
-    // build BBMap
+    // BBMap
     //
     for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+         bb_idx < boost::num_vertices(ICFG);
+         ++bb_idx) {
+      basic_block_t bb = boost::vertex(bb_idx, ICFG);
 
-      st.BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
+      st.BBMap[ICFG[bb].Addr] = bb_idx;
     }
 
     //
     // build section map
     //
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
     llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
@@ -291,79 +315,88 @@ int llvm(void) {
     }
   }
 
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
+  return 0;
+}
+
+int InitModule(void) {
+  Context.reset(new llvm::LLVMContext);
+  Module.reset(new llvm::Module(opts::Binary, *Context));
+
+  return 0;
+}
+
+int ParseBinaryRelocations(void) { return 0; }
+int InitModuleSectionVariables(void) { return 0; }
+
+int PrepareToTranslateCode(void) {
+  TCG.reset(new tiny_code_generator_t);
+
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllDisassemblers();
+
   std::string ArchName;
   std::string Error;
 
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
     WithColor::error() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
   std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
 
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
+  MRI.reset(TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
     WithColor::error() << "no register info for target\n";
     return 1;
   }
 
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
+  AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) {
     WithColor::error() << "no assembly info\n";
     return 1;
   }
 
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
+  std::string MCPU;
+
+  STI.reset(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
     WithColor::error() << "no subtarget info\n";
     return 1;
   }
 
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
+  MII.reset(TheTarget->createMCInstrInfo());
   if (!MII) {
     WithColor::error() << "no instruction info\n";
     return 1;
   }
 
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
+  MOFI.reset(new llvm::MCObjectFileInfo);
+  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
 
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI->InitMCObjectFileInfo(llvm::Triple(TripleName), false, *MCCtx);
+
+  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
   if (!DisAsm) {
     WithColor::error() << "no disassembler for target\n";
     return 1;
   }
 
-  int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect(); /* on x86 1=Intel */
+  IP.reset(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
     WithColor::error() << "no instruction printer\n";
     return 1;
   }
 
-  disas_t dis(*DisAsm, std::cref(*STI), *IP);
+  return 0;
+}
 
-  llvm::LLVMContext Context;
-  llvm::Module Module(opts::Binary, Context);
-
-  //
-  // stage 1 - create section global variables
-  //
-  initModuleSectionVariables(Module);
-
+int WriteModule(void) {
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
   if (EC) {
@@ -371,71 +404,12 @@ int llvm(void) {
     return 1;
   }
 
-  llvm::WriteBitcodeToFile(Module, Out.os());
+  llvm::WriteBitcodeToFile(*Module, Out.os());
 
   // Declare success.
   Out.keep();
 
   return 0;
 }
-
-void initModuleSectionVariables(llvm::Module &) {
-}
-
-static void translate_function(binary_index_t binary_idx,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           target_ulong Addr) {
-#if 0
-  binary_t &binary = decompilation.Binaries[binary_idx];
-  auto &FuncMap = BinStateVec[binary_idx].FuncMap;
-
-  {
-    auto it = FuncMap.find(Addr);
-    if (it != FuncMap.end())
-      return (*it).second;
-  }
-
-  function_index_t res = binary.Analysis.Functions.size();
-  FuncMap[Addr] = res;
-  binary.Analysis.Functions.resize(res + 1);
-  binary.Analysis.Functions[res].Entry =
-      translate_basic_block(binary_idx, tcg, dis, Addr);
-#endif
-}
-
-#if 0
-basic_block_index_t translate_basic_block(binary_index_t binary_idx,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis,
-                                          const target_ulong Addr) {
-  auto &BBMap = BinStateVec[binary_idx].BBMap;
-
-  {
-    auto it = BBMap.find(Addr);
-    if (it != BBMap.end())
-      return (*it).second;
-  }
-
-  auto &SectMap = BinStateVec[binary_idx].SectMap;
-  auto sectit = SectMap.find(Addr);
-  if (sectit == SectMap.end()) {
-    llvm::errs() << (fmt("warning: no section for address 0x%lx") % Addr).str()
-                 << '\n';
-    return invalid_basic_block_index;
-  }
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
-
-  unsigned Size = 0;
-  jove::terminator_info_t T;
-  do {
-    unsigned size;
-    std::tie(size, T) = tcg.translate(Addr + Size);
-
-    Size += size;
-  } while (T.Type == TERMINATOR::NONE);
-}
-#endif
 
 }
