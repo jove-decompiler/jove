@@ -124,8 +124,8 @@ static bool update_view_of_virtual_memory(int child);
 static bool SeenExec = false;
 
 struct vm_properties_t {
-  std::uintptr_t beg;
-  std::uintptr_t end;
+  uintptr_t beg;
+  uintptr_t end;
   std::ptrdiff_t off;
 
   bool r, w, x; /* unix permissions */
@@ -159,13 +159,12 @@ typedef std::set<section_properties_t> section_properties_set_t;
 
 // we have a BB & Func map for each binary_t
 struct binary_state_t {
-  std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
-  std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
-  boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
-      SectMap;
+  std::unordered_map<uintptr_t, function_index_t> FuncMap;
+  std::unordered_map<uintptr_t, basic_block_index_t> BBMap;
+  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 
   struct {
-    std::uintptr_t LoadAddr, LoadAddrEnd;
+    uintptr_t LoadAddr, LoadAddrEnd;
   } dyn;
 };
 
@@ -174,7 +173,7 @@ static boost::dynamic_bitset<> BinFoundVec;
 static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
 typedef std::set<binary_index_t> binary_index_set_t;
-static boost::icl::split_interval_map<std::uintptr_t, binary_index_set_t>
+static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
     AddressSpace;
 
 struct indirect_branch_t {
@@ -185,18 +184,18 @@ struct indirect_branch_t {
   llvm::MCInst Inst;
 };
 
-static std::unordered_map<std::uintptr_t, indirect_branch_t> IndBrMap;
+static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
 
 static const char *name_of_signal_number(int);
 
-static std::uintptr_t va_of_rva(std::uintptr_t Addr, binary_index_t idx) {
+static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
   assert(idx < BinStateVec.size());
   assert(BinStateVec[idx].dyn.LoadAddr);
 
   return Addr + BinStateVec[idx].dyn.LoadAddr;
 }
 
-static std::uintptr_t rva_of_va(std::uintptr_t Addr, binary_index_t idx) {
+static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t idx) {
   assert(idx < BinStateVec.size());
   assert(BinStateVec[idx].dyn.LoadAddr);
   assert(Addr >= BinStateVec[idx].dyn.LoadAddr);
@@ -210,15 +209,15 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
     disas_t;
 
 static void search_address_space_for_binaries(pid_t, disas_t &);
-static void place_breakpoint_at_indirect_branch(pid_t, std::uintptr_t Addr,
+static void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
 static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 
 static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
 static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
 
-static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
-static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
+static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
+static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
 static int await_process_completion(pid_t);
 
@@ -388,8 +387,8 @@ int ParentProc(pid_t child) {
       if (!name)
         continue;
 
-      boost::icl::interval<std::uintptr_t>::type intervl =
-          boost::icl::interval<std::uintptr_t>::right_open(
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
       section_properties_t sectprop;
@@ -835,7 +834,7 @@ basic_block_index_t translate_basic_block(pid_t child,
     //
     if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
         bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      std::uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
+      uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
 
       indirect_branch_t &indbr = IndBrMap[termpc];
       indbr.binary_idx = binary_idx;
@@ -868,7 +867,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
   //
-  auto control_flow = [&](std::uintptr_t Target) -> void {
+  auto control_flow = [&](uintptr_t Target) -> void {
     assert(Target);
 
     basic_block_index_t succidx;
@@ -920,7 +919,7 @@ basic_block_index_t translate_basic_block(pid_t child,
 static void dump_llvm_mcinst(llvm::MCInst &, disas_t &);
 
 void place_breakpoint_at_indirect_branch(pid_t child,
-                                         std::uintptr_t Addr,
+                                         uintptr_t Addr,
                                          indirect_branch_t &indbr,
                                          disas_t &dis) {
   llvm::MCInst &Inst = indbr.Inst;
@@ -960,18 +959,9 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
-static std::string description_of_program_counter(std::uintptr_t);
+static std::string description_of_program_counter(uintptr_t);
 
-static constexpr unsigned ProgramCounterUserOffset =
-#if defined(__x86_64__)
-    __builtin_offsetof(struct user_regs_struct, rip)
-#elif defined(__aarch64__)
-    __builtin_offsetof(struct user_regs_struct, pc)
-#endif
-    ;
-
-static bool is_address_in_global_offset_table(std::uintptr_t Addr,
-                                              binary_index_t);
+static bool is_address_in_global_offset_table(uintptr_t Addr, binary_index_t);
 
 struct ScopedGPR {
   pid_t child;
@@ -1087,7 +1077,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     }
   };
 
-  auto LoadAddr = [&](std::uintptr_t addr) -> std::uintptr_t {
+  auto LoadAddr = [&](uintptr_t addr) -> uintptr_t {
     return _ptrace_peekdata(child, addr);
   };
 
@@ -1109,7 +1099,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     case llvm::X86::CALL64m: { /* call qword ptr [rip + 3071542] */
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(3).isImm());
-      std::uintptr_t pcptr =
+      uintptr_t pcptr =
           RegValue(Inst.getOperand(0).getReg()) + Inst.getOperand(3).getImm();
       //__got = is_address_in_global_offset_table(pcptr, IndBrInfo.binary_idx);
       return LoadAddr(pcptr);
@@ -1140,7 +1130,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
 #if defined(__x86_64__)
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    gpr.rsp -= sizeof(std::uintptr_t);
+    gpr.rsp -= sizeof(uintptr_t);
     _ptrace_pokedata(child, gpr.rsp, pc);
   }
 #endif
@@ -1230,7 +1220,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                << description_of_program_counter(target) << '\n';
 }
 
-bool is_address_in_global_offset_table(std::uintptr_t Addr,
+bool is_address_in_global_offset_table(uintptr_t Addr,
                                        binary_index_t binary_idx) {
   if (!(Addr >= BinStateVec[binary_idx].dyn.LoadAddr &&
         Addr < BinStateVec[binary_idx].dyn.LoadAddrEnd))
@@ -1408,9 +1398,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
                        st.dyn.LoadAddrEnd).str()
                    << '\n';
 
-      boost::icl::interval<std::uintptr_t>::type intervl =
-          boost::icl::interval<std::uintptr_t>::right_open(vm_prop.beg,
-                                                           vm_prop.end);
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
       binary_index_set_t bin_idx_set = {binary_idx};
       AddressSpace.add(std::make_pair(intervl, bin_idx_set));
 
@@ -1434,7 +1423,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
             bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
           continue;
 
-        std::uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
+        uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
 
         indirect_branch_t &IndBrInfo = IndBrMap[Addr];
         IndBrInfo.binary_idx = binary_idx;
@@ -1498,7 +1487,7 @@ void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
                              std::string(strerror(errno)));
 }
 
-unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
+unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
   unsigned long res;
 
   unsigned long _request = PTRACE_PEEKDATA;
@@ -1513,7 +1502,7 @@ unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
   return res;
 }
 
-void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
+void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
   unsigned long _request = PTRACE_POKEDATA;
   unsigned long _pid = child;
   unsigned long _addr = addr;
@@ -1603,8 +1592,8 @@ bool update_view_of_virtual_memory(int child) {
       continue;
     }
 
-    boost::icl::interval<std::uintptr_t>::type intervl =
-        boost::icl::interval<std::uintptr_t>::right_open(min, max);
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(min, max);
 
     vm_properties_t vmprop;
     vmprop.beg = min;
@@ -1658,7 +1647,7 @@ void dump_llvm_mcinst(llvm::MCInst &Inst, disas_t &dis) {
   llvm::errs() << '\n';
 }
 
-std::string description_of_program_counter(std::uintptr_t pc) {
+std::string description_of_program_counter(uintptr_t pc) {
   auto simple_desc = [=](void) -> std::string {
     return (fmt("%#lx") % pc).str();
   };
