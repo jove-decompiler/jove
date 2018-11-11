@@ -375,7 +375,7 @@ int ParentProc(pid_t child) {
 
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
-      WithColor::error() << "error: could not get ELF sections for binary "
+      WithColor::error() << "could not get ELF sections for binary "
                          << binary.Path << '\n';
       return 1;
     }
@@ -661,10 +661,8 @@ int ParentProc(pid_t child) {
   // git commit
   //
   if (git) {
-    const pid_t pid = fork();
+    pid_t pid = fork();
     if (!pid) { /* child */
-      chdir(opts::jv.c_str());
-
       std::string msg(opts::Prog);
       for (const std::string &arg : opts::Args) {
         msg.push_back(' ');
@@ -673,19 +671,17 @@ int ParentProc(pid_t child) {
         msg.push_back('\'');
       }
 
-      std::vector<char> _msg;
-      _msg.resize(msg.size() + 1);
-      strncpy(&_msg[0], msg.c_str(), _msg.size());
+      chdir(opts::jv.c_str());
 
-      char _argv0[] = {'/', 'u', 's', 'r', '/', 'b', 'i',
-                       'n', '/', 'g', 'i', 't', '\0'};
-      char _argv1[] = {'c', 'o', 'm', 'm', 'i', 't', '\0'};
-      char _argv2[] = {'.', '\0'};
-      char _argv3[] = {'-', 'm', '\0'};
-      char *_argv4 = &_msg[0];
-      char *_argv[6] = {&_argv0[0], &_argv1[0], &_argv2[0],
-                        &_argv3[0], &_argv4[0], nullptr};
-      return execve(&_argv0[0], _argv, ::environ);
+      std::vector<char *> arg_vec;
+      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
+      arg_vec.push_back(const_cast<char *>("commit"));
+      arg_vec.push_back(const_cast<char *>("."));
+      arg_vec.push_back(const_cast<char *>("-m"));
+      arg_vec.push_back(const_cast<char *>(msg.c_str()));
+      arg_vec.push_back(nullptr);
+
+      return execve("/usr/bin/git", arg_vec.data(), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -1513,11 +1509,13 @@ int ChildProc(void) {
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
+  const llvm::Triple::ArchType archty =
 #if defined(__x86_64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
+      llvm::Triple::ArchType::x86_64
 #elif defined(__aarch64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
+      llvm::Triple::ArchType::aarch64
 #endif
+      ;
 
   return Obj.getArch() == archty;
 }
