@@ -9835,6 +9835,8 @@ static void disas_exc(DisasContext *s, uint32_t insn)
             gen_ss_advance64(s);
             gen_exception_insn64(s, 0, EXCP_SWI, syn_aa64_svc(imm16),
                                default_exception_el(s));
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         case 2:                                                     /* HVC */
             if (s->current_el == 0) {
@@ -46482,6 +46484,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
@@ -46489,6 +46493,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 

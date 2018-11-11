@@ -26871,7 +26871,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
             if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
-              tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
@@ -26880,7 +26880,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         if (tcg_op_buf_full() || db->num_insns >= max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
             if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
-              tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
