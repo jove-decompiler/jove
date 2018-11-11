@@ -214,8 +214,9 @@ static void place_breakpoint_at_indirect_branch(pid_t, std::uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
 static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 
-static void _ptrace_pokeuser(pid_t, unsigned user_offset, unsigned long data);
-static unsigned long _ptrace_peekuser(pid_t, unsigned user_offset);
+static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
+static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
+
 static unsigned long _ptrace_peekdata(pid_t, std::uintptr_t addr);
 static void _ptrace_pokedata(pid_t, std::uintptr_t addr, unsigned long data);
 
@@ -524,24 +525,19 @@ int ParentProc(pid_t child) {
         // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
         // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
         //
-        {
-          unsigned long syscall_num;
+        struct user_regs_struct gpr;
+        _ptrace_get_gpr(child, gpr);
 
-          try {
-            syscall_num = _ptrace_peekuser(child,
+        unsigned syscallno =
 #if defined(__x86_64__)
-                __builtin_offsetof(struct user_regs_struct, orig_rax)
+            gpr.orig_rax
 #elif defined(__aarch64__)
-                __builtin_offsetof(struct user_regs_struct, regs[8])
+            gpr.regs[8]
 #endif
-              );
-          } catch (...) {
-            continue;
-          }
+            ;
 
-          if (syscall_num != __NR_mmap)
-            continue;
-        }
+        if (syscallno != __NR_mmap)
+          continue;
 
         search_address_space_for_binaries(child, dis);
       } else if (stopsig == SIGTRAP) {
@@ -930,12 +926,12 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
     return opc == llvm::X86::JMP64r ||
            opc == llvm::X86::JMP64m ||
            opc == llvm::X86::CALL64m ||
            opc == llvm::X86::CALL64r;
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
     return opc == llvm::AArch64::BLR;
 #endif
   };
@@ -951,9 +947,9 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   unsigned long word = _ptrace_peekdata(child, Addr);
 
   // insert breakpoint
-#if defined(TARGET_X86_64) && defined(__x86_64__)
+#if defined(__x86_64__)
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(TARGET_AARCH64) && defined(__aarch64__)
+#elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
 #endif
 
@@ -977,8 +973,26 @@ static constexpr unsigned ProgramCounterUserOffset =
 static bool is_address_in_global_offset_table(std::uintptr_t Addr,
                                               binary_index_t);
 
+struct ScopedGPR {
+  pid_t child;
+  struct user_regs_struct gpr;
+
+  ScopedGPR(pid_t child) : child(child) { _ptrace_get_gpr(child, gpr); }
+  ~ScopedGPR() { _ptrace_set_gpr(child, gpr); }
+};
+
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
-  std::uintptr_t pc = _ptrace_peekuser(child, ProgramCounterUserOffset);
+  ScopedGPR _scoped_gpr(child);
+
+  struct user_regs_struct &gpr = _scoped_gpr.gpr;
+
+  auto &pc =
+#if defined(__x86_64__)
+      gpr.rip
+#elif defined(__aarch64__)
+      gpr.pc
+#endif
+      ;
 
   //
   // rewind before the breakpoint instruction
@@ -992,15 +1006,12 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // lookup indirect branch info
   //
-  const std::uintptr_t _pc = pc;
+  const uintptr_t _pc = pc;
 
-  auto indirect_branch_of_address =
-      [](std::uintptr_t addr) -> indirect_branch_t & {
+  auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
-    if (it == IndBrMap.end()) {
-      llvm::errs() << (fmt("unknown breakpoint @ %#lx") % addr).str();
-      abort();
-    }
+    if (it == IndBrMap.end())
+      throw std::runtime_error((fmt("unknown breakpoint @ %#lx") % addr).str());
 
     return (*it).second;
   };
@@ -1013,7 +1024,6 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   // update program counter so it is as it should be
   //
   pc += IndBrInfo.InsnBytes.size();
-  _ptrace_pokeuser(child, ProgramCounterUserOffset, pc);
 
   //
   // shorthand-functions for reading the tracee's memory and registers
@@ -1021,75 +1031,70 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   basic_block_t bb = IndBrInfo.bb;
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
-  auto RegValue = [child](unsigned llreg) -> unsigned long {
-    auto UserOffsetOfLLVMReg = [](unsigned llreg) -> unsigned {
-      switch (llreg) {
+  auto RegValue = [&](unsigned llreg) -> unsigned long {
+    switch (llreg) {
 #if defined(__x86_64__)
-      case llvm::X86::RAX:
-        return __builtin_offsetof(struct user_regs_struct, rax);
-      case llvm::X86::RBP:
-        return __builtin_offsetof(struct user_regs_struct, rbp);
-      case llvm::X86::RBX:
-        return __builtin_offsetof(struct user_regs_struct, rbx);
-      case llvm::X86::RCX:
-        return __builtin_offsetof(struct user_regs_struct, rcx);
-      case llvm::X86::RDI:
-        return __builtin_offsetof(struct user_regs_struct, rdi);
-      case llvm::X86::RDX:
-        return __builtin_offsetof(struct user_regs_struct, rdx);
-      case llvm::X86::RIP:
-        return __builtin_offsetof(struct user_regs_struct, rip);
-      case llvm::X86::RSI:
-        return __builtin_offsetof(struct user_regs_struct, rsi);
-      case llvm::X86::RSP:
-        return __builtin_offsetof(struct user_regs_struct, rsp);
-      case llvm::X86::R8:
-        return __builtin_offsetof(struct user_regs_struct, r8);
-      case llvm::X86::R9:
-        return __builtin_offsetof(struct user_regs_struct, r9);
-      case llvm::X86::R10:
-        return __builtin_offsetof(struct user_regs_struct, r10);
-      case llvm::X86::R11:
-        return __builtin_offsetof(struct user_regs_struct, r11);
-      case llvm::X86::R12:
-        return __builtin_offsetof(struct user_regs_struct, r12);
-      case llvm::X86::R13:
-        return __builtin_offsetof(struct user_regs_struct, r13);
-      case llvm::X86::R14:
-        return __builtin_offsetof(struct user_regs_struct, r14);
-      case llvm::X86::R15:
-        return __builtin_offsetof(struct user_regs_struct, r15);
+    case llvm::X86::RAX:
+      return gpr.rax;
+    case llvm::X86::RBP:
+      return gpr.rbp;
+    case llvm::X86::RBX:
+      return gpr.rbx;
+    case llvm::X86::RCX:
+      return gpr.rcx;
+    case llvm::X86::RDI:
+      return gpr.rdi;
+    case llvm::X86::RDX:
+      return gpr.rdx;
+    case llvm::X86::RIP:
+      return gpr.rip;
+    case llvm::X86::RSI:
+      return gpr.rsi;
+    case llvm::X86::RSP:
+      return gpr.rsp;
+    case llvm::X86::R8:
+      return gpr.r8;
+    case llvm::X86::R9:
+      return gpr.r9;
+    case llvm::X86::R10:
+      return gpr.r10;
+    case llvm::X86::R11:
+      return gpr.r11;
+    case llvm::X86::R12:
+      return gpr.r12;
+    case llvm::X86::R13:
+      return gpr.r13;
+    case llvm::X86::R14:
+      return gpr.r14;
+    case llvm::X86::R15:
+      return gpr.r15;
 #elif defined(__aarch64__)
-      case llvm::AArch64::X0:
-        return __builtin_offsetof(struct user_regs_struct, regs[0]);
-      case llvm::AArch64::X1:
-        return __builtin_offsetof(struct user_regs_struct, regs[1]);
-      case llvm::AArch64::X2:
-        return __builtin_offsetof(struct user_regs_struct, regs[2]);
-      case llvm::AArch64::X3:
-        return __builtin_offsetof(struct user_regs_struct, regs[3]);
-      case llvm::AArch64::X4:
-        return __builtin_offsetof(struct user_regs_struct, regs[4]);
-      case llvm::AArch64::X5:
-        return __builtin_offsetof(struct user_regs_struct, regs[5]);
+    case llvm::AArch64::X0:
+      return gpr.regs[0];
+    case llvm::AArch64::X1:
+      return gpr.regs[1];
+    case llvm::AArch64::X2:
+      return gpr.regs[2];
+    case llvm::AArch64::X3:
+      return gpr.regs[3];
+    case llvm::AArch64::X4:
+      return gpr.regs[4];
+    case llvm::AArch64::X5:
+      return gpr.regs[5];
 #endif
-      default:
-        llvm::errs() << "RegOffset: unimplemented llvm reg " << llreg << '\n';
-        exit(1);
-      }
-    };
-
-    return ptrace(PTRACE_PEEKUSER, child, UserOffsetOfLLVMReg(llreg), nullptr);
+    default:
+      abort();
+    }
   };
 
   auto LoadAddr = [&](std::uintptr_t addr) -> std::uintptr_t {
     return _ptrace_peekdata(child, addr);
   };
 
-  auto GetTarget = [&](void) -> std::uintptr_t {
+  auto GetTarget = [&](void) -> uintptr_t {
     switch (Inst.getOpcode()) {
 
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
 
     case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
       assert(Inst.getOperand(0).isReg());
@@ -1114,7 +1119,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
 
     case llvm::AArch64::BLR: /* blr x3 */
       assert(Inst.getOperand(0).isReg());
@@ -1123,32 +1128,27 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #endif
 
     default:
-      llvm::errs() << "unimplemented indirect branch opcode "
-                   << Inst.getOpcode() << '\n';
-      exit(1);
+      abort();
     }
   };
 
-  std::uintptr_t target = GetTarget();
+  uintptr_t target = GetTarget();
 
   //
   // if the instruction is a call, we need to emulate the semantics of
   // saving the return address on the stack for certain architectures
   //
-#if defined(TARGET_X86_64) && defined(__x86_64__)
+#if defined(__x86_64__)
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    std::uintptr_t sp =
-        _ptrace_peekuser(child, __builtin_offsetof(struct user, regs.rsp));
-    sp -= sizeof(std::uintptr_t);
-    _ptrace_pokedata(child, sp, pc);
-    _ptrace_pokeuser(child, __builtin_offsetof(struct user, regs.rsp), sp);
+    gpr.rsp -= sizeof(std::uintptr_t);
+    _ptrace_pokedata(child, gpr.rsp, pc);
   }
 #endif
 
   //
   // set program counter to be branch target
   //
-  _ptrace_pokeuser(child, ProgramCounterUserOffset, target);
+  pc = target;
 
   if (opts::VeryVerbose)
     llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
@@ -1386,10 +1386,6 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
     if (!vm_prop.x)
       continue;
-#if 0
-    if (vm_prop.off)
-      continue;
-#endif
     if (vm_prop.nm.empty())
       continue;
     if (!fs::exists(vm_prop.nm))
@@ -1474,36 +1470,32 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   }
 }
 
-void _ptrace_pokeuser(pid_t child, unsigned user_offset, unsigned long data) {
-  unsigned long _request = PTRACE_POKEUSER;
-  unsigned long _pid = child;
-  unsigned long _addr = user_offset;
-  unsigned long _data = data;
+void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
+  struct iovec iov = {.iov_base = &out,
+                      .iov_len = sizeof(struct user_regs_struct)};
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    char buff[0x100];
-    snprintf(buff, sizeof(buff), "PTRACE_POKEUSER failed : %s",
-             strerror(errno));
-    throw std::runtime_error(buff);
-  }
+  unsigned long _request = PTRACE_GETREGSET;
+  unsigned long _pid = child;
+  unsigned long _addr = 1 /* NT_PRSTATUS */;
+  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
+                             std::string(strerror(errno)));
 }
 
-unsigned long _ptrace_peekuser(pid_t child, unsigned user_offset) {
-  unsigned long res;
+void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
+  struct iovec iov = {.iov_base = const_cast<struct user_regs_struct *>(&in),
+                      .iov_len = sizeof(struct user_regs_struct)};
 
-  unsigned long _request = PTRACE_PEEKUSER;
+  unsigned long _request = PTRACE_SETREGSET;
   unsigned long _pid = child;
-  unsigned long _addr = user_offset;
-  unsigned long _data = reinterpret_cast<unsigned long>(&res);
+  unsigned long _addr = 1 /* NT_PRSTATUS */;
+  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    char buff[0x100];
-    snprintf(buff, sizeof(buff), "PTRACE_PEEKUSER failed : %s",
-             strerror(errno));
-    throw std::runtime_error(buff);
-  }
-
-  return res;
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_SETREGSET failed : ") +
+                             std::string(strerror(errno)));
 }
 
 unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
@@ -1514,12 +1506,9 @@ unsigned long _ptrace_peekdata(pid_t child, std::uintptr_t addr) {
   unsigned long _addr = addr;
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    char buff[0x100];
-    snprintf(buff, sizeof(buff), "PTRACE_PEEKDATA failed : %s",
-             strerror(errno));
-    throw std::runtime_error(buff);
-  }
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_PEEKDATA failed : ") +
+                             std::string(strerror(errno)));
 
   return res;
 }
@@ -1530,12 +1519,9 @@ void _ptrace_pokedata(pid_t child, std::uintptr_t addr, unsigned long data) {
   unsigned long _addr = addr;
   unsigned long _data = data;
 
-  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0) {
-    char buff[0x100];
-    snprintf(buff, sizeof(buff), "PTRACE_POKEDATA failed : %s",
-             strerror(errno));
-    throw std::runtime_error(buff);
-  }
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_POKEDATA failed : ") +
+                             std::string(strerror(errno)));
 }
 
 int ChildProc(void) {
@@ -1574,12 +1560,10 @@ int ChildProc(void) {
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(TARGET_AARCH64)
+#elif defined(__aarch64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
-#else
-#error "unknown architecture"
 #endif
 
   return Obj.getArch() == archty;
