@@ -4,10 +4,12 @@ ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
 #
 # build flags
 #
-CFLAGS := -Weverything \
-          -fno-plt \
-	  -fno-stack-protector \
+CFLAGS := -Wall \
+          -fno-stack-protector \
+          -fPIE \
           -O3
+
+#         -fno-plt \
 
 #
 # important directories
