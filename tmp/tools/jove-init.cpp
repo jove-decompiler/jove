@@ -281,7 +281,7 @@ int init(void) {
     {
       std::ofstream ofs(opts::Output + "/.git/config",
                         std::ios_base::out | std::ios_base::app);
-      ofs << "\n[diff \"jv\"]\n        textconv = jove-dump-x86_64";
+      ofs << "\n[diff \"jv\"]\n        textconv = jove-dump";
     }
 
     //
