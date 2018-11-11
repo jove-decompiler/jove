@@ -86,4 +86,6 @@ void print_tcgtemp(llvm::ScopedPrinter &Writer, const TCGTemp &ts) {
   //___FIELD(Number, state_ptr);
 
 #undef ___FIELD
+#undef __FIELD_
+
 }
