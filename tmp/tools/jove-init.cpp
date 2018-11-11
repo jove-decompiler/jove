@@ -18,6 +18,7 @@
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/WithColor.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -29,6 +30,8 @@
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+
+using llvm::WithColor;
 
 namespace jove {
 static unsigned num_cpus(void);
@@ -83,7 +86,7 @@ int init(void) {
       (boost::dll::program_location().parent_path() / std::string("jove-add"))
           .string();
   if (!fs::exists(jove_add_path)) {
-    llvm::errs() << "could not find jove-add at " << jove_add_path << '\n';
+    WithColor::error() << "could not find jove-add at " << jove_add_path << '\n';
     return 1;
   }
 
@@ -93,7 +96,7 @@ int init(void) {
   //
   int pipefd[2];
   if (pipe(pipefd) < 0) {
-    llvm::errs() << "pipe failed : " << strerror(errno) << '\n';
+    WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
     return 1;
   }
 
@@ -107,7 +110,7 @@ int init(void) {
 
     /* make stdout be the write end of the pipe */
     if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
-      llvm::errs() << "dup2 failed : " << strerror(errno) << '\n';
+      WithColor::error() << "dup2 failed : " << strerror(errno) << '\n';
       exit(1);
     }
 
@@ -130,7 +133,7 @@ int init(void) {
   // check exit code
   //
   if (int ret = await_process_completion(pid)) {
-    llvm::errs() << "LD_TRACE_LOADED_OBJECTS=1 " << opts::Input
+    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts::Input
                  << " returned nonzero exit code " << ret << '\n';
     return 1;
   }
@@ -169,7 +172,7 @@ int init(void) {
 
     std::string path = dynlink_stdout.substr(pos, space_pos - pos);
     if (!fs::exists(path)) {
-      llvm::errs() << "error: path from dynamic linker '" << path
+      WithColor::error() << "error: path from dynamic linker '" << path
                    << "' is bogus\n";
       return 1;
     }
@@ -181,7 +184,7 @@ int init(void) {
   // prepare to process the binaries by creating a unique temporary directory
   //
   if (!mkdtemp(tmpdir)) {
-    llvm::errs() << "mkdtemp failed : " << strerror(errno) << '\n';
+    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
     return 1;
   }
 
@@ -202,7 +205,7 @@ int init(void) {
   for (const std::string &path : binary_paths) {
     std::string jvfp = tmpdir + path + ".jv";
     if (!fs::exists(jvfp)) {
-      llvm::errs() << "intermediate result " << jvfp << " not found" << '\n';
+      WithColor::error() << "intermediate result " << jvfp << " not found" << '\n';
       return 1;
     }
 
@@ -215,7 +218,7 @@ int init(void) {
     }
 
     if (decompilation.Binaries.size() != 1) {
-      llvm::errs() << "invalid intermediate result " << jvfp << '\n';
+      WithColor::error() << "invalid intermediate result " << jvfp << '\n';
       return 1;
     }
 
@@ -378,7 +381,7 @@ static void worker(void) {
     // check exit code
     //
     if (int ret = await_process_completion(pid))
-      llvm::errs() << "jove-add failed for " << path << '\n';
+      WithColor::error() << "jove-add failed for " << path << '\n';
   }
 }
 
@@ -400,7 +403,7 @@ int await_process_completion(pid_t pid) {
   do {
     if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
       if (errno != EINTR) {
-        llvm::errs() << "waitpid failed : " << strerror(errno) << '\n';
+        WithColor::error() << "waitpid failed : " << strerror(errno) << '\n';
         abort();
       }
     }
@@ -412,7 +415,8 @@ int await_process_completion(pid_t pid) {
 unsigned num_cpus(void) {
   cpu_set_t cpu_mask;
   if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    llvm::errs() << "sched_getaffinity failed : " << strerror(errno) << '\n';
+    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
+                       << '\n';
     abort();
   }
 

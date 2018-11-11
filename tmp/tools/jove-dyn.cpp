@@ -30,6 +30,7 @@
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
+#include <llvm/Support/WithColor.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
 #include <sys/user.h>
@@ -66,6 +67,8 @@ namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
+using llvm::WithColor;
+
 namespace opts {
   static cl::opt<std::string> Prog(cl::Positional,
     cl::desc("<program>"),
@@ -99,12 +102,12 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "Jove Dynamic Analysis\n");
 
   if (!fs::exists(opts::Prog)) {
-    llvm::errs() << "program does not exist\n";
+    WithColor::error() << "program does not exist\n";
     return 1;
   }
 
   if (!fs::exists(opts::jv)) {
-    llvm::errs() << "decompilation does not exist\n";
+    WithColor::error() << "decompilation does not exist\n";
     return 1;
   }
 
@@ -285,15 +288,16 @@ int ParentProc(pid_t child) {
         llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
     if (std::error_code EC = FileOrErr.getError()) {
-      llvm::errs() << "failed to open binary " << binary.Path
-                   << " in given decompilation\n";
+      WithColor::error() << "failed to open binary " << binary.Path
+                         << " in given decompilation\n";
       return 1;
     }
 
     std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
     if (binary.Data.size() != Buffer->getBufferSize() ||
         memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      llvm::errs() << "contents of binary " << binary.Path << "have changed\n";
+      WithColor::error() << "contents of binary " << binary.Path
+                         << "have changed\n";
       return 1;
     }
   }
@@ -344,7 +348,8 @@ int ParentProc(pid_t child) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      llvm::errs() << "failed to create binary from " << binary.Path << '\n';
+      WithColor::error() << "failed to create binary from " << binary.Path
+                         << '\n';
       return 1;
     }
 
@@ -354,7 +359,7 @@ int ParentProc(pid_t child) {
     typedef typename obj::ELF64LEFile ELFT;
 
     if (!llvm::isa<ELFO>(Bin.get())) {
-      llvm::errs() << binary.Path << " is not ELF64LEObjectFile\n";
+      WithColor::error() << binary.Path << " is not ELF64LEObjectFile\n";
       return 1;
     }
 
@@ -370,8 +375,8 @@ int ParentProc(pid_t child) {
 
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
-      llvm::errs() << "error: could not get ELF sections for binary "
-                   << binary.Path << '\n';
+      WithColor::error() << "error: could not get ELF sections for binary "
+                         << binary.Path << '\n';
       return 1;
     }
 
@@ -421,7 +426,7 @@ int ParentProc(pid_t child) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    llvm::errs() << "failed to lookup target: " << Error << '\n';
+    WithColor::error() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
@@ -431,27 +436,27 @@ int ParentProc(pid_t child) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    llvm::errs() << "no register info for target\n";
+    WithColor::error() << "no register info for target\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) {
-    llvm::errs() << "no assembly info\n";
+    WithColor::error() << "no assembly info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    llvm::errs() << "no subtarget info\n";
+    WithColor::error() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    llvm::errs() << "no instruction info\n";
+    WithColor::error() << "no instruction info\n";
     return 1;
   }
 
@@ -463,7 +468,7 @@ int ParentProc(pid_t child) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    llvm::errs() << "no disassembler for target\n";
+    WithColor::error() << "no disassembler for target\n";
     return 1;
   }
 
@@ -471,7 +476,7 @@ int ParentProc(pid_t child) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    llvm::errs() << "no instruction printer\n";
+    WithColor::error() << "no instruction printer\n";
     return 1;
   }
 
@@ -485,7 +490,8 @@ int ParentProc(pid_t child) {
       if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
                                                          : PTRACE_CONT,
                           child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-        llvm::errs() << "failed to resume tracee : " << strerror(errno) << '\n';
+        WithColor::error() << "failed to resume tracee : " << strerror(errno)
+                           << '\n';
     }
 
     //
@@ -694,7 +700,7 @@ int await_process_completion(pid_t pid) {
   do {
     if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
       if (errno != EINTR) {
-        llvm::errs() << "waitpid failed : " << strerror(errno) << '\n';
+        WithColor::error() << "waitpid failed : " << strerror(errno) << '\n';
         abort();
       }
     }
@@ -748,8 +754,8 @@ basic_block_index_t translate_basic_block(pid_t child,
   auto &SectMap = BinStateVec[binary_idx].SectMap;
   auto sectit = SectMap.find(Addr);
   if (sectit == SectMap.end()) {
-    llvm::errs() << (fmt("warning: no section for address 0x%lx") % Addr).str()
-                 << '\n';
+    WithColor::error()
+        << (fmt("warning: no section for address 0x%lx") % Addr).str() << '\n';
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
@@ -765,8 +771,8 @@ basic_block_index_t translate_basic_block(pid_t child,
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    llvm::errs() << (fmt("error: unknown terminator @ %#lx") % Addr).str()
-                 << '\n';
+    WithColor::error() << (fmt("error: unknown terminator @ %#lx") % Addr).str()
+                       << '\n';
 
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
@@ -782,8 +788,8 @@ basic_block_index_t translate_basic_block(pid_t child,
                                 A, llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
-        llvm::errs() << (fmt("failed to disassemble %#lx") % Addr).str()
-                     << '\n';
+        WithColor::error() << (fmt("failed to disassemble %#lx") % Addr).str()
+                           << '\n';
         break;
       }
 
@@ -799,7 +805,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   auto is_invalid_terminator = [&](void) -> bool {
     if (T.Type == TERMINATOR::CALL) {
       if (SectMap.find(T._call.Target) == SectMap.end()) {
-        llvm::errs()
+        WithColor::error()
             << (fmt("warning: call to bad address %#lx") % T._call.Target).str()
             << '\n';
         return true;
@@ -810,7 +816,7 @@ basic_block_index_t translate_basic_block(pid_t child,
   };
 
   if (is_invalid_terminator()) {
-    llvm::errs() << "assuming unreachable code\n";
+    WithColor::error() << "assuming unreachable code\n";
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
@@ -1324,8 +1330,8 @@ static const std::unordered_set<std::string> bad_bins = {
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (!update_view_of_virtual_memory(child)) {
-    llvm::errs() << "failed to read virtual memory maps of child " << child
-                 << '\n';
+    WithColor::error() << "failed to read virtual memory maps of child "
+                       << child << '\n';
     return;
   }
 

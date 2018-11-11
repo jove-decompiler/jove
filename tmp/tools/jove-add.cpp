@@ -67,7 +67,7 @@ int main(int argc, char **argv) {
   cl::ParseCommandLineOptions(argc, argv, "Jove Add\n");
 
   if (!fs::exists(opts::Input)) {
-    llvm::errs() << "input binary does not exist\n";
+    WithColor::error() << "input binary does not exist\n";
     return 1;
   }
 
@@ -116,7 +116,7 @@ int add(void) {
       llvm::MemoryBuffer::getFileOrSTDIN(opts::Input);
 
   if (std::error_code EC = FileOrErr.getError()) {
-    llvm::errs() << "failed to open " << opts::Input << '\n';
+    WithColor::error() << "failed to open " << opts::Input << '\n';
     return 1;
   }
 
@@ -126,7 +126,7 @@ int add(void) {
       obj::createBinary(Buffer->getMemBufferRef());
 
   if (!BinOrErr) {
-    llvm::errs() << "failed to create binary from" << opts::Input << '\n';
+    WithColor::error() << "failed to create binary from" << opts::Input << '\n';
     return 1;
   }
 
@@ -136,14 +136,14 @@ int add(void) {
   typedef typename obj::ELF64LEFile ELFT;
 
   if (!llvm::isa<ELFO>(Bin.get())) {
-    llvm::errs() << "input is not ELF64LEObjectFile\n";
+    WithColor::error() << "input is not ELF64LEObjectFile\n";
     return 1;
   }
 
   ELFO &O = *llvm::cast<ELFO>(Bin.get());
 
   if (!verify_arch(O)) {
-    llvm::errs() << "architecture mismatch of input\n";
+    WithColor::error() << "architecture mismatch of input\n";
     return 1;
   }
 
@@ -154,7 +154,7 @@ int add(void) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    llvm::errs() << "failed to lookup target: " << Error << '\n';
+    WithColor::error() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
@@ -165,27 +165,27 @@ int add(void) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    llvm::errs() << "no register info for target\n";
+    WithColor::error() << "no register info for target\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName));
   if (!AsmInfo) {
-    llvm::errs() << "no assembly info\n";
+    WithColor::error() << "no assembly info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    llvm::errs() << "no subtarget info\n";
+    WithColor::error() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    llvm::errs() << "no instruction info\n";
+    WithColor::error() << "no instruction info\n";
     return 1;
   }
 
@@ -197,7 +197,7 @@ int add(void) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    llvm::errs() << "no disassembler for target\n";
+    WithColor::error() << "no disassembler for target\n";
     return 1;
   }
 
@@ -205,7 +205,7 @@ int add(void) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    llvm::errs() << "no instruction printer\n";
+    WithColor::error() << "no instruction printer\n";
     return 1;
   }
 
@@ -249,7 +249,7 @@ int add(void) {
   //
   llvm::Expected<Elf_Shdr_Range> sections = E.sections();
   if (!sections) {
-    llvm::errs() << "error: could not get ELF sections\n";
+    WithColor::error() << "error: could not get ELF sections\n";
     return 1;
   }
 
@@ -305,7 +305,8 @@ int add(void) {
         continue;
 
       if (Interp.Found) {
-        llvm::errs() << "malformed ELF: multiple PT_INTERP program headers\n";
+        WithColor::error()
+            << "malformed ELF: multiple PT_INTERP program headers\n";
         return 1;
       }
 
@@ -332,7 +333,7 @@ int add(void) {
       continue;
 
     if (Dyn.Found) {
-      llvm::errs() << "malformed ELF: multiple SHT_DYNSYM sections\n";
+      WithColor::error() << "malformed ELF: multiple SHT_DYNSYM sections\n";
       return 1;
     }
 
@@ -405,8 +406,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
-    llvm::errs() << "warning: no section @ " << (fmt("%#lx") % Addr).str()
-                 << '\n';
+    WithColor::error() << "warning: no section @ " << (fmt("%#lx") % Addr).str()
+                       << '\n';
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
@@ -466,7 +467,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   };
 
   if (is_invalid_terminator()) {
-    llvm::errs() << "assuming unreachable code\n";
+    WithColor::error() << "assuming unreachable code\n";
     T.Type = TERMINATOR::UNREACHABLE;
   }
 

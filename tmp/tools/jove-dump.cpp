@@ -6,6 +6,7 @@
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/ScopedPrinter.h>
+#include <llvm/Support/WithColor.h>
 
 #include <fstream>
 #include <algorithm>
@@ -22,6 +23,8 @@
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+
+using llvm::WithColor;
 
 namespace opts {
   cl::list<std::string> InputFilenames(cl::Positional,
@@ -155,7 +158,7 @@ int main(int argc, char **argv) {
 
   for (const std::string &Path : opts::InputFilenames) {
     if (!fs::exists(Path)) {
-      llvm::errs() << Path << " does not exist\n";
+      WithColor::error() << Path << " does not exist\n";
       return 1;
     }
   }
