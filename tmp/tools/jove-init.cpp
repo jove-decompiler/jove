@@ -360,10 +360,6 @@ static void worker(void) {
     fs::create_directories(fs::path(jvfp).parent_path());
 
     pid_t pid = fork();
-
-    //
-    // are we the child?
-    //
     if (!pid) {
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(jove_add_path.c_str()));
@@ -377,9 +373,6 @@ static void worker(void) {
       return;
     }
 
-    //
-    // check exit code
-    //
     if (int ret = await_process_completion(pid))
       WithColor::error() << "jove-add failed for " << path << '\n';
   }
