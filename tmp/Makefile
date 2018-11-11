@@ -136,6 +136,16 @@ lib/arch/$(ARCH)/helpers/$(1).c:
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call helper_template,$(helper))))
 
+.PHONY: build-helpers
+build-helpers: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
+
+define build_helper_template
+.PHONY: $(BINDIR)/$(1).bc
+$(BINDIR)/$(1).bc:
+	clang -o $$@ -c -emit-llvm lib/arch/$(ARCH)/helpers/$(1).c
+endef
+$(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
+
 #
 # qemu configure command
 #
