@@ -89,7 +89,7 @@ typedef struct float_status {
 
 #define smp_read_barrier_depends()   barrier()
 
-# define ATOMIC_REG_SIZE  8
+# define ATOMIC_REG_SIZE  sizeof(void *)
 
 #define atomic_read__nocheck(ptr) \
     __atomic_load_n(ptr, __ATOMIC_RELAXED)
@@ -404,58 +404,35 @@ struct arm_boot_info;
 
 typedef struct ARMCPU ARMCPU;
 
-# define TCG_TARGET_REG_BITS  64
-
-# define TCG_TARGET_NB_REGS   32
+#define TCG_TARGET_NB_REGS 64
 
 typedef enum {
-    TCG_REG_EAX = 0,
-    TCG_REG_ECX,
-    TCG_REG_EDX,
-    TCG_REG_EBX,
-    TCG_REG_ESP,
-    TCG_REG_EBP,
-    TCG_REG_ESI,
-    TCG_REG_EDI,
+    TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
+    TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
+    TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
+    TCG_REG_X12, TCG_REG_X13, TCG_REG_X14, TCG_REG_X15,
+    TCG_REG_X16, TCG_REG_X17, TCG_REG_X18, TCG_REG_X19,
+    TCG_REG_X20, TCG_REG_X21, TCG_REG_X22, TCG_REG_X23,
+    TCG_REG_X24, TCG_REG_X25, TCG_REG_X26, TCG_REG_X27,
+    TCG_REG_X28, TCG_REG_X29, TCG_REG_X30,
 
-    /* 64-bit registers; always define the symbols to avoid
-       too much if-deffing.  */
-    TCG_REG_R8,
-    TCG_REG_R9,
-    TCG_REG_R10,
-    TCG_REG_R11,
-    TCG_REG_R12,
-    TCG_REG_R13,
-    TCG_REG_R14,
-    TCG_REG_R15,
+    /* X31 is either the stack pointer or zero, depending on context.  */
+    TCG_REG_SP = 31,
+    TCG_REG_XZR = 31,
 
-    TCG_REG_XMM0,
-    TCG_REG_XMM1,
-    TCG_REG_XMM2,
-    TCG_REG_XMM3,
-    TCG_REG_XMM4,
-    TCG_REG_XMM5,
-    TCG_REG_XMM6,
-    TCG_REG_XMM7,
+    TCG_REG_V0 = 32, TCG_REG_V1, TCG_REG_V2, TCG_REG_V3,
+    TCG_REG_V4, TCG_REG_V5, TCG_REG_V6, TCG_REG_V7,
+    TCG_REG_V8, TCG_REG_V9, TCG_REG_V10, TCG_REG_V11,
+    TCG_REG_V12, TCG_REG_V13, TCG_REG_V14, TCG_REG_V15,
+    TCG_REG_V16, TCG_REG_V17, TCG_REG_V18, TCG_REG_V19,
+    TCG_REG_V20, TCG_REG_V21, TCG_REG_V22, TCG_REG_V23,
+    TCG_REG_V24, TCG_REG_V25, TCG_REG_V26, TCG_REG_V27,
+    TCG_REG_V28, TCG_REG_V29, TCG_REG_V30, TCG_REG_V31,
 
-    /* 64-bit registers; likewise always define.  */
-    TCG_REG_XMM8,
-    TCG_REG_XMM9,
-    TCG_REG_XMM10,
-    TCG_REG_XMM11,
-    TCG_REG_XMM12,
-    TCG_REG_XMM13,
-    TCG_REG_XMM14,
-    TCG_REG_XMM15,
-
-    TCG_REG_RAX = TCG_REG_EAX,
-    TCG_REG_RCX = TCG_REG_ECX,
-    TCG_REG_RDX = TCG_REG_EDX,
-    TCG_REG_RBX = TCG_REG_EBX,
-    TCG_REG_RSP = TCG_REG_ESP,
-    TCG_REG_RBP = TCG_REG_EBP,
-    TCG_REG_RSI = TCG_REG_ESI,
-    TCG_REG_RDI = TCG_REG_EDI,
+    /* Aliases.  */
+    TCG_REG_FP = TCG_REG_X29,
+    TCG_REG_LR = TCG_REG_X30,
+    TCG_AREG0  = TCG_REG_X19,
 } TCGReg;
 
 #define TCG_TARGET_NEED_POOL_LABELS
@@ -937,8 +914,861 @@ typedef struct CPUARMState {
     void *gicv3state;
 } CPUARMState;
 
-void *helper_lookup_tb_ptr(CPUArchState *env)
+typedef void ARMELChangeHookFn(ARMCPU *cpu, void *opaque);
+
+struct ARMELChangeHook {
+    ARMELChangeHookFn *hook;
+    void *opaque;
+    QLIST_ENTRY(ARMELChangeHook) node;
+};
+
+typedef enum ARMPSCIState {
+    PSCI_ON = 0,
+    PSCI_OFF = 1,
+    PSCI_ON_PENDING = 2
+} ARMPSCIState;
+
+struct ARMCPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUARMState env;
+
+    /* Coprocessor information */
+    GHashTable *cp_regs;
+    /* For marshalling (mostly coprocessor) register state between the
+     * kernel and QEMU (for KVM) and between two QEMUs (for migration),
+     * we use these arrays.
+     */
+    /* List of register indexes managed via these arrays; (full KVM style
+     * 64 bit indexes, not CPRegInfo 32 bit indexes)
+     */
+    uint64_t *cpreg_indexes;
+    /* Values of the registers (cpreg_indexes[i]'s value is cpreg_values[i]) */
+    uint64_t *cpreg_values;
+    /* Length of the indexes, values, reset_values arrays */
+    int32_t cpreg_array_len;
+    /* These are used only for migration: incoming data arrives in
+     * these fields and is sanity checked in post_load before copying
+     * to the working data structures above.
+     */
+    uint64_t *cpreg_vmstate_indexes;
+    uint64_t *cpreg_vmstate_values;
+    int32_t cpreg_vmstate_array_len;
+
+    /* Timers used by the generic (architected) timer */
+    QEMUTimer *gt_timer[NUM_GTIMERS];
+    /* GPIO outputs for generic timer */
+    qemu_irq gt_timer_outputs[NUM_GTIMERS];
+    /* GPIO output for GICv3 maintenance interrupt signal */
+    qemu_irq gicv3_maintenance_interrupt;
+    /* GPIO output for the PMU interrupt */
+    qemu_irq pmu_interrupt;
+
+    /* MemoryRegion to use for secure physical accesses */
+    MemoryRegion *secure_memory;
+
+    /* For v8M, pointer to the IDAU interface provided by board/SoC */
+    Object *idau;
+
+    /* 'compatible' string for this CPU for Linux device trees */
+    const char *dtb_compatible;
+
+    /* PSCI version for this CPU
+     * Bits[31:16] = Major Version
+     * Bits[15:0] = Minor Version
+     */
+    uint32_t psci_version;
+
+    /* Should CPU start in PSCI powered-off state? */
+    bool start_powered_off;
+
+    /* Current power state, access guarded by BQL */
+    ARMPSCIState power_state;
+
+    /* CPU has virtualization extension */
+    bool has_el2;
+    /* CPU has security extension */
+    bool has_el3;
+    /* CPU has PMU (Performance Monitor Unit) */
+    bool has_pmu;
+
+    /* CPU has memory protection unit */
+    bool has_mpu;
+    /* PMSAv7 MPU number of supported regions */
+    uint32_t pmsav7_dregion;
+    /* v8M SAU number of supported regions */
+    uint32_t sau_sregion;
+
+    /* PSCI conduit used to invoke PSCI methods
+     * 0 - disabled, 1 - smc, 2 - hvc
+     */
+    uint32_t psci_conduit;
+
+    /* For v8M, initial value of the Secure VTOR */
+    uint32_t init_svtor;
+
+    /* [QEMU_]KVM_ARM_TARGET_* constant for this CPU, or
+     * QEMU_KVM_ARM_TARGET_NONE if the kernel doesn't support this CPU type.
+     */
+    uint32_t kvm_target;
+
+    /* KVM init features for this CPU */
+    uint32_t kvm_init_features[7];
+
+    /* Uniprocessor system with MP extensions */
+    bool mp_is_up;
+
+    /* True if we tried kvm_arm_host_cpu_features() during CPU instance_init
+     * and the probe failed (so we need to report the error in realize)
+     */
+    bool host_cpu_probe_failed;
+
+    /* Specify the number of cores in this CPU cluster. Used for the L2CTLR
+     * register.
+     */
+    int32_t core_count;
+
+    /* The instance init functions for implementation-specific subclasses
+     * set these fields to specify the implementation-dependent values of
+     * various constant registers and reset values of non-constant
+     * registers.
+     * Some of these might become QOM properties eventually.
+     * Field names match the official register names as defined in the
+     * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
+     * is used for reset values of non-constant registers; no reset_
+     * prefix means a constant register.
+     */
+    uint32_t midr;
+    uint32_t revidr;
+    uint32_t reset_fpsid;
+    uint32_t mvfr0;
+    uint32_t mvfr1;
+    uint32_t mvfr2;
+    uint32_t ctr;
+    uint32_t reset_sctlr;
+    uint32_t id_pfr0;
+    uint32_t id_pfr1;
+    uint32_t id_dfr0;
+    uint32_t pmceid0;
+    uint32_t pmceid1;
+    uint32_t id_afr0;
+    uint32_t id_mmfr0;
+    uint32_t id_mmfr1;
+    uint32_t id_mmfr2;
+    uint32_t id_mmfr3;
+    uint32_t id_mmfr4;
+    uint32_t id_isar0;
+    uint32_t id_isar1;
+    uint32_t id_isar2;
+    uint32_t id_isar3;
+    uint32_t id_isar4;
+    uint32_t id_isar5;
+    uint64_t id_aa64pfr0;
+    uint64_t id_aa64pfr1;
+    uint64_t id_aa64dfr0;
+    uint64_t id_aa64dfr1;
+    uint64_t id_aa64afr0;
+    uint64_t id_aa64afr1;
+    uint64_t id_aa64isar0;
+    uint64_t id_aa64isar1;
+    uint64_t id_aa64mmfr0;
+    uint64_t id_aa64mmfr1;
+    uint32_t dbgdidr;
+    uint32_t clidr;
+    uint64_t mp_affinity; /* MP ID without feature bits */
+    /* The elements of this array are the CCSIDR values for each cache,
+     * in the order L1DCache, L1ICache, L2DCache, L2ICache, etc.
+     */
+    uint32_t ccsidr[16];
+    uint64_t reset_cbar;
+    uint32_t reset_auxcr;
+    bool reset_hivecs;
+    /* DCZ blocksize, in log_2(words), ie low 4 bits of DCZID_EL0 */
+    uint32_t dcz_blocksize;
+    uint64_t rvbar;
+
+    /* Configurable aspects of GIC cpu interface (which is part of the CPU) */
+    int gic_num_lrs; /* number of list registers */
+    int gic_vpribits; /* number of virtual priority bits */
+    int gic_vprebits; /* number of virtual preemption bits */
+
+    /* Whether the cfgend input is high (i.e. this CPU should reset into
+     * big-endian mode).  This setting isn't used directly: instead it modifies
+     * the reset_sctlr value to have SCTLR_B or SCTLR_EE set, depending on the
+     * architecture version.
+     */
+    bool cfgend;
+
+    QLIST_HEAD(, ARMELChangeHook) pre_el_change_hooks;
+    QLIST_HEAD(, ARMELChangeHook) el_change_hooks;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+
+    /* Used to synchronize KVM and QEMU in-kernel device levels */
+    uint8_t device_irq_level;
+};
+
+static inline ARMCPU *arm_env_get_cpu(CPUARMState *env)
 {
-    return 0;
+    return container_of(env, ARMCPU, env);
+}
+
+#define ENV_GET_CPU(e) CPU(arm_env_get_cpu(e))
+
+#define TARGET_ABI_BITS TARGET_LONG_BITS
+
+#define ABI_LONG_ALIGNMENT (TARGET_ABI_BITS / 8)
+
+typedef target_ulong abi_ulong __attribute__((aligned(ABI_LONG_ALIGNMENT)));
+
+void cpu_get_tb_cpu_state(CPUARMState *env, target_ulong *pc,
+                          target_ulong *cs_base, uint32_t *flags);
+
+#define HELPER(name) glue(helper_, name)
+
+typedef struct TranslationBlock TranslationBlock;
+
+#define MAX_OPC_PARAM_PER_ARG 1
+
+#define MAX_OPC_PARAM_IARGS 6
+
+#define MAX_OPC_PARAM_OARGS 1
+
+#define MAX_OPC_PARAM_ARGS (MAX_OPC_PARAM_IARGS + MAX_OPC_PARAM_OARGS)
+
+#define MAX_OPC_PARAM (4 + (MAX_OPC_PARAM_PER_ARG * MAX_OPC_PARAM_ARGS))
+
+#  define TCG_TARGET_REG_BITS 64
+
+typedef int64_t tcg_target_long;
+
+typedef uint64_t tcg_target_ulong;
+
+#define TCG_TARGET_MAYBE_vec            1
+
+# define TARGET_INSN_START_WORDS (1 + TARGET_INSN_START_EXTRA_WORDS)
+
+typedef uint64_t TCGRegSet;
+
+typedef enum TCGOpcode {
+#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,
+/*
+ * Tiny Code Generator for QEMU
+ *
+ * Copyright (c) 2008 Fabrice Bellard
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+
+/*
+ * DEF(name, oargs, iargs, cargs, flags)
+ */
+
+/* predefined ops */
+DEF(discard, 1, 0, 0, TCG_OPF_NOT_PRESENT)
+DEF(set_label, 0, 0, 1, TCG_OPF_BB_END | TCG_OPF_NOT_PRESENT)
+
+/* variable number of parameters */
+DEF(call, 0, 0, 3, TCG_OPF_CALL_CLOBBER | TCG_OPF_NOT_PRESENT)
+
+DEF(br, 0, 0, 1, TCG_OPF_BB_END)
+
+#define IMPL(X) (__builtin_constant_p(X) && !(X) ? TCG_OPF_NOT_PRESENT : 0)
+#if TCG_TARGET_REG_BITS == 32
+# define IMPL64  TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT
+#else
+# define IMPL64  TCG_OPF_64BIT
+#endif
+
+DEF(mb, 0, 0, 1, 0)
+
+DEF(mov_i32, 1, 1, 0, TCG_OPF_NOT_PRESENT)
+DEF(movi_i32, 1, 0, 1, TCG_OPF_NOT_PRESENT)
+DEF(setcond_i32, 1, 2, 1, 0)
+DEF(movcond_i32, 1, 4, 1, IMPL(TCG_TARGET_HAS_movcond_i32))
+/* load/store */
+DEF(ld8u_i32, 1, 1, 1, 0)
+DEF(ld8s_i32, 1, 1, 1, 0)
+DEF(ld16u_i32, 1, 1, 1, 0)
+DEF(ld16s_i32, 1, 1, 1, 0)
+DEF(ld_i32, 1, 1, 1, 0)
+DEF(st8_i32, 0, 2, 1, 0)
+DEF(st16_i32, 0, 2, 1, 0)
+DEF(st_i32, 0, 2, 1, 0)
+/* arith */
+DEF(add_i32, 1, 2, 0, 0)
+DEF(sub_i32, 1, 2, 0, 0)
+DEF(mul_i32, 1, 2, 0, 0)
+DEF(div_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_div_i32))
+DEF(divu_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_div_i32))
+DEF(rem_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rem_i32))
+DEF(remu_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rem_i32))
+DEF(div2_i32, 2, 3, 0, IMPL(TCG_TARGET_HAS_div2_i32))
+DEF(divu2_i32, 2, 3, 0, IMPL(TCG_TARGET_HAS_div2_i32))
+DEF(and_i32, 1, 2, 0, 0)
+DEF(or_i32, 1, 2, 0, 0)
+DEF(xor_i32, 1, 2, 0, 0)
+/* shifts/rotates */
+DEF(shl_i32, 1, 2, 0, 0)
+DEF(shr_i32, 1, 2, 0, 0)
+DEF(sar_i32, 1, 2, 0, 0)
+DEF(rotl_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rot_i32))
+DEF(rotr_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_rot_i32))
+DEF(deposit_i32, 1, 2, 2, IMPL(TCG_TARGET_HAS_deposit_i32))
+DEF(extract_i32, 1, 1, 2, IMPL(TCG_TARGET_HAS_extract_i32))
+DEF(sextract_i32, 1, 1, 2, IMPL(TCG_TARGET_HAS_sextract_i32))
+
+DEF(brcond_i32, 0, 2, 2, TCG_OPF_BB_END)
+
+DEF(add2_i32, 2, 4, 0, IMPL(TCG_TARGET_HAS_add2_i32))
+DEF(sub2_i32, 2, 4, 0, IMPL(TCG_TARGET_HAS_sub2_i32))
+DEF(mulu2_i32, 2, 2, 0, IMPL(TCG_TARGET_HAS_mulu2_i32))
+DEF(muls2_i32, 2, 2, 0, IMPL(TCG_TARGET_HAS_muls2_i32))
+DEF(muluh_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_muluh_i32))
+DEF(mulsh_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_mulsh_i32))
+DEF(brcond2_i32, 0, 4, 2, TCG_OPF_BB_END | IMPL(TCG_TARGET_REG_BITS == 32))
+DEF(setcond2_i32, 1, 4, 1, IMPL(TCG_TARGET_REG_BITS == 32))
+
+DEF(ext8s_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext8s_i32))
+DEF(ext16s_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext16s_i32))
+DEF(ext8u_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext8u_i32))
+DEF(ext16u_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ext16u_i32))
+DEF(bswap16_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_bswap16_i32))
+DEF(bswap32_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_bswap32_i32))
+DEF(not_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_not_i32))
+DEF(neg_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_neg_i32))
+DEF(andc_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_andc_i32))
+DEF(orc_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_orc_i32))
+DEF(eqv_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_eqv_i32))
+DEF(nand_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_nand_i32))
+DEF(nor_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_nor_i32))
+DEF(clz_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_clz_i32))
+DEF(ctz_i32, 1, 2, 0, IMPL(TCG_TARGET_HAS_ctz_i32))
+DEF(ctpop_i32, 1, 1, 0, IMPL(TCG_TARGET_HAS_ctpop_i32))
+
+DEF(mov_i64, 1, 1, 0, TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT)
+DEF(movi_i64, 1, 0, 1, TCG_OPF_64BIT | TCG_OPF_NOT_PRESENT)
+DEF(setcond_i64, 1, 2, 1, IMPL64)
+DEF(movcond_i64, 1, 4, 1, IMPL64 | IMPL(TCG_TARGET_HAS_movcond_i64))
+/* load/store */
+DEF(ld8u_i64, 1, 1, 1, IMPL64)
+DEF(ld8s_i64, 1, 1, 1, IMPL64)
+DEF(ld16u_i64, 1, 1, 1, IMPL64)
+DEF(ld16s_i64, 1, 1, 1, IMPL64)
+DEF(ld32u_i64, 1, 1, 1, IMPL64)
+DEF(ld32s_i64, 1, 1, 1, IMPL64)
+DEF(ld_i64, 1, 1, 1, IMPL64)
+DEF(st8_i64, 0, 2, 1, IMPL64)
+DEF(st16_i64, 0, 2, 1, IMPL64)
+DEF(st32_i64, 0, 2, 1, IMPL64)
+DEF(st_i64, 0, 2, 1, IMPL64)
+/* arith */
+DEF(add_i64, 1, 2, 0, IMPL64)
+DEF(sub_i64, 1, 2, 0, IMPL64)
+DEF(mul_i64, 1, 2, 0, IMPL64)
+DEF(div_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div_i64))
+DEF(divu_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div_i64))
+DEF(rem_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rem_i64))
+DEF(remu_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rem_i64))
+DEF(div2_i64, 2, 3, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div2_i64))
+DEF(divu2_i64, 2, 3, 0, IMPL64 | IMPL(TCG_TARGET_HAS_div2_i64))
+DEF(and_i64, 1, 2, 0, IMPL64)
+DEF(or_i64, 1, 2, 0, IMPL64)
+DEF(xor_i64, 1, 2, 0, IMPL64)
+/* shifts/rotates */
+DEF(shl_i64, 1, 2, 0, IMPL64)
+DEF(shr_i64, 1, 2, 0, IMPL64)
+DEF(sar_i64, 1, 2, 0, IMPL64)
+DEF(rotl_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rot_i64))
+DEF(rotr_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_rot_i64))
+DEF(deposit_i64, 1, 2, 2, IMPL64 | IMPL(TCG_TARGET_HAS_deposit_i64))
+DEF(extract_i64, 1, 1, 2, IMPL64 | IMPL(TCG_TARGET_HAS_extract_i64))
+DEF(sextract_i64, 1, 1, 2, IMPL64 | IMPL(TCG_TARGET_HAS_sextract_i64))
+
+/* size changing ops */
+DEF(ext_i32_i64, 1, 1, 0, IMPL64)
+DEF(extu_i32_i64, 1, 1, 0, IMPL64)
+DEF(extrl_i64_i32, 1, 1, 0,
+    IMPL(TCG_TARGET_HAS_extrl_i64_i32)
+    | (TCG_TARGET_REG_BITS == 32 ? TCG_OPF_NOT_PRESENT : 0))
+DEF(extrh_i64_i32, 1, 1, 0,
+    IMPL(TCG_TARGET_HAS_extrh_i64_i32)
+    | (TCG_TARGET_REG_BITS == 32 ? TCG_OPF_NOT_PRESENT : 0))
+
+DEF(brcond_i64, 0, 2, 2, TCG_OPF_BB_END | IMPL64)
+DEF(ext8s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext8s_i64))
+DEF(ext16s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext16s_i64))
+DEF(ext32s_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext32s_i64))
+DEF(ext8u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext8u_i64))
+DEF(ext16u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext16u_i64))
+DEF(ext32u_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ext32u_i64))
+DEF(bswap16_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap16_i64))
+DEF(bswap32_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap32_i64))
+DEF(bswap64_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_bswap64_i64))
+DEF(not_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_not_i64))
+DEF(neg_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_neg_i64))
+DEF(andc_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_andc_i64))
+DEF(orc_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_orc_i64))
+DEF(eqv_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_eqv_i64))
+DEF(nand_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_nand_i64))
+DEF(nor_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_nor_i64))
+DEF(clz_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_clz_i64))
+DEF(ctz_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ctz_i64))
+DEF(ctpop_i64, 1, 1, 0, IMPL64 | IMPL(TCG_TARGET_HAS_ctpop_i64))
+
+DEF(add2_i64, 2, 4, 0, IMPL64 | IMPL(TCG_TARGET_HAS_add2_i64))
+DEF(sub2_i64, 2, 4, 0, IMPL64 | IMPL(TCG_TARGET_HAS_sub2_i64))
+DEF(mulu2_i64, 2, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_mulu2_i64))
+DEF(muls2_i64, 2, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_muls2_i64))
+DEF(muluh_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_muluh_i64))
+DEF(mulsh_i64, 1, 2, 0, IMPL64 | IMPL(TCG_TARGET_HAS_mulsh_i64))
+
+#define TLADDR_ARGS  (TARGET_LONG_BITS <= TCG_TARGET_REG_BITS ? 1 : 2)
+#define DATA64_ARGS  (TCG_TARGET_REG_BITS == 64 ? 1 : 2)
+
+/* QEMU specific */
+DEF(insn_start, 0, 0, TLADDR_ARGS * TARGET_INSN_START_WORDS,
+    TCG_OPF_NOT_PRESENT)
+DEF(exit_tb, 0, 0, 1, TCG_OPF_BB_END)
+DEF(goto_tb, 0, 0, 1, TCG_OPF_BB_END)
+DEF(goto_ptr, 0, 1, 0, TCG_OPF_BB_END | IMPL(TCG_TARGET_HAS_goto_ptr))
+
+DEF(qemu_ld_i32, 1, TLADDR_ARGS, 1,
+    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS)
+DEF(qemu_st_i32, 0, TLADDR_ARGS + 1, 1,
+    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS)
+DEF(qemu_ld_i64, DATA64_ARGS, TLADDR_ARGS, 1,
+    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_64BIT)
+DEF(qemu_st_i64, 0, TLADDR_ARGS + DATA64_ARGS, 1,
+    TCG_OPF_CALL_CLOBBER | TCG_OPF_SIDE_EFFECTS | TCG_OPF_64BIT)
+
+/* Host vector support.  */
+
+#define IMPLVEC  TCG_OPF_VECTOR | IMPL(TCG_TARGET_MAYBE_vec)
+
+DEF(mov_vec, 1, 1, 0, TCG_OPF_VECTOR | TCG_OPF_NOT_PRESENT)
+DEF(dupi_vec, 1, 0, 1, TCG_OPF_VECTOR | TCG_OPF_NOT_PRESENT)
+
+DEF(dup_vec, 1, 1, 0, IMPLVEC)
+DEF(dup2_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_REG_BITS == 32))
+
+DEF(ld_vec, 1, 1, 1, IMPLVEC)
+DEF(st_vec, 0, 2, 1, IMPLVEC)
+
+DEF(add_vec, 1, 2, 0, IMPLVEC)
+DEF(sub_vec, 1, 2, 0, IMPLVEC)
+DEF(mul_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_mul_vec))
+DEF(neg_vec, 1, 1, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_neg_vec))
+
+DEF(and_vec, 1, 2, 0, IMPLVEC)
+DEF(or_vec, 1, 2, 0, IMPLVEC)
+DEF(xor_vec, 1, 2, 0, IMPLVEC)
+DEF(andc_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_andc_vec))
+DEF(orc_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_orc_vec))
+DEF(not_vec, 1, 1, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_not_vec))
+
+DEF(shli_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
+DEF(shri_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
+DEF(sari_vec, 1, 1, 1, IMPLVEC | IMPL(TCG_TARGET_HAS_shi_vec))
+
+DEF(shls_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
+DEF(shrs_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
+DEF(sars_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shs_vec))
+
+DEF(shlv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
+DEF(shrv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
+DEF(sarv_vec, 1, 2, 0, IMPLVEC | IMPL(TCG_TARGET_HAS_shv_vec))
+
+DEF(cmp_vec, 1, 2, 1, IMPLVEC)
+
+DEF(last_generic, 0, 0, 0, TCG_OPF_NOT_PRESENT)
+
+#if TCG_TARGET_MAYBE_vec
+/* Target-specific opcodes for host vector expansion.  These will be
+   emitted by tcg_expand_vec_op.  For those familiar with GCC internals,
+   consider these to be UNSPEC with names.  */
+#endif
+
+#undef TLADDR_ARGS
+#undef DATA64_ARGS
+#undef IMPL
+#undef IMPL64
+#undef IMPLVEC
+#undef DEF
+#undef DEF
+    NB_OPS,
+} TCGOpcode;
+
+typedef uint32_t tcg_insn_unit;
+
+typedef struct TCGRelocation {
+    struct TCGRelocation *next;
+    int type;
+    tcg_insn_unit *ptr;
+    intptr_t addend;
+} TCGRelocation;
+
+typedef struct TCGLabel {
+    unsigned has_value : 1;
+    unsigned id : 31;
+    union {
+        uintptr_t value;
+        tcg_insn_unit *value_ptr;
+        TCGRelocation *first_reloc;
+    } u;
+} TCGLabel;
+
+#define TCG_MAX_TEMPS 512
+
+#define TCG_MAX_INSNS 512
+
+typedef struct TCGPool {
+    struct TCGPool *next;
+    int size;
+    uint8_t data[0] __attribute__ ((aligned));
+} TCGPool;
+
+typedef enum TCGType {
+    TCG_TYPE_I32,
+    TCG_TYPE_I64,
+
+    TCG_TYPE_V64,
+    TCG_TYPE_V128,
+    TCG_TYPE_V256,
+
+    TCG_TYPE_COUNT, /* number of different types */
+
+    /* An alias for the size of the host register.  */
+#if TCG_TARGET_REG_BITS == 32
+    TCG_TYPE_REG = TCG_TYPE_I32,
+#else
+    TCG_TYPE_REG = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the native pointer.  */
+#if UINTPTR_MAX == UINT32_MAX
+    TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the target "long", aka register.  */
+#if TARGET_LONG_BITS == 64
+    TCG_TYPE_TL = TCG_TYPE_I64,
+#else
+    TCG_TYPE_TL = TCG_TYPE_I32,
+#endif
+} TCGType;
+
+typedef tcg_target_ulong TCGArg;
+
+typedef enum TCGTempVal {
+    TEMP_VAL_DEAD,
+    TEMP_VAL_REG,
+    TEMP_VAL_MEM,
+    TEMP_VAL_CONST,
+} TCGTempVal;
+
+typedef struct TCGTemp {
+    TCGReg reg:8;
+    TCGTempVal val_type:8;
+    TCGType base_type:8;
+    TCGType type:8;
+    unsigned int fixed_reg:1;
+    unsigned int indirect_reg:1;
+    unsigned int indirect_base:1;
+    unsigned int mem_coherent:1;
+    unsigned int mem_allocated:1;
+    /* If true, the temp is saved across both basic blocks and
+       translation blocks.  */
+    unsigned int temp_global:1;
+    /* If true, the temp is saved across basic blocks but dead
+       at the end of translation blocks.  If false, the temp is
+       dead at the end of basic blocks.  */
+    unsigned int temp_local:1;
+    unsigned int temp_allocated:1;
+
+    tcg_target_long val;
+    struct TCGTemp *mem_base;
+    intptr_t mem_offset;
+    const char *name;
+
+    /* Pass-specific information that can be stored for a temporary.
+       One word worth of integer data, and one pointer to data
+       allocated separately.  */
+    uintptr_t state;
+    void *state_ptr;
+} TCGTemp;
+
+typedef struct TCGContext TCGContext;
+
+typedef struct TCGTempSet {
+    unsigned long l[BITS_TO_LONGS(TCG_MAX_TEMPS)];
+} TCGTempSet;
+
+typedef struct TCGOp {
+    TCGOpcode opc   : 8;        /*  8 */
+
+    /* Parameters for this opcode.  See below.  */
+    unsigned param1 : 4;        /* 12 */
+    unsigned param2 : 4;        /* 16 */
+
+    /* Lifetime data of the operands.  */
+    unsigned life   : 16;       /* 32 */
+
+    /* Next and previous opcodes.  */
+    QTAILQ_ENTRY(TCGOp) link;
+
+    /* Arguments for the opcode.  */
+    TCGArg args[MAX_OPC_PARAM];
+} TCGOp;
+
+struct TCGContext {
+    uint8_t *pool_cur, *pool_end;
+    TCGPool *pool_first, *pool_current, *pool_first_large;
+    int nb_labels;
+    int nb_globals;
+    int nb_temps;
+    int nb_indirects;
+
+    /* goto_tb support */
+    tcg_insn_unit *code_buf;
+    uint16_t *tb_jmp_reset_offset; /* tb->jmp_reset_offset */
+    uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */
+    uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */
+
+    TCGRegSet reserved_regs;
+    uint32_t tb_cflags; /* cflags of the current TB */
+    intptr_t current_frame_offset;
+    intptr_t frame_start;
+    intptr_t frame_end;
+    TCGTemp *frame_temp;
+
+    tcg_insn_unit *code_ptr;
+
+#ifdef CONFIG_PROFILER
+    TCGProfile prof;
+#endif
+
+#ifdef CONFIG_DEBUG_TCG
+    int temps_in_use;
+    int goto_tb_issue_mask;
+#endif
+
+    /* Code generation.  Note that we specifically do not use tcg_insn_unit
+       here, because there's too much arithmetic throughout that relies
+       on addition and subtraction working on bytes.  Rely on the GCC
+       extension that allows arithmetic on void*.  */
+    void *code_gen_prologue;
+    void *code_gen_epilogue;
+    void *code_gen_buffer;
+    size_t code_gen_buffer_size;
+    void *code_gen_ptr;
+    void *data_gen_ptr;
+
+    /* Threshold to flush the translated code buffer.  */
+    void *code_gen_highwater;
+
+    /* Track which vCPU triggers events */
+    CPUState *cpu;                      /* *_trans */
+
+    /* These structures are private to tcg-target.inc.c.  */
+#ifdef TCG_TARGET_NEED_LDST_LABELS
+    struct TCGLabelQemuLdst *ldst_labels;
+#endif
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    struct TCGLabelPoolData *pool_labels;
+#endif
+
+    TCGLabel *exitreq_label;
+
+    TCGTempSet free_temps[TCG_TYPE_COUNT * 2];
+    TCGTemp temps[TCG_MAX_TEMPS]; /* globals first, temps after */
+
+    QTAILQ_HEAD(TCGOpHead, TCGOp) ops, free_ops;
+
+    /* Tells which temporary holds a given register.
+       It does not take into account fixed registers */
+    TCGTemp *reg_to_temp[TCG_TARGET_NB_REGS];
+
+    uint16_t gen_insn_end_off[TCG_MAX_INSNS];
+    target_ulong gen_insn_data[TCG_MAX_INSNS][TARGET_INSN_START_WORDS];
+};
+
+extern __thread TCGContext *tcg_ctx;
+
+extern int use_icount;
+
+typedef abi_ulong tb_page_addr_t;
+
+extern int qemu_loglevel;
+
+static inline bool qemu_loglevel_mask(int mask)
+{
+    return (qemu_loglevel & mask) != 0;
+}
+
+int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
+
+#define CPU_LOG_EXEC       (1 << 5)
+
+#define qemu_log_mask_and_addr(MASK, ADDR, FMT, ...)    \
+    do {                                                \
+        if (unlikely(qemu_loglevel_mask(MASK)) &&       \
+                     qemu_log_in_addr_range(ADDR)) {    \
+            qemu_log(FMT, ## __VA_ARGS__);              \
+        }                                               \
+    } while (0)
+
+bool qemu_log_in_addr_range(uint64_t addr);
+
+struct tb_tc {
+    void *ptr;    /* pointer to the translated code */
+    size_t size;
+};
+
+struct TranslationBlock {
+    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */
+    target_ulong cs_base; /* CS base for this block */
+    uint32_t flags; /* flags defining in which context the code was generated */
+    uint16_t size;      /* size of target code for this block (1 <=
+                           size <= TARGET_PAGE_SIZE) */
+    uint16_t icount;
+    uint32_t cflags;    /* compile flags */
+#define CF_COUNT_MASK  0x00007fff
+#define CF_LAST_IO     0x00008000 /* Last insn may be an IO access.  */
+#define CF_NOCACHE     0x00010000 /* To be freed after execution */
+#define CF_USE_ICOUNT  0x00020000
+#define CF_INVALID     0x00040000 /* TB is stale. Setters need tb_lock */
+#define CF_PARALLEL    0x00080000 /* Generate code for a parallel context */
+/* cflags' mask for hashing/comparison */
+#define CF_HASH_MASK   \
+    (CF_COUNT_MASK | CF_LAST_IO | CF_USE_ICOUNT | CF_PARALLEL)
+
+    /* Per-vCPU dynamic tracing state used to generate this TB */
+    uint32_t trace_vcpu_dstate;
+
+    struct tb_tc tc;
+
+    /* original tb when cflags has CF_NOCACHE */
+    struct TranslationBlock *orig_tb;
+    /* first and second physical page containing code. The lower bit
+       of the pointer tells the index in page_next[] */
+    struct TranslationBlock *page_next[2];
+    tb_page_addr_t page_addr[2];
+
+    /* The following data are used to directly call another TB from
+     * the code of this one. This can be done either by emitting direct or
+     * indirect native jump instructions. These jumps are reset so that the TB
+     * just continues its execution. The TB can be linked to another one by
+     * setting one of the jump targets (or patching the jump instruction). Only
+     * two of such jumps are supported.
+     */
+    uint16_t jmp_reset_offset[2]; /* offset of original jump target */
+#define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
+    uintptr_t jmp_target_arg[2];  /* target address or offset */
+
+    /* Each TB has an associated circular list of TBs jumping to this one.
+     * jmp_list_first points to the first TB jumping to this one.
+     * jmp_list_next is used to point to the next TB in a list.
+     * Since each TB can have two jumps, it can participate in two lists.
+     * jmp_list_first and jmp_list_next are 4-byte aligned pointers to a
+     * TranslationBlock structure, but the two least significant bits of
+     * them are used to encode which data field of the pointed TB should
+     * be used to traverse the list further from that TB:
+     * 0 => jmp_list_next[0], 1 => jmp_list_next[1], 2 => jmp_list_first.
+     * In other words, 0/1 tells which jump is used in the pointed TB,
+     * and 2 means that this is a pointer back to the target TB of this list.
+     */
+    uintptr_t jmp_list_next[2];
+    uintptr_t jmp_list_first;
+};
+
+extern bool parallel_cpus;
+
+static inline uint32_t tb_cflags(const TranslationBlock *tb)
+{
+    return atomic_read(&tb->cflags);
+}
+
+static inline uint32_t curr_cflags(void)
+{
+    return (parallel_cpus ? CF_PARALLEL : 0)
+         | (use_icount ? CF_USE_ICOUNT : 0);
+}
+
+TranslationBlock *tb_htable_lookup(CPUState *cpu, target_ulong pc,
+                                   target_ulong cs_base, uint32_t flags,
+                                   uint32_t cf_mask);
+
+static inline unsigned int tb_jmp_cache_hash_func(target_ulong pc)
+{
+    return (pc ^ (pc >> TB_JMP_CACHE_BITS)) & (TB_JMP_CACHE_SIZE - 1);
+}
+
+static inline TranslationBlock *
+tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
+                     uint32_t *flags, uint32_t cf_mask)
+{
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
+    TranslationBlock *tb;
+    uint32_t hash;
+
+    cpu_get_tb_cpu_state(env, pc, cs_base, flags);
+    hash = tb_jmp_cache_hash_func(*pc);
+    tb = atomic_rcu_read(&cpu->tb_jmp_cache[hash]);
+    if (likely(tb &&
+               tb->pc == *pc &&
+               tb->cs_base == *cs_base &&
+               tb->flags == *flags &&
+               tb->trace_vcpu_dstate == *cpu->trace_dstate &&
+               (tb_cflags(tb) & (CF_HASH_MASK | CF_INVALID)) == cf_mask)) {
+        return tb;
+    }
+    tb = tb_htable_lookup(cpu, *pc, *cs_base, *flags, cf_mask);
+    if (tb == NULL) {
+        return NULL;
+    }
+    atomic_set(&cpu->tb_jmp_cache[hash], tb);
+    return tb;
+}
+
+const char *lookup_symbol(target_ulong orig_addr);
+
+void *HELPER(lookup_tb_ptr)(CPUArchState *env)
+{
+    CPUState *cpu = ENV_GET_CPU(env);
+    TranslationBlock *tb;
+    target_ulong cs_base, pc;
+    uint32_t flags;
+
+    tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, curr_cflags());
+    if (tb == NULL) {
+        return tcg_ctx->code_gen_epilogue;
+    }
+    qemu_log_mask_and_addr(CPU_LOG_EXEC, pc,
+                           "Chain %d: %p ["
+                           TARGET_FMT_lx "/" TARGET_FMT_lx "/%#x] %s\n",
+                           cpu->cpu_index, tb->tc.ptr, cs_base, pc, flags,
+                           lookup_symbol(pc));
+    return tb->tc.ptr;
 }
 

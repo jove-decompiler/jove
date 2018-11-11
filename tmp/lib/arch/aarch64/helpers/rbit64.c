@@ -8,11 +8,6 @@
 
 #include <byteswap.h>
 
-static inline uint16_t bswap16(uint16_t x)
-{
-    return bswap_16(x);
-}
-
 static inline uint64_t bswap64(uint64_t x)
 {
     return bswap_64(x);
