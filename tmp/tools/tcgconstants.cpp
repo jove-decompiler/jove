@@ -1,20 +1,9 @@
 #include "tcgcommon.hpp"
 
-#include <llvm/ADT/StringRef.h>
-#include <llvm/Support/PrettyStackTrace.h>
-#include <llvm/Support/Signals.h>
-#include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/InitLLVM.h>
 
 int main(int argc, char **argv) {
-  llvm::StringRef ToolName = argv[0];
-  llvm::sys::PrintStackTraceOnErrorSignal(ToolName);
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::llvm_shutdown_obj Y;
-
-  if (argc != 1) {
-    printf("usage: %s\n", argv[0]);
-    return 1;
-  }
+  llvm::InitLLVM X(argc, argv);
 
   jove::tiny_code_generator_t tcg;
 
