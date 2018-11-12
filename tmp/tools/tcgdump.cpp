@@ -190,6 +190,17 @@ int main(int argc, char **argv) {
     tcg.dump_operations();
 
     fputc('\n', stdout);
+
+    printf("live:");
+    for (int i = 0; i < tcg._ctx.nb_globals; ++i) {
+      const TCGTemp &ts = tcg._ctx.temps[i];
+      if (ts.state & TS_DEAD)
+        continue;
+
+      printf(" %s", ts.name);
+    }
+    fputc('\n', stdout);
+
     printf("%s @ %#lx\n", description_of_terminator(T.Type), T.Addr);
     switch (T.Type) {
     case jove::TERMINATOR::UNCONDITIONAL_JUMP:
