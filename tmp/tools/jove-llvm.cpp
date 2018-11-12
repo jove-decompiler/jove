@@ -1,3 +1,29 @@
+#include "jove/tcgconstants.h"
+#include <bitset>
+
+namespace jove {
+typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+}
+
+#define JOVE_EXTRA_BB_PROPERTIES                                               \
+  struct {                                                                     \
+    /* let def_B be the set of variables defined (i.e. definitely assigned */  \
+    /* values) in B prior to any use of that variable in B */                  \
+    tcg_global_set_t def;                                                      \
+                                                                               \
+    /* let use_B be the set of variables whose values may be used in B */      \
+    /* prior to any definition of the variable */                              \
+    tcg_global_set_t use;                                                      \
+                                                                               \
+    tcg_global_set_t IN;                                                       \
+    tcg_global_set_t OUT;                                                      \
+  } Analysis;
+
+#define JOVE_EXTRA_FN_PROPERTIES                                               \
+  struct {                                                                     \
+    tcg_global_set_t live;                                                     \
+  } Analysis;
+
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -164,6 +190,7 @@ static int InitModule(void);
 static int ParseBinaryRelocations(void);
 static int InitModuleSectionVariables(void);
 static int PrepareToTranslateCode(void);
+static int ConductLivenessAnalysis(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -174,6 +201,7 @@ int llvm(void) {
       || ParseBinaryRelocations()
       || InitModuleSectionVariables()
       || PrepareToTranslateCode()
+      || ConductLivenessAnalysis()
       || WriteModule();
 }
 
@@ -305,13 +333,6 @@ int InitStateForBinaries(void) {
 
       section_properties_set_t sectprops = {sectprop};
       st.SectMap.add(std::make_pair(intervl, sectprops));
-
-      if (opts::Verbose)
-        llvm::outs() << (fmt("%-20s [0x%lx, 0x%lx)") %
-                         std::string(sectprop.name) % intervl.lower() %
-                         intervl.upper())
-                            .str()
-                     << '\n';
     }
   }
 
@@ -385,12 +406,137 @@ int PrepareToTranslateCode(void) {
     return 1;
   }
 
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect(); /* on x86 1=Intel */
+  int AsmPrinterVariant =
+#if defined(__x86_64__)
+      1
+#else
+      AsmInfo->getAssemblerDialect()
+#endif
+      ;
   IP.reset(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
     WithColor::error() << "no instruction printer\n";
     return 1;
+  }
+
+  return 0;
+}
+
+int ConductLivenessAnalysis(void) {
+  //
+  // first we compute def_B and use_B for each basic block B
+  //
+  for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
+    binary_t &binary = Decompilation.Binaries[i];
+    binary_state_t &st = BinStateVec[i];
+    interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+
+    auto it_pair = boost::vertices(ICFG);
+    for (auto it = it_pair.first; it != it_pair.second; ++it) {
+      basic_block_t bb = *it;
+      const uintptr_t Addr = ICFG[bb].Addr;
+      const unsigned Size = ICFG[bb].Size;
+
+      auto sectit = st.SectMap.find(Addr);
+      if (sectit == st.SectMap.end()) {
+        WithColor::error() << "no section @ " << (fmt("%#lx") % Addr).str()
+                           << '\n';
+        return 1;
+      }
+
+      const section_properties_t &sectprop = *(*sectit).second.begin();
+      TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+
+      tcg_global_set_t &def = ICFG[bb].Analysis.def;
+      tcg_global_set_t &use = ICFG[bb].Analysis.use;
+
+      TCGContext *s = &TCG->_ctx;
+
+      auto input = [&](TCGTemp *ts) -> void {
+        if (!ts->temp_global)
+          return;
+
+        unsigned glb_idx = ts - &s->temps[0];
+        if (!def[glb_idx])
+          use.set(glb_idx);
+      };
+
+      auto output = [&](TCGTemp *ts) -> void {
+        if (!ts->temp_global)
+          return;
+
+        unsigned glb_idx = ts - &s->temps[0];
+        if (!use[glb_idx])
+          def.set(glb_idx);
+      };
+
+      unsigned size = 0;
+      jove::terminator_info_t T;
+      do {
+        unsigned len;
+        std::tie(len, T) = TCG->translate(Addr + size);
+
+        TCGOp *op, *op_next;
+        QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+          TCGOpcode opc = op->opc;
+          const TCGOpDef *def = &tcg_op_defs[opc];
+
+          int nb_oargs, nb_iargs;
+          if (opc == INDEX_op_call) {
+            nb_oargs = TCGOP_CALLO(op);
+            nb_iargs = TCGOP_CALLI(op);
+          } else {
+            nb_iargs = def->nb_iargs;
+            nb_oargs = def->nb_oargs;
+          }
+
+          for (int i = 0; i < nb_iargs; ++i)
+            input(arg_temp(op->args[nb_oargs + i]));
+
+          for (int i = 0; i < nb_oargs; ++i)
+            output(arg_temp(op->args[i]));
+        }
+
+        size += len;
+      } while (size < Size);
+
+      if (opts::Verbose) {
+        uint64_t InstLen;
+        for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+          std::ptrdiff_t Offset = A - (*sectit).first.lower();
+
+          llvm::MCInst Inst;
+          bool Disassembled = DisAsm->getInstruction(
+              Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls(),
+              llvm::nulls());
+
+          if (!Disassembled) {
+            WithColor::error() << "failed to disassemble "
+                               << (fmt("%#lx") % Addr).str() << '\n';
+            break;
+          }
+
+          IP->printInst(&Inst, llvm::outs(), "", *STI);
+          llvm::outs() << '\n';
+        }
+
+        llvm::outs() << '\n';
+        llvm::outs() << "def:";
+        for (unsigned i = 0; i < def.size(); ++i)
+          if (def[i])
+            llvm::outs() << ' ' << s->temps[i].name;
+        llvm::outs() << '\n';
+
+        llvm::outs() << "use:";
+        for (unsigned i = 0; i < use.size(); ++i)
+          if (use[i])
+            llvm::outs() << ' ' << s->temps[i].name;
+        llvm::outs() << '\n';
+
+        llvm::outs() << '\n';
+      }
+    }
   }
 
   return 0;

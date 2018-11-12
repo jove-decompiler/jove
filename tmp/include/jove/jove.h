@@ -1,11 +1,15 @@
 #pragma once
+#ifndef JOVE_EXTRA_BB_PROPERTIES
+#define JOVE_EXTRA_BB_PROPERTIES
+#endif
+
+#ifndef JOVE_EXTRA_FN_PROPERTIES
+#define JOVE_EXTRA_FN_PROPERTIES
+#endif
+
 #include <cstdint>
 #include <vector>
 #include <boost/graph/adjacency_list.hpp>
-
-//#include <boost/icl/separate_interval_set.hpp>
-//#include <boost/archive/text_oarchive.hpp>
-//#include <boost/archive/text_iarchive.hpp>
 
 namespace jove {
 
@@ -44,6 +48,8 @@ struct basic_block_properties_t {
 
   std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
 
+  JOVE_EXTRA_BB_PROPERTIES
+
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &Addr &Size &Term.Addr &Term.Type &Term._call.Target &DynTargets;
@@ -65,6 +71,8 @@ inline basic_block_t NullBasicBlock(void) {
 
 struct function_t {
   basic_block_index_t Entry;
+
+  JOVE_EXTRA_FN_PROPERTIES
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
