@@ -105,8 +105,11 @@ namespace opts {
     cl::desc("LLVM bitcode"),
     cl::Required);
 
-  static cl::opt<bool> UsesAndDefs("uses-and-defs",
+  static cl::opt<bool> PrintDefAndUse("print-def-and-use",
     cl::desc("Print use_B and def_B for every basic block B"));
+
+  static cl::opt<bool> PrintLiveness("print-liveness",
+    cl::desc("Print liveness for every function"));
 
   static cl::opt<bool> Verbose("verbose",
     cl::desc("Print extra information for debugging purposes"));
@@ -518,7 +521,7 @@ int ConductLivenessAnalysis(void) {
         size += len;
       } while (size < Size);
 
-      if (opts::UsesAndDefs) {
+      if (opts::PrintDefAndUse) {
         uint64_t InstLen;
         for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
           std::ptrdiff_t Offset = A - (*sectit).first.lower();
@@ -601,12 +604,15 @@ int ConductLivenessAnalysis(void) {
         }
       } while (change);
 
-      llvm::outs() << "live_in[entry]:";
-      tcg_global_set_t glbs = ICFG[entryBB].Analysis.IN;
-      for (unsigned i = 0; i < glbs.size(); ++i)
-        if (glbs[i])
-          llvm::outs() << ' ' << TCG->_ctx.temps[i].name;
-      llvm::outs() << '\n';
+      Func.Analysis.live = ICFG[entryBB].Analysis.IN;
+
+      if (opts::PrintLiveness) {
+        llvm::outs() << (fmt("%#lx") % ICFG[entryBB].Addr).str() << ' ';
+        for (unsigned i = 0; i < Func.Analysis.live.size(); ++i)
+          if (Func.Analysis.live[i])
+            llvm::outs() << ' ' << TCG->_ctx.temps[i].name;
+        llvm::outs() << '\n';
+      }
     }
   }
 
