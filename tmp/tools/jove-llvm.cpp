@@ -20,6 +20,7 @@ typedef std::bitset<tcg_num_globals> tcg_global_set_t;
   } Analysis;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
+  std::vector<basic_block_t> BasicBlocks;                                      \
   struct {                                                                     \
     tcg_global_set_t live;                                                     \
   } Analysis;
@@ -491,6 +492,7 @@ int ConductLivenessAnalysis(void) {
             nb_oargs = def->nb_oargs;
           }
 
+          // inputs first. order here matters
           for (int i = 0; i < nb_iargs; ++i)
             input(arg_temp(op->args[nb_oargs + i]));
 
@@ -537,6 +539,15 @@ int ConductLivenessAnalysis(void) {
         llvm::outs() << '\n';
       }
     }
+  }
+
+  //
+  // next we conduct backwards data-flow analysis for each function
+  //
+  for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
+    binary_t &binary = Decompilation.Binaries[i];
+    binary_state_t &st = BinStateVec[i];
+    interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
   }
 
   return 0;
