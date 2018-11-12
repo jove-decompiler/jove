@@ -454,24 +454,6 @@ int ConductLivenessAnalysis(void) {
 
       TCGContext *s = &TCG->_ctx;
 
-      auto input = [&](TCGTemp *ts) -> void {
-        if (!ts->temp_global)
-          return;
-
-        unsigned glb_idx = ts - &s->temps[0];
-        if (!def[glb_idx])
-          use.set(glb_idx);
-      };
-
-      auto output = [&](TCGTemp *ts) -> void {
-        if (!ts->temp_global)
-          return;
-
-        unsigned glb_idx = ts - &s->temps[0];
-        if (!use[glb_idx])
-          def.set(glb_idx);
-      };
-
       unsigned size = 0;
       jove::terminator_info_t T;
       do {
@@ -481,23 +463,40 @@ int ConductLivenessAnalysis(void) {
         TCGOp *op, *op_next;
         QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
           TCGOpcode opc = op->opc;
-          const TCGOpDef *def = &tcg_op_defs[opc];
 
           int nb_oargs, nb_iargs;
           if (opc == INDEX_op_call) {
             nb_oargs = TCGOP_CALLO(op);
             nb_iargs = TCGOP_CALLI(op);
           } else {
-            nb_iargs = def->nb_iargs;
-            nb_oargs = def->nb_oargs;
+            const TCGOpDef &opdef = tcg_op_defs[opc];
+
+            nb_iargs = opdef.nb_iargs;
+            nb_oargs = opdef.nb_oargs;
           }
 
-          // inputs first. order here matters
-          for (int i = 0; i < nb_iargs; ++i)
-            input(arg_temp(op->args[nb_oargs + i]));
+          tcg_global_set_t iglbs;
+          for (int i = 0; i < nb_iargs; ++i) {
+            TCGTemp* ts = arg_temp(op->args[nb_oargs + i]);
+            if (!ts->temp_global)
+              continue;
 
-          for (int i = 0; i < nb_oargs; ++i)
-            output(arg_temp(op->args[i]));
+            unsigned glb_idx = ts - &s->temps[0];
+            iglbs.set(glb_idx);
+          }
+
+          tcg_global_set_t oglbs;
+          for (int i = 0; i < nb_oargs; ++i) {
+            TCGTemp* ts = arg_temp(op->args[i]);
+            if (!ts->temp_global)
+              continue;
+
+            unsigned glb_idx = ts - &s->temps[0];
+            oglbs.set(glb_idx);
+          }
+
+          use |= (iglbs & ~def);
+          def |= (oglbs & ~use);
         }
 
         size += len;
