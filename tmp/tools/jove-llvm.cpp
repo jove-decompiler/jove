@@ -200,6 +200,7 @@ static int ParseBinaryRelocations(void);
 static int InitModuleSectionVariables(void);
 static int PrepareToTranslateCode(void);
 static int ConductLivenessAnalysis(void);
+static int TranslateFunctions(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -211,6 +212,7 @@ int llvm(void) {
       || InitModuleSectionVariables()
       || PrepareToTranslateCode()
       || ConductLivenessAnalysis()
+      || TranslateFunctions()
       || WriteModule();
 }
 
@@ -563,10 +565,9 @@ int ConductLivenessAnalysis(void) {
   // next we conduct backwards data-flow analysis for each function
   //
   for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
-    binary_t &binary = Decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
-    interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
-    for (function_t &Func : binary.Analysis.Functions) {
+    binary_t &Binary = Decompilation.Binaries[i];
+    interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+    for (function_t &Func : Binary.Analysis.Functions) {
       basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
 
       {
@@ -614,6 +615,14 @@ int ConductLivenessAnalysis(void) {
         llvm::outs() << '\n';
       }
     }
+  }
+
+  return 0;
+}
+
+int TranslateFunctions(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  for (function_t &Func : Binary.Analysis.Functions) {
   }
 
   return 0;
