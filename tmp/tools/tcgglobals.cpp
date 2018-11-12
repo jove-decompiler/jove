@@ -13,28 +13,10 @@ int main(int argc, char **argv) {
   jove::tiny_code_generator_t tcg;
 
   llvm::ScopedPrinter Writer(llvm::outs());
-  llvm::DictScope _(Writer);
+  llvm::ListScope _(Writer);
 
-#define ___FIELD(NumOrStr, field)                                              \
-  Writer.print##NumOrStr(BOOST_PP_STRINGIZE(field), tcg._ctx.field)
-
-#define __FIELD_(NumOrStr, field, transform)                                   \
-  Writer.print##NumOrStr(BOOST_PP_STRINGIZE(field), transform(tcg._ctx.field))
-
-  ___FIELD(Number, nb_labels);
-  ___FIELD(Number, nb_globals);
-  ___FIELD(Number, nb_temps);
-  ___FIELD(Number, nb_indirects);
-
-#undef ___FIELD
-#undef __FIELD_
-
-  {
-    llvm::ListScope _(Writer);
-
-    for (int i = 0; i < tcg._ctx.nb_globals; i++)
-      print_tcgtemp(Writer, tcg._ctx.temps[i]);
-  }
+  for (int i = 0; i < tcg._ctx.nb_globals; i++)
+    print_tcgtemp(Writer, tcg._ctx.temps[i]);
 
   return 0;
 }
@@ -105,4 +87,5 @@ void print_tcgtemp(llvm::ScopedPrinter &Writer, const TCGTemp &ts) {
 
 #undef ___FIELD
 #undef __FIELD_
+
 }
