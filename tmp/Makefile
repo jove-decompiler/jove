@@ -14,6 +14,7 @@ CXXFLAGS := -std=gnu++14 \
             -ferror-limit=0 \
             -Og \
             -g \
+            -I bin \
             -I include \
             -I lib \
             -I lib/arch/$(ARCH) \
@@ -46,12 +47,18 @@ DEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
 
 all: $(BINS)
 
+$(BINDIR)/jove-llvm: $(BINDIR)/jove/tcgconstants.h
 define build_tool_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).cpp
 	@echo CXX $(1)
 	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
+
+$(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
+	@mkdir -p $(BINDIR)/jove
+	@echo GEN $@
+	@$< > $@
 
 -include $(DEPS)
 
