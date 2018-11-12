@@ -63,6 +63,7 @@ typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
     interprocedural_control_flow_graph_t;
 
 typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
+typedef interprocedural_control_flow_graph_t::edge_descriptor control_flow_t;
 
 inline basic_block_t NullBasicBlock(void) {
   return boost::graph_traits<

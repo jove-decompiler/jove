@@ -75,6 +75,8 @@ typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/graph/depth_first_search.hpp>
+#include <boost/range/adaptor/reversed.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 
@@ -102,6 +104,9 @@ namespace opts {
   static cl::opt<std::string> Output("output",
     cl::desc("LLVM bitcode"),
     cl::Required);
+
+  static cl::opt<bool> UsesAndDefs("uses-and-defs",
+    cl::desc("Print use_B and def_B for every basic block B"));
 
   static cl::opt<bool> Verbose("verbose",
     cl::desc("Print extra information for debugging purposes"));
@@ -424,6 +429,17 @@ int PrepareToTranslateCode(void) {
   return 0;
 }
 
+struct dfs_visitor : public boost::default_dfs_visitor {
+  std::vector<basic_block_t> &out;
+
+  dfs_visitor(std::vector<basic_block_t> &out) : out(out) {}
+
+  void discover_vertex(basic_block_t bb,
+                       const interprocedural_control_flow_graph_t &) const {
+    out.push_back(bb);
+  }
+};
+
 int ConductLivenessAnalysis(void) {
   //
   // first we compute def_B and use_B for each basic block B
@@ -502,7 +518,7 @@ int ConductLivenessAnalysis(void) {
         size += len;
       } while (size < Size);
 
-      if (opts::Verbose) {
+      if (opts::UsesAndDefs) {
         uint64_t InstLen;
         for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
           std::ptrdiff_t Offset = A - (*sectit).first.lower();
@@ -547,6 +563,51 @@ int ConductLivenessAnalysis(void) {
     binary_t &binary = Decompilation.Binaries[i];
     binary_state_t &st = BinStateVec[i];
     interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+    for (function_t &Func : binary.Analysis.Functions) {
+      basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
+
+      {
+        std::map<basic_block_t, boost::default_color_type> color;
+        dfs_visitor vis(Func.BasicBlocks);
+        depth_first_visit(
+            ICFG, entryBB, vis,
+            boost::associative_property_map<
+                std::map<basic_block_t, boost::default_color_type>>(color));
+      }
+
+      for (basic_block_t bb : Func.BasicBlocks) {
+        ICFG[bb].Analysis.IN.reset();
+        ICFG[bb].Analysis.OUT.reset();
+      }
+
+      bool change;
+      do {
+        change = false;
+
+        for (basic_block_t bb : boost::adaptors::reverse(Func.BasicBlocks)) {
+          const tcg_global_set_t _IN = ICFG[bb].Analysis.IN;
+
+          auto eit_pair = boost::out_edges(bb, ICFG);
+          ICFG[bb].Analysis.OUT = std::accumulate(
+              eit_pair.first, eit_pair.second, tcg_global_set_t(),
+              [&](tcg_global_set_t glbs, control_flow_t cf) {
+                return glbs | ICFG[boost::target(cf, ICFG)].Analysis.IN;
+              });
+          ICFG[bb].Analysis.IN =
+              ICFG[bb].Analysis.use |
+              (ICFG[bb].Analysis.OUT & ~(ICFG[bb].Analysis.def));
+
+          change = change || _IN != ICFG[bb].Analysis.IN;
+        }
+      } while (change);
+
+      llvm::outs() << "live_in[entry]:";
+      tcg_global_set_t glbs = ICFG[entryBB].Analysis.IN;
+      for (unsigned i = 0; i < glbs.size(); ++i)
+        if (glbs[i])
+          llvm::outs() << ' ' << TCG->_ctx.temps[i].name;
+      llvm::outs() << '\n';
+    }
   }
 
   return 0;
