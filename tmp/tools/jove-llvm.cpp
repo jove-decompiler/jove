@@ -159,6 +159,79 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
     disas_t;
 
 //
+// a symbol is basically a name and a value. in a program compiled from C, the
+// value of a symbol is roughly the address of a global. Each defined symbol has
+// an address, and the dynamic linker will resolve each undefined symbol by
+// finding a defined symbol with the same name.
+//
+struct symbol_t {
+  llvm::StringRef Name;
+  uintptr_t Addr;
+
+  enum class TYPE {
+    NONE,
+    DATA,
+    FUNCTION,
+    TLSDATA,
+  } Type;
+
+  unsigned Size;
+
+  enum class BINDING {
+    NOBINDING,
+    LOCAL,
+    WEAK,
+    GLOBAL
+  } Bind;
+
+  bool IsUndefined() const { return Addr == 0; }
+  bool IsDefined() const { return !IsUndefined(); }
+};
+
+//
+// a relocation is a computation to perform on the contents; it is defined by a
+// type, symbol, offset into the contents, and addend. Most relocations refer to
+// a symbol and to an offset within the contents. A commonly used relocation is
+// "set this location in the contents to the value of this symbol plus this
+// addend". A relocation may refer to an undefined symbol.
+//
+struct relocation_t {
+  enum class TYPE {
+    //
+    // This relocation is unimplemented or has irrelevant semantics
+    //
+    NONE,
+
+    //
+    // set the location specified to be the address plus the addend
+    //
+    RELATIVE,
+
+    //
+    // set the location specified to be the absolute address of the addend
+    //
+    ABSOLUTE,
+
+    //
+    // Copies the data from resolved symbol to address
+    //
+    COPY,
+
+    //
+    // address of a function or variable.
+    //
+    ADDRESSOF
+  } Type;
+
+  uintptr_t Addr;
+  unsigned SymbolIndex;
+  uintptr_t Addend;
+};
+
+static std::vector<symbol_t> SymbolTable;
+static std::vector<relocation_t> RelocationTable;
+
+//
 // Globals
 //
 static decompilation_t Decompilation;
@@ -190,9 +263,9 @@ static std::unique_ptr<llvm::Module> Module;
 static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
-static int InitModule(void);
-static int ParseBinaryRelocations(void);
-static int InitModuleSectionVariables(void);
+static int ProcessSymbolsAndRelocations(void);
+static int CreateModule(void);
+static int CreateSectionGlobalVariables(void);
 static int PrepareToTranslateCode(void);
 static int ConductLivenessAnalysis(void);
 static int TranslateFunctions(void);
@@ -202,9 +275,9 @@ int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
       || InitStateForBinaries()
-      || InitModule()
-      || ParseBinaryRelocations()
-      || InitModuleSectionVariables()
+      || ProcessSymbolsAndRelocations()
+      || CreateModule()
+      || CreateSectionGlobalVariables()
       || PrepareToTranslateCode()
       || ConductLivenessAnalysis()
       || TranslateFunctions()
@@ -236,13 +309,18 @@ int FindBinary(void) {
   return 1;
 }
 
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename obj::ELF64LEObjectFile ELFO;
+typedef typename obj::ELF64LEFile ELFT;
+#endif
+
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
   for (binary_index_t bin_idx = 0;
        bin_idx < Decompilation.Binaries.size();
        ++bin_idx) {
-    const binary_t &binary = Decompilation.Binaries[bin_idx];
-    const interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+    const binary_t &Binary = Decompilation.Binaries[bin_idx];
+    const interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
 
     binary_state_t &st = BinStateVec[bin_idx];
 
@@ -250,9 +328,9 @@ int InitStateForBinaries(void) {
     // FuncMap
     //
     for (function_index_t f_idx = 0;
-         f_idx < binary.Analysis.Functions.size();
+         f_idx < Binary.Analysis.Functions.size();
          ++f_idx) {
-      const function_t &f = binary.Analysis.Functions[f_idx];
+      const function_t &f = Binary.Analysis.Functions[f_idx];
 
       st.FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = f_idx;
     }
@@ -271,29 +349,22 @@ int InitStateForBinaries(void) {
     //
     // build section map
     //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
     llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
+      WithColor::error() << "failed to create binary from " << Binary.Path
                          << '\n';
       return 1;
     }
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
-    typedef typename obj::ELF64LEObjectFile ELFO;
-    typedef typename obj::ELF64LEFile ELFT;
-
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      WithColor::error() << binary.Path << " is not ELF64LEObjectFile\n";
-      return 1;
-    }
-
+    assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
 
     TheTriple = O.makeTriple();
@@ -307,12 +378,12 @@ int InitStateForBinaries(void) {
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
       WithColor::error() << "error: could not get ELF sections for binary "
-                         << binary.Path << '\n';
+                         << Binary.Path << '\n';
       return 1;
     }
 
     if (opts::Verbose)
-      llvm::outs() << binary.Path << '\n';
+      llvm::outs() << Binary.Path << '\n';
 
     for (const Elf_Shdr &Sec : *sections) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
@@ -345,15 +416,217 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
-int InitModule(void) {
+int ProcessSymbolsAndRelocations(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                         Binary.Data.size());
+  llvm::StringRef Identifier(Binary.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from " << Binary.Path
+                       << '\n';
+    return 1;
+  }
+
+  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+  assert(llvm::isa<ELFO>(Bin.get()));
+  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+  TheTriple = O.makeTriple();
+  Features = O.getFeatures();
+
+  const ELFT &E = *O.getELFFile();
+
+  typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Sym Elf_Sym;
+  typedef typename ELFT::Elf_Rel Elf_Rel;
+  typedef typename ELFT::Elf_Rela Elf_Rela;
+
+  auto process_elf_sym = [&](const Elf_Shdr *Sec, const Elf_Sym &Sym) -> void {
+    symbol_t res;
+
+    llvm::StringRef StrTable = *E.getStringTableForSymtab(*Sec);
+
+    constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+        symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
+        symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
+        symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
+        symbol_t::TYPE::DATA,     // STT_SECTION             = 3
+        symbol_t::TYPE::DATA,     // STT_FILE                = 4
+        symbol_t::TYPE::DATA,     // STT_COMMON              = 5
+        symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
+        symbol_t::TYPE::NONE,     // N/A                     = 7
+        symbol_t::TYPE::NONE,     // N/A                     = 8
+        symbol_t::TYPE::NONE,     // N/A                     = 9
+        symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
+        symbol_t::TYPE::NONE,     // N/A                     = 11
+        symbol_t::TYPE::NONE,     // STT_HIOS                = 12
+        symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
+        symbol_t::TYPE::NONE,     // N/A                     = 14
+        symbol_t::TYPE::NONE      // STT_HIPROC              = 15
+    };
+
+    constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+        symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
+        symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
+        symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
+        symbol_t::BINDING::NOBINDING, // N/A            = 3
+        symbol_t::BINDING::NOBINDING, // N/A            = 4
+        symbol_t::BINDING::NOBINDING, // N/A            = 5
+        symbol_t::BINDING::NOBINDING, // N/A            = 6
+        symbol_t::BINDING::NOBINDING, // N/A            = 7
+        symbol_t::BINDING::NOBINDING, // N/A            = 8
+        symbol_t::BINDING::NOBINDING, // N/A            = 9
+        symbol_t::BINDING::NOBINDING, // STB_GNU_UNIQUE = 10
+        symbol_t::BINDING::NOBINDING, // N/A            = 11
+        symbol_t::BINDING::NOBINDING, // STB_HIOS       = 12
+        symbol_t::BINDING::NOBINDING, // STB_LOPROC     = 13
+        symbol_t::BINDING::NOBINDING, // N/A            = 14
+        symbol_t::BINDING::NOBINDING  // STB_HIPROC     = 15
+    };
+
+    res.Name = *Sym.getName(StrTable);
+    res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
+    res.Type = elf_symbol_type_mapping[Sym.getType()];
+    res.Size = Sym.st_size;
+    res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+
+    if (res.Type == symbol_t::TYPE::NONE &&
+        res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
+      // XXX FIXME
+#if 0
+      cout << "WARNING: making " << res.name << " into function symbol!"
+           << endl;
+#endif
+      res.Type = symbol_t::TYPE::FUNCTION;
+    }
+
+    SymbolTable.push_back(res);
+  };
+
+  auto process_elf_rel = [&](const Elf_Shdr *Sec, const Elf_Rel &R) -> void {
+    relocation_t res;
+
+    const Elf_Shdr *SymTab = *E.getSection(Sec->sh_link);
+    const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
+    if (Sym) {
+      res.SymbolIndex = SymbolTable.size();
+      process_elf_sym(SymTab, *Sym);
+    } else {
+      res.SymbolIndex = std::numeric_limits<unsigned>::max();
+    }
+
+    auto relocation_type_of_elf_rel_type =
+        [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
+      switch (elf_rela_ty) {
+#include "relocs.hpp"
+      default:
+        return relocation_t::TYPE::NONE;
+      }
+    };
+
+    res.Type = relocation_type_of_elf_rel_type(R.getType(E.isMips64EL()));
+    res.Addr = R.r_offset;
+    res.Addend = 0;
+
+    RelocationTable.push_back(res);
+  };
+
+  auto process_elf_rela = [&](const Elf_Shdr *Sec, const Elf_Rela &R) -> void {
+    relocation_t res;
+
+    const Elf_Shdr *SymTab = *E.getSection(Sec->sh_link);
+    const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
+    if (Sym) {
+      res.SymbolIndex = SymbolTable.size();
+      process_elf_sym(SymTab, *Sym);
+    } else {
+      res.SymbolIndex = std::numeric_limits<unsigned>::max();
+    }
+
+    auto relocation_type_of_elf_rela_type =
+        [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
+      switch (elf_rela_ty) {
+#include "relocs.hpp"
+      default:
+        return relocation_t::TYPE::NONE;
+      }
+    };
+
+    res.Type = relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
+    res.Addr = R.r_offset;
+    res.Addend = R.r_addend;
+
+    RelocationTable.push_back(res);
+  };
+
+  const Elf_Shdr *SymTblSec = nullptr;
+  const Elf_Shdr *RelTblSec = nullptr;
+  const Elf_Shdr *RelATblSec = nullptr;
+
+  for (const Elf_Shdr &Sec : *E.sections()) {
+    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+      if (SymTblSec) {
+        WithColor::error() << "multiple SYMTAB sections\n";
+        return 1;
+      }
+
+      SymTblSec = &Sec;
+    } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
+      if (RelTblSec) {
+        WithColor::error() << "multiple REL sections\n";
+        return 1;
+      }
+
+      RelTblSec = &Sec;
+    } else if (Sec.sh_type == llvm::ELF::SHT_RELA) {
+      if (RelATblSec) {
+        WithColor::error() << "multiple RELA sections\n";
+        return 1;
+      }
+
+      RelATblSec = &Sec;
+    }
+  }
+
+  if (SymTblSec) {
+    SymbolTable.reserve(SymTblSec->sh_size / sizeof(Elf_Sym));
+    for (const Elf_Sym &Sym : *E.symbols(SymTblSec))
+      process_elf_sym(SymTblSec, Sym);
+  }
+
+  if (RelTblSec) {
+    RelocationTable.reserve(RelocationTable.size() +
+                            std::distance(std::begin(*E.rels(RelTblSec)),
+                                          std::end(*E.rels(RelTblSec))));
+    for (const Elf_Rel &Rel : *E.rels(RelTblSec))
+      process_elf_rel(RelTblSec, Rel);
+  }
+
+  if (RelATblSec) {
+    RelocationTable.reserve(RelocationTable.size() +
+                            std::distance(std::begin(*E.relas(RelATblSec)),
+                                          std::end(*E.relas(RelATblSec))));
+    for (const Elf_Rela &Rela : *E.relas(RelATblSec))
+      process_elf_rela(RelATblSec, Rela);
+  }
+
+  return 0;
+}
+
+int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
   Module.reset(new llvm::Module(opts::Binary, *Context));
 
   return 0;
 }
 
-int ParseBinaryRelocations(void) { return 0; }
-int InitModuleSectionVariables(void) { return 0; }
+int CreateSectionGlobalVariables(void) { return 0; }
 
 int PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);

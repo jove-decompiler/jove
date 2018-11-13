@@ -1,0 +1,43 @@
+case llvm::ELF::R_X86_64_GLOB_DAT:
+case llvm::ELF::R_X86_64_JUMP_SLOT:
+  return relocation_t::TYPE::ADDRESSOF;
+case llvm::ELF::R_X86_64_COPY:
+  return relocation_t::TYPE::COPY;
+case llvm::ELF::R_X86_64_64:
+  return relocation_t::TYPE::ABSOLUTE;
+case llvm::ELF::R_X86_64_RELATIVE:
+  return relocation_t::TYPE::RELATIVE;
+case llvm::ELF::R_X86_64_NONE:
+case llvm::ELF::R_X86_64_PC32:
+case llvm::ELF::R_X86_64_GOT32:
+case llvm::ELF::R_X86_64_PLT32:
+case llvm::ELF::R_X86_64_GOTPCREL:
+case llvm::ELF::R_X86_64_32:
+case llvm::ELF::R_X86_64_32S:
+case llvm::ELF::R_X86_64_16:
+case llvm::ELF::R_X86_64_PC16:
+case llvm::ELF::R_X86_64_8:
+case llvm::ELF::R_X86_64_PC8:
+case llvm::ELF::R_X86_64_DTPMOD64:
+case llvm::ELF::R_X86_64_DTPOFF64:
+case llvm::ELF::R_X86_64_TPOFF64:
+case llvm::ELF::R_X86_64_TLSGD:
+case llvm::ELF::R_X86_64_TLSLD:
+case llvm::ELF::R_X86_64_DTPOFF32:
+case llvm::ELF::R_X86_64_GOTTPOFF:
+case llvm::ELF::R_X86_64_TPOFF32:
+case llvm::ELF::R_X86_64_PC64:
+case llvm::ELF::R_X86_64_GOTOFF64:
+case llvm::ELF::R_X86_64_GOTPC32:
+case llvm::ELF::R_X86_64_GOT64:
+case llvm::ELF::R_X86_64_GOTPCREL64:
+case llvm::ELF::R_X86_64_GOTPC64:
+case llvm::ELF::R_X86_64_GOTPLT64:
+case llvm::ELF::R_X86_64_PLTOFF64:
+case llvm::ELF::R_X86_64_SIZE32:
+case llvm::ELF::R_X86_64_SIZE64:
+case llvm::ELF::R_X86_64_GOTPC32_TLSDESC:
+case llvm::ELF::R_X86_64_TLSDESC_CALL:
+case llvm::ELF::R_X86_64_TLSDESC:
+case llvm::ELF::R_X86_64_IRELATIVE:
+  return relocation_t::TYPE::NONE;
