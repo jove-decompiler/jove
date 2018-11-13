@@ -1,10 +1,6 @@
 #include "jove/tcgconstants.h"
 #include <bitset>
 
-namespace jove {
-typedef std::bitset<tcg_num_globals> tcg_global_set_t;
-}
-
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
   struct {                                                                     \
     /* let def_B be the set of variables defined (i.e. definitely assigned */  \
