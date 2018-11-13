@@ -411,6 +411,20 @@ int InitStateForBinaries(void) {
       section_properties_set_t sectprops = {sectprop};
       st.SectMap.add(std::make_pair(intervl, sectprops));
     }
+
+    if (bin_idx == BinaryIndex) {
+      llvm::outs() << "Address Space:\n";
+      for (const auto &pair : st.SectMap) {
+        const section_properties_t &sect = *pair.second.begin();
+
+        llvm::outs() <<
+          (boost::format("%-20s [%x, %x)")
+           % sect.name.str()
+           % pair.first.lower()
+           % pair.first.upper()).str()
+          << '\n';
+      }
+    }
   }
 
   return 0;
@@ -616,29 +630,9 @@ int ProcessBinarySymbolsAndRelocations(void) {
       process_elf_rela(RelATblSec, Rela);
   }
 
-  return 0;
-}
-
-int CreateModule(void) {
-  Context.reset(new llvm::LLVMContext);
-  Module.reset(new llvm::Module(opts::Binary, *Context));
-
-  return 0;
-}
-
-int CreateSectionGlobalVariables(void) {
-  llvm::outs() << "Address Space:\n";
-  for (const auto& pair : BinStateVec[BinaryIndex].SectMap) {
-    const section_properties_t &sect = *pair.second.begin();
-
-    llvm::outs() <<
-      (boost::format("%-20s [%x, %x)") % sect.name.str()
-                                       % pair.first.lower()
-                                       % pair.first.upper()).str() << '\n';
-  }
-
-  llvm::outs() << '\n';
-
+  //
+  // print relocations & symbols
+  //
   auto string_of_reloc_type = [](relocation_t::TYPE ty) -> const char * {
     switch (ty) {
     case relocation_t::TYPE::NONE:
@@ -680,7 +674,7 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
-  llvm::outs() << "Relocations:\n\n";
+  llvm::outs() << "\nRelocations:\n\n";
   for (const relocation_t &reloc : RelocationTable) {
     llvm::outs() << "  " <<
       (boost::format("%-12s @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
@@ -699,8 +693,18 @@ int CreateSectionGlobalVariables(void) {
     }
     llvm::outs() << '\n';
   }
-  llvm::outs() << '\n';
 
+  return 0;
+}
+
+int CreateModule(void) {
+  Context.reset(new llvm::LLVMContext);
+  Module.reset(new llvm::Module(opts::Binary, *Context));
+
+  return 0;
+}
+
+int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
