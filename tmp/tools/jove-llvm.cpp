@@ -1,5 +1,4 @@
 #include "jove/tcgconstants.h"
-#include <bitset>
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
   struct {                                                                     \
