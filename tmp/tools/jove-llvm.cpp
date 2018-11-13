@@ -178,7 +178,7 @@ struct symbol_t {
   unsigned Size;
 
   enum class BINDING {
-    NOBINDING,
+    NONE,
     LOCAL,
     WEAK,
     GLOBAL
@@ -263,7 +263,7 @@ static std::unique_ptr<llvm::Module> Module;
 static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
-static int ProcessSymbolsAndRelocations(void);
+static int ProcessBinarySymbolsAndRelocations(void);
 static int CreateModule(void);
 static int CreateSectionGlobalVariables(void);
 static int PrepareToTranslateCode(void);
@@ -275,7 +275,7 @@ int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
       || InitStateForBinaries()
-      || ProcessSymbolsAndRelocations()
+      || ProcessBinarySymbolsAndRelocations()
       || CreateModule()
       || CreateSectionGlobalVariables()
       || PrepareToTranslateCode()
@@ -416,7 +416,7 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
-int ProcessSymbolsAndRelocations(void) {
+int ProcessBinarySymbolsAndRelocations(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
@@ -475,19 +475,19 @@ int ProcessSymbolsAndRelocations(void) {
         symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
         symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
         symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-        symbol_t::BINDING::NOBINDING, // N/A            = 3
-        symbol_t::BINDING::NOBINDING, // N/A            = 4
-        symbol_t::BINDING::NOBINDING, // N/A            = 5
-        symbol_t::BINDING::NOBINDING, // N/A            = 6
-        symbol_t::BINDING::NOBINDING, // N/A            = 7
-        symbol_t::BINDING::NOBINDING, // N/A            = 8
-        symbol_t::BINDING::NOBINDING, // N/A            = 9
-        symbol_t::BINDING::NOBINDING, // STB_GNU_UNIQUE = 10
-        symbol_t::BINDING::NOBINDING, // N/A            = 11
-        symbol_t::BINDING::NOBINDING, // STB_HIOS       = 12
-        symbol_t::BINDING::NOBINDING, // STB_LOPROC     = 13
-        symbol_t::BINDING::NOBINDING, // N/A            = 14
-        symbol_t::BINDING::NOBINDING  // STB_HIPROC     = 15
+        symbol_t::BINDING::NONE,      // N/A            = 3
+        symbol_t::BINDING::NONE,      // N/A            = 4
+        symbol_t::BINDING::NONE,      // N/A            = 5
+        symbol_t::BINDING::NONE,      // N/A            = 6
+        symbol_t::BINDING::NONE,      // N/A            = 7
+        symbol_t::BINDING::NONE,      // N/A            = 8
+        symbol_t::BINDING::NONE,      // N/A            = 9
+        symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
+        symbol_t::BINDING::NONE,      // N/A            = 11
+        symbol_t::BINDING::NONE,      // STB_HIOS       = 12
+        symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
+        symbol_t::BINDING::NONE,      // N/A            = 14
+        symbol_t::BINDING::NONE       // STB_HIPROC     = 15
     };
 
     res.Name = *Sym.getName(StrTable);
@@ -626,7 +626,83 @@ int CreateModule(void) {
   return 0;
 }
 
-int CreateSectionGlobalVariables(void) { return 0; }
+int CreateSectionGlobalVariables(void) {
+  llvm::outs() << "Address Space:\n";
+  for (const auto& pair : BinStateVec[BinaryIndex].SectMap) {
+    const section_properties_t &sect = *pair.second.begin();
+
+    llvm::outs() <<
+      (boost::format("%-20s [%x, %x)") % sect.name.str()
+                                       % pair.first.lower()
+                                       % pair.first.upper()).str() << '\n';
+  }
+
+  llvm::outs() << '\n';
+
+  auto string_of_reloc_type = [](relocation_t::TYPE ty) -> const char * {
+    switch (ty) {
+    case relocation_t::TYPE::NONE:
+      return "NONE";
+    case relocation_t::TYPE::RELATIVE:
+      return "RELATIVE";
+    case relocation_t::TYPE::ABSOLUTE:
+      return "ABSOLUTE";
+    case relocation_t::TYPE::COPY:
+      return "COPY";
+    case relocation_t::TYPE::ADDRESSOF:
+      return "ADDRESSOF";
+    }
+  };
+
+  auto string_of_sym_type = [](symbol_t::TYPE ty) -> const char * {
+    switch (ty) {
+    case symbol_t::TYPE::NONE:
+      return "NONE";
+    case symbol_t::TYPE::DATA:
+      return "DATA";
+    case symbol_t::TYPE::FUNCTION:
+      return "FUNCTION";
+    case symbol_t::TYPE::TLSDATA:
+      return "TLSDATA";
+    }
+  };
+
+  auto string_of_sym_binding = [](symbol_t::BINDING b) -> const char * {
+    switch (b) {
+    case symbol_t::BINDING::NONE:
+      return "NONE";
+    case symbol_t::BINDING::LOCAL:
+      return "LOCAL";
+    case symbol_t::BINDING::WEAK:
+      return "WEAK";
+    case symbol_t::BINDING::GLOBAL:
+      return "GLOBAL";
+    }
+  };
+
+  llvm::outs() << "Relocations:\n\n";
+  for (const relocation_t &reloc : RelocationTable) {
+    llvm::outs() << "  " <<
+      (boost::format("%-12s @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
+                                             % reloc.Addr
+                                             % reloc.Addend).str();
+
+    if (reloc.SymbolIndex < SymbolTable.size()) {
+      symbol_t &sym = SymbolTable[reloc.SymbolIndex];
+      llvm::outs() <<
+        (boost::format("%-30s *%-10s *%-8s @ %x {%d}")
+         % sym.Name.str()
+         % string_of_sym_type(sym.Type)
+         % string_of_sym_binding(sym.Bind)
+         % sym.Addr
+         % sym.Size).str();
+    }
+    llvm::outs() << '\n';
+  }
+  llvm::outs() << '\n';
+
+  return 0;
+}
 
 int PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
