@@ -403,6 +403,9 @@ int InitStateForBinaries(void) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
         continue;
 
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
       llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
           E.getSectionContents(&Sec);
 
@@ -897,17 +900,26 @@ int CreateSectionGlobalVariables(void) {
 
     symbol_t& S = SymbolTable[R.SymbolIndex];
 
-    type_for_relocation(
-        R, S.Type == symbol_t::TYPE::FUNCTION
-               ? llvm::PointerType::get(
-                     llvm::FunctionType::get(llvm::Type::getVoidTy(*Context),
-                                             false),
-                     0)
-               : llvm::PointerType::get(
-                     S.Size ? llvm::IntegerType::get(*Context, S.Size * 8)
-                            : llvm::IntegerType::get(*Context,
-                                                     sizeof(uintptr_t) * 8),
-                     0));
+    llvm::Type *T;
+
+    switch (S.Type) {
+    case symbol_t::TYPE::FUNCTION:
+      T = llvm::PointerType::get(
+          llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false), 0);
+      break;
+
+    case symbol_t::TYPE::DATA:
+      T = llvm::PointerType::get(
+          S.Size ? llvm::IntegerType::get(*Context, S.Size * 8)
+                 : llvm::IntegerType::get(*Context, sizeof(uintptr_t) * 8),
+          0);
+      break;
+
+    default:
+      abort();
+    }
+
+    type_for_relocation(R, T);
   };
 
   auto process_relative_relocation_type = [&](const relocation_t &R) -> void {
@@ -982,7 +994,6 @@ int CreateSectionGlobalVariables(void) {
                                          llvm::GlobalValue::InternalLinkage,
                                          nullptr, "__jove_sections");
   SectsGlobal->setAlignment(4096);
-  llvm::outs() << *SectsGlobal << '\n';
 
   //
   // initialize section global variables
@@ -998,102 +1009,39 @@ int CreateSectionGlobalVariables(void) {
 
   auto process_addressof_function_relocation =
       [&](const relocation_t &R) -> void {
-    if (!(R.SymbolIndex < SymbolTable.size()))
-      return;
-
     const symbol_t &S = SymbolTable[R.SymbolIndex];
 
-    llvm::Constant *C = nullptr;
-    if (S.IsUndefined()) {
-      C = Module->getGlobalVariable(S.Name);
-      if (C) {
-        C = llvm::ConstantExpr::getPointerCast(
-            C,
-            llvm::PointerType::get(
-                llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
-                0));
-      } else {
-        C = Module->getFunction(S.Name);
-        if (!C)
-          C = llvm::Function::Create(
-              llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
-              S.Bind == symbol_t::BINDING::WEAK
-                  ? llvm::GlobalValue::ExternalWeakLinkage
-                  : llvm::GlobalValue::ExternalLinkage,
-              S.Name, Module.get());
-      }
-    } else {
-      // XXX TODO
-      C = Module->getOrInsertFunction(
-          (boost::format("%s_function_defined_and_spotted_at_relocation") %
-           S.Name.str())
-              .str(),
-          llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false));
+    llvm::Function *F = Module->getFunction(S.Name);
+    if (!F) {
+      assert(S.IsUndefined());
+
+      F = llvm::Function::Create(
+          llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
+          S.Bind == symbol_t::BINDING::WEAK
+              ? llvm::GlobalValue::ExternalWeakLinkage
+              : llvm::GlobalValue::ExternalLinkage,
+          S.Name, Module.get());
     }
 
-    constant_for_relocation(R, C);
+    constant_for_relocation(R, F);
   };
 
   auto process_addressof_data_relocation = [&](const relocation_t &R) -> void {
-    if (!(R.SymbolIndex < SymbolTable.size()))
-      return;
-
     symbol_t &S = SymbolTable[R.SymbolIndex];
 
-    llvm::Constant *C;
-    if (S.IsUndefined()) {
-      llvm::Function *F = Module->getFunction(S.Name);
-      C = F ? F
-            : Module->getOrInsertGlobal(
-                  S.Name,
-                  llvm::IntegerType::get(*Context, sizeof(uintptr_t) * 8));
-    } else {
-      llvm::Function *F = Module->getFunction(S.Name);
-      if (F) {
-        C = F;
-      } else {
-        llvm::GlobalVariable *G = Module->getGlobalVariable(S.Name);
-        if (G) {
-          C = G;
-        } else {
-          unsigned sectidx = (*SectIdxMap.find(S.Addr)).second;
-          section_t &sect = SectTable[sectidx];
-          unsigned off = S.Addr - sect.Addr;
-
-          uint64_t cnstvl;
-          switch (S.Size) {
-          case 1:
-            cnstvl = sect.contents.begin()[off];
-            break;
-          case 2:
-            cnstvl = *reinterpret_cast<const uint16_t *>(
-                &sect.contents.begin()[off]);
-            break;
-          case 4:
-            cnstvl = *reinterpret_cast<const uint32_t *>(
-                &sect.contents.begin()[off]);
-            break;
-          case 8:
-            cnstvl = *reinterpret_cast<const uint64_t *>(
-                &sect.contents.begin()[off]);
-            break;
-          default:
-            WithColor::warning()
-                << "defined symbol with unknown size " << S.Size << '\n';
-            return;
-          }
-
-          llvm::Type *ty = llvm::IntegerType::get(
-              *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
-
-          C = new llvm::GlobalVariable(
-              *Module, ty, false, llvm::GlobalVariable::ExternalLinkage,
-              llvm::ConstantInt::get(ty, cnstvl), S.Name);
-        }
-      }
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    if (!GV) {
+      assert(S.IsUndefined());
+      llvm::Type *T = llvm::IntegerType::get(
+          *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
+      GV = new llvm::GlobalVariable(*Module, T, false,
+                                    S.Bind == symbol_t::BINDING::WEAK
+                                        ? llvm::GlobalValue::ExternalWeakLinkage
+                                        : llvm::GlobalValue::ExternalLinkage,
+                                    nullptr, S.Name);
     }
 
-    constant_for_relocation(R, C);
+    constant_for_relocation(R, GV);
   };
 
   auto process_addressof_relocation = [&](const relocation_t &R) -> void {
