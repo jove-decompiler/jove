@@ -254,6 +254,10 @@ static binary_index_t BinaryIndex = invalid_binary_index;
 
 static std::vector<binary_state_t> BinStateVec;
 
+static std::unordered_map<std::string,
+                          std::pair<binary_index_t, function_index_t>>
+    ExportedFunctions;
+
 static llvm::Triple TheTriple;
 static llvm::SubtargetFeatures Features;
 
@@ -286,6 +290,7 @@ static llvm::DataLayout DL("");
 static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
+static int ProcessDynamicSymbols(void);
 static int ProcessBinarySymbolsAndRelocations(void);
 static int PrepareToTranslateCode(void);
 static int ConductLivenessAnalysis(void);
@@ -299,6 +304,7 @@ int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
       || InitStateForBinaries()
+      || ProcessDynamicSymbols()
       || ProcessBinarySymbolsAndRelocations()
       || PrepareToTranslateCode()
       || ConductLivenessAnalysis()
@@ -339,6 +345,20 @@ typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
 #endif
 
+template <class T>
+T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  WithColor::error() << Buf << '\n';
+  exit(1);
+}
+
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
   for (binary_index_t bin_idx = 0;
@@ -372,7 +392,7 @@ int InitStateForBinaries(void) {
     }
 
     //
-    // build section map
+    // parse the ELF
     //
     llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
                            Binary.Data.size());
@@ -397,6 +417,9 @@ int InitStateForBinaries(void) {
 
     const ELFT &E = *O.getELFFile();
 
+    //
+    // build section map
+    //
     typedef typename ELFT::Elf_Shdr Elf_Shdr;
     typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
 
@@ -458,18 +481,187 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
-template <class T>
-T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
+/// Represents a contiguous uniform range in the file. We cannot just create a
+/// range directly because when creating one of these from the .dynamic table
+/// the size, entity size and virtual address are different entries in arbitrary
+/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
+struct DynRegionInfo {
+  DynRegionInfo() = default;
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES) {}
 
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  /// Address in current address space.
+  const void *Addr = nullptr;
+  /// Size in bytes of the region.
+  uint64_t Size = 0;
+  /// Size of each entity in the region.
+  uint64_t EntSize = 0;
+
+  template <typename Type>
+    llvm::ArrayRef<Type> getAsArrayRef() const {
+    const Type *Start = reinterpret_cast<const Type *>(Addr);
+    if (!Start)
+      return {Start, Start};
+    if (EntSize != sizeof(Type) || Size % EntSize)
+      abort();
+    return {Start, Start + (Size / EntSize)};
   }
-  WithColor::error() << Buf << '\n';
-  exit(1);
+};
+
+int ProcessDynamicSymbols(void) {
+  for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
+    const binary_t &Binary = Decompilation.Binaries[i];
+    const interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+    const binary_state_t &st = BinStateVec[i];
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from " << Binary.Path
+                         << '\n';
+      return 1;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    assert(llvm::isa<ELFO>(Bin.get()));
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Phdr Elf_Phdr;
+    typedef typename ELFT::Elf_Dyn Elf_Dyn;
+    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Sym Elf_Sym;
+
+    auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+      if (DRI.Addr < E.base() ||
+          (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+        abort();
+      return DRI;
+    };
+
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+    DynRegionInfo DynamicTable;
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                           uint64_t EntSize) -> DynRegionInfo {
+        return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+      };
+
+      for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+          DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+          continue;
+        }
+        if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+          continue;
+        LoadSegments.push_back(&Phdr);
+      }
+    }
+
+    assert(DynamicTable.Addr);
+
+    DynRegionInfo DynSymRegion;
+    llvm::StringRef DynSymtabName;
+    llvm::StringRef DynamicStringTable;
+
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+        return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+      };
+
+      for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+        switch (Sec.sh_type) {
+        case llvm::ELF::SHT_DYNSYM:
+          DynSymRegion = createDRIFrom(&Sec);
+          DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+          DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+          break;
+        }
+      }
+    }
+
+    //
+    // parse dynamic table
+    //
+    {
+      auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+        return DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+
+      auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+        const Elf_Phdr *const *I =
+            std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                             [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                               return VAddr < Phdr->p_vaddr;
+                             });
+        if (I == LoadSegments.begin())
+          abort();
+        --I;
+        const Elf_Phdr &Phdr = **I;
+        uint64_t Delta = VAddr - Phdr.p_vaddr;
+        if (Delta >= Phdr.p_filesz)
+          abort();
+        return E.base() + Phdr.p_offset + Delta;
+      };
+
+      const char *StringTableBegin = nullptr;
+      uint64_t StringTableSize = 0;
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        switch (Dyn.d_tag) {
+        case llvm::ELF::DT_STRTAB:
+          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          break;
+        case llvm::ELF::DT_STRSZ:
+          StringTableSize = Dyn.getVal();
+          break;
+        }
+      };
+
+      if (StringTableBegin)
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined())
+        continue;
+
+      function_index_t FuncIdx;
+      {
+        auto it = st.FuncMap.find(Sym.st_value);
+        if (it == st.FuncMap.end())
+          continue;
+
+        FuncIdx = (*it).second;
+      }
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      llvm::outs() << (fmt("%#lx") % Sym.st_value).str() << ' ' << SymName
+                   << '\n';
+
+      auto it = ExportedFunctions.find(SymName);
+      if (it != ExportedFunctions.end())
+        WithColor::warning()
+            << "multiple symbols with the name " << SymName << " found\n";
+
+      ExportedFunctions[SymName] = {i, FuncIdx};
+    }
+  }
+  return 0;
 }
 
 int ProcessBinarySymbolsAndRelocations(void) {
@@ -999,34 +1191,44 @@ static llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
+static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
+                                                 function_index_t FuncIdx) {
+  binary_t &b = Decompilation.Binaries[BinIdx];
+  function_t &f = b.Analysis.Functions[FuncIdx];
+
+  tcg_global_set_t inputs = f.Analysis.live & CallConvArgs;
+  tcg_global_set_t outputs = f.Analysis.defined & CallConvRets;
+
+  std::vector<llvm::Type *> argTypes;
+  argTypes.resize(inputs.count());
+  std::fill(argTypes.begin(), argTypes.end(), WordType());
+
+  llvm::Type *retType;
+  if (outputs.count() == 0) {
+    retType = VoidType();
+  } else if (outputs.count() == 1) {
+    retType = WordType();
+  } else {
+    std::vector<llvm::Type *> retTypes;
+    retTypes.resize(outputs.count());
+    std::fill(retTypes.begin(), retTypes.end(), WordType());
+    retType = llvm::StructType::get(*Context, retTypes);
+  }
+
+  return llvm::FunctionType::get(retType, argTypes, false);
+}
+
 int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
 
-  for (function_t &f : Binary.Analysis.Functions) {
-    tcg_global_set_t inputs = f.Analysis.live & CallConvArgs;
-    tcg_global_set_t outputs = f.Analysis.defined & CallConvRets;
-
-    std::vector<llvm::Type *> argTypes;
-    argTypes.resize(inputs.count());
-    std::fill(argTypes.begin(), argTypes.end(), WordType());
-
-    llvm::Type *retType;
-    if (outputs.count() == 0) {
-      retType = VoidType();
-    } else if (outputs.count() == 1) {
-      retType = WordType();
-    } else {
-      std::vector<llvm::Type *> retTypes;
-      retTypes.resize(outputs.count());
-      std::fill(retTypes.begin(), retTypes.end(), WordType());
-      retType = llvm::StructType::get(*Context, retTypes);
-    }
-
-    f.F = llvm::Function::Create(
-        llvm::FunctionType::get(retType, argTypes, false),
-        llvm::GlobalValue::ExternalLinkage,
-        (fmt("%#lx") % ICFG[f.Entry].Addr).str(), Module.get());
+  for (function_index_t FuncIdx = 0; FuncIdx < Binary.Analysis.Functions.size();
+       ++FuncIdx) {
+    function_t &f = Binary.Analysis.Functions[FuncIdx];
+    f.F = llvm::Function::Create(DetermineFunctionType(BinaryIndex, FuncIdx),
+                                 llvm::GlobalValue::ExternalLinkage,
+                                 (fmt("%#lx") % ICFG[f.Entry].Addr).str(),
+                                 Module.get());
   }
 
   return 0;
@@ -1252,16 +1454,28 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R) -> void {
     const symbol_t &S = SymbolTable[R.SymbolIndex];
 
+    assert(S.IsUndefined());
+
     llvm::Function *F = Module->getFunction(S.Name);
     if (!F) {
-      assert(S.IsUndefined());
+      auto it = ExportedFunctions.find(S.Name);
+      if (it == ExportedFunctions.end()) {
+        WithColor::warning() << " no exported function was executed with the name " << S.Name << '\n';
 
-      F = llvm::Function::Create(
-          llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
-          S.Bind == symbol_t::BINDING::WEAK
-              ? llvm::GlobalValue::ExternalWeakLinkage
-              : llvm::GlobalValue::ExternalLinkage,
-          S.Name, Module.get());
+        F = llvm::Function::Create(
+            llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
+            S.Bind == symbol_t::BINDING::WEAK
+                ? llvm::GlobalValue::ExternalWeakLinkage
+                : llvm::GlobalValue::ExternalLinkage,
+            S.Name, Module.get());
+      } else {
+        F = llvm::Function::Create(
+            DetermineFunctionType((*it).second.first, (*it).second.second),
+            S.Bind == symbol_t::BINDING::WEAK
+                ? llvm::GlobalValue::ExternalWeakLinkage
+                : llvm::GlobalValue::ExternalLinkage,
+            S.Name, Module.get());
+      }
     }
 
     constant_for_relocation(R, F);
