@@ -870,9 +870,9 @@ int ProcessBinarySymbolsAndRelocations(void) {
   llvm::outs() << "\nRelocations:\n\n";
   for (const relocation_t &reloc : RelocationTable) {
     llvm::outs() << "  " <<
-      (boost::format("%-12s @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
-                                             % reloc.Addr
-                                             % reloc.Addend).str();
+      (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
+                                   % reloc.Addr
+                                   % reloc.Addend).str();
 
     if (reloc.SymbolIndex < SymbolTable.size()) {
       symbol_t &sym = SymbolTable[reloc.SymbolIndex];
