@@ -42,9 +42,8 @@ int main(int argc, char **argv) {
   jove::tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetDisassembler();
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
       obj::createBinary(opts::Binary);

@@ -668,9 +668,8 @@ int ProcessBinarySymbolsAndRelocations(void) {
 int PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
 
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetDisassembler();
 
   std::string ArchName;
   std::string Error;

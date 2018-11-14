@@ -264,9 +264,8 @@ int ParentProc(pid_t child) {
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetDisassembler();
 
   bool git = fs::is_directory(opts::jv);
 
