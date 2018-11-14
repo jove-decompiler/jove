@@ -979,20 +979,20 @@ int CreateSectionGlobalVariables(void) {
       structfieldtys.push_back(ty);
     }
 
-    std::string sectnm_ = sect.name;
-    boost::replace_all(sectnm_, ".", "_");
+    std::string sectnm = sect.name;
+    sectnm.erase(std::remove(sectnm.begin(), sectnm.end(), '.'), sectnm.end());
 
     SectGVTypes[i] = llvm::StructType::create(*Context, structfieldtys,
-                                              "struct.__jove_" + sectnm_, true);
+                                              "section." + sectnm, true);
 
     fieldtys.push_back(SectGVTypes[i]);
   }
 
-  llvm::StructType *sectsgvty = llvm::StructType::create(
-      *Context, fieldtys, "struct.__jove_sections", true);
+  llvm::StructType *sectsgvty =
+      llvm::StructType::create(*Context, fieldtys, "struct.sections", true);
   SectsGlobal = new llvm::GlobalVariable(*Module, sectsgvty, false,
                                          llvm::GlobalValue::InternalLinkage,
-                                         nullptr, "__jove_sections");
+                                         nullptr, "sections");
   SectsGlobal->setAlignment(4096);
 
   //
