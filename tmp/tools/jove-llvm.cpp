@@ -273,9 +273,9 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int ProcessBinarySymbolsAndRelocations(void);
+static int PrepareToTranslateCode(void);
 static int CreateModule(void);
 static int CreateSectionGlobalVariables(void);
-static int PrepareToTranslateCode(void);
 static int ConductLivenessAnalysis(void);
 static int TranslateFunctions(void);
 static int WriteModule(void);
@@ -285,9 +285,9 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || ProcessBinarySymbolsAndRelocations()
+      || PrepareToTranslateCode()
       || CreateModule()
       || CreateSectionGlobalVariables()
-      || PrepareToTranslateCode()
       || ConductLivenessAnalysis()
       || TranslateFunctions()
       || WriteModule();
@@ -660,6 +660,80 @@ int ProcessBinarySymbolsAndRelocations(void) {
          % sym.Size).str();
     }
     llvm::outs() << '\n';
+  }
+
+  return 0;
+}
+
+int PrepareToTranslateCode(void) {
+  TCG.reset(new tiny_code_generator_t);
+
+  llvm::InitializeAllTargetInfos();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllDisassemblers();
+
+  std::string ArchName;
+  std::string Error;
+
+  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  if (!TheTarget) {
+    WithColor::error() << "failed to lookup target: " << Error << '\n';
+    return 1;
+  }
+
+  std::string TripleName = TheTriple.getTriple();
+
+  MRI.reset(TheTarget->createMCRegInfo(TripleName));
+  if (!MRI) {
+    WithColor::error() << "no register info for target\n";
+    return 1;
+  }
+
+  AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName));
+  if (!AsmInfo) {
+    WithColor::error() << "no assembly info\n";
+    return 1;
+  }
+
+  std::string MCPU;
+
+  STI.reset(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+  if (!STI) {
+    WithColor::error() << "no subtarget info\n";
+    return 1;
+  }
+
+  MII.reset(TheTarget->createMCInstrInfo());
+  if (!MII) {
+    WithColor::error() << "no instruction info\n";
+    return 1;
+  }
+
+  MOFI.reset(new llvm::MCObjectFileInfo);
+  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
+
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
+
+  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
+  if (!DisAsm) {
+    WithColor::error() << "no disassembler for target\n";
+    return 1;
+  }
+
+  int AsmPrinterVariant =
+#if defined(__x86_64__)
+      1
+#else
+      AsmInfo->getAssemblerDialect()
+#endif
+      ;
+  IP.reset(TheTarget->createMCInstPrinter(
+      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP) {
+    WithColor::error() << "no instruction printer\n";
+    return 1;
   }
 
   return 0;
@@ -1079,80 +1153,6 @@ int CreateSectionGlobalVariables(void) {
   }
 
   SectsGV->setInitializer(llvm::ConstantStruct::get(sectsgvty, fieldinits));
-
-  return 0;
-}
-
-int PrepareToTranslateCode(void) {
-  TCG.reset(new tiny_code_generator_t);
-
-  llvm::InitializeAllTargetInfos();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllDisassemblers();
-
-  std::string ArchName;
-  std::string Error;
-
-  TheTarget = llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-
-  MRI.reset(TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    WithColor::error() << "no register info for target\n";
-    return 1;
-  }
-
-  AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName));
-  if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
-    return 1;
-  }
-
-  std::string MCPU;
-
-  STI.reset(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    WithColor::error() << "no subtarget info\n";
-    return 1;
-  }
-
-  MII.reset(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    WithColor::error() << "no instruction info\n";
-    return 1;
-  }
-
-  MOFI.reset(new llvm::MCObjectFileInfo);
-  MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
-
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
-
-  DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
-  if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
-    return 1;
-  }
-
-  int AsmPrinterVariant =
-#if defined(__x86_64__)
-      1
-#else
-      AsmInfo->getAssemblerDialect()
-#endif
-      ;
-  IP.reset(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    WithColor::error() << "no instruction printer\n";
-    return 1;
-  }
 
   return 0;
 }
