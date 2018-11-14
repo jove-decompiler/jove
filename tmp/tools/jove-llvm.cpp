@@ -264,7 +264,7 @@ static std::unique_ptr<llvm::Module> Module;
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
 
-static llvm::GlobalVariable *SectsGV;
+static llvm::GlobalVariable *SectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::DataLayout DL("");
@@ -804,24 +804,17 @@ llvm::Constant *section_ptr(uintptr_t addr) {
 
   unsigned off = addr - SectsStartAddr;
 
-  //IRBuilder<> IRB;
-
-#if 0
-  SmallVector<Value *, 4> Indices;
-  getNaturalGEPWithOffset(sectsgv, APInt(64, off), word_type(), Indices);
-
-  if (Indices.empty())
-    return nullptr;
-
-  return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
-#else
-  return SectsGV;
-#endif
+  llvm::IRBuilderTy IRB(*Context);
+  llvm::SmallVector<llvm::Value *, 4> Indices;
+  llvm::Value *res = getNaturalGEPWithOffset(
+      IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+  assert(llvm::isa<llvm::Constant>(res));
+  return llvm::cast<llvm::Constant>(res);
 }
 
 int CreateSectionGlobalVariables(void) {
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
-  const unsigned NumSections = SectMap.size();
+  const unsigned NumSections = SectMap.iterative_size();
 
   //
   // create sections table and address -> section index map
@@ -945,7 +938,10 @@ int CreateSectionGlobalVariables(void) {
 
     std::vector<llvm::Type *> structfieldtys;
 
+    //llvm::outs() << "SectsStuff[" << i << "]\n";
     for (const auto &intvl : SectsStuff[i]) {
+      //llvm::outs() << (fmt("[%#lx, %#lx)") % intvl.lower() % intvl.upper()).str() << '\n';
+
       auto relocit = SectRelocTypes[i].find(intvl.lower());
       llvm::Type *ty = relocit != SectRelocTypes[i].end()
                      ? (*relocit).second
@@ -966,10 +962,11 @@ int CreateSectionGlobalVariables(void) {
 
   llvm::StructType *sectsgvty = llvm::StructType::create(
       *Context, fieldtys, "struct.__jove_sections", true);
-  SectsGV = new llvm::GlobalVariable(*Module, sectsgvty, false,
-                                     llvm::GlobalValue::ExternalLinkage,
-                                     nullptr, "__jove_sections");
-  SectsGV->setAlignment(4096);
+  SectsGlobal = new llvm::GlobalVariable(*Module, sectsgvty, false,
+                                         llvm::GlobalValue::InternalLinkage,
+                                         nullptr, "__jove_sections");
+  SectsGlobal->setAlignment(4096);
+  llvm::outs() << *SectsGlobal << '\n';
 
   //
   // initialize section global variables
@@ -1100,8 +1097,12 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto process_relative_relocation = [&](const relocation_t &R) -> void {
+#if 0
     llvm::Constant *C =
         R.Addend == 0 ? section_ptr(R.Addr) : section_ptr(R.Addend);
+#else
+    llvm::Constant *C = SectsGlobal;
+#endif
 
     constant_for_relocation(R, C);
   };
@@ -1145,34 +1146,36 @@ int CreateSectionGlobalVariables(void) {
     std::vector<llvm::Constant *> structfieldconsts;
     llvm::StructType *sectgvty = SectGVTypes[i];
 
-    auto &sectstuff = SectsStuff[i];
-
     llvm::StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
-    for (const auto &intvl : sectstuff) {
-      llvm::Type* sectgvty_elem = *sectgvty_elem_it++;
+    for (const auto &intvl : SectsStuff[i]) {
+      llvm::Type *ty;
+      {
+        auto relocit = SectRelocTypes[i].find(intvl.lower());
+        ty = relocit != SectRelocTypes[i].end()
+                 ? (*relocit).second
+                 : llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
+                                        intvl.upper() - intvl.lower());
+      }
 
-      llvm::Constant *C = nullptr;
+      llvm::Constant *C;
 
-      auto relocit = SectRelocs[i].find(intvl.lower());
-      if (relocit != SectRelocs[i].end()) { // a relocation
-        C = llvm::ConstantExpr::getPointerCast((*relocit).second, sectgvty_elem);
-      } else { // section data
-        C = llvm::ConstantDataArray::get(
-            *Context,
-            llvm::ArrayRef<uint8_t>(sect.contents.begin() + intvl.lower(),
+      {
+        auto relocit = SectRelocs[i].find(intvl.lower());
+        C = relocit != SectRelocs[i].end()
+                ? llvm::ConstantExpr::getPointerCast((*relocit).second, ty)
+                : llvm::ConstantDataArray::get(
+                      *Context, llvm::ArrayRef<uint8_t>(
+                                    sect.contents.begin() + intvl.lower(),
                                     sect.contents.begin() + intvl.upper()));
       }
 
-#if 0
-      C->dump();
-#endif
       structfieldconsts.push_back(C);
     }
 
     fieldinits.push_back(llvm::ConstantStruct::get(sectgvty, structfieldconsts));
   }
 
-  SectsGV->setInitializer(llvm::ConstantStruct::get(sectsgvty, fieldinits));
+  SectsGlobal->setInitializer(llvm::ConstantStruct::get(sectsgvty, fieldinits));
 
   return 0;
 }
@@ -1408,8 +1411,9 @@ static Value *buildGEP(IRBuilderTy &IRB, Value *BasePtr,
   if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
     return BasePtr;
 
-  return IRB.CreateInBoundsGEP(nullptr, BasePtr, Indices,
-                               NamePrefix + "sroa_idx");
+  assert(isa<Constant>(BasePtr));
+  return ConstantExpr::getInBoundsGetElementPtr(
+      nullptr, cast<Constant>(BasePtr), Indices);
 }
 
 /// Get a natural GEP off of the BasePtr walking through Ty toward
