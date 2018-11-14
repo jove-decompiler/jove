@@ -41,6 +41,7 @@
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/Host.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
@@ -54,6 +55,9 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/IR/Verifier.h>
+#include <llvm/IR/Constants.h>
+#include <llvm/IR/IRBuilder.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -74,6 +78,7 @@
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
+#include <boost/algorithm/string/replace.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -132,6 +137,7 @@ namespace jove {
 //
 // Types
 //
+
 typedef boost::format fmt;
 
 struct section_properties_t {
@@ -228,9 +234,6 @@ struct relocation_t {
   uintptr_t Addend;
 };
 
-static std::vector<symbol_t> SymbolTable;
-static std::vector<relocation_t> RelocationTable;
-
 //
 // Globals
 //
@@ -256,6 +259,12 @@ static std::unique_ptr<tiny_code_generator_t> TCG;
 
 static std::unique_ptr<llvm::LLVMContext> Context;
 static std::unique_ptr<llvm::Module> Module;
+
+static std::vector<symbol_t> SymbolTable;
+static std::vector<relocation_t> RelocationTable;
+
+static llvm::GlobalVariable *SectsGV;
+static uintptr_t SectsStartAddr, SectsEndAddr;
 
 //
 // Stages
@@ -400,8 +409,8 @@ int InitStateForBinaries(void) {
       if (!name)
         continue;
 
-      boost::icl::interval<std::uintptr_t>::type intervl =
-          boost::icl::interval<std::uintptr_t>::right_open(
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
       section_properties_t sectprop;
@@ -700,11 +709,418 @@ int ProcessBinarySymbolsAndRelocations(void) {
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
   Module.reset(new llvm::Module(opts::Binary, *Context));
-
+  Module->setTargetTriple(llvm::sys::getDefaultTargetTriple());
+  //Module->setDataLayout(HelperM.getDataLayout());
   return 0;
 }
 
+struct section_t {
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+  uintptr_t Addr;
+  unsigned Size;
+};
+
+} // namespace jove
+
+namespace llvm {
+
+using IRBuilderTy = IRBuilder<ConstantFolder, IRBuilderDefaultInserter>;
+
+/// Get a natural GEP from a base pointer to a particular offset and
+/// resulting in a particular type.
+///
+/// The goal is to produce a "natural" looking GEP that works with the existing
+/// composite types to arrive at the appropriate offset and element type for
+/// a pointer. TargetTy is the element type the returned GEP should point-to if
+/// possible. We recurse by decreasing Offset, adding the appropriate index to
+/// Indices, and setting Ty to the result subtype.
+///
+/// If no natural GEP can be constructed, this function returns null.
+static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
+                                      Value *Ptr, APInt Offset, Type *TargetTy,
+                                      SmallVectorImpl<Value *> &Indices,
+                                      Twine NamePrefix);
+}
+
+namespace jove {
+
+llvm::Constant *section_ptr(uintptr_t addr) {
+  if (addr < SectsStartAddr || addr >= SectsEndAddr)
+    return nullptr;
+
+  unsigned off = addr - SectsStartAddr;
+
+  //IRBuilder<> IRB;
+
+#if 0
+  SmallVector<Value *, 4> Indices;
+  getNaturalGEPWithOffset(sectsgv, APInt(64, off), word_type(), Indices);
+
+  if (Indices.empty())
+    return nullptr;
+
+  return ConstantExpr::getInBoundsGetElementPtr(nullptr, sectsgv, Indices);
+#else
+  return SectsGV;
+#endif
+}
+
 int CreateSectionGlobalVariables(void) {
+  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
+  const unsigned NumSections = SectMap.size();
+
+  //
+  // create sections table and address -> section index map
+  //
+  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+
+  std::vector<section_t> SectTable;
+  std::vector<boost::icl::split_interval_set<uintptr_t>> SectsStuff;
+
+  SectTable.resize(NumSections);
+  SectsStuff.resize(NumSections);
+
+  {
+    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      minAddr = std::min(minAddr, pair.first.lower());
+      maxAddr = std::max(maxAddr, pair.first.upper());
+
+      SectIdxMap.add({pair.first, i});
+
+      const section_properties_t &prop = *pair.second.begin();
+      SectTable[i].Addr = pair.first.lower();
+      SectTable[i].Size = pair.first.upper() - pair.first.lower();
+      SectTable[i].name = prop.name;
+      SectTable[i].contents = prop.contents;
+
+      SectsStuff[i].insert(
+          boost::icl::interval<uintptr_t>::right_open(0, SectTable[i].Size));
+
+      ++i;
+    }
+
+    SectsStartAddr = minAddr;
+    SectsEndAddr = maxAddr;
+  }
+
+  //
+  // allocate local data structures
+  //
+  std::vector<llvm::StructType *> SectGVTypes;
+  std::vector<std::unordered_map<unsigned, llvm::Type *>> SectRelocTypes;
+  std::vector<std::unordered_map<unsigned, llvm::Constant *>> SectRelocs;
+
+  SectGVTypes.resize(NumSections);
+  SectRelocTypes.resize(NumSections);
+  SectRelocs.resize(NumSections);
+
+  auto type_for_relocation = [&](const relocation_t &R,
+                                 llvm::Type *ty) -> void {
+    assert(ty);
+
+    unsigned sectidx = (*SectIdxMap.find(R.Addr)).second;
+    unsigned off = R.Addr - SectTable[sectidx].Addr;
+
+    SectRelocTypes[sectidx].insert({off, ty});
+    SectsStuff[sectidx].insert(boost::icl::interval<uintptr_t>::right_open(
+        off, off + sizeof(uintptr_t)));
+  };
+
+  auto process_addressof_relocation_type = [&](const relocation_t &R) -> void {
+    if (!(R.SymbolIndex < SymbolTable.size()))
+      return;
+
+    symbol_t& S = SymbolTable[R.SymbolIndex];
+
+    type_for_relocation(
+        R, S.Type == symbol_t::TYPE::FUNCTION
+               ? llvm::PointerType::get(
+                     llvm::FunctionType::get(llvm::Type::getVoidTy(*Context),
+                                             false),
+                     0)
+               : llvm::PointerType::get(
+                     S.Size ? llvm::IntegerType::get(*Context, S.Size * 8)
+                            : llvm::IntegerType::get(*Context,
+                                                     sizeof(uintptr_t) * 8),
+                     0));
+  };
+
+  auto process_relative_relocation_type = [&](const relocation_t &R) -> void {
+    type_for_relocation(
+        R, llvm::PointerType::get(
+               llvm::IntegerType::get(*Context, sizeof(uintptr_t) * 8), 0));
+  };
+
+  for (const relocation_t &R : RelocationTable) {
+    if (SectMap.find(R.Addr) == SectMap.end()) {
+      WithColor::warning() << "invalid relocation\n";
+      continue;
+    }
+
+    switch (R.Type) {
+    case relocation_t::TYPE::ADDRESSOF:
+      process_addressof_relocation_type(R);
+      break;
+    case relocation_t::TYPE::RELATIVE:
+      process_relative_relocation_type(R);
+      break;
+    }
+  }
+
+  //
+  // create global variable for sections
+  //
+  std::vector<llvm::Type *> fieldtys;
+  for (unsigned i = 0; i < NumSections; ++i) {
+    section_t &sect = SectTable[i];
+
+    //
+    // check if there's space between the start of this section and the previous
+    //
+    if (i > 0) {
+      section_t &prevsect = SectTable[i - 1];
+      ptrdiff_t space = sect.Addr - (prevsect.Addr + prevsect.Size);
+      if (space > 0) {
+        // zero padding between sections
+        fieldtys.push_back(
+            llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), space));
+      }
+    }
+
+    std::vector<llvm::Type *> structfieldtys;
+
+    for (const auto &intvl : SectsStuff[i]) {
+      auto relocit = SectRelocTypes[i].find(intvl.lower());
+      llvm::Type *ty = relocit != SectRelocTypes[i].end()
+                     ? (*relocit).second
+                     : llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
+                                            intvl.upper() - intvl.lower());
+
+      structfieldtys.push_back(ty);
+    }
+
+    std::string sectnm_ = sect.name;
+    boost::replace_all(sectnm_, ".", "_");
+
+    SectGVTypes[i] = llvm::StructType::create(*Context, structfieldtys,
+                                              "struct.__jove_" + sectnm_, true);
+
+    fieldtys.push_back(SectGVTypes[i]);
+  }
+
+  llvm::StructType *sectsgvty = llvm::StructType::create(
+      *Context, fieldtys, "struct.__jove_sections", true);
+  SectsGV = new llvm::GlobalVariable(*Module, sectsgvty, false,
+                                     llvm::GlobalValue::ExternalLinkage,
+                                     nullptr, "__jove_sections");
+  SectsGV->setAlignment(4096);
+
+  //
+  // initialize section global variables
+  //
+  auto constant_for_relocation = [&](const relocation_t &R,
+                                     llvm::Constant *C) -> void {
+    assert(C);
+
+    unsigned sectidx = (*SectIdxMap.find(R.Addr)).second;
+    unsigned off = R.Addr - SectTable[sectidx].Addr;
+    SectRelocs[sectidx].insert({off, C});
+  };
+
+  auto process_addressof_function_relocation =
+      [&](const relocation_t &R) -> void {
+    if (!(R.SymbolIndex < SymbolTable.size()))
+      return;
+
+    const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+    llvm::Constant *C = nullptr;
+    if (S.IsUndefined()) {
+      C = Module->getGlobalVariable(S.Name);
+      if (C) {
+        C = llvm::ConstantExpr::getPointerCast(
+            C,
+            llvm::PointerType::get(
+                llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
+                0));
+      } else {
+        C = Module->getFunction(S.Name);
+        if (!C)
+          C = llvm::Function::Create(
+              llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
+              S.Bind == symbol_t::BINDING::WEAK
+                  ? llvm::GlobalValue::ExternalWeakLinkage
+                  : llvm::GlobalValue::ExternalLinkage,
+              S.Name, Module.get());
+      }
+    } else {
+      // XXX TODO
+      C = Module->getOrInsertFunction(
+          (boost::format("%s_function_defined_and_spotted_at_relocation") %
+           S.Name.str())
+              .str(),
+          llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false));
+    }
+
+    constant_for_relocation(R, C);
+  };
+
+  auto process_addressof_data_relocation = [&](const relocation_t &R) -> void {
+    if (!(R.SymbolIndex < SymbolTable.size()))
+      return;
+
+    symbol_t &S = SymbolTable[R.SymbolIndex];
+
+    llvm::Constant *C;
+    if (S.IsUndefined()) {
+      llvm::Function *F = Module->getFunction(S.Name);
+      C = F ? F
+            : Module->getOrInsertGlobal(
+                  S.Name,
+                  llvm::IntegerType::get(*Context, sizeof(uintptr_t) * 8));
+    } else {
+      llvm::Function *F = Module->getFunction(S.Name);
+      if (F) {
+        C = F;
+      } else {
+        llvm::GlobalVariable *G = Module->getGlobalVariable(S.Name);
+        if (G) {
+          C = G;
+        } else {
+          unsigned sectidx = (*SectIdxMap.find(S.Addr)).second;
+          section_t &sect = SectTable[sectidx];
+          unsigned off = S.Addr - sect.Addr;
+
+          uint64_t cnstvl;
+          switch (S.Size) {
+          case 1:
+            cnstvl = sect.contents.begin()[off];
+            break;
+          case 2:
+            cnstvl = *reinterpret_cast<const uint16_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          case 4:
+            cnstvl = *reinterpret_cast<const uint32_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          case 8:
+            cnstvl = *reinterpret_cast<const uint64_t *>(
+                &sect.contents.begin()[off]);
+            break;
+          default:
+            WithColor::warning()
+                << "defined symbol with unknown size " << S.Size << '\n';
+            return;
+          }
+
+          llvm::Type *ty = llvm::IntegerType::get(
+              *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
+
+          C = new llvm::GlobalVariable(
+              *Module, ty, false, llvm::GlobalVariable::ExternalLinkage,
+              llvm::ConstantInt::get(ty, cnstvl), S.Name);
+        }
+      }
+    }
+
+    constant_for_relocation(R, C);
+  };
+
+  auto process_addressof_relocation = [&](const relocation_t &R) -> void {
+    if (!(R.SymbolIndex < SymbolTable.size()))
+      return;
+
+    symbol_t &S = SymbolTable[R.SymbolIndex];
+
+    switch (S.Type) {
+    case symbol_t::TYPE::FUNCTION:
+      process_addressof_function_relocation(R);
+      break;
+    case symbol_t::TYPE::DATA:
+      process_addressof_data_relocation(R);
+      break;
+    }
+  };
+
+  auto process_relative_relocation = [&](const relocation_t &R) -> void {
+    llvm::Constant *C =
+        R.Addend == 0 ? section_ptr(R.Addr) : section_ptr(R.Addend);
+
+    constant_for_relocation(R, C);
+  };
+
+  for (const relocation_t &R : RelocationTable) {
+    if (SectMap.find(R.Addr) == SectMap.end()) {
+      WithColor::warning() << "invalid relocation\n";
+      continue;
+    }
+
+    switch (R.Type) {
+    case relocation_t::TYPE::ADDRESSOF:
+      process_addressof_relocation(R);
+      break;
+    case relocation_t::TYPE::RELATIVE:
+      process_relative_relocation(R);
+      break;
+    }
+  }
+
+  //
+  // create initializers
+  //
+  std::vector<llvm::Constant *> fieldinits;
+  for (unsigned i = 0; i < NumSections; ++i) {
+    section_t &sect = SectTable[i];
+
+    //
+    // check if there's space between the start of this section and the previous
+    //
+    if (i > 0) {
+      section_t &prevsect = SectTable[i - 1];
+      ptrdiff_t space = sect.Addr - (prevsect.Addr + prevsect.Size);
+      if (space > 0) {
+        // zero padding between sections
+        fieldinits.push_back(llvm::Constant::getNullValue(
+            llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), space)));
+      }
+    }
+
+    std::vector<llvm::Constant *> structfieldconsts;
+    llvm::StructType *sectgvty = SectGVTypes[i];
+
+    auto &sectstuff = SectsStuff[i];
+
+    llvm::StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
+    for (const auto &intvl : sectstuff) {
+      llvm::Type* sectgvty_elem = *sectgvty_elem_it++;
+
+      llvm::Constant *C = nullptr;
+
+      auto relocit = SectRelocs[i].find(intvl.lower());
+      if (relocit != SectRelocs[i].end()) { // a relocation
+        C = llvm::ConstantExpr::getPointerCast((*relocit).second, sectgvty_elem);
+      } else { // section data
+        C = llvm::ConstantDataArray::get(
+            *Context,
+            llvm::ArrayRef<uint8_t>(sect.contents.begin() + intvl.lower(),
+                                    sect.contents.begin() + intvl.upper()));
+      }
+
+#if 0
+      C->dump();
+#endif
+      structfieldconsts.push_back(C);
+    }
+
+    fieldinits.push_back(llvm::ConstantStruct::get(sectgvty, structfieldconsts));
+  }
+
+  SectsGV->setInitializer(llvm::ConstantStruct::get(sectsgvty, fieldinits));
+
   return 0;
 }
 
@@ -757,7 +1173,7 @@ int PrepareToTranslateCode(void) {
   MCCtx.reset(new llvm::MCContext(AsmInfo.get(), MRI.get(), MOFI.get()));
 
   // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI->InitMCObjectFileInfo(llvm::Triple(TripleName), false, *MCCtx);
+  MOFI->InitMCObjectFileInfo(TheTriple, false, *MCCtx);
 
   DisAsm.reset(TheTarget->createMCDisassembler(*STI, *MCCtx));
   if (!DisAsm) {
@@ -977,6 +1393,9 @@ int TranslateFunctions(void) {
 }
 
 int WriteModule(void) {
+  if (llvm::verifyModule(*Module, &llvm::errs()))
+    return 1;
+
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
   if (EC) {
@@ -992,4 +1411,167 @@ int WriteModule(void) {
   return 0;
 }
 
+} // namespace jove
+
+namespace llvm {
+
+/// Build a GEP out of a base pointer and indices.
+///
+/// This will return the BasePtr if that is valid, or build a new GEP
+/// instruction using the IRBuilder if GEP-ing is needed.
+static Value *buildGEP(IRBuilderTy &IRB, Value *BasePtr,
+                       SmallVectorImpl<Value *> &Indices, Twine NamePrefix) {
+  if (Indices.empty())
+    return BasePtr;
+
+  // A single zero index is a no-op, so check for this and avoid building a GEP
+  // in that case.
+  if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
+    return BasePtr;
+
+  return IRB.CreateInBoundsGEP(nullptr, BasePtr, Indices,
+                               NamePrefix + "sroa_idx");
+}
+
+/// Get a natural GEP off of the BasePtr walking through Ty toward
+/// TargetTy without changing the offset of the pointer.
+///
+/// This routine assumes we've already established a properly offset GEP with
+/// Indices, and arrived at the Ty type. The goal is to continue to GEP with
+/// zero-indices down through type layers until we find one the same as
+/// TargetTy. If we can't find one with the same type, we at least try to use
+/// one with the same size. If none of that works, we just produce the GEP as
+/// indicated by Indices to have the correct offset.
+static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
+                                    Value *BasePtr, Type *Ty, Type *TargetTy,
+                                    SmallVectorImpl<Value *> &Indices,
+                                    Twine NamePrefix) {
+  if (Ty == TargetTy)
+    return buildGEP(IRB, BasePtr, Indices, NamePrefix);
+
+  // Pointer size to use for the indices.
+  unsigned PtrSize = DL.getPointerTypeSizeInBits(BasePtr->getType());
+
+  // See if we can descend into a struct and locate a field with the correct
+  // type.
+  unsigned NumLayers = 0;
+  Type *ElementTy = Ty;
+  do {
+    if (ElementTy->isPointerTy())
+      break;
+
+    if (ArrayType *ArrayTy = dyn_cast<ArrayType>(ElementTy)) {
+      ElementTy = ArrayTy->getElementType();
+      Indices.push_back(IRB.getIntN(PtrSize, 0));
+    } else if (VectorType *VectorTy = dyn_cast<VectorType>(ElementTy)) {
+      ElementTy = VectorTy->getElementType();
+      Indices.push_back(IRB.getInt32(0));
+    } else if (StructType *STy = dyn_cast<StructType>(ElementTy)) {
+      if (STy->element_begin() == STy->element_end())
+        break; // Nothing left to descend into.
+      ElementTy = *STy->element_begin();
+      Indices.push_back(IRB.getInt32(0));
+    } else {
+      break;
+    }
+    ++NumLayers;
+  } while (ElementTy != TargetTy);
+  if (ElementTy != TargetTy)
+    Indices.erase(Indices.end() - NumLayers, Indices.end());
+
+  return buildGEP(IRB, BasePtr, Indices, NamePrefix);
+}
+
+/// Recursively compute indices for a natural GEP.
+///
+/// This is the recursive step for getNaturalGEPWithOffset that walks down the
+/// element types adding appropriate indices for the GEP.
+static Value *getNaturalGEPRecursively(IRBuilderTy &IRB, const DataLayout &DL,
+                                       Value *Ptr, Type *Ty, APInt &Offset,
+                                       Type *TargetTy,
+                                       SmallVectorImpl<Value *> &Indices,
+                                       Twine NamePrefix) {
+  if (Offset == 0)
+    return getNaturalGEPWithType(IRB, DL, Ptr, Ty, TargetTy, Indices,
+                                 NamePrefix);
+
+  // We can't recurse through pointer types.
+  if (Ty->isPointerTy())
+    return nullptr;
+
+  // We try to analyze GEPs over vectors here, but note that these GEPs are
+  // extremely poorly defined currently. The long-term goal is to remove GEPing
+  // over a vector from the IR completely.
+  if (VectorType *VecTy = dyn_cast<VectorType>(Ty)) {
+    unsigned ElementSizeInBits = DL.getTypeSizeInBits(VecTy->getScalarType());
+    if (ElementSizeInBits % 8 != 0) {
+      // GEPs over non-multiple of 8 size vector elements are invalid.
+      return nullptr;
+    }
+    APInt ElementSize(Offset.getBitWidth(), ElementSizeInBits / 8);
+    APInt NumSkippedElements = Offset.sdiv(ElementSize);
+    if (NumSkippedElements.ugt(VecTy->getNumElements()))
+      return nullptr;
+    Offset -= NumSkippedElements * ElementSize;
+    Indices.push_back(IRB.getInt(NumSkippedElements));
+    return getNaturalGEPRecursively(IRB, DL, Ptr, VecTy->getElementType(),
+                                    Offset, TargetTy, Indices, NamePrefix);
+  }
+
+  if (ArrayType *ArrTy = dyn_cast<ArrayType>(Ty)) {
+    Type *ElementTy = ArrTy->getElementType();
+    APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
+    APInt NumSkippedElements = Offset.sdiv(ElementSize);
+    if (NumSkippedElements.ugt(ArrTy->getNumElements()))
+      return nullptr;
+
+    Offset -= NumSkippedElements * ElementSize;
+    Indices.push_back(IRB.getInt(NumSkippedElements));
+    return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
+                                    Indices, NamePrefix);
+  }
+
+  StructType *STy = dyn_cast<StructType>(Ty);
+  if (!STy)
+    return nullptr;
+
+  const StructLayout *SL = DL.getStructLayout(STy);
+  uint64_t StructOffset = Offset.getZExtValue();
+  if (StructOffset >= SL->getSizeInBytes())
+    return nullptr;
+  unsigned Index = SL->getElementContainingOffset(StructOffset);
+  Offset -= APInt(Offset.getBitWidth(), SL->getElementOffset(Index));
+  Type *ElementTy = STy->getElementType(Index);
+  if (Offset.uge(DL.getTypeAllocSize(ElementTy)))
+    return nullptr; // The offset points into alignment padding.
+
+  Indices.push_back(IRB.getInt32(Index));
+  return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
+                                  Indices, NamePrefix);
+}
+
+Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
+                               Value *Ptr, APInt Offset, Type *TargetTy,
+                               SmallVectorImpl<Value *> &Indices,
+                               Twine NamePrefix) {
+  PointerType *Ty = cast<PointerType>(Ptr->getType());
+
+  // Don't consider any GEPs through an i8* as natural unless the TargetTy is
+  // an i8.
+  if (Ty == IRB.getInt8PtrTy(Ty->getAddressSpace()) && TargetTy->isIntegerTy(8))
+    return nullptr;
+
+  Type *ElementTy = Ty->getElementType();
+  if (!ElementTy->isSized())
+    return nullptr; // We can't GEP through an unsized element.
+  APInt ElementSize(Offset.getBitWidth(), DL.getTypeAllocSize(ElementTy));
+  if (ElementSize == 0)
+    return nullptr; // Zero-length arrays can't help us build a natural GEP.
+  APInt NumSkippedElements = Offset.sdiv(ElementSize);
+
+  Offset -= NumSkippedElements * ElementSize;
+  Indices.push_back(IRB.getInt(NumSkippedElements));
+  return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
+                                  Indices, NamePrefix);
+}
 }
