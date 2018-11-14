@@ -29,6 +29,7 @@
 #include <fstream>
 #include <boost/filesystem.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>
@@ -265,6 +266,8 @@ static std::vector<relocation_t> RelocationTable;
 
 static llvm::GlobalVariable *SectsGV;
 static uintptr_t SectsStartAddr, SectsEndAddr;
+
+static llvm::DataLayout DL("");
 
 //
 // Stages
@@ -738,11 +741,29 @@ int PrepareToTranslateCode(void) {
   return 0;
 }
 
+static const uint8_t bcbytes[] = {
+#include "jove/jove.bc.inc"
+};
+
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
-  Module.reset(new llvm::Module(opts::Binary, *Context));
-  Module->setTargetTriple(llvm::sys::getDefaultTargetTriple());
-  //Module->setDataLayout(HelperM.getDataLayout());
+
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&bcbytes[0]),
+                         sizeof(bcbytes));
+  llvm::StringRef Identifier(opts::Binary);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOr =
+      llvm::parseBitcodeFile(MemBuffRef, *Context);
+  if (!ModuleOr) {
+    WithColor::error() << "failed to parse bitcode\n";
+    return 1;
+  }
+
+  std::unique_ptr<llvm::Module> &ModuleRef = ModuleOr.get();
+  Module = std::move(ModuleRef);
+
+  DL = Module->getDataLayout();
   return 0;
 }
 

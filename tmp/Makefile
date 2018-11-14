@@ -48,6 +48,7 @@ DEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
 all: $(BINS)
 
 $(BINDIR)/jove-llvm: $(BINDIR)/jove/tcgconstants.h
+$(BINDIR)/jove-llvm: $(BINDIR)/jove/jove.bc.inc
 define build_tool_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).cpp
 	@echo CXX $(1)
@@ -59,6 +60,12 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@mkdir -p $(BINDIR)/jove
 	@echo GEN $@
 	@$< > $@
+
+$(BINDIR)/jove/jove.bc.inc: $(BINDIR)/jove/jove.bc
+	xxd -include < $< > $@
+
+$(BINDIR)/jove/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
+	clang -o $@ -c -emit-llvm -O2 $<
 
 -include $(DEPS)
 
