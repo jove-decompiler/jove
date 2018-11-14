@@ -14,14 +14,18 @@ class Function;
     /* prior to any definition of the variable */                              \
     tcg_global_set_t use;                                                      \
                                                                                \
-    tcg_global_set_t IN;                                                       \
-    tcg_global_set_t OUT;                                                      \
+    /* let defined_B be the set of variables defined in B */                   \
+    tcg_global_set_t defined;                                                  \
+                                                                               \
+    /* data-flow analysis */                                                   \
+    tcg_global_set_t IN, OUT;                                                  \
   } Analysis;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   std::vector<basic_block_t> BasicBlocks;                                      \
   struct {                                                                     \
     tcg_global_set_t live;                                                     \
+    tcg_global_set_t defined;                                                  \
   } Analysis;                                                                  \
   llvm::Function *F;
 
@@ -805,6 +809,7 @@ int ConductLivenessAnalysis(void) {
 
       tcg_global_set_t &def = ICFG[bb].Analysis.def;
       tcg_global_set_t &use = ICFG[bb].Analysis.use;
+      tcg_global_set_t &defined = ICFG[bb].Analysis.defined;
 
       TCGContext *s = &TCG->_ctx;
 
@@ -851,6 +856,7 @@ int ConductLivenessAnalysis(void) {
 
           use |= (iglbs & ~def);
           def |= (oglbs & ~use);
+          defined |= oglbs;
         }
 
         size += len;
@@ -939,6 +945,11 @@ int ConductLivenessAnalysis(void) {
       } while (change);
 
       Func.Analysis.live = ICFG[entryBB].Analysis.IN;
+      Func.Analysis.defined = std::accumulate(
+          Func.BasicBlocks.begin(), Func.BasicBlocks.end(), tcg_global_set_t(),
+          [&](tcg_global_set_t glbs, basic_block_t bb) {
+            return glbs | ICFG[bb].Analysis.defined;
+          });
 
       if (opts::PrintLiveness) {
         llvm::outs() << (fmt("%#lx") % ICFG[entryBB].Addr).str() << ' ';
@@ -993,26 +1004,30 @@ int CreateFunctions(void) {
 
   for (function_t &f : Binary.Analysis.Functions) {
     tcg_global_set_t inputs = f.Analysis.live & CallConvArgs;
+    tcg_global_set_t outputs = f.Analysis.defined & CallConvRets;
 
     std::vector<llvm::Type *> argTypes;
     argTypes.resize(inputs.count());
     std::fill(argTypes.begin(), argTypes.end(), WordType());
 
+    llvm::Type *retType;
+    if (outputs.count() == 0) {
+      retType = VoidType();
+    } else {
+      std::vector<llvm::Type *> retTypes;
+      retTypes.resize(outputs.count());
+      std::fill(retTypes.begin(), retTypes.end(), WordType());
+      retType = llvm::StructType::get(*Context, retTypes);
+    }
+
     f.F = llvm::Function::Create(
-        llvm::FunctionType::get(VoidType(), argTypes, false),
+        llvm::FunctionType::get(retType, argTypes, false),
         llvm::GlobalValue::ExternalLinkage,
         (fmt("%#lx") % ICFG[f.Entry].Addr).str(), Module.get());
   }
 
   return 0;
 }
-
-struct section_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-  uintptr_t Addr;
-  unsigned Size;
-};
 
 } // namespace jove
 
@@ -1037,6 +1052,13 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 }
 
 namespace jove {
+
+struct section_t {
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+  uintptr_t Addr;
+  unsigned Size;
+};
 
 llvm::Constant *SectionPointer(uintptr_t addr) {
   if (addr < SectsStartAddr || addr >= SectsEndAddr)
