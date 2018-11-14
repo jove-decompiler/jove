@@ -60,17 +60,18 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@echo GEN $@
 	@$< > $@
 
-$(BINDIR)/jove/jove.bc.inc: $(BINDIR)/jove/jove.bc
+$(BINDIR)/jove/jove.bc.inc: $(BINDIR)/jove.bc
+	@mkdir -p $(BINDIR)/jove
 	xxd -include < $< > $@
 
-$(BINDIR)/jove/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
+$(BINDIR)/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
 	clang -o $@ -c -emit-llvm -O2 $<
 
 -include $(DEPS)
 
 .PHONY: clean
 clean:
-	rm -f $(BINS) $(DEPS)
+	rm -f $(BINS) $(DEPS) $(BINDIR)/jove
 
 #
 # for extricating QEMU code
