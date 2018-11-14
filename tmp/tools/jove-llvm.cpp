@@ -442,6 +442,20 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
+template <class T>
+T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  WithColor::error() << Buf << '\n';
+  exit(1);
+}
+
 int ProcessBinarySymbolsAndRelocations(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
@@ -476,7 +490,7 @@ int ProcessBinarySymbolsAndRelocations(void) {
   auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
     symbol_t res;
 
-    llvm::StringRef StrTable = *E.getStringTableForSymtab(Sec);
+    llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(Sec));
 
     constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
         symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
@@ -516,7 +530,7 @@ int ProcessBinarySymbolsAndRelocations(void) {
         symbol_t::BINDING::NONE       // STB_HIPROC     = 15
     };
 
-    res.Name = *Sym.getName(StrTable);
+    res.Name = unwrapOrError(Sym.getName(StrTable));
     res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
     res.Type = elf_symbol_type_mapping[Sym.getType()];
     res.Size = Sym.st_size;
@@ -538,8 +552,8 @@ int ProcessBinarySymbolsAndRelocations(void) {
   auto process_elf_rel = [&](const Elf_Shdr &Sec, const Elf_Rel &R) -> void {
     relocation_t res;
 
-    const Elf_Shdr *SymTab = *E.getSection(Sec.sh_link);
-    const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
+    const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
+    const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
     if (Sym) {
       res.SymbolIndex = SymbolTable.size();
       process_elf_sym(*SymTab, *Sym);
@@ -566,8 +580,8 @@ int ProcessBinarySymbolsAndRelocations(void) {
   auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
     relocation_t res;
 
-    const Elf_Shdr *SymTab = *E.getSection(Sec.sh_link);
-    const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
+    const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
+    const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
     if (Sym) {
       res.SymbolIndex = SymbolTable.size();
       process_elf_sym(*SymTab, *Sym);
@@ -591,12 +605,12 @@ int ProcessBinarySymbolsAndRelocations(void) {
     RelocationTable.push_back(res);
   };
 
-  for (const Elf_Shdr &Sec : *E.sections()) {
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
     if (Sec.sh_type == llvm::ELF::SHT_REL) {
-      for (const Elf_Rel &Rel : *E.rels(&Sec))
+      for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec)))
         process_elf_rel(Sec, Rel);
     } else if (Sec.sh_type == llvm::ELF::SHT_RELA) {
-      for (const Elf_Rela &Rela : *E.relas(&Sec))
+      for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
         process_elf_rela(Sec, Rela);
     }
   }
@@ -1097,12 +1111,9 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto process_relative_relocation = [&](const relocation_t &R) -> void {
-#if 0
-    llvm::Constant *C =
-        R.Addend == 0 ? section_ptr(R.Addr) : section_ptr(R.Addend);
-#else
-    llvm::Constant *C = SectsGlobal;
-#endif
+    assert(SectMap.find(R.Addend) != SectMap.end());
+
+    llvm::Constant *C = section_ptr(R.Addend);
 
     constant_for_relocation(R, C);
   };
