@@ -470,10 +470,10 @@ int ProcessBinarySymbolsAndRelocations(void) {
   typedef typename ELFT::Elf_Rel Elf_Rel;
   typedef typename ELFT::Elf_Rela Elf_Rela;
 
-  auto process_elf_sym = [&](const Elf_Shdr *Sec, const Elf_Sym &Sym) -> void {
+  auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
     symbol_t res;
 
-    llvm::StringRef StrTable = *E.getStringTableForSymtab(*Sec);
+    llvm::StringRef StrTable = *E.getStringTableForSymtab(Sec);
 
     constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
         symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
@@ -532,14 +532,14 @@ int ProcessBinarySymbolsAndRelocations(void) {
     SymbolTable.push_back(res);
   };
 
-  auto process_elf_rel = [&](const Elf_Shdr *Sec, const Elf_Rel &R) -> void {
+  auto process_elf_rel = [&](const Elf_Shdr &Sec, const Elf_Rel &R) -> void {
     relocation_t res;
 
-    const Elf_Shdr *SymTab = *E.getSection(Sec->sh_link);
+    const Elf_Shdr *SymTab = *E.getSection(Sec.sh_link);
     const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
     if (Sym) {
       res.SymbolIndex = SymbolTable.size();
-      process_elf_sym(SymTab, *Sym);
+      process_elf_sym(*SymTab, *Sym);
     } else {
       res.SymbolIndex = std::numeric_limits<unsigned>::max();
     }
@@ -560,14 +560,14 @@ int ProcessBinarySymbolsAndRelocations(void) {
     RelocationTable.push_back(res);
   };
 
-  auto process_elf_rela = [&](const Elf_Shdr *Sec, const Elf_Rela &R) -> void {
+  auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
     relocation_t res;
 
-    const Elf_Shdr *SymTab = *E.getSection(Sec->sh_link);
+    const Elf_Shdr *SymTab = *E.getSection(Sec.sh_link);
     const Elf_Sym *Sym = *E.getRelocationSymbol(&R, SymTab);
     if (Sym) {
       res.SymbolIndex = SymbolTable.size();
-      process_elf_sym(SymTab, *Sym);
+      process_elf_sym(*SymTab, *Sym);
     } else {
       res.SymbolIndex = std::numeric_limits<unsigned>::max();
     }
@@ -588,55 +588,14 @@ int ProcessBinarySymbolsAndRelocations(void) {
     RelocationTable.push_back(res);
   };
 
-  const Elf_Shdr *SymTblSec = nullptr;
-  const Elf_Shdr *RelTblSec = nullptr;
-  const Elf_Shdr *RelATblSec = nullptr;
-
   for (const Elf_Shdr &Sec : *E.sections()) {
-    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
-      if (SymTblSec) {
-        WithColor::error() << "multiple SYMTAB sections\n";
-        return 1;
-      }
-
-      SymTblSec = &Sec;
-    } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
-      if (RelTblSec) {
-        WithColor::error() << "multiple REL sections\n";
-        return 1;
-      }
-
-      RelTblSec = &Sec;
+    if (Sec.sh_type == llvm::ELF::SHT_REL) {
+      for (const Elf_Rel &Rel : *E.rels(&Sec))
+        process_elf_rel(Sec, Rel);
     } else if (Sec.sh_type == llvm::ELF::SHT_RELA) {
-      if (RelATblSec) {
-        WithColor::error() << "multiple RELA sections\n";
-        return 1;
-      }
-
-      RelATblSec = &Sec;
+      for (const Elf_Rela &Rela : *E.relas(&Sec))
+        process_elf_rela(Sec, Rela);
     }
-  }
-
-  if (SymTblSec) {
-    SymbolTable.reserve(SymTblSec->sh_size / sizeof(Elf_Sym));
-    for (const Elf_Sym &Sym : *E.symbols(SymTblSec))
-      process_elf_sym(SymTblSec, Sym);
-  }
-
-  if (RelTblSec) {
-    RelocationTable.reserve(RelocationTable.size() +
-                            std::distance(std::begin(*E.rels(RelTblSec)),
-                                          std::end(*E.rels(RelTblSec))));
-    for (const Elf_Rel &Rel : *E.rels(RelTblSec))
-      process_elf_rel(RelTblSec, Rel);
-  }
-
-  if (RelATblSec) {
-    RelocationTable.reserve(RelocationTable.size() +
-                            std::distance(std::begin(*E.relas(RelATblSec)),
-                                          std::end(*E.relas(RelATblSec))));
-    for (const Elf_Rela &Rela : *E.relas(RelATblSec))
-      process_elf_rela(RelATblSec, Rela);
   }
 
   //
