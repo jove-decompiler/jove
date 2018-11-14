@@ -877,7 +877,7 @@ int ProcessBinarySymbolsAndRelocations(void) {
     if (reloc.SymbolIndex < SymbolTable.size()) {
       symbol_t &sym = SymbolTable[reloc.SymbolIndex];
       llvm::outs() <<
-        (boost::format("%-30s *%-10s *%-8s @ %x {%d}")
+        (fmt("%-30s *%-10s *%-8s @ %x {%d}")
          % sym.Name.str()
          % string_of_sym_type(sym.Type)
          % string_of_sym_binding(sym.Bind)
