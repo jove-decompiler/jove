@@ -346,7 +346,7 @@ typedef typename obj::ELF64LEFile ELFT;
 #endif
 
 template <class T>
-T unwrapOrError(llvm::Expected<T> EO) {
+static T unwrapOrError(llvm::Expected<T> EO) {
   if (EO)
     return *EO;
 
