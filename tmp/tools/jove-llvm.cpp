@@ -1032,13 +1032,16 @@ int CreateSectionGlobalVariables(void) {
     llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
     if (!GV) {
       assert(S.IsUndefined());
-      llvm::Type *T = llvm::IntegerType::get(
-          *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
-      GV = new llvm::GlobalVariable(*Module, T, false,
-                                    S.Bind == symbol_t::BINDING::WEAK
-                                        ? llvm::GlobalValue::ExternalWeakLinkage
-                                        : llvm::GlobalValue::ExternalLinkage,
-                                    nullptr, S.Name);
+
+      GV = new llvm::GlobalVariable(
+          *Module,
+          llvm::IntegerType::get(*Context,
+                                 S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8),
+          false,
+          S.Bind == symbol_t::BINDING::WEAK
+              ? llvm::GlobalValue::ExternalWeakLinkage
+              : llvm::GlobalValue::ExternalLinkage,
+          nullptr, S.Name);
     }
 
     constant_for_relocation(R, GV);
