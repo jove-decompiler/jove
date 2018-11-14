@@ -945,6 +945,7 @@ int ConductLivenessAnalysis(void) {
       } while (change);
 
       Func.Analysis.live = ICFG[entryBB].Analysis.IN;
+
       Func.Analysis.defined = std::accumulate(
           Func.BasicBlocks.begin(), Func.BasicBlocks.end(), tcg_global_set_t(),
           [&](tcg_global_set_t glbs, basic_block_t bb) {
@@ -1013,6 +1014,8 @@ int CreateFunctions(void) {
     llvm::Type *retType;
     if (outputs.count() == 0) {
       retType = VoidType();
+    } else if (outputs.count() == 1) {
+      retType = WordType();
     } else {
       std::vector<llvm::Type *> retTypes;
       retTypes.resize(outputs.count());
