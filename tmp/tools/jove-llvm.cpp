@@ -1259,17 +1259,23 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 struct section_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
+  llvm::StringRef Name;
+  llvm::ArrayRef<uint8_t> Contents;
   uintptr_t Addr;
   unsigned Size;
+
+  struct {
+    boost::icl::split_interval_set<uintptr_t> Intervals;
+    std::map<unsigned, llvm::Constant *> Constants;
+    std::map<unsigned, llvm::Constant *> Types;
+  } Stuff;
 };
 
-llvm::Constant *SectionPointer(uintptr_t addr) {
-  if (addr < SectsStartAddr || addr >= SectsEndAddr)
+llvm::Constant *SectionPointer(uintptr_t Addr) {
+  if (Addr < SectsStartAddr || Addr >= SectsEndAddr)
     return nullptr;
 
-  unsigned off = addr - SectsStartAddr;
+  unsigned off = Addr - SectsStartAddr;
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
@@ -1306,8 +1312,8 @@ int CreateSectionGlobalVariables(void) {
       const section_properties_t &prop = *pair.second.begin();
       SectTable[i].Addr = pair.first.lower();
       SectTable[i].Size = pair.first.upper() - pair.first.lower();
-      SectTable[i].name = prop.name;
-      SectTable[i].contents = prop.contents;
+      SectTable[i].Name = prop.name;
+      SectTable[i].Contents = prop.contents;
 
       SectsStuff[i].insert(
           boost::icl::interval<uintptr_t>::right_open(0, SectTable[i].Size));
@@ -1422,7 +1428,7 @@ int CreateSectionGlobalVariables(void) {
       structfieldtys.push_back(ty);
     }
 
-    std::string sectnm = sect.name;
+    std::string sectnm = sect.Name;
     sectnm.erase(std::remove(sectnm.begin(), sectnm.end(), '.'), sectnm.end());
 
     SectGVTypes[i] = llvm::StructType::create(*Context, structfieldtys,
@@ -1603,8 +1609,8 @@ int CreateSectionGlobalVariables(void) {
                 ? llvm::ConstantExpr::getPointerCast((*relocit).second, ty)
                 : llvm::ConstantDataArray::get(
                       *Context, llvm::ArrayRef<uint8_t>(
-                                    sect.contents.begin() + intvl.lower(),
-                                    sect.contents.begin() + intvl.upper()));
+                                    sect.Contents.begin() + intvl.lower(),
+                                    sect.Contents.begin() + intvl.upper()));
       }
 
       structfieldconsts.push_back(C);
