@@ -145,6 +145,8 @@ struct section_properties_t {
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
 
+  bool w, x;
+
   bool operator==(const section_properties_t &sect) const {
     return name == sect.name;
   }
@@ -812,7 +814,7 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-llvm::Constant *section_ptr(uintptr_t addr) {
+llvm::Constant *SectionPointer(uintptr_t addr) {
   if (addr < SectsStartAddr || addr >= SectsEndAddr)
     return nullptr;
 
@@ -1113,9 +1115,7 @@ int CreateSectionGlobalVariables(void) {
   auto process_relative_relocation = [&](const relocation_t &R) -> void {
     assert(SectMap.find(R.Addend) != SectMap.end());
 
-    llvm::Constant *C = section_ptr(R.Addend);
-
-    constant_for_relocation(R, C);
+    constant_for_relocation(R, SectionPointer(R.Addend));
   };
 
   for (const relocation_t &R : RelocationTable) {
