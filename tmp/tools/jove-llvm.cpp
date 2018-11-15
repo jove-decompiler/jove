@@ -41,7 +41,6 @@ class BasicBlock;
 #include "tcgcommon.hpp"
 
 #include <tuple>
-#include <numeric>
 #include <memory>
 #include <sstream>
 #include <fstream>
@@ -1188,45 +1187,21 @@ int ConductInterproceduralLivenessAnalysis(void) {
     auto it_pair = boost::vertices(ICFG);
     for (auto it = it_pair.first; it != it_pair.second; ++it) {
       basic_block_t bb = *it;
-      const uintptr_t Addr = ICFG[bb].Addr;
-      const unsigned Size = ICFG[bb].Size;
-
-      auto sectit = st.SectMap.find(Addr);
-      assert(sectit != st.SectMap.end());
-
-      const section_properties_t &sectprop = *(*sectit).second.begin();
-      TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
-
-      tcg_global_set_t &def = ICFG[bb].Analysis.def;
-      tcg_global_set_t &use = ICFG[bb].Analysis.use;
-      tcg_global_set_t &defined = ICFG[bb].Analysis.defined;
-      tcg_global_set_t &globals = ICFG[bb].Analysis.globals;
-
-      TCGContext *s = &TCG->_ctx;
-
-      unsigned size = 0;
-      jove::terminator_info_t T;
-      do {
-        unsigned len;
-        std::tie(len, T) = TCG->translate(Addr + size);
-
-        size += len;
-      } while (size < Size);
 
       tcg_global_set_t iglbs;
       tcg_global_set_t oglbs;
 
-      switch (T.Type) {
+      switch (ICFG[bb].Term.Type) {
       case TERMINATOR::CALL: {
-        auto it = st.FuncMap.find(T._call.Target);
-        assert(it != st.FuncMap.end());
-        function_t &callee = Binary.Analysis.Functions[(*it).second];
+        function_t &callee =
+            Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
         iglbs = callee.Analysis.live;
         oglbs = callee.Analysis.defined;
         break;
       }
 
+      case TERMINATOR::INDIRECT_JUMP:
       case TERMINATOR::INDIRECT_CALL: {
         auto &DynTargets = ICFG[bb].DynTargets;
         if (DynTargets.size() == 1) {
@@ -1236,24 +1211,7 @@ int ConductInterproceduralLivenessAnalysis(void) {
           std::tie(BinIdx, FuncIdx) = *DynTargets.begin();
 
           function_t &callee =
-              Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
-          iglbs = callee.Analysis.live;
-          oglbs = callee.Analysis.defined;
-        }
-        break;
-      }
-
-      case TERMINATOR::INDIRECT_JUMP: {
-        auto &DynTargets = ICFG[bb].DynTargets;
-        if (DynTargets.size() == 1) {
-          binary_index_t BinIdx;
-          function_index_t FuncIdx;
-
-          std::tie(BinIdx, FuncIdx) = *DynTargets.begin();
-
-          function_t &callee =
-              Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+              Decompilation.Binaries.at(BinIdx).Analysis.Functions.at(FuncIdx);
 
           iglbs = callee.Analysis.live;
           oglbs = callee.Analysis.defined;
@@ -1262,8 +1220,13 @@ int ConductInterproceduralLivenessAnalysis(void) {
       }
 
       default:
-        break;
+        continue;
       }
+
+      tcg_global_set_t &def = ICFG[bb].Analysis.def;
+      tcg_global_set_t &use = ICFG[bb].Analysis.use;
+      tcg_global_set_t &defined = ICFG[bb].Analysis.defined;
+      tcg_global_set_t &globals = ICFG[bb].Analysis.globals;
 
       use |= (iglbs & ~def);
       def |= (oglbs & ~use);
