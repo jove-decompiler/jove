@@ -1334,9 +1334,7 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
   tcg_global_set_t inputs = f.Analysis.live & CallConvArgs;
   tcg_global_set_t outputs = f.Analysis.defined & CallConvRets;
 
-  std::vector<llvm::Type *> argTypes;
-  argTypes.resize(inputs.count());
-  std::fill(argTypes.begin(), argTypes.end(), WordType());
+  std::vector<llvm::Type *> argTypes(inputs.count(), WordType());
 
   llvm::Type *retType;
   if (outputs.count() == 0) {
@@ -1344,9 +1342,7 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
   } else if (outputs.count() == 1) {
     retType = WordType();
   } else {
-    std::vector<llvm::Type *> retTypes;
-    retTypes.resize(outputs.count());
-    std::fill(retTypes.begin(), retTypes.end(), WordType());
+    std::vector<llvm::Type *> retTypes(outputs.count(), WordType());
     retType = llvm::StructType::get(*Context, retTypes);
   }
 
