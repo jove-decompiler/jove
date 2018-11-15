@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <vector>
 #include <boost/graph/adjacency_list.hpp>
+#include <numeric>
 
 namespace jove {
 
@@ -25,13 +26,26 @@ enum class TERMINATOR : uint8_t {
   NONE
 };
 
-typedef uint16_t binary_index_t;
-typedef uint32_t function_index_t;
-typedef uint32_t basic_block_index_t;
+typedef unsigned binary_index_t;
+typedef unsigned function_index_t;
+typedef unsigned basic_block_index_t;
 
-constexpr binary_index_t invalid_binary_index = 0xffff;
-constexpr function_index_t invalid_function_index = 0xffffffff;
-constexpr basic_block_index_t invalid_basic_block_index = 0xffffffff;
+constexpr binary_index_t invalid_binary_index =
+    std::numeric_limits<binary_index_t>::max();
+constexpr function_index_t invalid_function_index =
+    std::numeric_limits<function_index_t>::max();
+constexpr basic_block_index_t invalid_basic_block_index =
+    std::numeric_limits<basic_block_index_t>::max();
+
+inline bool binary_index_is_valid(binary_index_t idx) {
+  return idx != invalid_binary_index;
+}
+inline bool function_index_is_valid(function_index_t idx) {
+  return idx != invalid_function_index;
+}
+inline bool basic_block_index_is_valid(basic_block_index_t idx) {
+  return idx != invalid_basic_block_index;
+}
 
 struct basic_block_properties_t {
   uintptr_t Addr;
