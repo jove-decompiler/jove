@@ -1738,15 +1738,66 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-static int TranslateFunction(function_t &f) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+static void explode_tcg_global_set(std::vector<unsigned> &out,
+                                   tcg_global_set_t glbs) {
+  if (glbs.none())
+    return;
+
+  out.reserve(glbs.size());
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1);
+  } while (x);
+}
+
+static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+  llvm::Function *F = f.F;
 
-  for (basic_block_t bb : f.BasicBlocks) {
+  for (basic_block_t bb : f.BasicBlocks)
     ICFG[bb].B = llvm::BasicBlock::Create(
-        *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), f.F);
+        *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
 
-    llvm::IRBuilderTy IRB(ICFG[bb].B);
+  std::vector<llvm::AllocaInst *> GlobalAllocaVec(tcg_num_globals, nullptr);
+
+  {
+    llvm::IRBuilderTy IRB(ICFG[f.BasicBlocks.front()].B);
+
+    tcg_global_set_t glbs = f.Analysis.globals;
+    glbs.reset(tcg_env_index);
+
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, glbs);
+
+      for (unsigned glb : glbv)
+        GlobalAllocaVec[glb] = IRB.CreateAlloca(
+            WordType(), 0, std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+    }
+
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, f.Analysis.live & CallConvArgs);
+
+      llvm::Function::arg_iterator arg_it = F->arg_begin();
+      for (unsigned glb : glbv) {
+        assert(arg_it != F->arg_end());
+        llvm::Argument *Val = &*arg_it++;
+        llvm::Value *Ptr = GlobalAllocaVec[glb];
+        IRB.CreateStore(Val, Ptr);
+      }
+    }
+
+    IRB.CreateUnreachable();
+  }
+
+  for (unsigned i = 1; i < f.BasicBlocks.size(); ++i) {
+    llvm::IRBuilderTy IRB(ICFG[f.BasicBlocks[i]].B);
     IRB.CreateUnreachable();
   }
 
@@ -1756,7 +1807,7 @@ static int TranslateFunction(function_t &f) {
 int TranslateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
-    if (int ret = TranslateFunction(f))
+    if (int ret = TranslateFunction(Binary, f))
       return ret;
   }
 
