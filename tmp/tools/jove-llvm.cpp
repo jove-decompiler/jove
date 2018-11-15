@@ -1349,6 +1349,23 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
   return llvm::FunctionType::get(retType, argTypes, false);
 }
 
+static void explode_tcg_global_set(std::vector<unsigned> &out,
+                                   tcg_global_set_t glbs) {
+  if (glbs.none())
+    return;
+
+  out.reserve(glbs.size());
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1);
+  } while (x);
+}
+
 int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -1360,9 +1377,16 @@ int CreateFunctions(void) {
                                  llvm::GlobalValue::ExternalLinkage,
                                  (fmt("%#lx") % ICFG[f.Entry].Addr).str(),
                                  Module.get());
+    std::vector<unsigned> glbv;
+    explode_tcg_global_set(glbv, f.Analysis.live & CallConvArgs);
+    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+    });
+
     unsigned i = 0;
     for (llvm::Argument &A : f.F->args()) {
-      A.setName(TCG->_ctx.temps[CallConvArgArray.at(i)].name);
+      A.setName(TCG->_ctx.temps[glbv[i]].name);
       ++i;
     }
   }
@@ -1738,23 +1762,6 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-static void explode_tcg_global_set(std::vector<unsigned> &out,
-                                   tcg_global_set_t glbs) {
-  if (glbs.none())
-    return;
-
-  out.reserve(glbs.size());
-
-  unsigned long long x = glbs.to_ullong();
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-    out.push_back(idx - 1);
-  } while (x);
-}
-
 static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
@@ -1783,6 +1790,10 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     {
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, f.Analysis.live & CallConvArgs);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+      });
 
       llvm::Function::arg_iterator arg_it = F->arg_begin();
       for (unsigned glb : glbv) {
