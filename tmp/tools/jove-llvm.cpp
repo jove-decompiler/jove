@@ -1521,9 +1521,19 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R) -> llvm::Constant * {
     auto it = FuncMap.find(R.Addend);
     if (it == FuncMap.end()) {
-      return llvm::ConstantExpr::getPointerCast(
-          SectionPointer(R.Addend),
-          llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
+      auto idxit = SectIdxMap.find(R.Addend);
+      assert(idxit != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*idxit).second];
+      unsigned Off = R.Addend - Sect.Addr;
+
+      llvm::Constant *C = SectionPointer(R.Addend);
+      auto it = Sect.Stuff.Types.find(Off);
+      if (it == Sect.Stuff.Types.end())
+        return C;
+      else
+        return llvm::ConstantExpr::getPointerCast(
+            C, llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
     } else {
       binary_t &Binary = Decompilation.Binaries[BinaryIndex];
       return Binary.Analysis.Functions[(*it).second].F;
