@@ -1267,13 +1267,14 @@ struct section_t {
   struct {
     boost::icl::split_interval_set<uintptr_t> Intervals;
     std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Constant *> Types;
+    std::map<unsigned, llvm::Type *> Types;
   } Stuff;
+
+  llvm::StructType *T;
 };
 
 llvm::Constant *SectionPointer(uintptr_t Addr) {
-  if (Addr < SectsStartAddr || Addr >= SectsEndAddr)
-    return nullptr;
+  assert(Addr >= SectsStartAddr && Addr < SectsEndAddr);
 
   unsigned off = Addr - SectsStartAddr;
 
@@ -1281,42 +1282,42 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = getNaturalGEPWithOffset(
       IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
 }
 
 int CreateSectionGlobalVariables(void) {
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
+  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
 
   //
   // create sections table and address -> section index map
   //
-  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
-
   std::vector<section_t> SectTable;
-  std::vector<boost::icl::split_interval_set<uintptr_t>> SectsStuff;
-
   SectTable.resize(NumSections);
-  SectsStuff.resize(NumSections);
+
+  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
 
   {
     uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
     unsigned i = 0;
     for (const auto &pair : SectMap) {
+      section_t &Sect = SectTable[i];
+
       minAddr = std::min(minAddr, pair.first.lower());
       maxAddr = std::max(maxAddr, pair.first.upper());
 
       SectIdxMap.add({pair.first, i});
 
       const section_properties_t &prop = *pair.second.begin();
-      SectTable[i].Addr = pair.first.lower();
-      SectTable[i].Size = pair.first.upper() - pair.first.lower();
-      SectTable[i].Name = prop.name;
-      SectTable[i].Contents = prop.contents;
-
-      SectsStuff[i].insert(
-          boost::icl::interval<uintptr_t>::right_open(0, SectTable[i].Size));
+      Sect.Addr = pair.first.lower();
+      Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.Name = prop.name;
+      Sect.Contents = prop.contents;
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
 
       ++i;
     }
@@ -1325,301 +1326,278 @@ int CreateSectionGlobalVariables(void) {
     SectsEndAddr = maxAddr;
   }
 
-  //
-  // allocate local data structures
-  //
-  std::vector<llvm::StructType *> SectGVTypes;
-  std::vector<std::unordered_map<unsigned, llvm::Type *>> SectRelocTypes;
-  std::vector<std::unordered_map<unsigned, llvm::Constant *>> SectRelocs;
+  auto type_at_address = [&](uintptr_t Addr, llvm::Type *T) -> void {
+    auto it = SectIdxMap.find(Addr);
+    assert(it != SectIdxMap.end());
 
-  SectGVTypes.resize(NumSections);
-  SectRelocTypes.resize(NumSections);
-  SectRelocs.resize(NumSections);
+    section_t &Sect = SectTable[(*it).second];
+    unsigned Off = Addr - Sect.Addr;
 
-  auto type_for_relocation = [&](const relocation_t &R,
-                                 llvm::Type *ty) -> void {
-    assert(ty);
-
-    unsigned sectidx = (*SectIdxMap.find(R.Addr)).second;
-    unsigned off = R.Addr - SectTable[sectidx].Addr;
-
-    SectRelocTypes[sectidx].insert({off, ty});
-    SectsStuff[sectidx].insert(boost::icl::interval<uintptr_t>::right_open(
-        off, off + sizeof(uintptr_t)));
+    Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
+        Off, Off + sizeof(uintptr_t)));
+    Sect.Stuff.Types[Off] = T;
   };
 
-  auto process_addressof_relocation_type = [&](const relocation_t &R) -> void {
-    if (!(R.SymbolIndex < SymbolTable.size()))
-      return;
+  auto type_of_addressof_function_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+    assert(S.IsUndefined());
+    llvm::FunctionType *FTy;
 
-    symbol_t& S = SymbolTable[R.SymbolIndex];
+    auto it = ExportedFunctions.find(S.Name);
+    if (it == ExportedFunctions.end()) {
+      WithColor::warning() << " no exported function found by the name "
+                           << S.Name << '\n';
 
-    llvm::Type *T;
-
-    switch (S.Type) {
-    case symbol_t::TYPE::FUNCTION:
-      T = llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false), 0);
-      break;
-
-    case symbol_t::TYPE::DATA:
-      T = llvm::PointerType::get(
-          S.Size ? llvm::Type::getIntNTy(*Context, S.Size * 8) : WordType(), 0);
-      break;
-
-    default:
-      abort();
+      FTy = llvm::FunctionType::get(VoidType(), false);
+    } else {
+      FTy = DetermineFunctionType((*it).second.first, (*it).second.second);
     }
 
-    type_for_relocation(R, T);
+    return llvm::PointerType::get(FTy, 0);
   };
 
-  auto process_relative_relocation_type = [&](const relocation_t &R) -> void {
-    type_for_relocation(R, llvm::PointerType::get(WordType(), 0));
+  auto type_of_addressof_data_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+    llvm::Type *intTy = llvm::Type::getIntNTy(
+        *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
+    return llvm::PointerType::get(intTy, 0);
   };
 
-  for (const relocation_t &R : RelocationTable) {
-    if (SectMap.find(R.Addr) == SectMap.end()) {
-      WithColor::warning() << "invalid relocation\n";
-      continue;
+  auto type_of_relative_relocation =
+      [&](const relocation_t &R) -> llvm::Type * {
+    auto it = FuncMap.find(R.Addend);
+    if (it == FuncMap.end()) {
+      return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
+    } else {
+      llvm::FunctionType *FTy =
+          DetermineFunctionType(BinaryIndex, (*it).second);
+
+      return llvm::PointerType::get(FTy, 0);
     }
+  };
 
+  auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
     switch (R.Type) {
-    case relocation_t::TYPE::ADDRESSOF:
-      process_addressof_relocation_type(R);
-      break;
-    case relocation_t::TYPE::RELATIVE:
-      process_relative_relocation_type(R);
-      break;
+    case relocation_t::TYPE::ADDRESSOF: {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      switch (S.Type) {
+      case symbol_t::TYPE::FUNCTION:
+        return type_of_addressof_function_relocation(R, S);
+      case symbol_t::TYPE::DATA:
+        return type_of_addressof_data_relocation(R, S);
+      }
     }
-  }
+
+    case relocation_t::TYPE::RELATIVE:
+      return type_of_relative_relocation(R);
+    }
+
+    abort();
+  };
+
+  // puncture the interval set for each section by intervals which represent
+  // relocations
+  for (const relocation_t &R : RelocationTable)
+    type_at_address(R.Addr, type_of_relocation(R));
 
   //
   // create global variable for sections
   //
-  std::vector<llvm::Type *> fieldtys;
+  std::vector<llvm::Type *> SectsGlobalFieldTys;
   for (unsigned i = 0; i < NumSections; ++i) {
-    section_t &sect = SectTable[i];
+    section_t &Sect = SectTable[i];
 
     //
     // check if there's space between the start of this section and the previous
     //
     if (i > 0) {
-      section_t &prevsect = SectTable[i - 1];
-      ptrdiff_t space = sect.Addr - (prevsect.Addr + prevsect.Size);
+      section_t &PrevSect = SectTable[i - 1];
+      ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
       if (space > 0) {
         // zero padding between sections
-        fieldtys.push_back(
+        SectsGlobalFieldTys.push_back(
             llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
       }
     }
 
-    std::vector<llvm::Type *> structfieldtys;
+    std::vector<llvm::Type *> SectFieldTys;
 
-    //llvm::outs() << "SectsStuff[" << i << "]\n";
-    for (const auto &intvl : SectsStuff[i]) {
-      //llvm::outs() << (fmt("[%#lx, %#lx)") % intvl.lower() % intvl.upper()).str() << '\n';
+    for (const auto &intvl : Sect.Stuff.Intervals) {
+      auto it = Sect.Stuff.Types.find(intvl.lower());
 
-      auto relocit = SectRelocTypes[i].find(intvl.lower());
-      llvm::Type *ty = relocit != SectRelocTypes[i].end()
-                     ? (*relocit).second
-                     : llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
-                                            intvl.upper() - intvl.lower());
+      llvm::Type *T;
+      if (it == Sect.Stuff.Types.end())
+        T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
+                                 intvl.upper() - intvl.lower());
+      else
+        T = (*it).second;
 
-      structfieldtys.push_back(ty);
+      SectFieldTys.push_back(T);
     }
 
-    std::string sectnm = sect.Name;
-    sectnm.erase(std::remove(sectnm.begin(), sectnm.end(), '.'), sectnm.end());
+    std::string SectNm = Sect.Name;
+    SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'), SectNm.end());
 
-    SectGVTypes[i] = llvm::StructType::create(*Context, structfieldtys,
-                                              "section." + sectnm, true);
+    SectTable[i].T = llvm::StructType::create(*Context, SectFieldTys,
+                                              "section." + SectNm, true);
 
-    fieldtys.push_back(SectGVTypes[i]);
+    SectsGlobalFieldTys.push_back(SectTable[i].T);
   }
 
-  llvm::StructType *sectsgvty =
-      llvm::StructType::create(*Context, fieldtys, "struct.sections", true);
-  SectsGlobal = new llvm::GlobalVariable(*Module, sectsgvty, false,
+  llvm::StructType *SectsGlobalTy = llvm::StructType::create(
+      *Context, SectsGlobalFieldTys, "struct.sections", true);
+  SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                          llvm::GlobalValue::InternalLinkage,
                                          nullptr, "sections");
   SectsGlobal->setAlignment(4096);
 
-  //
-  // initialize section global variables
-  //
-  auto constant_for_relocation = [&](const relocation_t &R,
-                                     llvm::Constant *C) -> void {
-    assert(C);
+  auto constant_at_address = [&](uintptr_t Addr, llvm::Constant *C) -> void {
+    auto it = SectIdxMap.find(Addr);
+    assert(it != SectIdxMap.end());
 
-    unsigned sectidx = (*SectIdxMap.find(R.Addr)).second;
-    unsigned off = R.Addr - SectTable[sectidx].Addr;
-    SectRelocs[sectidx].insert({off, C});
+    section_t &Sect = SectTable[(*it).second];
+    unsigned Off = Addr - Sect.Addr;
+
+    Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
+        Off, Off + sizeof(uintptr_t)));
+    Sect.Stuff.Constants[Off] = C;
   };
 
-  auto process_addressof_function_relocation =
-      [&](const relocation_t &R) -> void {
-    const symbol_t &S = SymbolTable[R.SymbolIndex];
-
+  auto constant_of_addressof_function_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
 
     llvm::Function *F = Module->getFunction(S.Name);
-    if (!F) {
-      auto it = ExportedFunctions.find(S.Name);
-      if (it == ExportedFunctions.end()) {
-        WithColor::warning() << " no exported function was executed with the name " << S.Name << '\n';
 
-        F = llvm::Function::Create(
-            llvm::FunctionType::get(llvm::Type::getVoidTy(*Context), false),
-            S.Bind == symbol_t::BINDING::WEAK
-                ? llvm::GlobalValue::ExternalWeakLinkage
-                : llvm::GlobalValue::ExternalLinkage,
-            S.Name, Module.get());
-      } else {
-        F = llvm::Function::Create(
-            DetermineFunctionType((*it).second.first, (*it).second.second),
-            S.Bind == symbol_t::BINDING::WEAK
-                ? llvm::GlobalValue::ExternalWeakLinkage
-                : llvm::GlobalValue::ExternalLinkage,
-            S.Name, Module.get());
-      }
-    }
+    if (F)
+      return F;
 
-    constant_for_relocation(R, F);
-  };
+    auto it = ExportedFunctions.find(S.Name);
+    if (it == ExportedFunctions.end()) {
+      WithColor::warning() << "no exported function found by the name "
+                           << S.Name << '\n';
 
-  auto process_addressof_data_relocation = [&](const relocation_t &R) -> void {
-    symbol_t &S = SymbolTable[R.SymbolIndex];
-
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
-    if (!GV) {
-      assert(S.IsUndefined());
-
-      GV = new llvm::GlobalVariable(
-          *Module,
-          llvm::IntegerType::get(*Context,
-                                 S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8),
-          false,
+      F = llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
+                                 S.Bind == symbol_t::BINDING::WEAK
+                                     ? llvm::GlobalValue::ExternalWeakLinkage
+                                     : llvm::GlobalValue::ExternalLinkage,
+                                 S.Name, Module.get());
+    } else {
+      F = llvm::Function::Create(
+          DetermineFunctionType((*it).second.first, (*it).second.second),
           S.Bind == symbol_t::BINDING::WEAK
               ? llvm::GlobalValue::ExternalWeakLinkage
               : llvm::GlobalValue::ExternalLinkage,
-          nullptr, S.Name);
+          S.Name, Module.get());
     }
 
-    constant_for_relocation(R, GV);
+    return F;
   };
 
-  auto process_addressof_relocation = [&](const relocation_t &R) -> void {
-    if (!(R.SymbolIndex < SymbolTable.size()))
-      return;
+  auto constant_of_addressof_data_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
+    assert(S.IsUndefined());
 
-    symbol_t &S = SymbolTable[R.SymbolIndex];
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
 
-    switch (S.Type) {
-    case symbol_t::TYPE::FUNCTION:
-      process_addressof_function_relocation(R);
-      break;
-    case symbol_t::TYPE::DATA:
-      process_addressof_data_relocation(R);
-      break;
-    }
+    if (GV)
+      return GV;
+
+    GV = new llvm::GlobalVariable(
+        *Module,
+        llvm::Type::getIntNTy(*Context,
+                              S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8),
+        false,
+        S.Bind == symbol_t::BINDING::WEAK
+            ? llvm::GlobalValue::ExternalWeakLinkage
+            : llvm::GlobalValue::ExternalLinkage,
+        nullptr, S.Name);
+
+    return GV;
   };
 
-  auto process_relative_relocation = [&](const relocation_t &R) -> void {
-    assert(SectMap.find(R.Addend) != SectMap.end());
-
-    const section_properties_t &SectProp =
-        *(*SectMap.find(R.Addend)).second.begin();
-
-    llvm::Constant *C;
-    if (SectProp.x) {
-      const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
-      auto it = FuncMap.find(R.Addend);
-      if (it == FuncMap.end()) {
-        WithColor::warning() << "there is no record of a function at "
-                             << (fmt("%#lx") % R.Addend).str() << '\n';
-        C = SectionPointer(R.Addend);
-      } else {
-        llvm::outs() << "Function @ " << (fmt("%#lx") % R.Addend).str() << '\n';
-
-        binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-        C = Binary.Analysis.Functions[(*it).second].F;
-      }
+  auto constant_of_relative_relocation =
+      [&](const relocation_t &R) -> llvm::Constant * {
+    auto it = FuncMap.find(R.Addend);
+    if (it == FuncMap.end()) {
+      return llvm::ConstantExpr::getPointerCast(
+          SectionPointer(R.Addend),
+          llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
     } else {
-      C = SectionPointer(R.Addend);
+      binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+      return Binary.Analysis.Functions[(*it).second].F;
     }
-
-    constant_for_relocation(R, C);
   };
 
-  for (const relocation_t &R : RelocationTable) {
-    if (SectMap.find(R.Addr) == SectMap.end()) {
-      WithColor::warning() << "invalid relocation\n";
-      continue;
-    }
-
+  auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
     switch (R.Type) {
-    case relocation_t::TYPE::ADDRESSOF:
-      process_addressof_relocation(R);
-      break;
-    case relocation_t::TYPE::RELATIVE:
-      process_relative_relocation(R);
-      break;
+    case relocation_t::TYPE::ADDRESSOF: {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      switch (S.Type) {
+      case symbol_t::TYPE::FUNCTION:
+        return constant_of_addressof_function_relocation(R, S);
+      case symbol_t::TYPE::DATA:
+        return constant_of_addressof_data_relocation(R, S);
+      }
     }
-  }
+
+    case relocation_t::TYPE::RELATIVE:
+      return constant_of_relative_relocation(R);
+    }
+
+    abort();
+  };
+
+  // puncture the interval set for each section by intervals which represent
+  // relocations
+  for (const relocation_t &R : RelocationTable)
+    constant_at_address(R.Addr, constant_of_relocation(R));
 
   //
-  // create initializers
+  // create global variable initializer for sections
   //
-  std::vector<llvm::Constant *> fieldinits;
+  std::vector<llvm::Constant *> SectsGlobalFieldInits;
   for (unsigned i = 0; i < NumSections; ++i) {
-    section_t &sect = SectTable[i];
+    section_t &Sect = SectTable[i];
 
     //
     // check if there's space between the start of this section and the previous
     //
     if (i > 0) {
-      section_t &prevsect = SectTable[i - 1];
-      ptrdiff_t space = sect.Addr - (prevsect.Addr + prevsect.Size);
+      section_t &PrevSect = SectTable[i - 1];
+      ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
       if (space > 0) {
         // zero padding between sections
-        fieldinits.push_back(llvm::Constant::getNullValue(
-            llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), space)));
+        SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
+            llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space)));
       }
     }
 
-    std::vector<llvm::Constant *> structfieldconsts;
-    llvm::StructType *sectgvty = SectGVTypes[i];
+    std::vector<llvm::Constant *> SectFieldInits;
 
-    llvm::StructType::element_iterator sectgvty_elem_it = sectgvty->element_begin();
-    for (const auto &intvl : SectsStuff[i]) {
-      llvm::Type *ty;
-      {
-        auto relocit = SectRelocTypes[i].find(intvl.lower());
-        ty = relocit != SectRelocTypes[i].end()
-                 ? (*relocit).second
-                 : llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context),
-                                        intvl.upper() - intvl.lower());
-      }
+    for (const auto &intvl : Sect.Stuff.Intervals) {
+      auto it = Sect.Stuff.Constants.find(intvl.lower());
 
       llvm::Constant *C;
+      if (it == Sect.Stuff.Constants.end())
+        C = llvm::ConstantDataArray::get(
+            *Context,
+            llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
+                                    Sect.Contents.begin() + intvl.upper()));
+      else
+        C = (*it).second;
 
-      {
-        auto relocit = SectRelocs[i].find(intvl.lower());
-        C = relocit != SectRelocs[i].end()
-                ? llvm::ConstantExpr::getPointerCast((*relocit).second, ty)
-                : llvm::ConstantDataArray::get(
-                      *Context, llvm::ArrayRef<uint8_t>(
-                                    sect.Contents.begin() + intvl.lower(),
-                                    sect.Contents.begin() + intvl.upper()));
-      }
-
-      structfieldconsts.push_back(C);
+      SectFieldInits.push_back(C);
     }
 
-    fieldinits.push_back(llvm::ConstantStruct::get(sectgvty, structfieldconsts));
+    SectsGlobalFieldInits.push_back(
+        llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
   }
 
-  SectsGlobal->setInitializer(llvm::ConstantStruct::get(sectsgvty, fieldinits));
+  SectsGlobal->setInitializer(
+      llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
 
   return 0;
 }
