@@ -1364,6 +1364,11 @@ int CreateFunctions(void) {
                                  llvm::GlobalValue::ExternalLinkage,
                                  (fmt("%#lx") % ICFG[f.Entry].Addr).str(),
                                  Module.get());
+    unsigned i = 0;
+    for (llvm::Argument &A : f.F->args()) {
+      A.setName(TCG->_ctx.temps[CallConvArgArray.at(i)].name);
+      ++i;
+    }
   }
 
   return 0;

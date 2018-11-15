@@ -46,6 +46,24 @@ int main(int argc, char **argv) {
     }
 
     {
+      printf("constexpr std::array<unsigned, %u> CallConvArgArray{",
+             static_cast<unsigned>(arg_regs.size()));
+
+      bool first = true;
+      for (const char *nm : arg_regs) {
+        if (!first)
+          printf(", ");
+
+        int idx = tcg_index_of_named_global(nm);
+        printf("%u", static_cast<unsigned>(idx));
+
+        first = false;
+      }
+
+      printf("};\n");
+    }
+
+    {
       std::bitset<64> s;
       for (const char *nm : ret_regs) {
         int idx = tcg_index_of_named_global(nm);
@@ -54,6 +72,24 @@ int main(int argc, char **argv) {
       }
 
       printf("constexpr tcg_global_set_t CallConvRets(%llu);\n", s.to_ullong());
+    }
+
+    {
+      printf("constexpr std::array<unsigned, %u> CallConvRetArray{",
+             static_cast<unsigned>(ret_regs.size()));
+
+      bool first = true;
+      for (const char *nm : ret_regs) {
+        if (!first)
+          printf(", ");
+
+        int idx = tcg_index_of_named_global(nm);
+        printf("%u", static_cast<unsigned>(idx));
+
+        first = false;
+      }
+
+      printf("};\n");
     }
   };
 
@@ -80,6 +116,7 @@ int main(int argc, char **argv) {
 
   printf("#pragma once\n"
          "#include <bitset>\n"
+         "#include <array>\n"
          "\n"
          "namespace jove {\n");
 
