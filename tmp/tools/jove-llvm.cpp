@@ -3,6 +3,7 @@
 namespace llvm {
 class Function;
 class BasicBlock;
+class AllocaInst;
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -29,6 +30,7 @@ class BasicBlock;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   std::vector<basic_block_t> BasicBlocks;                                      \
+  std::vector<llvm::AllocaInst *> GlobalAllocaVec;                             \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t live;                                                     \
@@ -1762,6 +1764,12 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
+static int TranslateBasicBlock(binary_t &Binary, function_t &f,
+                               basic_block_t bb, llvm::IRBuilderTy &IRB) {
+  IRB.CreateUnreachable();
+  return 0;
+}
+
 static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
@@ -1770,10 +1778,12 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
 
-  std::vector<llvm::AllocaInst *> GlobalAllocaVec(tcg_num_globals, nullptr);
+  f.GlobalAllocaVec.resize(tcg_num_globals);
+  std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
   {
-    llvm::IRBuilderTy IRB(ICFG[f.BasicBlocks.front()].B);
+    basic_block_t bb = f.BasicBlocks.front();
+    llvm::IRBuilderTy IRB(ICFG[bb].B);
 
     tcg_global_set_t glbs = f.Analysis.globals;
     glbs.reset(tcg_env_index);
@@ -1783,7 +1793,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv)
-        GlobalAllocaVec[glb] = IRB.CreateAlloca(
+        f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
             WordType(), 0, std::string(TCG->_ctx.temps[glb].name) + "_ptr");
     }
 
@@ -1799,17 +1809,21 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       for (unsigned glb : glbv) {
         assert(arg_it != F->arg_end());
         llvm::Argument *Val = &*arg_it++;
-        llvm::Value *Ptr = GlobalAllocaVec[glb];
+        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
         IRB.CreateStore(Val, Ptr);
       }
     }
 
-    IRB.CreateUnreachable();
+    if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
+      return ret;
   }
 
   for (unsigned i = 1; i < f.BasicBlocks.size(); ++i) {
-    llvm::IRBuilderTy IRB(ICFG[f.BasicBlocks[i]].B);
-    IRB.CreateUnreachable();
+    basic_block_t bb = f.BasicBlocks[i];
+    llvm::IRBuilderTy IRB(ICFG[bb].B);
+
+    if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
+      return ret;
   }
 
   return 0;
