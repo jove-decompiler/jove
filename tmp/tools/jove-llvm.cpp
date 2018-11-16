@@ -4,6 +4,7 @@ namespace llvm {
 class Function;
 class BasicBlock;
 class AllocaInst;
+class Type;
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -31,6 +32,7 @@ class AllocaInst;
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::vector<llvm::AllocaInst *> GlobalAllocaVec;                             \
+  llvm::AllocaInst *PCAlloca;                                                  \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t live;                                                     \
@@ -38,7 +40,8 @@ class AllocaInst;
     tcg_global_set_t globals;                                                  \
   } Analysis;                                                                  \
                                                                                \
-  llvm::Function *F;
+  llvm::Function *F;                                                           \
+  llvm::Type *retTy;
 
 #include "tcgcommon.hpp"
 
@@ -661,8 +664,11 @@ int ProcessDynamicSymbols(void) {
       }
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+#if 0
       llvm::outs() << (fmt("%#lx") % Sym.st_value).str() << ' ' << SymName
                    << '\n';
+#endif
 
       auto it = ExportedFunctions.find(SymName);
       if (it != ExportedFunctions.end())
@@ -1336,17 +1342,17 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
 
   std::vector<llvm::Type *> argTypes(inputs.count(), WordType());
 
-  llvm::Type *retType;
+  llvm::Type *&retTy = f.retTy;
   if (outputs.count() == 0) {
-    retType = VoidType();
+    retTy = VoidType();
   } else if (outputs.count() == 1) {
-    retType = WordType();
+    retTy = WordType();
   } else {
     std::vector<llvm::Type *> retTypes(outputs.count(), WordType());
-    retType = llvm::StructType::get(*Context, retTypes);
+    retTy = llvm::StructType::get(*Context, retTypes);
   }
 
-  return llvm::FunctionType::get(retType, argTypes, false);
+  return llvm::FunctionType::get(retTy, argTypes, false);
 }
 
 static void explode_tcg_global_set(std::vector<unsigned> &out,
@@ -1762,6 +1768,17 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
+static unsigned bitsOfTCGType(TCGType ty) {
+  switch (ty) {
+  case TCG_TYPE_I32:
+    return 32;
+  case TCG_TYPE_I64:
+    return 64;
+  default:
+    abort();
+  }
+}
+
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
 
@@ -1789,7 +1806,16 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
       for (unsigned glb : glbv)
         f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
-            WordType(), 0, std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
+            std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+    }
+
+    if (tcg_program_counter_index < 0) {
+      f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr");
+    } else {
+      f.PCAlloca = f.GlobalAllocaVec[tcg_program_counter_index];
+      f.PCAlloca->setName("pc_ptr");
+      assert(f.PCAlloca);
     }
 
     {
@@ -1820,6 +1846,11 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
       return ret;
   }
+
+  if (llvm::verifyFunction(*F, &llvm::errs()))
+    return 1;
+
+  llvm::outs() << *F << '\n';
 
   return 0;
 }
@@ -2064,17 +2095,26 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   // examine terminator
   //
   switch (T.Type) {
-  case TERMINATOR::UNCONDITIONAL_JUMP:
-    break;
-  case TERMINATOR::CONDITIONAL_JUMP:
-    break;
+  case TERMINATOR::CALL:
   case TERMINATOR::INDIRECT_CALL:
+  case TERMINATOR::UNCONDITIONAL_JUMP: {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    assert(eit_pair.first != eit_pair.second &&
+           std::next(eit_pair.first) == eit_pair.second);
+    control_flow_t cf = *eit_pair.first;
+    basic_block_t succ = boost::target(cf, ICFG);
+    IRB.CreateBr(ICFG[succ].B);
     break;
+  }
+  case TERMINATOR::CONDITIONAL_JUMP:
   case TERMINATOR::INDIRECT_JUMP:
     break;
-  case TERMINATOR::CALL:
-    break;
   case TERMINATOR::RETURN:
+    if (f.retTy->isVoidTy()) {
+      IRB.CreateRetVoid();
+    } else {
+      IRB.CreateRet(llvm::Constant::getNullValue(f.retTy));
+    }
     break;
   case TERMINATOR::UNREACHABLE:
     IRB.CreateUnreachable();
@@ -2084,25 +2124,15 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
-static unsigned bitsOfTCGType(TCGType ty) {
-  switch (ty) {
-  case TCG_TYPE_I32:
-    return 32;
-  case TCG_TYPE_I64:
-    return 64;
-  default:
-    abort();
-  }
-}
-
 int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
                    llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
   std::vector<llvm::AllocaInst *> &GlobalAllocaVec = f.GlobalAllocaVec;
+  llvm::AllocaInst *PCAlloca = f.PCAlloca;
   TCGContext *s = &TCG->_ctx;
 
-  auto set = [&](TCGTemp *ts, llvm::Value *V) -> void {
+  auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
     int idx = temp_idx(ts);
 
     llvm::AllocaInst *&Ptr =
@@ -2112,11 +2142,20 @@ int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
       std::string name = ts->temp_local ? "loc" : "tmp";
       name += std::to_string(idx - tcg_num_globals);
 
-      Ptr = IRB.CreateAlloca(
-          llvm::Type::getIntNTy(*Context, bitsOfTCGType(ts->type)), 0, name);
+      Ptr = IRB.CreateAlloca(IRB.getIntNTy(bitsOfTCGType(ts->type)), 0, name);
     }
 
     IRB.CreateStore(V, Ptr);
+  };
+
+  auto get = [&](TCGTemp *ts) -> llvm::Value * {
+    int idx = temp_idx(ts);
+
+    llvm::AllocaInst *Ptr =
+        ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
+    assert(Ptr);
+
+    return IRB.CreateLoad(Ptr);
   };
 
   bool pcrel_flag = false;
@@ -2132,6 +2171,19 @@ int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
     }
   };
 
+  auto load = [&](llvm::Value *A, unsigned bits) -> llvm::Value * {
+    A = IRB.CreateZExt(A, WordType());
+    A = IRB.CreateIntToPtr(A, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
+    return IRB.CreateLoad(A);
+  };
+
+  auto store = [&](llvm::Value *V, llvm::Value *A, unsigned bits) -> void {
+    A = IRB.CreateZExt(A, WordType());
+    A = IRB.CreateIntToPtr(A, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
+    V = IRB.CreateIntCast(V, IRB.getIntNTy(bits), false);
+    IRB.CreateStore(V, A);
+  };
+
   const TCGOpcode opc = op->opc;
   const TCGOpDef &def = tcg_op_defs[opc];
 
@@ -2139,19 +2191,165 @@ int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
   int nb_iargs = def.nb_iargs;
   int nb_cargs = def.nb_cargs;
 
+  llvm::errs() << def.name << ' '
+               << nb_oargs << ' '
+               << nb_iargs << ' '
+               << nb_cargs << '\n';
+
   switch (opc) {
   case INDEX_op_insn_start:
-    break;
   case INDEX_op_discard:
+  case INDEX_op_goto_tb:
+  case INDEX_op_goto_ptr:
+  case INDEX_op_exit_tb:
     break;
 
-  case INDEX_op_movi_i64: /* movi_i64 tmp0,$0x0 */
-    assert(nb_oargs == 1);
-    assert(nb_iargs == 0);
-    assert(nb_cargs == 1);
-
-    set(arg_temp(op->args[0]), immediate_constant(64, op->args[1]));
+  case INDEX_op_call:
+    nb_oargs = TCGOP_CALLO(op);
+    nb_iargs = TCGOP_CALLI(op);
+    if (reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]) !=
+        helper_lookup_tb_ptr) {
+      WithColor::error() << "unhandled helper function "
+                         << tcg_find_helper(s, op->args[nb_oargs + nb_iargs])
+                         << '\n';
+    }
     break;
+
+  case INDEX_op_movi_i64:
+    assert(nb_oargs == 1 &&
+           nb_iargs == 0 &&
+           nb_cargs == 1);
+
+    set(immediate_constant(64, op->args[1]), arg_temp(op->args[0]));
+    break;
+
+  case INDEX_op_movi_i32:
+    assert(nb_oargs == 1 &&
+           nb_iargs == 0 &&
+           nb_cargs == 1);
+
+    set(immediate_constant(32, op->args[1]), arg_temp(op->args[0]));
+    break;
+
+  case INDEX_op_mov_i64:
+    assert(nb_oargs == 1 &&
+           nb_iargs == 1 &&
+           nb_cargs == 0);
+
+    set(get(arg_temp(op->args[1])), arg_temp(op->args[0]));
+    break;
+
+#define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
+  case opc_name:                                                               \
+    set(IRB.Create##signE##Ext(                                                \
+            IRB.CreateTrunc(get(arg_temp(op->args[1])),                        \
+                            IRB.getIntNTy(truncBits)),                         \
+            IRB.getIntNTy(opBits)),                                            \
+        arg_temp(op->args[0]));                                                \
+    break;
+
+    __EXT_OP(INDEX_op_ext8s_i32, 8, 32, S)
+    __EXT_OP(INDEX_op_ext8u_i32, 8, 32, Z)
+    __EXT_OP(INDEX_op_ext16s_i32, 16, 32, S)
+    __EXT_OP(INDEX_op_ext16u_i32, 16, 32, Z)
+
+    __EXT_OP(INDEX_op_ext8s_i64, 8, 64, S)
+    __EXT_OP(INDEX_op_ext8u_i64, 8, 64, Z)
+    __EXT_OP(INDEX_op_ext16s_i64, 16, 64, S)
+    __EXT_OP(INDEX_op_ext16u_i64, 16, 64, Z)
+    __EXT_OP(INDEX_op_ext32s_i64, 32, 64, S)
+    __EXT_OP(INDEX_op_ext32u_i64, 32, 64, Z)
+
+#undef __EXT_OP
+
+#define __OP_QEMU_LD(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    llvm::Value *A = get(arg_temp(op->args[1]));                               \
+    set(load(A, bits), arg_temp(op->args[0]));                                 \
+    break;                                                                     \
+  }
+
+    __OP_QEMU_LD(INDEX_op_qemu_ld_i32, 32)
+    __OP_QEMU_LD(INDEX_op_qemu_ld_i64, 64)
+
+#undef __OP_QEMU_LD
+
+#define __OP_QEMU_ST(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    llvm::Value *V = get(arg_temp(op->args[1]));                               \
+    llvm::Value *A = get(arg_temp(op->args[0]));                               \
+    store(V, A, bits);                                                         \
+    break;                                                                     \
+  }
+
+    __OP_QEMU_ST(INDEX_op_qemu_st_i32, 32)
+    __OP_QEMU_ST(INDEX_op_qemu_st_i64, 64)
+
+#undef __OP_QEMU_ST
+
+#define __ARITH_OP(opc_name, LLVMOp, bits)                                     \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    set(IRB.Create##LLVMOp(v1, v2), arg_temp(op->args[0]));                    \
+  } break;
+
+    __ARITH_OP(INDEX_op_add_i32, Add, 32)
+    __ARITH_OP(INDEX_op_sub_i32, Sub, 32)
+    __ARITH_OP(INDEX_op_mul_i32, Mul, 32)
+
+    __ARITH_OP(INDEX_op_div_i32, SDiv, 32)
+    __ARITH_OP(INDEX_op_divu_i32, UDiv, 32)
+    __ARITH_OP(INDEX_op_rem_i32, SRem, 32)
+    __ARITH_OP(INDEX_op_remu_i32, URem, 32)
+
+    __ARITH_OP(INDEX_op_and_i32, And, 32)
+    __ARITH_OP(INDEX_op_or_i32, Or, 32)
+    __ARITH_OP(INDEX_op_xor_i32, Xor, 32)
+
+    __ARITH_OP(INDEX_op_shl_i32, Shl, 32)
+    __ARITH_OP(INDEX_op_shr_i32, LShr, 32)
+    __ARITH_OP(INDEX_op_sar_i32, AShr, 32)
+
+    __ARITH_OP(INDEX_op_add_i64, Add, 64)
+    __ARITH_OP(INDEX_op_sub_i64, Sub, 64)
+    __ARITH_OP(INDEX_op_mul_i64, Mul, 64)
+
+    __ARITH_OP(INDEX_op_div_i64, SDiv, 64)
+    __ARITH_OP(INDEX_op_divu_i64, UDiv, 64)
+    __ARITH_OP(INDEX_op_rem_i64, SRem, 64)
+    __ARITH_OP(INDEX_op_remu_i64, URem, 64)
+
+    __ARITH_OP(INDEX_op_and_i64, And, 64)
+    __ARITH_OP(INDEX_op_or_i64, Or, 64)
+    __ARITH_OP(INDEX_op_xor_i64, Xor, 64)
+
+    __ARITH_OP(INDEX_op_shl_i64, Shl, 64)
+    __ARITH_OP(INDEX_op_shr_i64, LShr, 64)
+    __ARITH_OP(INDEX_op_sar_i64, AShr, 64)
+
+#undef __ARITH_OP
+
+#define __ST_OP(opc_name, memBits, regBits)                                    \
+  case opc_name: {                                                             \
+    unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
+    if (baseidx != tcg_env_index)                                              \
+      abort();                                                                 \
+                                                                               \
+    TCGArg off = op->args[2];                                                  \
+    if (off != tcg_program_counter_env_offset)                                 \
+      abort();                                                                 \
+                                                                               \
+    IRB.CreateStore(get(arg_temp(op->args[0])), PCAlloca);                     \
+  } break;
+
+    __ST_OP(INDEX_op_st8_i64, 8, 64)
+    __ST_OP(INDEX_op_st16_i64, 16, 64)
+    __ST_OP(INDEX_op_st32_i64, 32, 64)
+    __ST_OP(INDEX_op_st_i64, 64, 64)
+
+#undef __ST_OP
 
   default:
     WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
