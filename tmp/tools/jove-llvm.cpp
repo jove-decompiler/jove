@@ -523,7 +523,6 @@ struct DynRegionInfo {
 int ProcessDynamicSymbols(void) {
   for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
     const binary_t &Binary = Decompilation.Binaries[i];
-    const interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
     const binary_state_t &st = BinStateVec[i];
 
     //
@@ -1183,7 +1182,6 @@ int ConductLivenessAnalysis(void) {
 int ConductInterproceduralLivenessAnalysis(void) {
   for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
     binary_t &Binary = Decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
     interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
 
     auto it_pair = boost::vertices(ICFG);
@@ -1764,11 +1762,8 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
-static int TranslateBasicBlock(binary_t &Binary, function_t &f,
-                               basic_block_t bb, llvm::IRBuilderTy &IRB) {
-  IRB.CreateUnreachable();
-  return 0;
-}
+static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
+                               llvm::IRBuilderTy &);
 
 static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -2022,4 +2017,70 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
   return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
                                   Indices, NamePrefix);
 }
+} // namespace llvm
+
+namespace jove {
+
+static int TranslateTCGOp(TCGOp *, llvm::IRBuilderTy &);
+
+int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
+                        llvm::IRBuilderTy &IRB) {
+  const auto &ICFG = Binary.Analysis.ICFG;
+
+  const uintptr_t Addr = ICFG[bb].Addr;
+  const unsigned Size = ICFG[bb].Size;
+
+  binary_state_t &st = BinStateVec[BinaryIndex];
+
+  auto sectit = st.SectMap.find(Addr);
+  assert(sectit != st.SectMap.end());
+
+  const section_properties_t &sectprop = *(*sectit).second.begin();
+  TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+
+  TCGContext *s = &TCG->_ctx;
+
+  unsigned size = 0;
+  jove::terminator_info_t T;
+  do {
+    unsigned len;
+    std::tie(len, T) = TCG->translate(Addr + size);
+
+    TCGOp *op, *op_next;
+    QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+      if (int ret = TranslateTCGOp(op, IRB))
+        return ret;
+    }
+
+    size += len;
+  } while (size < Size);
+
+  //
+  // examine terminator
+  //
+  switch (T.Type) {
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+    break;
+  case TERMINATOR::CONDITIONAL_JUMP:
+    break;
+  case TERMINATOR::INDIRECT_CALL:
+    break;
+  case TERMINATOR::INDIRECT_JUMP:
+    break;
+  case TERMINATOR::CALL:
+    break;
+  case TERMINATOR::RETURN:
+    break;
+  case TERMINATOR::UNREACHABLE:
+    IRB.CreateUnreachable();
+    break;
+  }
+
+  return 0;
+}
+
+int TranslateTCGOp(TCGOp *op, llvm::IRBuilderTy &IRB) {
+  return 0;
+}
+
 }
