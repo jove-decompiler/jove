@@ -2185,13 +2185,50 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   case TERMINATOR::INDIRECT_JUMP:
     IRB.CreateUnreachable();
     break;
-  case TERMINATOR::RETURN:
+
+  case TERMINATOR::RETURN: {
     if (f.retTy->isVoidTy()) {
       IRB.CreateRetVoid();
-    } else {
-      IRB.CreateRet(llvm::Constant::getNullValue(f.retTy));
+      break;
     }
+
+    std::vector<unsigned> glbv;
+    {
+      explode_tcg_global_set(glbv, f.Analysis.defined & CallConvRets);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
+               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
+      });
+    }
+
+    if (f.retTy->isIntegerTy()) {
+      assert(glbv.size() == 1);
+      IRB.CreateRet(IRB.CreateLoad(f.GlobalAllocaVec[glbv.front()]));
+      break;
+    }
+
+    assert(f.retTy->isStructTy());
+    assert(glbv.size() > 1);
+    llvm::Value *retVal =
+        accumulate(
+            glbv.begin(), glbv.end(),
+            std::pair<unsigned, llvm::Value *>(0u, nullptr),
+            [&](std::pair<unsigned, llvm::Value *> respair, unsigned glbidx) {
+              unsigned idx;
+              llvm::Value *res;
+              std::tie(idx, res) = respair;
+
+              return std::make_pair(
+                  idx + 1, IRB.CreateInsertValue(
+                               res ? res : llvm::UndefValue::get(f.retTy),
+                               IRB.CreateLoad(f.GlobalAllocaVec[glbidx]),
+                               llvm::ArrayRef<unsigned>(idx)));
+            })
+            .second;
+    IRB.CreateRet(retVal);
     break;
+  }
+
   case TERMINATOR::UNREACHABLE:
     IRB.CreateUnreachable();
     break;
