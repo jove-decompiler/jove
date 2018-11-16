@@ -1044,7 +1044,7 @@ int ConductLivenessAnalysis(void) {
             if (!ts->temp_global)
               continue;
 
-            unsigned glb_idx = ts - &s->temps[0];
+            unsigned glb_idx = temp_idx(ts);
             iglbs.set(glb_idx);
           }
 
@@ -1054,7 +1054,7 @@ int ConductLivenessAnalysis(void) {
             if (!ts->temp_global)
               continue;
 
-            unsigned glb_idx = ts - &s->temps[0];
+            unsigned glb_idx = temp_idx(ts);
             oglbs.set(glb_idx);
           }
 
@@ -2017,11 +2017,14 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
   return getNaturalGEPRecursively(IRB, DL, Ptr, ElementTy, Offset, TargetTy,
                                   Indices, NamePrefix);
 }
+
 } // namespace llvm
 
 namespace jove {
 
-static int TranslateTCGOp(TCGOp *, llvm::IRBuilderTy &);
+static int TranslateTCGOp(TCGOp *, binary_t &, function_t &, basic_block_t,
+                          std::vector<llvm::AllocaInst *> &,
+                          llvm::IRBuilderTy &);
 
 int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
                         llvm::IRBuilderTy &IRB) {
@@ -2046,9 +2049,11 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size);
 
+    std::vector<llvm::AllocaInst *> TempAllocaVec(s->nb_temps, nullptr);
+
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      if (int ret = TranslateTCGOp(op, IRB))
+      if (int ret = TranslateTCGOp(op, Binary, f, bb, TempAllocaVec, IRB))
         return ret;
     }
 
@@ -2079,8 +2084,82 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
-int TranslateTCGOp(TCGOp *op, llvm::IRBuilderTy &IRB) {
-  return 0;
+static unsigned bitsOfTCGType(TCGType ty) {
+  switch (ty) {
+  case TCG_TYPE_I32:
+    return 32;
+  case TCG_TYPE_I64:
+    return 64;
+  default:
+    abort();
+  }
 }
 
+int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
+                   std::vector<llvm::AllocaInst *> &TempAllocaVec,
+                   llvm::IRBuilderTy &IRB) {
+  const auto &ICFG = Binary.Analysis.ICFG;
+  std::vector<llvm::AllocaInst *> &GlobalAllocaVec = f.GlobalAllocaVec;
+  TCGContext *s = &TCG->_ctx;
+
+  auto set = [&](TCGTemp *ts, llvm::Value *V) -> void {
+    int idx = temp_idx(ts);
+
+    llvm::AllocaInst *&Ptr =
+        ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
+    if (!Ptr) {
+      assert(!ts->temp_global);
+      std::string name = ts->temp_local ? "loc" : "tmp";
+      name += std::to_string(idx - tcg_num_globals);
+
+      Ptr = IRB.CreateAlloca(
+          llvm::Type::getIntNTy(*Context, bitsOfTCGType(ts->type)), 0, name);
+    }
+
+    IRB.CreateStore(V, Ptr);
+  };
+
+  bool pcrel_flag = false;
+  auto immediate_constant = [&](unsigned bits,
+                                TCGArg a) -> llvm::ConstantInt * {
+    switch (bits) {
+    case 64:
+      return IRB.getInt64(a);
+    case 32:
+      return IRB.getInt32(a);
+    default:
+      abort();
+    }
+  };
+
+  const TCGOpcode opc = op->opc;
+  const TCGOpDef &def = tcg_op_defs[opc];
+
+  int nb_oargs = def.nb_oargs;
+  int nb_iargs = def.nb_iargs;
+  int nb_cargs = def.nb_cargs;
+
+  switch (opc) {
+  case INDEX_op_insn_start:
+    break;
+  case INDEX_op_discard:
+    break;
+
+  case INDEX_op_movi_i64: /* movi_i64 tmp0,$0x0 */
+    assert(nb_oargs == 1);
+    assert(nb_iargs == 0);
+    assert(nb_cargs == 1);
+
+    set(arg_temp(op->args[0]), immediate_constant(64, op->args[1]));
+    break;
+
+  default:
+    WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
+    TCG->dump_operations();
+    llvm::errs() << *f.F << '\n';
+    return 1;
+  }
+
+  return 0;
+}
 }
