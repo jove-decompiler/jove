@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
     }
 
     {
-      printf("constexpr std::array<unsigned, %u> CallConvArgArray{",
+      printf("static const std::array<unsigned, %u> CallConvArgArray{",
              static_cast<unsigned>(arg_regs.size()));
 
       bool first = true;
@@ -75,7 +75,7 @@ int main(int argc, char **argv) {
     }
 
     {
-      printf("constexpr std::array<unsigned, %u> CallConvRetArray{",
+      printf("static const std::array<unsigned, %u> CallConvRetArray{",
              static_cast<unsigned>(ret_regs.size()));
 
       bool first = true;
@@ -91,6 +91,25 @@ int main(int argc, char **argv) {
 
       printf("};\n");
     }
+  };
+
+  auto print_lookup_by_mem_offset = [&](void) -> void {
+    unsigned max_offset = 0;
+
+    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
+      TCGTemp &ts = tcg._ctx.temps[i];
+      max_offset = std::max<unsigned>(max_offset, ts.mem_offset);
+    }
+
+    printf("static const int8_t tcg_global_by_offset_lookup_table[%u] = {\n"
+           "[0 ... %u] = -1,\n", max_offset + 1, max_offset);
+
+    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
+      TCGTemp &ts = tcg._ctx.temps[i];
+      printf("[%u] = %d,\n", static_cast<unsigned>(ts.mem_offset), i);
+    }
+
+    printf("};\n");
   };
 
   auto env_index = [&](void) -> int {
@@ -134,6 +153,7 @@ int main(int argc, char **argv) {
 
   printf("typedef std::bitset<tcg_num_globals> tcg_global_set_t;\n");
   print_call_conv_sets();
+  print_lookup_by_mem_offset();
 
   printf("}\n");
 
