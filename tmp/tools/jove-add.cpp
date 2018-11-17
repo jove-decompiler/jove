@@ -104,6 +104,47 @@ static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
                                            disas_t &, target_ulong Addr);
 
+/// Represents a contiguous uniform range in the file. We cannot just create a
+/// range directly because when creating one of these from the .dynamic table
+/// the size, entity size and virtual address are different entries in arbitrary
+/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
+struct DynRegionInfo {
+  DynRegionInfo() = default;
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES) {}
+
+  /// Address in current address space.
+  const void *Addr = nullptr;
+  /// Size in bytes of the region.
+  uint64_t Size = 0;
+  /// Size of each entity in the region.
+  uint64_t EntSize = 0;
+
+  template <typename Type>
+    llvm::ArrayRef<Type> getAsArrayRef() const {
+    const Type *Start = reinterpret_cast<const Type *>(Addr);
+    if (!Start)
+      return {Start, Start};
+    if (EntSize != sizeof(Type) || Size % EntSize)
+      abort();
+    return {Start, Start + (Size / EntSize)};
+  }
+};
+
+template <class T>
+static T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  WithColor::error() << Buf << '\n';
+  exit(1);
+}
+
 int add(void) {
   tiny_code_generator_t tcg;
 
@@ -236,12 +277,14 @@ int add(void) {
 
   const ELFT &E = *O.getELFFile();
 
+  typedef typename ELFT::Elf_Dyn Elf_Dyn;
+  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFT::Elf_Phdr Elf_Phdr;
+  typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
   typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
   typedef typename ELFT::Elf_Sym Elf_Sym;
   typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-  typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-  typedef typename ELFT::Elf_Phdr Elf_Phdr;
 
   //
   // build section map
@@ -317,48 +360,109 @@ int add(void) {
     translate_function(binary, tcg, dis, E.getHeader()->e_entry);
 
   //
-  // get the dynamic symbols (those are the ones that matter to the dynamic
-  // linker)
+  // iterate dynamic defined functions
   //
-  struct {
-    Elf_Sym_Range Symbols;
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
 
-    bool Found;
-  } Dyn;
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
 
-  Dyn.Found = false;
-  for (const Elf_Shdr &Sec : *sections) {
-    if (Sec.sh_type != llvm::ELF::SHT_DYNSYM)
-      continue;
-
-    if (Dyn.Found) {
-      WithColor::error() << "malformed ELF: multiple SHT_DYNSYM sections\n";
-      return 1;
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
     }
-
-    Dyn.Symbols = Elf_Sym_Range(
-        reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset),
-        reinterpret_cast<const Elf_Sym *>(E.base() + Sec.sh_offset +
-                                          Sec.sh_size));
-
-    Dyn.Found = true;
   }
 
-  if (!Dyn.Found || Dyn.Symbols.empty()) {
-    write_decompilation();
-    return 0;
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion;
+  llvm::StringRef DynSymtabName;
+  llvm::StringRef DynamicStringTable;
+
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+      }
+    }
   }
 
   //
-  // iterate dynamic (!undefined) functions
+  // parse dynamic table
   //
-  for (const Elf_Sym &Sym : Dyn.Symbols) {
+  {
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        break;
+      case llvm::ELF::DT_STRSZ:
+        StringTableSize = Dyn.getVal();
+        break;
+      }
+    };
+
+    if (StringTableBegin)
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
+    if (Sym.isUndefined())
+      continue;
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
 
-    if (Sym.isUndefined())
-      continue;
-
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    llvm::outs() << "translating " << SymName << "...\n";
     translate_function(binary, tcg, dis, Sym.st_value);
   }
 
