@@ -935,8 +935,410 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-void *helper_lookup_tb_ptr(CPUArchState *env)
+#define ENV_GET_CPU(e) CPU(x86_env_get_cpu(e))
+
+static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
 {
-    return 0;
+    return container_of(env, X86CPU, env);
+}
+
+#define TARGET_ABI_BITS TARGET_LONG_BITS
+
+#define ABI_LONG_ALIGNMENT (TARGET_ABI_BITS / 8)
+
+typedef target_ulong abi_ulong __attribute__((aligned(ABI_LONG_ALIGNMENT)));
+
+static inline void cpu_get_tb_cpu_state(CPUX86State *env, target_ulong *pc,
+                                        target_ulong *cs_base, uint32_t *flags)
+{
+    *cs_base = env->segs[R_CS].base;
+    *pc = *cs_base + env->eip;
+    *flags = env->hflags |
+        (env->eflags & (IOPL_MASK | TF_MASK | RF_MASK | VM_MASK | AC_MASK));
+}
+
+#define HELPER(name) glue(helper_, name)
+
+typedef struct TranslationBlock TranslationBlock;
+
+#define MAX_OPC_PARAM_PER_ARG 1
+
+#define MAX_OPC_PARAM_IARGS 6
+
+#define MAX_OPC_PARAM_OARGS 1
+
+#define MAX_OPC_PARAM_ARGS (MAX_OPC_PARAM_IARGS + MAX_OPC_PARAM_OARGS)
+
+#define MAX_OPC_PARAM (4 + (MAX_OPC_PARAM_PER_ARG * MAX_OPC_PARAM_ARGS))
+
+typedef int64_t tcg_target_long;
+
+typedef uint64_t tcg_target_ulong;
+
+# define TARGET_INSN_START_WORDS (1 + TARGET_INSN_START_EXTRA_WORDS)
+
+typedef uint32_t TCGRegSet;
+
+typedef enum TCGOpcode {
+#define DEF(name, oargs, iargs, cargs, flags) INDEX_op_ ## name,
+/* XXX jove */
+#include "tcg-opc.h"
+#undef DEF
+    NB_OPS,
+} TCGOpcode;
+
+typedef uint8_t tcg_insn_unit;
+
+typedef struct TCGRelocation {
+    struct TCGRelocation *next;
+    int type;
+    tcg_insn_unit *ptr;
+    intptr_t addend;
+} TCGRelocation;
+
+typedef struct TCGLabel {
+    unsigned has_value : 1;
+    unsigned id : 31;
+    union {
+        uintptr_t value;
+        tcg_insn_unit *value_ptr;
+        TCGRelocation *first_reloc;
+    } u;
+} TCGLabel;
+
+#define TCG_MAX_TEMPS 512
+
+#define TCG_MAX_INSNS 512
+
+typedef struct TCGPool {
+    struct TCGPool *next;
+    int size;
+    uint8_t data[0] __attribute__ ((aligned));
+} TCGPool;
+
+typedef enum TCGType {
+    TCG_TYPE_I32,
+    TCG_TYPE_I64,
+
+    TCG_TYPE_V64,
+    TCG_TYPE_V128,
+    TCG_TYPE_V256,
+
+    TCG_TYPE_COUNT, /* number of different types */
+
+    /* An alias for the size of the host register.  */
+#if TCG_TARGET_REG_BITS == 32
+    TCG_TYPE_REG = TCG_TYPE_I32,
+#else
+    TCG_TYPE_REG = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the native pointer.  */
+#if UINTPTR_MAX == UINT32_MAX
+    TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
+
+    /* An alias for the size of the target "long", aka register.  */
+#if TARGET_LONG_BITS == 64
+    TCG_TYPE_TL = TCG_TYPE_I64,
+#else
+    TCG_TYPE_TL = TCG_TYPE_I32,
+#endif
+} TCGType;
+
+typedef tcg_target_ulong TCGArg;
+
+typedef enum TCGTempVal {
+    TEMP_VAL_DEAD,
+    TEMP_VAL_REG,
+    TEMP_VAL_MEM,
+    TEMP_VAL_CONST,
+} TCGTempVal;
+
+typedef struct TCGTemp {
+    TCGReg reg:8;
+    TCGTempVal val_type:8;
+    TCGType base_type:8;
+    TCGType type:8;
+    unsigned int fixed_reg:1;
+    unsigned int indirect_reg:1;
+    unsigned int indirect_base:1;
+    unsigned int mem_coherent:1;
+    unsigned int mem_allocated:1;
+    /* If true, the temp is saved across both basic blocks and
+       translation blocks.  */
+    unsigned int temp_global:1;
+    /* If true, the temp is saved across basic blocks but dead
+       at the end of translation blocks.  If false, the temp is
+       dead at the end of basic blocks.  */
+    unsigned int temp_local:1;
+    unsigned int temp_allocated:1;
+
+    tcg_target_long val;
+    struct TCGTemp *mem_base;
+    intptr_t mem_offset;
+    const char *name;
+
+    /* Pass-specific information that can be stored for a temporary.
+       One word worth of integer data, and one pointer to data
+       allocated separately.  */
+    uintptr_t state;
+    void *state_ptr;
+} TCGTemp;
+
+typedef struct TCGContext TCGContext;
+
+typedef struct TCGTempSet {
+    unsigned long l[BITS_TO_LONGS(TCG_MAX_TEMPS)];
+} TCGTempSet;
+
+typedef struct TCGOp {
+    TCGOpcode opc   : 8;        /*  8 */
+
+    /* Parameters for this opcode.  See below.  */
+    unsigned param1 : 4;        /* 12 */
+    unsigned param2 : 4;        /* 16 */
+
+    /* Lifetime data of the operands.  */
+    unsigned life   : 16;       /* 32 */
+
+    /* Next and previous opcodes.  */
+    QTAILQ_ENTRY(TCGOp) link;
+
+    /* Arguments for the opcode.  */
+    TCGArg args[MAX_OPC_PARAM];
+} TCGOp;
+
+struct TCGContext {
+    uint8_t *pool_cur, *pool_end;
+    TCGPool *pool_first, *pool_current, *pool_first_large;
+    int nb_labels;
+    int nb_globals;
+    int nb_temps;
+    int nb_indirects;
+
+    /* goto_tb support */
+    tcg_insn_unit *code_buf;
+    uint16_t *tb_jmp_reset_offset; /* tb->jmp_reset_offset */
+    uintptr_t *tb_jmp_insn_offset; /* tb->jmp_target_arg if direct_jump */
+    uintptr_t *tb_jmp_target_addr; /* tb->jmp_target_arg if !direct_jump */
+
+    TCGRegSet reserved_regs;
+    uint32_t tb_cflags; /* cflags of the current TB */
+    intptr_t current_frame_offset;
+    intptr_t frame_start;
+    intptr_t frame_end;
+    TCGTemp *frame_temp;
+
+    tcg_insn_unit *code_ptr;
+
+#ifdef CONFIG_PROFILER
+    TCGProfile prof;
+#endif
+
+#ifdef CONFIG_DEBUG_TCG
+    int temps_in_use;
+    int goto_tb_issue_mask;
+#endif
+
+    /* Code generation.  Note that we specifically do not use tcg_insn_unit
+       here, because there's too much arithmetic throughout that relies
+       on addition and subtraction working on bytes.  Rely on the GCC
+       extension that allows arithmetic on void*.  */
+    void *code_gen_prologue;
+    void *code_gen_epilogue;
+    void *code_gen_buffer;
+    size_t code_gen_buffer_size;
+    void *code_gen_ptr;
+    void *data_gen_ptr;
+
+    /* Threshold to flush the translated code buffer.  */
+    void *code_gen_highwater;
+
+    /* Track which vCPU triggers events */
+    CPUState *cpu;                      /* *_trans */
+
+    /* These structures are private to tcg-target.inc.c.  */
+#ifdef TCG_TARGET_NEED_LDST_LABELS
+    struct TCGLabelQemuLdst *ldst_labels;
+#endif
+#ifdef TCG_TARGET_NEED_POOL_LABELS
+    struct TCGLabelPoolData *pool_labels;
+#endif
+
+    TCGLabel *exitreq_label;
+
+    TCGTempSet free_temps[TCG_TYPE_COUNT * 2];
+    TCGTemp temps[TCG_MAX_TEMPS]; /* globals first, temps after */
+
+    QTAILQ_HEAD(TCGOpHead, TCGOp) ops, free_ops;
+
+    /* Tells which temporary holds a given register.
+       It does not take into account fixed registers */
+    TCGTemp *reg_to_temp[TCG_TARGET_NB_REGS];
+
+    uint16_t gen_insn_end_off[TCG_MAX_INSNS];
+    target_ulong gen_insn_data[TCG_MAX_INSNS][TARGET_INSN_START_WORDS];
+};
+
+extern __thread TCGContext *tcg_ctx;
+
+extern int use_icount;
+
+typedef abi_ulong tb_page_addr_t;
+
+extern int qemu_loglevel;
+
+static inline bool qemu_loglevel_mask(int mask)
+{
+    return (qemu_loglevel & mask) != 0;
+}
+
+int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
+
+#define CPU_LOG_EXEC       (1 << 5)
+
+#define qemu_log_mask_and_addr(MASK, ADDR, FMT, ...)    \
+    do {                                                \
+        if (unlikely(qemu_loglevel_mask(MASK)) &&       \
+                     qemu_log_in_addr_range(ADDR)) {    \
+            qemu_log(FMT, ## __VA_ARGS__);              \
+        }                                               \
+    } while (0)
+
+bool qemu_log_in_addr_range(uint64_t addr);
+
+struct tb_tc {
+    void *ptr;    /* pointer to the translated code */
+    size_t size;
+};
+
+struct TranslationBlock {
+    target_ulong pc;   /* simulated PC corresponding to this block (EIP + CS base) */
+    target_ulong cs_base; /* CS base for this block */
+    uint32_t flags; /* flags defining in which context the code was generated */
+    uint16_t size;      /* size of target code for this block (1 <=
+                           size <= TARGET_PAGE_SIZE) */
+    uint16_t icount;
+    uint32_t cflags;    /* compile flags */
+#define CF_COUNT_MASK  0x00007fff
+#define CF_LAST_IO     0x00008000 /* Last insn may be an IO access.  */
+#define CF_NOCACHE     0x00010000 /* To be freed after execution */
+#define CF_USE_ICOUNT  0x00020000
+#define CF_INVALID     0x00040000 /* TB is stale. Setters need tb_lock */
+#define CF_PARALLEL    0x00080000 /* Generate code for a parallel context */
+/* cflags' mask for hashing/comparison */
+#define CF_HASH_MASK   \
+    (CF_COUNT_MASK | CF_LAST_IO | CF_USE_ICOUNT | CF_PARALLEL)
+
+    /* Per-vCPU dynamic tracing state used to generate this TB */
+    uint32_t trace_vcpu_dstate;
+
+    struct tb_tc tc;
+
+    /* original tb when cflags has CF_NOCACHE */
+    struct TranslationBlock *orig_tb;
+    /* first and second physical page containing code. The lower bit
+       of the pointer tells the index in page_next[] */
+    struct TranslationBlock *page_next[2];
+    tb_page_addr_t page_addr[2];
+
+    /* The following data are used to directly call another TB from
+     * the code of this one. This can be done either by emitting direct or
+     * indirect native jump instructions. These jumps are reset so that the TB
+     * just continues its execution. The TB can be linked to another one by
+     * setting one of the jump targets (or patching the jump instruction). Only
+     * two of such jumps are supported.
+     */
+    uint16_t jmp_reset_offset[2]; /* offset of original jump target */
+#define TB_JMP_RESET_OFFSET_INVALID 0xffff /* indicates no jump generated */
+    uintptr_t jmp_target_arg[2];  /* target address or offset */
+
+    /* Each TB has an associated circular list of TBs jumping to this one.
+     * jmp_list_first points to the first TB jumping to this one.
+     * jmp_list_next is used to point to the next TB in a list.
+     * Since each TB can have two jumps, it can participate in two lists.
+     * jmp_list_first and jmp_list_next are 4-byte aligned pointers to a
+     * TranslationBlock structure, but the two least significant bits of
+     * them are used to encode which data field of the pointed TB should
+     * be used to traverse the list further from that TB:
+     * 0 => jmp_list_next[0], 1 => jmp_list_next[1], 2 => jmp_list_first.
+     * In other words, 0/1 tells which jump is used in the pointed TB,
+     * and 2 means that this is a pointer back to the target TB of this list.
+     */
+    uintptr_t jmp_list_next[2];
+    uintptr_t jmp_list_first;
+};
+
+extern bool parallel_cpus;
+
+static inline uint32_t tb_cflags(const TranslationBlock *tb)
+{
+    return atomic_read(&tb->cflags);
+}
+
+static inline uint32_t curr_cflags(void)
+{
+    return (parallel_cpus ? CF_PARALLEL : 0)
+         | (use_icount ? CF_USE_ICOUNT : 0);
+}
+
+TranslationBlock *tb_htable_lookup(CPUState *cpu, target_ulong pc,
+                                   target_ulong cs_base, uint32_t flags,
+                                   uint32_t cf_mask);
+
+static inline unsigned int tb_jmp_cache_hash_func(target_ulong pc)
+{
+    return (pc ^ (pc >> TB_JMP_CACHE_BITS)) & (TB_JMP_CACHE_SIZE - 1);
+}
+
+static inline TranslationBlock *
+tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
+                     uint32_t *flags, uint32_t cf_mask)
+{
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
+    TranslationBlock *tb;
+    uint32_t hash;
+
+    cpu_get_tb_cpu_state(env, pc, cs_base, flags);
+    hash = tb_jmp_cache_hash_func(*pc);
+    tb = atomic_rcu_read(&cpu->tb_jmp_cache[hash]);
+    if (likely(tb &&
+               tb->pc == *pc &&
+               tb->cs_base == *cs_base &&
+               tb->flags == *flags &&
+               tb->trace_vcpu_dstate == *cpu->trace_dstate &&
+               (tb_cflags(tb) & (CF_HASH_MASK | CF_INVALID)) == cf_mask)) {
+        return tb;
+    }
+    tb = tb_htable_lookup(cpu, *pc, *cs_base, *flags, cf_mask);
+    if (tb == NULL) {
+        return NULL;
+    }
+    atomic_set(&cpu->tb_jmp_cache[hash], tb);
+    return tb;
+}
+
+const char *lookup_symbol(target_ulong orig_addr);
+
+void *HELPER(lookup_tb_ptr)(CPUArchState *env)
+{
+    CPUState *cpu = ENV_GET_CPU(env);
+    TranslationBlock *tb;
+    target_ulong cs_base, pc;
+    uint32_t flags;
+
+    tb = tb_lookup__cpu_state(cpu, &pc, &cs_base, &flags, curr_cflags());
+    if (tb == NULL) {
+        return tcg_ctx->code_gen_epilogue;
+    }
+    qemu_log_mask_and_addr(CPU_LOG_EXEC, pc,
+                           "Chain %d: %p ["
+                           TARGET_FMT_lx "/" TARGET_FMT_lx "/%#x] %s\n",
+                           cpu->cpu_index, tb->tc.ptr, cs_base, pc, flags,
+                           lookup_symbol(pc));
+    return tb->tc.ptr;
 }
 
