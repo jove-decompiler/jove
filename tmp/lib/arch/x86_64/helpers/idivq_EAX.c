@@ -565,12 +565,12 @@ void helper_idivq_EAX(CPUX86State *env, target_ulong t0)
     uint64_t r0, r1;
 
     if (t0 == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
+        /*raise_exception_ra(env, EXCP00_DIVZ, GETPC());*/
     }
     r0 = env->regs[R_EAX];
     r1 = env->regs[R_EDX];
     if (idiv64(&r0, &r1, t0)) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
+        /*raise_exception_ra(env, EXCP00_DIVZ, GETPC());*/
     }
     env->regs[R_EAX] = r0;
     env->regs[R_EDX] = r1;
