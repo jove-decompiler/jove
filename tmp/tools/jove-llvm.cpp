@@ -2549,69 +2549,66 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     const helper_function_t &hf = (*it).second;
 
     llvm::CallInst *Ret;
+
+    std::vector<llvm::Value *> ArgVec;
+    ArgVec.resize(nb_iargs);
+
+    std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
+                   ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
+                     assert(arg != TCG_CALL_DUMMY_ARG);
+                     TCGTemp *ts = arg_temp(arg);
+                     return temp_idx(ts) != tcg_env_index
+                                ? get(ts)
+                                : IRB.CreateAlloca(CPUStateType, 0, "env");
+                   });
+
     //
     // does the helper function take a CPUState* parameter?
     //
     if (hf.env_arg_no >= 0) {
-      std::vector<llvm::Value *> ArgVec;
-      ArgVec.resize(nb_iargs);
-      std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
-                     ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
-                       assert(arg != TCG_CALL_DUMMY_ARG);
-                       TCGTemp *ts = arg_temp(arg);
-                       return temp_idx(ts) != tcg_env_index
-                                  ? get(ts)
-                                  : IRB.CreateAlloca(CPUStateType, 0, "env");
-                     });
-
       llvm::Value *LocalEnv = ArgVec[hf.env_arg_no];
 
       //
       // store our globals to the local env
       //
-      {
-        std::vector<unsigned> glbv;
-        explode_tcg_global_set(glbv, hf.iglbs);
-        for (unsigned glb : glbv) {
-          llvm::SmallVector<llvm::Value *, 4> Indices;
-          llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-              IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
-              IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
-              std::string(s->temps[glb].name) + "_ptr_");
-          IRB.CreateStore(get(&s->temps[glb]), GlobPtr);
-        }
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, hf.iglbs);
+      for (unsigned glb : glbv) {
+        llvm::SmallVector<llvm::Value *, 4> Indices;
+        llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
+            IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
+            std::string(s->temps[glb].name) + "_ptr_");
+        IRB.CreateStore(get(&s->temps[glb]), GlobPtr);
       }
+    }
 
-      Ret = IRB.CreateCall(hf.F, ArgVec);
+    Ret = IRB.CreateCall(hf.F, ArgVec);
+
+    //
+    // does the helper function take a CPUState* parameter?
+    //
+    if (hf.env_arg_no >= 0) {
+      llvm::Value *LocalEnv = ArgVec[hf.env_arg_no];
 
       //
       // load the altered globals
       //
-      {
-        std::vector<unsigned> glbv;
-        explode_tcg_global_set(glbv, hf.oglbs);
-        for (unsigned glb : glbv) {
-          llvm::SmallVector<llvm::Value *, 4> Indices;
-          llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-              IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
-              IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
-              std::string(s->temps[glb].name) + "_ptr_");
-          set(IRB.CreateLoad(GlobPtr), &s->temps[glb]);
-        }
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, hf.oglbs);
+      for (unsigned glb : glbv) {
+        llvm::SmallVector<llvm::Value *, 4> Indices;
+        llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
+            IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
+            std::string(s->temps[glb].name) + "_ptr_");
+        set(IRB.CreateLoad(GlobPtr), &s->temps[glb]);
       }
-    } else { /* simple case */
-      std::vector<llvm::Value *> ArgVec;
-      ArgVec.resize(nb_iargs);
-      std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
-                     ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
-                       assert(arg != TCG_CALL_DUMMY_ARG);
-                       return get(arg_temp(arg));
-                     });
-
-      Ret = IRB.CreateCall(hf.F, ArgVec);
-
     }
 
+    //
+    // does the helper have an output?
+    //
     if (nb_oargs == 1)
       set(Ret, arg_temp(op->args[0]));
 
