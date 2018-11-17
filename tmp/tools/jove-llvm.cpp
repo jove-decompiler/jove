@@ -2324,7 +2324,7 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
       if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
         iglbs.set();
         oglbs.set();
-        break;
+        return res;
       }
 
       llvm::APInt Off(DL.getPointerTypeSizeInBits(EnvGEP->getType()), 0);
@@ -2335,16 +2335,11 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
           tcg_global_by_offset_lookup_table[off] < 0) {
         iglbs.set();
         oglbs.set();
-        break;
+        return res;
       }
 
       unsigned glb =
           static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
-
-#if 0
-      llvm::outs() << *EnvU << " : glb is " << TCG->_ctx.temps[glb].name
-                   << '\n';
-#endif
 
       for (llvm::User *GEPU : EnvGEP->users()) {
         if (llvm::isa<llvm::LoadInst>(GEPU)) {
@@ -2356,10 +2351,15 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
 
           iglbs.set(glb);
           oglbs.set(glb);
+          return res;
         }
       }
     } else {
       WithColor::warning() << "unknown env user " << *EnvU << '\n';
+
+      iglbs.set();
+      oglbs.set();
+      return res;
     }
   }
 
@@ -2548,6 +2548,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
     const helper_function_t &hf = (*it).second;
 
+    llvm::CallInst *Ret;
     //
     // does the helper function take a CPUState* parameter?
     //
@@ -2581,7 +2582,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         }
       }
 
-      llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
+      Ret = IRB.CreateCall(hf.F, ArgVec);
 
       //
       // load the altered globals
@@ -2607,41 +2608,13 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                        return get(arg_temp(arg));
                      });
 
-      llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
+      Ret = IRB.CreateCall(hf.F, ArgVec);
 
-      if (nb_oargs == 1)
-        set(Ret, arg_temp(op->args[0]));
     }
 
-#if 0
-    for (int i = 0; i < nb_iargs; ++i) {
-      TCGArg arg = op->args[nb_oargs + i];
-      if (arg == TCG_CALL_DUMMY_ARG) {
-        WithColor::error() << "encountered TCG_CALL_DUMMY_ARG for helper_"
-                           << tcg_find_helper(s, helper_addr) << '\n';
-        return 1;
-      }
+    if (nb_oargs == 1)
+      set(Ret, arg_temp(op->args[0]));
 
-      TCGTemp *ts = arg_temp(arg);
-      unsigned idx = temp_idx(ts);
-
-      if (idx == tcg_env_index) {
-        WithColor::error() << "helper " << tcg_find_helper(s, helper_addr)
-                           << " requires the CPUState\n";
-        return 1;
-      }
-
-      args.push_back(get(arg_temp(arg)));
-    }
-
-    llvm::Function *helperF = (*it).second;
-#endif
-
-#if 0
-    for (i = 0; i < nb_oargs; i++) {
-      get(arg_temp(op->args[i]));
-    }
-#endif
     break;
   }
 
