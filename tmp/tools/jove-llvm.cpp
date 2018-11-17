@@ -292,6 +292,8 @@ static std::unique_ptr<llvm::Module> Module;
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
 
+static llvm::GlobalVariable *CPUStateGlobal;
+
 static llvm::GlobalVariable *SectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
@@ -311,6 +313,7 @@ static int ConductInterproceduralLivenessAnalysis(void);
 static int CreateModule(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
+static int CreateCPUStateGlobal(void);
 static int TranslateFunctions(void);
 static int WriteModule(void);
 
@@ -326,6 +329,7 @@ int llvm(void) {
       || CreateModule()
       || CreateFunctions()
       || CreateSectionGlobalVariables()
+      || CreateCPUStateGlobal()
       || TranslateFunctions()
       || WriteModule();
 }
@@ -1768,6 +1772,21 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
+int CreateCPUStateGlobal() {
+  llvm::Function *joveF = Module->getFunction("jove");
+  llvm::FunctionType *joveFTy = joveF->getFunctionType();
+  assert(joveFTy->getNumParams() == 1);
+  llvm::Type *cpuStatePtrTy = joveFTy->getParamType(0);
+  assert(llvm::isa<llvm::PointerType>(cpuStatePtrTy));
+  llvm::Type *cpuStateTy =
+      llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
+  CPUStateGlobal = new llvm::GlobalVariable(
+      *Module, cpuStateTy, false, llvm::GlobalValue::InternalLinkage,
+      llvm::Constant::getNullValue(cpuStateTy), "env", nullptr,
+      llvm::GlobalValue::LocalDynamicTLSModel);
+  return 0;
+}
+
 static unsigned bitsOfTCGType(TCGType ty) {
   switch (ty) {
   case TCG_TYPE_I32:
@@ -1781,6 +1800,22 @@ static unsigned bitsOfTCGType(TCGType ty) {
 
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
+
+static llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
+  assert(glb < tcg_num_globals);
+  assert(temp_idx(TCG->_ctx.temps[glb].mem_base) == tcg_env_index);
+
+  unsigned off = TCG->_ctx.temps[glb].mem_offset;
+
+  llvm::IRBuilderTy IRB(*Context);
+  llvm::SmallVector<llvm::Value *, 4> Indices;
+  llvm::Value *res = getNaturalGEPWithOffset(
+      IRB, DL, CPUStateGlobal, llvm::APInt(64, off),
+      IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices, "");
+
+  assert(llvm::isa<llvm::Constant>(res));
+  return llvm::cast<llvm::Constant>(res);
+}
 
 static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -1830,6 +1865,17 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       for (unsigned glb : glbv) {
         assert(arg_it != F->arg_end());
         llvm::Argument *Val = &*arg_it++;
+        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+        IRB.CreateStore(Val, Ptr);
+      }
+    }
+
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, glbs & ~(f.Analysis.live & CallConvArgs));
+
+      for (unsigned glb : glbv) {
+        llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
         llvm::Value *Ptr = f.GlobalAllocaVec[glb];
         IRB.CreateStore(Val, Ptr);
       }
@@ -1902,9 +1948,11 @@ static Value *buildGEP(IRBuilderTy &IRB, Value *BasePtr,
   if (Indices.size() == 1 && cast<ConstantInt>(Indices.back())->isZero())
     return BasePtr;
 
-  assert(isa<Constant>(BasePtr));
-  return ConstantExpr::getInBoundsGetElementPtr(
-      nullptr, cast<Constant>(BasePtr), Indices);
+  if (isa<Constant>(BasePtr))
+    return ConstantExpr::getInBoundsGetElementPtr(
+        nullptr, cast<Constant>(BasePtr), Indices);
+  else
+    return IRB.CreateInBoundsGEP(nullptr, BasePtr, Indices, NamePrefix);
 }
 
 /// Get a natural GEP off of the BasePtr walking through Ty toward
