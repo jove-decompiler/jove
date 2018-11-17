@@ -81,6 +81,7 @@ class Type;
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/Linker/Linker.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -102,6 +103,7 @@ class Type;
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/algorithm/string/replace.hpp>
+#include <boost/dll/runtime_symbol_info.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -293,11 +295,20 @@ static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
 
 static llvm::GlobalVariable *CPUStateGlobal;
+static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *SectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::DataLayout DL("");
+
+struct helper_function_t {
+  llvm::Function *F;
+
+  int env_arg_no;
+  tcg_global_set_t iglbs, oglbs;
+};
+static std::unordered_map<void *, helper_function_t> HelperFuncMap;
 
 //
 // Stages
@@ -1424,7 +1435,7 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
                                       Value *Ptr, APInt Offset, Type *TargetTy,
                                       SmallVectorImpl<Value *> &Indices,
                                       Twine NamePrefix);
-}
+} // namespace llvm
 
 namespace jove {
 
@@ -1450,7 +1461,7 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
-  llvm::Value *res = getNaturalGEPWithOffset(
+  llvm::Value *res = llvm::getNaturalGEPWithOffset(
       IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
 
   assert(llvm::isa<llvm::Constant>(res));
@@ -1778,11 +1789,10 @@ int CreateCPUStateGlobal() {
   assert(joveFTy->getNumParams() == 1);
   llvm::Type *cpuStatePtrTy = joveFTy->getParamType(0);
   assert(llvm::isa<llvm::PointerType>(cpuStatePtrTy));
-  llvm::Type *cpuStateTy =
-      llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
+  CPUStateType = llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
   CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, cpuStateTy, false, llvm::GlobalValue::InternalLinkage,
-      llvm::Constant::getNullValue(cpuStateTy), "env", nullptr,
+      *Module, CPUStateType, false, llvm::GlobalValue::InternalLinkage,
+      llvm::Constant::getNullValue(CPUStateType), "env", nullptr,
       llvm::GlobalValue::LocalDynamicTLSModel);
   return 0;
 }
@@ -1809,7 +1819,7 @@ static llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
-  llvm::Value *res = getNaturalGEPWithOffset(
+  llvm::Value *res = llvm::getNaturalGEPWithOffset(
       IRB, DL, CPUStateGlobal, llvm::APInt(64, off),
       IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices, "");
 
@@ -2293,6 +2303,69 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
+static std::pair<tcg_global_set_t, tcg_global_set_t>
+AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
+  assert(env_arg_no >= 0);
+
+  std::pair<tcg_global_set_t, tcg_global_set_t> res;
+
+  tcg_global_set_t &iglbs = res.first;
+  tcg_global_set_t &oglbs = res.second;
+
+  llvm::Function::arg_iterator arg_it = F->arg_begin();
+  std::advance(arg_it, env_arg_no);
+  llvm::Argument &A = *arg_it;
+
+  for (llvm::User *EnvU : A.users()) {
+    if (llvm::isa<llvm::GetElementPtrInst>(EnvU)) {
+      llvm::GetElementPtrInst *EnvGEP =
+          llvm::cast<llvm::GetElementPtrInst>(EnvU);
+
+      if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
+        iglbs.set();
+        oglbs.set();
+        break;
+      }
+
+      llvm::APInt Off(DL.getPointerTypeSizeInBits(EnvGEP->getType()), 0);
+      llvm::cast<llvm::GEPOperator>(EnvGEP)->accumulateConstantOffset(DL, Off);
+      unsigned off = Off.getZExtValue();
+
+      if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
+          tcg_global_by_offset_lookup_table[off] < 0) {
+        iglbs.set();
+        oglbs.set();
+        break;
+      }
+
+      unsigned glb =
+          static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
+
+#if 0
+      llvm::outs() << *EnvU << " : glb is " << TCG->_ctx.temps[glb].name
+                   << '\n';
+#endif
+
+      for (llvm::User *GEPU : EnvGEP->users()) {
+        if (llvm::isa<llvm::LoadInst>(GEPU)) {
+          iglbs.set(glb);
+        } else if (llvm::isa<llvm::StoreInst>(GEPU)) {
+          oglbs.set(glb);
+        } else {
+          WithColor::warning() << "unknown global GEP user " << *GEPU << '\n';
+
+          iglbs.set(glb);
+          oglbs.set(glb);
+        }
+      }
+    } else {
+      WithColor::warning() << "unknown env user " << *EnvU << '\n';
+    }
+  }
+
+  return res;
+}
+
 int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                    binary_t &Binary, function_t &f, basic_block_t bb,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
@@ -2392,18 +2465,183 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     nb_iargs = TCGOP_CALLI(op);
     uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
     void *helper_ptr = reinterpret_cast<void *>(helper_addr);
+
+    //
+    // some helper functions are special-cased
+    //
     if (helper_ptr == helper_raise_exception) {
       assert(!next_op);
       assert(ExitBB);
 
       IRB.CreateBr(ExitBB);
+      break;
     } else if (helper_ptr == helper_lookup_tb_ptr) {
-      ;
-    } else {
-      WithColor::error() << "unhandled helper function "
-                         << tcg_find_helper(s, helper_addr) << '\n';
-      return 1;
+      break;
     }
+
+    const char *helper_nm = tcg_find_helper(s, helper_addr);
+    assert(helper_nm);
+
+    //
+    // does the helper function take the CPUState as input?
+    //
+    auto it = HelperFuncMap.find(helper_ptr);
+    if (it == HelperFuncMap.end()) {
+      std::string helperModulePath =
+          (boost::dll::program_location().parent_path() /
+           (std::string(helper_nm) + ".bc"))
+              .string();
+
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
+          llvm::MemoryBuffer::getFile(helperModulePath);
+      if (!BufferOr) {
+        WithColor::error() << "could not open bitcode for helper_" << helper_nm
+                           << " (" << BufferOr.getError().message() << ")\n";
+        return 1;
+      }
+
+      llvm::MemoryBuffer *Buffer = BufferOr.get().get();
+      llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
+          llvm::parseBitcodeFile(Buffer->getMemBufferRef(), *Context);
+      if (!helperModuleOr) {
+        llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
+                                    "could not parse helper bitcode: ");
+        return 1;
+      }
+
+      llvm::Linker::linkModules(*Module, std::move(helperModuleOr.get()));
+
+      llvm::Function *helperF =
+          Module->getFunction(std::string("helper_") + helper_nm);
+
+      assert(helperF);
+      assert(helperF->arg_size() == nb_iargs);
+      assert(nb_oargs == 0 || nb_oargs == 1);
+
+      //
+      // analyze helper
+      //
+      int env_arg_no = -1;
+      {
+        TCGTemp *env_temp = &s->temps[tcg_env_index];
+        TCGArg *inputs_beg = &op->args[nb_oargs + 0];
+        TCGArg *inputs_end = &op->args[nb_oargs + nb_iargs];
+        TCGArg *it = std::find(inputs_beg, inputs_end,
+                               reinterpret_cast<TCGArg>(env_temp));
+
+        if (it != inputs_end)
+          env_arg_no = std::distance(inputs_beg, it);
+      }
+
+      tcg_global_set_t iglbs, oglbs;
+
+      if (env_arg_no >= 0)
+        std::tie(iglbs, oglbs) = AnalyzeUsesOfEnvByHelper(helperF, env_arg_no);
+
+      helper_function_t hf = {.F = helperF,
+                              .env_arg_no = env_arg_no,
+                              .iglbs = iglbs,
+                              .oglbs = oglbs};
+
+      it = HelperFuncMap.insert({helper_ptr, hf}).first;
+    }
+
+    const helper_function_t &hf = (*it).second;
+
+    //
+    // does the helper function take a CPUState* parameter?
+    //
+    if (hf.env_arg_no >= 0) {
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(nb_iargs);
+      std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
+                     ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
+                       assert(arg != TCG_CALL_DUMMY_ARG);
+                       TCGTemp *ts = arg_temp(arg);
+                       return temp_idx(ts) != tcg_env_index
+                                  ? get(ts)
+                                  : IRB.CreateAlloca(CPUStateType, 0, "env");
+                     });
+
+      llvm::Value *LocalEnv = ArgVec[hf.env_arg_no];
+
+      //
+      // store our globals to the local env
+      //
+      {
+        std::vector<unsigned> glbv;
+        explode_tcg_global_set(glbv, hf.iglbs);
+        for (unsigned glb : glbv) {
+          llvm::SmallVector<llvm::Value *, 4> Indices;
+          llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
+              IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+              IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
+              std::string(s->temps[glb].name) + "_ptr_");
+          IRB.CreateStore(get(&s->temps[glb]), GlobPtr);
+        }
+      }
+
+      llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
+
+      //
+      // load the altered globals
+      //
+      {
+        std::vector<unsigned> glbv;
+        explode_tcg_global_set(glbv, hf.oglbs);
+        for (unsigned glb : glbv) {
+          llvm::SmallVector<llvm::Value *, 4> Indices;
+          llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
+              IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+              IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
+              std::string(s->temps[glb].name) + "_ptr_");
+          set(IRB.CreateLoad(GlobPtr), &s->temps[glb]);
+        }
+      }
+    } else { /* simple case */
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(nb_iargs);
+      std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
+                     ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
+                       assert(arg != TCG_CALL_DUMMY_ARG);
+                       return get(arg_temp(arg));
+                     });
+
+      llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
+
+      if (nb_oargs == 1)
+        set(Ret, arg_temp(op->args[0]));
+    }
+
+#if 0
+    for (int i = 0; i < nb_iargs; ++i) {
+      TCGArg arg = op->args[nb_oargs + i];
+      if (arg == TCG_CALL_DUMMY_ARG) {
+        WithColor::error() << "encountered TCG_CALL_DUMMY_ARG for helper_"
+                           << tcg_find_helper(s, helper_addr) << '\n';
+        return 1;
+      }
+
+      TCGTemp *ts = arg_temp(arg);
+      unsigned idx = temp_idx(ts);
+
+      if (idx == tcg_env_index) {
+        WithColor::error() << "helper " << tcg_find_helper(s, helper_addr)
+                           << " requires the CPUState\n";
+        return 1;
+      }
+
+      args.push_back(get(arg_temp(arg)));
+    }
+
+    llvm::Function *helperF = (*it).second;
+#endif
+
+#if 0
+    for (i = 0; i < nb_oargs; i++) {
+      get(arg_temp(op->args[i]));
+    }
+#endif
     break;
   }
 
