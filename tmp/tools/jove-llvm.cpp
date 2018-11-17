@@ -2112,6 +2112,9 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
             continue;
 
           unsigned idx = temp_idx(ts);
+          if (TempAllocaVec.at(idx))
+            continue;
+
           TempAllocaVec.at(idx) =
             IRB.CreateAlloca(IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                             (fmt("%#lx_%s%u")
@@ -2126,6 +2129,9 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
             continue;
 
           unsigned idx = temp_idx(ts);
+          if (TempAllocaVec.at(idx))
+            continue;
+
           TempAllocaVec.at(idx) =
             IRB.CreateAlloca(IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
                             (fmt("%#lx_%s%u")
