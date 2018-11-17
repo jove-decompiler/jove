@@ -159,7 +159,7 @@ build-helpers: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 define build_helper_template
 .PHONY: $(BINDIR)/$(1).bc
 $(BINDIR)/$(1).bc:
-	clang -o $$@ -c -emit-llvm lib/arch/$(ARCH)/helpers/$(1).c
+	clang -o $$@ -c -emit-llvm -O2 lib/arch/$(ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
