@@ -2101,7 +2101,8 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-static int TranslateTCGOp(TCGOp *, binary_t &, function_t &, basic_block_t,
+static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
+                          binary_t &, function_t &, basic_block_t,
                           std::vector<llvm::AllocaInst *> &,
                           std::vector<llvm::BasicBlock *> &,
                           llvm::BasicBlock *,
@@ -2190,12 +2191,13 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
       }
     }
 
-    {
-      TCGOp *op, *op_next;
-      QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-        if (int ret = TranslateTCGOp(op, Binary, f, bb, TempAllocaVec, LabelVec,
-                                     size + len < Size ? nullptr : ExitBB, IRB))
-          return ret;
+    TCGOp *op, *op_next;
+    QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+      if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, TempAllocaVec,
+                                   LabelVec,
+                                   size + len < Size ? nullptr : ExitBB, IRB)) {
+        TCG->dump_operations();
+        return ret;
       }
     }
 
@@ -2291,7 +2293,8 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
-int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
+int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
+                   binary_t &Binary, function_t &f, basic_block_t bb,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
                    std::vector<llvm::BasicBlock *> &LabelVec,
                    llvm::BasicBlock *ExitBB, llvm::IRBuilderTy &IRB) {
@@ -2390,11 +2393,16 @@ int TranslateTCGOp(TCGOp *op, binary_t &Binary, function_t &f, basic_block_t bb,
     uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
     void *helper_ptr = reinterpret_cast<void *>(helper_addr);
     if (helper_ptr == helper_raise_exception) {
+      assert(!next_op);
       assert(ExitBB);
+
       IRB.CreateBr(ExitBB);
+    } else if (helper_ptr == helper_lookup_tb_ptr) {
+      ;
     } else {
       WithColor::error() << "unhandled helper function "
                          << tcg_find_helper(s, helper_addr) << '\n';
+      return 1;
     }
     break;
   }
