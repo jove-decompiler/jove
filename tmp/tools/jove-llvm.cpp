@@ -2295,6 +2295,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     }
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
+    Ret->setIsNoInline();
 
     if (!callee.retTy->isVoidTy()) {
       std::vector<unsigned> glbv;
@@ -2380,6 +2381,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
         IRB.CreateIntToPtr(PC, llvm::PointerType::get(
                                    DetermineFunctionType(BinIdx, FuncIdx), 0)),
         ArgVec);
+    Ret->setIsNoInline();
 
     if (!callee.retTy->isVoidTy()) {
       std::vector<unsigned> glbv;
@@ -2795,6 +2797,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     }
 
     Ret = IRB.CreateCall(hf.F, ArgVec);
+    Ret->setIsNoInline();
 
     //
     // does the helper function take a CPUState* parameter?
