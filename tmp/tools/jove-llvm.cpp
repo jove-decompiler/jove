@@ -1846,9 +1846,9 @@ int CreateCPUStateGlobal() {
 #endif
 
   CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateSType, false, llvm::GlobalValue::InternalLinkage,
+      *Module, CPUStateSType, false, llvm::GlobalValue::ExternalLinkage,
       llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
-      nullptr, llvm::GlobalValue::LocalDynamicTLSModel);
+      nullptr, llvm::GlobalValue::GeneralDynamicTLSModel);
 
   return 0;
 }
@@ -2319,8 +2319,31 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     break;
   }
 
-  case TERMINATOR::INDIRECT_CALL:
   case TERMINATOR::INDIRECT_JUMP: {
+    //
+    // if      pc == target_1 ; goto target_1
+    // else if pc == target_2 ; goto target_2
+    // else if pc == target_3 ; goto target_3
+    //       ...
+    // else if pc == target_n ; goto target_n
+    // else                   ; goto (*pc)            [fallthrough case]
+    //
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    for (auto it = eit_pair.first; it != eit_pair.second; ++it) {
+      basic_block_t succ = boost::target(*it, ICFG);
+
+      llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+      llvm::Value *EQV = IRB.CreateICmpEQ(
+          PC, IRB.getIntN(sizeof(uintptr_t) * 8, ICFG[succ].Addr));
+
+      llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
+
+      IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
+      IRB.SetInsertPoint(NextB);
+    }
+  }
+
+  case TERMINATOR::INDIRECT_CALL: {
     llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
 
     const auto &DynTargets = ICFG[bb].DynTargets;
@@ -2852,8 +2875,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #define __OP_QEMU_ST(opc_name, bits)                                           \
   case opc_name: {                                                             \
-    llvm::Value *V = get(arg_temp(op->args[1]));                               \
-    llvm::Value *A = get(arg_temp(op->args[0]));                               \
+    llvm::Value *V = get(arg_temp(op->args[0]));                               \
+    llvm::Value *A = get(arg_temp(op->args[1]));                               \
     store(V, A, bits);                                                         \
     break;                                                                     \
   }
