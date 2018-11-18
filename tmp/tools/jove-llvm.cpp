@@ -2563,9 +2563,16 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     return IRB.CreateLoad(Ptr);
   };
 
-  bool pcrel_flag = false;
-  auto immediate_constant = [&](unsigned bits,
-                                TCGArg a) -> llvm::ConstantInt * {
+  static bool pcrel_flag = false;
+
+  auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Constant * {
+    if (pcrel_flag && bits == sizeof(uintptr_t) * 8 &&
+        a >= SectsStartAddr && a < SectsEndAddr) {
+      pcrel_flag = false;
+
+      return llvm::ConstantExpr::getPtrToInt(SectionPointer(a), WordType());
+    }
+
     switch (bits) {
     case 64:
       return IRB.getInt64(a);
@@ -2605,6 +2612,19 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   switch (opc) {
   case INDEX_op_insn_start:
+    static uint64_t lstaddr = 0;
+    if (op->args[0] == JOVE_PCREL_MAGIC && op->args[1] == JOVE_PCREL_MAGIC) {
+      pcrel_flag = true;
+
+      WithColor::note() << "PC-relative expression @ "
+                        << (fmt("%#lx") % lstaddr).str() << '\n';
+    } else {
+      pcrel_flag = false;
+
+      lstaddr = op->args[0];
+    }
+    break;
+
   case INDEX_op_discard:
   case INDEX_op_goto_tb:
     break;

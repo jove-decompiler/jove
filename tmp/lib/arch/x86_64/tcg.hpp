@@ -1231,6 +1231,9 @@ typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
 
+constexpr target_ulong JOVE_PCREL_MAGIC =
+  std::numeric_limits<target_ulong>::max();
+
 enum {
     R_EAX = 0,
     R_ECX = 1,
@@ -19261,6 +19264,7 @@ static AddressParts gen_lea_modrm_0(CPUX86State *env, DisasContext *s,
                 if (CODE64(s) && !havesib) {
                     base = -2;
                     disp += s->pc + s->rip_offset;
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 }
             }
             break;
