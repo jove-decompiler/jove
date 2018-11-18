@@ -1790,10 +1790,66 @@ int CreateCPUStateGlobal() {
   llvm::Type *cpuStatePtrTy = joveFTy->getParamType(0);
   assert(llvm::isa<llvm::PointerType>(cpuStatePtrTy));
   CPUStateType = llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
-  CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateType, false, llvm::GlobalValue::InternalLinkage,
-      llvm::Constant::getNullValue(CPUStateType), "env", nullptr,
+
+  constexpr unsigned StackLen = 10 * 4096;
+
+  llvm::Type *StackTy =
+      llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
+  llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
+      *Module, StackTy, false, llvm::GlobalValue::InternalLinkage,
+      llvm::Constant::getNullValue(StackTy), "stack", nullptr,
       llvm::GlobalValue::LocalDynamicTLSModel);
+
+  llvm::Constant *StackStart;
+  {
+    llvm::IRBuilderTy IRB(*Context);
+    llvm::SmallVector<llvm::Value *, 4> Indices;
+    llvm::Value *GEP = llvm::getNaturalGEPWithOffset(
+        IRB, DL, Stack, llvm::APInt(64, StackLen - 1024), nullptr, Indices, "");
+
+    assert(llvm::isa<llvm::Constant>(GEP));
+
+    StackStart = llvm::cast<llvm::Constant>(GEP);
+  }
+
+  assert(CPUStateType->isStructTy());
+  llvm::StructType *CPUStateSType = llvm::cast<llvm::StructType>(CPUStateType);
+
+  std::vector<llvm::Constant *> CPUStateGlobalFieldInits;
+  CPUStateGlobalFieldInits.resize(CPUStateSType->getNumElements());
+  std::transform(CPUStateSType->element_begin(), CPUStateSType->element_end(),
+                 CPUStateGlobalFieldInits.begin(),
+                 [&](llvm::Type *Ty) -> llvm::Constant * {
+                   return llvm::Constant::getNullValue(Ty);
+                 });
+
+#if defined(__x86_64__)
+  llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
+
+  assert(regsFieldInit->getType()->isArrayTy());
+
+  llvm::ArrayType *regsFieldTy =
+      llvm::cast<llvm::ArrayType>(regsFieldInit->getType());
+
+  std::vector<llvm::Constant *> regsFieldInits(
+      regsFieldTy->getNumElements(),
+      llvm::Constant::getNullValue(regsFieldTy->getElementType()));
+
+  unsigned sp_off = TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset;
+  unsigned idx = sp_off / sizeof(uintptr_t);
+
+  regsFieldInits[idx] = llvm::ConstantExpr::getPtrToInt(
+      StackStart, regsFieldTy->getElementType());
+
+  regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
+#elif defined(__aarch64__)
+#endif
+
+  CPUStateGlobal = new llvm::GlobalVariable(
+      *Module, CPUStateSType, false, llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
+      nullptr, llvm::GlobalValue::LocalDynamicTLSModel);
+
   return 0;
 }
 
@@ -2219,17 +2275,117 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   //
   IRB.SetInsertPoint(ExitBB);
   switch (T.Type) {
-  case TERMINATOR::CALL:
-  case TERMINATOR::INDIRECT_CALL:
-  case TERMINATOR::UNCONDITIONAL_JUMP: {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    assert(eit_pair.first != eit_pair.second &&
-           std::next(eit_pair.first) == eit_pair.second);
-    control_flow_t cf = *eit_pair.first;
-    basic_block_t succ = boost::target(cf, ICFG);
-    IRB.CreateBr(ICFG[succ].B);
+  case TERMINATOR::CALL: {
+    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+
+    std::vector<llvm::Value *> ArgVec;
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+      });
+
+      ArgVec.resize(glbv.size());
+      std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
+                     [&](unsigned glb) -> llvm::Value * {
+                       return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+                     });
+    }
+
+    llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
+
+    if (!callee.retTy->isVoidTy()) {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, callee.Analysis.defined & CallConvRets);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
+               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
+      });
+
+      if (glbv.size() == 1) {
+        assert(callee.retTy->isIntegerTy());
+        IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+      } else {
+        for (unsigned i = 0; i < glbv.size(); ++i) {
+          llvm::AllocaInst *Ptr = f.GlobalAllocaVec[glbv[i]];
+          llvm::Value *Val =
+              IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+          IRB.CreateStore(Val, Ptr);
+        }
+      }
+    }
     break;
   }
+
+  case TERMINATOR::INDIRECT_CALL:
+  case TERMINATOR::INDIRECT_JUMP: {
+    llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+
+    const auto &DynTargets = ICFG[bb].DynTargets;
+    if (DynTargets.empty()) {
+      IRB.CreateCall(IRB.CreateIntToPtr(
+          PC, llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
+                                     0)));
+      break;
+    }
+
+    function_index_t BinIdx = (*DynTargets.begin()).first;
+    function_index_t FuncIdx = (*DynTargets.begin()).second;
+
+    function_t &callee =
+        Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+
+    std::vector<llvm::Value *> ArgVec;
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+      });
+
+      ArgVec.resize(glbv.size());
+      std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
+                     [&](unsigned glb) -> llvm::Value * {
+                       return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+                     });
+    }
+
+    llvm::CallInst *Ret = IRB.CreateCall(
+        IRB.CreateIntToPtr(PC, llvm::PointerType::get(
+                                   DetermineFunctionType(BinIdx, FuncIdx), 0)),
+        ArgVec);
+
+    if (!callee.retTy->isVoidTy()) {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, callee.Analysis.defined & CallConvRets);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
+               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
+      });
+
+      if (glbv.size() == 1) {
+        assert(callee.retTy->isIntegerTy());
+        IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+      } else {
+        for (unsigned i = 0; i < glbv.size(); ++i) {
+          llvm::AllocaInst *Ptr = f.GlobalAllocaVec[glbv[i]];
+          llvm::Value *Val =
+              IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+          IRB.CreateStore(Val, Ptr);
+        }
+      }
+    }
+    break;
+  }
+
+  default:
+    break;
+  }
+
+  switch (T.Type) {
   case TERMINATOR::CONDITIONAL_JUMP: {
     auto eit_pair = boost::out_edges(bb, ICFG);
     assert(eit_pair.first != eit_pair.second &&
@@ -2248,10 +2404,19 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     break;
   }
 
-  case TERMINATOR::INDIRECT_JUMP:
-    IRB.CreateUnreachable();
+  case TERMINATOR::CALL:
+  case TERMINATOR::UNCONDITIONAL_JUMP:
+  case TERMINATOR::INDIRECT_CALL: {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    assert(eit_pair.first != eit_pair.second &&
+           std::next(eit_pair.first) == eit_pair.second);
+    control_flow_t cf = *eit_pair.first;
+    basic_block_t succ = boost::target(cf, ICFG);
+    IRB.CreateBr(ICFG[succ].B);
     break;
+  }
 
+  case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::RETURN: {
     if (f.retTy->isVoidTy()) {
       IRB.CreateRetVoid();
@@ -2297,6 +2462,9 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
   case TERMINATOR::UNREACHABLE:
     IRB.CreateUnreachable();
+    break;
+
+  default:
     break;
   }
 
