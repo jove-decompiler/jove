@@ -326,6 +326,7 @@ static int CreateModule(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
 static int CreateCPUStateGlobal(void);
+static int FixupHelperStubs(void);
 static int TranslateFunctions(void);
 static int WriteModule(void);
 
@@ -343,6 +344,7 @@ int llvm(void) {
       || CreateFunctions()
       || CreateSectionGlobalVariables()
       || CreateCPUStateGlobal()
+      || FixupHelperStubs()
       || TranslateFunctions()
       || WriteModule();
 }
@@ -1872,14 +1874,13 @@ int CreateCPUStateGlobal() {
       regsFieldTy->getNumElements(),
       llvm::Constant::getNullValue(regsFieldTy->getElementType()));
 
-  regsFieldInits[TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset /
-                 sizeof(uintptr_t)] =
+  regsFieldInits.at(TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset /
+                    sizeof(uintptr_t)) =
       llvm::ConstantExpr::getPtrToInt(StackStart,
                                       regsFieldTy->getElementType());
-  regsFieldInits[TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset /
-                 sizeof(uintptr_t)] =
-      llvm::ConstantExpr::getPtrToInt(StackEnd,
-                                      regsFieldTy->getElementType());
+  regsFieldInits.at(TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset /
+                    sizeof(uintptr_t)) =
+      llvm::ConstantExpr::getPtrToInt(StackEnd, regsFieldTy->getElementType());
 
   regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
 #elif defined(__aarch64__)
@@ -1890,6 +1891,10 @@ int CreateCPUStateGlobal() {
       llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
       nullptr, llvm::GlobalValue::GeneralDynamicTLSModel);
 
+  return 0;
+}
+
+int FixupHelperStubs(void) {
   return 0;
 }
 
