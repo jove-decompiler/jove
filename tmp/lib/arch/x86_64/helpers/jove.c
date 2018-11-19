@@ -458,28 +458,28 @@ void jove(CPUX86State *env)
 #include <inttypes.h>
 #include <unistd.h>
 
-CPUX86State * GetGlobalCPUState(void);
-void CallEntry(void);
+CPUX86State *_jove_get_global_cpu_state(void);
+void _jove_call_entry(void);
 
 void __jove_start(void) __attribute__((naked));
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
                  target_ulong, target_ulong);
 
-#define _NOINL __attribute__((noinline))
+#define _INL __attribute__((always_inline))
 
-static _NOINL int _open(const char *, int, mode_t);
-static _NOINL ssize_t _read(int, void *, size_t);
-static _NOINL int _close(int);
-static _NOINL ssize_t _write(int, const void *, size_t);
-static _NOINL void _exit_group(int status);
+static _INL int _open(const char *, int, mode_t);
+static _INL ssize_t _read(int, void *, size_t);
+static _INL int _close(int);
+static _INL ssize_t _write(int, const void *, size_t);
+static _INL void _exit_group(int status);
 
-static _NOINL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
-static _NOINL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
-static _NOINL void *_memchr(const void *s, int c, size_t n);
-static _NOINL void *_memcpy(void *dest, const void *src, size_t n);
-static _NOINL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
-static _NOINL unsigned _getHexDigit(char cdigit);
-static _NOINL uint64_t _get_stack_end(void);
+static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
+static _INL void *_memchr(const void *s, int c, size_t n);
+static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
+static _INL unsigned _getHexDigit(char cdigit);
+static _INL uint64_t _get_stack_end(void);
 
 void __jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
@@ -494,7 +494,7 @@ void __jove_start(void) {
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
                  target_ulong rcx, target_ulong r8,
                  target_ulong sp_addr /* formerly r9 */) {
-  CPUX86State *env = GetGlobalCPUState();
+  CPUX86State *env = _jove_get_global_cpu_state();
   env->regs[R_EDI] = rdi;
   env->regs[R_ESI] = rsi;
   env->regs[R_EDX] = rdx;
@@ -513,8 +513,7 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
 
   env->regs[R_ESP] = env_sp_addr;
 
-  return CallEntry();
-  //_exit_group(0);
+  return _jove_call_entry();
 }
 
 uint64_t _get_stack_end(void) {
