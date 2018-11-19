@@ -612,8 +612,6 @@ uint64_t _parse_stack_end_of_maps(char *maps, unsigned n) {
     //
     eol = _memchr(line, '\n', left);
 
-    _write(STDOUT_FILENO, line, eol - line + 1);
-
     //
     // second hex address
     //
