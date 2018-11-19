@@ -125,6 +125,13 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("sp");
 #endif
   };
+  auto frame_pointer_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rbp");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x29");
+#endif
+  };
   auto program_counter_env_offset = [&](void) -> int {
 #if defined(__x86_64__)
     return offsetof(CPUX86State, eip);
@@ -146,6 +153,7 @@ int main(int argc, char **argv) {
   __TCG_CONST(max_temps);
   __TCG_CONST(env_index);
   __TCG_CONST(program_counter_index);
+  __TCG_CONST(frame_pointer_index);
   __TCG_CONST(stack_pointer_index);
   __TCG_CONST(program_counter_env_offset);
 
