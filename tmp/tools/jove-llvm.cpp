@@ -138,6 +138,9 @@ namespace opts {
 
   static cl::opt<bool> Verbose("verbose",
     cl::desc("Print extra information for debugging purposes"));
+
+  static cl::opt<bool> DumpTCG("dump-tcg",
+    cl::desc("Dump TCG operations when translating basic blocks"));
 }
 
 namespace jove {
@@ -2375,6 +2378,9 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
         }
       }
     }
+
+    if (opts::DumpTCG)
+      TCG->dump_operations();
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
