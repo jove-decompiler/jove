@@ -1808,17 +1808,17 @@ int CreateCPUStateGlobal() {
       llvm::Constant::getNullValue(StackTy), "stack", nullptr,
       llvm::GlobalValue::LocalDynamicTLSModel);
 
-  llvm::Constant *StackStart;
-  {
-    llvm::IRBuilderTy IRB(*Context);
-    llvm::SmallVector<llvm::Value *, 4> Indices;
-    llvm::Value *GEP = llvm::getNaturalGEPWithOffset(
-        IRB, DL, Stack, llvm::APInt(64, StackLen - 1024), nullptr, Indices, "");
-
-    assert(llvm::isa<llvm::Constant>(GEP));
-
-    StackStart = llvm::cast<llvm::Constant>(GEP);
-  }
+  llvm::IRBuilderTy IRB(*Context);
+  llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
+      llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
+          IRB.getIntN(sizeof(uintptr_t) * 8, StackLen - 512)),
+      IRB.getInt8PtrTy());
+  llvm::Constant *StackEnd = llvm::ConstantExpr::getIntToPtr(
+      llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
+          IRB.getIntN(sizeof(uintptr_t) * 8, StackLen)),
+      IRB.getInt8PtrTy());
 
   assert(CPUStateType->isStructTy());
   llvm::StructType *CPUStateSType = llvm::cast<llvm::StructType>(CPUStateType);
@@ -1843,11 +1843,14 @@ int CreateCPUStateGlobal() {
       regsFieldTy->getNumElements(),
       llvm::Constant::getNullValue(regsFieldTy->getElementType()));
 
-  unsigned sp_off = TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset;
-  unsigned idx = sp_off / sizeof(uintptr_t);
-
-  regsFieldInits[idx] = llvm::ConstantExpr::getPtrToInt(
-      StackStart, regsFieldTy->getElementType());
+  regsFieldInits[TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset /
+                 sizeof(uintptr_t)] =
+      llvm::ConstantExpr::getPtrToInt(StackStart,
+                                      regsFieldTy->getElementType());
+  regsFieldInits[TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset /
+                 sizeof(uintptr_t)] =
+      llvm::ConstantExpr::getPtrToInt(StackEnd,
+                                      regsFieldTy->getElementType());
 
   regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
 #elif defined(__aarch64__)
