@@ -1837,7 +1837,8 @@ int CreateCPUStateGlobal() {
   llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
       *Module, StackTy, false, llvm::GlobalValue::InternalLinkage,
       llvm::Constant::getNullValue(StackTy), "stack", nullptr,
-      llvm::GlobalValue::LocalDynamicTLSModel);
+      llvm::GlobalValue::NotThreadLocal
+      /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
@@ -1887,14 +1888,11 @@ int CreateCPUStateGlobal() {
 #endif
 
   CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateSType, false, llvm::GlobalValue::ExternalLinkage,
+      *Module, CPUStateSType, false, llvm::GlobalValue::InternalLinkage,
       llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
-      nullptr, llvm::GlobalValue::GeneralDynamicTLSModel);
+      nullptr, llvm::GlobalValue::NotThreadLocal
+      /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
-  return 0;
-}
-
-int FixupHelperStubs(void) {
   return 0;
 }
 
@@ -1907,6 +1905,77 @@ static unsigned bitsOfTCGType(TCGType ty) {
   default:
     abort();
   }
+}
+
+int FixupHelperStubs(void) {
+  //
+  // we assume that the user is decompiling an executable (i.e. an ELF which
+  // requests an interpreter such as /lib64/ld-linux-x86-64.so.2). this code
+  // will change when support for decompiling shared libraries is established.
+  // TODO
+  //
+
+  llvm::Function *GetGlobalCPUStateF =
+      Module->getFunction("_jove_get_global_cpu_state");
+  assert(GetGlobalCPUStateF);
+
+  {
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", GetGlobalCPUStateF);
+
+    llvm::IRBuilderTy IRB(BB);
+    IRB.CreateRet(CPUStateGlobal);
+  }
+
+  GetGlobalCPUStateF->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  llvm::Function *CallEntryF =
+      Module->getFunction("_jove_call_entry");
+  assert(CallEntryF);
+
+  {
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", CallEntryF);
+
+    llvm::IRBuilderTy IRB(BB);
+
+    binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+    function_index_t fidx = Binary.Analysis.EntryFunction;
+
+    assert(function_index_is_valid(fidx));
+
+    function_t &callee = Binary.Analysis.Functions[fidx];
+
+    std::vector<llvm::Value *> ArgVec;
+    {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
+      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+      });
+
+      ArgVec.resize(glbv.size());
+      std::transform(
+          glbv.begin(), glbv.end(), ArgVec.begin(),
+          [&](unsigned glb) -> llvm::Value * {
+            llvm::SmallVector<llvm::Value *, 4> Indices;
+            return IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
+                IRB, DL, CPUStateGlobal,
+                llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
+                IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+                Indices, ""));
+          });
+    }
+
+    llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
+    Ret->setIsNoInline();
+
+    IRB.CreateUnreachable();
+  }
+
+  CallEntryF->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  return 0;
 }
 
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,

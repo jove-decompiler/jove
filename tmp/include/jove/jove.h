@@ -100,13 +100,14 @@ struct binary_t {
   std::vector<uint8_t> Data;
 
   struct {
+    function_index_t EntryFunction;
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
   } Analysis;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Path &Data &Analysis.Functions &Analysis.ICFG;
+    ar &Path &Data &Analysis.EntryFunction &Analysis.Functions &Analysis.ICFG;
   }
 };
 

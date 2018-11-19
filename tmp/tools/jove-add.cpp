@@ -356,8 +356,10 @@ int add(void) {
     }
   }
 
-  if (Interp.Found)
-    translate_function(binary, tcg, dis, E.getHeader()->e_entry);
+  binary.Analysis.EntryFunction =
+      Interp.Found
+          ? translate_function(binary, tcg, dis, E.getHeader()->e_entry)
+          : invalid_function_index;
 
   //
   // iterate dynamic defined functions
