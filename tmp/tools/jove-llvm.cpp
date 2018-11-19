@@ -2635,7 +2635,11 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         a >= SectsStartAddr && a < SectsEndAddr) {
       pcrel_flag = false;
 
-      return llvm::ConstantExpr::getPtrToInt(SectionPointer(a), WordType());
+      binary_state_t &st = BinStateVec[BinaryIndex];
+      auto it = st.FuncMap.find(a);
+      return llvm::ConstantExpr::getPtrToInt(it == st.FuncMap.end() ?
+                                             SectionPointer(a) :
+                                             Binary.Analysis.Functions[(*it).second].F, WordType());
     }
 
     switch (bits) {
