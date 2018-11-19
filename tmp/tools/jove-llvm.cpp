@@ -1361,14 +1361,6 @@ int InferLivenessFromCallingConvention(void) {
       unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
       for (unsigned i = 0; i <= idx; ++i)
         Func.Analysis.live.set(CallConvArgArray[i]);
-
-#if 0
-      if (opts::PrintLiveness) {
-        basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
-        llvm::outs() << (fmt("%#lx") % ICFG[entryBB].Addr).str() << ' ' << idx
-                     << '\n';
-      }
-#endif
     }
   }
 
