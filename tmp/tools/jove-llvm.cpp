@@ -321,6 +321,7 @@ static int ProcessBinarySymbolsAndRelocations(void);
 static int PrepareToTranslateCode(void);
 static int ConductLivenessAnalysis(void);
 static int ConductInterproceduralLivenessAnalysis(void);
+static int InferLivenessFromCallingConvention(void);
 static int CreateModule(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
@@ -337,6 +338,7 @@ int llvm(void) {
       || PrepareToTranslateCode()
       || ConductLivenessAnalysis()
       || ConductInterproceduralLivenessAnalysis()
+      || InferLivenessFromCallingConvention()
       || CreateModule()
       || CreateFunctions()
       || CreateSectionGlobalVariables()
@@ -1321,6 +1323,58 @@ int ConductInterproceduralLivenessAnalysis(void) {
   return 0;
 }
 
+static void explode_tcg_global_set(std::vector<unsigned> &out,
+                                   tcg_global_set_t glbs) {
+  if (glbs.none())
+    return;
+
+  out.reserve(glbs.size());
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1);
+  } while (x);
+}
+
+int InferLivenessFromCallingConvention(void) {
+  for (unsigned BinIdx = 0; BinIdx < Decompilation.Binaries.size(); ++BinIdx) {
+    binary_t &Binary = Decompilation.Binaries[BinIdx];
+    interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+    for (function_t &Func : Binary.Analysis.Functions) {
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, Func.Analysis.live);
+
+      auto rit = std::accumulate(
+          glbv.begin(), glbv.end(), CallConvArgArray.crend(),
+          [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
+            return std::min(res, std::find(CallConvArgArray.crbegin(),
+                                           CallConvArgArray.crend(), glb));
+          });
+
+      if (rit == CallConvArgArray.crend())
+        continue;
+
+      unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
+      for (unsigned i = 0; i <= idx; ++i)
+        Func.Analysis.live.set(CallConvArgArray[i]);
+
+#if 0
+      if (opts::PrintLiveness) {
+        basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
+        llvm::outs() << (fmt("%#lx") % ICFG[entryBB].Addr).str() << ' ' << idx
+                     << '\n';
+      }
+#endif
+    }
+  }
+
+  return 0;
+}
+
 static const uint8_t bcbytes[] = {
 #include "jove/jove.bc.inc"
 };
@@ -1376,23 +1430,6 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
   }
 
   return llvm::FunctionType::get(retTy, argTypes, false);
-}
-
-static void explode_tcg_global_set(std::vector<unsigned> &out,
-                                   tcg_global_set_t glbs) {
-  if (glbs.none())
-    return;
-
-  out.reserve(glbs.size());
-
-  unsigned long long x = glbs.to_ullong();
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-    out.push_back(idx - 1);
-  } while (x);
 }
 
 int CreateFunctions(void) {
