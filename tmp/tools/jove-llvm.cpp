@@ -1307,6 +1307,14 @@ int ConductInterproceduralLivenessAnalysis(void) {
           [&](tcg_global_set_t glbs, basic_block_t bb) {
             return glbs | ICFG[bb].Analysis.globals;
           });
+
+      if (opts::PrintLiveness) {
+        llvm::outs() << (fmt("%#lx") % ICFG[entryBB].Addr).str() << ' ';
+        for (unsigned i = 0; i < Func.Analysis.live.size(); ++i)
+          if (Func.Analysis.live[i])
+            llvm::outs() << ' ' << TCG->_ctx.temps[i].name;
+        llvm::outs() << '\n';
+      }
     }
   }
 
