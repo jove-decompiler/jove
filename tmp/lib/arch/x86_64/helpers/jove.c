@@ -449,3 +449,314 @@ void jove(CPUX86State *env)
 {
 }
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <inttypes.h>
+#include <unistd.h>
+
+CPUX86State * GetGlobalCPUState(void);
+void CallEntry(void);
+
+void __jove_start(void) __attribute__((naked));
+void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
+                 target_ulong, target_ulong);
+
+#define _NOINL __attribute__((noinline))
+
+static _NOINL int _open(const char *, int, mode_t);
+static _NOINL ssize_t _read(int, void *, size_t);
+static _NOINL int _close(int);
+static _NOINL ssize_t _write(int, const void *, size_t);
+static _NOINL void _exit_group(int status);
+
+static _NOINL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _NOINL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
+static _NOINL void *_memchr(const void *s, int c, size_t n);
+static _NOINL void *_memcpy(void *dest, const void *src, size_t n);
+static _NOINL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
+static _NOINL unsigned _getHexDigit(char cdigit);
+static _NOINL uint64_t _get_stack_end(void);
+
+void __jove_start(void) {
+  asm volatile("movq %%rsp, %%r9\n"
+               "jmp _jove_start\n"
+
+               : // OutputOperands
+               : // InputOperands
+               : // Clobbers
+  );
+}
+
+void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
+                 target_ulong rcx, target_ulong r8,
+                 target_ulong sp_addr /* formerly r9 */) {
+  CPUX86State *env = GetGlobalCPUState();
+  env->regs[R_EDI] = rdi;
+  env->regs[R_ESI] = rsi;
+  env->regs[R_EDX] = rdx;
+  env->regs[R_ECX] = rcx;
+  env->regs[R_R8] = r8;
+
+  //
+  // setup the stack
+  //
+  unsigned len = _get_stack_end() - sp_addr;
+
+  uint64_t env_stack_end_addr = env->regs[R_EBP];
+  uint64_t env_sp_addr = env_stack_end_addr - len;
+
+  _memcpy((void *)env_sp_addr, (void *)sp_addr, len);
+
+  env->regs[R_ESP] = env_sp_addr;
+
+  return CallEntry();
+  //_exit_group(0);
+}
+
+uint64_t _get_stack_end(void) {
+  char buff[4096 * 16];
+  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+  buff[n] = '\0';
+
+  uint64_t res = _parse_stack_end_of_maps(buff, n);
+  return res;
+}
+
+void *_memchr(const void *s, int c, size_t n) {
+  if (n != 0) {
+    const unsigned char *p = s;
+
+    do {
+      if (*p++ == (unsigned char)c)
+        return ((void *)(p - 1));
+    } while (--n != 0);
+  }
+  return (NULL);
+}
+
+/// A utility function that converts a character to a digit.
+unsigned _getHexDigit(char cdigit) {
+  unsigned radix = 0x10;
+
+  unsigned r;
+
+  if (radix == 16 || radix == 36) {
+    r = cdigit - '0';
+    if (r <= 9)
+      return r;
+
+    r = cdigit - 'A';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    r = cdigit - 'a';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    radix = 10;
+  }
+
+  r = cdigit - '0';
+  if (r < radix)
+    return r;
+
+  return -1U;
+}
+
+uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
+  const unsigned radix = 0x10;
+
+  uint64_t res = 0;
+
+  char *p = str_begin;
+  size_t slen = str_end - str_begin;
+
+  // Figure out if we can shift instead of multiply
+  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
+
+  // Enter digit traversal loop
+  for (char *e = str_end; p != e; ++p) {
+    unsigned digit = _getHexDigit(*p);
+
+    if (!(digit < radix))
+      return 0;
+
+    // Shift or multiply the value by the radix
+    if (slen > 1) {
+      if (shift)
+        res <<= shift;
+      else
+        res *= radix;
+    }
+
+    // Add in the digit we just interpreted
+    res += digit;
+  }
+
+  return res;
+}
+
+uint64_t _parse_stack_end_of_maps(char *maps, unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    _write(STDOUT_FILENO, line, eol - line + 1);
+
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' && eol[-2] == 'k' && eol[-3] == 'c' && eol[-4] == 'a' &&
+        eol[-5] == 't' && eol[-6] == 's' && eol[-7] == '[') {
+      char *dash = _memchr(line, '-', left);
+
+      char *space = _memchr(line, ' ', left);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+      return max;
+    }
+  }
+
+  return 0;
+}
+
+int _open(const char *filename, int flags, mode_t mode) {
+  long resultvar;
+
+  mode_t       __arg3 = mode;
+  int          __arg2 = flags;
+  const char * __arg1 = filename;
+
+  register mode_t       _a3 asm("rdx") = __arg3;
+  register int          _a2 asm("rsi") = __arg2;
+  register const char * _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_open), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+ssize_t _read(int fd, void *buf, size_t count) {
+  long resultvar;
+
+  size_t __arg3 = count;
+  void * __arg2 = buf;
+  int    __arg1 = fd;
+
+  register size_t _a3 asm("rdx") = __arg3;
+  register void * _a2 asm("rsi") = __arg2;
+  register int    _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_read), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+int _close(int fd) {
+  long resultvar;
+
+  int __arg1 = fd;
+
+  register int _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_close), "r"(_a1)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+ssize_t _write(int fd, const void *buf, size_t count) {
+  long resultvar;
+
+  size_t       __arg3 = count;
+  const void * __arg2 = buf;
+  int          __arg1 = fd;
+
+  register size_t       _a3 asm("rdx") = __arg3;
+  register const void * _a2 asm("rsi") = __arg2;
+  register int          _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_write), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+void _exit_group(int status) {
+  long resultvar;
+
+  int __arg1 = status;
+
+  register int _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_exit_group), "r"(_a1)
+               : "memory", "cc", "r11", "cx");
+
+  __builtin_unreachable();
+}
+
+unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
+  unsigned n;
+
+  {
+    int fd = _open(path, O_RDONLY, S_IRWXU);
+    if (fd < 0)
+      return 0;
+
+    // let n denote the number of characters read
+    n = 0;
+
+    for (;;) {
+      ssize_t ret = _read(fd, &out[n], len - n);
+
+      if (ret == 0)
+        break;
+
+      if (ret < 0) {
+        if (ret == -EINTR)
+          continue;
+
+        break;
+      }
+
+      n += ret;
+    }
+
+    _close(fd);
+  }
+
+  return n;
+}
+
+void *_memcpy(void *dest, const void *src, size_t n) {
+  unsigned char *d = dest;
+  const unsigned char *s = src;
+
+  for (; n; n--)
+    *d++ = *s++;
+
+  return dest;
+}
