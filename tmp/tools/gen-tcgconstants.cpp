@@ -46,8 +46,9 @@ int main(int argc, char **argv) {
     }
 
     {
-      printf("static const std::array<unsigned, %u> CallConvArgArray{",
+      printf("typedef std::array<unsigned, %u> CallConvArgArrayTy;\n",
              static_cast<unsigned>(arg_regs.size()));
+      printf("static const CallConvArgArrayTy CallConvArgArray{");
 
       bool first = true;
       for (const char *nm : arg_regs) {
