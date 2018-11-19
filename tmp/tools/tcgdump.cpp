@@ -111,7 +111,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+  int AsmPrinterVariant =
+#if defined(__x86_64__)
+      1
+#else
+      AsmInfo->getAssemblerDialect()
+#endif
+      ;
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
