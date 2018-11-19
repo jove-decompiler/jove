@@ -2460,7 +2460,8 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
       llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
       llvm::Value *EQV = IRB.CreateICmpEQ(
-          PC, IRB.getIntN(sizeof(uintptr_t) * 8, ICFG[succ].Addr));
+          PC, llvm::ConstantExpr::getPtrToInt(SectionPointer(ICFG[succ].Addr),
+                                              WordType()));
 
       llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
 
@@ -2684,6 +2685,12 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
   return res;
 }
 
+static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
+
+static unsigned bits_of_memop(TCGMemOp op) {
+  return bits_of_memop_lookup_table[op & MO_SIZE];
+}
+
 int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                    binary_t &Binary, function_t &f, basic_block_t bb,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
@@ -2735,19 +2742,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     default:
       abort();
     }
-  };
-
-  auto load = [&](llvm::Value *A, unsigned bits) -> llvm::Value * {
-    A = IRB.CreateZExt(A, WordType());
-    A = IRB.CreateIntToPtr(A, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
-    return IRB.CreateLoad(A);
-  };
-
-  auto store = [&](llvm::Value *V, llvm::Value *A, unsigned bits) -> void {
-    A = IRB.CreateZExt(A, WordType());
-    A = IRB.CreateIntToPtr(A, llvm::PointerType::get(IRB.getIntNTy(bits), 0));
-    V = IRB.CreateIntCast(V, IRB.getIntNTy(bits), false);
-    IRB.CreateStore(V, A);
   };
 
   const TCGOpcode opc = op->opc;
@@ -2995,8 +2989,19 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #define __OP_QEMU_LD(opc_name, bits)                                           \
   case opc_name: {                                                             \
-    llvm::Value *A = get(arg_temp(op->args[1]));                               \
-    set(load(A, bits), arg_temp(op->args[0]));                                 \
+    TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
+    TCGMemOp mop = get_memop(moidx);                                           \
+                                                                               \
+    llvm::Value *Addr = get(arg_temp(op->args[1]));                            \
+    Addr = IRB.CreateZExt(Addr, WordType());                                   \
+    Addr = IRB.CreateIntToPtr(                                                 \
+        Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
+                                                                               \
+    llvm::Value *Val = IRB.CreateLoad(Addr);                                   \
+    Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(bits))             \
+                        : IRB.CreateZExt(Val, IRB.getIntNTy(bits));            \
+                                                                               \
+    set(Val, arg_temp(op->args[0]));                                           \
     break;                                                                     \
   }
 
@@ -3007,9 +3012,19 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #define __OP_QEMU_ST(opc_name, bits)                                           \
   case opc_name: {                                                             \
-    llvm::Value *V = get(arg_temp(op->args[0]));                               \
-    llvm::Value *A = get(arg_temp(op->args[1]));                               \
-    store(V, A, bits);                                                         \
+    TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
+    TCGMemOp mop = get_memop(moidx);                                           \
+                                                                               \
+    llvm::Value *Addr = get(arg_temp(op->args[1]));                            \
+    Addr = IRB.CreateZExt(Addr, WordType());                                   \
+    Addr = IRB.CreateIntToPtr(                                                 \
+        Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
+                                                                               \
+    llvm::Value *Val = get(arg_temp(op->args[0]));                             \
+    Val = IRB.CreateIntCast(Val, IRB.getIntNTy(bits_of_memop(mop)),            \
+                            mop & MO_SIGN ? true : false);                     \
+                                                                               \
+    IRB.CreateStore(Val, Addr);                                                \
     break;                                                                     \
   }
 
