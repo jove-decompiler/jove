@@ -1893,6 +1893,11 @@ int CreateCPUStateGlobal() {
       nullptr, llvm::GlobalValue::NotThreadLocal
       /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
+  //
+  // no longer need jove(CPUState*)
+  //
+  joveF->replaceAllUsesWith(llvm::UndefValue::get(joveF->getType()));
+  joveF->eraseFromParent();
   return 0;
 }
 
