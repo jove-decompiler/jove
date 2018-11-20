@@ -10939,6 +10939,7 @@ static void disas_pc_rel_adr(DisasContext *s, uint32_t insn)
         offset <<= 12;
     }
 
+    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
     tcg_gen_movi_i64(cpu_reg(s, rd), base + offset);
 }
 
@@ -32975,6 +32976,7 @@ static void load_reg_var(DisasContext *s, TCGv_i32 var, int reg)
             addr = (long)s->pc + 2;
         else
             addr = (long)s->pc + 4;
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         tcg_gen_movi_i32(var, addr);
     } else {
         tcg_gen_mov_i32(var, cpu_R[reg]);
@@ -36892,6 +36894,7 @@ static int disas_vfp_insn(DisasContext *s, uint32_t insn)
                 if (s->thumb && rn == 15) {
                     /* This is actually UNPREDICTABLE */
                     addr = tcg_temp_new_i32();
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                     tcg_gen_movi_i32(addr, s->pc & ~2);
                 } else {
                     addr = load_reg(s, rn);
@@ -36931,6 +36934,7 @@ static int disas_vfp_insn(DisasContext *s, uint32_t insn)
                 if (s->thumb && rn == 15) {
                     /* This is actually UNPREDICTABLE */
                     addr = tcg_temp_new_i32();
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                     tcg_gen_movi_i32(addr, s->pc & ~2);
                 } else {
                     addr = load_reg(s, rn);
@@ -41508,6 +41512,7 @@ static void disas_arm_insn(DisasContext *s, unsigned int insn)
             /* branch link/exchange thumb (blx) */
             tmp = load_reg(s, rm);
             tmp2 = tcg_temp_new_i32();
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_i32(tmp2, s->pc);
             store_reg(s, 14, tmp2);
             gen_bx(s, tmp);
@@ -42583,6 +42588,7 @@ static void disas_arm_insn(DisasContext *s, unsigned int insn)
                                 /* special case: r15 = PC + 8 */
                                 val = (long)s->pc + 4;
                                 tmp = tcg_temp_new_i32();
+                                tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                                 tcg_gen_movi_i32(tmp, val);
                             } else if (user) {
                                 tmp = tcg_temp_new_i32();
@@ -42872,6 +42878,7 @@ static void disas_thumb2_insn(DisasContext *s, uint32_t insn)
                         goto illegal_op;
                     }
                     addr = tcg_temp_new_i32();
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                     tcg_gen_movi_i32(addr, s->pc & ~3);
                 } else {
                     addr = load_reg(s, rn);
@@ -42957,6 +42964,7 @@ static void disas_thumb2_insn(DisasContext *s, uint32_t insn)
                 /* Table Branch.  */
                 if (rn == 15) {
                     addr = tcg_temp_new_i32();
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                     tcg_gen_movi_i32(addr, s->pc);
                 } else {
                     addr = load_reg(s, rn);
@@ -42976,6 +42984,7 @@ static void disas_thumb2_insn(DisasContext *s, uint32_t insn)
                 }
                 tcg_temp_free_i32(addr);
                 tcg_gen_shli_i32(tmp, tmp, 1);
+                tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 tcg_gen_addi_i32(tmp, tmp, s->pc);
                 store_reg(s, 15, tmp);
             } else {
@@ -43954,6 +43963,7 @@ static void disas_thumb2_insn(DisasContext *s, uint32_t insn)
                             else
                                 offset += imm;
                             tmp = tcg_temp_new_i32();
+                            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                             tcg_gen_movi_i32(tmp, offset);
                         } else {
                             tmp = load_reg(s, rn);
@@ -44076,6 +44086,7 @@ static void disas_thumb2_insn(DisasContext *s, uint32_t insn)
                 imm += insn & 0xfff;
             else
                 imm -= insn & 0xfff;
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_i32(addr, imm);
         } else {
             addr = load_reg(s, rn);
@@ -44292,6 +44303,7 @@ static void disas_thumb_insn(DisasContext *s, uint32_t insn)
             val = s->pc + 2 + ((insn & 0xff) * 4);
             val &= ~(uint32_t)2;
             addr = tcg_temp_new_i32();
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_i32(addr, val);
             tmp = tcg_temp_new_i32();
             gen_aa32_ld32u_iss(s, tmp, addr, get_mem_index(s),
@@ -44361,6 +44373,7 @@ static void disas_thumb_insn(DisasContext *s, uint32_t insn)
                 if (link) {
                     val = (uint32_t)s->pc | 1;
                     tmp2 = tcg_temp_new_i32();
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                     tcg_gen_movi_i32(tmp2, val);
                     store_reg(s, 14, tmp2);
                     gen_bx(s, tmp);
@@ -44660,6 +44673,7 @@ static void disas_thumb_insn(DisasContext *s, uint32_t insn)
         } else {
             /* PC. bit 1 is ignored.  */
             tmp = tcg_temp_new_i32();
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_i32(tmp, (s->pc + 2) & ~(uint32_t)2);
         }
         val = (insn & 0xff) * 4;
