@@ -918,7 +918,7 @@ static _INL unsigned _getHexDigit(char cdigit);
 static _INL uint64_t _get_stack_end(void);
 
 void __jove_start(void) {
-  asm volatile("mov %%sp, %%x7\n"
+  asm volatile("mov x7, sp\n"
                "b _jove_start\n"
 
                : // OutputOperands
