@@ -1219,6 +1219,9 @@ typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
 
+constexpr target_ulong JOVE_PCREL_MAGIC =
+  std::numeric_limits<target_ulong>::max();
+
 #define TARGET_INSN_START_EXTRA_WORDS 2
 
 #define ARM_INSN_START_WORD2_MASK ((1 << 26) - 1)

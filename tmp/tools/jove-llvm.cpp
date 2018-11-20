@@ -1208,6 +1208,7 @@ int ConductLivenessAnalysis(void) {
 }
 
 int ConductInterproceduralLivenessAnalysis(void) {
+  for (unsigned k = 0; k < 2; ++k) {
   for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
     binary_t &Binary = Decompilation.Binaries[i];
     interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -1232,18 +1233,19 @@ int ConductInterproceduralLivenessAnalysis(void) {
       case TERMINATOR::INDIRECT_JUMP:
       case TERMINATOR::INDIRECT_CALL: {
         auto &DynTargets = ICFG[bb].DynTargets;
-        if (DynTargets.size() == 1) {
-          binary_index_t BinIdx;
-          function_index_t FuncIdx;
+        if (DynTargets.empty())
+          continue;
 
-          std::tie(BinIdx, FuncIdx) = *DynTargets.begin();
+        binary_index_t BinIdx;
+        function_index_t FuncIdx;
 
-          function_t &callee =
-              Decompilation.Binaries.at(BinIdx).Analysis.Functions.at(FuncIdx);
+        std::tie(BinIdx, FuncIdx) = *DynTargets.begin();
 
-          iglbs = callee.Analysis.live;
-          oglbs = callee.Analysis.defined;
-        }
+        function_t &callee =
+            Decompilation.Binaries.at(BinIdx).Analysis.Functions.at(FuncIdx);
+
+        iglbs = callee.Analysis.live;
+        oglbs = callee.Analysis.defined;
         break;
       }
 
@@ -1323,6 +1325,7 @@ int ConductInterproceduralLivenessAnalysis(void) {
         llvm::outs() << '\n';
       }
     }
+  }
   }
 
   return 0;
@@ -2023,6 +2026,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     tcg_global_set_t glbs = f.Analysis.globals;
     glbs.reset(tcg_env_index);
 
+    if (tcg_program_counter_index >= 0)
+      glbs.set(tcg_program_counter_index);
+
     {
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, glbs);
@@ -2033,13 +2039,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
             std::string(TCG->_ctx.temps[glb].name) + "_ptr");
     }
 
-    if (tcg_program_counter_index < 0) {
-      f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr");
-    } else {
-      f.PCAlloca = f.GlobalAllocaVec[tcg_program_counter_index];
-      f.PCAlloca->setName("pc_ptr");
-      assert(f.PCAlloca);
-    }
+    f.PCAlloca = tcg_program_counter_index < 0
+                     ? f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr")
+                     : f.GlobalAllocaVec[tcg_program_counter_index];
 
     {
       std::vector<unsigned> glbv;
@@ -2523,6 +2525,11 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
       } else {
         for (unsigned i = 0; i < glbv.size(); ++i) {
           llvm::AllocaInst *Ptr = f.GlobalAllocaVec[glbv[i]];
+          if (!Ptr) {
+            WithColor::error() << "no alloca for global "
+                               << TCG->_ctx.temps[glbv[i]].name << '\n';
+            return 1;
+          }
           llvm::Value *Val =
               IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
           IRB.CreateStore(Val, Ptr);
@@ -2805,15 +2812,18 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     //
     // some helper functions are special-cased
     //
+#if defined(__x86_64__)
     if (helper_ptr == helper_raise_exception) {
       assert(!next_op);
       assert(ExitBB);
 
       IRB.CreateBr(ExitBB);
       break;
-    } else if (helper_ptr == helper_lookup_tb_ptr) {
-      break;
     }
+#endif
+
+    if (helper_ptr == helper_lookup_tb_ptr)
+      break;
 
     const char *helper_nm = tcg_find_helper(s, helper_addr);
     assert(helper_nm);
@@ -2960,9 +2970,33 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     set(immediate_constant(32, op->args[1]), arg_temp(op->args[0]));
     break;
 
-  case INDEX_op_mov_i64:
-    set(get(arg_temp(op->args[1])), arg_temp(op->args[0]));
+  case INDEX_op_mov_i32: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src = arg_temp(op->args[1]);
+
+    assert(dst->type == TCG_TYPE_I32);
+
+    llvm::Value *Val = get(src);
+
+    if (src->type == TCG_TYPE_I64)
+      Val = IRB.CreateTrunc(Val, IRB.getInt32Ty());
+    else
+      assert(src->type == TCG_TYPE_I32);
+
+    set(Val, dst);
     break;
+  }
+
+  case INDEX_op_mov_i64: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src = arg_temp(op->args[1]);
+
+    assert(dst->type == TCG_TYPE_I64);
+    assert(src->type == TCG_TYPE_I64);
+
+    set(get(src), dst);
+    break;
+  }
 
 #define __EXT_OP(opc_name, truncBits, opBits, signE)                           \
   case opc_name:                                                               \
@@ -3097,7 +3131,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ST_OP
 
-#define __OP_BRCOND_C(tcg_cond, cond)                                          \
+#define __OP_BRCOND_COND(tcg_cond, cond)                                       \
   case tcg_cond:                                                               \
     V = IRB.CreateICmp##cond(get(arg_temp(op->args[0])),                       \
                              get(arg_temp(op->args[1])));                      \
@@ -3107,16 +3141,16 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   case opc_name: {                                                             \
     llvm::Value *V;                                                            \
     switch (op->args[2]) {                                                     \
-      __OP_BRCOND_C(TCG_COND_EQ, EQ)                                           \
-      __OP_BRCOND_C(TCG_COND_NE, NE)                                           \
-      __OP_BRCOND_C(TCG_COND_LT, SLT)                                          \
-      __OP_BRCOND_C(TCG_COND_GE, SGE)                                          \
-      __OP_BRCOND_C(TCG_COND_LE, SLE)                                          \
-      __OP_BRCOND_C(TCG_COND_GT, SGT)                                          \
-      __OP_BRCOND_C(TCG_COND_LTU, ULT)                                         \
-      __OP_BRCOND_C(TCG_COND_GEU, UGE)                                         \
-      __OP_BRCOND_C(TCG_COND_LEU, ULE)                                         \
-      __OP_BRCOND_C(TCG_COND_GTU, UGT)                                         \
+      __OP_BRCOND_COND(TCG_COND_EQ, EQ)                                        \
+      __OP_BRCOND_COND(TCG_COND_NE, NE)                                        \
+      __OP_BRCOND_COND(TCG_COND_LT, SLT)                                       \
+      __OP_BRCOND_COND(TCG_COND_GE, SGE)                                       \
+      __OP_BRCOND_COND(TCG_COND_LE, SLE)                                       \
+      __OP_BRCOND_COND(TCG_COND_GT, SGT)                                       \
+      __OP_BRCOND_COND(TCG_COND_LTU, ULT)                                      \
+      __OP_BRCOND_COND(TCG_COND_GEU, UGE)                                      \
+      __OP_BRCOND_COND(TCG_COND_LEU, ULE)                                      \
+      __OP_BRCOND_COND(TCG_COND_GTU, UGT)                                      \
     default:                                                                   \
       abort();                                                                 \
     }                                                                          \
@@ -3136,8 +3170,40 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __OP_BRCOND(INDEX_op_brcond_i32, 32)
     __OP_BRCOND(INDEX_op_brcond_i64, 64)
 
-#undef __OP_BRCOND_C
+#undef __OP_BRCOND_COND
 #undef __OP_BRCOND
+
+#define __OP_SETCOND_COND(tcg_cond, cond)                                      \
+  case tcg_cond:                                                               \
+    Val = IRB.CreateICmp##cond(get(arg_temp(op->args[1])),                     \
+                               get(arg_temp(op->args[2])));                    \
+    break;
+
+#define __OP_SETCOND(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    llvm::Value *Val;                                                          \
+    switch (op->args[3]) {                                                     \
+      __OP_SETCOND_COND(TCG_COND_EQ, EQ)                                       \
+      __OP_SETCOND_COND(TCG_COND_NE, NE)                                       \
+      __OP_SETCOND_COND(TCG_COND_LT, SLT)                                      \
+      __OP_SETCOND_COND(TCG_COND_GE, SGE)                                      \
+      __OP_SETCOND_COND(TCG_COND_LE, SLE)                                      \
+      __OP_SETCOND_COND(TCG_COND_GT, SGT)                                      \
+      __OP_SETCOND_COND(TCG_COND_LTU, ULT)                                     \
+      __OP_SETCOND_COND(TCG_COND_GEU, UGE)                                     \
+      __OP_SETCOND_COND(TCG_COND_LEU, ULE)                                     \
+      __OP_SETCOND_COND(TCG_COND_GTU, UGT)                                     \
+    default:                                                                   \
+      assert(false);                                                           \
+    }                                                                          \
+    set(IRB.CreateZExt(Val, IRB.getIntNTy(bits)), arg_temp(op->args[0]));      \
+  } break;
+
+    __OP_SETCOND(INDEX_op_setcond_i32, 32)
+    __OP_SETCOND(INDEX_op_setcond_i64, 64)
+
+#undef __OP_SETCOND_COND
+#undef __OP_SETCOND
 
 #define __ARITH_OP_MUL2(opc_name, signE, bits)                                 \
   case opc_name: {                                                             \
@@ -3178,6 +3244,59 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __ARITH_OP_I(INDEX_op_neg_i64, Sub, 0, 64)
 
 #undef __ARITH_OP_I
+
+  case INDEX_op_deposit_i64: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src1 = arg_temp(op->args[1]);
+    TCGTemp *src2 = arg_temp(op->args[2]);
+
+    llvm::Value *arg1 = get(src1);
+    llvm::Value *arg2 = get(src2);
+    arg2 = IRB.CreateTrunc(arg2, IRB.getInt64Ty());
+
+    uint32_t ofs = op->args[3];
+    uint32_t len = op->args[4];
+
+    if (0 == ofs && 64 == len) {
+      set(arg2, dst);
+      break;
+    }
+
+    uint64_t mask = (1u << len) - 1;
+    llvm::Value *t1, *ret;
+
+    if (ofs + len < 64) {
+      t1 = IRB.CreateAnd(arg2, llvm::APInt(64, mask));
+      t1 = IRB.CreateShl(t1, llvm::APInt(64, ofs));
+    } else {
+      t1 = IRB.CreateShl(arg2, llvm::APInt(64, ofs));
+    }
+
+    ret = IRB.CreateAnd(arg1, llvm::APInt(64, ~(mask << ofs)));
+    ret = IRB.CreateOr(ret, t1);
+    set(ret, dst);
+    break;
+  }
+
+  case INDEX_op_muluh_i64: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src1 = arg_temp(op->args[1]);
+    TCGTemp *src2 = arg_temp(op->args[2]);
+
+    assert(dst->type == TCG_TYPE_I64);
+    assert(src1->type == TCG_TYPE_I64);
+    assert(src2->type == TCG_TYPE_I64);
+
+    llvm::Value *x =
+        IRB.CreateMul(IRB.CreateZExt(get(src1), IRB.getInt128Ty()),
+                      IRB.CreateZExt(get(src2), IRB.getInt128Ty()));
+
+    llvm::Value *y = IRB.CreateTrunc(IRB.CreateLShr(x, IRB.getIntN(128, 64)),
+                                     IRB.getInt64Ty());
+
+    set(y, dst);
+    break;
+  }
 
   default:
     WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
