@@ -13,14 +13,16 @@ int main(int argc, char **argv) {
   auto max_temps = [&](void) -> int { return TCG_MAX_TEMPS; };
 
   auto tcg_index_of_named_global = [&](const char *nm) -> int {
+    int res = -1;
+
     int N = tcg._ctx.nb_globals;
     for (int i = 0; i < N; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
       if (strcmp(ts.name, nm) == 0)
-        return i;
+        res = i;
     }
 
-    return -1;
+    return res;
   };
 
   auto print_call_conv_sets = [&](void) -> void {
