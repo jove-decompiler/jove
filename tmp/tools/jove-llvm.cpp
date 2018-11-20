@@ -5,6 +5,7 @@ class Function;
 class BasicBlock;
 class AllocaInst;
 class Type;
+class LoadInst;
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -33,6 +34,7 @@ class Type;
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::vector<llvm::AllocaInst *> GlobalAllocaVec;                             \
   llvm::AllocaInst *PCAlloca;                                                  \
+  llvm::LoadInst *PCRelVal;                                                    \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t live;                                                     \
@@ -78,6 +80,9 @@ class Type;
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/InitializePasses.h>
+#include <llvm/IR/LegacyPassManager.h>
+#include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/IRBuilder.h>
@@ -141,6 +146,15 @@ namespace opts {
 
   static cl::opt<bool> DumpTCG("dump-tcg",
     cl::desc("Dump TCG operations when translating basic blocks"));
+
+  static cl::opt<bool> NoOpt1("no-opt1",
+    cl::desc("Don't optimize bitcode (1)"));
+
+  static cl::opt<bool> NoFixupPcrel("no-fixup-pcrel",
+    cl::desc("Don't fixup pc-relative references"));
+
+  static cl::opt<bool> NoOpt2("no-opt2",
+    cl::desc("Don't optimize bitcode (2)"));
 }
 
 namespace jove {
@@ -303,6 +317,8 @@ static llvm::Type *CPUStateType;
 static llvm::GlobalVariable *SectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
+static llvm::GlobalVariable *PCRelGlobal;
+
 static llvm::DataLayout DL("");
 
 struct helper_function_t {
@@ -329,8 +345,13 @@ static int CreateModule(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
 static int CreateCPUStateGlobal(void);
+static int CreatePCRelGlobal(void);
 static int FixupHelperStubs(void);
 static int TranslateFunctions(void);
+static int PrepareToOptimize(void);
+static int Optimize1(void);
+static int FixupPCRelativeAddrs(void);
+static int Optimize2(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -347,8 +368,13 @@ int llvm(void) {
       || CreateFunctions()
       || CreateSectionGlobalVariables()
       || CreateCPUStateGlobal()
+      || CreatePCRelGlobal()
       || FixupHelperStubs()
       || TranslateFunctions()
+      || PrepareToOptimize()
+      || Optimize1()
+      || FixupPCRelativeAddrs()
+      || Optimize2()
       || WriteModule();
 }
 
@@ -1912,6 +1938,14 @@ int CreateCPUStateGlobal() {
   return 0;
 }
 
+int CreatePCRelGlobal(void) {
+  PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
+                                         llvm::GlobalValue::ExternalLinkage,
+                                         nullptr, "__jove_pcrel");
+
+  return 0;
+}
+
 static unsigned bitsOfTCGType(TCGType ty) {
   switch (ty) {
   case TCG_TYPE_I32:
@@ -2047,6 +2081,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     f.PCAlloca = tcg_program_counter_index < 0
                      ? f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr")
                      : f.GlobalAllocaVec[tcg_program_counter_index];
+    f.PCRelVal = IRB.CreateLoad(PCRelGlobal, "pcrel");
 
     {
       std::vector<unsigned> glbv;
@@ -2101,6 +2136,143 @@ int TranslateFunctions(void) {
   for (function_t &f : Binary.Analysis.Functions) {
     if (int ret = TranslateFunction(Binary, f))
       return ret;
+  }
+
+  return 0;
+}
+
+int PrepareToOptimize(void) {
+  // Initialize passes
+  llvm::PassRegistry &Registry = *llvm::PassRegistry::getPassRegistry();
+  llvm::initializeCore(Registry);
+  llvm::initializeCoroutines(Registry);
+  llvm::initializeScalarOpts(Registry);
+  llvm::initializeObjCARCOpts(Registry);
+  llvm::initializeVectorization(Registry);
+  llvm::initializeIPO(Registry);
+  llvm::initializeAnalysis(Registry);
+  llvm::initializeTransformUtils(Registry);
+  llvm::initializeInstCombine(Registry);
+  llvm::initializeAggressiveInstCombine(Registry);
+  llvm::initializeInstrumentation(Registry);
+  llvm::initializeTarget(Registry);
+  // For codegen passes, only passes that do IR to IR transformation are
+  // supported.
+  llvm::initializeExpandMemCmpPassPass(Registry);
+  llvm::initializeScalarizeMaskedMemIntrinPass(Registry);
+  llvm::initializeCodeGenPreparePass(Registry);
+  llvm::initializeAtomicExpandPass(Registry);
+  llvm::initializeRewriteSymbolsLegacyPassPass(Registry);
+  llvm::initializeWinEHPreparePass(Registry);
+  llvm::initializeDwarfEHPreparePass(Registry);
+  llvm::initializeSafeStackLegacyPassPass(Registry);
+  llvm::initializeSjLjEHPreparePass(Registry);
+  llvm::initializePreISelIntrinsicLoweringLegacyPassPass(Registry);
+  llvm::initializeGlobalMergePass(Registry);
+  llvm::initializeIndirectBrExpandPassPass(Registry);
+  llvm::initializeInterleavedAccessPass(Registry);
+  llvm::initializeEntryExitInstrumenterPass(Registry);
+  llvm::initializePostInlineEntryExitInstrumenterPass(Registry);
+  llvm::initializeUnreachableBlockElimLegacyPassPass(Registry);
+  llvm::initializeExpandReductionsPass(Registry);
+  llvm::initializeWasmEHPreparePass(Registry);
+  llvm::initializeWriteBitcodePassPass(Registry);
+
+  return 0;
+}
+
+static void DoOptimize(void) {
+  llvm::legacy::PassManager MPM;
+  llvm::legacy::FunctionPassManager FPM(Module.get());
+
+  llvm::PassManagerBuilder Builder;
+  Builder.OptLevel = 2;
+  Builder.SizeLevel = 2;
+
+  Builder.populateFunctionPassManager(FPM);
+  Builder.populateModulePassManager(MPM);
+
+  FPM.doInitialization();
+  for (llvm::Function &F : *Module)
+    FPM.run(F);
+  FPM.doFinalization();
+
+  MPM.run(*Module);
+}
+
+int Optimize1(void) {
+  if (opts::NoOpt1)
+    return 0;
+
+  DoOptimize();
+  return 0;
+}
+
+int FixupPCRelativeAddrs(void) {
+  if (opts::NoFixupPcrel)
+    return 0;
+
+  binary_state_t &st = BinStateVec[BinaryIndex];
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
+
+  for (llvm::User *U : PCRelGlobal->users()) {
+    assert(llvm::isa<llvm::LoadInst>(U));
+    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+
+    for (llvm::User *LU : L->users()) {
+      assert(llvm::isa<llvm::Instruction>(LU));
+      unsigned opc = llvm::cast<llvm::Instruction>(LU)->getOpcode();
+
+      if (opc == llvm::Instruction::Add) {
+        llvm::Value *RHS = LU->getOperand(1);
+
+        if (llvm::isa<llvm::ConstantInt>(RHS)) {
+          uintptr_t Addr = llvm::cast<llvm::ConstantInt>(RHS)->getZExtValue();
+
+          llvm::Constant *C;
+
+          auto it = st.FuncMap.find(Addr);
+          if (it == st.FuncMap.end())
+            C = SectionPointer(Addr);
+          else
+            C = Binary.Analysis.Functions[(*it).second].F;
+
+          if (C) {
+            C = llvm::ConstantExpr::getPtrToInt(C, WordType());
+
+            ToReplace.push_back({llvm::cast<llvm::Instruction>(LU), C});
+          }
+        }
+      }
+    }
+  }
+
+  for (auto &TR : ToReplace) {
+    llvm::Instruction *I;
+    llvm::Constant *C;
+    std::tie(I, C) = TR;
+
+    assert(I->getType() == C->getType());
+    I->replaceAllUsesWith(C);
+  }
+
+  return 0;
+}
+
+int Optimize2(void) {
+  if (opts::NoOpt2)
+    return 0;
+
+  DoOptimize();
+
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
+  if (PCRelGlobal) {
+    if (PCRelGlobal->user_begin() == PCRelGlobal->user_end())
+      PCRelGlobal->eraseFromParent();
+    else
+      WithColor::warning() << "PCRel global not eliminated\n";
   }
 
   return 0;
@@ -2734,16 +2906,22 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   static bool pcrel_flag = false;
 
-  auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Constant * {
-    if (pcrel_flag && bits == sizeof(uintptr_t) * 8 &&
-        a >= SectsStartAddr && a < SectsEndAddr) {
+  auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Value * {
+    if (pcrel_flag && bits == sizeof(uintptr_t) * 8) {
       pcrel_flag = false;
 
+      if (!(a >= SectsStartAddr && a < SectsEndAddr))
+        WithColor::warning() << "immediate_constant: out-of-bounds pcrel\n";
+
+#if 0
       binary_state_t &st = BinStateVec[BinaryIndex];
       auto it = st.FuncMap.find(a);
       return llvm::ConstantExpr::getPtrToInt(it == st.FuncMap.end() ?
                                              SectionPointer(a) :
                                              Binary.Analysis.Functions[(*it).second].F, WordType());
+#else
+      return IRB.CreateAdd(f.PCRelVal, IRB.getIntN(sizeof(uintptr_t) * 8, a));
+#endif
     }
 
     switch (bits) {
