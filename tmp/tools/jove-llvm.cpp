@@ -1871,6 +1871,11 @@ int CreateCPUStateGlobal() {
 
 #if defined(__x86_64__)
   llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
+  unsigned mem_offset_bias = __builtin_offsetof(CPUX86State, regs[0]);
+#elif defined(__aarch64__)
+  llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[1];
+  unsigned mem_offset_bias = __builtin_offsetof(CPUARMState, xregs[0]);
+#endif
 
   assert(regsFieldInit->getType()->isArrayTy());
 
@@ -1881,17 +1886,17 @@ int CreateCPUStateGlobal() {
       regsFieldTy->getNumElements(),
       llvm::Constant::getNullValue(regsFieldTy->getElementType()));
 
-  regsFieldInits.at(TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset /
-                    sizeof(uintptr_t)) =
+  regsFieldInits.at(
+      (TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset - mem_offset_bias) /
+      sizeof(uintptr_t)) =
       llvm::ConstantExpr::getPtrToInt(StackStart,
                                       regsFieldTy->getElementType());
-  regsFieldInits.at(TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset /
-                    sizeof(uintptr_t)) =
+  regsFieldInits.at(
+      (TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset - mem_offset_bias) /
+      sizeof(uintptr_t)) =
       llvm::ConstantExpr::getPtrToInt(StackEnd, regsFieldTy->getElementType());
 
   regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
-#elif defined(__aarch64__)
-#endif
 
   CPUStateGlobal = new llvm::GlobalVariable(
       *Module, CPUStateSType, false, llvm::GlobalValue::InternalLinkage,
