@@ -6312,7 +6312,7 @@ void tcg_gen_atomic_xor_fetch_i32(TCGv_i32, TCGv, TCGv_i32, TCGArg, TCGMemOp);
 # define tcg_gen_addi_ptr(R, A, B) \
     tcg_gen_addi_i32(TCGV_PTR_TO_NAT(R), TCGV_PTR_TO_NAT(A), (B))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 typedef struct TraceEvent {
     uint32_t id;
