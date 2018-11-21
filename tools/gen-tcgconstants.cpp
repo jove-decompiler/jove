@@ -31,6 +31,9 @@ int main(int argc, char **argv) {
 #if defined(__x86_64__)
     const std::array<const char *, 6> arg_regs{"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     const std::array<const char *, 2> ret_regs{"rax", "rdx"};
+#elif defined(__i386__)
+    const std::array<const char *, 0> arg_regs{};
+    const std::array<const char *, 1> ret_regs{"eax"};
 #elif defined(__aarch64__)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
@@ -124,6 +127,8 @@ int main(int argc, char **argv) {
   auto stack_pointer_index = [&](void) -> int {
 #if defined(__x86_64__)
     return tcg_index_of_named_global("rsp");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("esp");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("sp");
 #endif
@@ -131,12 +136,14 @@ int main(int argc, char **argv) {
   auto frame_pointer_index = [&](void) -> int {
 #if defined(__x86_64__)
     return tcg_index_of_named_global("rbp");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("ebp");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x29");
 #endif
   };
   auto program_counter_env_offset = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
     return offsetof(CPUX86State, eip);
 #elif defined(__aarch64__)
     return -1;

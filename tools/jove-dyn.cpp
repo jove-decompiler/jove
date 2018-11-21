@@ -5,6 +5,7 @@
 #include <memory>
 #include <sstream>
 #include <fstream>
+#include <cinttypes>
 #include <boost/filesystem.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LLVMContext.h>
@@ -538,6 +539,8 @@ int ParentProc(pid_t child) {
         unsigned syscallno =
 #if defined(__x86_64__)
             gpr.orig_rax
+#elif defined(__i386__)
+            gpr.orig_eax
 #elif defined(__aarch64__)
             gpr.regs[8]
 #endif
@@ -927,6 +930,8 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            opc == llvm::X86::JMP64m ||
            opc == llvm::X86::CALL64m ||
            opc == llvm::X86::CALL64r;
+#elif defined(__i386__)
+    return false; /* TODO */
 #elif defined(__aarch64__)
     return opc == llvm::AArch64::BLR ||
            opc == llvm::AArch64::BR;
@@ -941,7 +946,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   unsigned long word = _ptrace_peekdata(child, Addr);
 
   // insert breakpoint
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
@@ -974,6 +979,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   auto &pc =
 #if defined(__x86_64__)
       gpr.rip
+#elif defined(__i386__)
+      gpr.eip
 #elif defined(__aarch64__)
       gpr.pc
 #endif
@@ -982,7 +989,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // rewind before the breakpoint instruction
   //
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
   pc -= 1; /* int3 */
 #elif defined(__aarch64__)
   //pc -= 4; /* brk */
@@ -1046,6 +1053,10 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
 
 #undef __REG_CASE
 
+#elif defined(__i386__)
+
+    /* TODO */
+
 #elif defined(__aarch64__)
 
 #define __REG_CASE(n, i, data)                                                 \
@@ -1092,6 +1103,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
+#elif defined(__i386__)
+
+    /* TODO */
+
 #elif defined(__aarch64__)
 
     case llvm::AArch64::BLR: /* blr x3 */
@@ -1118,6 +1133,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #if defined(__x86_64__)
     gpr.rsp -= sizeof(uintptr_t);
     _ptrace_pokedata(child, gpr.rsp, pc);
+#elif defined(__i386__)
+    gpr.esp -= sizeof(uintptr_t);
+    _ptrace_pokedata(child, gpr.esp, pc);
 #elif defined(__aarch64__)
     gpr.regs[30 /* lr */] = pc;
 #endif
@@ -1511,6 +1529,8 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   const llvm::Triple::ArchType archty =
 #if defined(__x86_64__)
       llvm::Triple::ArchType::x86_64
+#elif defined(__i386__)
+      llvm::Triple::ArchType::x86;
 #elif defined(__aarch64__)
       llvm::Triple::ArchType::aarch64
 #endif
@@ -1599,7 +1619,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
       if (opnd.isReg())
         snprintf(buff, sizeof(buff), "<reg %u>", opnd.getReg());
       else if (opnd.isImm())
-        snprintf(buff, sizeof(buff), "<imm %ld>", opnd.getImm());
+        snprintf(buff, sizeof(buff), "<imm %" PRId64 ">", opnd.getImm());
       else if (opnd.isFPImm())
         snprintf(buff, sizeof(buff), "<imm %lf>", opnd.getFPImm());
       else if (opnd.isExpr())

@@ -642,12 +642,12 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
-#if defined(TARGET_X86_64)
+#if defined(__x86_64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(TARGET_AARCH64)
+#elif defined(__i386__)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86;
+#elif defined(__aarch64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
-#else
-#error "unknown architecture"
 #endif
 
   return Obj.getArch() == archty;

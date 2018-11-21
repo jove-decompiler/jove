@@ -406,6 +406,9 @@ int FindBinary(void) {
 #if defined(__x86_64__) || defined(__aarch64__)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename obj::ELF32LEObjectFile ELFO;
+typedef typename obj::ELF32LEFile ELFT;
 #endif
 
 template <class T>
@@ -1895,7 +1898,7 @@ int CreateCPUStateGlobal() {
                    return llvm::Constant::getNullValue(Ty);
                  });
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
   llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
   unsigned mem_offset_bias = __builtin_offsetof(CPUX86State, regs[0]);
 #elif defined(__aarch64__)

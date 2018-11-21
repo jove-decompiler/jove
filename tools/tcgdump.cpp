@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <boost/filesystem.hpp>
+#include <cinttypes>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
@@ -157,8 +158,8 @@ int main(int argc, char **argv) {
     //
     std::ptrdiff_t Offset = Addr - Base;
     assert(Offset >= 0);
-    printf("%s @ %s+%#lx\n", Sym.getName()->str().c_str(), SectNm.str().c_str(),
-           static_cast<std::uintptr_t>(Offset));
+    printf("%s @ %s+0x%" PRIxPTR "\n", Sym.getName()->str().c_str(),
+           SectNm.str().c_str(), static_cast<std::uintptr_t>(Offset));
 
     uint64_t InstLen;
     for (std::uintptr_t A = Addr; A < Addr + BBSize; A += InstLen) {
@@ -206,24 +207,24 @@ int main(int argc, char **argv) {
     }
     fputc('\n', stdout);
 
-    printf("%s @ %#lx\n", description_of_terminator(T.Type), T.Addr);
+    printf("%s @ 0x%" PRIxPTR "\n", description_of_terminator(T.Type), T.Addr);
     switch (T.Type) {
     case jove::TERMINATOR::UNCONDITIONAL_JUMP:
-      printf("Target: %#lx\n", T._unconditional_jump.Target);
+      printf("Target: 0x%" PRIxPTR "\n", T._unconditional_jump.Target);
       break;
 
     case jove::TERMINATOR::CONDITIONAL_JUMP:
-      printf("Target: %#lx\n", T._conditional_jump.Target);
-      printf("NextPC: %#lx\n", T._conditional_jump.NextPC);
+      printf("Target: 0x%" PRIxPTR "\n", T._conditional_jump.Target);
+      printf("NextPC: 0x%" PRIxPTR "\n", T._conditional_jump.NextPC);
       break;
 
     case jove::TERMINATOR::INDIRECT_CALL:
-      printf("NextPC: %#lx\n", T._indirect_call.NextPC);
+      printf("NextPC: 0x%" PRIxPTR "\n", T._indirect_call.NextPC);
       break;
 
     case jove::TERMINATOR::CALL:
-      printf("Target: %#lx\n", T._call.Target);
-      printf("NextPC: %#lx\n", T._call.NextPC);
+      printf("Target: 0x%" PRIxPTR "\n", T._call.Target);
+      printf("NextPC: 0x%" PRIxPTR "\n", T._call.NextPC);
       break;
 
     default:

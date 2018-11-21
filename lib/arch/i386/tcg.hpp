@@ -1119,6 +1119,9 @@ typedef int32_t target_long;
 
 typedef uint32_t target_ulong;
 
+constexpr target_ulong JOVE_PCREL_MAGIC =
+  std::numeric_limits<target_ulong>::max();
+
 enum {
     R_EAX = 0,
     R_ECX = 1,
