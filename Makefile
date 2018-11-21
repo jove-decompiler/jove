@@ -110,6 +110,12 @@ x86_64_SOURCE_LOCATIONS := $(_SL_X86_64_TCG_CONTEXT_INIT) \
                            $(_SL_X86_64_GEN_INTERMEDIATE_CODE) \
                            $(_SL_X86_64_TCG_X86_INIT)
 
+i386_SOURCE_LOCATIONS := $(_SL_X86_64_TCG_CONTEXT_INIT) \
+                         $(_SL_X86_64_TCG_FUNC_START) \
+                         $(_SL_X86_64_TCG_GEN_CODE) \
+                         $(_SL_X86_64_GEN_INTERMEDIATE_CODE) \
+                         $(_SL_X86_64_TCG_X86_INIT)
+
 #                           $(_SL_X86_64_TCG_GEN_GVEC_NOT) \
 #                           $(_SL_X86_64_TCG_GEN_LD_VEC)
 

@@ -61,7 +61,7 @@ int qemu_log(const char *fmt, ...) {
 namespace jove {
 
 struct tiny_code_generator_t {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
   X86CPU _cpu;
 #elif defined(__aarch64__)
   ARMCPU _cpu;
@@ -92,6 +92,7 @@ struct tiny_code_generator_t {
     _cpu.env.features[5] = 563346429;
     _cpu.env.features[6] = 5;
     _cpu.env.user_features[0] = 2;
+#elif defined(__i386__)
 #elif defined(__aarch64__)
     _cpu.env.aarch64 = 1;
     _cpu.env.features = 192517101788915;
@@ -103,7 +104,7 @@ struct tiny_code_generator_t {
     tcg_context_init(&_ctx);
     _ctx.cpu = &_cpu.parent_obj;
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
     tcg_x86_init();
 #elif defined(__aarch64__)
     arm_translate_init();
@@ -124,7 +125,7 @@ struct tiny_code_generator_t {
     memset(&tb, 0, sizeof(tb));
 
     tb.pc = pc;
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
     tb.flags = _cpu.env.hflags;
 #elif defined(__aarch64__)
     tb.flags = ARM_TBFLAG_AARCH64_STATE_MASK;
