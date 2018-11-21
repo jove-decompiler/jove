@@ -71,7 +71,7 @@ $(BINDIR)/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
 
 .PHONY: clean
 clean:
-	rm -f $(BINS) $(DEPS) $(BINDIR)/jove
+	rm -rf $(BINS) $(DEPS) $(BINDIR)/jove $(BINDIR)/jove.bc
 
 #
 # for extricating QEMU code
