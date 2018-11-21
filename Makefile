@@ -1,4 +1,4 @@
-ARCH := $(shell uname -m)
+ARCH := $(subst i686,i386,$(shell uname -m))
 
 #
 # build flags
