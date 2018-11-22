@@ -93,6 +93,20 @@ struct tiny_code_generator_t {
     _cpu.env.features[6] = 5;
     _cpu.env.user_features[0] = 2;
 #elif defined(__i386__)
+    _cpu.env.eflags = 514;
+    _cpu.env.hflags = 0x004000b3;
+    _cpu.env.hflags2 = 1;
+    _cpu.env.a20_mask = -1;
+    _cpu.env.cr[0] = 0x80010001;
+    _cpu.env.cr[4] = 0x00000200;
+    _cpu.env.mxcsr = 0x00001f80;
+    _cpu.env.xcr0 = 3;
+    _cpu.env.msr_ia32_misc_enable = 1;
+    _cpu.env.pat = 0x0007040600070406ULL;
+    _cpu.env.smbase = 0x30000;
+    _cpu.env.features[0] = 125938685;
+    _cpu.env.features[1] = 2147483649;
+    _cpu.env.user_features[0] = 2;
 #elif defined(__aarch64__)
     _cpu.env.aarch64 = 1;
     _cpu.env.features = 192517101788915;

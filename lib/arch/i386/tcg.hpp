@@ -6562,6 +6562,7 @@ static TCGOp *icount_start_insn;
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
+#if 0
     TCGv_i32 count, imm;
 
     tcg_ctx->exitreq_label = gen_new_label();
@@ -6594,10 +6595,12 @@ static inline void gen_tb_start(TranslationBlock *tb)
     }
 
     tcg_temp_free_i32(count);
+#endif
 }
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+#if 0
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */
@@ -6606,6 +6609,7 @@ static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 
     gen_set_label(tcg_ctx->exitreq_label);
     tcg_gen_exit_tb((uintptr_t)tb + TB_EXIT_REQUESTED);
+#endif
 }
 
 static inline void gen_io_start(void)
@@ -8433,6 +8437,7 @@ static AddressParts gen_lea_modrm_0(CPUX86State *env, DisasContext *s,
                 if (CODE64(s) && !havesib) {
                     base = -2;
                     disp += s->pc + s->rip_offset;
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 }
             }
             break;
@@ -12885,6 +12890,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(cpu_T0);
         gen_bnd_jmp(s);
         gen_jr(s, cpu_T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xc3: /* ret */
         ot = gen_pop_T0(s);
@@ -12893,6 +12900,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(cpu_T0);
         gen_bnd_jmp(s);
         gen_jr(s, cpu_T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xca: /* lret im */
         val = x86_ldsw_code(env, s);
@@ -12917,6 +12926,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_stack_update(s, val + (2 << dflag));
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xcb: /* lret */
         val = 0;
@@ -12940,6 +12951,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             set_cc_op(s, CC_OP_EFLAGS);
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xe8: /* call im */
         {
@@ -12959,6 +12972,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_push_v(s, cpu_T0);
             gen_bnd_jmp(s);
             gen_jmp(s, tval);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+            s->base.tb->jove.T._call.Target = tval;
+            s->base.tb->jove.T._call.NextPC = next_eip;
         }
         break;
     case 0x9a: /* lcall im */
@@ -12989,6 +13006,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0xea: /* ljmp im */
         {
@@ -13011,6 +13031,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             tval &= 0xffff;
         }
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0x70 ... 0x7f: /* jcc Jb */
         tval = (int8_t)insn_get(env, s, MO_8);
@@ -13029,6 +13052,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jcc(s, b, tval, next_eip);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = tval;
+        s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         break;
 
     case 0x190 ... 0x19f: /* setcc Gv */
@@ -13114,6 +13141,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             /* abort translation because TF/AC flag may change */
             gen_jmp_im(s->pc - s->cs_base);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9e: /* sahf */
@@ -13407,6 +13436,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(pc_start - s->cs_base);
             gen_helper_pause(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9b: /* fwait */
@@ -13419,6 +13450,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         break;
     case 0xcc: /* int3 */
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xcd: /* int N */
         val = x86_ldub_code(env, s);
@@ -13427,6 +13460,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         } else {
             gen_interrupt(s, val, pc_start - s->cs_base, s->pc - s->cs_base);
         }
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xce: /* into */
         if (CODE64(s))
@@ -13556,6 +13591,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(tval);
             gen_set_label(l2);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            s->base.tb->jove.T._conditional_jump.Target = tval;
+            s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         }
         break;
     case 0x130: /* wrmsr */
@@ -13621,6 +13660,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
            after the syscall insn completes. This allows #DB to not be
            generated after one has entered CPL0 if TF is set in FMASK.  */
         gen_eob_worker(s, false, true);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0x107: /* sysret */
         if (!s->pe) {
@@ -13653,6 +13694,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_helper_hlt(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
         }
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
         break;
     case 0x100:
         modrm = x86_ldub_code(env, s);
@@ -26209,6 +26251,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
@@ -26216,6 +26260,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
     }
