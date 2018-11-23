@@ -1535,7 +1535,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 #if !defined(__x86_64__) && defined(__i386__)
 constexpr unsigned GDT_ENTRY_TLS_ENTRIES = 3;
 
-void _ptrace_get_segment_descriptors(
+static void _ptrace_get_segment_descriptors(
     pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out) {
   struct iovec iov = {.iov_base = out.data(),
                       .iov_len = sizeof(struct user_desc) * out.size()};
@@ -1566,9 +1566,6 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 
   return (*it).base_addr;
 }
-
-void _ptrace_get_segment_descriptors(
-    pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out);
 #endif
 
 void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
