@@ -1187,8 +1187,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(Inst.getOperand(3).isImm());
       assert(Inst.getOperand(4).isReg());
 
-      llvm::errs() << StringOfMCInst(Inst, dis) << '\n';
-
       if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
         /* e.g. call dword ptr [esi + 4*edi - 280] */
         return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
@@ -1197,45 +1195,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                         Inst.getOperand(3).getImm());
       } else {
         /* e.g. call dword ptr gs:[16] */
-
-#if 0
-        unsigned segreg = Inst.getOperand(4).getReg();
-        assert(segreg == llvm::X86::GS);
-
-        std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_desc_tbl;
-        _ptrace_get_segment_descriptors(child, seg_desc_tbl);
-
-        for (struct user_desc &desc : seg_desc_tbl) {
-          llvm::errs() << "desc.entry_number = " << desc.entry_number << '\n'
-                       << "desc.base_addr    = " << (fmt("%#lx") % desc.base_addr).str() << '\n'
-                       << "desc.limit        = " << desc.limit << '\n';
-        }
-
-        llvm::errs() << "gs=" << RegValue(Inst.getOperand(4).getReg()) << '\n';
-#endif
-
         return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
                         Inst.getOperand(3).getImm());
       }
-
-#if 0
-      llvm::errs() << StringOfMCInst(Inst, dis) << '\n';
-
-
-      if (Inst.getOperand(0).getReg() == llvm::X86::NoRegister) {
-        assert(Inst.getOperand(4).getReg() != llvm::X86::NoRegister);
-
-        /* call    dword ptr gs:[16] */
-        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
-                        Inst.getOperand(3).getImm());
-      } else {
-        assert(Inst.getOperand(4).getReg() == llvm::X86::NoRegister);
-
-        /* call dword ptr [esi + 144] */
-        return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                        Inst.getOperand(3).getImm());
-      }
-#endif
 
     case llvm::X86::CALL32r: /* call edx */
       assert(Inst.getOperand(0).isReg());
