@@ -11471,6 +11471,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_jmp_v(cpu_T0);
             gen_bnd_jmp(s);
             gen_jr(s, cpu_T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 3: /* lcall Ev */
             gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
@@ -11490,6 +11493,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(cpu_tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, cpu_tmp4);
+
+            next_eip = s->pc - s->cs_base;
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 4: /* jmp Ev */
             if (dflag == MO_16) {
@@ -11498,6 +11505,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_jmp_v(cpu_T0);
             gen_bnd_jmp(s);
             gen_jr(s, cpu_T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 5: /* ljmp Ev */
             gen_op_ld_v(s, ot, cpu_T1, cpu_A0);
@@ -11514,6 +11523,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(cpu_tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, cpu_tmp4);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 6: /* push Ev */
             gen_push_v(s, cpu_T0);
@@ -26264,6 +26275,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
                 tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
