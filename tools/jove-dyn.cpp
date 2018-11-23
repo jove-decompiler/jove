@@ -228,6 +228,14 @@ static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
 static int await_process_completion(pid_t);
 
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename obj::ELF64LEObjectFile ELFO;
+typedef typename obj::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename obj::ELF32LEObjectFile ELFO;
+typedef typename obj::ELF32LEFile ELFT;
+#endif
+
 int ParentProc(pid_t child) {
   //
   // observe the (initial) signal-delivery-stop
@@ -355,11 +363,8 @@ int ParentProc(pid_t child) {
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
-    typedef typename obj::ELF64LEObjectFile ELFO;
-    typedef typename obj::ELF64LEFile ELFT;
-
     if (!llvm::isa<ELFO>(Bin.get())) {
-      WithColor::error() << binary.Path << " is not ELF64LEObjectFile\n";
+      WithColor::error() << binary.Path << " is not ELF of expected type\n";
       return 1;
     }
 

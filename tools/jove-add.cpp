@@ -145,6 +145,14 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   exit(1);
 }
 
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename obj::ELF64LEObjectFile ELFO;
+typedef typename obj::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename obj::ELF32LEObjectFile ELFO;
+typedef typename obj::ELF32LEFile ELFT;
+#endif
+
 int add(void) {
   tiny_code_generator_t tcg;
 
@@ -172,11 +180,8 @@ int add(void) {
 
   std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
-  typedef typename obj::ELF64LEObjectFile ELFO;
-  typedef typename obj::ELF64LEFile ELFT;
-
   if (!llvm::isa<ELFO>(Bin.get())) {
-    WithColor::error() << "input is not ELF64LEObjectFile\n";
+    WithColor::error() << "is not ELF of expected type\n";
     return 1;
   }
 
