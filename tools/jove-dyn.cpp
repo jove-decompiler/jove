@@ -6,6 +6,7 @@
 #include <sstream>
 #include <fstream>
 #include <cinttypes>
+#include <array>
 #include <boost/filesystem.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LLVMContext.h>
@@ -42,6 +43,9 @@
 #include <sys/syscall.h>
 #include <asm/unistd.h>
 #include <sys/uio.h>
+#if !defined(__x86_64__) && defined(__i386__)
+#include <asm/ldt.h>
+#endif
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -219,6 +223,10 @@ static void search_address_space_for_binaries(pid_t, disas_t &);
 static void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
 static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
+
+#if !defined(__x86_64__) && defined(__i386__)
+static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
+#endif
 
 static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
 static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
@@ -551,7 +559,7 @@ int ParentProc(pid_t child) {
 #endif
             ;
 
-        if (syscallno != __NR_mmap)
+        if (syscallno != __NR_mmap && syscallno != __NR_mmap2)
           continue;
 
         search_address_space_for_binaries(child, dis);
@@ -936,16 +944,27 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            opc == llvm::X86::CALL64m ||
            opc == llvm::X86::CALL64r;
 #elif defined(__i386__)
-    return false; /* TODO */
+    return opc == llvm::X86::JMP32r ||
+           opc == llvm::X86::JMP32m ||
+           opc == llvm::X86::CALL32m ||
+           opc == llvm::X86::CALL32r;
 #elif defined(__aarch64__)
     return opc == llvm::AArch64::BLR ||
            opc == llvm::AArch64::BR;
 #endif
   };
 
-  if (!is_opcode_handled(Inst.getOpcode()))
-    throw std::runtime_error((fmt("could not place breakpoint @ %#lx\n%s") %
-                              Addr % StringOfMCInst(Inst, dis)).str());
+  if (!is_opcode_handled(Inst.getOpcode())) {
+    binary_t &Binary = decompilation.Binaries[indbr.binary_idx];
+    const auto &ICFG = Binary.Analysis.ICFG;
+    throw std::runtime_error(
+      (fmt("could not place breakpoint @ %#lx\n"
+           "%s BB %#lx\n"
+           "%s")
+       % Addr
+       % Binary.Path % ICFG[indbr.bb].Addr
+       % StringOfMCInst(Inst, dis)).str());
+  }
 
   // read a word of the branch instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
@@ -1028,7 +1047,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   basic_block_t bb = IndBrInfo.bb;
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
-  auto RegValue = [&](unsigned llreg) -> unsigned long {
+  auto RegValue = [&](unsigned llreg) -> long {
     switch (llreg) {
 #if defined(__x86_64__)
     case llvm::X86::RAX:
@@ -1060,7 +1079,44 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
 
 #elif defined(__i386__)
 
-    /* TODO */
+    case llvm::X86::NoRegister:
+      return 0L;
+
+    case llvm::X86::EAX:
+      return gpr.eax;
+    case llvm::X86::EBP:
+      return gpr.ebp;
+    case llvm::X86::EBX:
+      return gpr.ebx;
+    case llvm::X86::ECX:
+      return gpr.ecx;
+    case llvm::X86::EDI:
+      return gpr.edi;
+    case llvm::X86::EDX:
+      return gpr.edx;
+    case llvm::X86::EIP:
+      return gpr.eip;
+    case llvm::X86::ESI:
+      return gpr.esi;
+    case llvm::X86::ESP:
+      return gpr.esp;
+
+    //
+    // for segment registers, return the base address of the segment descriptor
+    // which they reference (bits 15-3)
+    //
+    case llvm::X86::SS:
+      return segment_address_of_selector(child, gpr.xss);
+    case llvm::X86::CS:
+      return segment_address_of_selector(child, gpr.xcs);
+    case llvm::X86::DS:
+      return segment_address_of_selector(child, gpr.xds);
+    case llvm::X86::ES:
+      return segment_address_of_selector(child, gpr.xes);
+    case llvm::X86::FS:
+      return segment_address_of_selector(child, gpr.xfs);
+    case llvm::X86::GS:
+      return segment_address_of_selector(child, gpr.xgs);
 
 #elif defined(__aarch64__)
 
@@ -1075,7 +1131,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
 
     default:
-      abort();
+      throw std::runtime_error(
+          (fmt("RegValue: unknown llreg %u @ %s : BB %#lx\n%s") % llreg %
+           binary.Path % ICFG[bb].Addr % StringOfMCInst(Inst, dis))
+              .str());
     }
   };
 
@@ -1110,7 +1169,77 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #elif defined(__i386__)
 
-    /* TODO */
+    case llvm::X86::JMP32m: /* jmp dword ptr [ebx + 20] */
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(3).isImm());
+      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                      Inst.getOperand(3).getImm());
+
+    case llvm::X86::JMP32r: /* jmp eax */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+
+    case llvm::X86::CALL32m:
+      assert(Inst.getNumOperands() == 5);
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(1).isImm());
+      assert(Inst.getOperand(2).isReg());
+      assert(Inst.getOperand(3).isImm());
+      assert(Inst.getOperand(4).isReg());
+
+      llvm::errs() << StringOfMCInst(Inst, dis) << '\n';
+
+      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
+        /* e.g. call dword ptr [esi + 4*edi - 280] */
+        return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                        Inst.getOperand(1).getImm() *
+                            RegValue(Inst.getOperand(2).getReg()) +
+                        Inst.getOperand(3).getImm());
+      } else {
+        /* e.g. call dword ptr gs:[16] */
+
+#if 0
+        unsigned segreg = Inst.getOperand(4).getReg();
+        assert(segreg == llvm::X86::GS);
+
+        std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_desc_tbl;
+        _ptrace_get_segment_descriptors(child, seg_desc_tbl);
+
+        for (struct user_desc &desc : seg_desc_tbl) {
+          llvm::errs() << "desc.entry_number = " << desc.entry_number << '\n'
+                       << "desc.base_addr    = " << (fmt("%#lx") % desc.base_addr).str() << '\n'
+                       << "desc.limit        = " << desc.limit << '\n';
+        }
+
+        llvm::errs() << "gs=" << RegValue(Inst.getOperand(4).getReg()) << '\n';
+#endif
+
+        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
+                        Inst.getOperand(3).getImm());
+      }
+
+#if 0
+      llvm::errs() << StringOfMCInst(Inst, dis) << '\n';
+
+
+      if (Inst.getOperand(0).getReg() == llvm::X86::NoRegister) {
+        assert(Inst.getOperand(4).getReg() != llvm::X86::NoRegister);
+
+        /* call    dword ptr gs:[16] */
+        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
+                        Inst.getOperand(3).getImm());
+      } else {
+        assert(Inst.getOperand(4).getReg() == llvm::X86::NoRegister);
+
+        /* call dword ptr [esi + 144] */
+        return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
+                        Inst.getOperand(3).getImm());
+      }
+#endif
+
+    case llvm::X86::CALL32r: /* call edx */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
 
 #elif defined(__aarch64__)
 
@@ -1440,6 +1569,45 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     }
   }
 }
+
+#if !defined(__x86_64__) && defined(__i386__)
+constexpr unsigned GDT_ENTRY_TLS_ENTRIES = 3;
+
+void _ptrace_get_segment_descriptors(
+    pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out) {
+  struct iovec iov = {.iov_base = out.data(),
+                      .iov_len = sizeof(struct user_desc) * out.size()};
+
+  unsigned long _request = PTRACE_GETREGSET;
+  unsigned long _pid = child;
+  unsigned long _addr = 0x200 /* NT_386_TLS */;
+  unsigned long _data = reinterpret_cast<unsigned long>(&iov);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
+                             std::string(strerror(errno)));
+}
+
+uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
+  unsigned index = segsel >> 3;
+
+  std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> seg_descs;
+  _ptrace_get_segment_descriptors(child, seg_descs);
+
+  auto it = std::find_if(seg_descs.begin(), seg_descs.end(),
+                         [&](const struct user_desc &desc) -> bool {
+                           return desc.entry_number == index;
+                         });
+
+  if (it == seg_descs.end())
+    throw std::runtime_error(std::string("segment_address_of_selector failed"));
+
+  return (*it).base_addr;
+}
+
+void _ptrace_get_segment_descriptors(
+    pid_t child, std::array<struct user_desc, GDT_ENTRY_TLS_ENTRIES> &out);
+#endif
 
 void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
   struct iovec iov = {.iov_base = &out,
