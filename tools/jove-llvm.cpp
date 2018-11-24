@@ -2230,14 +2230,14 @@ int FixupPCRelativeAddrs(void) {
   if (opts::NoFixupPcrel)
     return 0;
 
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
+  if (!PCRelGlobal)
+    return 0;
+
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
   std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
-
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
-  if (!PCRelGlobal)
-    return 0;
 
   for (llvm::User *U : PCRelGlobal->users()) {
     assert(llvm::isa<llvm::LoadInst>(U));
