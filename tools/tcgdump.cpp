@@ -30,6 +30,14 @@ namespace opts {
     cl::Required);
 }
 
+namespace jove {
+
+void _qemu_log(const char *cstr) {
+  fputs(cstr, stdout);
+}
+
+}
+
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
@@ -113,7 +121,7 @@ int main(int argc, char **argv) {
   }
 
   int AsmPrinterVariant =
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
       1
 #else
       AsmInfo->getAssemblerDialect()

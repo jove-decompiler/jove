@@ -3,6 +3,10 @@
 #include <llvm/Support/InitLLVM.h>
 #include <array>
 
+namespace jove {
+void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
+} // namespace jove
+
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 

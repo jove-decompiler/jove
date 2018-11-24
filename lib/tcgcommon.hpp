@@ -25,6 +25,10 @@ void cpu_abort(CPUState *cpu, const char *fmt, ...) {
   abort();
 }
 
+namespace jove {
+static void _qemu_log(const char *);
+}
+
 int qemu_log(const char *fmt, ...) {
   int size;
   va_list ap;
@@ -52,7 +56,7 @@ int qemu_log(const char *fmt, ...) {
     return 0;
   }
 
-  fputs(p, qemu_logfile);
+  jove::_qemu_log(p);
   free(p);
 
   return size;

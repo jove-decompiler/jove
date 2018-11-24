@@ -323,9 +323,12 @@ static llvm::DataLayout DL("");
 
 struct helper_function_t {
   llvm::Function *F;
+  int EnvArgNo;
 
-  int env_arg_no;
-  tcg_global_set_t iglbs, oglbs;
+  struct {
+    bool Simple;
+    tcg_global_set_t InGlbs, OutGlbs;
+  } Analysis;
 };
 static std::unordered_map<void *, helper_function_t> HelperFuncMap;
 
@@ -376,6 +379,10 @@ int llvm(void) {
       || FixupPCRelativeAddrs()
       || Optimize2()
       || WriteModule();
+}
+
+void _qemu_log(const char *cstr) {
+  llvm::errs() << cstr;
 }
 
 int ParseDecompilation(void) {
@@ -1434,6 +1441,10 @@ static llvm::Type *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
 
+static unsigned WordBits(void) {
+  return sizeof(uintptr_t) * 8;
+}
+
 static llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
@@ -1774,10 +1785,12 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    auto it = FuncMap.find(R.Addend);
+    uintptr_t Addr = R.Addend ? R.Addend : R.Addr;
+
+    auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       return llvm::ConstantExpr::getPointerCast(
-          SectionPointer(R.Addend),
+          SectionPointer(Addr),
           llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
     } else {
       binary_t &Binary = Decompilation.Binaries[BinaryIndex];
@@ -2809,17 +2822,14 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
-static std::pair<tcg_global_set_t, tcg_global_set_t>
-AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
-  assert(env_arg_no >= 0);
+void AnalyzeTCGHelper(helper_function_t &hf) {
+  hf.Analysis.Simple = true;
 
-  std::pair<tcg_global_set_t, tcg_global_set_t> res;
+  if (hf.EnvArgNo < 0)
+    return;
 
-  tcg_global_set_t &iglbs = res.first;
-  tcg_global_set_t &oglbs = res.second;
-
-  llvm::Function::arg_iterator arg_it = F->arg_begin();
-  std::advance(arg_it, env_arg_no);
+  llvm::Function::arg_iterator arg_it = hf.F->arg_begin();
+  std::advance(arg_it, hf.EnvArgNo);
   llvm::Argument &A = *arg_it;
 
   for (llvm::User *EnvU : A.users()) {
@@ -2828,9 +2838,8 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
           llvm::cast<llvm::GetElementPtrInst>(EnvU);
 
       if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
-        iglbs.set();
-        oglbs.set();
-        return res;
+        hf.Analysis.Simple = false;
+        continue;
       }
 
       llvm::APInt Off(DL.getPointerTypeSizeInBits(EnvGEP->getType()), 0);
@@ -2839,9 +2848,8 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
 
       if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
           tcg_global_by_offset_lookup_table[off] < 0) {
-        iglbs.set();
-        oglbs.set();
-        return res;
+        hf.Analysis.Simple = false;
+        continue;
       }
 
       unsigned glb =
@@ -2849,27 +2857,21 @@ AnalyzeUsesOfEnvByHelper(llvm::Function *F, int env_arg_no) {
 
       for (llvm::User *GEPU : EnvGEP->users()) {
         if (llvm::isa<llvm::LoadInst>(GEPU)) {
-          iglbs.set(glb);
+          hf.Analysis.InGlbs.set(glb);
         } else if (llvm::isa<llvm::StoreInst>(GEPU)) {
-          oglbs.set(glb);
+          hf.Analysis.OutGlbs.set(glb);
         } else {
           WithColor::warning() << "unknown global GEP user " << *GEPU << '\n';
 
-          iglbs.set(glb);
-          oglbs.set(glb);
-          return res;
+          hf.Analysis.Simple = false;
         }
       }
     } else {
       WithColor::warning() << "unknown env user " << *EnvU << '\n';
 
-      iglbs.set();
-      oglbs.set();
-      return res;
+      hf.Analysis.Simple = false;
     }
   }
-
-  return res;
 }
 
 static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
@@ -2889,7 +2891,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   TCGContext *s = &TCG->_ctx;
 
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
-    int idx = temp_idx(ts);
+    unsigned idx = temp_idx(ts);
 
     llvm::AllocaInst *Ptr =
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
@@ -2898,7 +2900,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   };
 
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
-    int idx = temp_idx(ts);
+    unsigned idx = temp_idx(ts);
+
+    if (ts->temp_global && idx == tcg_env_index)
+      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 
     llvm::AllocaInst *Ptr =
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
@@ -2998,7 +3003,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     //
     // some helper functions are special-cased
     //
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
     if (helper_ptr == helper_raise_exception) {
       assert(!next_op);
       assert(ExitBB);
@@ -3019,6 +3024,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     //
     auto it = HelperFuncMap.find(helper_ptr);
     if (it == HelperFuncMap.end()) {
+      WithColor::note() << "helper " << helper_nm << '\n';
+
       std::string helperModulePath =
           (boost::dll::program_location().parent_path() /
            (std::string(helper_nm) + ".bc"))
@@ -3053,7 +3060,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       //
       // analyze helper
       //
-      int env_arg_no = -1;
+      int EnvArgNo = -1;
       {
         TCGTemp *env_temp = &s->temps[tcg_env_index];
         TCGArg *inputs_beg = &op->args[nb_oargs + 0];
@@ -3062,77 +3069,86 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                                reinterpret_cast<TCGArg>(env_temp));
 
         if (it != inputs_end)
-          env_arg_no = std::distance(inputs_beg, it);
+          EnvArgNo = std::distance(inputs_beg, it);
       }
 
-      tcg_global_set_t iglbs, oglbs;
+      helper_function_t hf;
+      hf.F = helperF;
+      hf.EnvArgNo = EnvArgNo;
 
-      if (env_arg_no >= 0)
-        std::tie(iglbs, oglbs) = AnalyzeUsesOfEnvByHelper(helperF, env_arg_no);
-
-      helper_function_t hf = {.F = helperF,
-                              .env_arg_no = env_arg_no,
-                              .iglbs = iglbs,
-                              .oglbs = oglbs};
+      AnalyzeTCGHelper(hf);
 
       it = HelperFuncMap.insert({helper_ptr, hf}).first;
     }
 
     const helper_function_t &hf = (*it).second;
 
-    llvm::CallInst *Ret;
-
+    //
+    // build the vector of arguments to pass
+    //
     std::vector<llvm::Value *> ArgVec;
     ArgVec.resize(nb_iargs);
 
-    std::transform(&op->args[nb_oargs + 0], &op->args[nb_oargs + nb_iargs],
-                   ArgVec.begin(), [&](TCGArg arg) -> llvm::Value * {
-                     assert(arg != TCG_CALL_DUMMY_ARG);
-                     TCGTemp *ts = arg_temp(arg);
-                     return temp_idx(ts) != tcg_env_index
-                                ? get(ts)
-                                : IRB.CreateAlloca(CPUStateType, 0, "env");
-                   });
+    // we'll need this in case a parameter is a pointer type
+    llvm::FunctionType *FTy = hf.F->getFunctionType();
+
+    for (int i = 0; i < nb_iargs; ++i) {
+      TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
+      unsigned idx = temp_idx(ts);
+
+      if (idx == tcg_env_index) {
+        if (hf.Analysis.Simple)
+          ArgVec[i] = IRB.CreateAlloca(CPUStateType, 0, "env");
+        else
+          ArgVec[i] = CPUStateGlobal;
+      } else {
+        ArgVec[i] = get(ts);
+
+        llvm::Type *ArgTy = FTy->getParamType(i);
+        if (ArgTy->isPointerTy())
+          ArgVec[i] = IRB.CreateIntToPtr(ArgVec[i], ArgTy);
+      }
+    }
 
     //
     // does the helper function take a CPUState* parameter?
     //
-    if (hf.env_arg_no >= 0) {
-      llvm::Value *LocalEnv = ArgVec[hf.env_arg_no];
+    if (hf.EnvArgNo >= 0) {
+      llvm::Value *Env = ArgVec[hf.EnvArgNo];
 
       //
       // store our globals to the local env
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.iglbs);
+      explode_tcg_global_set(glbv, hf.Analysis.InGlbs);
       for (unsigned glb : glbv) {
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-            IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+            IRB, DL, Env, llvm::APInt(64, s->temps[glb].mem_offset),
             IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
             std::string(s->temps[glb].name) + "_ptr_");
         IRB.CreateStore(get(&s->temps[glb]), GlobPtr);
       }
     }
 
-    Ret = IRB.CreateCall(hf.F, ArgVec);
+    llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
     Ret->setIsNoInline();
 
     //
     // does the helper function take a CPUState* parameter?
     //
-    if (hf.env_arg_no >= 0) {
-      llvm::Value *LocalEnv = ArgVec[hf.env_arg_no];
+    if (hf.EnvArgNo >= 0) {
+      llvm::Value *Env = ArgVec[hf.EnvArgNo];
 
       //
       // load the altered globals
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.oglbs);
+      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs);
       for (unsigned glb : glbv) {
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-            IRB, DL, LocalEnv, llvm::APInt(64, s->temps[glb].mem_offset),
+            IRB, DL, Env, llvm::APInt(64, s->temps[glb].mem_offset),
             IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
             std::string(s->temps[glb].name) + "_ptr_");
         set(IRB.CreateLoad(GlobPtr), &s->temps[glb]);
@@ -3142,8 +3158,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     //
     // does the helper have an output?
     //
-    if (nb_oargs == 1)
+    if (nb_oargs > 0) {
+      assert(nb_oargs == 1);
       set(Ret, arg_temp(op->args[0]));
+    }
 
     break;
   }
@@ -3212,16 +3230,31 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
     TCGMemOp mop = get_memop(moidx);                                           \
                                                                                \
-    llvm::Value *Addr = get(arg_temp(op->args[1]));                            \
+    llvm::Value *Addr = get(arg_temp(op->args[nb_oargs]));                     \
     Addr = IRB.CreateZExt(Addr, WordType());                                   \
     Addr = IRB.CreateIntToPtr(                                                 \
         Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
                                                                                \
     llvm::Value *Val = IRB.CreateLoad(Addr);                                   \
-    Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(bits))             \
-                        : IRB.CreateZExt(Val, IRB.getIntNTy(bits));            \
+    if (bits > bits_of_memop(mop))                                             \
+      Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(bits))           \
+                          : IRB.CreateZExt(Val, IRB.getIntNTy(bits));          \
                                                                                \
-    set(Val, arg_temp(op->args[0]));                                           \
+    if (nb_oargs == 1) {                                                       \
+      set(Val, arg_temp(op->args[0]));                                         \
+      break;                                                                   \
+    }                                                                          \
+                                                                               \
+    assert(nb_oargs == 2);                                                     \
+    assert(WordBits() == 32);                                                  \
+    assert(bits == 64);                                                        \
+                                                                               \
+    llvm::Value *ValLow = IRB.CreateTrunc(Val, IRB.getInt32Ty());              \
+    llvm::Value *ValHigh = IRB.CreateTrunc(                                    \
+        IRB.CreateLShr(Val, IRB.getInt64(32)), IRB.getInt32Ty());              \
+                                                                               \
+    set(ValLow, arg_temp(op->args[0]));                                        \
+    set(ValHigh, arg_temp(op->args[1]));                                       \
     break;                                                                     \
   }
 
@@ -3297,23 +3330,67 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ARITH_OP
 
+//
+// load from host memory
+//
+#define __LD_OP(opc_name, memBits, regBits, signE)                             \
+  case opc_name: {                                                             \
+    unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
+    assert(baseidx == tcg_env_index);                                          \
+                                                                               \
+    TCGArg off = op->args[2];                                                  \
+                                                                               \
+    llvm::SmallVector<llvm::Value *, 4> Indices;                               \
+    llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
+        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), IRB.getIntNTy(memBits), \
+        Indices, "");                                                          \
+    llvm::Value *Val = IRB.CreateLoad(Ptr);                                    \
+    if (memBits != regBits)                                                    \
+      Val = IRB.Create##signE##Ext(Val, IRB.getIntNTy(regBits));               \
+                                                                               \
+    set(Val, arg_temp(op->args[0]));                                           \
+    break;                                                                     \
+  }
+
+    __LD_OP(INDEX_op_ld8u_i32, 8, 32, Z)
+    __LD_OP(INDEX_op_ld8s_i32, 8, 32, S)
+    __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
+    __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(INDEX_op_ld_i32, 32, 32, Z)
+
+#undef __LD_OP
+
+//
+// store to host memory
+//
 #define __ST_OP(opc_name, memBits, regBits)                                    \
   case opc_name: {                                                             \
     unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
-    if (baseidx != tcg_env_index)                                              \
-      abort();                                                                 \
+    assert(baseidx == tcg_env_index);                                          \
+                                                                               \
+    llvm::Value *Val = get(arg_temp(op->args[0]));                             \
                                                                                \
     TCGArg off = op->args[2];                                                  \
-    if (off != tcg_program_counter_env_offset)                                 \
-      abort();                                                                 \
+    if (off == tcg_program_counter_env_offset) {                               \
+      IRB.CreateStore(Val, PCAlloca);                                          \
+      break;                                                                   \
+    }                                                                          \
                                                                                \
-    IRB.CreateStore(get(arg_temp(op->args[0])), PCAlloca);                     \
-  } break;
+    llvm::SmallVector<llvm::Value *, 4> Indices;                               \
+    llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
+        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), IRB.getIntNTy(memBits), \
+        Indices, "");                                                          \
+    IRB.CreateStore(Val, Ptr);                                                 \
+    break;                                                                     \
+  }
 
+#if 0
     __ST_OP(INDEX_op_st8_i64, 8, 64)
     __ST_OP(INDEX_op_st16_i64, 16, 64)
     __ST_OP(INDEX_op_st32_i64, 32, 64)
+#endif
     __ST_OP(INDEX_op_st_i64, 64, 64)
+    __ST_OP(INDEX_op_st_i32, 32, 32)
 
 #undef __ST_OP
 
@@ -3411,6 +3488,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     set(t0_high, arg_temp(op->args[1]));                                       \
   } break;
 
+    __ARITH_OP_MUL2(INDEX_op_mulu2_i32, Z, 32)
+    __ARITH_OP_MUL2(INDEX_op_muls2_i32, S, 32)
     __ARITH_OP_MUL2(INDEX_op_mulu2_i64, Z, 64)
     __ARITH_OP_MUL2(INDEX_op_muls2_i64, S, 64)
 
@@ -3493,4 +3572,5 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   return 0;
 }
+
 }

@@ -7,6 +7,10 @@
 
 static void print_tcgtemp(llvm::ScopedPrinter &, const TCGTemp &);
 
+namespace jove {
+void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
+} // namespace jove
+
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 

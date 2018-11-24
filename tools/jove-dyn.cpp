@@ -1892,4 +1892,6 @@ const char *name_of_signal_number(int num) {
   return nullptr;
 }
 
+void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
+
 }

@@ -658,4 +658,6 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   return Obj.getArch() == archty;
 }
 
+void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
+
 }
