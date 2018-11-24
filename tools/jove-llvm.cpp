@@ -1631,7 +1631,9 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    auto it = FuncMap.find(R.Addend);
+    uintptr_t Addr = R.Addend ? R.Addend : R.Addr;
+
+    auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
     } else {
@@ -2822,7 +2824,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   return 0;
 }
 
-void AnalyzeTCGHelper(helper_function_t &hf) {
+static void AnalyzeTCGHelper(helper_function_t &hf) {
   hf.Analysis.Simple = true;
 
   if (hf.EnvArgNo < 0)
@@ -3132,7 +3134,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     }
 
     llvm::CallInst *Ret = IRB.CreateCall(hf.F, ArgVec);
-    Ret->setIsNoInline();
+    if (!hf.Analysis.Simple)
+      Ret->setIsNoInline();
 
     //
     // does the helper function take a CPUState* parameter?
