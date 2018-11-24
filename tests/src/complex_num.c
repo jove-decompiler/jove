@@ -21,7 +21,7 @@ NOINL void ltos(char *out, long I);
 
 int main(int argc, char **argv) {
   if (argc != 6) {
-    puts("usage: complex-num w x [+-*/] y z\n");
+    puts("usage: complex-num w x [+-*/] y z");
     return 0;
   }
 
