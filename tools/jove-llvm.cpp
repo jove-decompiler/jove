@@ -2235,6 +2235,10 @@ int FixupPCRelativeAddrs(void) {
 
   std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
 
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
+  if (!PCRelGlobal)
+    return 0;
+
   for (llvm::User *U : PCRelGlobal->users()) {
     assert(llvm::isa<llvm::LoadInst>(U));
     llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
