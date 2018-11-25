@@ -168,25 +168,25 @@ inline const char *description_of_terminator(TERMINATOR TermTy) {
 
 struct terminator_info_t {
   TERMINATOR Type;
-  std::uintptr_t Addr;
+  uintptr_t Addr;
 
   union {
     struct {
-      std::uintptr_t Target;
+      uintptr_t Target;
     } _unconditional_jump;
 
     struct {
-      std::uintptr_t Target;
-      std::uintptr_t NextPC;
+      uintptr_t Target;
+      uintptr_t NextPC;
     } _conditional_jump;
 
     struct {
-      std::uintptr_t Target;
-      std::uintptr_t NextPC;
+      uintptr_t Target;
+      uintptr_t NextPC;
     } _call;
 
     struct {
-      std::uintptr_t NextPC;
+      uintptr_t NextPC;
     } _indirect_call;
 
     struct {
