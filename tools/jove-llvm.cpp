@@ -3102,18 +3102,24 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
       unsigned idx = temp_idx(ts);
 
-      if (idx == tcg_env_index) {
-        if (hf.Analysis.Simple)
-          ArgVec[i] = IRB.CreateAlloca(CPUStateType, 0, "env");
-        else
-          ArgVec[i] = CPUStateGlobal;
-      } else {
-        ArgVec[i] = get(ts);
+      auto ArgVal = [&](void) -> llvm::Value * {
+        if (idx == tcg_env_index) {
+          if (hf.Analysis.Simple)
+            return IRB.CreateAlloca(CPUStateType, 0, "env");
+          else
+            return CPUStateGlobal;
+        } else {
+          llvm::Value *res = get(ts);
 
-        llvm::Type *ArgTy = FTy->getParamType(i);
-        if (ArgTy->isPointerTy())
-          ArgVec[i] = IRB.CreateIntToPtr(ArgVec[i], ArgTy);
-      }
+          llvm::Type *ArgTy = FTy->getParamType(i);
+          if (ArgTy->isPointerTy())
+            res = IRB.CreateIntToPtr(res, ArgTy);
+
+          return res;
+        }
+      };
+
+      ArgVec[i] = ArgVal();
     }
 
     //
