@@ -939,18 +939,18 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
 #if defined(__x86_64__)
-    return opc == llvm::X86::JMP64r ||
-           opc == llvm::X86::JMP64m ||
-           opc == llvm::X86::CALL64m ||
-           opc == llvm::X86::CALL64r;
+    return opc == llvm::X86::JMP64r
+        || opc == llvm::X86::JMP64m
+        || opc == llvm::X86::CALL64m
+        || opc == llvm::X86::CALL64r;
 #elif defined(__i386__)
-    return opc == llvm::X86::JMP32r ||
-           opc == llvm::X86::JMP32m ||
-           opc == llvm::X86::CALL32m ||
-           opc == llvm::X86::CALL32r;
+    return opc == llvm::X86::JMP32r
+        || opc == llvm::X86::JMP32m
+        || opc == llvm::X86::CALL32m
+        || opc == llvm::X86::CALL32r;
 #elif defined(__aarch64__)
-    return opc == llvm::AArch64::BLR ||
-           opc == llvm::AArch64::BR;
+    return opc == llvm::AArch64::BLR
+        || opc == llvm::AArch64::BR;
 #endif
   };
 
