@@ -165,6 +165,20 @@ struct tiny_code_generator_t {
         liveness_pass_1(&_ctx);
       }
     }
+
+#if defined(__i386__)
+    struct terminator_info_t &ti = tb.jove.T;
+
+    /* quirk */
+    if (ti.Type == jove::TERMINATOR::CALL &&
+        ti._call.Target == ti._call.NextPC) {
+      uintptr_t NextPC = ti._call.NextPC;
+
+      ti.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+      ti._unconditional_jump.Target = NextPC;
+    }
+#endif
+
     return std::make_pair(tb.size, tb.jove.T);
   }
 
