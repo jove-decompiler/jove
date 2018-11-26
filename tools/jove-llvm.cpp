@@ -2067,51 +2067,59 @@ int IdentifyThunks(void) {
 
     basic_block_t bb = f.BasicBlocks.front();
 
-    if (ICFG[bb].Term.Type != TERMINATOR::RETURN)
-      continue;
-
     const uintptr_t Addr = ICFG[bb].Addr;
     const unsigned Size = ICFG[bb].Size;
 
-    auto sectit = SectMap.find(Addr);
-    assert(sectit != SectMap.end());
+    auto disassemble_block = [&](std::vector<llvm::MCInst> &out) -> int {
+      auto sectit = SectMap.find(Addr);
+      assert(sectit != SectMap.end());
 
-    const section_properties_t &sectprop = *(*sectit).second.begin();
+      const section_properties_t &sectprop = *(*sectit).second.begin();
 
-    const uintptr_t Base = (*sectit).first.lower();
+      const uintptr_t Base = (*sectit).first.lower();
 
-    std::vector<unsigned> opc_vec;
+      uint64_t InstLen;
+      for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+        llvm::MCInst Inst;
 
-    uint64_t InstLen;
-    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
-      llvm::MCInst Inst;
+        ptrdiff_t Offset = A - Base;
+        bool Disassembled = DisAsm->getInstruction(
+            Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls(),
+            llvm::nulls());
+        if (!Disassembled) {
+          WithColor::error()
+              << "failed to disassemble " << (fmt("%#lx") % A).str() << '\n';
+          return 1;
+        }
 
-      ptrdiff_t Offset = A - Base;
-      bool Disassembled =
-          DisAsm->getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
-                                 A, llvm::nulls(), llvm::nulls());
-      if (!Disassembled) {
-        WithColor::error() << "failed to disassemble "
-                           << (fmt("%#lx") % A).str() << '\n';
-        return 1;
+        out.push_back(Inst);
       }
 
-      opc_vec.push_back(Inst.getOpcode());
+      return 0;
+    };
 
-      if (opc_vec.size() > 2)
-        break;
+    std::vector<llvm::MCInst> InstVec;
+    if (int ret = disassemble_block(InstVec))
+      return ret;
+
+    auto is_thunk = [&](void) -> bool {
+      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+        return InstVec.size() == 1 &&
+               InstVec[0].getOpcode() == llvm::X86::JMP32m &&
+               InstVec[0].getOperand(0).getReg() == llvm::X86::EBX;
+      else if (ICFG[bb].Term.Type == TERMINATOR::RETURN)
+        return InstVec.size() == 2 &&
+               InstVec[0].getOpcode() == llvm::X86::MOV32rm &&
+               InstVec[1].getOpcode() == llvm::X86::RETL;
+
+      return false;
+    };
+
+    if (is_thunk()) {
+      f.Analysis.IsThunk = true;
+
+      WithColor::note() << "thunk @ " << (fmt("%#lx") % Addr).str() << '\n';
     }
-
-    if (opc_vec.size() > 2)
-      continue;
-
-    if (opc_vec[0] != llvm::X86::MOV32rm ||
-        opc_vec[1] != llvm::X86::RETL)
-      continue;
-
-    f.Analysis.IsThunk = true;
-
-    WithColor::note() << "thunk @ " << (fmt("%#lx") % Addr).str() << '\n';
 #endif
   }
 
