@@ -1638,7 +1638,16 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    uintptr_t Addr = R.Addend ? R.Addend : R.Addr;
+    uintptr_t Addr;
+
+    {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -1794,7 +1803,16 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    uintptr_t Addr = R.Addend ? R.Addend : R.Addr;
+    uintptr_t Addr;
+
+    {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
