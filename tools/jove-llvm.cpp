@@ -58,6 +58,7 @@ class LoadInst;
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/Intrinsics.h>
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
@@ -1617,7 +1618,7 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = ExportedFunctions.find(S.Name);
     if (it == ExportedFunctions.end()) {
-      WithColor::warning() << " no exported function found by the name "
+      WithColor::warning() << "no exported function found by the name "
                            << S.Name << '\n';
 
       FTy = llvm::FunctionType::get(VoidType(), false);
@@ -2766,7 +2767,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
             TempAllocaVec.at(idx) = IRB.CreateAlloca(
                 IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                (fmt("%#lx_%s%u") % ICFG[bb].Addr %
+                (fmt("%#lx_%s%u") % ICFG[thunkbb].Addr %
                  (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
                     .str());
           }
@@ -2782,7 +2783,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
             TempAllocaVec.at(idx) = IRB.CreateAlloca(
                 IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                (fmt("%#lx_%s%u") % ICFG[bb].Addr %
+                (fmt("%#lx_%s%u") % ICFG[thunkbb].Addr %
                  (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
                     .str());
           }
@@ -2794,8 +2795,8 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
       TCGOp *op, *op_next;
       QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-        if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, TempAllocaVec,
-                                     LabelVec, ExitBB, IRB)) {
+        if (int ret = TranslateTCGOp(op, op_next, Binary, callee, thunkbb,
+                                     TempAllocaVec, LabelVec, ExitBB, IRB)) {
           TCG->dump_operations();
           return ret;
         }
@@ -2864,7 +2865,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     // else if pc == target_3 ; goto target_3
     //       ...
     // else if pc == target_n ; goto target_n
-    // else                   ; goto (*pc)            [fallthrough case]
+    // else                   ; trap
     //
     auto eit_pair = boost::out_edges(bb, ICFG);
     for (auto it = eit_pair.first; it != eit_pair.second; ++it) {
@@ -2880,6 +2881,12 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
       IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
       IRB.SetInsertPoint(NextB);
     }
+
+    if (eit_pair.first != eit_pair.second) {
+      IRB.CreateCall(
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      break;
+    }
   }
 
   case TERMINATOR::INDIRECT_CALL: {
@@ -2887,6 +2894,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
     const auto &DynTargets = ICFG[bb].DynTargets;
     if (DynTargets.empty()) {
+      // apparently this is necessary
       IRB.CreateCall(IRB.CreateIntToPtr(
           PC, llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
                                      0)));

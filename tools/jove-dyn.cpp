@@ -559,7 +559,16 @@ int ParentProc(pid_t child) {
 #endif
             ;
 
-        if (syscallno != __NR_mmap && syscallno != __NR_mmap2)
+        bool does_mmap = false
+#ifdef __NR_mmap
+                         || syscallno == __NR_mmap
+#endif
+#ifdef __NR_mmap2
+                         || syscallno == __NR_mmap2
+#endif
+            ;
+
+        if (!does_mmap)
           continue;
 
         search_address_space_for_binaries(child, dis);
