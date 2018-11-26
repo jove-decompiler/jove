@@ -12979,6 +12979,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             } else if (!CODE64(s)) {
                 tval &= 0xffffffff;
             }
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_T0, next_eip);
             gen_push_v(s, cpu_T0);
             gen_bnd_jmp(s);

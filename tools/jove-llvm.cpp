@@ -40,6 +40,8 @@ class LoadInst;
     tcg_global_set_t live;                                                     \
     tcg_global_set_t defined;                                                  \
     tcg_global_set_t globals;                                                  \
+                                                                               \
+    bool IsThunk;                                                              \
   } Analysis;                                                                  \
                                                                                \
   llvm::Function *F;                                                           \
@@ -350,6 +352,7 @@ static int CreateSectionGlobalVariables(void);
 static int CreateCPUStateGlobal(void);
 static int CreatePCRelGlobal(void);
 static int FixupHelperStubs(void);
+static int IdentifyThunks(void);
 static int TranslateFunctions(void);
 static int PrepareToOptimize(void);
 static int Optimize1(void);
@@ -373,6 +376,7 @@ int llvm(void) {
       || CreateCPUStateGlobal()
       || CreatePCRelGlobal()
       || FixupHelperStubs()
+      || IdentifyThunks()
       || TranslateFunctions()
       || PrepareToOptimize()
       || Optimize1()
@@ -2046,6 +2050,71 @@ int FixupHelperStubs(void) {
   return 0;
 }
 
+int IdentifyThunks(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &ICFG = Binary.Analysis.ICFG;
+  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
+
+  for (function_t &f : Binary.Analysis.Functions) {
+    f.Analysis.IsThunk = false;
+
+#if defined(__i386__)
+    if (f.BasicBlocks.size() != 1)
+      continue;
+
+    basic_block_t bb = f.BasicBlocks.front();
+
+    if (ICFG[bb].Term.Type != TERMINATOR::RETURN)
+      continue;
+
+    const uintptr_t Addr = ICFG[bb].Addr;
+    const unsigned Size = ICFG[bb].Size;
+
+    auto sectit = SectMap.find(Addr);
+    assert(sectit != SectMap.end());
+
+    const section_properties_t &sectprop = *(*sectit).second.begin();
+
+    const uintptr_t Base = (*sectit).first.lower();
+
+    std::vector<unsigned> opc_vec;
+
+    uint64_t InstLen;
+    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+      llvm::MCInst Inst;
+
+      ptrdiff_t Offset = A - Base;
+      bool Disassembled =
+          DisAsm->getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
+                                 A, llvm::nulls(), llvm::nulls());
+      if (!Disassembled) {
+        WithColor::error() << "failed to disassemble "
+                           << (fmt("%#lx") % A).str() << '\n';
+        return 1;
+      }
+
+      opc_vec.push_back(Inst.getOpcode());
+
+      if (opc_vec.size() > 2)
+        break;
+    }
+
+    if (opc_vec.size() > 2)
+      continue;
+
+    if (opc_vec[0] != llvm::X86::MOV32rm ||
+        opc_vec[1] != llvm::X86::RETL)
+      continue;
+
+    f.Analysis.IsThunk = true;
+
+    WithColor::note() << "thunk @ " << (fmt("%#lx") % Addr).str() << '\n';
+#endif
+  }
+
+  return 0;
+}
+
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
 
@@ -2506,14 +2575,17 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
   binary_state_t &st = BinStateVec[BinaryIndex];
 
-  auto sectit = st.SectMap.find(Addr);
-  assert(sectit != st.SectMap.end());
+  {
+    auto sectit = st.SectMap.find(Addr);
+    assert(sectit != st.SectMap.end());
 
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+    const section_properties_t &sectprop = *(*sectit).second.begin();
+    TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+  }
 
   llvm::BasicBlock *ExitBB =
       llvm::BasicBlock::Create(*Context, (fmt("%#lx_exit") % Addr).str(), f.F);
+
   TCGContext *s = &TCG->_ctx;
 
   unsigned size = 0;
@@ -2596,12 +2668,109 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     size += len;
   } while (size < Size);
 
+  IRB.SetInsertPoint(ExitBB);
+
+  //
+  // if this basic block calls a thunk, then we'll translate the thunk in-place
+  //
+  bool TranslatedThunk = false;
+  if (T.Type == TERMINATOR::CALL) {
+    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+    if (callee.Analysis.IsThunk) {
+      TranslatedThunk = true;
+
+      assert(callee.BasicBlocks.size() == 1);
+      basic_block_t thunkbb = callee.BasicBlocks.front();
+      uintptr_t ThunkAddr = ICFG[thunkbb].Addr;
+
+      auto sectit = st.SectMap.find(ThunkAddr);
+      assert(sectit != st.SectMap.end());
+
+      const section_properties_t &sectprop = *(*sectit).second.begin();
+      TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+
+      TCG->translate(ThunkAddr);
+
+      std::vector<llvm::AllocaInst *> TempAllocaVec(s->nb_temps, nullptr);
+      std::vector<llvm::BasicBlock *> LabelVec(s->nb_labels, nullptr);
+
+      //
+      // create temp alloca's up-front
+      //
+      {
+        TCGOp *op, *op_next;
+        QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+          TCGOpcode opc = op->opc;
+
+          int nb_oargs, nb_iargs;
+          if (opc == INDEX_op_call) {
+            nb_oargs = TCGOP_CALLO(op);
+            nb_iargs = TCGOP_CALLI(op);
+          } else {
+            const TCGOpDef &opdef = tcg_op_defs[opc];
+
+            nb_iargs = opdef.nb_iargs;
+            nb_oargs = opdef.nb_oargs;
+          }
+
+          for (int i = 0; i < nb_iargs; ++i) {
+            TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
+            if (ts->temp_global)
+              continue;
+
+            unsigned idx = temp_idx(ts);
+            if (TempAllocaVec.at(idx))
+              continue;
+
+            TempAllocaVec.at(idx) = IRB.CreateAlloca(
+                IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
+                (fmt("%#lx_%s%u") % ICFG[bb].Addr %
+                 (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
+                    .str());
+          }
+
+          for (int i = 0; i < nb_oargs; ++i) {
+            TCGTemp *ts = arg_temp(op->args[i]);
+            if (ts->temp_global)
+              continue;
+
+            unsigned idx = temp_idx(ts);
+            if (TempAllocaVec.at(idx))
+              continue;
+
+            TempAllocaVec.at(idx) = IRB.CreateAlloca(
+                IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
+                (fmt("%#lx_%s%u") % ICFG[bb].Addr %
+                 (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
+                    .str());
+          }
+        }
+      }
+
+      ExitBB = llvm::BasicBlock::Create(
+          *Context, (fmt("%#lx_thunk_exit") % Addr).str(), f.F);
+
+      TCGOp *op, *op_next;
+      QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
+        if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, TempAllocaVec,
+                                     LabelVec, ExitBB, IRB)) {
+          TCG->dump_operations();
+          return ret;
+        }
+      }
+
+      IRB.SetInsertPoint(ExitBB);
+    }
+  }
+
   //
   // examine terminator
   //
-  IRB.SetInsertPoint(ExitBB);
   switch (T.Type) {
   case TERMINATOR::CALL: {
+    if (TranslatedThunk)
+      break;
+
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
 
     std::vector<llvm::Value *> ArgVec;
