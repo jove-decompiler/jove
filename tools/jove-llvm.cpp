@@ -2803,8 +2803,9 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
       TCGOp *op, *op_next;
       QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-        if (int ret = TranslateTCGOp(op, op_next, Binary, callee, thunkbb,
-                                     TempAllocaVec, LabelVec, ExitBB, IRB)) {
+        if (int ret =
+                TranslateTCGOp(op, op_next, Binary, f /* callee */, thunkbb,
+                               TempAllocaVec, LabelVec, ExitBB, IRB)) {
           TCG->dump_operations();
           return ret;
         }
