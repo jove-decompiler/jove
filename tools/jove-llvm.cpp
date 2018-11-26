@@ -2223,6 +2223,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 int TranslateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
+    if (f.Analysis.IsThunk)
+      continue;
+
     if (int ret = TranslateFunction(Binary, f))
       return ret;
   }
