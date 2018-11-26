@@ -358,6 +358,7 @@ static int PrepareToOptimize(void);
 static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
 static int Optimize2(void);
+static int RenameFunctionLocals(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -382,6 +383,7 @@ int llvm(void) {
       || Optimize1()
       || FixupPCRelativeAddrs()
       || Optimize2()
+      || RenameFunctionLocals()
       || WriteModule();
 }
 
@@ -2364,6 +2366,43 @@ int Optimize2(void) {
       PCRelGlobal->eraseFromParent();
     else
       WithColor::warning() << "PCRel global not eliminated\n";
+  }
+
+  return 0;
+}
+
+int RenameFunctionLocals(void) {
+  CPUStateGlobal = Module->getGlobalVariable("env", true);
+  if (!CPUStateGlobal)
+    return 0;
+
+  for (llvm::User *U : CPUStateGlobal->users()) {
+    int glb = -1;
+
+    if (llvm::ConstantExpr *CE = llvm::dyn_cast<llvm::ConstantExpr>(U)) {
+      llvm::Instruction *I = CE->getAsInstruction();
+      llvm::GetElementPtrInst *GEP = llvm::dyn_cast<llvm::GetElementPtrInst>(I);
+
+      if (GEP) {
+        llvm::APInt Off(DL.getPointerTypeSizeInBits(GEP->getType()), 0);
+        llvm::cast<llvm::GEPOperator>(GEP)->accumulateConstantOffset(DL, Off);
+        unsigned off = Off.getZExtValue();
+
+        if (off < sizeof(tcg_global_by_offset_lookup_table))
+          glb = tcg_global_by_offset_lookup_table[off];
+      }
+
+      I->deleteValue();
+    }
+
+    if (glb < 0)
+      continue;
+
+    const char *nm = TCG->_ctx.temps[glb].name;
+    for (llvm::User *UU : U->users()) {
+      if (llvm::isa<llvm::LoadInst>(UU))
+        UU->setName(nm);
+    }
   }
 
   return 0;
