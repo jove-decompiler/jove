@@ -733,13 +733,15 @@ static basic_block_index_t translate_basic_block(pid_t,
                                                  binary_index_t binary_idx,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
-                                                 const target_ulong Addr);
+                                                 const target_ulong Addr,
+                                                 unsigned &brkpt_count);
 
 static function_index_t translate_function(pid_t child,
                                            binary_index_t binary_idx,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
-                                           target_ulong Addr) {
+                                           target_ulong Addr,
+                                           unsigned &brkpt_count) {
   binary_t &binary = decompilation.Binaries[binary_idx];
   auto &FuncMap = BinStateVec[binary_idx].FuncMap;
 
@@ -753,7 +755,7 @@ static function_index_t translate_function(pid_t child,
   FuncMap[Addr] = res;
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
-      translate_basic_block(child, binary_idx, tcg, dis, Addr);
+      translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
 
   return res;
 }
@@ -762,7 +764,8 @@ basic_block_index_t translate_basic_block(pid_t child,
                                           binary_index_t binary_idx,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
-                                          const target_ulong Addr) {
+                                          const target_ulong Addr,
+                                          unsigned &brkpt_count) {
   auto &BBMap = BinStateVec[binary_idx].BBMap;
 
   {
@@ -879,6 +882,7 @@ basic_block_index_t translate_basic_block(pid_t child,
         llvm::nulls());
       assert(Disassembled);
 
+      ++brkpt_count;
       place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
     }
   }
@@ -897,7 +901,8 @@ basic_block_index_t translate_basic_block(pid_t child,
     auto it = BBMap.find(Target);
     succidx = it != BBMap.end()
                   ? (*it).second
-                  : translate_basic_block(child, binary_idx, tcg, dis, Target);
+                  : translate_basic_block(child, binary_idx, tcg, dis, Target,
+                                          brkpt_count);
 
     if (succidx != invalid_basic_block_index) {
       basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
@@ -916,8 +921,8 @@ basic_block_index_t translate_basic_block(pid_t child,
     break;
 
   case TERMINATOR::CALL:
-    binary.Analysis.ICFG[bb].Term._call.Target =
-        translate_function(child, binary_idx, tcg, dis, T._call.Target);
+    binary.Analysis.ICFG[bb].Term._call.Target = translate_function(
+        child, binary_idx, tcg, dis, T._call.Target, brkpt_count);
 
     control_flow(T._call.NextPC);
     break;
@@ -1272,29 +1277,40 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   const char *print_prefix = "(call) ";
 
+  unsigned brkpt_count = 0;
+
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    function_index_t f_idx = translate_function(child, binary_idx, tcg, dis,
-                                                rva_of_va(target, binary_idx));
+    function_index_t f_idx =
+        translate_function(child, binary_idx, tcg, dis,
+                           rva_of_va(target, binary_idx), brkpt_count);
 
     isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     if (isLocal) {
-      basic_block_index_t target_bb_idx = translate_basic_block(
-          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
+      basic_block_index_t target_bb_idx =
+          translate_basic_block(child, binary_idx, tcg, dis,
+                                rva_of_va(target, binary_idx), brkpt_count);
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
 
       print_prefix = "(jump) ";
-    } else {
-      // it's a tail-call
-      function_index_t f_idx = translate_function(
-          child, binary_idx, tcg, dis, rva_of_va(target, binary_idx));
+    } else { /* tail call */
+      function_index_t f_idx =
+          translate_function(child, binary_idx, tcg, dis,
+                             rva_of_va(target, binary_idx), brkpt_count);
 
       isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+
     }
   } else {
     abort();
+  }
+
+  if (brkpt_count > 0) {
+    binary_t &binary = decompilation.Binaries[binary_idx];
+    llvm::errs() << "placed " << brkpt_count << " breakpoints in "
+                 << binary.Path << '\n';
   }
 
   llvm::errs() << print_prefix
