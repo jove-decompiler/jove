@@ -327,44 +327,14 @@ int add(void) {
     sectm.add(std::make_pair(intervl, sectprops));
 
     if (opts::Verbose)
-      llvm::outs() << (fmt("%-20s [0x%lx, 0x%lx)") %
-                       sectprop.name.str() %
-                       intervl.lower() %
-                       intervl.upper()).str()
-                   << '\n';
+      llvm::outs() <<
+        (fmt("%-20s [0x%lx, 0x%lx)")
+         % sectprop.name.str()
+         % intervl.lower()
+         % intervl.upper()).str() << '\n';
   }
 
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
-
-  //
-  // if the ELF has a PT_INTERP program header, then we'll consider the entry
-  //
-  struct {
-    bool Found;
-  } Interp;
-
-  Interp.Found = false;
-
-  llvm::Expected<Elf_Phdr_Range> program_hdrs = E.program_headers();
-  if (program_hdrs) {
-    for (const Elf_Phdr &Phdr : *program_hdrs) {
-      if (Phdr.p_type != llvm::ELF::PT_INTERP)
-        continue;
-
-      if (Interp.Found) {
-        WithColor::error()
-            << "malformed ELF: multiple PT_INTERP program headers\n";
-        return 1;
-      }
-
-      Interp.Found = true;
-    }
-  }
-
-  binary.Analysis.EntryFunction =
-      Interp.Found
-          ? translate_function(binary, tcg, dis, E.getHeader()->e_entry)
-          : invalid_function_index;
 
   //
   // iterate dynamic defined functions
@@ -400,6 +370,8 @@ int add(void) {
   DynRegionInfo DynSymRegion;
   llvm::StringRef DynSymtabName;
   llvm::StringRef DynamicStringTable;
+
+  bool IsStaticallyLinked = true;
 
   {
     auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
@@ -451,6 +423,9 @@ int add(void) {
       case llvm::ELF::DT_STRSZ:
         StringTableSize = Dyn.getVal();
         break;
+      case llvm::ELF::DT_NEEDED:
+        IsStaticallyLinked = false;
+        break;
       }
     };
 
@@ -461,6 +436,43 @@ int add(void) {
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
+
+  //
+  // if the ELF has a PT_INTERP program header, then we'll explore the entry
+  // point. if not, we'll only consider it if it's statically-linked (i.e. it's
+  // the dynamic linker)
+  //
+  struct {
+    bool Found;
+  } Interp;
+
+  Interp.Found = false;
+
+  llvm::Expected<Elf_Phdr_Range> program_hdrs = E.program_headers();
+  if (program_hdrs) {
+    for (const Elf_Phdr &Phdr : *program_hdrs) {
+      if (Phdr.p_type != llvm::ELF::PT_INTERP)
+        continue;
+
+      if (Interp.Found) {
+        WithColor::error()
+            << "malformed ELF: multiple PT_INTERP program headers\n";
+        return 1;
+      }
+
+      Interp.Found = true;
+    }
+  }
+
+  if (Interp.Found || IsStaticallyLinked) {
+    llvm::outs() << "translating entry point @ "
+                 << (fmt("%#lx") % E.getHeader()->e_entry).str() << '\n';
+
+    binary.Analysis.EntryFunction =
+        translate_function(binary, tcg, dis, E.getHeader()->e_entry);
+  } else {
+    binary.Analysis.EntryFunction = invalid_function_index;
+  }
 
   for (const Elf_Sym &Sym : dynamic_symbols()) {
     if (Sym.isUndefined())

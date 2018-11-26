@@ -150,12 +150,42 @@ int init(void) {
 
   close(pipefd[0]); /* close read end */
 
+
   //
-  // parse the standard output from the dynamic linker
+  // parse the standard output from the dynamic linker to produce a set of paths
+  // to binaries that will be added to the decompilation
   //
   std::unordered_set<std::string> binary_paths;
   binary_paths.insert(fs::canonical(opts::Input).string());
 
+  //
+  // get the path to the dynamic linker
+  //
+  {
+    std::string::size_type pos = dynlink_stdout.find("\t/");
+    if (pos == std::string::npos) {
+      WithColor::error()
+          << "could not find interpreter path in output from dynamic linker\n";
+      return 1;
+    }
+
+    ++pos;
+
+    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
+
+    std::string path = dynlink_stdout.substr(pos, space_pos - pos);
+    if (!fs::exists(path)) {
+      WithColor::error() << "could not find interpreter path\n";
+      return 1;
+    }
+
+    llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+    binary_paths.insert(fs::canonical(path).string());
+  }
+
+  //
+  // consider everything else, except vdso
+  //
   std::string::size_type pos = 0;
   for (;;) {
     std::string::size_type arrow_pos = dynlink_stdout.find(" => /", pos);
@@ -172,8 +202,8 @@ int init(void) {
 
     std::string path = dynlink_stdout.substr(pos, space_pos - pos);
     if (!fs::exists(path)) {
-      WithColor::error() << "error: path from dynamic linker '" << path
-                   << "' is bogus\n";
+      WithColor::error() << "path from dynamic linker '" << path
+                         << "' is bogus\n";
       return 1;
     }
 
