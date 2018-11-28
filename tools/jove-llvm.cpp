@@ -86,6 +86,10 @@ class LoadInst;
 #include <llvm/InitializePasses.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/Target/TargetOptions.h>
+#include <llvm/Target/TargetMachine.h>
+#include <llvm/LinkAllPasses.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/IRBuilder.h>
@@ -305,6 +309,7 @@ static std::unique_ptr<llvm::MCObjectFileInfo> MOFI;
 static std::unique_ptr<llvm::MCContext> MCCtx;
 static std::unique_ptr<llvm::MCDisassembler> DisAsm;
 static std::unique_ptr<llvm::MCInstPrinter> IP;
+static std::unique_ptr<llvm::TargetMachine> TM;
 
 static std::unique_ptr<tiny_code_generator_t> TCG;
 
@@ -1001,10 +1006,10 @@ int PrepareToTranslateCode(void) {
     return 1;
   }
 
-  std::string MCPU;
+  std::string CPUStr;
 
   STI.reset(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+      TheTarget->createMCSubtargetInfo(TripleName, CPUStr, Features.getString()));
   if (!STI) {
     WithColor::error() << "no subtarget info\n";
     return 1;
@@ -1041,6 +1046,13 @@ int PrepareToTranslateCode(void) {
     WithColor::error() << "no instruction printer\n";
     return 1;
   }
+
+  llvm::TargetOptions Options;
+
+  std::string FeaturesStr;
+  TM.reset(TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr,
+                                          Features.getString(), Options,
+                                          llvm::None));
 
   return 0;
 }
@@ -1968,7 +1980,7 @@ int CreateCPUStateGlobal() {
   regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
 
   CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateSType, false, llvm::GlobalValue::InternalLinkage,
+      *Module, CPUStateSType, false, llvm::GlobalValue::ExternalLinkage,
       llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
       nullptr, llvm::GlobalValue::NotThreadLocal
       /* llvm::GlobalValue::GeneralDynamicTLSModel */);
@@ -2306,12 +2318,34 @@ int PrepareToOptimize(void) {
 }
 
 static void DoOptimize(void) {
+  constexpr unsigned OptLevel = 2;
+  constexpr unsigned SizeLevel = 2;
+
   llvm::legacy::PassManager MPM;
   llvm::legacy::FunctionPassManager FPM(Module.get());
 
+  // Add an appropriate TargetLibraryInfo pass for the module's triple.
+  llvm::Triple ModuleTriple(Module->getTargetTriple());
+  llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
+
+  // The -disable-simplify-libcalls flag actually disables all builtin optzns.
+  if (false /* DisableSimplifyLibCalls */)
+    TLII.disableAllFunctions();
+  MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+
+  // Add internal analysis passes from the target machine.
+  MPM.add(llvm::createTargetTransformInfoWrapperPass(
+      TM ? TM->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
+
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(
+      TM ? TM->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
+
   llvm::PassManagerBuilder Builder;
-  Builder.OptLevel = 2;
-  Builder.SizeLevel = 2;
+  Builder.OptLevel = OptLevel;
+  Builder.SizeLevel = SizeLevel;
+
+  Builder.Inliner =
+      llvm::createFunctionInliningPass(OptLevel, SizeLevel, false);
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
@@ -3355,6 +3389,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     //
     auto it = HelperFuncMap.find(helper_ptr);
     if (it == HelperFuncMap.end()) {
+      assert(nb_oargs == 0 || nb_oargs == 1);
+
       WithColor::note() << "helper " << helper_nm << '\n';
 
       std::string helperModulePath =
@@ -3386,7 +3422,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
       assert(helperF);
       assert(helperF->arg_size() == nb_iargs);
-      assert(nb_oargs == 0 || nb_oargs == 1);
+
+      helperF->setLinkage(llvm::GlobalValue::InternalLinkage);
 
       //
       // analyze helper
