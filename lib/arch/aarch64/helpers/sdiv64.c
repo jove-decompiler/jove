@@ -10,12 +10,14 @@
 
 int64_t HELPER(sdiv64)(int64_t num, int64_t den)
 {
+#if 0
     if (den == 0) {
         return 0;
     }
     if (num == LLONG_MIN && den == -1) {
         return LLONG_MIN;
     }
+#endif
     return num / den;
 }
 
