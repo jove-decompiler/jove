@@ -197,8 +197,6 @@ struct indirect_branch_t {
 
 static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
 
-static const char *name_of_signal_number(int);
-
 static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
   assert(idx < BinStateVec.size());
   assert(BinStateVec[idx].dyn.LoadAddr);
@@ -646,15 +644,9 @@ int ParentProc(pid_t child) {
         //
         // (4) signal-delivery-stop
         //
-        if (opts::VeryVerbose) {
-          const char *signm = name_of_signal_number(stopsig);
-          if (signm)
-            llvm::errs() << "delivering signal " << signm << " [" << child
-                         << "]\n";
-          else
-            llvm::errs() << "delivering signal number " << stopsig << " ["
-                         << child << "]\n";
-        }
+        if (opts::VeryVerbose)
+          llvm::errs() << "delivering signal number " << stopsig << " ["
+                       << child << "]\n";
 
         // deliver it
         sig = stopsig;
@@ -1335,133 +1327,6 @@ bool is_address_in_global_offset_table(uintptr_t Addr,
   return sectprop.name == ".got";
 }
 
-static const std::unordered_set<std::string> bad_bins = {
-#if 0
-    "libEGL.so.1.0.0",
-    "libGL.so.1.0.0",
-    "libGLX.so.0.0.0",
-    "libGLdispatch.so.0.0.0",
-    "libX11-xcb.so.1.0.0",
-#endif
-    "libX11.so.6.3.0",        /* XXX BAD */
-#if 0
-    "libXau.so.6.0.0",
-    "libXcomposite.so.1.0.0",
-    "libXcursor.so.1.0.2",
-    "libXdamage.so.1.1.0",
-    "libXdmcp.so.6.0.0",
-    "libXext.so.6.4.0",
-    "libXfixes.so.3.1.0",
-    "libXi.so.6.1.0",
-    "libXinerama.so.1.0.0",
-    "libXrandr.so.2.2.0",
-    "libXrender.so.1.3.0",
-    "libatk-1.0.so.0.22810.1",
-    "libatk-bridge-2.0.so.0.0.0",
-    "libatspi.so.0.0.1",
-    "libblkid.so.1.1.0",
-    "libbrotlicommon.so.1.0.4",
-    "libbrotlidec.so.1.0.4",
-    "libbz2.so.1.0.6",
-    "libc-2.27.so",
-    "libcairo-gobject.so.2.11512.0",
-    "libcairo.so.2.11512.0",
-    "libcom_err.so.2.1",
-    "libdatrie.so.1.3.3",
-    "libdbus-1.so.3.19.7",
-    "libdl-2.27.so",
-    "libdrm.so.2.4.0",
-    "libdw-0.170.so",
-    "libelf-0.170.so",
-    "libenchant-2.so.2.2.3",
-    "libepoxy.so.0.0.0",
-    "libexpat.so.1.6.7",
-    "libffi.so.6.0.4",
-    "libfontconfig.so.1.11.1",
-    "libfreetype.so.6.16.1",
-    "libfribidi.so.0.4.0",
-    "libgbm.so.1.0.0",
-    "libgcc_s.so.1",
-    "libgcrypt.so.20.2.2",
-    "libgdk-3.so.0.2200.30",
-    "libgdk_pixbuf-2.0.so.0.3600.12",
-    "libglib-2.0.so.0.5600.1",
-    "libgio-2.0.so.0.5600.1",
-    "libgmodule-2.0.so.0.5600.1",
-    "libgobject-2.0.so.0.5600.1",
-    "libgpg-error.so.0.24.2",
-    "libgraphite2.so.3.0.1",
-    "libgssapi_krb5.so.2.2",
-    "libgstallocators-1.0.so.0.1401.0",
-    "libgstapp-1.0.so.0.1401.0",
-    "libgstaudio-1.0.so.0.1401.0",
-    "libgstbase-1.0.so.0.1401.0",
-    "libgstfft-1.0.so.0.1401.0",
-    "libgstgl-1.0.so.0.1401.0",
-    "libgstpbutils-1.0.so.0.1401.0",
-    "libgstreamer-1.0.so.0.1401.0",
-    "libgsttag-1.0.so.0.1401.0",
-    "libgstvideo-1.0.so.0.1401.0",
-    "libgtk-3.so.0.2200.30",
-    "libgudev-1.0.so.0.2.0",
-    "libharfbuzz-icu.so.0.10706.0",
-    "libharfbuzz.so.0.10706.0",
-    "libhyphen.so.0.3.0",
-    "libicui18n.so.61.1",
-    "libicuuc.so.61.1",
-    "libjavascriptcoregtk-4.0.so.18.7.10",
-    "libjpeg.so.8.1.2",
-    "libk5crypto.so.3.1",
-    "libkeyutils.so.1.6",
-    "libkrb5.so.3.3",
-    "libkrb5support.so.0.1",
-    "liblz4.so.1.8.2",
-    "liblzma.so.5.2.4",
-    "libm-2.27.so",
-    "libmount.so.1.1.0",
-    "libnotify.so.4.0.0",
-    "liborc-0.4.so.0.28.0",
-    "libpango-1.0.so.0.4200.1",
-    "libpangocairo-1.0.so.0.4200.1",
-    "libpangoft2-1.0.so.0.4200.1",
-    "libpcre.so.1.2.10",
-    "libpixman-1.so.0.34.0",
-    "libpng16.so.16.34.0",
-    "libpthread-2.27.so",
-    "libresolv-2.27.so",
-    "librt-2.27.so",
-    "libsecret-1.so.0.0.0",
-    "libsoup-2.4.so.1.8.0",
-    "libsqlite3.so.0.8.6",
-    "libstdc++.so.6.0.25",
-    "libsystemd.so.0.22.0",
-    "libtasn1.so.6.5.5",
-    "libthai.so.0.3.0",
-    "libudev.so.1.6.10",
-    "libunwind.so.8.0.1",
-    "libuuid.so.1.3.0",
-    "libwayland-client.so.0.3.0",
-    "libwayland-cursor.so.0.0.0",
-    "libwayland-egl.so.1.0.0",
-    "libwayland-server.so.0.1.0",
-#endif
-    "libwebkit2gtk-4.0.so.37.28.2", /* XXX BAD */
-#if 0
-    "libwebp.so.7.0.2",
-    "libwebpdemux.so.2.0.4",
-    "libwoff2common.so.1.0.2",
-    "libwoff2dec.so.1.0.2",
-    "libxcb-render.so.0.0.0",
-    "libxcb-shm.so.0.0.0",
-    "libxcb.so.1.1.0",
-    "libxkbcommon.so.0.0.0",
-    "libxml2.so.2.9.8",
-    "libxslt.so.1.1.32",
-    "libz.so.1.2.11",
-    "surf",
-#endif
-};
-
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (!update_view_of_virtual_memory(child)) {
     WithColor::error() << "failed to read virtual memory maps of child "
@@ -1500,11 +1365,6 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
           boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
       binary_index_set_t bin_idx_set = {binary_idx};
       AddressSpace.add(std::make_pair(intervl, bin_idx_set));
-
-#if 0
-      if (bad_bins.find(fs::path(Path).filename().string()) != bad_bins.end())
-        continue;
-#endif
 
       binary_t &binary = decompilation.Binaries[binary_idx];
 
@@ -1814,107 +1674,6 @@ std::string description_of_program_counter(uintptr_t pc) {
     uintptr_t off = pc - vmprop.beg + vmprop.off;
     return (fmt("%s+%#lx") % str % off).str();
   }
-}
-
-const char *name_of_signal_number(int num) {
-  switch (num) {
-#define _CHECK_SIGNAL(NM)                                                      \
-  case NM:                                                                     \
-    return #NM;
-
-#ifdef SIGHUP
-  _CHECK_SIGNAL(SIGHUP)
-#endif
-#ifdef SIGINT
-  _CHECK_SIGNAL(SIGINT)
-#endif
-#ifdef SIGQUIT
-  _CHECK_SIGNAL(SIGQUIT)
-#endif
-#ifdef SIGILL
-  _CHECK_SIGNAL(SIGILL)
-#endif
-#ifdef SIGTRAP
-  _CHECK_SIGNAL(SIGTRAP)
-#endif
-#ifdef SIGABRT
-  _CHECK_SIGNAL(SIGABRT)
-#endif
-#ifdef SIGBUS
-  _CHECK_SIGNAL(SIGBUS)
-#endif
-#ifdef SIGFPE
-  _CHECK_SIGNAL(SIGFPE)
-#endif
-#ifdef SIGKILL
-  _CHECK_SIGNAL(SIGKILL)
-#endif
-#ifdef SIGUSR1
-  _CHECK_SIGNAL(SIGUSR1)
-#endif
-#ifdef SIGSEGV
-  _CHECK_SIGNAL(SIGSEGV)
-#endif
-#ifdef SIGUSR2
-  _CHECK_SIGNAL(SIGUSR2)
-#endif
-#ifdef SIGPIPE
-  _CHECK_SIGNAL(SIGPIPE)
-#endif
-#ifdef SIGALRM
-  _CHECK_SIGNAL(SIGALRM)
-#endif
-#ifdef SIGTERM
-  _CHECK_SIGNAL(SIGTERM)
-#endif
-#ifdef SIGSTKFLT
-  _CHECK_SIGNAL(SIGSTKFLT)
-#endif
-#ifdef SIGCHLD
-  _CHECK_SIGNAL(SIGCHLD)
-#endif
-#ifdef SIGCONT
-  _CHECK_SIGNAL(SIGCONT)
-#endif
-#ifdef SIGSTOP
-  _CHECK_SIGNAL(SIGSTOP)
-#endif
-#ifdef SIGTSTP
-  _CHECK_SIGNAL(SIGTSTP)
-#endif
-#ifdef SIGTTIN
-  _CHECK_SIGNAL(SIGTTIN)
-#endif
-#ifdef SIGTTOU
-  _CHECK_SIGNAL(SIGTTOU)
-#endif
-#ifdef SIGURG
-  _CHECK_SIGNAL(SIGURG)
-#endif
-#ifdef SIGXCPU
-  _CHECK_SIGNAL(SIGXCPU)
-#endif
-#ifdef SIGXFSZ
-  _CHECK_SIGNAL(SIGXFSZ)
-#endif
-#ifdef SIGVTALRM
-  _CHECK_SIGNAL(SIGVTALRM)
-#endif
-#ifdef SIGPROF
-  _CHECK_SIGNAL(SIGPROF)
-#endif
-#ifdef SIGWINCH
-  _CHECK_SIGNAL(SIGWINCH)
-#endif
-#ifdef SIGPOLL
-  _CHECK_SIGNAL(SIGPOLL)
-#endif
-#ifdef SIGSYS
-  _CHECK_SIGNAL(SIGSYS)
-#endif
-  }
-
-  return nullptr;
 }
 
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
