@@ -27,7 +27,6 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            -pthread \
            -lboost_filesystem \
            -lboost_system \
-           -lboost_program_options \
            -lboost_serialization
 
 #
@@ -49,7 +48,7 @@ all: $(BINS)
 $(BINDIR)/jove-llvm: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-llvm: $(BINDIR)/jove/jove.bc.inc
 define build_tool_template
-$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp
+$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp Makefile
 	@echo CXX $(1)
 	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
