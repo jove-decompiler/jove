@@ -64,6 +64,8 @@ struct basic_block_properties_t {
 
   JOVE_EXTRA_BB_PROPERTIES;
 
+  bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
+
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &Addr &Size &Term.Addr &Term.Type &Term._call.Target &DynTargets;
