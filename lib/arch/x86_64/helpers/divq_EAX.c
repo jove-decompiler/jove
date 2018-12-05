@@ -449,30 +449,6 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-void helper_divb_AL(CPUX86State *env, target_ulong t0)
-{
-    unsigned int num, den, q, r;
-
-    num = (env->regs[R_EAX] & 0xffff);
-    den = (t0 & 0xff);
-    if (den == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q = (num / den);
-    if (q > 0xff) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q &= 0xff;
-    r = (num % den) & 0xff;
-    env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;
-}
-
 static int div64(uint64_t *plow, uint64_t *phigh, uint64_t b)
 {
     uint64_t q, r, a1, a0;
@@ -516,13 +492,17 @@ void helper_divq_EAX(CPUX86State *env, target_ulong t0)
 {
     uint64_t r0, r1;
 
+#if 0
     if (t0 == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     r0 = env->regs[R_EAX];
     r1 = env->regs[R_EDX];
     if (div64(&r0, &r1, t0)) {
+#if 0
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
+#endif
     }
     env->regs[R_EAX] = r0;
     env->regs[R_EDX] = r1;
