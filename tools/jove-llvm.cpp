@@ -32,12 +32,15 @@ class LoadInst;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   std::vector<basic_block_t> BasicBlocks;                                      \
-  std::vector<llvm::AllocaInst *> GlobalAllocaVec;                             \
+  std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
+  std::set<std::pair<binary_index_t, basic_block_index_t>> Callers;            \
   llvm::AllocaInst *PCAlloca;                                                  \
   llvm::LoadInst *PCRelVal;                                                    \
                                                                                \
   struct ___Analysis {                                                         \
     tcg_global_set_t live;                                                     \
+    tcg_global_set_t ret;                                                      \
+                                                                               \
     tcg_global_set_t defined;                                                  \
     tcg_global_set_t globals;                                                  \
                                                                                \
@@ -62,6 +65,8 @@ class LoadInst;
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/MDBuilder.h>
+#include <llvm/IR/Metadata.h>
 #include <llvm/MC/MCAsmInfo.h>
 #include <llvm/MC/MCContext.h>
 #include <llvm/MC/MCDisassembler/MCDisassembler.h>
@@ -319,18 +324,22 @@ static std::unique_ptr<tiny_code_generator_t> TCG;
 static std::unique_ptr<llvm::LLVMContext> Context;
 static std::unique_ptr<llvm::Module> Module;
 
+static llvm::DataLayout DL("");
+
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
+static std::unordered_set<uintptr_t> RelocationsAt;
 
 static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *SectsGlobal;
+static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::GlobalVariable *PCRelGlobal;
 
-static llvm::DataLayout DL("");
+static llvm::MDNode *AliasScopeMetadata;
 
 struct helper_function_t {
   llvm::Function *F;
@@ -363,10 +372,12 @@ static int CreateCPUStateGlobal(void);
 static int CreatePCRelGlobal(void);
 static int FixupHelperStubs(void);
 static int IdentifyThunks(void);
+static int CreateNoAliasMetadata(void);
 static int TranslateFunctions(void);
 static int PrepareToOptimize(void);
 static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
+static int InternalizeStaticFunctions(void);
 static int Optimize2(void);
 static int RenameFunctionLocals(void);
 static int WriteModule(void);
@@ -389,10 +400,12 @@ int llvm(void) {
       || CreatePCRelGlobal()
       || FixupHelperStubs()
       || IdentifyThunks()
+      || CreateNoAliasMetadata()
       || TranslateFunctions()
       || PrepareToOptimize()
       || Optimize1()
       || FixupPCRelativeAddrs()
+      || InternalizeStaticFunctions()
       || Optimize2()
       || RenameFunctionLocals()
       || WriteModule();
@@ -462,22 +475,20 @@ struct dfs_visitor : public boost::default_dfs_visitor {
 
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
-  for (binary_index_t bin_idx = 0;
-       bin_idx < Decompilation.Binaries.size();
-       ++bin_idx) {
-    auto &Binary = Decompilation.Binaries[bin_idx];
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = Decompilation.Binaries[BIdx];
     auto &ICFG = Binary.Analysis.ICFG;
-    auto &st = BinStateVec[bin_idx];
+    auto &st = BinStateVec[BIdx];
 
     //
     // FuncMap
     //
-    for (function_index_t f_idx = 0;
-         f_idx < Binary.Analysis.Functions.size();
-         ++f_idx) {
-      function_t &f = Binary.Analysis.Functions[f_idx];
+    for (function_index_t FIdx = 0; FIdx < Binary.Analysis.Functions.size();
+         ++FIdx) {
+      function_t &f = Binary.Analysis.Functions[FIdx];
 
-      st.FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = f_idx;
+      st.FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = FIdx;
 
       //
       // BasicBlocks (in DFS order)
@@ -496,12 +507,11 @@ int InitStateForBinaries(void) {
     //
     // BBMap
     //
-    for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(ICFG);
-         ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, ICFG);
+    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+         ++BBIdx) {
+      basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-      st.BBMap[ICFG[bb].Addr] = bb_idx;
+      st.BBMap[ICFG[bb].Addr] = BBIdx;
     }
 
     //
@@ -576,7 +586,7 @@ int InitStateForBinaries(void) {
       st.SectMap.add(std::make_pair(intervl, sectprops));
     }
 
-    if (bin_idx == BinaryIndex) {
+    if (BIdx == BinaryIndex) {
       llvm::outs() << "Address Space:\n";
       for (const auto &pair : st.SectMap) {
         const section_properties_t &sect = *pair.second.begin();
@@ -786,12 +796,38 @@ int ProcessDynamicTargets(void) {
     binary_t &Binary = Decompilation.Binaries[BIdx];
     auto &ICFG = Binary.Analysis.ICFG;
 
-    auto it_pair = boost::vertices(ICFG);
-    for (auto it = it_pair.first; it != it_pair.second; ++it)
-      for (const auto &dyn_targ : ICFG[*it].DynTargets)
-        Decompilation.Binaries[dyn_targ.first]
-            .Analysis.Functions[dyn_targ.second]
-            .Analysis.IsABI = true;
+    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+         ++BBIdx) {
+      basic_block_t bb = boost::vertex(BBIdx, ICFG);
+
+      for (const auto &dyn_targ : ICFG[bb].DynTargets) {
+        function_t &callee = Decompilation.Binaries[dyn_targ.first]
+                                 .Analysis.Functions[dyn_targ.second];
+
+        callee.Analysis.IsABI = true;
+#if 0
+        callee.Callers.insert({BIdx, BBIdx});
+#endif
+      }
+    }
+  }
+
+  /* XXX this should go somewhere else */
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    binary_t &Binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = Binary.Analysis.ICFG;
+
+    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+         ++BBIdx) {
+      basic_block_t bb = boost::vertex(BBIdx, ICFG);
+      if (ICFG[bb].Term.Type != TERMINATOR::CALL)
+        continue;
+
+      function_t &callee =
+          Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+
+      callee.Callers.insert({BIdx, BBIdx});
+    }
   }
 
   return 0;
@@ -1105,14 +1141,72 @@ int PrepareToTranslateCode(void) {
 
 static void AnalyzeTCGHelper(helper_function_t &hf);
 
+static void DoDataFlowAnalysis(void) {
+  //
+  // backwards data-flow analysis for each function to determine args
+  //
+  for (auto &Binary : Decompilation.Binaries) {
+    auto &ICFG = Binary.Analysis.ICFG;
+    for (auto &Func : Binary.Analysis.Functions) {
+      basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
+
+      for (basic_block_t bb : Func.BasicBlocks) {
+        ICFG[bb].Analysis.IN.reset();
+        ICFG[bb].Analysis.OUT.reset();
+      }
+
+      bool change;
+      do {
+        change = false;
+
+        for (basic_block_t bb : boost::adaptors::reverse(Func.BasicBlocks)) {
+          const tcg_global_set_t _IN = ICFG[bb].Analysis.IN;
+
+          auto eit_pair = boost::out_edges(bb, ICFG);
+          ICFG[bb].Analysis.OUT = std::accumulate(
+              eit_pair.first, eit_pair.second, tcg_global_set_t(),
+              [&](tcg_global_set_t glbs, control_flow_t cf) {
+                return glbs | ICFG[boost::target(cf, ICFG)].Analysis.IN;
+              });
+          ICFG[bb].Analysis.IN =
+              ICFG[bb].Analysis.use |
+              (ICFG[bb].Analysis.OUT & ~(ICFG[bb].Analysis.def));
+
+          change = change || _IN != ICFG[bb].Analysis.IN;
+        }
+      } while (change);
+
+      Func.Analysis.live = ICFG[entryBB].Analysis.IN;
+
+      Func.Analysis.live.reset(tcg_env_index);
+
+      Func.Analysis.defined = std::accumulate(
+          Func.BasicBlocks.begin(), Func.BasicBlocks.end(), tcg_global_set_t(),
+          [&](tcg_global_set_t glbs, basic_block_t bb) {
+            return glbs | ICFG[bb].Analysis.defined;
+          });
+
+      Func.Analysis.defined.reset(tcg_env_index);
+
+      Func.Analysis.globals = std::accumulate(
+          Func.BasicBlocks.begin(), Func.BasicBlocks.end(), tcg_global_set_t(),
+          [&](tcg_global_set_t glbs, basic_block_t bb) {
+            return glbs | ICFG[bb].Analysis.globals;
+          });
+
+      Func.Analysis.globals.reset(tcg_env_index);
+    }
+  }
+}
+
 int ConductLivenessAnalysis(void) {
   //
   // first we compute def_B and use_B for each basic block B
   //
-  for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
-    binary_t &binary = Decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
-    interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+  for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = Binary.Analysis.ICFG;
+    auto &st = BinStateVec[BIdx];
 
     auto it_pair = boost::vertices(ICFG);
     for (auto it = it_pair.first; it != it_pair.second; ++it) {
@@ -1310,132 +1404,143 @@ int ConductLivenessAnalysis(void) {
     }
   }
 
+  DoDataFlowAnalysis();
+
   return 0;
 }
 
-int ConductInterproceduralLivenessAnalysis(void) {
-  bool Change;
-  do {
-    Change = false;
+static tcg_global_set_t DetermineFunctionArgs(function_t &f) {
+  tcg_global_set_t args = f.Analysis.live;
 
-    for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
-      auto &Binary = Decompilation.Binaries[i];
-      auto &ICFG = Binary.Analysis.ICFG;
+  if (f.Analysis.IsABI)
+    args &= CallConvArgs;
 
-      auto it_pair = boost::vertices(ICFG);
-      for (auto it = it_pair.first; it != it_pair.second; ++it) {
-        basic_block_t bb = *it;
+  return args;
+}
 
-        tcg_global_set_t iglbs;
-        tcg_global_set_t oglbs;
+static tcg_global_set_t DetermineFunctionRets(function_t &f) {
+  tcg_global_set_t rets = f.Analysis.ret;
 
-        switch (ICFG[bb].Term.Type) {
-        case TERMINATOR::CALL: {
-          function_t &callee =
-              Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+  if (f.Analysis.IsABI)
+    rets &= CallConvRets;
 
-          iglbs = callee.Analysis.live;
-          oglbs = callee.Analysis.defined;
-          break;
-        }
+  return rets;
+}
 
-        case TERMINATOR::INDIRECT_JUMP:
-        case TERMINATOR::INDIRECT_CALL: {
-          auto &DynTargets = ICFG[bb].DynTargets;
-          if (DynTargets.empty())
-            continue;
+static tcg_global_set_t DetermineFunctionArgs(binary_index_t BinIdx,
+                                              function_index_t FuncIdx) {
+  binary_t &b = Decompilation.Binaries[BinIdx];
+  function_t &f = b.Analysis.Functions[FuncIdx];
 
+  return DetermineFunctionArgs(f);
+}
+
+static tcg_global_set_t DetermineFunctionRets(binary_index_t BinIdx,
+                                              function_index_t FuncIdx) {
+  binary_t &b = Decompilation.Binaries[BinIdx];
+  function_t &f = b.Analysis.Functions[FuncIdx];
+
+  return DetermineFunctionRets(f);
+}
+
+static void InterprocPropogate(void) {
+  for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = Binary.Analysis.ICFG;
+
+    auto it_pair = boost::vertices(ICFG);
+    for (auto it = it_pair.first; it != it_pair.second; ++it) {
+      basic_block_t bb = *it;
+
+      tcg_global_set_t iglbs;
+      tcg_global_set_t oglbs;
+
+      switch (ICFG[bb].Term.Type) {
+      case TERMINATOR::CALL: {
+        struct {
           binary_index_t BinIdx;
           function_index_t FuncIdx;
+        } Callee;
 
-          std::tie(BinIdx, FuncIdx) = *DynTargets.begin();
+        Callee.BinIdx = BIdx;
+        Callee.FuncIdx = ICFG[bb].Term._call.Target;
 
-          function_t &callee =
-              Decompilation.Binaries.at(BinIdx).Analysis.Functions.at(FuncIdx);
+        iglbs = DetermineFunctionArgs(Callee.BinIdx, Callee.FuncIdx);
+        oglbs = DetermineFunctionRets(Callee.BinIdx, Callee.FuncIdx);
+        break;
+      }
 
-          iglbs = callee.Analysis.live;
-          oglbs = callee.Analysis.defined;
-          break;
-        }
-
-        default:
+      case TERMINATOR::INDIRECT_JUMP:
+      case TERMINATOR::INDIRECT_CALL: {
+        auto &DynTargets = ICFG[bb].DynTargets;
+        if (DynTargets.empty())
           continue;
-        }
 
-        tcg_global_set_t &def = ICFG[bb].Analysis.def;
-        tcg_global_set_t &use = ICFG[bb].Analysis.use;
-        tcg_global_set_t &defined = ICFG[bb].Analysis.defined;
-        tcg_global_set_t &globals = ICFG[bb].Analysis.globals;
+        struct {
+          binary_index_t BinIdx;
+          function_index_t FuncIdx;
+        } Callee;
 
-        use |= (iglbs & ~def);
-        def |= (oglbs & ~use);
+        std::tie(Callee.BinIdx, Callee.FuncIdx) = *DynTargets.begin();
 
-        defined |= oglbs;
+        iglbs = DetermineFunctionArgs(Callee.BinIdx, Callee.FuncIdx);
+        oglbs = DetermineFunctionRets(Callee.BinIdx, Callee.FuncIdx);
+        break;
+      }
 
-        globals |= oglbs;
-        globals |= iglbs;
+      default:
+        continue;
+      }
+
+      tcg_global_set_t &def = ICFG[bb].Analysis.def;
+      tcg_global_set_t &use = ICFG[bb].Analysis.use;
+      tcg_global_set_t &defined = ICFG[bb].Analysis.defined;
+      tcg_global_set_t &globals = ICFG[bb].Analysis.globals;
+
+      use |= (iglbs & ~def);
+      def |= (oglbs & ~use);
+
+      defined |= oglbs;
+
+      globals |= oglbs;
+      globals |= iglbs;
+    }
+  }
+}
+
+int ConductInterproceduralLivenessAnalysis(void) {
+  for (unsigned i = 0; i < 2; ++i) {
+    // compute "returned"
+    for (auto &Binary : Decompilation.Binaries) {
+      for (auto &Func : Binary.Analysis.Functions) {
+        tcg_global_set_t defined = Func.Analysis.defined;
+
+#if 1
+        Func.Analysis.ret =
+            Func.Callers.empty()
+                ? defined
+                : std::accumulate(
+                      Func.Callers.begin(), Func.Callers.end(),
+                      tcg_global_set_t(),
+                      [&](tcg_global_set_t res,
+                          std::pair<binary_index_t, basic_block_index_t>
+                              caller) {
+                        auto &_ICFG =
+                            Decompilation.Binaries[caller.first].Analysis.ICFG;
+                        basic_block_t callee_bb =
+                            boost::vertex(caller.second, _ICFG);
+
+                        return res | (defined & _ICFG[callee_bb].Analysis.OUT);
+                      });
+#else
+        Func.Analysis.ret = defined;
+#endif
       }
     }
 
-    //
-    // next we conduct backwards data-flow analysis for each function
-    //
-    for (unsigned i = 0; i < Decompilation.Binaries.size(); ++i) {
-      auto &Binary = Decompilation.Binaries[i];
-      auto &ICFG = Binary.Analysis.ICFG;
-      for (function_t &Func : Binary.Analysis.Functions) {
-        basic_block_t entryBB = boost::vertex(Func.Entry, ICFG);
-
-        tcg_global_set_t _live = Func.Analysis.live;
-        tcg_global_set_t _defined = Func.Analysis.defined;
-        tcg_global_set_t _globals = Func.Analysis.globals;
-
-        for (basic_block_t bb : Func.BasicBlocks) {
-          ICFG[bb].Analysis.IN.reset();
-          ICFG[bb].Analysis.OUT.reset();
-        }
-
-        bool change;
-        do {
-          change = false;
-
-          for (basic_block_t bb : boost::adaptors::reverse(Func.BasicBlocks)) {
-            const tcg_global_set_t _IN = ICFG[bb].Analysis.IN;
-
-            auto eit_pair = boost::out_edges(bb, ICFG);
-            ICFG[bb].Analysis.OUT = std::accumulate(
-                eit_pair.first, eit_pair.second, tcg_global_set_t(),
-                [&](tcg_global_set_t glbs, control_flow_t cf) {
-                  return glbs | ICFG[boost::target(cf, ICFG)].Analysis.IN;
-                });
-            ICFG[bb].Analysis.IN =
-                ICFG[bb].Analysis.use |
-                (ICFG[bb].Analysis.OUT & ~(ICFG[bb].Analysis.def));
-
-            change = change || _IN != ICFG[bb].Analysis.IN;
-          }
-        } while (change);
-
-        Func.Analysis.live = ICFG[entryBB].Analysis.IN;
-
-        Func.Analysis.defined = std::accumulate(
-            Func.BasicBlocks.begin(), Func.BasicBlocks.end(),
-            tcg_global_set_t(), [&](tcg_global_set_t glbs, basic_block_t bb) {
-              return glbs | ICFG[bb].Analysis.defined;
-            });
-
-        Func.Analysis.globals = std::accumulate(
-            Func.BasicBlocks.begin(), Func.BasicBlocks.end(),
-            tcg_global_set_t(), [&](tcg_global_set_t glbs, basic_block_t bb) {
-              return glbs | ICFG[bb].Analysis.globals;
-            });
-
-        Change = Change || _live != Func.Analysis.live;
-        Change = Change || _defined != Func.Analysis.defined;
-        Change = Change || _globals != Func.Analysis.globals;
-      }
-    }
-  } while (Change);
+    InterprocPropogate();
+    DoDataFlowAnalysis();
+  }
 
   return 0;
 }
@@ -1457,16 +1562,63 @@ static void explode_tcg_global_set(std::vector<unsigned> &out,
   } while (x);
 }
 
+static void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
+  tcg_global_set_t args = DetermineFunctionArgs(f);
+
+  explode_tcg_global_set(glbv, args);
+
+  if (f.Analysis.IsABI)
+    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+    });
+  else
+    std::sort(glbv.begin(), glbv.end());
+}
+
+static void ExplodeFunctionRets(function_t &f,
+                                std::vector<unsigned> &glbv) {
+  tcg_global_set_t rets = DetermineFunctionRets(f);
+
+  explode_tcg_global_set(glbv, rets);
+
+  if (f.Analysis.IsABI)
+    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+      return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
+             std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
+    });
+  else
+    std::sort(glbv.begin(), glbv.end());
+}
+
+static void ExplodeFunctionArgs(binary_index_t BinIdx,
+                                function_index_t FuncIdx,
+                                std::vector<unsigned> &glbv) {
+  binary_t &b = Decompilation.Binaries[BinIdx];
+  function_t &f = b.Analysis.Functions[FuncIdx];
+
+  ExplodeFunctionArgs(f, glbv);
+}
+
+static void ExplodeFunctionRets(binary_index_t BinIdx,
+                                function_index_t FuncIdx,
+                                std::vector<unsigned> &glbv) {
+  binary_t &b = Decompilation.Binaries[BinIdx];
+  function_t &f = b.Analysis.Functions[FuncIdx];
+
+  ExplodeFunctionRets(f, glbv);
+}
+
 int InferLivenessForABIs(void) {
   for (unsigned BinIdx = 0; BinIdx < Decompilation.Binaries.size(); ++BinIdx) {
     binary_t &Binary = Decompilation.Binaries[BinIdx];
     interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
-    for (function_t &Func : Binary.Analysis.Functions) {
-      if (!Func.Analysis.IsABI)
+    for (function_t &f : Binary.Analysis.Functions) {
+      if (!f.Analysis.IsABI)
         continue;
 
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, Func.Analysis.live);
+      ExplodeFunctionArgs(f, glbv);
 
       auto rit = std::accumulate(
           glbv.begin(), glbv.end(), CallConvArgArray.crend(),
@@ -1479,8 +1631,10 @@ int InferLivenessForABIs(void) {
         continue;
 
       unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
-      for (unsigned i = 0; i <= idx; ++i)
-        Func.Analysis.live.set(CallConvArgArray[i]);
+      for (unsigned i = 0; i <= idx; ++i) {
+        f.Analysis.live.set(CallConvArgArray[i]);
+        f.Analysis.globals.set(CallConvArgArray[i]);
+      }
     }
   }
 
@@ -1525,27 +1679,62 @@ static llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
-static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
-                                                 function_index_t FuncIdx) {
-  binary_t &b = Decompilation.Binaries[BinIdx];
-  function_t &f = b.Analysis.Functions[FuncIdx];
+static unsigned bitsOfTCGType(TCGType ty) {
+  switch (ty) {
+  case TCG_TYPE_I32:
+    return 32;
+  case TCG_TYPE_I64:
+    return 64;
+  default:
+    abort();
+  }
+}
 
-  tcg_global_set_t inputs = f.Analysis.live & CallConvArgs;
-  tcg_global_set_t outputs = f.Analysis.defined & CallConvRets;
+static llvm::FunctionType *DetermineFunctionType(function_t &f) {
+  std::vector<llvm::Type *> argTypes;
 
-  std::vector<llvm::Type *> argTypes(inputs.count(), WordType());
+  {
+    std::vector<unsigned> glbv;
+    ExplodeFunctionArgs(f, glbv);
+
+    argTypes.resize(glbv.size());
+    std::transform(glbv.begin(), glbv.end(), argTypes.begin(),
+                   [&](unsigned glb) -> llvm::Type * {
+                     return llvm::Type::getIntNTy(
+                         *Context, bitsOfTCGType(TCG->_ctx.temps[glb].type));
+                   });
+  }
 
   llvm::Type *&retTy = f.retTy;
-  if (outputs.count() == 0) {
-    retTy = VoidType();
-  } else if (outputs.count() == 1) {
-    retTy = WordType();
-  } else {
-    std::vector<llvm::Type *> retTypes(outputs.count(), WordType());
-    retTy = llvm::StructType::get(*Context, retTypes);
+  {
+    std::vector<unsigned> glbv;
+    ExplodeFunctionRets(f, glbv);
+
+    if (glbv.empty()) {
+      retTy = VoidType();
+    } else if (glbv.size() == 1) {
+      retTy = llvm::Type::getIntNTy(
+          *Context, bitsOfTCGType(TCG->_ctx.temps[glbv.front()].type));
+    } else {
+      std::vector<llvm::Type *> retTypes;
+      retTypes.resize(glbv.size());
+      std::transform(glbv.begin(), glbv.end(), retTypes.begin(),
+                     [&](unsigned glb) -> llvm::Type * {
+                       return llvm::Type::getIntNTy(
+                           *Context, bitsOfTCGType(TCG->_ctx.temps[glb].type));
+                     });
+
+      retTy = llvm::StructType::get(*Context, retTypes);
+    }
   }
 
   return llvm::FunctionType::get(retTy, argTypes, false);
+}
+
+static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
+                                                 function_index_t FuncIdx) {
+  return DetermineFunctionType(
+      Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx]);
 }
 
 int CreateFunctions(void) {
@@ -1555,20 +1744,21 @@ int CreateFunctions(void) {
   for (function_index_t FuncIdx = 0; FuncIdx < Binary.Analysis.Functions.size();
        ++FuncIdx) {
     function_t &f = Binary.Analysis.Functions[FuncIdx];
-    f.F = llvm::Function::Create(DetermineFunctionType(BinaryIndex, FuncIdx),
-                                 llvm::GlobalValue::ExternalLinkage,
-                                 (fmt("%#lx") % ICFG[f.Entry].Addr).str(),
+
+    std::string name;
+    name.push_back(f.Analysis.IsABI ? 'J' : 'j');
+    name.append((fmt("%lx") % ICFG[f.Entry].Addr).str());
+
+    f.F = llvm::Function::Create(DetermineFunctionType(f),
+                                 llvm::GlobalValue::ExternalLinkage, name,
                                  Module.get());
+
     std::vector<unsigned> glbv;
-    explode_tcg_global_set(glbv, f.Analysis.live & CallConvArgs);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-    });
+    ExplodeFunctionArgs(BinaryIndex, FuncIdx, glbv);
 
     unsigned i = 0;
     for (llvm::Argument &A : f.F->args()) {
-      A.setName(TCG->_ctx.temps[glbv[i]].name);
+      A.setName(TCG->_ctx.temps[glbv.at(i)].name);
       ++i;
     }
   }
@@ -1618,12 +1808,16 @@ struct section_t {
 llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(Addr >= SectsStartAddr && Addr < SectsEndAddr);
 
+  llvm::GlobalVariable *SectsGV =
+      RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
+                                                      : SectsGlobal;
+
   unsigned off = Addr - SectsStartAddr;
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+      IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
 
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
@@ -1801,9 +1995,14 @@ int CreateSectionGlobalVariables(void) {
   llvm::StructType *SectsGlobalTy = llvm::StructType::create(
       *Context, SectsGlobalFieldTys, "struct.sections", true);
   SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                                         llvm::GlobalValue::InternalLinkage,
+                                         llvm::GlobalValue::ExternalLinkage,
                                          nullptr, "sections");
   SectsGlobal->setAlignment(4096);
+
+  ConstSectsGlobal = new llvm::GlobalVariable(
+      *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
+      nullptr, "const_sections");
+  ConstSectsGlobal->setAlignment(4096);
 
   auto constant_at_address = [&](uintptr_t Addr, llvm::Constant *C) -> void {
     auto it = SectIdxMap.find(Addr);
@@ -1963,6 +2162,13 @@ int CreateSectionGlobalVariables(void) {
   SectsGlobal->setInitializer(
       llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
 
+  ConstSectsGlobal->setInitializer(
+      llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+  ConstSectsGlobal->setConstant(true);
+
+  for (const relocation_t &reloc : RelocationTable)
+    RelocationsAt.insert(reloc.Addr);
+
   return 0;
 }
 
@@ -2058,17 +2264,6 @@ int CreatePCRelGlobal(void) {
   return 0;
 }
 
-static unsigned bitsOfTCGType(TCGType ty) {
-  switch (ty) {
-  case TCG_TYPE_I32:
-    return 32;
-  case TCG_TYPE_I64:
-    return 64;
-  default:
-    abort();
-  }
-}
-
 int FixupHelperStubs(void) {
   //
   // we assume that the user is decompiling an executable (i.e. an ELF which
@@ -2110,22 +2305,20 @@ int FixupHelperStubs(void) {
     std::vector<llvm::Value *> ArgVec;
     {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-      });
+      ExplodeFunctionArgs(BinaryIndex, fidx, glbv);
 
       ArgVec.resize(glbv.size());
       std::transform(
           glbv.begin(), glbv.end(), ArgVec.begin(),
           [&](unsigned glb) -> llvm::Value * {
             llvm::SmallVector<llvm::Value *, 4> Indices;
-            return IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
+            llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
                 IRB, DL, CPUStateGlobal,
                 llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
                 IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
                 Indices, ""));
+            res->setName(TCG->_ctx.temps[glb].name);
+            return res;
           });
     }
 
@@ -2216,11 +2409,27 @@ int IdentifyThunks(void) {
   return 0;
 }
 
+int CreateNoAliasMetadata(void) {
+  //
+  // create noalias metadata
+  //
+  llvm::MDBuilder MDB(*Context);
+  llvm::MDNode *aliasScopeDomain = MDB.createAliasScopeDomain("JoveDomain");
+  llvm::MDNode *aliasScope =
+      MDB.createAliasScope("JoveScope", aliasScopeDomain);
+
+  AliasScopeMetadata =
+      llvm::MDNode::get(*Context, llvm::ArrayRef<llvm::Metadata *>(aliasScope));
+
+  return 0;
+}
+
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
 
 static llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
   assert(glb < tcg_num_globals);
+  assert(glb != tcg_env_index);
   assert(temp_idx(TCG->_ctx.temps[glb].mem_base) == tcg_env_index);
 
   unsigned off = TCG->_ctx.temps[glb].mem_offset;
@@ -2243,9 +2452,12 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
 
-  f.GlobalAllocaVec.resize(tcg_num_globals);
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
+  //
+  // create the AllocaInst's for each global referenced at the start of the
+  // entry basic block of the function
+  //
   {
     basic_block_t bb = f.BasicBlocks.front();
     llvm::IRBuilderTy IRB(ICFG[bb].B);
@@ -2267,17 +2479,16 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     }
 
     f.PCAlloca = tcg_program_counter_index < 0
-                     ? f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr")
+                     ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
                      : f.GlobalAllocaVec[tcg_program_counter_index];
     f.PCRelVal = IRB.CreateLoad(PCRelGlobal, "pcrel");
 
+    //
+    // initialize the globals which are passed as parameters
+    //
     {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, f.Analysis.live & CallConvArgs);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-      });
+      ExplodeFunctionArgs(f, glbv);
 
       llvm::Function::arg_iterator arg_it = F->arg_begin();
       for (unsigned glb : glbv) {
@@ -2288,15 +2499,29 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       }
     }
 
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, glbs & ~(f.Analysis.live & CallConvArgs));
+    //
+    // for globals not passed as parameters, they are either loaded from the
+    // GlobalCPUState *or*, if this function conforms to the ABI specification
+    // they are initialized to UndefValue
+    //
+    std::vector<unsigned> remaining_glbv;
+    explode_tcg_global_set(remaining_glbv, glbs & ~DetermineFunctionArgs(f));
 
-      for (unsigned glb : glbv) {
-        llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
-        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-        IRB.CreateStore(Val, Ptr);
+    for (unsigned glb : remaining_glbv) {
+      llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+
+      llvm::Value *Val;
+      if (f.Analysis.IsABI) {
+        if (glb == tcg_stack_pointer_index || glb == tcg_frame_pointer_index)
+          Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+        else
+          Val = llvm::UndefValue::get(
+              IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)));
+      } else {
+        Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
       }
+
+      IRB.CreateStore(Val, Ptr);
     }
 
     if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
@@ -2478,7 +2703,23 @@ int FixupPCRelativeAddrs(void) {
   return 0;
 }
 
+int InternalizeStaticFunctions(void) {
+  binary_t &b = Decompilation.Binaries[BinaryIndex];
+
+  for (function_t &f : b.Analysis.Functions) {
+    if (f.Analysis.IsABI)
+      continue;
+
+    if (!f.F->empty())
+      f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  return 0;
+}
+
 int Optimize2(void) {
+  ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+
   if (opts::NoOpt2)
     return 0;
 
@@ -3014,29 +3255,28 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     std::vector<llvm::Value *> ArgVec;
     {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-      });
+      ExplodeFunctionArgs(callee, glbv);
 
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
+                       if (!f.GlobalAllocaVec[glb])
+                         return IRB.CreateLoad(CPUStateGlobalPointer(glb));
+
                        return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
                      });
     }
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
-    Ret->setIsNoInline();
+    if (callee.BasicBlocks.size() == 1 &&
+        ICFG[callee.BasicBlocks.front()].IsSingleInstruction())
+      ; /* allow this call to be inlined */
+    else
+      Ret->setIsNoInline();
 
     if (!callee.retTy->isVoidTy()) {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, callee.Analysis.defined & CallConvRets);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-      });
+      ExplodeFunctionRets(callee, glbv);
 
       if (glbv.size() == 1) {
         assert(callee.retTy->isIntegerTy());
@@ -3089,6 +3329,8 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
     const auto &DynTargets = ICFG[bb].DynTargets;
     if (DynTargets.empty()) {
+      WithColor::warning() << "indirect branch has zero dyn targets\n";
+
       // apparently this is necessary
       IRB.CreateCall(IRB.CreateIntToPtr(
           PC, llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
@@ -3105,46 +3347,42 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     std::vector<llvm::Value *> ArgVec;
     {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, callee.Analysis.live & CallConvArgs);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-               std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-      });
+      ExplodeFunctionArgs(callee, glbv);
 
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
-                       return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+                       llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+
+                       if (!Ptr)
+                         Ptr = CPUStateGlobalPointer(glb);
+
+                       return IRB.CreateLoad(Ptr);
                      });
     }
 
     llvm::CallInst *Ret = IRB.CreateCall(
-        IRB.CreateIntToPtr(PC, llvm::PointerType::get(
-                                   DetermineFunctionType(BinIdx, FuncIdx), 0)),
+        IRB.CreateIntToPtr(
+            PC, llvm::PointerType::get(DetermineFunctionType(callee), 0)),
         ArgVec);
     Ret->setIsNoInline();
 
     if (!callee.retTy->isVoidTy()) {
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, callee.Analysis.defined & CallConvRets);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-      });
+      ExplodeFunctionRets(callee, glbv);
 
       if (glbv.size() == 1) {
         assert(callee.retTy->isIntegerTy());
         IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
       } else {
         for (unsigned i = 0; i < glbv.size(); ++i) {
-          llvm::AllocaInst *Ptr = f.GlobalAllocaVec[glbv[i]];
-          if (!Ptr) {
-            WithColor::error() << "no alloca for global "
-                               << TCG->_ctx.temps[glbv[i]].name << '\n';
-            return 1;
-          }
           llvm::Value *Val =
               IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+
+          llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
+          if (!Ptr)
+            Ptr = CPUStateGlobalPointer(glbv[i]);
+
           IRB.CreateStore(Val, Ptr);
         }
       }
@@ -3195,13 +3433,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     }
 
     std::vector<unsigned> glbv;
-    {
-      explode_tcg_global_set(glbv, f.Analysis.defined & CallConvRets);
-      std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-        return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-               std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-      });
-    }
+    ExplodeFunctionRets(f, glbv);
 
     if (f.retTy->isIntegerTy()) {
       assert(glbv.size() == 1);
@@ -3211,23 +3443,19 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
     assert(f.retTy->isStructTy());
     assert(glbv.size() > 1);
-    llvm::Value *retVal =
-        accumulate(
-            glbv.begin(), glbv.end(),
-            std::pair<unsigned, llvm::Value *>(0u, nullptr),
-            [&](std::pair<unsigned, llvm::Value *> respair, unsigned glbidx) {
-              unsigned idx;
-              llvm::Value *res;
-              std::tie(idx, res) = respair;
 
-              return std::make_pair(
-                  idx + 1, IRB.CreateInsertValue(
-                               res ? res : llvm::UndefValue::get(f.retTy),
-                               IRB.CreateLoad(f.GlobalAllocaVec[glbidx]),
-                               llvm::ArrayRef<unsigned>(idx)));
-            })
-            .second;
-    IRB.CreateRet(retVal);
+    {
+      unsigned idx = 0;
+      llvm::Value *init = llvm::UndefValue::get(f.retTy);
+      llvm::Value *retVal = std::accumulate(
+          glbv.begin(), glbv.end(), init,
+          [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
+            return IRB.CreateInsertValue(res,
+                                         IRB.CreateLoad(f.GlobalAllocaVec[glb]),
+                                         llvm::ArrayRef<unsigned>(idx++));
+          });
+      IRB.CreateRet(retVal);
+    }
     break;
   }
 
@@ -3306,8 +3534,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                    std::vector<llvm::BasicBlock *> &LabelVec,
                    llvm::BasicBlock *ExitBB, llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
-  std::vector<llvm::AllocaInst *> &GlobalAllocaVec = f.GlobalAllocaVec;
-  llvm::AllocaInst *PCAlloca = f.PCAlloca;
+  auto &GlobalAllocaVec = f.GlobalAllocaVec;
+  auto &PCAlloca = f.PCAlloca;
   TCGContext *s = &TCG->_ctx;
 
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
@@ -3316,7 +3544,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::AllocaInst *Ptr =
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
     assert(Ptr);
-    IRB.CreateStore(V, Ptr);
+
+    llvm::StoreInst *St = IRB.CreateStore(V, Ptr);
+    St->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
@@ -3329,7 +3559,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
     assert(Ptr);
 
-    return IRB.CreateLoad(Ptr);
+    llvm::LoadInst *Li = IRB.CreateLoad(Ptr);
+    Li->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    return Li;
   };
 
   static bool pcrel_flag = false;
@@ -3603,7 +3835,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     Addr = IRB.CreateIntToPtr(                                                 \
         Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
                                                                                \
-    llvm::Value *Val = IRB.CreateLoad(Addr);                                   \
+    llvm::LoadInst *Li = IRB.CreateLoad(Addr);                                 \
+    Li->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);        \
+    llvm::Value *Val = Li;                                                     \
     if (bits > bits_of_memop(mop))                                             \
       Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(bits))           \
                           : IRB.CreateZExt(Val, IRB.getIntNTy(bits));          \
@@ -3645,7 +3879,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     Val = IRB.CreateIntCast(Val, IRB.getIntNTy(bits_of_memop(mop)),            \
                             mop & MO_SIGN ? true : false);                     \
                                                                                \
-    IRB.CreateStore(Val, Addr);                                                \
+    llvm::StoreInst *St = IRB.CreateStore(Val, Addr);                          \
+    St->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);        \
     break;                                                                     \
   }
 
