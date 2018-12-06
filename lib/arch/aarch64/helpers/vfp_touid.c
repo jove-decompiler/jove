@@ -37,6 +37,8 @@ typedef struct float_status {
 
 void float_raise(uint8_t flags, float_status *status);
 
+float64 uint32_to_float64(uint32_t, float_status *status);
+
 uint32_t float64_to_uint32(float64, float_status *status);
 
 uint32_t float64_to_uint32_round_to_zero(float64, float_status *status);

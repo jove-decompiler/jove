@@ -41,6 +41,8 @@ int32_t float16_to_int32(float16, float_status *status);
 
 int32_t float16_to_int32_round_to_zero(float16, float_status *status);
 
+float16 int32_to_float16(int32_t a, float_status *status);
+
 static inline int float16_is_any_nan(float16 a)
 {
     return ((float16_val(a) & ~0x8000) > 0x7c00);
