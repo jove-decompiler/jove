@@ -302,8 +302,11 @@ static binary_index_t BinaryIndex = invalid_binary_index;
 static std::vector<binary_state_t> BinStateVec;
 
 static std::unordered_map<std::string,
-                          std::pair<binary_index_t, function_index_t>>
+                          std::set<std::pair<binary_index_t, function_index_t>>>
     ExportedFunctions;
+
+static std::set<std::pair<binary_index_t, function_index_t>>
+    BinaryDynamicTargets;
 
 static llvm::Triple TheTriple;
 static llvm::SubtargetFeatures Features;
@@ -632,9 +635,9 @@ struct DynRegionInfo {
 };
 
 int ProcessDynamicSymbols(void) {
-  for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
-    binary_t &Binary = Decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = Decompilation.Binaries[BIdx];
+    auto &st = BinStateVec[BIdx];
 
     //
     // parse the ELF
@@ -762,30 +765,23 @@ int ProcessDynamicSymbols(void) {
       if (Sym.isUndefined())
         continue;
 
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
       function_index_t FuncIdx;
       {
         auto it = st.FuncMap.find(Sym.st_value);
-        if (it == st.FuncMap.end())
+        if (it == st.FuncMap.end()) {
+          WithColor::warning()
+              << "no function for symbol " << SymName << " found\n";
           continue;
+        }
 
         FuncIdx = (*it).second;
       }
 
       Binary.Analysis.Functions[FuncIdx].Analysis.IsABI = true;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
-
-#if 0
-      llvm::outs() << (fmt("%#lx") % Sym.st_value).str() << ' ' << SymName
-                   << '\n';
-#endif
-
-      auto it = ExportedFunctions.find(SymName);
-      if (it != ExportedFunctions.end())
-        WithColor::warning()
-            << "multiple symbols with the name " << SymName << " found\n";
-
-      ExportedFunctions[SymName] = {i, FuncIdx};
+      ExportedFunctions[SymName].insert({BIdx, FuncIdx});
     }
   }
   return 0;
@@ -793,7 +789,7 @@ int ProcessDynamicSymbols(void) {
 
 int ProcessDynamicTargets(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &Binary = Decompilation.Binaries[BIdx];
+    auto &Binary = Decompilation.Binaries[BIdx];
     auto &ICFG = Binary.Analysis.ICFG;
 
     for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
@@ -814,7 +810,7 @@ int ProcessDynamicTargets(void) {
 
   /* XXX this should go somewhere else */
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &Binary = Decompilation.Binaries[BIdx];
+    auto &Binary = Decompilation.Binaries[BIdx];
     auto &ICFG = Binary.Analysis.ICFG;
 
     for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
@@ -828,6 +824,19 @@ int ProcessDynamicTargets(void) {
 
       callee.Callers.insert({BIdx, BBIdx});
     }
+  }
+
+  //
+  // now, for the binary under consideration, we'll build a set of dynamic
+  // targets that can be used for the purposes of dynamic symbol resolution
+  //
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &ICFG = Binary.Analysis.ICFG;
+
+  auto it_pair = boost::vertices(ICFG);
+  for (auto it = it_pair.first; it != it_pair.second; ++it) {
+    auto &DynTargets = ICFG[*it].DynTargets;
+    BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
   }
 
   return 0;
@@ -1886,7 +1895,27 @@ int CreateSectionGlobalVariables(void) {
 
       FTy = llvm::FunctionType::get(VoidType(), false);
     } else {
-      FTy = DetermineFunctionType((*it).second.first, (*it).second.second);
+      std::pair<binary_index_t, function_index_t> resolved;
+
+      {
+        std::vector<std::pair<binary_index_t, function_index_t>> intersect;
+        std::set_intersection((*it).second.begin(),
+                              (*it).second.end(),
+                              BinaryDynamicTargets.begin(),
+                              BinaryDynamicTargets.end(),
+                              std::back_inserter(intersect));
+
+        if (intersect.empty()) {
+          WithColor::warning()
+              << "no dynamic target found to symbol " << S.Name << '\n';
+
+          resolved = *(*it).second.begin();
+        } else {
+          resolved = intersect.front();
+        }
+      }
+
+      FTy = DetermineFunctionType(resolved.first, resolved.second);
     }
 
     return llvm::PointerType::get(FTy, 0);
@@ -2036,8 +2065,28 @@ int CreateSectionGlobalVariables(void) {
                                      : llvm::GlobalValue::ExternalLinkage,
                                  S.Name, Module.get());
     } else {
+      std::pair<binary_index_t, function_index_t> resolved;
+
+      {
+        std::vector<std::pair<binary_index_t, function_index_t>> intersect;
+        std::set_intersection((*it).second.begin(),
+                              (*it).second.end(),
+                              BinaryDynamicTargets.begin(),
+                              BinaryDynamicTargets.end(),
+                              std::back_inserter(intersect));
+
+        if (intersect.empty()) {
+          WithColor::warning()
+              << "no dynamic target found to symbol " << S.Name << '\n';
+
+          resolved = *(*it).second.begin();
+        } else {
+          resolved = intersect.front();
+        }
+      }
+
       F = llvm::Function::Create(
-          DetermineFunctionType((*it).second.first, (*it).second.second),
+          DetermineFunctionType(resolved.first, resolved.second),
           S.Bind == symbol_t::BINDING::WEAK
               ? llvm::GlobalValue::ExternalWeakLinkage
               : llvm::GlobalValue::ExternalLinkage,
@@ -2166,6 +2215,9 @@ int CreateSectionGlobalVariables(void) {
       llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
   ConstSectsGlobal->setConstant(true);
 
+  //
+  // it's important that we do this here, after creating the section globals
+  //
   for (const relocation_t &reloc : RelocationTable)
     RelocationsAt.insert(reloc.Addr);
 
