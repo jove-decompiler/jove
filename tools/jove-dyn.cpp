@@ -1256,9 +1256,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    if (opts::Verbose)
-      llvm::errs() << "warning: unknown binary for "
-                   << description_of_program_counter(target) << '\n';
+    llvm::errs() << "warning: unknown binary for "
+                 << description_of_program_counter(target) << '\n';
     return;
   }
 
