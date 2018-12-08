@@ -32,6 +32,7 @@ class LoadInst;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   std::vector<basic_block_t> BasicBlocks;                                      \
+  std::vector<basic_block_t> ExitBasicBlocks;                                  \
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
   std::set<std::pair<binary_index_t, basic_block_index_t>> Callers;            \
   llvm::AllocaInst *PCAlloca;                                                  \
@@ -496,15 +497,24 @@ int InitStateForBinaries(void) {
       //
       // BasicBlocks (in DFS order)
       //
-      {
-        basic_block_t entryBB = boost::vertex(f.Entry, ICFG);
-        std::map<basic_block_t, boost::default_color_type> color;
-        dfs_visitor vis(f.BasicBlocks);
-        depth_first_visit(
-            ICFG, entryBB, vis,
-            boost::associative_property_map<
-                std::map<basic_block_t, boost::default_color_type>>(color));
-      }
+      std::map<basic_block_t, boost::default_color_type> color;
+      dfs_visitor vis(f.BasicBlocks);
+      depth_first_visit(
+          ICFG, boost::vertex(f.Entry, ICFG), vis,
+          boost::associative_property_map<
+              std::map<basic_block_t, boost::default_color_type>>(color));
+
+      //
+      // ExitBasicBlocks
+      //
+      std::copy_if(f.BasicBlocks.begin(),
+                   f.BasicBlocks.end(),
+                   std::back_inserter(f.ExitBasicBlocks),
+                   [&](basic_block_t bb) -> bool {
+                     return boost::out_degree(bb, ICFG) == 0 &&
+                            (ICFG[bb].Term.Type == TERMINATOR::RETURN ||
+                             ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+                   });
     }
 
     //
