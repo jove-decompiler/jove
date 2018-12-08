@@ -3747,29 +3747,32 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     // we'll need this in case a parameter is a pointer type
     llvm::FunctionType *FTy = hf.F->getFunctionType();
 
-    for (int i = 0; i < nb_iargs; ++i) {
-      TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-      unsigned idx = temp_idx(ts);
+    TCGArg *iargs_begin = &op->args[nb_oargs + 0];
+    TCGArg *iargs_end = &op->args[nb_oargs + nb_iargs];
 
-      auto ArgVal = [&](void) -> llvm::Value * {
-        if (idx == tcg_env_index) {
-          if (hf.Analysis.Simple)
-            return IRB.CreateAlloca(CPUStateType, 0, "env");
-          else
-            return CPUStateGlobal;
-        } else {
-          llvm::Value *res = get(ts);
+    std::transform(iargs_begin,
+                   iargs_end,
+                   ArgVec.begin(),
+                   [&](TCGArg &a) -> llvm::Value * {
+                     TCGTemp *ts = arg_temp(a);
+                     unsigned idx = temp_idx(ts);
 
-          llvm::Type *ArgTy = FTy->getParamType(i);
-          if (ArgTy->isPointerTy())
-            res = IRB.CreateIntToPtr(res, ArgTy);
+                     if (idx == tcg_env_index) {
+                       if (hf.Analysis.Simple)
+                         return IRB.CreateAlloca(CPUStateType, 0, "env");
+                       else
+                         return CPUStateGlobal;
+                     }
 
-          return res;
-        }
-      };
+                     llvm::Value *res = get(ts);
 
-      ArgVec[i] = ArgVal();
-    }
+                     unsigned i = &a - iargs_begin;
+                     llvm::Type *ArgTy = FTy->getParamType(i);
+                     if (ArgTy->isPointerTy())
+                       res = IRB.CreateIntToPtr(res, ArgTy);
+
+                     return res;
+                   });
 
     //
     // does the helper function take a CPUState* parameter?
