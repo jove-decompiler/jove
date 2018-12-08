@@ -1234,11 +1234,7 @@ int ConductLivenessAnalysis(void) {
       const unsigned Size = ICFG[bb].Size;
 
       auto sectit = st.SectMap.find(Addr);
-      if (sectit == st.SectMap.end()) {
-        WithColor::error() << "no section @ " << (fmt("%#lx") % Addr).str()
-                           << '\n';
-        return 1;
-      }
+      assert(sectit != st.SectMap.end());
 
       const section_properties_t &sectprop = *(*sectit).second.begin();
       TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
