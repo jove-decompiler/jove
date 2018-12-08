@@ -3747,8 +3747,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     // we'll need this in case a parameter is a pointer type
     llvm::FunctionType *FTy = hf.F->getFunctionType();
 
-    TCGArg *iargs_begin = &op->args[nb_oargs + 0];
-    TCGArg *iargs_end = &op->args[nb_oargs + nb_iargs];
+    TCGArg *const iargs_begin = &op->args[nb_oargs + 0];
+    TCGArg *const iargs_end = &op->args[nb_oargs + nb_iargs];
 
     std::transform(iargs_begin,
                    iargs_end,
