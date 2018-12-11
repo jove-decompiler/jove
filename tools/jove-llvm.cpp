@@ -1348,33 +1348,18 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
   //
   std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
   {
-    //
-    // make a CFG of the function for copying by filtering the ICFG
-    //
-    typedef boost::keep_all                              edge_predicate_t;
-    typedef boost::is_in_subset<std::set<basic_block_t>> vertex_predicate_t;
+    vertex_copier vc(ICFG, G);
+    edge_copier ec;
 
-    typedef boost::filtered_graph<interprocedural_control_flow_graph_t,
-                                  edge_predicate_t, vertex_predicate_t>
-        control_flow_graph_t;
+    basic_block_t entry_bb = f.BasicBlocks.front();
 
-    edge_predicate_t   EdgePred;
-    vertex_predicate_t VertPred(f.BasicBlocksSet);
-
-    control_flow_graph_t CFG(ICFG, EdgePred, VertPred);
-
-    {
-      vertex_copier vc(ICFG, G);
-      edge_copier ec;
-
-      boost::copy_graph(
-          CFG, G,
-          boost::orig_to_copy(
-              boost::associative_property_map<
-                  std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
-              .vertex_copy(vc)
-              .edge_copy(ec));
-    }
+    boost::copy_component(
+        ICFG, entry_bb, G,
+        boost::orig_to_copy(
+            boost::associative_property_map<
+                std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
+            .vertex_copy(vc)
+            .edge_copy(ec));
   }
 
   flow_vertex_t res = [&]() {
