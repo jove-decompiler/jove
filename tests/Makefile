@@ -25,38 +25,34 @@ TESTS := $(patsubst $(SRCDIR)/%.c,%,$(SRCS))
 BINS  := $(foreach test,$(TESTS),$(BINDIR)/$(test))
 BCS   := $(foreach test,$(TESTS),$(BINDIR)/$(test).bc)
 LLS   := $(foreach test,$(TESTS),$(BINDIR)/$(test).ll)
+ASMS  := $(foreach test,$(TESTS),$(BINDIR)/$(test).S)
 
-all: $(BINS) $(BCS) $(LLS)
+all: $(BINS) $(BCS) $(LLS) $(ASMS)
 
-define build_test_template
+define test_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).c
 	@echo CC $(1)
 	@clang -o $$@ $(CFLAGS) $$<
-endef
-$(foreach test,$(TESTS),$(eval $(call build_test_template,$(test))))
 
-define build_test_bc_template
+$(BINDIR)/$(1).S: $(SRCDIR)/$(1).c
+	@echo CC $(1)
+	@clang -o $$@ $(CFLAGS) -S $$<
+
 $(BINDIR)/$(1).bc: $(SRCDIR)/$(1).c
 	@echo BC $(1)
 	@clang -o $$@ -c -emit-llvm $(CFLAGS) $$<
-endef
-$(foreach test,$(TESTS),$(eval $(call build_test_bc_template,$(test))))
 
-define build_test_ll_template
 $(BINDIR)/$(1).ll: $(BINDIR)/$(1).bc
 	@echo LL $(1)
 	@llvm-dis -o $$@ $$<
-endef
-$(foreach test,$(TESTS),$(eval $(call build_test_ll_template,$(test))))
 
-define clean_test_template
 .PHONY: clean-$(1)
 clean-$(1):
 	rm -f $(BINDIR)/$(1)
 	rm -f $(BINDIR)/$(1).bc
 	rm -f $(BINDIR)/$(1).ll
 endef
-$(foreach test,$(TESTS),$(eval $(call clean_test_template,$(test))))
+$(foreach test,$(TESTS),$(eval $(call test_template,$(test))))
 
 .PHONY: clean
 clean: $(foreach test,$(TESTS),clean-$(test))
