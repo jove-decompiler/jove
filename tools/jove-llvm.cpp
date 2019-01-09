@@ -4208,7 +4208,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   static bool pcrel_flag = false;
 
   auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Value * {
-    llvm::Value *CI = [&]() {
+    llvm::Value *res = [&]() {
       if (bits == 64)
         return IRB.getInt64(a);
       if (bits == 32)
@@ -4220,10 +4220,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     if (pcrel_flag && bits == WordBits()) {
       pcrel_flag = false;
 
-      return IRB.CreateAdd(f.PCRelVal, CI);
+      return IRB.CreateAdd(f.PCRelVal, res);
     }
 
-    return CI;
+    return res;
   };
 
   const TCGOpcode opc = op->opc;
