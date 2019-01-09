@@ -163,7 +163,7 @@ namespace opts {
     cl::desc("LLVM bitcode"),
     cl::Required);
 
-  static cl::opt<bool> Emu("emulated",
+  static cl::opt<bool> Emu("emu",
     cl::desc("Code operates on TLS globals which represent the CPU state"));
 
   static cl::opt<bool> PrintDefAndUse("print-def-and-use",
