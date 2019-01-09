@@ -163,6 +163,9 @@ namespace opts {
     cl::desc("LLVM bitcode"),
     cl::Required);
 
+  static cl::opt<bool> Emu("emulated",
+    cl::desc("Code operates on TLS globals which represent the CPU state"));
+
   static cl::opt<bool> PrintDefAndUse("print-def-and-use",
     cl::desc("Print use_B and def_B for every basic block B"));
 
@@ -1621,17 +1624,10 @@ void function_t::Analyze(void) {
     dfs_visitor<flow_graph_t> vis(Vertices);
 
     std::map<flow_vertex_t, boost::default_color_type> colorMap;
-#if 0
-    boost::depth_first_visit(
-        G, entryV, vis,
-        boost::associative_property_map<
-            std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#else
     boost::depth_first_search(
         G, vis,
         boost::associative_property_map<
             std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#endif
   }
 
   auto &ICFG = Decompilation.Binaries[this->BIdx].Analysis.ICFG;
@@ -1640,10 +1636,6 @@ void function_t::Analyze(void) {
                << (fmt("%#lx") % ICFG[this->BasicBlocks.front()].Addr).str()
                << " has " << boost::num_vertices(G) << " vertices and "
                << boost::num_edges(G) << " edges\n";
-  if (Vertices.size() != boost::num_vertices(G)) {
-    WithColor::warning() << "depth_first_visit yielded only " << Vertices.size()
-                         << " vertices!\n";
-  }
 
   bool change;
 
@@ -1698,7 +1690,7 @@ void function_t::Analyze(void) {
       const tcg_global_set_t _OUT = G[V].OUT;
 
       auto eit_pair = boost::in_edges(V, G);
-#if 0
+#if 1
       G[V].IN = std::accumulate(
           eit_pair.first, eit_pair.second, tcg_global_set_t(),
           [&](tcg_global_set_t glbs, flow_edge_t E) {
@@ -1730,11 +1722,14 @@ void function_t::Analyze(void) {
     boost::write_graphviz(ofs, G, vertPropWriter);
   }
 
-  //assert(!exitVertices.empty());
   if (exitVertices.empty()) {
-    llvm::outs() << "noreturn "
-                 << (fmt("%#lx") % ICFG[this->BasicBlocks.front()].Addr).str()
-                 << '\n';
+#if 0
+    WithColor::warning()
+        << "noreturn "
+        << (fmt("%#lx") % ICFG[this->BasicBlocks.front()].Addr).str() << '\n';
+#endif
+
+    this->Analysis.rets.reset();
   } else {
     llvm::outs() << (fmt("%#lx") % ICFG[this->BasicBlocks.front()].Addr).str();
 
@@ -4213,31 +4208,22 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   static bool pcrel_flag = false;
 
   auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Value * {
-    if (pcrel_flag && bits == sizeof(uintptr_t) * 8) {
+    llvm::Value *CI = [&]() {
+      if (bits == 64)
+        return IRB.getInt64(a);
+      if (bits == 32)
+        return IRB.getInt32(a);
+
+      abort();
+    }();
+
+    if (pcrel_flag && bits == WordBits()) {
       pcrel_flag = false;
 
-      if (!(a >= SectsStartAddr && a < SectsEndAddr))
-        WithColor::warning() << "immediate_constant: out-of-bounds pcrel\n";
-
-#if 0
-      binary_state_t &st = BinStateVec[BinaryIndex];
-      auto it = st.FuncMap.find(a);
-      return llvm::ConstantExpr::getPtrToInt(it == st.FuncMap.end() ?
-                                             SectionPointer(a) :
-                                             Binary.Analysis.Functions[(*it).second].F, WordType());
-#else
-      return IRB.CreateAdd(f.PCRelVal, IRB.getIntN(sizeof(uintptr_t) * 8, a));
-#endif
+      return IRB.CreateAdd(f.PCRelVal, CI);
     }
 
-    switch (bits) {
-    case 64:
-      return IRB.getInt64(a);
-    case 32:
-      return IRB.getInt32(a);
-    default:
-      abort();
-    }
+    return CI;
   };
 
   const TCGOpcode opc = op->opc;
