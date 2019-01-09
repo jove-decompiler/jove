@@ -4220,7 +4220,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     if (pcrel_flag && bits == WordBits()) {
       pcrel_flag = false;
 
-      return IRB.CreateAdd(f.PCRelVal, res);
+      return IRB.CreateAdd(res, f.PCRelVal);
     }
 
     return res;
