@@ -3509,10 +3509,11 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
       IRB.SetInsertPoint(NextB);
     }
 
+    // does the indirect jump have dynamic targets within the current function?
     if (eit_pair.first != eit_pair.second) {
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
-      break;
+      break; /* otherwise passes through case label */
     }
   }
 
