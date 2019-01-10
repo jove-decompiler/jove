@@ -4183,11 +4183,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     break;                                                                     \
   }
 
-#if 0
     __ST_OP(INDEX_op_st8_i64, 8, 64)
     __ST_OP(INDEX_op_st16_i64, 16, 64)
     __ST_OP(INDEX_op_st32_i64, 32, 64)
-#endif
     __ST_OP(INDEX_op_st_i64, 64, 64)
     __ST_OP(INDEX_op_st_i32, 32, 32)
 
