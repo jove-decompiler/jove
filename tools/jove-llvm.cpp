@@ -3435,7 +3435,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
     if (!callee.IsABI)
-      break;
+      break; /* otherwise fallthrough */
   }
 
   case TERMINATOR::INDIRECT_CALL:
@@ -3524,7 +3524,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     if (eit_pair.first != eit_pair.second) {
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
-      break; /* otherwise passes through case label */
+      break; /* otherwise fallthrough */
     }
   }
 
