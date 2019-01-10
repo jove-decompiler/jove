@@ -1044,7 +1044,7 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_not_i32          1
 
-#define TCG_TARGET_HAS_andc_i32         have_bmi1
+#define TCG_TARGET_HAS_andc_i32         1
 
 #define TCG_TARGET_HAS_orc_i32          0
 
@@ -1058,7 +1058,7 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_ctz_i32          1
 
-#define TCG_TARGET_HAS_ctpop_i32        have_popcnt
+#define TCG_TARGET_HAS_ctpop_i32        1
 
 #define TCG_TARGET_HAS_deposit_i32      1
 
@@ -1114,7 +1114,7 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_not_i64          1
 
-#define TCG_TARGET_HAS_andc_i64         have_bmi1
+#define TCG_TARGET_HAS_andc_i64         1
 
 #define TCG_TARGET_HAS_orc_i64          0
 
@@ -1128,7 +1128,7 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_ctz_i64          1
 
-#define TCG_TARGET_HAS_ctpop_i64        have_popcnt
+#define TCG_TARGET_HAS_ctpop_i64        1
 
 #define TCG_TARGET_HAS_deposit_i64      1
 
@@ -22311,6 +22311,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(cpu_T0, cpu_T0);
             }
             next_eip = s->pc - s->cs_base;
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_T1, next_eip);
             gen_push_v(s, cpu_T1);
             gen_op_jmp_v(cpu_T0);
@@ -23824,6 +23825,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             } else if (!CODE64(s)) {
                 tval &= 0xffffffff;
             }
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_T0, next_eip);
             gen_push_v(s, cpu_T0);
             gen_bnd_jmp(s);
