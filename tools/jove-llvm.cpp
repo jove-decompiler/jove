@@ -46,7 +46,7 @@ class LoadInst;
   llvm::AllocaInst *PCAlloca;                                                  \
   llvm::LoadInst *PCRelVal;                                                    \
                                                                                \
-  bool IsSimple, IsThunk, IsABI;                                               \
+  bool IsThunk, IsABI;                                                         \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t args, rets;                                               \
@@ -54,8 +54,7 @@ class LoadInst;
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
-  function_t()                                                                 \
-      : IsSimple(false), IsThunk(false), IsABI(false), Analyzed(false) {}      \
+  function_t() : IsThunk(false), IsABI(false), Analyzed(false) {}              \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -389,7 +388,6 @@ static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int ProcessDynamicSymbols(void);
 static int ProcessDynamicTargets(void);
-static int IdentifySimpleFunctions(void);
 static int ProcessBinarySymbolsAndRelocations(void);
 static int PrepareToTranslateCode(void);
 static int CreateModule(void);
@@ -415,7 +413,6 @@ int llvm(void) {
       || InitStateForBinaries()
       || ProcessDynamicSymbols()
       || ProcessDynamicTargets()
-      || IdentifySimpleFunctions()
       || ProcessBinarySymbolsAndRelocations()
       || PrepareToTranslateCode()
       || CreateModule()
@@ -860,31 +857,6 @@ int ProcessDynamicTargets(void) {
     auto &DynTargets = ICFG[*it].DynTargets;
     BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
   }
-
-  return 0;
-}
-
-int IdentifySimpleFunctions(void) {
-  //
-  // simple functions are leaf nodes in the call graph
-  //
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  auto &ICFG = Binary.Analysis.ICFG;
-  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
-
-  for (function_t &f : Binary.Analysis.Functions)
-    f.IsSimple = std::accumulate(f.BasicBlocks.begin(),
-                                 f.BasicBlocks.end(),
-                                 true, /* simple until proven otherwise */
-                                 [&](bool res, basic_block_t bb) -> bool {
-                                   switch (ICFG[bb].Term.Type) {
-                                   case TERMINATOR::INDIRECT_CALL:
-                                   case TERMINATOR::CALL:
-                                     return false;
-                                   default:
-                                     return res;
-                                   }
-                                 });
 
   return 0;
 }
@@ -1378,9 +1350,11 @@ void function_t::Analyze(void) {
         this->Analysis.args.set(CallConvArgArray[i]);
     }
   } else {
+#if 0
     if (opts::Emu)
       if (!this->IsSimple)
         this->Analysis.args.reset();
+#endif
   }
 
   //
@@ -1476,9 +1450,11 @@ void function_t::Analyze(void) {
     }
 #endif
   } else {
+#if 0
     if (opts::Emu)
       if (!this->IsSimple)
         this->Analysis.rets.reset();
+#endif
   }
 
   if (opts::PrintFunctionSignatures) {
@@ -1840,11 +1816,6 @@ static unsigned bitsOfTCGType(TCGType ty) {
 
 static llvm::FunctionType *DetermineFunctionType(function_t &f) {
   f.Analyze();
-
-  if (opts::Emu)
-    if (!f.IsABI)
-      if (!f.IsSimple)
-        return llvm::FunctionType::get(VoidType(), false);
 
   std::vector<llvm::Type *> argTypes;
 
