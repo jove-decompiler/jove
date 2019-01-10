@@ -3412,7 +3412,7 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   }
 #endif
 
-  auto spill = [&](unsigned glb) -> void {
+  auto store = [&](unsigned glb) -> void {
     llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
@@ -3427,9 +3427,20 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::RETURN:
     if (T.Type == TERMINATOR::INDIRECT_JUMP || f.IsABI) {
-      spill(tcg_frame_pointer_index);
-      spill(tcg_stack_pointer_index);
+      store(tcg_frame_pointer_index);
+      store(tcg_stack_pointer_index);
     }
+    break;
+
+  case TERMINATOR::CALL: {
+    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+    if (!callee.IsABI)
+      break;
+  }
+
+  case TERMINATOR::INDIRECT_CALL:
+    store(tcg_frame_pointer_index);
+    store(tcg_stack_pointer_index);
     break;
 
   default:
