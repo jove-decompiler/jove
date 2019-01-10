@@ -3412,9 +3412,30 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   }
 #endif
 
+  auto spill = [&](unsigned glb) -> void {
+    llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+    llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
+
   //
-  // examine terminator
+  // examine terminator multiple times
   //
+  switch (T.Type) {
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::RETURN:
+    if (T.Type == TERMINATOR::INDIRECT_JUMP || f.IsABI) {
+      spill(tcg_frame_pointer_index);
+      spill(tcg_stack_pointer_index);
+    }
+    break;
+
+  default:
+    break;
+  }
+
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
@@ -3726,8 +3747,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
     assert(Ptr);
 
-    llvm::StoreInst *St = IRB.CreateStore(V, Ptr);
-    St->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
@@ -3740,9 +3761,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
     assert(Ptr);
 
-    llvm::LoadInst *Li = IRB.CreateLoad(Ptr);
-    Li->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    return Li;
+    llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    return LI;
   };
 
   static bool pcrel_flag = false;
