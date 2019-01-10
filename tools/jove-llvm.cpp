@@ -2355,7 +2355,7 @@ int CreateCPUStateGlobal() {
   llvm::Type *StackTy =
       llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
   llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
-      *Module, StackTy, false, llvm::GlobalValue::InternalLinkage,
+      *Module, StackTy, false, llvm::GlobalValue::ExternalLinkage,
       llvm::Constant::getNullValue(StackTy), "stack", nullptr,
       llvm::GlobalValue::NotThreadLocal
       /* llvm::GlobalValue::GeneralDynamicTLSModel */);
@@ -3647,12 +3647,6 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
       llvm::Value *retVal = std::accumulate(
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
-            if (!f.GlobalAllocaVec[glb])
-              WithColor::error()
-                  << "!f.GlobalAllocaVec[" << TCG->_ctx.temps[glb].name
-                  << "] where bb Addr = " << (fmt("%#lx") % Addr).str() << "\n";
-
-            assert(f.GlobalAllocaVec[glb]);
             return IRB.CreateInsertValue(res,
                                          IRB.CreateLoad(f.GlobalAllocaVec[glb]),
                                          llvm::ArrayRef<unsigned>(idx++));
