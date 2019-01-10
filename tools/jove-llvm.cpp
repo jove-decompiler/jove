@@ -163,6 +163,9 @@ namespace opts {
   static cl::opt<bool> Emu("emu",
     cl::desc("Code operates on TLS globals which represent the CPU state"));
 
+  static cl::opt<bool> NoInline("noinline",
+    cl::desc("Prevents inlining internal functions"));
+
   static cl::opt<bool> PrintDefAndUse("print-def-and-use",
     cl::desc("Print use_B and def_B for every basic block B"));
 
@@ -3420,27 +3423,48 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
+  auto reload = [&](unsigned glb) -> void {
+    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+    llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
+
+  auto store_stack_pointers = [&](void) -> void {
+    store(tcg_frame_pointer_index);
+    store(tcg_stack_pointer_index);
+  };
+
+  auto reload_stack_pointers = [&](void) -> void {
+    reload(tcg_frame_pointer_index);
+    reload(tcg_stack_pointer_index);
+  };
+
   //
   // examine terminator multiple times
   //
-  switch (T.Type) {
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::RETURN:
-    if (T.Type == TERMINATOR::INDIRECT_JUMP || f.IsABI) {
-      store(tcg_frame_pointer_index);
-      store(tcg_stack_pointer_index);
-    }
-    break;
-
-  case TERMINATOR::CALL: {
-    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
-    if (!callee.IsABI)
-      break; /* otherwise fallthrough */
+  if (T.Type == TERMINATOR::UNREACHABLE) {
+    IRB.CreateUnreachable();
+    return 0;
   }
 
+  switch (T.Type) {
+  case TERMINATOR::CALL: {
+    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+    if (callee.IsABI)
+      store_stack_pointers();
+    break;
+  }
+
+  case TERMINATOR::RETURN:
+    if (f.IsABI)
+      store_stack_pointers();
+    break;
+
+  case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::INDIRECT_CALL:
-    store(tcg_frame_pointer_index);
-    store(tcg_stack_pointer_index);
+    store_stack_pointers();
     break;
 
   default:
@@ -3468,7 +3492,8 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
 
-    if (callee.BasicBlocks.size() == 1 &&
+    if (!opts::NoInline &&
+        callee.BasicBlocks.size() == 1 &&
         ICFG[callee.BasicBlocks.front()].IsSingleInstruction())
       ; /* allow this call to be inlined */
     else
@@ -3600,6 +3625,23 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
   }
 
   switch (T.Type) {
+  case TERMINATOR::CALL: {
+    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+    if (callee.IsABI)
+      reload_stack_pointers();
+    break;
+  }
+
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::INDIRECT_CALL:
+    reload_stack_pointers();
+    break;
+
+  default:
+    break;
+  }
+
+  switch (T.Type) {
   case TERMINATOR::CONDITIONAL_JUMP: {
     auto eit_pair = boost::out_edges(bb, ICFG);
     assert(eit_pair.first != eit_pair.second &&
@@ -3666,10 +3708,6 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
     }
     break;
   }
-
-  case TERMINATOR::UNREACHABLE:
-    IRB.CreateUnreachable();
-    break;
 
   default:
     break;
