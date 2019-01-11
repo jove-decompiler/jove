@@ -9,7 +9,7 @@ CFLAGS := -Wall \
           -fPIE \
           -Oz
 
-#         -fno-plt \
+LDFLAGS := -pie
 
 #
 # important directories
@@ -32,7 +32,7 @@ all: $(BINS) $(BCS) $(LLS) $(ASMS)
 define test_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	@clang -o $$@ $(CFLAGS) $$<
+	@clang -o $$@ $(CFLAGS) $$< $(LDFLAGS)
 
 $(BINDIR)/$(1).S: $(SRCDIR)/$(1).c
 	@echo CC $(1)
@@ -49,6 +49,7 @@ $(BINDIR)/$(1).ll: $(BINDIR)/$(1).bc
 .PHONY: clean-$(1)
 clean-$(1):
 	rm -f $(BINDIR)/$(1)
+	rm -f $(BINDIR)/$(1).S
 	rm -f $(BINDIR)/$(1).bc
 	rm -f $(BINDIR)/$(1).ll
 endef
