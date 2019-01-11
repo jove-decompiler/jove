@@ -4276,22 +4276,40 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
         IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
+                                                                               \
+    if (!Ptr)                                                                  \
+      Ptr = IRB.CreateIntToPtr(                                                \
+          IRB.CreateAdd(                                                       \
+              llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),     \
+              IRB.getIntN(WordBits(), off)),                                   \
+          llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
+                                                                               \
+    assert(Ptr->getType()->isPointerTy());                                     \
+                                                                               \
+    Ptr = IRB.CreatePointerCast(                                               \
+        Ptr, llvm::PointerType::get(IRB.getIntNTy(memBits), 0));               \
+                                                                               \
     llvm::Value *Val = IRB.CreateLoad(Ptr);                                    \
-    if (memBits != regBits)                                                    \
+    if (memBits < regBits)                                                     \
       Val = IRB.Create##signE##Ext(Val, IRB.getIntNTy(regBits));               \
                                                                                \
     set(Val, arg_temp(op->args[0]));                                           \
     break;                                                                     \
   }
 
-    __LD_OP(INDEX_op_ld8u_i32, 8, 32, Z)
-    __LD_OP(INDEX_op_ld8s_i32, 8, 32, S)
+    __LD_OP(INDEX_op_ld8u_i32,  8,  32, Z)
+    __LD_OP(INDEX_op_ld8s_i32,  8,  32, S)
     __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
     __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(INDEX_op_ld_i32,    32, 32, Z)
+
+    __LD_OP(INDEX_op_ld8u_i64,  8,  64, Z)
+    __LD_OP(INDEX_op_ld8s_i64,  8,  64, S)
+    __LD_OP(INDEX_op_ld16u_i64, 16, 64, Z)
+    __LD_OP(INDEX_op_ld16s_i64, 16, 64, S)
     __LD_OP(INDEX_op_ld32u_i64, 32, 64, Z)
     __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
-    __LD_OP(INDEX_op_ld_i32, 32, 32, Z)
-    __LD_OP(INDEX_op_ld_i64, 64, 64, Z)
+    __LD_OP(INDEX_op_ld_i64,    64, 64, Z)
 
 #undef __LD_OP
 
