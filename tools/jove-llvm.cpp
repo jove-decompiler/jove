@@ -3182,7 +3182,9 @@ static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
                           llvm::BasicBlock *,
                           llvm::IRBuilderTy &);
 
-int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
+int TranslateBasicBlock(binary_t &Binary,
+                        function_t &f,
+                        basic_block_t bb,
                         llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
@@ -3267,6 +3269,13 @@ int TranslateBasicBlock(binary_t &Binary, function_t &f, basic_block_t bb,
         }
       }
     }
+
+    //
+    // create label basic blocks up-front
+    //
+    for (unsigned i = 0; i < LabelVec.size(); ++i)
+      LabelVec[i] = llvm::BasicBlock::Create(
+          *Context, (boost::format("%#lx_L%u") % ICFG[bb].Addr % i).str(), f.F);
 
     if (opts::DumpTCG)
       TCG->dump_operations();
@@ -3915,9 +3924,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       IRB.CreateBr(ExitBB);
     }
 
-    llvm::BasicBlock* lblBB = LabelVec[arg_label(op->args[0])->id];
-    assert(lblBB);
-    IRB.SetInsertPoint(lblBB);
+    llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
+    assert(lblB);
+    IRB.SetInsertPoint(lblB);
     break;
   }
 
@@ -4217,10 +4226,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
                                                                                \
     llvm::Value *v = IRB.CreateSub(                                            \
-        llvm::ConstantInt::get(llvm::IntegerType::get(*Context, bits), bits), v2);    \
+        llvm::ConstantInt::get(llvm::IntegerType::get(*Context, bits), bits),  \
+        v2);                                                                   \
                                                                                \
-    set(IRB.CreateOr(IRB.Create##op1(v1, v2),                                  \
-                     IRB.Create##op2(v1, v)),                                  \
+    set(IRB.CreateOr(IRB.Create##op1(v1, v2), IRB.Create##op2(v1, v)),         \
         arg_temp(op->args[0]));                                                \
   } break;
 
@@ -4318,11 +4327,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       abort();                                                                 \
     }                                                                          \
     unsigned lblidx = arg_label(op->args[3])->id;                              \
-    llvm::BasicBlock *&lblBB = LabelVec.at(lblidx);                            \
-    if (!lblBB)                                                                \
-      lblBB = llvm::BasicBlock::Create(                                        \
-          *Context,                                                            \
-          (boost::format("%#lx_L%u") % ICFG[bb].Addr % lblidx).str(), f.F);    \
+    llvm::BasicBlock *lblBB = LabelVec.at(lblidx);                             \
+    assert(lblBB);                                                             \
     llvm::BasicBlock *fallthruBB = llvm::BasicBlock::Create(                   \
         *Context, (boost::format("%#lx_fallthru") % ICFG[bb].Addr).str(),      \
         f.F);                                                                  \
