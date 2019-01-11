@@ -4211,6 +4211,27 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ARITH_OP
 
+#define __ARITH_OP_ROT(opc_name, op1, op2, bits)                               \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *v = IRB.CreateSub(                                            \
+        llvm::ConstantInt::get(llvm::IntegerType::get(*Context, bits), bits), v2);    \
+                                                                               \
+    set(IRB.CreateOr(IRB.Create##op1(v1, v2),                                  \
+                     IRB.Create##op2(v1, v)),                                  \
+        arg_temp(op->args[0]));                                                \
+  } break;
+
+    __ARITH_OP_ROT(INDEX_op_rotl_i32, Shl, LShr, 32)
+    __ARITH_OP_ROT(INDEX_op_rotr_i32, LShr, Shl, 32)
+
+    __ARITH_OP_ROT(INDEX_op_rotl_i64, Shl, LShr, 64)
+    __ARITH_OP_ROT(INDEX_op_rotr_i64, LShr, Shl, 64)
+
+#undef __ARITH_OP_ROT
+
 //
 // load from host memory
 //
