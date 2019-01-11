@@ -1949,6 +1949,14 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
       IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
 
+  if (!res)
+    res = llvm::ConstantExpr::getIntToPtr(
+        llvm::ConstantExpr::getAdd(
+            llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
+            llvm::ConstantInt::get(llvm::IntegerType::get(*Context, WordBits()),
+                                   off)),
+        llvm::PointerType::get(llvm::IntegerType::get(*Context, 8), 0));
+
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
 }
@@ -2383,8 +2391,15 @@ int CreateSectionGlobalVariables(void) {
   //
   // it's important that we do this here, after creating the section globals
   //
-  for (const relocation_t &reloc : RelocationTable)
-    RelocationsAt.insert(reloc.Addr);
+  for (const relocation_t &R : RelocationTable) {
+    if (!type_of_relocation(R))
+      continue;
+
+    if (!constant_of_relocation(R))
+      continue;
+
+    RelocationsAt.insert(R.Addr);
+  }
 
   return 0;
 }
@@ -2664,8 +2679,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   llvm::Function *F = f.F;
 
   basic_block_t entry_bb = f.BasicBlocks.front();
-  llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(
-      *Context, (fmt("Entry_%#lx") % ICFG[entry_bb].Addr).str(), F);
+  llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
 
   for (basic_block_t bb : f.BasicBlocks)
     ICFG[bb].B = llvm::BasicBlock::Create(
@@ -2817,7 +2831,13 @@ int PrepareToOptimize(void) {
   return 0;
 }
 
-static void DoOptimize(void) {
+static int DoOptimize(void) {
+  if (llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
+    llvm::errs() << *Module << '\n';
+    return 1;
+  }
+
   constexpr unsigned OptLevel = 2;
   constexpr unsigned SizeLevel = 2;
 
@@ -2856,13 +2876,27 @@ static void DoOptimize(void) {
   FPM.doFinalization();
 
   MPM.run(*Module);
+
+  // reload globals (they could have been deleted)
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
+  CPUStateGlobal = Module->getGlobalVariable("env");
+
+  if (llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "DoOptimize: [post] failed to verify module\n";
+    llvm::errs() << *Module << '\n';
+    return 1;
+  }
+
+  return 0;
 }
 
 int Optimize1(void) {
   if (opts::NoOpt1)
     return 0;
 
-  DoOptimize();
+  if (int ret = DoOptimize())
+    return ret;
+
   return 0;
 }
 
@@ -2870,7 +2904,6 @@ int FixupPCRelativeAddrs(void) {
   if (opts::NoFixupPcrel)
     return 0;
 
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
   if (!PCRelGlobal)
     return 0;
 
@@ -2943,9 +2976,9 @@ int Optimize2(void) {
   if (opts::NoOpt2)
     return 0;
 
-  DoOptimize();
+  if (int ret = DoOptimize())
+    return ret;
 
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
   if (PCRelGlobal) {
     if (PCRelGlobal->user_begin() == PCRelGlobal->user_end())
       PCRelGlobal->eraseFromParent();
@@ -2957,7 +2990,6 @@ int Optimize2(void) {
 }
 
 int RenameFunctionLocals(void) {
-  CPUStateGlobal = Module->getGlobalVariable("env", true);
   if (!CPUStateGlobal)
     return 0;
 
@@ -2994,8 +3026,20 @@ int RenameFunctionLocals(void) {
 }
 
 int WriteModule(void) {
-  if (llvm::verifyModule(*Module, &llvm::errs()))
+  if (llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "WriteModule: failed to verify module\n";
+    llvm::errs() << *Module << '\n';
     return 1;
+  }
+
+  {
+    std::string ll_output_path =
+        fs::path(opts::Output).replace_extension("ll").string();
+    std::error_code ec;
+
+    llvm::raw_fd_ostream rfo(ll_output_path, ec);
+    rfo << *Module;
+  }
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
