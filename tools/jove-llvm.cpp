@@ -4267,7 +4267,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __LD_OP(INDEX_op_ld8s_i32, 8, 32, S)
     __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
     __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
     __LD_OP(INDEX_op_ld_i32, 32, 32, Z)
+    __LD_OP(INDEX_op_ld_i64, 64, 64, Z)
 
 #undef __LD_OP
 
