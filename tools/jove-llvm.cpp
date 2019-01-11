@@ -4263,6 +4263,24 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ARITH_OP_ROT
 
+#define __ANDC_OP(opc_name, bits)                                              \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *notv2 =                                                       \
+        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
+                                 : IRB.getInt64(0xffffffffffffffff),           \
+                      v2);                                                     \
+                                                                               \
+    set(IRB.CreateAnd(v1, notv2), arg_temp(op->args[0]));                      \
+  } break;
+
+    __ANDC_OP(INDEX_op_andc_i32, 32)
+    __ANDC_OP(INDEX_op_andc_i64, 64)
+
+#undef __ANDC_OP
+
 //
 // load from host memory
 //
