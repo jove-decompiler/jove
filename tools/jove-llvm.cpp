@@ -4547,7 +4547,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
     __ARITH_OP_BSWAP(INDEX_op_bswap16_i32, 16, 32)
     __ARITH_OP_BSWAP(INDEX_op_bswap32_i32, 32, 32)
+
+    __ARITH_OP_BSWAP(INDEX_op_bswap16_i64, 16, 64)
     __ARITH_OP_BSWAP(INDEX_op_bswap32_i64, 32, 64)
+    __ARITH_OP_BSWAP(INDEX_op_bswap64_i64, 64, 64)
 
 #undef __ARITH_OP_BSWAP
 
