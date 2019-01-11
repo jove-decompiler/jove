@@ -4497,6 +4497,29 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ARITH_OP_BSWAP
 
+#define __CLZ_OP(opc_name, bits)                                               \
+  case opc_name: {                                                             \
+    llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, bits)};              \
+    llvm::Function *ctlzF =                                                    \
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::ctlz,   \
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));           \
+    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};                             \
+    llvm::Value *v =                                                           \
+        IRB.CreateSelect(CondV, IRB.CreateCall(ctlzF, ctlzArgs), v2);          \
+                                                                               \
+    set(v, arg_temp(op->args[0]));                                             \
+    break;                                                                     \
+  }
+
+    __CLZ_OP(INDEX_op_clz_i32, 32)
+    __CLZ_OP(INDEX_op_clz_i64, 64)
+
+#undef __CLZ_OP
+
   case INDEX_op_deposit_i64: {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
