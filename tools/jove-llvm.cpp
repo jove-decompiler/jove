@@ -2663,9 +2663,18 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
 
+  basic_block_t entry_bb = f.BasicBlocks.front();
+  llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(
+      *Context, (fmt("Entry_%#lx") % ICFG[entry_bb].Addr).str(), F);
+
   for (basic_block_t bb : f.BasicBlocks)
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
+
+  {
+    llvm::IRBuilderTy IRB(EntryB);
+    IRB.CreateBr(ICFG[entry_bb].B);
+  }
 
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
@@ -2674,8 +2683,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   // entry basic block of the function
   //
   {
-    basic_block_t bb = f.BasicBlocks.front();
-    llvm::IRBuilderTy IRB(ICFG[bb].B);
+    llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
 
     for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb)
       f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
@@ -2736,7 +2744,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       }
     }
 
-    if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
+    if (int ret = TranslateBasicBlock(Binary, f, entry_bb, IRB))
       return ret;
   }
 
@@ -3072,7 +3080,7 @@ static Value *getNaturalGEPWithType(IRBuilderTy &IRB, const DataLayout &DL,
     }
     ++NumLayers;
   } while (ElementTy != TargetTy);
-  if (ElementTy != TargetTy)
+  if (TargetTy && ElementTy != TargetTy)
     Indices.erase(Indices.end() - NumLayers, Indices.end());
 
   return buildGEP(IRB, BasePtr, Indices, NamePrefix);
@@ -4112,6 +4120,21 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __EXT_OP
 
+// Convert 32 bit to 64 bit and does sign/zero extension
+#define __EXT_OP(opc_name, signE)                                              \
+  case opc_name: {                                                             \
+    llvm::Value *V = get(arg_temp(op->args[1]));                               \
+    llvm::outs() << "__EXT_OP" << *V << '\n';                                  \
+    set(IRB.Create##signE##Ext(V, llvm::IntegerType::get(*Context, 64)),       \
+        arg_temp(op->args[0]));                                                \
+    break;                                                                     \
+  }
+
+    __EXT_OP(INDEX_op_extu_i32_i64, Z)
+    __EXT_OP(INDEX_op_ext_i32_i64, S)
+
+#undef __EXT_OP
+
 #define __OP_QEMU_LD(opc_name, bits)                                           \
   case opc_name: {                                                             \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
@@ -4253,8 +4276,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
-        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), IRB.getIntNTy(memBits), \
-        Indices, "");                                                          \
+        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
     llvm::Value *Val = IRB.CreateLoad(Ptr);                                    \
     if (memBits != regBits)                                                    \
       Val = IRB.Create##signE##Ext(Val, IRB.getIntNTy(regBits));               \
@@ -4267,6 +4289,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __LD_OP(INDEX_op_ld8s_i32, 8, 32, S)
     __LD_OP(INDEX_op_ld16u_i32, 16, 32, Z)
     __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
+    __LD_OP(INDEX_op_ld32u_i64, 32, 64, Z)
     __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
     __LD_OP(INDEX_op_ld_i32, 32, 32, Z)
     __LD_OP(INDEX_op_ld_i64, 64, 64, Z)
