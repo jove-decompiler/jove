@@ -1132,7 +1132,7 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_deposit_i64      1
 
-#define TCG_TARGET_HAS_extract_i64      1
+#define TCG_TARGET_HAS_extract_i64      0
 
 #define TCG_TARGET_HAS_sextract_i64     0
 
