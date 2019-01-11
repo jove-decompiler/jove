@@ -4311,10 +4311,23 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       break;                                                                   \
     }                                                                          \
                                                                                \
+    if (regBits > memBits)                                                     \
+      Val = IRB.CreateTrunc(Val, IRB.getIntNTy(memBits));                      \
+                                                                               \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
-        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), IRB.getIntNTy(memBits), \
-        Indices, "");                                                          \
+        IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
+    if (!Ptr)                                                                  \
+      Ptr = IRB.CreateIntToPtr(                                                \
+          IRB.CreateAdd(                                                       \
+              llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),     \
+              IRB.getIntN(WordBits(), off)),                                   \
+          llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
+                                                                               \
+    assert(Ptr->getType()->isPointerTy());                                     \
+                                                                               \
+    Ptr = IRB.CreatePointerCast(                                               \
+        Ptr, llvm::PointerType::get(IRB.getIntNTy(memBits), 0));               \
     IRB.CreateStore(Val, Ptr);                                                 \
     break;                                                                     \
   }
