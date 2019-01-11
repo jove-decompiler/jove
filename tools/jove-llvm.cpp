@@ -4453,6 +4453,26 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __ARITH_OP_I
 
+#define __ARITH_OP_BSWAP(opc_name, sBits, bits)                                \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    assert(v1->getType() == llvm::IntegerType::get(*Context, bits));           \
+    llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, sBits)};             \
+    llvm::Function *bswap =                                                    \
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::bswap,  \
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
+    llvm::Value *v =                                                           \
+        IRB.CreateTrunc(v1, llvm::IntegerType::get(*Context, sBits));          \
+    set(IRB.CreateZExt(IRB.CreateCall(bswap, v),                               \
+                       llvm::IntegerType::get(*Context, bits)),                \
+        arg_temp(op->args[0]));                                                \
+  } break;
+
+    __ARITH_OP_BSWAP(INDEX_op_bswap16_i32, 16, 32)
+    __ARITH_OP_BSWAP(INDEX_op_bswap32_i32, 32, 32)
+
+#undef __ARITH_OP_BSWAP
+
   case INDEX_op_deposit_i64: {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
