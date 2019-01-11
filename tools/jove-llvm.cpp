@@ -4356,7 +4356,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 #define __OP_MOVCOND(opc_name, bits)                                           \
   case opc_name: {                                                             \
     llvm::Value *CondV;                                                        \
-    switch (op->args[3]) {                                                     \
+    switch (op->args[5]) {                                                     \
       __OP_MOVCOND_COND(TCG_COND_EQ, EQ)                                       \
       __OP_MOVCOND_COND(TCG_COND_NE, NE)                                       \
       __OP_MOVCOND_COND(TCG_COND_LT, SLT)                                      \
