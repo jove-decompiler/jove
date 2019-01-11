@@ -4124,7 +4124,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 #define __EXT_OP(opc_name, signE)                                              \
   case opc_name: {                                                             \
     llvm::Value *V = get(arg_temp(op->args[1]));                               \
-    llvm::outs() << "__EXT_OP" << *V << '\n';                                  \
     set(IRB.Create##signE##Ext(V, llvm::IntegerType::get(*Context, 64)),       \
         arg_temp(op->args[0]));                                                \
     break;                                                                     \
@@ -4327,6 +4326,12 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __ST_OP(INDEX_op_st_i32, 32, 32)
 
 #undef __ST_OP
+
+  case INDEX_op_br: {
+    llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
+    IRB.CreateBr(lblB);
+    break;
+  }
 
 #define __OP_BRCOND_COND(tcg_cond, cond)                                       \
   case tcg_cond:                                                               \
