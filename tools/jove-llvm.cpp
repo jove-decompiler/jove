@@ -2004,7 +2004,7 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Types[Off] = T;
   };
 
-  auto type_of_addressof_function_relocation =
+  auto type_of_addressof_undefined_function_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(S.IsUndefined());
     llvm::FunctionType *FTy;
@@ -2040,6 +2040,15 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return llvm::PointerType::get(FTy, 0);
+  };
+
+  auto type_of_addressof_defined_function_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+    assert(!S.IsUndefined());
+
+    // XXX
+    WithColor::error() << "type_of_addressof_defined_function_relocation UNHANDLED\n";
+    return nullptr;
   };
 
   auto type_of_addressof_data_relocation =
@@ -2080,7 +2089,10 @@ int CreateSectionGlobalVariables(void) {
 
       switch (S.Type) {
       case symbol_t::TYPE::FUNCTION:
-        return type_of_addressof_function_relocation(R, S);
+        if (S.IsUndefined())
+          return type_of_addressof_undefined_function_relocation(R, S);
+        else
+          return type_of_addressof_defined_function_relocation(R, S);
       case symbol_t::TYPE::DATA:
         return type_of_addressof_data_relocation(R, S);
       }
@@ -2090,13 +2102,16 @@ int CreateSectionGlobalVariables(void) {
       return type_of_relative_relocation(R);
     }
 
-    abort();
+    // XXX
+    WithColor::error() << "type_of_relocation UNHANDLED\n";
+    return nullptr;
   };
 
   // puncture the interval set for each section by intervals which represent
   // relocations
   for (const relocation_t &R : RelocationTable)
-    type_at_address(R.Addr, type_of_relocation(R));
+    if (llvm::Type *Ty = type_of_relocation(R))
+      type_at_address(R.Addr, Ty);
 
   //
   // create global variable for sections
@@ -2166,7 +2181,7 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Constants[Off] = C;
   };
 
-  auto constant_of_addressof_function_relocation =
+  auto constant_of_addressof_undefined_function_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
 
@@ -2217,7 +2232,17 @@ int CreateSectionGlobalVariables(void) {
     return F;
   };
 
-  auto constant_of_addressof_data_relocation =
+  auto constant_of_addressof_defined_function_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
+    assert(!S.IsUndefined());
+
+    // XXX
+    WithColor::error()
+        << "constant_of_addressof_defined_function_relocation UNHANDLED\n";
+    return nullptr;
+  };
+
+  auto constant_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
 
@@ -2237,6 +2262,16 @@ int CreateSectionGlobalVariables(void) {
         nullptr, S.Name);
 
     return GV;
+  };
+
+  auto constant_of_addressof_defined_data_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
+    assert(!S.IsUndefined());
+
+    // XXX
+    WithColor::error()
+        << "constant_of_addressof_defined_data_relocation UNHANDLED\n";
+    return nullptr;
   };
 
   auto constant_of_relative_relocation =
@@ -2270,9 +2305,15 @@ int CreateSectionGlobalVariables(void) {
 
       switch (S.Type) {
       case symbol_t::TYPE::FUNCTION:
-        return constant_of_addressof_function_relocation(R, S);
+        if (S.IsUndefined())
+          return constant_of_addressof_undefined_function_relocation(R, S);
+        else
+          return constant_of_addressof_defined_function_relocation(R, S);
       case symbol_t::TYPE::DATA:
-        return constant_of_addressof_data_relocation(R, S);
+        if (S.IsUndefined())
+          return constant_of_addressof_undefined_data_relocation(R, S);
+        else
+          return constant_of_addressof_defined_data_relocation(R, S);
       }
     }
 
@@ -2280,13 +2321,16 @@ int CreateSectionGlobalVariables(void) {
       return constant_of_relative_relocation(R);
     }
 
-    abort();
+    // XXX
+    WithColor::error() << "constant_of_relocation UNHANDLED\n";
+    return nullptr;
   };
 
   // puncture the interval set for each section by intervals which represent
   // relocations
   for (const relocation_t &R : RelocationTable)
-    constant_at_address(R.Addr, constant_of_relocation(R));
+    if (llvm::Constant *C = constant_of_relocation(R))
+      constant_at_address(R.Addr, C);
 
   //
   // create global variable initializer for sections
