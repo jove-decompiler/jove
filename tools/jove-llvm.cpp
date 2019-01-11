@@ -4344,8 +4344,43 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __OP_SETCOND(INDEX_op_setcond_i32, 32)
     __OP_SETCOND(INDEX_op_setcond_i64, 64)
 
-#undef __OP_SETCOND_COND
-#undef __OP_SETCOND
+#undef __OP_MOVCOND_COND
+#undef __OP_MOVCOND
+
+#define __OP_MOVCOND_COND(tcg_cond, cond)                                      \
+  case tcg_cond:                                                               \
+    CondV = IRB.CreateICmp##cond(get(arg_temp(op->args[1])),                   \
+                                 get(arg_temp(op->args[2])));                  \
+    break;
+
+#define __OP_MOVCOND(opc_name, bits)                                           \
+  case opc_name: {                                                             \
+    llvm::Value *CondV;                                                        \
+    switch (op->args[3]) {                                                     \
+      __OP_MOVCOND_COND(TCG_COND_EQ, EQ)                                       \
+      __OP_MOVCOND_COND(TCG_COND_NE, NE)                                       \
+      __OP_MOVCOND_COND(TCG_COND_LT, SLT)                                      \
+      __OP_MOVCOND_COND(TCG_COND_GE, SGE)                                      \
+      __OP_MOVCOND_COND(TCG_COND_LE, SLE)                                      \
+      __OP_MOVCOND_COND(TCG_COND_GT, SGT)                                      \
+      __OP_MOVCOND_COND(TCG_COND_LTU, ULT)                                     \
+      __OP_MOVCOND_COND(TCG_COND_GEU, UGE)                                     \
+      __OP_MOVCOND_COND(TCG_COND_LEU, ULE)                                     \
+      __OP_MOVCOND_COND(TCG_COND_GTU, UGT)                                     \
+    default:                                                                   \
+      assert(false);                                                           \
+    }                                                                          \
+    llvm::Value *SelV = IRB.CreateSelect(CondV,                                \
+                                         get(arg_temp(op->args[3])),           \
+                                         get(arg_temp(op->args[4])));          \
+    set(SelV, arg_temp(op->args[0]));                                          \
+  } break;
+
+    __OP_MOVCOND(INDEX_op_movcond_i32, 32)
+    __OP_MOVCOND(INDEX_op_movcond_i64, 64)
+
+#undef __OP_MOVCOND_COND
+#undef __OP_MOVCOND
 
 #define __ARITH_OP_MUL2(opc_name, signE, bits)                                 \
   case opc_name: {                                                             \
