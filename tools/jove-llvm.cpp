@@ -4556,6 +4556,29 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __CLZ_OP
 
+#define __CTZ_OP(opc_name, bits)                                               \
+  case opc_name: {                                                             \
+    llvm::Type *Tys[] = {llvm::IntegerType::get(*Context, bits)};              \
+    llvm::Function *cttzF =                                                    \
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::cttz,   \
+                                        llvm::ArrayRef<llvm::Type *>(Tys, 1)); \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *CondV = IRB.CreateICmpNE(v1, IRB.getIntN(bits, 0));           \
+    llvm::Value *ctlzArgs[] = {v1, IRB.getTrue()};                             \
+    llvm::Value *v =                                                           \
+        IRB.CreateSelect(CondV, IRB.CreateCall(cttzF, ctlzArgs), v2);          \
+                                                                               \
+    set(v, arg_temp(op->args[0]));                                             \
+    break;                                                                     \
+  }
+
+    __CTZ_OP(INDEX_op_ctz_i32, 32)
+    __CTZ_OP(INDEX_op_ctz_i64, 64)
+
+#undef __CTZ_OP
+
   case INDEX_op_deposit_i64: {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
