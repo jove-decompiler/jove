@@ -2753,18 +2753,13 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        if (glb == tcg_env_index)
+        switch (glb) {
+        default:
           continue;
 
-        if (f.IsABI) {
-          switch (glb) {
-          default:
-            continue;
-
-          case tcg_frame_pointer_index:
-          case tcg_stack_pointer_index:
-            break;
-          }
+        case tcg_frame_pointer_index:
+        case tcg_stack_pointer_index:
+          break;
         }
 
         llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
@@ -2892,15 +2887,15 @@ static int DoOptimize(void) {
 
   MPM.run(*Module);
 
-  // reload globals (they could have been deleted)
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
-  CPUStateGlobal = Module->getGlobalVariable("env");
-
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [post] failed to verify module\n";
     llvm::errs() << *Module << '\n';
     return 1;
   }
+
+  // reload globals (they could have been deleted)
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
+  CPUStateGlobal = Module->getGlobalVariable("env");
 
   return 0;
 }
