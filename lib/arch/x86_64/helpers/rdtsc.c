@@ -455,50 +455,12 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
-
-uint64_t cpu_get_tsc(CPUX86State *env);
-
-#define SVM_EXIT_RDTSC		0x06e
-
-#define SVM_EXIT_CPUID		0x072
-
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
-
-void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
-                                   uint64_t param, uintptr_t retaddr);
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-void helper_cpuid(CPUX86State *env)
-{
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
-}
-
 void helper_rdtsc(CPUX86State *env)
 {
-    uint64_t val;
+  unsigned int tickl, tickh;
+  asm volatile("rdtsc" : "=a"(tickl), "=d"(tickh));
 
-    if ((env->cr[4] & CR4_TSD_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
-        raise_exception_ra(env, EXCP0D_GPF, GETPC());
-    }
-    cpu_svm_check_intercept_param(env, SVM_EXIT_RDTSC, 0, GETPC());
-
-    val = cpu_get_tsc(env) + env->tsc_offset;
-    env->regs[R_EAX] = (uint32_t)(val);
-    env->regs[R_EDX] = (uint32_t)(val >> 32);
+  env->regs[R_EAX] = tickl;
+  env->regs[R_EDX] = tickh;
 }
 

@@ -382,6 +382,34 @@ typedef struct X86CPU X86CPU;
 
 typedef uint64_t target_ulong;
 
+enum {
+    R_EAX = 0,
+    R_ECX = 1,
+    R_EDX = 2,
+    R_EBX = 3,
+    R_ESP = 4,
+    R_EBP = 5,
+    R_ESI = 6,
+    R_EDI = 7,
+    R_R8 = 8,
+    R_R9 = 9,
+    R_R10 = 10,
+    R_R11 = 11,
+    R_R12 = 12,
+    R_R13 = 13,
+    R_R14 = 14,
+    R_R15 = 15,
+
+    R_AL = 0,
+    R_CL = 1,
+    R_DL = 2,
+    R_BL = 3,
+    R_AH = 4,
+    R_CH = 5,
+    R_DH = 6,
+    R_BH = 7,
+};
+
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -805,19 +833,26 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
-{
-    return container_of(env, X86CPU, env);
-}
-
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
+__attribute__((always_inline)) void helper_syscall(CPUX86State *, int);
 
 void helper_syscall(CPUX86State *env, int next_eip_addend)
 {
-    CPUState *cs = CPU(x86_env_get_cpu(env));
+  long resultvar;
 
-    cs->exception_index = EXCP_SYSCALL;
-    env->exception_next_eip = env->eip + next_eip_addend;
-    cpu_loop_exit(cs);
+  register long _no asm("rax") = env->regs[R_EAX];
+
+  register long _a1 asm("rdi") = env->regs[R_EDI];
+  register long _a2 asm("rsi") = env->regs[R_ESI];
+  register long _a3 asm("rdx") = env->regs[R_EDX];
+  register long _a4 asm("r10") = env->regs[R_R10];
+  register long _a5 asm("r8")  = env->regs[R_R8];
+  register long _a6 asm("r9")  = env->regs[R_R9];
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(_no),
+                 "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), "r"(_a6)
+               : "memory", "cc", "r11", "cx");
+
+  env->regs[R_EAX] = resultvar;
 }
-
