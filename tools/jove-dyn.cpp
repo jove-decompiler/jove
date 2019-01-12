@@ -991,7 +991,8 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            "%s BB %#lx\n"
            "%s")
        % Addr
-       % Binary.Path % ICFG[indbr.bb].Addr
+       % Binary.Path
+       % ICFG[indbr.bb].Addr
        % StringOfMCInst(Inst, dis)).str());
   }
 
@@ -1377,10 +1378,10 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
       st.dyn.LoadAddrEnd = vm_prop.end;
 
-      llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)") %
-                       Path %
-                       st.dyn.LoadAddr %
-                       st.dyn.LoadAddrEnd).str()
+      llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
+                       % Path
+                       % st.dyn.LoadAddr
+                       % st.dyn.LoadAddrEnd).str()
                    << '\n';
 
       boost::icl::interval<uintptr_t>::type intervl =
