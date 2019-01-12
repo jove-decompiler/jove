@@ -449,6 +449,9 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+__attribute__((always_inline)) void helper_divl_EAX(CPUX86State *env,
+                                                    target_ulong t0);
+
 void helper_divl_EAX(CPUX86State *env, target_ulong t0)
 {
     unsigned int den, r;
