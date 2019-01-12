@@ -2059,11 +2059,23 @@ int CreateSectionGlobalVariables(void) {
     return nullptr;
   };
 
-  auto type_of_addressof_data_relocation =
+  auto type_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+    assert(S.IsUndefined());
+
     llvm::Type *intTy = llvm::Type::getIntNTy(
         *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
     return llvm::PointerType::get(intTy, 0);
+  };
+
+  auto type_of_addressof_defined_data_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+    assert(!S.IsUndefined());
+
+    // XXX
+    WithColor::error()
+        << "type_of_addressof_defined_data_relocation UNHANDLED\n";
+    return nullptr;
   };
 
   auto type_of_relative_relocation =
@@ -2102,7 +2114,10 @@ int CreateSectionGlobalVariables(void) {
         else
           return type_of_addressof_defined_function_relocation(R, S);
       case symbol_t::TYPE::DATA:
-        return type_of_addressof_data_relocation(R, S);
+        if (S.IsUndefined())
+          return type_of_addressof_undefined_data_relocation(R, S);
+        else
+          return type_of_addressof_defined_data_relocation(R, S);
       }
     }
 
@@ -3033,11 +3048,10 @@ int WriteModule(void) {
   }
 
   {
-    std::string ll_output_path =
-        fs::path(opts::Output).replace_extension("ll").string();
     std::error_code ec;
+    llvm::raw_fd_ostream rfo(
+        fs::path(opts::Output).replace_extension("ll").string(), ec);
 
-    llvm::raw_fd_ostream rfo(ll_output_path, ec);
     rfo << *Module;
   }
 
