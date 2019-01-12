@@ -850,8 +850,8 @@ void helper_syscall(CPUX86State *env, int next_eip_addend)
 
   asm volatile("syscall\n\t"
                : "=a"(resultvar)
-               : "0"(_no),
-                 "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), "r"(_a6)
+               : "r"(_no), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5),
+                 "r"(_a6)
                : "memory", "cc", "r11", "cx");
 
   env->regs[R_EAX] = resultvar;
