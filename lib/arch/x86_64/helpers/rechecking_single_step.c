@@ -425,21 +425,8 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-void QEMU_NORETURN raise_exception(CPUX86State *env, int exception_index);
-
-void helper_single_step(CPUX86State *env)
-{
-#ifndef CONFIG_USER_ONLY
-    check_hw_breakpoints(env, true);
-    env->dr[6] |= DR6_BS;
-#endif
-    raise_exception(env, EXCP01_DB);
-}
+__attribute__((always_inline)) void helper_rechecking_single_step(CPUX86State *env);
 
 void helper_rechecking_single_step(CPUX86State *env)
 {
-    if ((env->eflags & TF_MASK) != 0) {
-        helper_single_step(env);
-    }
 }
-

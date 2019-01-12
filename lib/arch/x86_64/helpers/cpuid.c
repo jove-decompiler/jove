@@ -445,29 +445,19 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
+__attribute__((always_inline)) void helper_cpuid(CPUX86State *env);
 
-#define SVM_EXIT_CPUID		0x072
+void helper_cpuid(CPUX86State *env) {
+  uint32_t index = (uint32_t)env->regs[R_EAX];
+  uint32_t count = (uint32_t)env->regs[R_ECX];
 
-void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
-                                   uint64_t param, uintptr_t retaddr);
+  uint32_t eax, ebx, ecx, edx;
+  asm volatile("cpuid\n\t"
+               : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
+               : "0"(index), "2"(count));
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-void helper_cpuid(CPUX86State *env)
-{
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
+  env->regs[R_EAX] = eax;
+  env->regs[R_EBX] = ebx;
+  env->regs[R_ECX] = ecx;
+  env->regs[R_EDX] = edx;
 }
-
