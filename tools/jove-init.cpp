@@ -130,15 +130,6 @@ int init(void) {
   close(pipefd[1]); /* close unused write end */
 
   //
-  // check exit code
-  //
-  if (int ret = await_process_completion(pid)) {
-    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts::Input
-                 << " returned nonzero exit code " << ret << '\n';
-    return 1;
-  }
-
-  //
   // slurp up the result of executing the binary
   //
   std::string dynlink_stdout;
@@ -149,6 +140,15 @@ int init(void) {
   }
 
   close(pipefd[0]); /* close read end */
+
+  //
+  // check exit code
+  //
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << "LD_TRACE_LOADED_OBJECTS=1 " << opts::Input
+                 << " returned nonzero exit code " << ret << '\n';
+    return 1;
+  }
 
 
   //

@@ -236,8 +236,16 @@ static void worker(void) {
     std::string bcfp =
         (fs::path(tmpdir) / binary_filename).replace_extension("bc").string();
 
+    int pipefd[2];
+    if (pipe(pipefd) < 0)
+      WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
+
     pid_t pid = fork();
     if (!pid) {
+      close(pipefd[0]); /* close unused read end */
+      dup2(pipefd[1], STDOUT_FILENO);
+      dup2(pipefd[1], STDERR_FILENO);
+
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(jove_llvm_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-decompilation"));
@@ -252,8 +260,24 @@ static void worker(void) {
       return;
     }
 
+    close(pipefd[1]); /* close unused write end */
+
+    std::string stdout_s;
+    {
+      char buf;
+      while (read(pipefd[0], &buf, 1) > 0)
+        stdout_s += buf;
+    }
+
+    close(pipefd[0]); /* close read end */
+
+    //
+    // check exit code
+    //
     if (int ret = await_process_completion(pid))
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
+
+    llvm::outs() << stdout_s;
   }
 }
 
