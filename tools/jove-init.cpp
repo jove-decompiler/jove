@@ -155,8 +155,10 @@ int init(void) {
   // parse the standard output from the dynamic linker to produce a set of paths
   // to binaries that will be added to the decompilation
   //
-  std::unordered_set<std::string> binary_paths;
-  binary_paths.insert(fs::canonical(opts::Input).string());
+  std::vector<std::string> binary_paths;
+  binary_paths.reserve(2);
+
+  binary_paths.push_back(fs::canonical(opts::Input).string());
 
   //
   // get the path to the dynamic linker
@@ -180,7 +182,7 @@ int init(void) {
     }
 
     llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
-    binary_paths.insert(fs::canonical(path).string());
+    binary_paths.push_back(fs::canonical(path).string());
   }
 
   //
@@ -207,7 +209,10 @@ int init(void) {
       return 1;
     }
 
-    binary_paths.insert(fs::canonical(path).string());
+    std::string bin_path = fs::canonical(path).string();
+    assert(std::find(binary_paths.begin(), binary_paths.end(), bin_path) ==
+           binary_paths.end());
+    binary_paths.push_back(bin_path);
   }
 
   //
@@ -257,6 +262,11 @@ int init(void) {
     //
     final_decompilation.Binaries.push_back(decompilation.Binaries.front());
   }
+
+  assert(final_decompilation.Binaries.size() >= 2);
+
+  final_decompilation.Binaries[0].IsExecutable = true;
+  assert(final_decompilation.Binaries[1].IsDynamicLinker);
 
   if (fs::exists(opts::Output)) {
     if (opts::Verbose)
