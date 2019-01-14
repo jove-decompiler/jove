@@ -884,7 +884,7 @@ extern unsigned long guest_base;
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
 
 #define MEMSUFFIX _data
 

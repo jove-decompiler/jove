@@ -934,7 +934,7 @@ uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
 
 #define MEMSUFFIX _data
 

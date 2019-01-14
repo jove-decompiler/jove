@@ -456,7 +456,7 @@ void helper_idivq_EAX(CPUX86State *env, target_ulong t0) {
   uint64_t low = env->regs[R_EAX];
   uint64_t hig = env->regs[R_EDX];
 
-  __int128 x = ((__int128)hig << 64) | low;
+  __int128_t x = ((__int128_t)hig << 64) | low;
   x /= t0;
 
   env->regs[R_EAX] = (uint64_t)x;

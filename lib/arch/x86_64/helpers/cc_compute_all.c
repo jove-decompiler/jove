@@ -110,7 +110,7 @@ static inline target_long lshift(target_long x, int n)
 
 #define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
 
-const uint8_t parity_table[256] = {
+static const uint8_t parity_table[256] = {
     CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
     0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
     0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,

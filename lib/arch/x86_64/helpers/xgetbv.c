@@ -893,7 +893,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
 
 #define MEMSUFFIX _data
 
