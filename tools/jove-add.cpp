@@ -474,6 +474,8 @@ int add(void) {
     binary.Analysis.EntryFunction = invalid_function_index;
   }
 
+  binary.IsDynamicLinker = !Interp.Found;
+
   for (const Elf_Sym &Sym : dynamic_symbols()) {
     if (Sym.isUndefined())
       continue;
