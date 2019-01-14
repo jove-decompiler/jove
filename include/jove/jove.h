@@ -101,6 +101,8 @@ struct binary_t {
   std::string Path;
   std::vector<uint8_t> Data;
 
+  bool IsDynamicLinker;
+
   struct {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
@@ -109,7 +111,12 @@ struct binary_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Path &Data &Analysis.EntryFunction &Analysis.Functions &Analysis.ICFG;
+    ar &Path
+       &Data
+       &IsDynamicLinker
+       &Analysis.EntryFunction
+       &Analysis.Functions
+       &Analysis.ICFG;
   }
 };
 
