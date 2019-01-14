@@ -269,6 +269,9 @@ int add(void) {
   decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
   binary_t &binary = decompilation.Binaries.back();
 
+  binary.IsDynamicLinker = false;
+  binary.IsExecutable = false;
+
   binary.Path = fs::canonical(opts::Input).string();
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
