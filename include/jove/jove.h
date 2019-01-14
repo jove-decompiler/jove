@@ -37,13 +37,13 @@ constexpr function_index_t invalid_function_index =
 constexpr basic_block_index_t invalid_basic_block_index =
     std::numeric_limits<basic_block_index_t>::max();
 
-inline bool binary_index_is_valid(binary_index_t idx) {
+inline bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
 }
-inline bool function_index_is_valid(function_index_t idx) {
+inline bool is_function_index_valid(function_index_t idx) {
   return idx != invalid_function_index;
 }
-inline bool basic_block_index_is_valid(basic_block_index_t idx) {
+inline bool is_basic_block_index_valid(basic_block_index_t idx) {
   return idx != invalid_basic_block_index;
 }
 
@@ -101,7 +101,7 @@ struct binary_t {
   std::string Path;
   std::vector<uint8_t> Data;
 
-  bool IsDynamicLinker;
+  bool IsDynamicLinker, IsExecutable;
 
   struct {
     function_index_t EntryFunction;
@@ -114,6 +114,7 @@ struct binary_t {
     ar &Path
        &Data
        &IsDynamicLinker
+       &IsExecutable
        &Analysis.EntryFunction
        &Analysis.Functions
        &Analysis.ICFG;
