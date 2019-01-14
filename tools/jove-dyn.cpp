@@ -432,9 +432,10 @@ int ParentProc(pid_t child) {
       st.SectMap.add(std::make_pair(intervl, sectprops));
 
       if (opts::VeryVerbose)
-        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)") %
-                         std::string(sectprop.name) % intervl.lower() %
-                         intervl.upper())
+        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
+                         % std::string(sectprop.name)
+                         % intervl.lower()
+                         % intervl.upper())
                             .str()
                      << '\n';
     }
