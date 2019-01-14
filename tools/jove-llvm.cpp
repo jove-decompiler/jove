@@ -2062,8 +2062,10 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    // XXX
+    // XXX TODO
+#if 0
     WithColor::error() << "type_of_addressof_defined_function_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
@@ -2080,9 +2082,10 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    // XXX
-    WithColor::error()
-        << "type_of_addressof_defined_data_relocation UNHANDLED\n";
+    // XXX TODO
+#if 0
+    WithColor::error() << "type_of_addressof_defined_data_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
@@ -2133,8 +2136,10 @@ int CreateSectionGlobalVariables(void) {
       return type_of_relative_relocation(R);
     }
 
-    // XXX
+    // XXX TODO
+#if 0
     WithColor::error() << "type_of_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
@@ -2267,9 +2272,11 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    // XXX
+    // XXX TODO
+#if 0
     WithColor::error()
         << "constant_of_addressof_defined_function_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
@@ -2299,9 +2306,10 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    // XXX
-    WithColor::error()
-        << "constant_of_addressof_defined_data_relocation UNHANDLED\n";
+    // XXX TODO
+#if 0
+    WithColor::error() << "constant_of_addressof_defined_data_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
@@ -2352,8 +2360,10 @@ int CreateSectionGlobalVariables(void) {
       return constant_of_relative_relocation(R);
     }
 
-    // XXX
+    // XXX TODO
+#if 0
     WithColor::error() << "constant_of_relocation UNHANDLED\n";
+#endif
     return nullptr;
   };
 
