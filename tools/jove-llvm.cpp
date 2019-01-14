@@ -3992,7 +3992,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   case INDEX_op_set_label: {
     if (!IRB.GetInsertBlock()->getTerminator()) {
-      WithColor::warning() << "INDEX_op_set_label: no terminator in block\n";
+      if (opts::Verbose)
+        WithColor::warning() << "INDEX_op_set_label: no terminator in block\n";
       assert(ExitBB);
       IRB.CreateBr(ExitBB);
     }
