@@ -2530,6 +2530,10 @@ int CreatePCRelGlobal(void) {
 }
 
 int FixupHelperStubs(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  if (!function_index_is_valid(Binary.Analysis.EntryFunction))
+    return 0;
+
   //
   // we assume that the user is decompiling an executable (i.e. an ELF which
   // requests an interpreter such as /lib64/ld-linux-x86-64.so.2). this code
@@ -2560,8 +2564,7 @@ int FixupHelperStubs(void) {
 
     llvm::IRBuilderTy IRB(BB);
 
-    binary_t &b = Decompilation.Binaries[BinaryIndex];
-    function_t &f = b.Analysis.Functions.at(b.Analysis.EntryFunction);
+    function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
 
     std::vector<llvm::Value *> ArgVec;
     {
