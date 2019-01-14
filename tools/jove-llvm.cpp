@@ -411,6 +411,7 @@ static int FixupPCRelativeAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
+static int ReplaceAllUsesOfConstSections(void);
 static int RenameFunctionLocals(void);
 static int WriteModule(void);
 
@@ -437,6 +438,7 @@ int llvm(void) {
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || Optimize2()
+      || ReplaceAllUsesOfConstSections()
       || RenameFunctionLocals()
       || WriteModule();
 }
@@ -2920,11 +2922,13 @@ static int DoOptimize(void) {
     return 1;
   }
 
-  // reload globals (they could have been deleted)
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
-  CPUStateGlobal = Module->getGlobalVariable("env");
-  SectsGlobal = Module->getGlobalVariable("sections");
-  ConstSectsGlobal = Module->getGlobalVariable("const_sections");
+  //
+  // reload global variables which might have been optimized away
+  //
+  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel", true);
+  CPUStateGlobal = Module->getGlobalVariable("env", true);
+  SectsGlobal = Module->getGlobalVariable("sections", true);
+  ConstSectsGlobal = Module->getGlobalVariable("const_sections", true);
 
   return 0;
 }
@@ -3020,8 +3024,6 @@ int InternalizeSections(void) {
 }
 
 int Optimize2(void) {
-  ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-
   if (opts::NoOpt2)
     return 0;
 
@@ -3034,6 +3036,20 @@ int Optimize2(void) {
     else
       WithColor::warning() << "PCRel global not eliminated\n";
   }
+
+  return 0;
+}
+
+int ReplaceAllUsesOfConstSections(void) {
+  if (!ConstSectsGlobal)
+    return 0;
+
+  assert(SectsGlobal);
+
+  assert(ConstSectsGlobal->user_begin() != ConstSectsGlobal->user_end());
+  ConstSectsGlobal->replaceAllUsesWith(SectsGlobal);
+  assert(ConstSectsGlobal->user_begin() == ConstSectsGlobal->user_end());
+  ConstSectsGlobal->eraseFromParent();
 
   return 0;
 }
