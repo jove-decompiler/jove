@@ -78,7 +78,7 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
-static std::string jove_llvm_path;
+static std::string jove_llvm_path, llc_path, ld_path;
 
 int recompile(void) {
   fs::path jvpath(opts::jv);
@@ -97,12 +97,27 @@ int recompile(void) {
     ia >> Decompilation;
   }
 
+  //
+  // get paths to stuff
+  //
   jove_llvm_path =
       (boost::dll::program_location().parent_path() / std::string("jove-llvm"))
           .string();
   if (!fs::exists(jove_llvm_path)) {
     WithColor::error() << "could not find jove-llvm at " << jove_llvm_path
                        << '\n';
+    return 1;
+  }
+
+  llc_path = "/usr/bin/llc";
+  if (!fs::exists(llc_path)) {
+    WithColor::error() << "could not find /usr/bin/llc\n";
+    return 1;
+  }
+
+  ld_path = "/usr/bin/ld";
+  if (!fs::exists(ld_path)) {
+    WithColor::error() << "could not find /usr/bin/ld\n";
     return 1;
   }
 
@@ -240,7 +255,9 @@ static void worker(void) {
     if (pipe(pipefd) < 0)
       WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
 
-    pid_t pid = fork();
+    pid_t pid;
+
+    pid = fork();
     if (!pid) {
       close(pipefd[0]); /* close unused read end */
       dup2(pipefd[1], STDOUT_FILENO);
@@ -274,10 +291,77 @@ static void worker(void) {
     //
     // check exit code
     //
-    if (int ret = await_process_completion(pid))
+    if (int ret = await_process_completion(pid)) {
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
+      continue;
+    }
 
+    //
+    // print stdout and stderr output to stdout
+    //
     llvm::outs() << stdout_s;
+
+    //
+    // compile bitcode
+    //
+    std::string objfp =
+        (fs::path(tmpdir) / binary_filename).replace_extension("o").string();
+
+    pid = fork();
+    if (!pid) {
+      std::vector<char *> arg_vec;
+      arg_vec.push_back(const_cast<char *>(llc_path.c_str()));
+      arg_vec.push_back(const_cast<char *>("-o"));
+      arg_vec.push_back(const_cast<char *>(objfp.c_str()));
+      arg_vec.push_back(const_cast<char *>("-filetype=obj"));
+      arg_vec.push_back(const_cast<char *>("-relocation-model=pic"));
+      arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
+      arg_vec.push_back(nullptr);
+
+      execve(llc_path.c_str(), arg_vec.data(), ::environ);
+      return;
+    }
+
+    //
+    // check exit code
+    //
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << "llc failed for " << binary_filename << '\n';
+      continue;
+    }
+
+    if (!fs::path(binary_filename).has_extension())
+      continue;
+
+    //
+    // link object file to create shared library
+    //
+    std::string sofp =
+        (fs::path(tmpdir) / binary_filename).replace_extension("so").string();
+
+    pid = fork();
+    if (!pid) {
+      std::vector<char *> arg_vec;
+      arg_vec.push_back(const_cast<char *>(ld_path.c_str()));
+      arg_vec.push_back(const_cast<char *>("-o"));
+      arg_vec.push_back(const_cast<char *>(sofp.c_str()));
+      arg_vec.push_back(const_cast<char *>("-m"));
+      arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
+      arg_vec.push_back(const_cast<char *>("-shared"));
+      arg_vec.push_back(const_cast<char *>(objfp.c_str()));
+      arg_vec.push_back(nullptr);
+
+      execve(ld_path.c_str(), arg_vec.data(), ::environ);
+      return;
+    }
+
+    //
+    // check exit code
+    //
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << "llc failed for " << binary_filename << '\n';
+      continue;
+    }
   }
 }
 
