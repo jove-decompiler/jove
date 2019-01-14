@@ -1135,7 +1135,7 @@ static inline void cpu_load_eflags(CPUX86State *env, int eflags,
 
 #define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

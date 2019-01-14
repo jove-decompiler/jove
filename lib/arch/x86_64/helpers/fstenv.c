@@ -900,7 +900,7 @@ extern unsigned long guest_base;
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

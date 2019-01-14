@@ -905,7 +905,7 @@ void cpu_sync_bndcs_hflags(CPUX86State *env);
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

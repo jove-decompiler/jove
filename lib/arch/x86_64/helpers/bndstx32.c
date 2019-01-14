@@ -888,7 +888,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

@@ -922,7 +922,7 @@ void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

@@ -938,7 +938,7 @@ uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;

@@ -938,7 +938,7 @@ static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
 
 #define MEMSUFFIX _data
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;
