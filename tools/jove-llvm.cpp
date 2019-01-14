@@ -409,6 +409,7 @@ static int PrepareToOptimize(void);
 static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
 static int InternalizeStaticFunctions(void);
+static int InternalizeSections(void);
 static int Optimize2(void);
 static int RenameFunctionLocals(void);
 static int WriteModule(void);
@@ -434,6 +435,7 @@ int llvm(void) {
       || Optimize1()
       || FixupPCRelativeAddrs()
       || InternalizeStaticFunctions()
+      || InternalizeSections()
       || Optimize2()
       || RenameFunctionLocals()
       || WriteModule();
@@ -1950,6 +1952,8 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
                                                       : SectsGlobal;
 
+  assert(SectsGV);
+
   unsigned off = Addr - SectsStartAddr;
 
   llvm::IRBuilderTy IRB(*Context);
@@ -2445,72 +2449,81 @@ int CreateCPUStateGlobal() {
   assert(llvm::isa<llvm::PointerType>(cpuStatePtrTy));
   CPUStateType = llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
 
-  constexpr unsigned StackLen = 10 * 4096;
+  llvm::Constant *CPUStateGlobalInitializer = nullptr;
 
-  llvm::Type *StackTy =
-      llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
-  llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
-      *Module, StackTy, false, llvm::GlobalValue::ExternalLinkage,
-      llvm::Constant::getNullValue(StackTy), "stack", nullptr,
-      llvm::GlobalValue::NotThreadLocal
-      /* llvm::GlobalValue::GeneralDynamicTLSModel */);
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  if (Binary.IsExecutable) {
+    constexpr unsigned StackLen = 10 * 4096;
 
-  llvm::IRBuilderTy IRB(*Context);
-  llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
-      llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
-          IRB.getIntN(sizeof(uintptr_t) * 8, StackLen - 512)),
-      IRB.getInt8PtrTy());
-  llvm::Constant *StackEnd = llvm::ConstantExpr::getIntToPtr(
-      llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
-          IRB.getIntN(sizeof(uintptr_t) * 8, StackLen)),
-      IRB.getInt8PtrTy());
+    llvm::Type *StackTy =
+        llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
+    llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
+        *Module, StackTy, false, llvm::GlobalValue::ExternalLinkage,
+        llvm::Constant::getNullValue(StackTy), "stack", nullptr,
+        llvm::GlobalValue::NotThreadLocal
+        /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
-  assert(CPUStateType->isStructTy());
-  llvm::StructType *CPUStateSType = llvm::cast<llvm::StructType>(CPUStateType);
+    llvm::IRBuilderTy IRB(*Context);
+    llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
+        llvm::ConstantExpr::getAdd(
+            llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
+            IRB.getIntN(sizeof(uintptr_t) * 8, StackLen - 512)),
+        IRB.getInt8PtrTy());
+    llvm::Constant *StackEnd = llvm::ConstantExpr::getIntToPtr(
+        llvm::ConstantExpr::getAdd(
+            llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
+            IRB.getIntN(sizeof(uintptr_t) * 8, StackLen)),
+        IRB.getInt8PtrTy());
 
-  std::vector<llvm::Constant *> CPUStateGlobalFieldInits;
-  CPUStateGlobalFieldInits.resize(CPUStateSType->getNumElements());
-  std::transform(CPUStateSType->element_begin(), CPUStateSType->element_end(),
-                 CPUStateGlobalFieldInits.begin(),
-                 [&](llvm::Type *Ty) -> llvm::Constant * {
-                   return llvm::Constant::getNullValue(Ty);
-                 });
+    assert(CPUStateType->isStructTy());
+    llvm::StructType *CPUStateSType =
+        llvm::cast<llvm::StructType>(CPUStateType);
+
+    std::vector<llvm::Constant *> CPUStateGlobalFieldInits;
+    CPUStateGlobalFieldInits.resize(CPUStateSType->getNumElements());
+    std::transform(CPUStateSType->element_begin(),
+                   CPUStateSType->element_end(),
+                   CPUStateGlobalFieldInits.begin(),
+                   [&](llvm::Type *Ty) -> llvm::Constant * {
+                     return llvm::Constant::getNullValue(Ty);
+                   });
 
 #if defined(__x86_64__) || defined(__i386__)
-  llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
-  unsigned mem_offset_bias = __builtin_offsetof(CPUX86State, regs[0]);
+    llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
+    unsigned mem_offset_bias = __builtin_offsetof(CPUX86State, regs[0]);
 #elif defined(__aarch64__)
-  llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[1];
-  unsigned mem_offset_bias = __builtin_offsetof(CPUARMState, xregs[0]);
+    llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[1];
+    unsigned mem_offset_bias = __builtin_offsetof(CPUARMState, xregs[0]);
 #endif
 
-  assert(regsFieldInit->getType()->isArrayTy());
+    assert(regsFieldInit->getType()->isArrayTy());
 
-  llvm::ArrayType *regsFieldTy =
-      llvm::cast<llvm::ArrayType>(regsFieldInit->getType());
+    llvm::ArrayType *regsFieldTy =
+        llvm::cast<llvm::ArrayType>(regsFieldInit->getType());
 
-  std::vector<llvm::Constant *> regsFieldInits(
-      regsFieldTy->getNumElements(),
-      llvm::Constant::getNullValue(regsFieldTy->getElementType()));
+    std::vector<llvm::Constant *> regsFieldInits(
+        regsFieldTy->getNumElements(),
+        llvm::Constant::getNullValue(regsFieldTy->getElementType()));
 
-  regsFieldInits.at(
-      (TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset - mem_offset_bias) /
-      sizeof(uintptr_t)) =
-      llvm::ConstantExpr::getPtrToInt(StackStart,
-                                      regsFieldTy->getElementType());
-  regsFieldInits.at(
-      (TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset - mem_offset_bias) /
-      sizeof(uintptr_t)) =
-      llvm::ConstantExpr::getPtrToInt(StackEnd, regsFieldTy->getElementType());
+    regsFieldInits.at(
+        (TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset - mem_offset_bias) /
+        sizeof(uintptr_t)) =
+        llvm::ConstantExpr::getPtrToInt(StackStart,
+                                        regsFieldTy->getElementType());
+    regsFieldInits.at(
+        (TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset - mem_offset_bias) /
+        sizeof(uintptr_t)) =
+        llvm::ConstantExpr::getPtrToInt(StackEnd, regsFieldTy->getElementType());
 
-  regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
+    regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
+    CPUStateGlobalInitializer =
+        llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits);
+  }
 
   CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateSType, false, llvm::GlobalValue::ExternalLinkage,
-      llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits), "env",
-      nullptr, llvm::GlobalValue::NotThreadLocal
+      *Module, CPUStateType, false, llvm::GlobalValue::ExternalLinkage,
+      CPUStateGlobalInitializer, "env", nullptr,
+      llvm::GlobalValue::NotThreadLocal
       /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
   //
@@ -2530,17 +2543,6 @@ int CreatePCRelGlobal(void) {
 }
 
 int FixupHelperStubs(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  if (!function_index_is_valid(Binary.Analysis.EntryFunction))
-    return 0;
-
-  //
-  // we assume that the user is decompiling an executable (i.e. an ELF which
-  // requests an interpreter such as /lib64/ld-linux-x86-64.so.2). this code
-  // will change when support for decompiling shared libraries is established.
-  // TODO
-  //
-
   llvm::Function *GetGlobalCPUStateF =
       Module->getFunction("_jove_get_global_cpu_state");
   assert(GetGlobalCPUStateF);
@@ -2554,6 +2556,10 @@ int FixupHelperStubs(void) {
   }
 
   GetGlobalCPUStateF->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  if (!is_function_index_valid(Binary.Analysis.EntryFunction))
+    return 0;
 
   llvm::Function *CallEntryF =
       Module->getFunction("_jove_call_entry");
@@ -2917,6 +2923,8 @@ static int DoOptimize(void) {
   // reload globals (they could have been deleted)
   PCRelGlobal = Module->getGlobalVariable("__jove_pcrel");
   CPUStateGlobal = Module->getGlobalVariable("env");
+  SectsGlobal = Module->getGlobalVariable("sections");
+  ConstSectsGlobal = Module->getGlobalVariable("const_sections");
 
   return 0;
 }
@@ -2997,6 +3005,16 @@ int InternalizeStaticFunctions(void) {
     if (!f.F->empty())
       f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
+
+  return 0;
+}
+
+int InternalizeSections(void) {
+  assert(SectsGlobal);
+  assert(ConstSectsGlobal);
+
+  SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+  ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   return 0;
 }
