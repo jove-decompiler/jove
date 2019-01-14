@@ -449,11 +449,46 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#define CC_P    0x0004
+
+static const uint8_t parity_table[256] = {
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+};
+
 #define CC_SRC  (env->cc_src)
 
 #define CC_OP   (env->cc_op)
-
-extern const uint8_t parity_table[256];
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
