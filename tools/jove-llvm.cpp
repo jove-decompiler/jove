@@ -160,6 +160,9 @@ namespace opts {
     cl::desc("LLVM bitcode"),
     cl::Required);
 
+  static cl::opt<bool> PrintPCRel("pcrel",
+    cl::desc("Print pc-relative references"));
+
   static cl::opt<bool> Emu("emu",
     cl::desc("Code operates on TLS globals which represent the CPU state"));
 
@@ -455,6 +458,11 @@ int FindBinary(void) {
     binary_t &binary = Decompilation.Binaries[idx];
 
     if (fs::path(binary.Path).filename().string() == opts::Binary) {
+      if (binary.IsDynamicLinker) {
+        WithColor::error() << "given binary is dynamic linker\n";
+        return 1;
+      }
+
       BinaryIndex = idx;
       return 0;
     }
@@ -3042,6 +3050,7 @@ int WriteModule(void) {
     return 1;
   }
 
+#if 0
   {
     std::error_code ec;
     llvm::raw_fd_ostream rfo(
@@ -3049,6 +3058,7 @@ int WriteModule(void) {
 
     rfo << *Module;
   }
+#endif
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
@@ -3672,7 +3682,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
     const auto &DynTargets = ICFG[bb].DynTargets;
     if (DynTargets.empty()) {
-      WithColor::warning() << "indirect branch has zero dyn targets\n";
+      if (opts::Verbose)
+        WithColor::warning() << "indirect branch has zero dyn targets\n";
 
       // apparently this is necessary
       IRB.CreateCall(IRB.CreateIntToPtr(
@@ -3965,8 +3976,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     if (op->args[0] == JOVE_PCREL_MAGIC && op->args[1] == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
-      WithColor::note() << "PC-relative expression @ "
-                        << (fmt("%#lx") % lstaddr).str() << '\n';
+      if (opts::PrintPCRel)
+        WithColor::note() << "PC-relative expression @ "
+                          << (fmt("%#lx") % lstaddr).str() << '\n';
     } else {
       pcrel_flag = false;
 
