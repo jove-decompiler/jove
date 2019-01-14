@@ -78,6 +78,8 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
+static void print_command(std::vector<char *> &arg_vec);
+
 static std::string jove_llvm_path, llc_path, ld_path;
 
 int recompile(void) {
@@ -129,7 +131,7 @@ int recompile(void) {
     return 1;
   }
 
-  llvm::outs() << tmpdir << '\n';
+  llvm::outs() << "tmpdir: " << tmpdir << '\n';
 
   //
   // process the binaries, concurrently
@@ -246,8 +248,6 @@ static void worker(void) {
 
   std::string binary_filename;
   while (pop_path(binary_filename)) {
-    llvm::outs() << binary_filename << '\n';
-
     std::string bcfp =
         (fs::path(tmpdir) / binary_filename).replace_extension("bc").string();
 
@@ -260,8 +260,6 @@ static void worker(void) {
     pid = fork();
     if (!pid) {
       close(pipefd[0]); /* close unused read end */
-      dup2(pipefd[1], STDOUT_FILENO);
-      dup2(pipefd[1], STDERR_FILENO);
 
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(jove_llvm_path.c_str()));
@@ -273,7 +271,11 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
       arg_vec.push_back(nullptr);
 
-      execve(jove_llvm_path.c_str(), arg_vec.data(), ::environ);
+      print_command(arg_vec);
+
+      dup2(pipefd[1], STDOUT_FILENO);
+      dup2(pipefd[1], STDERR_FILENO);
+      execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
 
@@ -299,7 +301,9 @@ static void worker(void) {
     //
     // print stdout and stderr output to stdout
     //
+#if 0
     llvm::outs() << stdout_s;
+#endif
 
     //
     // compile bitcode
@@ -318,7 +322,8 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
       arg_vec.push_back(nullptr);
 
-      execve(llc_path.c_str(), arg_vec.data(), ::environ);
+      print_command(arg_vec);
+      execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
 
@@ -351,7 +356,8 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
       arg_vec.push_back(nullptr);
 
-      execve(ld_path.c_str(), arg_vec.data(), ::environ);
+      print_command(arg_vec);
+      execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
 
@@ -359,7 +365,7 @@ static void worker(void) {
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
-      WithColor::error() << "llc failed for " << binary_filename << '\n';
+      WithColor::error() << "ld failed for " << binary_filename << '\n';
       continue;
     }
   }
@@ -401,6 +407,13 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
+}
+
+void print_command(std::vector<char *> &arg_vec) {
+  for (char *s : arg_vec)
+    llvm::outs() << s << ' ';
+
+  llvm::outs() << '\n';
 }
 
 }
