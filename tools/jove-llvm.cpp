@@ -411,7 +411,8 @@ static int FixupPCRelativeAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
-static int ReplaceAllUsesOfConstSections(void);
+static int ReplaceAllRemainingUsesOfConstSections(void);
+static int ReplaceAllRemainingUsesOfPCRel(void);
 static int RenameFunctionLocals(void);
 static int WriteModule(void);
 
@@ -438,7 +439,8 @@ int llvm(void) {
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || Optimize2()
-      || ReplaceAllUsesOfConstSections()
+      || ReplaceAllRemainingUsesOfConstSections()
+      || ReplaceAllRemainingUsesOfPCRel()
       || RenameFunctionLocals()
       || WriteModule();
 }
@@ -3030,17 +3032,10 @@ int Optimize2(void) {
   if (int ret = DoOptimize())
     return ret;
 
-  if (PCRelGlobal) {
-    if (PCRelGlobal->user_begin() == PCRelGlobal->user_end())
-      PCRelGlobal->eraseFromParent();
-    else
-      WithColor::warning() << "PCRel global not eliminated\n";
-  }
-
   return 0;
 }
 
-int ReplaceAllUsesOfConstSections(void) {
+int ReplaceAllRemainingUsesOfConstSections(void) {
   if (!ConstSectsGlobal)
     return 0;
 
@@ -3050,6 +3045,49 @@ int ReplaceAllUsesOfConstSections(void) {
   ConstSectsGlobal->replaceAllUsesWith(SectsGlobal);
   assert(ConstSectsGlobal->user_begin() == ConstSectsGlobal->user_end());
   ConstSectsGlobal->eraseFromParent();
+
+  return 0;
+}
+
+int ReplaceAllRemainingUsesOfPCRel(void) {
+  if (!PCRelGlobal)
+    return 0;
+
+  binary_state_t &st = BinStateVec[BinaryIndex];
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
+
+  for (llvm::User *U : PCRelGlobal->users()) {
+    assert(llvm::isa<llvm::LoadInst>(U));
+    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+    ToReplace.push_back(
+        {L, llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType())});
+  }
+
+  for (auto &TR : ToReplace) {
+    llvm::Instruction *I;
+    llvm::Constant *C;
+    std::tie(I, C) = TR;
+
+    assert(I->getType() == C->getType());
+    I->replaceAllUsesWith(C);
+  }
+
+  std::vector<llvm::Instruction *> ToErase;
+
+  for (llvm::User *U : PCRelGlobal->users()) {
+    assert(llvm::isa<llvm::LoadInst>(U));
+    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+    assert(L->user_begin() == L->user_end());
+    ToErase.push_back(L);
+  }
+
+  for (llvm::Instruction *I : ToErase)
+    I->eraseFromParent();
+
+  assert(PCRelGlobal->user_begin() == PCRelGlobal->user_end());
+  PCRelGlobal->eraseFromParent();
 
   return 0;
 }
