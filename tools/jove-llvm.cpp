@@ -2119,7 +2119,7 @@ int CreateSectionGlobalVariables(void) {
       Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
-    llvm::outs() << "RELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
+    //llvm::outs() << "RELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -2135,19 +2135,10 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    //llvm::outs() << "IRELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
-
-    //llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create();
-
-  /// If a parent module is specified, the ifunc is automatically inserted into
-  /// the end of the specified module's ifunc list.
-//  static GlobalIFunc *create(Type *Ty, unsigned AddressSpace,
- //                            LinkageTypes Linkage, const Twine &Name,
-  //                           Constant *Resolver, Module *Parent);
-
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
+    // XXX TODO dynamic analysis
     llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
     return llvm::PointerType::get(FTy, 0);
   };
