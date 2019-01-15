@@ -293,6 +293,7 @@ int add(void) {
   typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
   typedef typename ELFT::Elf_Sym Elf_Sym;
   typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFT::Elf_Rela Elf_Rela;
 
   //
   // build section map
@@ -479,6 +480,9 @@ int add(void) {
 
   binary.IsDynamicLinker = !Interp.Found;
 
+  //
+  // translate all exported functions
+  //
   for (const Elf_Sym &Sym : dynamic_symbols()) {
     if (Sym.isUndefined())
       continue;
@@ -488,6 +492,22 @@ int add(void) {
     llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
     llvm::outs() << "translating " << SymName << "...\n";
     translate_function(binary, tcg, dis, Sym.st_value);
+  }
+
+  //
+  // translate all ifunc resolvers
+  //
+  auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
+    if (R.getType(E.isMips64EL()) == llvm::ELF::R_X86_64_IRELATIVE)
+      translate_function(binary, tcg, dis, R.r_addend);
+  };
+
+  for (const Elf_Shdr &Sec : *sections) {
+    if (Sec.sh_type != llvm::ELF::SHT_RELA)
+      continue;
+
+    for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
+      process_elf_rela(Sec, Rela);
   }
 
   write_decompilation();

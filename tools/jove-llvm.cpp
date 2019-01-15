@@ -299,6 +299,12 @@ struct relocation_t {
     RELATIVE,
 
     //
+    // similar to RELATIVE except that the value used in this relocation is the
+    // program address returned by the so-called resolver function
+    //
+    IRELATIVE,
+
+    //
     // set the location specified to be the absolute address of the addend
     //
     ABSOLUTE,
@@ -1047,6 +1053,8 @@ int ProcessBinarySymbolsAndRelocations(void) {
       return "NONE";
     case relocation_t::TYPE::RELATIVE:
       return "RELATIVE";
+    case relocation_t::TYPE::IRELATIVE:
+      return "IRELATIVE";
     case relocation_t::TYPE::ABSOLUTE:
       return "ABSOLUTE";
     case relocation_t::TYPE::COPY:
@@ -2111,6 +2119,8 @@ int CreateSectionGlobalVariables(void) {
       Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
+    llvm::outs() << "RELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
+
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
@@ -2120,6 +2130,26 @@ int CreateSectionGlobalVariables(void) {
 
       return llvm::PointerType::get(FTy, 0);
     }
+  };
+
+
+  auto type_of_irelative_relocation =
+      [&](const relocation_t &R) -> llvm::Type * {
+    //llvm::outs() << "IRELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
+
+    //llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create();
+
+  /// If a parent module is specified, the ifunc is automatically inserted into
+  /// the end of the specified module's ifunc list.
+//  static GlobalIFunc *create(Type *Ty, unsigned AddressSpace,
+ //                            LinkageTypes Linkage, const Twine &Name,
+  //                           Constant *Resolver, Module *Parent);
+
+    auto it = FuncMap.find(R.Addend);
+    assert(it != FuncMap.end());
+
+    llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+    return llvm::PointerType::get(FTy, 0);
   };
 
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -2143,6 +2173,9 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::RELATIVE:
       return type_of_relative_relocation(R);
+
+    case relocation_t::TYPE::IRELATIVE:
+      return type_of_irelative_relocation(R);
     }
 
     // XXX TODO
@@ -2346,6 +2379,32 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
+  auto constant_of_irelative_relocation =
+      [&](const relocation_t &R) -> llvm::Constant * {
+    //llvm::outs() << "IRELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
+
+
+  /// If a parent module is specified, the ifunc is automatically inserted into
+  /// the end of the specified module's ifunc list.
+
+  //  static GlobalIFunc *create(Type *Ty, unsigned AddressSpace,
+  //                             LinkageTypes Linkage, const Twine &Name,
+  //                             Constant *Resolver, Module *Parent);
+
+    auto it = FuncMap.find(R.Addend);
+    assert(it != FuncMap.end());
+
+    llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+    llvm::Type *T = llvm::PointerType::get(FTy, 0);
+
+    function_t &resolver =
+        Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
+
+    return llvm::GlobalIFunc::create(
+        FTy, 0, llvm::GlobalValue::InternalLinkage, "",
+        llvm::ConstantExpr::getPointerCast(resolver.F, T), Module.get());
+  };
+
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -2367,6 +2426,8 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::RELATIVE:
       return constant_of_relative_relocation(R);
+    case relocation_t::TYPE::IRELATIVE:
+      return constant_of_irelative_relocation(R);
     }
 
     // XXX TODO
