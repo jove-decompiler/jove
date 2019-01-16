@@ -242,20 +242,6 @@ typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
 #endif
 
-enum class SYSCALL_STATE { ENTERED, EXITED };
-struct child_syscall_state_t {
-  SYSCALL_STATE st;
-  int no;
-
-  child_syscall_state_t() : st(SYSCALL_STATE::ENTERED) {}
-};
-
-static std::unordered_map<pid_t, child_syscall_state_t> chld_sysc_map;
-static void toggle_syscall_state(child_syscall_state_t &st) {
-  st.st = (st.st == SYSCALL_STATE::ENTERED ? SYSCALL_STATE::EXITED
-                                           : SYSCALL_STATE::ENTERED);
-}
-
 int ParentProc(pid_t child) {
   //
   // observe the (initial) signal-delivery-stop
@@ -581,19 +567,8 @@ int ParentProc(pid_t child) {
 #endif
             ;
 
-        child_syscall_state_t &st = chld_sysc_map[child];
-
-        if (st.st == SYSCALL_STATE::ENTERED) {
-          st.no = syscallno;
-        } else {
-          if (st.no != syscallno)
-            WithColor::warning() << "st.no != syscallno\n";
-        }
-
-        if (does_mmap && st.st == SYSCALL_STATE::EXITED)
+        if (does_mmap)
           search_address_space_for_binaries(child, dis);
-
-        toggle_syscall_state(st);
       } else if (stopsig == SIGTRAP) {
         const unsigned int event = (unsigned int)status >> 16;
 
@@ -681,10 +656,6 @@ int ParentProc(pid_t child) {
       //
       if (opts::VeryVerbose)
         llvm::errs() << "child " << child << " terminated\n";
-
-      auto it = chld_sysc_map.find(child);
-      if (it != chld_sysc_map.end())
-        chld_sysc_map.erase(it);
 
       child = -1;
     }
