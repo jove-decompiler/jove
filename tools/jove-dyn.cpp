@@ -682,6 +682,10 @@ int ParentProc(pid_t child) {
       if (opts::VeryVerbose)
         llvm::errs() << "child " << child << " terminated\n";
 
+      auto it = chld_sysc_map.find(child);
+      if (it != chld_sysc_map.end())
+        chld_sysc_map.erase(it);
+
       child = -1;
     }
   }
