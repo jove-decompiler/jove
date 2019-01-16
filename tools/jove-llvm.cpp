@@ -3011,6 +3011,20 @@ int Optimize1(void) {
   return 0;
 }
 
+static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
+  binary_state_t &st = BinStateVec[BinaryIndex];
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  auto it = st.FuncMap.find(Addr);
+  llvm::Constant *res = it == st.FuncMap.end()
+                            ? SectionPointer(Addr)
+                            : Binary.Analysis.Functions[(*it).second].F;
+
+  res = llvm::ConstantExpr::getPtrToInt(res, WordType());
+
+  return res;
+}
+
 int FixupPCRelativeAddrs(void) {
   if (opts::NoFixupPcrel)
     return 0;
@@ -3018,50 +3032,61 @@ int FixupPCRelativeAddrs(void) {
   if (!PCRelGlobal)
     return 0;
 
-  binary_state_t &st = BinStateVec[BinaryIndex];
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-
-  std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
+  std::vector<std::pair<llvm::Instruction *, llvm::Value *>> ToReplace;
 
   for (llvm::User *U : PCRelGlobal->users()) {
     assert(llvm::isa<llvm::LoadInst>(U));
     llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
 
-    for (llvm::User *LU : L->users()) {
-      assert(llvm::isa<llvm::Instruction>(LU));
-      unsigned opc = llvm::cast<llvm::Instruction>(LU)->getOpcode();
+    for (llvm::User *_U : L->users()) {
+      assert(llvm::isa<llvm::Instruction>(_U));
+      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
 
-      if (opc == llvm::Instruction::Add) {
-        llvm::Value *RHS = LU->getOperand(1);
+      switch (Inst->getOpcode()) {
+      case llvm::Instruction::Add: {
+        llvm::Value *LHS = Inst->getOperand(0);
+        llvm::Value *RHS = Inst->getOperand(1);
 
-        if (llvm::isa<llvm::ConstantInt>(RHS)) {
-          uintptr_t Addr = llvm::cast<llvm::ConstantInt>(RHS)->getZExtValue();
+        llvm::Value *Other = LHS == L ? RHS : LHS;
 
-          llvm::Constant *C;
+        if (llvm::isa<llvm::ConstantInt>(Other)) {
+          llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
+          ToReplace.push_back({Inst, ConstantForAddress(CI->getZExtValue())});
+        } else if (llvm::isa<llvm::SelectInst>(Other)) {
+          llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(Other);
 
-          auto it = st.FuncMap.find(Addr);
-          if (it == st.FuncMap.end())
-            C = SectionPointer(Addr);
-          else
-            C = Binary.Analysis.Functions[(*it).second].F;
+          llvm::Value *TrueV = SI->getTrueValue();
+          llvm::Value *FalseV = SI->getFalseValue();
 
-          if (C) {
-            C = llvm::ConstantExpr::getPtrToInt(C, WordType());
-
-            ToReplace.push_back({llvm::cast<llvm::Instruction>(LU), C});
+          if (llvm::isa<llvm::ConstantInt>(TrueV)) {
+            llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(TrueV);
+            SI->setTrueValue(ConstantForAddress(CI->getZExtValue()));
           }
+
+          if (llvm::isa<llvm::ConstantInt>(FalseV)) {
+            llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(FalseV);
+            SI->setFalseValue(ConstantForAddress(CI->getZExtValue()));
+          }
+
+          ToReplace.push_back({Inst, SI});
         }
+
+        break;
+      }
+
+      default:
+        WithColor::warning() << "unhandled PCRelGlobal user " << *Inst << '\n';
+        break;
       }
     }
   }
 
   for (auto &TR : ToReplace) {
     llvm::Instruction *I;
-    llvm::Constant *C;
-    std::tie(I, C) = TR;
+    llvm::Value *V;
+    std::tie(I, V) = TR;
 
-    assert(I->getType() == C->getType());
-    I->replaceAllUsesWith(C);
+    I->replaceAllUsesWith(V);
   }
 
   return 0;
@@ -3116,6 +3141,9 @@ int ReplaceAllRemainingUsesOfConstSections(void) {
 }
 
 int ReplaceAllRemainingUsesOfPCRel(void) {
+  if (opts::NoFixupPcrel)
+    return 0;
+
   if (!PCRelGlobal)
     return 0;
 
