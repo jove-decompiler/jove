@@ -870,7 +870,7 @@ int ProcessDynamicTargets(void) {
   }
 
   //
-  // now, for the binary under consideration, we'll build a set of dynamic
+  // for the binary under consideration, we'll build a set of dynamic
   // targets that can be used for the purposes of dynamic symbol resolution
   //
   auto &Binary = Decompilation.Binaries[BinaryIndex];
@@ -880,6 +880,17 @@ int ProcessDynamicTargets(void) {
   for (auto it = it_pair.first; it != it_pair.second; ++it) {
     auto &DynTargets = ICFG[*it].DynTargets;
     BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
+  }
+
+  //
+  // dynamic ifunc resolver targets are ABIs
+  //
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &IFuncRelocDynTargets =
+        Decompilation.Binaries[BIdx].Analysis.IFuncRelocDynTargets;
+    for (const auto &pair : IFuncRelocDynTargets)
+      for (function_index_t FIdx : pair.second)
+        Decompilation.Binaries[BIdx].Analysis.Functions[FIdx].IsABI = true;
   }
 
   return 0;
