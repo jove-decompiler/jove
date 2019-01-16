@@ -2132,14 +2132,18 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
-
   auto type_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    auto it = FuncMap.find(R.Addend);
-    assert(it != FuncMap.end());
+    llvm::FunctionType *FTy;
 
-    // XXX TODO dynamic analysis
-    llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+    auto &IFuncRelocDynTargets =
+        Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
+    auto it = IFuncRelocDynTargets.find(R.Addr);
+    if (it == IFuncRelocDynTargets.end() || (*it).second.empty())
+      FTy = llvm::FunctionType::get(VoidType(), false);
+    else
+      FTy = DetermineFunctionType(BinaryIndex, *(*it).second.begin());
+
     return llvm::PointerType::get(FTy, 0);
   };
 
@@ -2372,28 +2376,26 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    //llvm::outs() << "IRELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
+    llvm::FunctionType *FTy;
 
-
-  /// If a parent module is specified, the ifunc is automatically inserted into
-  /// the end of the specified module's ifunc list.
-
-  //  static GlobalIFunc *create(Type *Ty, unsigned AddressSpace,
-  //                             LinkageTypes Linkage, const Twine &Name,
-  //                             Constant *Resolver, Module *Parent);
+    {
+      auto &IFuncRelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
+      auto it = IFuncRelocDynTargets.find(R.Addr);
+      if (it == IFuncRelocDynTargets.end() || (*it).second.empty())
+        FTy = llvm::FunctionType::get(VoidType(), false);
+      else
+        FTy = DetermineFunctionType(BinaryIndex, *(*it).second.begin());
+    }
 
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
-    llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
-    llvm::Type *T = llvm::PointerType::get(FTy, 0);
-
     function_t &resolver =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
 
-    return llvm::GlobalIFunc::create(
-        FTy, 0, llvm::GlobalValue::InternalLinkage, "",
-        llvm::ConstantExpr::getPointerCast(resolver.F, T), Module.get());
+    return llvm::GlobalIFunc::create(FTy, 0, llvm::GlobalValue::InternalLinkage,
+                                     "", resolver.F, Module.get());
   };
 
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
