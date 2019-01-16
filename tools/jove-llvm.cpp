@@ -3052,32 +3052,109 @@ int FixupPCRelativeAddrs(void) {
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
           ToReplace.push_back({Inst, ConstantForAddress(CI->getZExtValue())});
-        } else if (llvm::isa<llvm::SelectInst>(Other)) {
+          continue;
+        }
+
+        if (!llvm::isa<llvm::Instruction>(Other))
+          continue;
+
+        unsigned OtherOpc = llvm::cast<llvm::Instruction>(Other)->getOpcode();
+        llvm::Instruction *OtherInst = llvm::cast<llvm::Instruction>(Other);
+
+        if (OtherOpc == llvm::Instruction::Add) {
+          llvm::Value *LHS = OtherInst->getOperand(0);
+          llvm::Value *RHS = OtherInst->getOperand(1);
+
+          if (!llvm::isa<llvm::ConstantInt>(LHS) &&
+              !llvm::isa<llvm::ConstantInt>(RHS))
+            break;
+
+          if (llvm::isa<llvm::ConstantInt>(LHS) &&
+              llvm::isa<llvm::ConstantInt>(RHS))
+            break;
+
+
+          unsigned operandIdx = llvm::isa<llvm::ConstantInt>(LHS) ? 0 : 1;
+          llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
+                                      ? llvm::cast<llvm::ConstantInt>(LHS)
+                                      : llvm::cast<llvm::ConstantInt>(RHS);
+
+          OtherInst->setOperand(operandIdx, ConstantForAddress(CI->getZExtValue()));
+          continue;
+        } else if (OtherOpc == llvm::Instruction::Select) {
           llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(Other);
 
           llvm::Value *TrueV = SI->getTrueValue();
           llvm::Value *FalseV = SI->getFalseValue();
 
-          if (llvm::isa<llvm::ConstantInt>(TrueV)) {
-            llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(TrueV);
-            SI->setTrueValue(ConstantForAddress(CI->getZExtValue()));
-          }
+          if (llvm::isa<llvm::ConstantInt>(TrueV) &&
+              llvm::isa<llvm::ConstantInt>(FalseV)) {
+            {
+              llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(TrueV);
+              SI->setTrueValue(ConstantForAddress(CI->getZExtValue()));
+            }
 
-          if (llvm::isa<llvm::ConstantInt>(FalseV)) {
-            llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(FalseV);
-            SI->setFalseValue(ConstantForAddress(CI->getZExtValue()));
-          }
+            {
+              llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(FalseV);
+              SI->setFalseValue(ConstantForAddress(CI->getZExtValue()));
+            }
 
-          ToReplace.push_back({Inst, SI});
+            ToReplace.push_back({Inst, SI});
+            continue;
+          }
+        } else if (OtherOpc == llvm::Instruction::PHI) {
+          llvm::PHINode *PI = llvm::cast<llvm::PHINode>(Other);
+
+          auto phi_node_has_all_const_int = [&](void) -> bool {
+            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
+              if (!llvm::isa<llvm::ConstantInt>(PI->getIncomingValue(i)))
+                return false;
+            }
+
+            return true;
+          };
+
+          if (phi_node_has_all_const_int()) {
+            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
+              PI->setIncomingValue(
+                  i, ConstantForAddress(
+                         llvm::cast<llvm::ConstantInt>(PI->getIncomingValue(i))
+                             ->getZExtValue()));
+            }
+
+            ToReplace.push_back({Inst, PI});
+            continue;
+          }
+        }
+
+        WithColor::warning() << "Other: " << *Other << '\n';
+        break;
+      }
+
+      case llvm::Instruction::Sub: {
+        llvm::Value *LHS = Inst->getOperand(0);
+        llvm::Value *RHS = Inst->getOperand(1);
+
+        llvm::Value *Other = LHS == L ? RHS : LHS;
+
+        if (llvm::isa<llvm::ConstantInt>(Other)) {
+          llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
+          llvm::APInt x = CI->getValue();
+          if (x.isNegative())
+            x.negate();
+
+          ToReplace.push_back({Inst, ConstantForAddress(x.getZExtValue())});
+          continue;
         }
 
         break;
       }
 
       default:
-        WithColor::warning() << "unhandled PCRelGlobal user " << *Inst << '\n';
         break;
       }
+
+      WithColor::warning() << "unhandled PCRelGlobal user " << *Inst << '\n';
     }
   }
 
