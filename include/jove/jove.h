@@ -112,6 +112,7 @@ struct binary_t {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
+    std::map<uintptr_t, std::set<function_index_t>> IFuncRelocDynTargets;
   } Analysis;
 
   template <class Archive>
@@ -122,7 +123,8 @@ struct binary_t {
        &IsExecutable
        &Analysis.EntryFunction
        &Analysis.Functions
-       &Analysis.ICFG;
+       &Analysis.ICFG
+       &Analysis.IFuncRelocDynTargets;
   }
 };
 

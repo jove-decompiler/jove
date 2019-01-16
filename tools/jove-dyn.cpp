@@ -217,9 +217,16 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
 
+struct breakpoint_t {
+  unsigned long word;
+  void (*callback)(pid_t, tiny_code_generator_t &, disas_t &);
+};
+static std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
+
 static void search_address_space_for_binaries(pid_t, disas_t &);
 static void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
+static void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &, disas_t &);
 static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 
 #if !defined(__x86_64__) && defined(__i386__)
@@ -989,6 +996,29 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
+void place_breakpoint(pid_t child,
+                      uintptr_t Addr,
+                      breakpoint_t &brk,
+                      disas_t &dis) {
+  // read a word of the instruction
+  unsigned long word = _ptrace_peekdata(child, Addr);
+
+  brk.word = word;
+
+  // insert breakpoint
+#if defined(__x86_64__) || defined(__i386__)
+  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
+#elif defined(__aarch64__)
+  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
+#endif
+
+  // write the word back
+  _ptrace_pokedata(child, Addr, word);
+
+  if (opts::VeryVerbose)
+    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
+}
+
 static std::string description_of_program_counter(uintptr_t);
 
 static bool is_address_in_global_offset_table(uintptr_t Addr, binary_index_t);
@@ -1029,6 +1059,17 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   // lookup indirect branch info
   //
   const uintptr_t _pc = pc;
+
+  {
+    auto it = BrkMap.find(_pc);
+    if (it != BrkMap.end()) {
+      breakpoint_t &brk = (*it).second;
+      brk.callback(child, tcg, dis);
+
+      _ptrace_pokedata(child, _pc, brk.word);
+      return;
+    }
+  }
 
   auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
@@ -1326,6 +1367,127 @@ bool is_address_in_global_offset_table(uintptr_t Addr,
   return sectprop.name == ".got";
 }
 
+template <class T>
+static T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  WithColor::error() << Buf << '\n';
+  exit(1);
+}
+
+struct relocation_t {
+  enum class TYPE {
+    NONE,
+    RELATIVE,
+    IRELATIVE,
+    ABSOLUTE,
+    COPY,
+    ADDRESSOF
+  } Type;
+};
+
+static void harvest_ifunc_resolver_targets(pid_t child,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = decompilation.Binaries[BIdx];
+    auto &st = BinStateVec[BIdx];
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from " << Binary.Path
+                         << '\n';
+      return;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    assert(llvm::isa<ELFO>(Bin.get()));
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Phdr Elf_Phdr;
+    typedef typename ELFT::Elf_Dyn Elf_Dyn;
+    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Sym Elf_Sym;
+    typedef typename ELFT::Elf_Rela Elf_Rela;
+
+    auto process_elf_rela = [&](const Elf_Shdr &Sec,
+                                const Elf_Rela &R) -> void {
+      auto relocation_type_of_elf_rela_type =
+          [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
+        switch (elf_rela_ty) {
+#include "relocs.hpp"
+        default:
+          return relocation_t::TYPE::NONE;
+        }
+      };
+
+      relocation_t::TYPE reloc_type =
+          relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
+      if (reloc_type == relocation_t::TYPE::IRELATIVE) {
+        uintptr_t Addr = va_of_rva(R.r_offset, BIdx);
+        unsigned long resolved_addr = _ptrace_peekdata(child, Addr);
+
+        auto it = AddressSpace.find(resolved_addr);
+        if (it == AddressSpace.end()) {
+          WithColor::warning()
+              << "harvest_ifunc_resolver_targets: unknown binary for "
+              << description_of_program_counter(resolved_addr) << '\n';
+          return;
+        }
+
+        binary_index_t binary_idx = *(*it).second.begin();
+        bool isLocal = binary_idx == BIdx;
+
+        if (!isLocal) {
+          WithColor::warning()
+              << "nonlocal ifunc resolver target "
+              << description_of_program_counter(resolved_addr) << '\n';
+          return;
+        }
+
+        llvm::outs() << "ifunc resolver target: "
+                     << (fmt("%#lx") % rva_of_va(resolved_addr, BIdx)).str()
+                     << '\n';
+
+        unsigned brkpt_count = 0;
+        function_index_t resolved_fidx = translate_function(
+            child, BIdx, tcg, dis, rva_of_va(resolved_addr, BIdx), brkpt_count);
+
+        if (is_function_index_valid(resolved_fidx))
+          Binary.Analysis.IFuncRelocDynTargets[R.r_offset].insert(
+              resolved_fidx);
+      }
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      if (Sec.sh_type != llvm::ELF::SHT_RELA)
+        continue;
+
+      for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
+        process_elf_rela(Sec, Rela);
+    }
+  }
+}
+
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (!update_view_of_virtual_memory(child)) {
     WithColor::error() << "failed to read virtual memory maps of child "
@@ -1367,7 +1529,33 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
       binary_t &binary = decompilation.Binaries[binary_idx];
 
+      //
+      // if Prog has been loaded, set a breakpoint on the entry point of prog
+      //
+      bool IsProg = fs::equivalent(Path, opts::Prog);
+      if (IsProg) {
+        assert(is_function_index_valid(binary.Analysis.EntryFunction));
+
+        basic_block_t entry_bb = boost::vertex(
+            binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
+            binary.Analysis.ICFG);
+        uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
+        uintptr_t Addr = va_of_rva(entry_rva, binary_idx);
+
+        llvm::outs()
+            << "found prog! entry point is "
+            << (fmt("%#lx") % binary.Analysis.ICFG[entry_bb].Addr).str()
+            << "\n";
+
+        breakpoint_t &brk = BrkMap[Addr];
+        brk.callback = harvest_ifunc_resolver_targets;
+
+        place_breakpoint(child, Addr, brk, dis);
+      }
+
+      //
       // place breakpoints for indirect branches
+      //
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
 
       unsigned cnt = 0;
