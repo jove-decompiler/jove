@@ -19,6 +19,9 @@
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -72,7 +75,7 @@ static decompilation_t Decompilation;
 
 static void spawn_workers(void);
 
-static std::queue<std::string> Q;
+static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
@@ -81,22 +84,19 @@ static int await_process_completion(pid_t);
 static void print_command(std::vector<char *> &arg_vec);
 
 static std::string jove_llvm_path, llc_path, ld_path;
+static std::string dyn_linker_path;
 
 int recompile(void) {
-  fs::path jvpath(opts::jv);
-  if (fs::is_directory(jvpath))
-    jvpath /= "decompilation.jv";
-  if (!fs::exists(jvpath) || fs::is_directory(jvpath))
+  //
+  // sanity checks for output path
+  //
+  if (fs::exists(opts::Output))
+    fs::remove_all(opts::Output);
+
+  if (!fs::create_directory(opts::Output)) {
+    WithColor::error() << "failed to create directory at \"" << opts::Output
+                       << "\"\n";
     return 1;
-
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::ifstream ifs(jvpath.string());
-
-    boost::archive::binary_iarchive ia(ifs);
-    ia >> Decompilation;
   }
 
   //
@@ -133,100 +133,112 @@ int recompile(void) {
 
   llvm::outs() << "tmpdir: " << tmpdir << '\n';
 
+  fs::path jvpath(opts::jv);
+  if (fs::is_directory(jvpath))
+    jvpath /= "decompilation.jv";
+  if (!fs::exists(jvpath) || fs::is_directory(jvpath))
+    return 1;
+
   //
-  // process the binaries, concurrently
+  // parse the existing decompilation file
+  //
+  {
+    std::ifstream ifs(jvpath.string());
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> Decompilation;
+  }
+
+  //
+  // get path to dynamic linker
   //
   for (binary_t &b : Decompilation.Binaries) {
+    if (!b.IsDynamicLinker)
+      continue;
+
+    dyn_linker_path = b.Path;
+    break;
+  }
+
+  assert(!dyn_linker_path.empty());
+  assert(fs::exists(dyn_linker_path));
+
+  //
+  // fill queue to process
+  //
+  for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    binary_t &b = Decompilation.Binaries[BIdx];
     if (b.IsDynamicLinker)
       continue;
 
-    Q.push(fs::path(b.Path).filename().string());
+    Q.push(BIdx);
   }
 
   spawn_workers();
 
-#if 0
-  if (opts::Git) {
-    pid_t pid;
+  std::vector<std::string> sofp_vec;
+  for (binary_t &b : Decompilation.Binaries) {
+    if (b.IsExecutable)
+      continue;
+    if (b.IsDynamicLinker)
+      continue;
 
-    //
-    // git init
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts::Output.c_str());
+    fs::path chrooted_path(opts::Output + b.Path);
+    std::string sofp = chrooted_path.replace_extension("so").string();
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("init"));
-      arg_vec.push_back(nullptr);
-
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
-    }
-
-    if (int ret = await_process_completion(pid))
-      return ret;
-
-    //
-    // Append '[diff "jv"]\n        textconv = jove-dump-x86_64' to .git/config
-    //
-    assert(fs::exists(opts::Output + "/.git/config"));
-    {
-      std::ofstream ofs(opts::Output + "/.git/config",
-                        std::ios_base::out | std::ios_base::app);
-      ofs << "\n[diff \"jv\"]\n        textconv = jove-dump";
-    }
-
-    //
-    // Write '*.jv diff=jv' to .git/info/attributes
-    //
-    assert(!fs::exists(opts::Output + "/.git/info/attributes"));
-    {
-      std::ofstream ofs(opts::Output + "/.git/info/attributes");
-      ofs << "*.jv diff=jv";
-    }
-
-    //
-    // git add
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts::Output.c_str());
-
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("add"));
-      arg_vec.push_back(const_cast<char *>("decompilation.jv"));
-      arg_vec.push_back(nullptr);
-
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
-    }
-
-    if (int ret = await_process_completion(pid))
-      return ret;
-
-    //
-    // git commit
-    //
-    pid = fork();
-    if (!pid) {
-      chdir(opts::Output.c_str());
-
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("commit"));
-      arg_vec.push_back(const_cast<char *>("."));
-      arg_vec.push_back(const_cast<char *>("-m"));
-      arg_vec.push_back(const_cast<char *>("initial commit"));
-      arg_vec.push_back(nullptr);
-
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
-    }
-
-    if (int ret = await_process_completion(pid))
-      return ret;
+    sofp_vec.push_back(sofp);
   }
-#endif
+
+  std::string exe_objfp;
+  for (binary_t &b : Decompilation.Binaries) {
+    if (!b.IsExecutable)
+      continue;
+
+    fs::path tmpdir_path(std::string(tmpdir) + b.Path);
+    exe_objfp = tmpdir_path.replace_extension("o").string();
+    break;
+  }
+  assert(!exe_objfp.empty());
+
+  std::string exe_fp;
+  for (binary_t &b : Decompilation.Binaries) {
+    if (!b.IsExecutable)
+      continue;
+
+    exe_fp = opts::Output + b.Path;
+    break;
+  }
+  assert(!exe_fp.empty());
+
+  pid_t pid = fork();
+  if (!pid) {
+    std::vector<char *> arg_vec;
+    arg_vec.push_back(const_cast<char *>(ld_path.c_str()));
+    arg_vec.push_back(const_cast<char *>("-o"));
+    arg_vec.push_back(const_cast<char *>(exe_fp.c_str()));
+    arg_vec.push_back(const_cast<char *>("-m"));
+    arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
+    arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
+    arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
+    arg_vec.push_back(const_cast<char *>("-e"));
+    arg_vec.push_back(const_cast<char *>("__jove_start"));
+    arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
+    for (const std::string &sofp : sofp_vec)
+      arg_vec.push_back(const_cast<char *>(sofp.c_str()));
+    arg_vec.push_back(nullptr);
+
+    print_command(arg_vec);
+    execve(arg_vec.front(), arg_vec.data(), ::environ);
+    return 0;
+  }
+
+  //
+  // check exit code
+  //
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << "failed to link executable\n";
+    return 1;
+  }
 
   return 0;
 }
@@ -234,7 +246,7 @@ int recompile(void) {
 static std::mutex mtx;
 
 static void worker(void) {
-  auto pop_path = [](std::string &out) -> bool {
+  auto pop_binary_index = [](unsigned &out) -> bool {
     std::lock_guard<std::mutex> lck(mtx);
 
     if (Q.empty()) {
@@ -246,21 +258,27 @@ static void worker(void) {
     }
   };
 
-  std::string binary_filename;
-  while (pop_path(binary_filename)) {
-    std::string bcfp =
-        (fs::path(tmpdir) / binary_filename).replace_extension("bc").string();
-
-    int pipefd[2];
-    if (pipe(pipefd) < 0)
-      WithColor::error() << "pipe failed : " << strerror(errno) << '\n';
-
+  unsigned BIdx;
+  while (pop_binary_index(BIdx)) {
     pid_t pid;
+
+    binary_t &b = Decompilation.Binaries[BIdx];
+
+    // make sure the path is absolute
+    assert(b.Path.at(0) == '/');
+
+    fs::path tmpdir_path(std::string(tmpdir) + b.Path);
+    fs::path chrooted_path(opts::Output + b.Path);
+
+    fs::create_directories(tmpdir_path.parent_path());
+    fs::create_directories(chrooted_path.parent_path());
+
+    std::string bcfp = tmpdir_path.replace_extension("bc").string();
+
+    std::string binary_filename = fs::path(b.Path).filename().string();
 
     pid = fork();
     if (!pid) {
-      close(pipefd[0]); /* close unused read end */
-
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(jove_llvm_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-decompilation"));
@@ -273,22 +291,14 @@ static void worker(void) {
 
       print_command(arg_vec);
 
-      dup2(pipefd[1], STDOUT_FILENO);
-      dup2(pipefd[1], STDERR_FILENO);
+      std::string stdoutfp = bcfp + ".txt";
+      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_WRONLY);
+      dup2(stdoutfd, STDOUT_FILENO);
+      dup2(stdoutfd, STDERR_FILENO);
+
       execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
-
-    close(pipefd[1]); /* close unused write end */
-
-    std::string stdout_s;
-    {
-      char buf;
-      while (read(pipefd[0], &buf, 1) > 0)
-        stdout_s += buf;
-    }
-
-    close(pipefd[0]); /* close read end */
 
     //
     // check exit code
@@ -299,17 +309,9 @@ static void worker(void) {
     }
 
     //
-    // print stdout and stderr output to stdout
-    //
-#if 0
-    llvm::outs() << stdout_s;
-#endif
-
-    //
     // compile bitcode
     //
-    std::string objfp =
-        (fs::path(tmpdir) / binary_filename).replace_extension("o").string();
+    std::string objfp = tmpdir_path.replace_extension("o").string();
 
     pid = fork();
     if (!pid) {
@@ -335,14 +337,13 @@ static void worker(void) {
       continue;
     }
 
-    if (!fs::path(binary_filename).has_extension())
+    if (b.IsExecutable)
       continue;
 
     //
     // link object file to create shared library
     //
-    std::string sofp =
-        (fs::path(tmpdir) / binary_filename).replace_extension("so").string();
+    std::string sofp = chrooted_path.replace_extension("so").string();
 
     pid = fork();
     if (!pid) {
@@ -352,6 +353,10 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(sofp.c_str()));
       arg_vec.push_back(const_cast<char *>("-m"));
       arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
+      arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
+      arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
+      arg_vec.push_back(const_cast<char *>("-e"));
+      arg_vec.push_back(const_cast<char *>("__jove_start"));
       arg_vec.push_back(const_cast<char *>("-shared"));
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
       arg_vec.push_back(nullptr);
