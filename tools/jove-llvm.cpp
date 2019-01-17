@@ -2090,11 +2090,14 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    // XXX TODO
-#if 0
-    WithColor::error() << "type_of_addressof_defined_function_relocation UNHANDLED\n";
-#endif
-    return nullptr;
+    auto it = FuncMap.find(S.Addr);
+    if (it == FuncMap.end()) {
+      WithColor::error() << __func__ << '\n';
+      return nullptr;
+    }
+
+    llvm::FunctionType *FTy = DetermineFunctionType(BinaryIndex, (*it).second);
+    return llvm::PointerType::get(FTy, 0);
   };
 
   auto type_of_addressof_undefined_data_relocation =
@@ -2320,12 +2323,15 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    // XXX TODO
-#if 0
-    WithColor::error()
-        << "constant_of_addressof_defined_function_relocation UNHANDLED\n";
-#endif
-    return nullptr;
+    auto it = FuncMap.find(S.Addr);
+    if (it == FuncMap.end()) {
+      WithColor::error() << __func__ << '\n';
+      return nullptr;
+    }
+
+    return Decompilation.Binaries[BinaryIndex]
+        .Analysis.Functions[(*it).second]
+        .F;
   };
 
   auto constant_of_addressof_undefined_data_relocation =
