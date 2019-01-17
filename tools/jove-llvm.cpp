@@ -824,6 +824,8 @@ int ProcessDynamicSymbols(void) {
     for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined())
         continue;
+      if (Sym.getType() != llvm::ELF::STT_FUNC)
+        continue;
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
 
