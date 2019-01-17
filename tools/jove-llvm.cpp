@@ -2333,10 +2333,7 @@ int CreateSectionGlobalVariables(void) {
     assert(!S.IsUndefined());
 
     auto it = FuncMap.find(S.Addr);
-    if (it == FuncMap.end()) {
-      WithColor::error() << __func__ << '\n';
-      return nullptr;
-    }
+    assert(it != FuncMap.end());
 
     return Decompilation.Binaries[BinaryIndex]
         .Analysis.Functions[(*it).second]
