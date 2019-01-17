@@ -1,10 +1,9 @@
 case llvm::ELF::R_X86_64_GLOB_DAT:
 case llvm::ELF::R_X86_64_JUMP_SLOT:
+case llvm::ELF::R_X86_64_64:
   return relocation_t::TYPE::ADDRESSOF;
 case llvm::ELF::R_X86_64_COPY:
   return relocation_t::TYPE::COPY;
-case llvm::ELF::R_X86_64_64:
-  return relocation_t::TYPE::ABSOLUTE;
 case llvm::ELF::R_X86_64_RELATIVE:
   return relocation_t::TYPE::RELATIVE;
 case llvm::ELF::R_X86_64_IRELATIVE:
