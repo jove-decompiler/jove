@@ -421,6 +421,7 @@ static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int ReplaceAllRemainingUsesOfPCRel(void);
 static int RenameFunctionLocals(void);
+static int RenameFunctions(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -449,6 +450,7 @@ int llvm(void) {
       || ReplaceAllRemainingUsesOfConstSections()
       || ReplaceAllRemainingUsesOfPCRel()
       || RenameFunctionLocals()
+      || RenameFunctions()
       || WriteModule();
 }
 
@@ -842,6 +844,9 @@ int ProcessDynamicSymbols(void) {
       }
 
       Binary.Analysis.Functions[FuncIdx].IsABI = true;
+
+      if (!ExportedFunctions[SymName].empty())
+        WithColor::note() << ' ' << SymName << '\n';
 
       ExportedFunctions[SymName].insert({BIdx, FuncIdx});
     }
@@ -3352,6 +3357,26 @@ int RenameFunctionLocals(void) {
       if (llvm::isa<llvm::LoadInst>(UU))
         UU->setName(nm);
     }
+  }
+
+  return 0;
+}
+
+int RenameFunctions(void) {
+  for (const auto &pair : ExportedFunctions) {
+    assert(!pair.second.empty());
+
+    binary_index_t BinIdx;
+    function_index_t FuncIdx;
+    std::tie(BinIdx, FuncIdx) = *pair.second.begin();
+
+    if (BinIdx != BinaryIndex)
+      continue;
+
+    Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx].F->setName(
+        pair.first);
+
+    // XXX TODO symbol versions
   }
 
   return 0;
