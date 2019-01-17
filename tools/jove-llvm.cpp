@@ -2091,10 +2091,7 @@ int CreateSectionGlobalVariables(void) {
     assert(!S.IsUndefined());
 
     auto it = FuncMap.find(S.Addr);
-    if (it == FuncMap.end()) {
-      WithColor::error() << __func__ << '\n';
-      return nullptr;
-    }
+    assert(it != FuncMap.end());
 
     llvm::FunctionType *FTy = DetermineFunctionType(BinaryIndex, (*it).second);
     return llvm::PointerType::get(FTy, 0);
