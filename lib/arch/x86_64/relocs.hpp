@@ -8,8 +8,6 @@ case llvm::ELF::R_X86_64_RELATIVE:
   return relocation_t::TYPE::RELATIVE;
 case llvm::ELF::R_X86_64_IRELATIVE:
   return relocation_t::TYPE::IRELATIVE;
-case llvm::ELF::R_X86_64_TPOFF64:
-  return relocation_t::TYPE::TPOFF;
 case llvm::ELF::R_X86_64_NONE:
 case llvm::ELF::R_X86_64_PC32:
 case llvm::ELF::R_X86_64_GOT32:
@@ -23,6 +21,7 @@ case llvm::ELF::R_X86_64_8:
 case llvm::ELF::R_X86_64_PC8:
 case llvm::ELF::R_X86_64_DTPMOD64:
 case llvm::ELF::R_X86_64_DTPOFF64:
+case llvm::ELF::R_X86_64_TPOFF64:
 case llvm::ELF::R_X86_64_TLSGD:
 case llvm::ELF::R_X86_64_TLSLD:
 case llvm::ELF::R_X86_64_DTPOFF32:

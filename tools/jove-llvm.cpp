@@ -317,12 +317,7 @@ struct relocation_t {
     //
     // address of a function or variable.
     //
-    ADDRESSOF,
-
-    //
-    // TODO
-    //
-    TPOFF
+    ADDRESSOF
   } Type;
 
   uintptr_t Addr;
@@ -1077,8 +1072,6 @@ int ProcessBinarySymbolsAndRelocations(void) {
       return "COPY";
     case relocation_t::TYPE::ADDRESSOF:
       return "ADDRESSOF";
-    case relocation_t::TYPE::TPOFF:
-      return "TPOFF";
     }
   };
 
