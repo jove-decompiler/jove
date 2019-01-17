@@ -1388,7 +1388,8 @@ struct relocation_t {
     IRELATIVE,
     ABSOLUTE,
     COPY,
-    ADDRESSOF
+    ADDRESSOF,
+    TPOFF
   } Type;
 };
 
