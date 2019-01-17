@@ -2527,9 +2527,6 @@ int CreateSectionGlobalVariables(void) {
     if (!type_of_relocation(R))
       continue;
 
-    if (!constant_of_relocation(R))
-      continue;
-
     RelocationsAt.insert(R.Addr);
   }
 
