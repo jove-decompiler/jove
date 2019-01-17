@@ -2113,11 +2113,23 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    // XXX TODO
-#if 0
-    WithColor::error() << "type_of_addressof_defined_data_relocation UNHANDLED\n";
-#endif
-    return nullptr;
+    llvm::Type *intTy;
+    switch (S.Size) {
+    case 2:
+      intTy = llvm::Type::getInt16Ty(*Context);
+      break;
+    case 4:
+      intTy = llvm::Type::getInt32Ty(*Context);
+      break;
+    case 8:
+      intTy = llvm::Type::getInt64Ty(*Context);
+      break;
+    default:
+      intTy = llvm::Type::getInt8Ty(*Context);
+      break;
+    }
+
+    return llvm::PointerType::get(intTy, 0);
   };
 
   auto type_of_relative_relocation =
@@ -2188,9 +2200,6 @@ int CreateSectionGlobalVariables(void) {
     }
 
     // XXX TODO
-#if 0
-    WithColor::error() << "type_of_relocation UNHANDLED\n";
-#endif
     return nullptr;
   };
 
@@ -2360,11 +2369,24 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    // XXX TODO
-#if 0
-    WithColor::error() << "constant_of_addressof_defined_data_relocation UNHANDLED\n";
-#endif
-    return nullptr;
+    llvm::Type *intTy;
+    switch (S.Size) {
+    case 2:
+      intTy = llvm::Type::getInt16Ty(*Context);
+      break;
+    case 4:
+      intTy = llvm::Type::getInt32Ty(*Context);
+      break;
+    case 8:
+      intTy = llvm::Type::getInt64Ty(*Context);
+      break;
+    default:
+      intTy = llvm::Type::getInt8Ty(*Context);
+      break;
+    }
+
+    llvm::Type *T = llvm::PointerType::get(intTy, 0);
+    return llvm::ConstantExpr::getPointerCast(SectionPointer(S.Addr), T);
   };
 
   auto constant_of_relative_relocation =
@@ -2441,9 +2463,6 @@ int CreateSectionGlobalVariables(void) {
     }
 
     // XXX TODO
-#if 0
-    WithColor::error() << "constant_of_relocation UNHANDLED\n";
-#endif
     return nullptr;
   };
 
