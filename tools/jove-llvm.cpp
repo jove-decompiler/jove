@@ -3056,7 +3056,7 @@ int FixupPCRelativeAddrs(void) {
         }
 
         if (!llvm::isa<llvm::Instruction>(Other))
-          continue;
+          break;
 
         unsigned OtherOpc = llvm::cast<llvm::Instruction>(Other)->getOpcode();
         llvm::Instruction *OtherInst = llvm::cast<llvm::Instruction>(Other);
@@ -3073,13 +3073,14 @@ int FixupPCRelativeAddrs(void) {
               llvm::isa<llvm::ConstantInt>(RHS))
             break;
 
-
           unsigned operandIdx = llvm::isa<llvm::ConstantInt>(LHS) ? 0 : 1;
           llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
                                       ? llvm::cast<llvm::ConstantInt>(LHS)
                                       : llvm::cast<llvm::ConstantInt>(RHS);
 
           OtherInst->setOperand(operandIdx, ConstantForAddress(CI->getZExtValue()));
+
+          ToReplace.push_back({Inst, Other});
           continue;
         } else if (OtherOpc == llvm::Instruction::Select) {
           llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(Other);
@@ -3099,7 +3100,7 @@ int FixupPCRelativeAddrs(void) {
               SI->setFalseValue(ConstantForAddress(CI->getZExtValue()));
             }
 
-            ToReplace.push_back({Inst, SI});
+            ToReplace.push_back({Inst, Other});
             continue;
           }
         } else if (OtherOpc == llvm::Instruction::PHI) {
@@ -3122,8 +3123,47 @@ int FixupPCRelativeAddrs(void) {
                              ->getZExtValue()));
             }
 
-            ToReplace.push_back({Inst, PI});
+            ToReplace.push_back({Inst, Other});
             continue;
+          }
+
+          auto phi_node_has_all_select_const_int = [&](void) -> bool {
+            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
+              llvm::Value *V = PI->getIncomingValue(i);
+
+              if (!llvm::isa<llvm::SelectInst>(V))
+                return false;
+
+              llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(V);
+
+              if (!llvm::isa<llvm::ConstantInt>(SI->getTrueValue()))
+                return false;
+
+              if (!llvm::isa<llvm::ConstantInt>(SI->getFalseValue()))
+                return false;
+            }
+
+            return true;
+          };
+
+          if (phi_node_has_all_select_const_int()) {
+            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
+              llvm::Value *V = PI->getIncomingValue(i);
+              llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(V);
+
+              llvm::ConstantInt *TV = llvm::cast<llvm::ConstantInt>(SI->getTrueValue());
+              llvm::ConstantInt *FV = llvm::cast<llvm::ConstantInt>(SI->getFalseValue());
+
+              SI->setTrueValue(ConstantForAddress(TV->getZExtValue()));
+              SI->setFalseValue(ConstantForAddress(FV->getZExtValue()));
+            }
+
+            ToReplace.push_back({Inst, Other});
+            continue;
+          }
+
+          for (llvm::Use &incomingVal : PI->incoming_values()) {
+            llvm::errs() << *incomingVal.get() << '\n';
           }
         }
 
