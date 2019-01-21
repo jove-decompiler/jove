@@ -154,6 +154,12 @@ int main(int argc, char **argv) {
 #endif
   };
 
+#if defined(__x86_64__)
+  auto fs_base_index = [&](void) -> int {
+    return tcg_index_of_named_global("fs_base");
+  };
+#endif
+
   printf("#pragma once\n"
          "#include <bitset>\n"
          "#include <array>\n"
@@ -169,6 +175,9 @@ int main(int argc, char **argv) {
   __TCG_CONST(program_counter_index);
   __TCG_CONST(frame_pointer_index);
   __TCG_CONST(stack_pointer_index);
+#if defined(__x86_64__)
+  __TCG_CONST(fs_base_index);
+#endif
   __TCG_CONST(program_counter_env_offset);
 
 #undef __TCG_CONST

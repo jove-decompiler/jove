@@ -392,6 +392,7 @@ struct helper_function_t {
   } Analysis;
 };
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
+static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
 //
 // Stages
@@ -399,11 +400,11 @@ static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
+static int CreateModule(void);
 static int ProcessDynamicSymbols(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinarySymbolsAndRelocations(void);
 static int PrepareToTranslateCode(void);
-static int CreateModule(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
 static int CreateCPUStateGlobal(void);
@@ -429,11 +430,11 @@ int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
       || InitStateForBinaries()
+      || CreateModule()
       || ProcessDynamicSymbols()
       || ProcessDynamicTargets()
       || ProcessBinarySymbolsAndRelocations()
       || PrepareToTranslateCode()
-      || CreateModule()
       || CreateFunctions()
       || CreateSectionGlobalVariables()
       || CreateCPUStateGlobal()
@@ -671,6 +672,32 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
+static const uint8_t bcbytes[] = {
+#include "jove/jove.bc.inc"
+};
+
+int CreateModule(void) {
+  Context.reset(new llvm::LLVMContext);
+
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&bcbytes[0]),
+                         sizeof(bcbytes));
+  llvm::StringRef Identifier(opts::Binary);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOr =
+      llvm::parseBitcodeFile(MemBuffRef, *Context);
+  if (!ModuleOr) {
+    WithColor::error() << "failed to parse bitcode\n";
+    return 1;
+  }
+
+  std::unique_ptr<llvm::Module> &ModuleRef = ModuleOr.get();
+  Module = std::move(ModuleRef);
+
+  DL = Module->getDataLayout();
+  return 0;
+}
+
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
 /// the size, entity size and virtual address are different entries in arbitrary
@@ -828,29 +855,75 @@ int ProcessDynamicSymbols(void) {
     for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined())
         continue;
-      if (Sym.getType() != llvm::ELF::STT_FUNC)
-        continue;
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
 
-      function_index_t FuncIdx;
-      {
-        auto it = st.FuncMap.find(Sym.st_value);
-        if (it == st.FuncMap.end()) {
+      if (Sym.getType() == llvm::ELF::STT_OBJECT && Sym.st_size) {
+        auto it = GlobalSymbolDefinedSizeMap.find(SymName);
+        if (it != GlobalSymbolDefinedSizeMap.end()) {
           WithColor::warning()
-              << "no function for symbol " << SymName << " found\n";
-          continue;
+              << "data symbol \"" << SymName << "\" has multiple definitions ("
+              << (*it).second << ", " << Sym.st_size << ")\n";
         }
 
-        FuncIdx = (*it).second;
+        GlobalSymbolDefinedSizeMap[SymName] = Sym.st_size;
+
+        if (BIdx == BinaryIndex) {
+          llvm::outs() << SymName << ' ' << Sym.st_size << '\n';
+
+          llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName);
+          if (GV)
+            continue;
+
+          auto is_integral_size = [](unsigned n) -> bool {
+            switch (n) {
+            case 1:
+              return true;
+            case 2:
+              return true;
+            case 4:
+              return true;
+            case 8:
+              return true;
+            default:
+              return false;
+            }
+          };
+
+          llvm::Type *T;
+          llvm::Constant *Init;
+
+          if (is_integral_size(Sym.st_size)) {
+            T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
+          } else {
+            T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context),
+                                     Sym.st_size);
+          }
+
+          GV = new llvm::GlobalVariable(
+              *Module, T, false, llvm::GlobalValue::ExternalLinkage,
+              llvm::Constant::getNullValue(T), SymName);
+        }
+      } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
+        function_index_t FuncIdx;
+        {
+          auto it = st.FuncMap.find(Sym.st_value);
+          if (it == st.FuncMap.end()) {
+            WithColor::warning()
+                << "no function for symbol " << SymName << " found\n";
+            continue;
+          }
+
+          FuncIdx = (*it).second;
+        }
+
+        Binary.Analysis.Functions[FuncIdx].IsABI = true;
+
+        if (!ExportedFunctions[SymName].empty())
+          WithColor::note() << ' ' << SymName << '\n';
+
+        ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       }
-
-      Binary.Analysis.Functions[FuncIdx].IsABI = true;
-
-      if (!ExportedFunctions[SymName].empty())
-        WithColor::note() << ' ' << SymName << '\n';
-
-      ExportedFunctions[SymName].insert({BIdx, FuncIdx});
     }
   }
   return 0;
@@ -1811,32 +1884,6 @@ void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
     std::sort(glbv.begin(), glbv.end());
 }
 
-static const uint8_t bcbytes[] = {
-#include "jove/jove.bc.inc"
-};
-
-int CreateModule(void) {
-  Context.reset(new llvm::LLVMContext);
-
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&bcbytes[0]),
-                         sizeof(bcbytes));
-  llvm::StringRef Identifier(opts::Binary);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOr =
-      llvm::parseBitcodeFile(MemBuffRef, *Context);
-  if (!ModuleOr) {
-    WithColor::error() << "failed to parse bitcode\n";
-    return 1;
-  }
-
-  std::unique_ptr<llvm::Module> &ModuleRef = ModuleOr.get();
-  Module = std::move(ModuleRef);
-
-  DL = Module->getDataLayout();
-  return 0;
-}
-
 static llvm::Type *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
@@ -2109,33 +2156,49 @@ int CreateSectionGlobalVariables(void) {
   auto type_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(S.IsUndefined());
+    assert(!S.Size);
 
-    llvm::Type *intTy = llvm::Type::getIntNTy(
-        *Context, S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8);
-    return llvm::PointerType::get(intTy, 0);
+    auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
+    if (it == GlobalSymbolDefinedSizeMap.end()) {
+      llvm::outs() << "fucked because we don't have the size for " << S.Name
+                   << '\n';
+      return nullptr;
+    }
+
+    unsigned Size = (*it).second;
+
+    auto is_integral_size = [](unsigned n) -> bool {
+      switch (n) {
+      case 1:
+        return true;
+      case 2:
+        return true;
+      case 4:
+        return true;
+      case 8:
+        return true;
+      default:
+        return false;
+      }
+    };
+
+    llvm::Type *T;
+    if (is_integral_size(Size)) {
+      T = llvm::Type::getIntNTy(*Context, Size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+    }
+
+    return llvm::PointerType::get(T, 0);
   };
 
   auto type_of_addressof_defined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::Type *intTy;
-    switch (S.Size) {
-    case 2:
-      intTy = llvm::Type::getInt16Ty(*Context);
-      break;
-    case 4:
-      intTy = llvm::Type::getInt32Ty(*Context);
-      break;
-    case 8:
-      intTy = llvm::Type::getInt64Ty(*Context);
-      break;
-    default:
-      intTy = llvm::Type::getInt8Ty(*Context);
-      break;
-    }
-
-    return llvm::PointerType::get(intTy, 0);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    assert(GV);
+    return GV->getType();
   };
 
   auto type_of_relative_relocation =
@@ -2349,21 +2412,49 @@ int CreateSectionGlobalVariables(void) {
   auto constant_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
+    assert(!S.Size);
 
     llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
 
     if (GV)
       return GV;
 
-    GV = new llvm::GlobalVariable(
-        *Module,
-        llvm::Type::getIntNTy(*Context,
-                              S.Size ? S.Size * 8 : sizeof(uintptr_t) * 8),
-        false,
-        S.Bind == symbol_t::BINDING::WEAK
-            ? llvm::GlobalValue::ExternalWeakLinkage
-            : llvm::GlobalValue::ExternalLinkage,
-        nullptr, S.Name);
+    auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
+    if (it == GlobalSymbolDefinedSizeMap.end()) {
+      llvm::outs() << "fucked because we don't have the size for " << S.Name
+                   << '\n';
+      return nullptr;
+    }
+
+    unsigned Size = (*it).second;
+
+    auto is_integral_size = [](unsigned n) -> bool {
+      switch (n) {
+      case 1:
+        return true;
+      case 2:
+        return true;
+      case 4:
+        return true;
+      case 8:
+        return true;
+      default:
+        return false;
+      }
+    };
+
+    llvm::Type *T;
+    if (is_integral_size(Size)) {
+      T = llvm::Type::getIntNTy(*Context, Size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+    }
+
+    GV = new llvm::GlobalVariable(*Module, T, false,
+                                  S.Bind == symbol_t::BINDING::WEAK
+                                      ? llvm::GlobalValue::ExternalWeakLinkage
+                                      : llvm::GlobalValue::ExternalLinkage,
+                                  nullptr, S.Name);
 
     return GV;
   };
@@ -2372,24 +2463,9 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    llvm::Type *intTy;
-    switch (S.Size) {
-    case 2:
-      intTy = llvm::Type::getInt16Ty(*Context);
-      break;
-    case 4:
-      intTy = llvm::Type::getInt32Ty(*Context);
-      break;
-    case 8:
-      intTy = llvm::Type::getInt64Ty(*Context);
-      break;
-    default:
-      intTy = llvm::Type::getInt8Ty(*Context);
-      break;
-    }
-
-    llvm::Type *T = llvm::PointerType::get(intTy, 0);
-    return llvm::ConstantExpr::getPointerCast(SectionPointer(S.Addr), T);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    assert(GV);
+    return GV;
   };
 
   auto constant_of_relative_relocation =
@@ -2876,17 +2952,23 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
       for (unsigned glb : glbv) {
         switch (glb) {
-        default:
-          continue;
-
         case tcg_frame_pointer_index:
-        case tcg_stack_pointer_index:
+        case tcg_stack_pointer_index: {
+          llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+          llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+          IRB.CreateStore(Val, Ptr);
           break;
         }
 
-        llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
-        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-        IRB.CreateStore(Val, Ptr);
+#if defined(__x86_64__)
+        case tcg_fs_base_index:
+          IRB.CreateStore(IRB.getInt64(0), f.GlobalAllocaVec[glb]);
+          break;
+#endif
+
+        default:
+          continue;
+        }
       }
     }
 
