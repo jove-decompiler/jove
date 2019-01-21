@@ -64,7 +64,7 @@ $(BINDIR)/jove/jove.bc.inc: $(BINDIR)/jove.bc
 	xxd -include < $< > $@
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
-	clang -o $@ -c -emit-llvm -Oz -fno-stack-protector $<
+	clang -o $@ -c -emit-llvm -Oz -fPIC -fno-stack-protector $<
 
 -include $(DEPS)
 
@@ -166,7 +166,7 @@ build-helpers: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 define build_helper_template
 .PHONY: $(BINDIR)/$(1).bc
 $(BINDIR)/$(1).bc:
-	clang -o $$@ -c -emit-llvm -Oz -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides lib/arch/$(ARCH)/helpers/$(1).c
+	clang -o $$@ -c -emit-llvm -fPIC -Oz -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides lib/arch/$(ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
