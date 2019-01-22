@@ -858,7 +858,11 @@ int ProcessDynamicSymbols(void) {
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
 
-      if (Sym.getType() == llvm::ELF::STT_OBJECT && Sym.st_size) {
+      if (Sym.getType() == llvm::ELF::STT_OBJECT ||
+          Sym.getType() == llvm::ELF::STT_TLS) {
+        if (!Sym.st_size)
+          continue;
+
         auto it = GlobalSymbolDefinedSizeMap.find(SymName);
         if (it != GlobalSymbolDefinedSizeMap.end()) {
           WithColor::warning()
@@ -902,7 +906,10 @@ int ProcessDynamicSymbols(void) {
 
           GV = new llvm::GlobalVariable(
               *Module, T, false, llvm::GlobalValue::ExternalLinkage,
-              llvm::Constant::getNullValue(T), SymName);
+              llvm::Constant::getNullValue(T), SymName, nullptr,
+              Sym.getType() == llvm::ELF::STT_TLS
+                  ? llvm::GlobalValue::GeneralDynamicTLSModel
+                  : llvm::GlobalValue::NotThreadLocal);
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
         function_index_t FuncIdx;
