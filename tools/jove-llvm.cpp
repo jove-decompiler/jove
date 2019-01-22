@@ -404,6 +404,7 @@ static int CreateModule(void);
 static int ProcessDynamicSymbols(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinarySymbolsAndRelocations(void);
+static int ProcessIFuncResolvers(void);
 static int PrepareToTranslateCode(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
@@ -434,6 +435,7 @@ int llvm(void) {
       || ProcessDynamicSymbols()
       || ProcessDynamicTargets()
       || ProcessBinarySymbolsAndRelocations()
+      || ProcessIFuncResolvers()
       || PrepareToTranslateCode()
       || CreateFunctions()
       || CreateSectionGlobalVariables()
@@ -1208,6 +1210,24 @@ int ProcessBinarySymbolsAndRelocations(void) {
          % sym.Size).str();
     }
     llvm::outs() << '\n';
+  }
+
+  return 0;
+}
+
+int ProcessIFuncResolvers(void) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
+
+  for (const relocation_t &R : RelocationTable) {
+    if (R.Type != relocation_t::TYPE::IRELATIVE)
+      continue;
+
+    auto it = FuncMap.find(R.Addend);
+    assert(it != FuncMap.end());
+
+    function_t &resolver = Binary.Analysis.Functions[(*it).second];
+    resolver.IsABI = true;
   }
 
   return 0;
