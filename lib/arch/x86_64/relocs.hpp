@@ -21,7 +21,6 @@ case llvm::ELF::R_X86_64_8:
 case llvm::ELF::R_X86_64_PC8:
 case llvm::ELF::R_X86_64_DTPMOD64:
 case llvm::ELF::R_X86_64_DTPOFF64:
-case llvm::ELF::R_X86_64_TPOFF64:
 case llvm::ELF::R_X86_64_TLSGD:
 case llvm::ELF::R_X86_64_TLSLD:
 case llvm::ELF::R_X86_64_DTPOFF32:
@@ -41,3 +40,5 @@ case llvm::ELF::R_X86_64_GOTPC32_TLSDESC:
 case llvm::ELF::R_X86_64_TLSDESC_CALL:
 case llvm::ELF::R_X86_64_TLSDESC:
   return relocation_t::TYPE::NONE;
+case llvm::ELF::R_X86_64_TPOFF64:
+  return relocation_t::TYPE::TPOFF;

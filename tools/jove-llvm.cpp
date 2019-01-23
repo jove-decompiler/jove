@@ -45,6 +45,7 @@ class LoadInst;
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
   llvm::AllocaInst *PCAlloca;                                                  \
   llvm::LoadInst *PCRelVal;                                                    \
+  llvm::LoadInst *FSBaseVal;                                                   \
                                                                                \
   bool IsThunk, IsABI;                                                         \
                                                                                \
@@ -317,7 +318,9 @@ struct relocation_t {
     //
     // address of a function or variable.
     //
-    ADDRESSOF
+    ADDRESSOF,
+
+    TPOFF
   } Type;
 
   uintptr_t Addr;
@@ -379,6 +382,7 @@ static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::GlobalVariable *PCRelGlobal;
+static llvm::GlobalVariable *FSBaseGlobal;
 
 static llvm::MDNode *AliasScopeMetadata;
 
@@ -394,6 +398,8 @@ struct helper_function_t {
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
+static std::unordered_map<uintptr_t, std::string> TLSValueToSymbolMap;
+
 //
 // Stages
 //
@@ -401,7 +407,7 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
-static int ProcessDynamicSymbols(void);
+static int ProcessSymbols(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinarySymbolsAndRelocations(void);
 static int ProcessIFuncResolvers(void);
@@ -432,7 +438,7 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || CreateModule()
-      || ProcessDynamicSymbols()
+      || ProcessSymbols()
       || ProcessDynamicTargets()
       || ProcessBinarySymbolsAndRelocations()
       || ProcessIFuncResolvers()
@@ -727,7 +733,7 @@ struct DynRegionInfo {
   }
 };
 
-int ProcessDynamicSymbols(void) {
+int ProcessSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = Decompilation.Binaries[BIdx];
     auto &st = BinStateVec[BIdx];
@@ -862,8 +868,11 @@ int ProcessDynamicSymbols(void) {
 
       if (Sym.getType() == llvm::ELF::STT_OBJECT ||
           Sym.getType() == llvm::ELF::STT_TLS) {
-        if (!Sym.st_size)
+        if (!Sym.st_size) {
+          WithColor::warning()
+              << "symbol '" << SymName << "' defined but size is unknown\n";
           continue;
+        }
 
         auto it = GlobalSymbolDefinedSizeMap.find(SymName);
         if (it != GlobalSymbolDefinedSizeMap.end()) {
@@ -875,9 +884,25 @@ int ProcessDynamicSymbols(void) {
         GlobalSymbolDefinedSizeMap[SymName] = Sym.st_size;
 
         if (BIdx == BinaryIndex) {
-          llvm::outs() << SymName << ' ' << Sym.st_size << '\n';
+          //
+          // if this symbol is TLS, update the TLSValueToSymbolMap
+          //
+          if (Sym.getType() == llvm::ELF::STT_TLS) {
+            auto it = TLSValueToSymbolMap.find(Sym.st_value);
+            if (it != TLSValueToSymbolMap.end()) {
+              WithColor::warning()
+                  << "multiple TLS symbols at "
+                  << (fmt("%#lx") % Sym.st_value).str() << " : " << SymName
+                  << ", " << (*it).second << "\n";
+            } else {
+              TLSValueToSymbolMap.insert({Sym.st_value, SymName});
+            }
+          }
 
-          llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName);
+          //
+          // create the global variable if it does not already exist
+          //
+          llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
           if (GV)
             continue;
 
@@ -934,7 +959,78 @@ int ProcessDynamicSymbols(void) {
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       }
     }
+
+    if (BIdx != BinaryIndex)
+      continue;
+
+    llvm::StringRef StrTable;
+    const Elf_Shdr *DotSymtabSec = nullptr;
+    auto symbols = [&](void) -> Elf_Sym_Range {
+      return unwrapOrError(E.symbols(DotSymtabSec));
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+        assert(!DotSymtabSec);
+        DotSymtabSec = &Sec;
+      }
+    }
+
+    if (!DotSymtabSec)
+      continue;
+
+    StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
+
+    for (const Elf_Sym &Sym : symbols()) {
+      if (Sym.getType() != llvm::ELF::STT_TLS)
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+
+      auto it = TLSValueToSymbolMap.find(Sym.st_value);
+      if (it != TLSValueToSymbolMap.end()) {
+        WithColor::warning()
+            << "multiple TLS symbols at " << (fmt("%#lx") % Sym.st_value).str()
+            << " : " << SymName << ", " << (*it).second << "\n";
+      } else {
+        TLSValueToSymbolMap.insert({Sym.st_value, SymName});
+      }
+
+      llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
+      if (GV)
+        continue;
+
+      auto is_integral_size = [](unsigned n) -> bool {
+        switch (n) {
+        case 1:
+          return true;
+        case 2:
+          return true;
+        case 4:
+          return true;
+        case 8:
+          return true;
+        default:
+          return false;
+        }
+      };
+
+      llvm::Type *T;
+      llvm::Constant *Init;
+
+      if (is_integral_size(Sym.st_size)) {
+        T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
+      } else {
+        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Sym.st_size);
+      }
+
+      new llvm::GlobalVariable(
+          *Module, T, false, llvm::GlobalValue::InternalLinkage,
+          llvm::Constant::getNullValue(T), SymName, nullptr,
+          llvm::GlobalValue::GeneralDynamicTLSModel);
+    }
   }
+
   return 0;
 }
 
@@ -1163,6 +1259,8 @@ int ProcessBinarySymbolsAndRelocations(void) {
       return "COPY";
     case relocation_t::TYPE::ADDRESSOF:
       return "ADDRESSOF";
+    case relocation_t::TYPE::TPOFF:
+      return "TPOFF";
     }
   };
 
@@ -1468,6 +1566,9 @@ void function_t::Analyze(void) {
 
   this->Analysis.args = CFG[this->BasicBlocks.front()].IN;
   this->Analysis.args.reset(tcg_env_index);
+#if defined(__x86_64__)
+  this->Analysis.args.reset(tcg_fs_base_index);
+#endif
 
   //
   // for ABI's, if we need a register parameter whose index > 0, then we will
@@ -1556,6 +1657,10 @@ void function_t::Analyze(void) {
       tcg_global_set_t(), [&](tcg_global_set_t res, basic_block_t bb) {
         return res | CFG[bb].OUT;
       });
+#endif
+
+#if defined(__x86_64__)
+  this->Analysis.rets.reset(tcg_fs_base_index);
 #endif
 
   if (this->IsABI) {
@@ -2223,7 +2328,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
     assert(GV);
     return GV->getType();
   };
@@ -2269,6 +2374,24 @@ int CreateSectionGlobalVariables(void) {
     return llvm::PointerType::get(FTy, 0);
   };
 
+  auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
+    auto it = TLSValueToSymbolMap.find(R.Addend);
+    if (it == TLSValueToSymbolMap.end()) {
+      WithColor::error() << "no sym found for tpoff relocation\n";
+      return nullptr;
+    }
+
+    const std::string &SymName = (*it).second;
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
+    if (!GV) {
+      WithColor::error() << "no global variable for '" << SymName
+                         << "' in tpoff relocation\n";
+      return nullptr;
+    }
+
+    return GV->getType();
+  };
+
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -2293,6 +2416,9 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::IRELATIVE:
       return type_of_irelative_relocation(R);
+
+    case relocation_t::TYPE::TPOFF:
+      return type_of_tpoff_relocation(R);
     }
 
     // XXX TODO
@@ -2441,7 +2567,7 @@ int CreateSectionGlobalVariables(void) {
     assert(S.IsUndefined());
     assert(!S.Size);
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
 
     if (GV)
       return GV;
@@ -2490,7 +2616,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
     assert(GV);
     return GV;
   };
@@ -2543,6 +2669,25 @@ int CreateSectionGlobalVariables(void) {
                                      "", resolver.F, Module.get());
   };
 
+  auto constant_of_tpoff_relocation =
+      [&](const relocation_t &R) -> llvm::Constant * {
+    auto it = TLSValueToSymbolMap.find(R.Addend);
+    if (it == TLSValueToSymbolMap.end()) {
+      WithColor::error() << "no sym found for tpoff relocation\n";
+      return nullptr;
+    }
+
+    const std::string &SymName = (*it).second;
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
+    if (!GV) {
+      WithColor::error() << "no global variable for '" << SymName
+                         << "' in tpoff relocation\n";
+      return nullptr;
+    }
+
+    return GV;
+  };
+
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -2564,8 +2709,12 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::RELATIVE:
       return constant_of_relative_relocation(R);
+
     case relocation_t::TYPE::IRELATIVE:
       return constant_of_irelative_relocation(R);
+
+    case relocation_t::TYPE::TPOFF:
+      return constant_of_tpoff_relocation(R);
     }
 
     // XXX TODO
@@ -2736,6 +2885,11 @@ int CreatePCRelGlobal(void) {
   PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
                                          llvm::GlobalValue::ExternalLinkage,
                                          nullptr, "__jove_pcrel");
+#if defined(__x86_64__)
+  FSBaseGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
+                                          llvm::GlobalValue::ExternalLinkage,
+                                          nullptr, "__jove_fs_base");
+#endif
 
   return 0;
 }
@@ -2947,7 +3101,12 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     f.PCAlloca = tcg_program_counter_index < 0
                      ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
                      : f.GlobalAllocaVec[tcg_program_counter_index];
+
     f.PCRelVal = IRB.CreateLoad(PCRelGlobal, "pcrel");
+
+#if defined(__x86_64__)
+    f.FSBaseVal = IRB.CreateLoad(FSBaseGlobal, "fs_base");
+#endif
 
     //
     // initialize the globals which are passed as parameters
@@ -2989,7 +3148,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
 #if defined(__x86_64__)
         case tcg_fs_base_index:
-          IRB.CreateStore(IRB.getInt64(0), f.GlobalAllocaVec[glb]);
+          IRB.CreateStore(f.FSBaseVal, f.GlobalAllocaVec[glb]);
           break;
 #endif
 
@@ -3128,6 +3287,9 @@ static int DoOptimize(void) {
   // reload global variables which might have been optimized away
   //
   PCRelGlobal = Module->getGlobalVariable("__jove_pcrel", true);
+#if defined(__x86_64__)
+  FSBaseGlobal = Module->getGlobalVariable("__jove_fs_base", true);
+#endif
   CPUStateGlobal = Module->getGlobalVariable("env", true);
   SectsGlobal = Module->getGlobalVariable("sections", true);
   ConstSectsGlobal = Module->getGlobalVariable("const_sections", true);
@@ -3339,6 +3501,23 @@ int FixupPCRelativeAddrs(void) {
 
     I->replaceAllUsesWith(V);
   }
+
+#if defined(__x86_64__)
+  if (!FSBaseGlobal)
+    return 0;
+
+  ToReplace.clear();
+
+  for (llvm::User *U : FSBaseGlobal->users()) {
+    if (!llvm::isa<llvm::LoadInst>(U)) {
+      WithColor::warning() << "unknown user of FSBaseGlobal" << *U << '\n';
+      continue;
+    }
+
+    assert(llvm::isa<llvm::LoadInst>(U));
+    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+  }
+#endif
 
   return 0;
 }
