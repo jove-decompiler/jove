@@ -382,7 +382,10 @@ static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::GlobalVariable *PCRelGlobal;
+
+#if defined(__x86_64__)
 static llvm::GlobalVariable *FSBaseGlobal;
+#endif
 
 static llvm::MDNode *AliasScopeMetadata;
 
@@ -416,6 +419,9 @@ static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
 static int CreateCPUStateGlobal(void);
 static int CreatePCRelGlobal(void);
+#if defined(__x86_64__)
+static int CreateFSBaseGlobal(void);
+#endif
 static int FixupHelperStubs(void);
 static int IdentifyThunks(void);
 static int CreateNoAliasMetadata(void);
@@ -423,6 +429,9 @@ static int TranslateFunctions(void);
 static int PrepareToOptimize(void);
 static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
+#if defined(__x86_64__)
+static int FixupFSBaseAddrs(void);
+#endif
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
@@ -447,6 +456,9 @@ int llvm(void) {
       || CreateSectionGlobalVariables()
       || CreateCPUStateGlobal()
       || CreatePCRelGlobal()
+#if defined(__x86_64__)
+      || CreateFSBaseGlobal()
+#endif
       || FixupHelperStubs()
       || IdentifyThunks()
       || CreateNoAliasMetadata()
@@ -454,6 +466,9 @@ int llvm(void) {
       || PrepareToOptimize()
       || Optimize1()
       || FixupPCRelativeAddrs()
+#if defined(__x86_64__)
+      || FixupFSBaseAddrs()
+#endif
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || Optimize2()
@@ -2885,14 +2900,17 @@ int CreatePCRelGlobal(void) {
   PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
                                          llvm::GlobalValue::ExternalLinkage,
                                          nullptr, "__jove_pcrel");
+  return 0;
+}
+
 #if defined(__x86_64__)
+int CreateFSBaseGlobal(void) {
   FSBaseGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
                                           llvm::GlobalValue::ExternalLinkage,
                                           nullptr, "__jove_fs_base");
-#endif
-
   return 0;
 }
+#endif
 
 int FixupHelperStubs(void) {
   llvm::Function *GetGlobalCPUStateF =
@@ -3502,25 +3520,28 @@ int FixupPCRelativeAddrs(void) {
     I->replaceAllUsesWith(V);
   }
 
+  return 0;
+}
+
 #if defined(__x86_64__)
+int FixupFSBaseAddrs(void) {
   if (!FSBaseGlobal)
     return 0;
-
-  ToReplace.clear();
+  std::vector<std::pair<llvm::Instruction *, llvm::Value *>> ToReplace;
 
   for (llvm::User *U : FSBaseGlobal->users()) {
     if (!llvm::isa<llvm::LoadInst>(U)) {
-      WithColor::warning() << "unknown user of FSBaseGlobal" << *U << '\n';
+      WithColor::warning() << "unknown user of FSBaseGlobal " << *U << '\n';
       continue;
     }
 
     assert(llvm::isa<llvm::LoadInst>(U));
     llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
   }
-#endif
 
   return 0;
 }
+#endif
 
 int InternalizeStaticFunctions(void) {
   binary_t &b = Decompilation.Binaries[BinaryIndex];
