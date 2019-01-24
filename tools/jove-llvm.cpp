@@ -3537,6 +3537,64 @@ int FixupFSBaseAddrs(void) {
 
     assert(llvm::isa<llvm::LoadInst>(U));
     llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+    ToReplace.push_back(
+        {L, llvm::ConstantInt::get(llvm::IntegerType::get(*Context, WordBits()),
+                                   0)});
+
+    for (llvm::User *_U : L->users()) {
+      assert(llvm::isa<llvm::Instruction>(_U));
+      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
+
+
+      switch (Inst->getOpcode()) {
+      case llvm::Instruction::Add: {
+        llvm::Value *LHS = Inst->getOperand(0);
+        llvm::Value *RHS = Inst->getOperand(1);
+
+        //
+        // is one of the operands a constant int?
+        //
+        if (!llvm::isa<llvm::ConstantInt>(LHS) &&
+            !llvm::isa<llvm::ConstantInt>(RHS))
+          break;
+
+        if (llvm::isa<llvm::ConstantInt>(LHS) &&
+            llvm::isa<llvm::ConstantInt>(RHS))
+          break;
+
+        llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
+                                    ? llvm::cast<llvm::ConstantInt>(LHS)
+                                    : llvm::cast<llvm::ConstantInt>(RHS);
+
+        auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
+        if (it == TLSValueToSymbolMap.end()) {
+          WithColor::warning() << "unable to find TLS symbol for offset "
+                               << CI->getZExtValue() << '\n';
+          continue;
+        }
+
+        llvm::GlobalVariable *GV =
+            Module->getGlobalVariable((*it).second, true);
+        assert(GV);
+
+        ToReplace.push_back(
+            {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
+
+        break;
+      }
+
+      default:
+        break;
+      }
+    }
+  }
+
+  for (auto &TR : boost::adaptors::reverse(ToReplace)) {
+    llvm::Instruction *I;
+    llvm::Value *V;
+    std::tie(I, V) = TR;
+
+    I->replaceAllUsesWith(V);
   }
 
   return 0;
