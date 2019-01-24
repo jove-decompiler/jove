@@ -439,7 +439,6 @@ static int ReplaceAllRemainingUsesOfConstSections(void);
 static int ReplaceAllRemainingUsesOfPCRel(void);
 static int RenameFunctionLocals(void);
 static int RenameFunctions(void);
-static int DeadArgHacking(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -476,7 +475,6 @@ int llvm(void) {
       || ReplaceAllRemainingUsesOfPCRel()
       || RenameFunctionLocals()
       || RenameFunctions()
-      || DeadArgHacking()
       || WriteModule();
 }
 
@@ -3747,14 +3745,6 @@ int RenameFunctions(void) {
 
     // XXX TODO symbol versions
   }
-
-  return 0;
-}
-
-int DeadArgHacking(void) {
-  llvm::legacy::PassManager MPM;
-  MPM.add(llvm::createDeadArgHackingPass());
-  MPM.run(*Module);
 
   return 0;
 }
