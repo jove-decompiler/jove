@@ -162,6 +162,9 @@ namespace opts {
     cl::desc("LLVM bitcode"),
     cl::Required);
 
+  static cl::opt<bool> NoFixupFSBase("no-fixup-fsbase",
+    cl::desc("Don't fixup FS-relative references"));
+
   static cl::opt<bool> PrintPCRel("pcrel",
     cl::desc("Print pc-relative references"));
 
@@ -1042,6 +1045,11 @@ int ProcessSymbols(void) {
           llvm::Constant::getNullValue(T), SymName, nullptr,
           llvm::GlobalValue::GeneralDynamicTLSModel);
     }
+  }
+
+  for (const auto &entry : TLSValueToSymbolMap) {
+    llvm::outs() << "TLS symbol " << entry.second << " @ +" << entry.first
+                 << '\n';
   }
 
   return 0;
@@ -3523,8 +3531,12 @@ int FixupPCRelativeAddrs(void) {
 
 #if defined(__x86_64__)
 int FixupFSBaseAddrs(void) {
+  if (opts::NoFixupFSBase)
+    return 0;
+
   if (!FSBaseGlobal)
     return 0;
+
   std::vector<std::pair<llvm::Instruction *, llvm::Value *>> ToReplace;
 
   for (llvm::User *U : FSBaseGlobal->users()) {
