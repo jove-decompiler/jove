@@ -223,8 +223,11 @@ int recompile(void) {
     arg_vec.push_back(const_cast<char *>("-e"));
     arg_vec.push_back(const_cast<char *>("__jove_start"));
     arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
+
+    sofp_vec.push_back("/usr/lib/libgcc_s.so.1");
     for (const std::string &sofp : sofp_vec)
       arg_vec.push_back(const_cast<char *>(sofp.c_str()));
+
     arg_vec.push_back(nullptr);
 
     print_command(arg_vec);
