@@ -74,6 +74,7 @@ class LoadInst;
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/GlobalIFunc.h>
+#include <llvm/IR/GlobalAlias.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LLVMContext.h>
@@ -3800,17 +3801,19 @@ int RenameFunctions(void) {
   for (const auto &pair : ExportedFunctions) {
     assert(!pair.second.empty());
 
-    binary_index_t BinIdx;
-    function_index_t FuncIdx;
-    std::tie(BinIdx, FuncIdx) = *pair.second.begin();
+    for (const auto &IdxPair : pair.second) {
+      binary_index_t BinIdx;
+      function_index_t FuncIdx;
+      std::tie(BinIdx, FuncIdx) = IdxPair;
 
-    if (BinIdx != BinaryIndex)
-      continue;
+      if (BinIdx != BinaryIndex)
+        continue;
 
-    Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx].F->setName(
-        pair.first);
-
-    // XXX TODO symbol versions
+      // XXX TODO symbol versions
+      llvm::GlobalValue *Aliasee =
+          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx].F;
+      llvm::GlobalAlias::create(pair.first, Aliasee);
+    }
   }
 
   return 0;
