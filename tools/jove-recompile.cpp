@@ -83,7 +83,7 @@ static int await_process_completion(pid_t);
 
 static void print_command(std::vector<char *> &arg_vec);
 
-static std::string jove_llvm_path, llc_path, ld_path;
+static std::string jove_llvm_path, llc_path, lld_path;
 static std::string dyn_linker_path;
 
 int recompile(void) {
@@ -117,9 +117,9 @@ int recompile(void) {
     return 1;
   }
 
-  ld_path = "/usr/bin/ld";
-  if (!fs::exists(ld_path)) {
-    WithColor::error() << "could not find /usr/bin/ld\n";
+  lld_path = "/usr/bin/ld.lld";
+  if (!fs::exists(lld_path)) {
+    WithColor::error() << "could not find /usr/bin/ld.lld\n";
     return 1;
   }
 
@@ -213,7 +213,7 @@ int recompile(void) {
   pid_t pid = fork();
   if (!pid) {
     std::vector<char *> arg_vec;
-    arg_vec.push_back(const_cast<char *>(ld_path.c_str()));
+    arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
     arg_vec.push_back(const_cast<char *>("-o"));
     arg_vec.push_back(const_cast<char *>(exe_fp.c_str()));
     arg_vec.push_back(const_cast<char *>("-m"));
@@ -351,7 +351,7 @@ static void worker(void) {
     pid = fork();
     if (!pid) {
       std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>(ld_path.c_str()));
+      arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-o"));
       arg_vec.push_back(const_cast<char *>(sofp.c_str()));
       arg_vec.push_back(const_cast<char *>("-m"));
