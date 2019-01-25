@@ -81,6 +81,7 @@ class LoadInst;
 #include <llvm/IR/MDBuilder.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/LinkAllPasses.h>
@@ -112,6 +113,7 @@ class LoadInst;
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
+#include <llvm/IR/PatternMatch.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -2041,6 +2043,14 @@ static llvm::Type *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
 
+static llvm::Type *PointerType(void) {
+  return llvm::PointerType::get(WordType(), 0);
+}
+
+static llvm::Type *PPointerType(void) {
+  return llvm::PointerType::get(PointerType(), 0);
+}
+
 static unsigned WordBits(void) {
   return sizeof(uintptr_t) * 8;
 }
@@ -3537,70 +3547,115 @@ int FixupFSBaseAddrs(void) {
   if (!FSBaseGlobal)
     return 0;
 
-  std::vector<std::pair<llvm::Instruction *, llvm::Value *>> ToReplace;
+  llvm::GlobalVariable *ZeroGV = new llvm::GlobalVariable(
+      *Module, WordType(), true, llvm::GlobalValue::InternalLinkage,
+      llvm::Constant::getNullValue(WordType()));
+  llvm::GlobalVariable *ZeroPGV = new llvm::GlobalVariable(
+      *Module, PointerType(), true, llvm::GlobalValue::InternalLinkage, ZeroGV);
+  llvm::GlobalVariable *ZeroPPGV = new llvm::GlobalVariable(
+    *Module, PPointerType(), true, llvm::GlobalValue::InternalLinkage, ZeroPGV);
+
+  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+
+  using namespace llvm::PatternMatch;
 
   for (llvm::User *U : FSBaseGlobal->users()) {
-    if (!llvm::isa<llvm::LoadInst>(U)) {
-      WithColor::warning() << "unknown user of FSBaseGlobal " << *U << '\n';
-      continue;
-    }
+    //   %fs_base87 = load i64*, i64** bitcast (i64* @__jove_fs_base to i64**),
+    //   align 8
+#if 0
+    llvm::Value *
+    if (match(U,
+#endif
 
-    assert(llvm::isa<llvm::LoadInst>(U));
-    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-    ToReplace.push_back(
-        {L, llvm::ConstantInt::get(llvm::IntegerType::get(*Context, WordBits()),
-                                   0)});
+    if (llvm::isa<llvm::LoadInst>(U)) {
+      llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+      for (llvm::User *_U : L->users()) {
+        assert(llvm::isa<llvm::Instruction>(_U));
+        llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
 
-    for (llvm::User *_U : L->users()) {
-      assert(llvm::isa<llvm::Instruction>(_U));
-      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
+        switch (Inst->getOpcode()) {
+        case llvm::Instruction::Add: {
+          llvm::Value *LHS = Inst->getOperand(0);
+          llvm::Value *RHS = Inst->getOperand(1);
 
+          //
+          // is one of the operands a constant int?
+          //
+          if (!llvm::isa<llvm::ConstantInt>(LHS) &&
+              !llvm::isa<llvm::ConstantInt>(RHS))
+            break;
 
-      switch (Inst->getOpcode()) {
-      case llvm::Instruction::Add: {
-        llvm::Value *LHS = Inst->getOperand(0);
-        llvm::Value *RHS = Inst->getOperand(1);
+          if (llvm::isa<llvm::ConstantInt>(LHS) &&
+              llvm::isa<llvm::ConstantInt>(RHS))
+            break;
 
-        //
-        // is one of the operands a constant int?
-        //
-        if (!llvm::isa<llvm::ConstantInt>(LHS) &&
-            !llvm::isa<llvm::ConstantInt>(RHS))
-          break;
+          llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
+                                      ? llvm::cast<llvm::ConstantInt>(LHS)
+                                      : llvm::cast<llvm::ConstantInt>(RHS);
 
-        if (llvm::isa<llvm::ConstantInt>(LHS) &&
-            llvm::isa<llvm::ConstantInt>(RHS))
-          break;
+          auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
+          if (it == TLSValueToSymbolMap.end()) {
+            WithColor::warning() << "unable to find TLS symbol for offset "
+                                 << CI->getZExtValue() << '\n';
+            continue;
+          }
 
-        llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
-                                    ? llvm::cast<llvm::ConstantInt>(LHS)
-                                    : llvm::cast<llvm::ConstantInt>(RHS);
+          llvm::GlobalVariable *GV =
+              Module->getGlobalVariable((*it).second, true);
+          assert(GV);
 
-        auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
-        if (it == TLSValueToSymbolMap.end()) {
-          WithColor::warning() << "unable to find TLS symbol for offset "
-                               << CI->getZExtValue() << '\n';
+          ToReplace.push_back(
+              {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
+
           continue;
         }
 
-        llvm::GlobalVariable *GV =
-            Module->getGlobalVariable((*it).second, true);
-        assert(GV);
+        default:
+          break;
+        }
 
-        ToReplace.push_back(
-            {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
 
-        break;
+#if 0
+        WithColor::warning()
+            << "Instruction user of load(FSBaseGlobal)" << *_U << '\n';
+        for (llvm::Value *OpV : Inst->operands())
+          WithColor::warning() << "  " << *OpV << '\n';
+#endif
+       }
+
+       ToReplace.push_back({L, llvm::Constant::getNullValue(WordType())});
+    } else if (llvm::isa<llvm::ConstantExpr>(U)) {
+      llvm::ConstantExpr *CE = llvm::cast<llvm::ConstantExpr>(U);
+
+      if (CE->isCast()) {
+        llvm::Type *intpp =
+            llvm::PointerType::get(llvm::PointerType::get(WordType(), 0), 0);
+
+        if (CE->getType() == PPointerType()) {
+          assert(ZeroPGV->getType() == PPointerType());
+          ToReplace.push_back({U, ZeroPGV});
+
+#if 0
+          WithColor::note() << "intpp user of FSBaseGlobal " << *U << '\n';
+#endif
+          continue;
+        }
+
+#if 0
+        WithColor::warning() << "cast user of FSBaseGlobal " << *U << '\n';
+#endif
+        continue;
+      } else {
       }
 
-      default:
-        break;
-      }
+      WithColor::warning() << "ConstantExpr user of FSBaseGlobal " << *U << '\n';
+    } else {
+      WithColor::warning() << "unknown user of FSBaseGlobal " << *U << '\n';
     }
   }
 
   for (auto &TR : boost::adaptors::reverse(ToReplace)) {
-    llvm::Instruction *I;
+    llvm::Value *I;
     llvm::Value *V;
     std::tie(I, V) = TR;
 
