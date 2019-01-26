@@ -263,6 +263,7 @@ int recompile(void) {
     assert(fs::exists(b.Path) && fs::is_regular_file(b.Path));
 
     fs::path chrooted_path(opts::Output + b.Path);
+    fs::create_directories(chrooted_path.parent_path());
     fs::copy(b.Path, chrooted_path);
     break;
   }
@@ -272,6 +273,7 @@ int recompile(void) {
   //
   {
     fs::path chrooted_path(opts::Output + compiler_runtime_sofp);
+    fs::create_directories(chrooted_path.parent_path());
     fs::copy(compiler_runtime_sofp, chrooted_path);
   }
 
