@@ -225,6 +225,7 @@ int recompile(void) {
     arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
     arg_vec.push_back(const_cast<char *>("-o"));
     arg_vec.push_back(const_cast<char *>(exe_fp.c_str()));
+    arg_vec.push_back(const_cast<char *>("-pie"));
     arg_vec.push_back(const_cast<char *>("-m"));
     arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
     arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
