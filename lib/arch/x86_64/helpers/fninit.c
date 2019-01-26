@@ -4,7 +4,7 @@
 
 #include <stdint.h>
 
-extern bool tcg_allowed;
+static bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
