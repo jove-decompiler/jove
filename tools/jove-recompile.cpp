@@ -78,6 +78,7 @@ static void spawn_workers(void);
 static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
+static const char *compiler_runtime_sofp = "/usr/lib/libgcc_s.so.1";
 
 static int await_process_completion(pid_t);
 
@@ -87,6 +88,14 @@ static std::string jove_llvm_path, llc_path, lld_path;
 static std::string dyn_linker_path;
 
 int recompile(void) {
+  if (!fs::exists(compiler_runtime_sofp) ||
+      !fs::is_regular_file(compiler_runtime_sofp)) {
+    WithColor::error() << "compiler runtime does not exist at path '"
+                       << compiler_runtime_sofp
+                       << "' (or is not regular file)\n";
+    return 0;
+  }
+
   //
   // sanity checks for output path
   //
@@ -224,7 +233,7 @@ int recompile(void) {
     arg_vec.push_back(const_cast<char *>("__jove_start"));
     arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
 
-    sofp_vec.push_back("/usr/lib/libgcc_s.so.1");
+    sofp_vec.push_back(compiler_runtime_sofp);
     for (const std::string &sofp : sofp_vec)
       arg_vec.push_back(const_cast<char *>(sofp.c_str()));
 
@@ -241,6 +250,28 @@ int recompile(void) {
   if (int ret = await_process_completion(pid)) {
     WithColor::error() << "failed to link executable\n";
     return 1;
+  }
+
+  //
+  // copy dynamic linker
+  //
+  for (binary_t &b : Decompilation.Binaries) {
+    if (!b.IsDynamicLinker)
+      continue;
+
+    assert(fs::exists(b.Path) && fs::is_regular_file(b.Path));
+
+    fs::path chrooted_path(opts::Output + b.Path);
+    fs::copy(b.Path, chrooted_path);
+    break;
+  }
+
+  //
+  // copy compiler runtime
+  //
+  {
+    fs::path chrooted_path(opts::Output + compiler_runtime_sofp);
+    fs::copy(compiler_runtime_sofp, chrooted_path);
   }
 
   return 0;
