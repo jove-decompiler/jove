@@ -78,7 +78,8 @@ static void spawn_workers(void);
 static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
-static const char *compiler_runtime_sofp = "/usr/lib/libgcc_s.so.1";
+static const char *compiler_runtime_sofp =
+    "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a";
 
 static int await_process_completion(pid_t);
 
@@ -185,7 +186,7 @@ int recompile(void) {
 
   spawn_workers();
 
-  std::vector<std::string> sofp_vec;
+  std::vector<fs::path> sofp_vec;
   for (binary_t &b : Decompilation.Binaries) {
     if (b.IsExecutable)
       continue;
@@ -193,9 +194,7 @@ int recompile(void) {
       continue;
 
     fs::path chrooted_path(opts::Output + b.Path);
-    std::string sofp = chrooted_path.replace_extension("so").string();
-
-    sofp_vec.push_back(sofp);
+    sofp_vec.push_back(chrooted_path.replace_extension("so"));
   }
 
   std::string exe_objfp;
@@ -234,9 +233,20 @@ int recompile(void) {
     arg_vec.push_back(const_cast<char *>("__jove_start"));
     arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
 
-    sofp_vec.push_back(compiler_runtime_sofp);
-    for (const std::string &sofp : sofp_vec)
-      arg_vec.push_back(const_cast<char *>(sofp.c_str()));
+    for (const fs::path &sofp : sofp_vec) {
+      // /path/to/libfoo.so -> "-lfoo"
+      fs::path &Ldir = *new fs::path(sofp.parent_path());
+
+      arg_vec.push_back(const_cast<char *>("-L"));
+      arg_vec.push_back(const_cast<char *>(Ldir.c_str()));
+
+      std::string &lStr = *new std::string(':' + sofp.filename().string());
+
+      arg_vec.push_back(const_cast<char *>("-l"));
+      arg_vec.push_back(const_cast<char *>(lStr.c_str()));
+    }
+
+    arg_vec.push_back(const_cast<char *>(compiler_runtime_sofp));
 
     arg_vec.push_back(nullptr);
 
@@ -396,6 +406,7 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>("__jove_start"));
       arg_vec.push_back(const_cast<char *>("-shared"));
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
+      arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
       arg_vec.push_back(nullptr);
 
       print_command(arg_vec);
