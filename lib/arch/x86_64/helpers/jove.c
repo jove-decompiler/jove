@@ -491,10 +491,6 @@ void __jove_start(void) {
   );
 }
 
-static size_t _strlen(const char *str);
-static const char *u64tostr(char *res, uint64_t N);
-static char *_strncpy(char *s1, const char *s2, size_t n);
-
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
                  target_ulong rcx, target_ulong r8,
                  target_ulong sp_addr /* formerly r9 */) {
@@ -508,123 +504,16 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   //
   // setup the stack
   //
-  uint64_t stack_end_addr = _get_stack_end();
-
-  unsigned len = stack_end_addr - sp_addr;
+  unsigned len = _get_stack_end() - sp_addr;
 
   uint64_t env_stack_end_addr = env->regs[R_EBP];
   uint64_t env_sp_addr = env_stack_end_addr - len;
-
-#define DBG_PRINT_INT(var)                                                     \
-  do {                                                                         \
-    {                                                                          \
-      char buff[50];                                                           \
-      _strncpy(buff, #var, sizeof(buff));                                      \
-                                                                               \
-      _write(0 /* stdout */, buff, _strlen(buff));                             \
-                                                                               \
-      buff[0] = '\n';                                                          \
-      buff[1] = '\0';                                                          \
-      _write(0 /* stdout */, buff, _strlen(buff));                             \
-    }                                                                          \
-                                                                               \
-    {                                                                          \
-      char buff[50];                                                           \
-      u64tostr(buff, var);                                                     \
-                                                                               \
-      _write(0 /* stdout */, buff, _strlen(buff));                             \
-                                                                               \
-      buff[0] = '\n';                                                          \
-      buff[1] = '\0';                                                          \
-      _write(0 /* stdout */, buff, _strlen(buff));                             \
-    }                                                                          \
-  } while (false)
-
-  DBG_PRINT_INT(sp_addr);
-  DBG_PRINT_INT(stack_end_addr);
-  DBG_PRINT_INT(env_sp_addr);
-  DBG_PRINT_INT(env_stack_end_addr);
 
   _memcpy((void *)env_sp_addr, (void *)sp_addr, len);
 
   env->regs[R_ESP] = env_sp_addr;
 
   return _jove_call_entry();
-}
-
-char *_strncpy(char *s1, const char *s2, size_t n) {
-  char *p = s1;
-
-  while (n-- && (*s1++ = *s2++) != '\0')
-    ;
-
-  return p;
-}
-
-size_t _strlen(const char *str) {
-  const char *s;
-
-  for (s = str; *s; ++s)
-    ;
-  return (s - str);
-}
-
-const char *u64tostr(char *res, uint64_t N) {
-  const unsigned Radix = 0x10;
-  char *Str = res;
-
-#if 0
-  static_assert(Radix == 10 || Radix == 8 || Radix == 16 || Radix == 2 ||
-                    Radix == 36,
-                "Radix should be 2, 8, 10, 16, or 36!");
-#endif
-
-  const char *Prefix = "";
-
-  switch (Radix) {
-  case 2:
-    // Binary literals are a non-standard extension added in gcc 4.3:
-    // http://gcc.gnu.org/onlinedocs/gcc-4.3.0/gcc/Binary-constants.html
-    Prefix = "0b";
-    break;
-  case 8:
-    Prefix = "0";
-    break;
-  case 10:
-    break; // No prefix
-  case 16:
-    Prefix = "0x";
-    break;
-  }
-
-  // First, check for a zero value and just short circuit the logic below.
-  if (N == 0) {
-    while (*Prefix)
-      *Str++ = *Prefix++;
-    *Str++ = '0';
-    *Str = '\0';
-    return res;
-  }
-
-  while (*Prefix)
-    *Str++ = *Prefix++;
-
-  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-  char Buffer[65];
-  char *BufPtr = &Buffer[sizeof(Buffer)];
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *Ptr = BufPtr; Ptr != &Buffer[sizeof(Buffer)]; ++Ptr)
-    *Str++ = *Ptr;
-
-  *Str = '\0';
-
-  return res;
 }
 
 uint64_t _get_stack_end(void) {
