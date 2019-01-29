@@ -115,6 +115,7 @@ class LoadInst;
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/IR/PatternMatch.h>
+#include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -235,6 +236,8 @@ struct section_properties_t {
   llvm::ArrayRef<uint8_t> contents;
 
   bool w, x;
+  bool initArray;
+  bool finiArray;
 
   bool operator==(const section_properties_t &sect) const {
     return name == sect.name;
@@ -676,6 +679,9 @@ int InitStateForBinaries(void) {
 
       sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
       sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+
+      sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
+      sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
       section_properties_set_t sectprops = {sectprop};
       st.SectMap.add(std::make_pair(intervl, sectprops));
@@ -2060,6 +2066,11 @@ static llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
+static llvm::Type *VoidFunctionPointer(void) {
+  llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+  return llvm::PointerType::get(FTy, 0);
+}
+
 static unsigned bitsOfTCGType(TCGType ty) {
   switch (ty) {
   case TCG_TYPE_I32:
@@ -2180,6 +2191,9 @@ struct section_t {
   uintptr_t Addr;
   unsigned Size;
 
+  bool initArray;
+  bool finiArray;
+
   struct {
     boost::icl::split_interval_set<uintptr_t> Intervals;
     std::map<unsigned, llvm::Constant *> Constants;
@@ -2248,6 +2262,8 @@ int CreateSectionGlobalVariables(void) {
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
           boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+      Sect.initArray = prop.initArray;
+      Sect.finiArray = prop.finiArray;
 
       ++i;
     }
@@ -2529,6 +2545,39 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
         Off, Off + sizeof(uintptr_t)));
     Sect.Stuff.Constants[Off] = C;
+
+    if (Sect.initArray || Sect.finiArray) {
+      assert(llvm::isa<llvm::Function>(C));
+      llvm::Function *F = llvm::cast<llvm::Function>(C);
+      llvm::FunctionType *FTy = F->getFunctionType();
+      unsigned N = FTy->getNumParams();
+
+      llvm::Function *CallsF =
+          llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
+                                 llvm::GlobalValue::InternalLinkage,
+                                 "_" + std::string(F->getName()), Module.get());
+
+      {
+        llvm::BasicBlock *EntryB =
+            llvm::BasicBlock::Create(*Context, "", CallsF);
+
+        llvm::IRBuilderTy IRB(EntryB);
+
+        std::vector<llvm::Value *> ArgVec;
+        ArgVec.resize(N);
+
+        for (unsigned i = 0; i < N; ++i)
+          ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
+
+        IRB.CreateCall(F, ArgVec);
+        IRB.CreateRetVoid();
+      }
+
+      if (Sect.initArray)
+        llvm::appendToGlobalCtors(*Module, CallsF, 0);
+      else
+        llvm::appendToGlobalDtors(*Module, CallsF, 0);
+    }
   };
 
   auto constant_of_addressof_undefined_function_relocation =
