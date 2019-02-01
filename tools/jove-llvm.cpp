@@ -6,6 +6,7 @@ class BasicBlock;
 class AllocaInst;
 class Type;
 class LoadInst;
+class DISubprogram;
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -47,6 +48,10 @@ class LoadInst;
   llvm::LoadInst *PCRelVal;                                                    \
   llvm::LoadInst *FSBaseVal;                                                   \
                                                                                \
+  struct {                                                                     \
+    llvm::DISubprogram *Subprogram;                                            \
+  } DebugInformation;                                                          \
+                                                                               \
   bool IsThunk, IsABI;                                                         \
                                                                                \
   struct {                                                                     \
@@ -73,8 +78,10 @@ class LoadInst;
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>
-#include <llvm/IR/GlobalIFunc.h>
+#include <llvm/IR/DIBuilder.h>
+#include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/GlobalAlias.h>
+#include <llvm/IR/GlobalIFunc.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LLVMContext.h>
@@ -82,6 +89,7 @@ class LoadInst;
 #include <llvm/IR/MDBuilder.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
+#include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/InitializePasses.h>
@@ -114,7 +122,6 @@ class LoadInst;
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
-#include <llvm/IR/PatternMatch.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <sys/wait.h>
 #include <sys/user.h>
@@ -397,6 +404,13 @@ static llvm::GlobalVariable *FSBaseGlobal;
 #endif
 
 static llvm::MDNode *AliasScopeMetadata;
+
+static std::unique_ptr<llvm::DIBuilder> DIBuilder;
+
+static struct {
+  llvm::DIFile *File;
+  llvm::DICompileUnit *CompileUnit;
+} DebugInformation;
 
 struct helper_function_t {
   llvm::Function *F;
@@ -1437,6 +1451,19 @@ int PrepareToTranslateCode(void) {
   TM.reset(TheTarget->createTargetMachine(TheTriple.getTriple(), CPUStr,
                                           Features.getString(), Options,
                                           llvm::None));
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  DIBuilder.reset(new llvm::DIBuilder (*Module));
+
+  llvm::DIBuilder &DIB = *DIBuilder;
+
+  DebugInformation.File =
+      DIB.createFile(fs::path(Binary.Path).filename().string(),
+                     fs::path(Binary.Path).parent_path().string());
+  DebugInformation.CompileUnit = DIB.createCompileUnit(
+      llvm::dwarf::DW_LANG_C, DebugInformation.File, "jove",
+      /*isOptimized=*/true, "", 0);
 
   return 0;
 }
@@ -3155,6 +3182,7 @@ static llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
 static int TranslateFunction(binary_t &Binary, function_t &f) {
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
+  llvm::DIBuilder &DIB = *DIBuilder;
 
   basic_block_t entry_bb = f.BasicBlocks.front();
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
@@ -3169,6 +3197,20 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   }
 
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
+
+  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagDefinition |
+                                          llvm::DISubprogram::SPFlagOptimized;
+#if 0
+    if (F.hasPrivateLinkage() || F.hasInternalLinkage())
+      SPFlags |= DISubprogram::SPFlagLocalToUnit;
+#endif
+
+  f.DebugInformation.Subprogram = DIB.createFunction(
+      DebugInformation.CompileUnit, F->getName(), F->getName(),
+      DebugInformation.File, 1234,
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)), 6789,
+      llvm::DINode::FlagZero, SPFlags);
+  F->setSubprogram(f.DebugInformation.Subprogram);
 
   //
   // create the AllocaInst's for each global referenced at the start of the
@@ -3254,10 +3296,15 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       return ret;
   }
 
+  DIB.finalizeSubprogram(f.DebugInformation.Subprogram);
+
+#if 0
   if (llvm::verifyFunction(*F, &llvm::errs())) {
+    WithColor::error() << "TranslateFunction: failed to verify function...\n";
     llvm::errs() << *F << '\n';
     return 1;
   }
+#endif
 
   return 0;
 }
@@ -3271,6 +3318,9 @@ int TranslateFunctions(void) {
     if (int ret = TranslateFunction(Binary, f))
       return ret;
   }
+
+  llvm::DIBuilder &DIB = *DIBuilder;
+  DIB.finalize();
 
   return 0;
 }
@@ -4798,6 +4848,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   switch (opc) {
   case INDEX_op_insn_start:
     static uint64_t lstaddr = 0;
+    static unsigned NextLine = 0;
+
     if (op->args[0] == JOVE_PCREL_MAGIC && op->args[1] == JOVE_PCREL_MAGIC) {
       pcrel_flag = true;
 
@@ -4807,7 +4859,20 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     } else {
       pcrel_flag = false;
 
-      lstaddr = op->args[0];
+      const TCGArg &Addr = op->args[0];
+
+      lstaddr = Addr;
+
+      unsigned Line = Addr;
+      unsigned Column = Addr;
+
+      if (sizeof(unsigned) == 4 && sizeof(TCGArg) == 8) {
+        Line   = static_cast<unsigned>(Addr);
+        Column = static_cast<unsigned>(Addr >> 32);
+      }
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, Line, Column, f.DebugInformation.Subprogram));
     }
     break;
 
