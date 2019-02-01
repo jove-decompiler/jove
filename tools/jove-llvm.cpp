@@ -3208,8 +3208,8 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   f.DebugInformation.Subprogram = DIB.createFunction(
       DebugInformation.CompileUnit, F->getName(), F->getName(),
       DebugInformation.File, 1234,
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)), 6789,
-      llvm::DINode::FlagZero, SPFlags);
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)),
+      ICFG[entry_bb].Addr, llvm::DINode::FlagZero, SPFlags);
   F->setSubprogram(f.DebugInformation.Subprogram);
 
   //
