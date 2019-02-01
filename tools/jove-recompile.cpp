@@ -78,7 +78,7 @@ static void spawn_workers(void);
 static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
-static const char *compiler_runtime_sofp =
+static const char *compiler_runtime_afp =
     "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a";
 
 static int await_process_completion(pid_t);
@@ -89,10 +89,10 @@ static std::string jove_llvm_path, llc_path, lld_path;
 static std::string dyn_linker_path;
 
 int recompile(void) {
-  if (!fs::exists(compiler_runtime_sofp) ||
-      !fs::is_regular_file(compiler_runtime_sofp)) {
+  if (!fs::exists(compiler_runtime_afp) ||
+      !fs::is_regular_file(compiler_runtime_afp)) {
     WithColor::error() << "compiler runtime does not exist at path '"
-                       << compiler_runtime_sofp
+                       << compiler_runtime_afp
                        << "' (or is not regular file)\n";
     return 0;
   }
@@ -193,49 +193,58 @@ int recompile(void) {
     if (b.IsDynamicLinker)
       continue;
 
-    fs::path chrooted_path(opts::Output + b.Path);
-    sofp_vec.push_back(chrooted_path.replace_extension("so"));
+    sofp_vec.push_back(opts::Output + b.Path);
   }
 
+  std::string exe_fp;
   std::string exe_objfp;
   for (binary_t &b : Decompilation.Binaries) {
     if (!b.IsExecutable)
       continue;
 
+    exe_fp = opts::Output + b.Path;
+
     fs::path tmpdir_path(std::string(tmpdir) + b.Path);
     exe_objfp = tmpdir_path.replace_extension("o").string();
+
     break;
   }
   assert(!exe_objfp.empty());
-
-  std::string exe_fp;
-  for (binary_t &b : Decompilation.Binaries) {
-    if (!b.IsExecutable)
-      continue;
-
-    exe_fp = opts::Output + b.Path;
-    break;
-  }
   assert(!exe_fp.empty());
 
   pid_t pid = fork();
   if (!pid) {
     std::vector<char *> arg_vec;
+
     arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
+
     arg_vec.push_back(const_cast<char *>("-o"));
     arg_vec.push_back(const_cast<char *>(exe_fp.c_str()));
-    arg_vec.push_back(const_cast<char *>("-pie"));
+
     arg_vec.push_back(const_cast<char *>("-m"));
     arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
+
     arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
     arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
+
+    arg_vec.push_back(const_cast<char *>("-pie"));
+
     arg_vec.push_back(const_cast<char *>("-e"));
     arg_vec.push_back(const_cast<char *>("__jove_start"));
+
+    arg_vec.push_back(const_cast<char *>("-nostdlib"));
+
+    arg_vec.push_back(const_cast<char *>("-z"));
+    arg_vec.push_back(const_cast<char *>("nodefaultlib"));
+
+    arg_vec.push_back(const_cast<char *>("-z"));
+    arg_vec.push_back(const_cast<char *>("origin"));
+
     arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
 
     for (const fs::path &sofp : sofp_vec) {
       // /path/to/libfoo.so -> "-lfoo"
-      fs::path &Ldir = *new fs::path(sofp.parent_path());
+      std::string &Ldir = *new std::string(sofp.parent_path().string());
 
       arg_vec.push_back(const_cast<char *>("-L"));
       arg_vec.push_back(const_cast<char *>(Ldir.c_str()));
@@ -244,9 +253,19 @@ int recompile(void) {
 
       arg_vec.push_back(const_cast<char *>("-l"));
       arg_vec.push_back(const_cast<char *>(lStr.c_str()));
+
+      std::string &rpathStr =
+          *new std::string(std::string("-rpath=$ORIGIN/") +
+                           fs::relative(sofp, fs::path(exe_fp).parent_path())
+                               .parent_path()
+                               .string());
+
+      arg_vec.push_back(const_cast<char *>(rpathStr.c_str()));
     }
 
-    arg_vec.push_back(const_cast<char *>(compiler_runtime_sofp));
+    arg_vec.push_back(const_cast<char *>(compiler_runtime_afp));
+
+    arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
 
     arg_vec.push_back(nullptr);
 
@@ -282,9 +301,9 @@ int recompile(void) {
   // copy compiler runtime
   //
   {
-    fs::path chrooted_path(opts::Output + compiler_runtime_sofp);
+    fs::path chrooted_path(opts::Output + compiler_runtime_afp);
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy(compiler_runtime_sofp, chrooted_path);
+    fs::copy(compiler_runtime_afp, chrooted_path);
   }
 
   return 0;
@@ -395,18 +414,27 @@ static void worker(void) {
     pid = fork();
     if (!pid) {
       std::vector<char *> arg_vec;
+
       arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
+
       arg_vec.push_back(const_cast<char *>("-o"));
       arg_vec.push_back(const_cast<char *>(sofp.c_str()));
+
       arg_vec.push_back(const_cast<char *>("-m"));
       arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
+
       arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
       arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
+
       arg_vec.push_back(const_cast<char *>("-e"));
       arg_vec.push_back(const_cast<char *>("__jove_start"));
+
       arg_vec.push_back(const_cast<char *>("-shared"));
+
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
+
       arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
+
       arg_vec.push_back(nullptr);
 
       print_command(arg_vec);
