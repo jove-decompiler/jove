@@ -387,6 +387,7 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
       arg_vec.push_back(const_cast<char *>("-filetype=obj"));
       arg_vec.push_back(const_cast<char *>("-relocation-model=pic"));
+      arg_vec.push_back(const_cast<char *>("-disable-fp-elim"));
       arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
       arg_vec.push_back(nullptr);
 
