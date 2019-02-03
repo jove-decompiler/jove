@@ -430,6 +430,14 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>("-e"));
       arg_vec.push_back(const_cast<char *>("__jove_start"));
 
+      arg_vec.push_back(const_cast<char *>("-nostdlib"));
+
+      arg_vec.push_back(const_cast<char *>("-z"));
+      arg_vec.push_back(const_cast<char *>("nodefaultlib"));
+
+      arg_vec.push_back(const_cast<char *>("-z"));
+      arg_vec.push_back(const_cast<char *>("origin"));
+
       arg_vec.push_back(const_cast<char *>("-shared"));
 
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
