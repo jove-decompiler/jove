@@ -77,6 +77,8 @@ class DISubprogram;
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/DebugInfo/DWARF/DWARFContext.h>
+#include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfo.h>
@@ -410,6 +412,8 @@ static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 static struct {
   llvm::DIFile *File;
   llvm::DICompileUnit *CompileUnit;
+
+  std::unique_ptr<llvm::symbolize::LLVMSymbolizer> Symbolizer;
 } DebugInformation;
 
 struct helper_function_t {
@@ -425,6 +429,8 @@ static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
 static std::unordered_map<uintptr_t, std::string> TLSValueToSymbolMap;
+
+static std::unordered_map<std::string, llvm::DIFile *> LineFileNames;
 
 //
 // Stages
@@ -1464,6 +1470,12 @@ int PrepareToTranslateCode(void) {
   DebugInformation.CompileUnit = DIB.createCompileUnit(
       llvm::dwarf::DW_LANG_C, DebugInformation.File, "jove",
       /*isOptimized=*/true, "", 0);
+
+  llvm::symbolize::LLVMSymbolizer::Options SymbolizerOpts(
+      llvm::DILineInfoSpecifier::FunctionNameKind::None, true, false, false,
+      TheTarget->getName());
+  DebugInformation.Symbolizer.reset(
+      new llvm::symbolize::LLVMSymbolizer(SymbolizerOpts));
 
   return 0;
 }
@@ -3205,12 +3217,14 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       SPFlags |= DISubprogram::SPFlagLocalToUnit;
 #endif
 
+#if 0
   f.DebugInformation.Subprogram = DIB.createFunction(
       DebugInformation.CompileUnit, F->getName(), F->getName(),
       DebugInformation.File, 1234,
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)),
       ICFG[entry_bb].Addr, llvm::DINode::FlagZero, SPFlags);
   F->setSubprogram(f.DebugInformation.Subprogram);
+#endif
 
   //
   // create the AllocaInst's for each global referenced at the start of the
@@ -3296,7 +3310,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       return ret;
   }
 
+#if 0
   DIB.finalizeSubprogram(f.DebugInformation.Subprogram);
+#endif
 
 #if 0
   if (llvm::verifyFunction(*F, &llvm::errs())) {
@@ -4871,8 +4887,51 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         Column = static_cast<unsigned>(Addr >> 32);
       }
 
-      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, Line, Column, f.DebugInformation.Subprogram));
+      auto ExpectedLineInfo =
+          DebugInformation.Symbolizer->symbolizeCode(Binary.Path, Addr);
+      if (ExpectedLineInfo) {
+        llvm::DILineInfo LineInfo = *ExpectedLineInfo;
+
+        WithColor::note() << "LineInfo.FileName: " << LineInfo.FileName << '\n'
+                          << "LineInfo.FunctionName: " << LineInfo.FunctionName << '\n'
+                          << "LineInfo.Line: " << LineInfo.Line << '\n'
+                          << "LineInfo.Column: " << LineInfo.Column << '\n';
+
+        auto it = LineFileNames.find(LineInfo.FileName);
+        if (it == LineFileNames.end()) {
+          fs::path p(LineInfo.FileName);
+
+          if (opts::Verbose && !fs::exists(p)) {
+            WithColor::note() << "LineInfo.FileName does not exist \""
+                              << LineInfo.FileName << "\"\n";
+          }
+
+          llvm::DIBuilder &DIB = *DIBuilder;
+          llvm::DIFile *dbginfo_file =
+              DIB.createFile(p.filename().string(), p.parent_path().string());
+
+          it = LineFileNames.insert({LineInfo.FileName, dbginfo_file}).first;
+        }
+
+        llvm::DIFile *dbgfile = (*it).second;
+
+#if 0
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, LineInfo.Line, LineInfo.Column, f.DebugInformation.Subprogram));
+#else
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, LineInfo.Line, LineInfo.Column, dbgfile));
+#endif
+
+#if 0
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, Line, Column, f.DebugInformation.Subprogram));
+#endif
+        IRB.SetCurrentDebugLocation(llvm::DebugLoc());
+      } else {
+        IRB.SetCurrentDebugLocation(llvm::DebugLoc());
+      }
+
     }
     break;
 
