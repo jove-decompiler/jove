@@ -2391,11 +2391,14 @@ int CreateSectionGlobalVariables(void) {
       }
     };
 
-    return llvm::PointerType::get(
-        is_integral_size(Size)
-            ? llvm::Type::getIntNTy(*Context, Size * 8)
-            : llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size),
-        0);
+    llvm::Type *T;
+    if (is_integral_size(Size)) {
+      T = llvm::Type::getIntNTy(*Context, Size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+    }
+
+    return llvm::PointerType::get(T, 0);
   };
 
   auto type_of_addressof_defined_data_relocation =
@@ -2502,8 +2505,8 @@ int CreateSectionGlobalVariables(void) {
   // puncture the interval set for each section by intervals which represent
   // relocations
   for (const relocation_t &R : RelocationTable)
-    if (llvm::Type *T = type_of_relocation(R))
-      type_at_address(R.Addr, T);
+    if (llvm::Type *Ty = type_of_relocation(R))
+      type_at_address(R.Addr, Ty);
 
   //
   // create global variable for sections
