@@ -913,7 +913,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
+static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
