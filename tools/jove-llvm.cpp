@@ -433,7 +433,7 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
-static int ProcessBinarySymbols(void);
+static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinaryRelocations(void);
@@ -470,7 +470,7 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || CreateModule()
-      || ProcessBinarySymbols()
+      || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
       || ProcessDynamicTargets()
       || ProcessBinaryRelocations()
@@ -774,7 +774,7 @@ struct DynRegionInfo {
   }
 };
 
-int ProcessBinarySymbols(void) {
+int ProcessBinaryTLSSymbols(void) {
   binary_index_t BIdx = BinaryIndex;
   auto &Binary = Decompilation.Binaries[BIdx];
   auto &st = BinStateVec[BIdx];
@@ -822,7 +822,7 @@ int ProcessBinarySymbols(void) {
   }
 
   if (!DotSymtabSec)
-    continue;
+    return 0;
 
   StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
 
