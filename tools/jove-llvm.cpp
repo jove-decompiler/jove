@@ -426,6 +426,10 @@ static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
 static std::unordered_map<uintptr_t, std::string> TLSValueToSymbolMap;
 
+static boost::icl::split_interval_map<uintptr_t,
+                                      std::set<llvm::GlobalVariable *>>
+    AddressSpaceObjects;
+
 //
 // Stages
 //
@@ -1086,6 +1090,14 @@ int ProcessDynamicSymbols(void) {
               Sym.getType() == llvm::ELF::STT_TLS
                   ? llvm::GlobalValue::GeneralDynamicTLSModel
                   : llvm::GlobalValue::NotThreadLocal);
+
+          if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
+            boost::icl::interval<uintptr_t>::type intervl =
+                boost::icl::interval<uintptr_t>::right_open(
+                    Sym.st_value, Sym.st_value + Sym.st_size);
+
+            AddressSpaceObjects.insert({intervl, {GV}});
+          }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
         function_index_t FuncIdx;
@@ -3486,6 +3498,24 @@ int Optimize1(void) {
 static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  {
+    auto it = AddressSpaceObjects.find(Addr);
+    if (it != AddressSpaceObjects.end()) {
+      unsigned off = Addr - (*it).first.lower();
+      WithColor::note() << (fmt("addrspace obj @ %#lx (%u)") % Addr % off).str()
+                        << '\n';
+
+      llvm::Constant *res = *(*it).second.begin();
+      res = llvm::ConstantExpr::getPtrToInt(res, WordType());
+
+      if (off)
+        res = llvm::ConstantExpr::getAdd(
+            res, llvm::ConstantInt::get(WordType(), off));
+
+      return res;
+    }
+  }
 
   auto it = st.FuncMap.find(Addr);
   llvm::Constant *res = it == st.FuncMap.end()
