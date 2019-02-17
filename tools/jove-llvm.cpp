@@ -1038,15 +1038,14 @@ int ProcessDynamicSymbols(void) {
           // if this symbol is TLS, update the TLSValueToSymbolMap
           //
           if (Sym.getType() == llvm::ELF::STT_TLS) {
-            auto it = TLSValueToSymbolMap.find(Sym.st_value);
-            if (it != TLSValueToSymbolMap.end()) {
-              WithColor::warning()
-                  << "multiple TLS symbols at "
-                  << (fmt("%#lx") % Sym.st_value).str() << " : " << SymName
-                  << ", " << (*it).second << "\n";
-            } else {
-              TLSValueToSymbolMap.insert({Sym.st_value, SymName});
-            }
+            bool inserted =
+                TLSValueToSymbolMap.insert({Sym.st_value, SymName}).second;
+
+            if (!inserted)
+              WithColor::warning() << "multiple TLS symbols at "
+                                   << (fmt("%#lx") % Sym.st_value).str()
+                                   << " : " << SymName << ", "
+                                   << "\n";
           }
 
           //
