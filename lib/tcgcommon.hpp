@@ -142,6 +142,12 @@ struct tiny_code_generator_t {
     // zero-initialize TranslationBlock
     memset(&tb, 0, sizeof(tb));
 
+    tcg_ctx = &_ctx;
+
+    uint32_t cflags = CF_PARALLEL;
+    tcg_ctx->tb_cflags = cflags;
+    tb.cflags          = cflags;
+
     tb.pc = pc;
 #if defined(__x86_64__) || defined(__i386__)
     tb.flags = _cpu.env.hflags;
