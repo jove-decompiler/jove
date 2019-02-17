@@ -433,9 +433,10 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
-static int ProcessSymbols(void);
+static int ProcessBinarySymbols(void);
+static int ProcessDynamicSymbols(void);
 static int ProcessDynamicTargets(void);
-static int ProcessBinarySymbolsAndRelocations(void);
+static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int PrepareToTranslateCode(void);
 static int CreateFunctions(void);
@@ -469,9 +470,10 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || CreateModule()
-      || ProcessSymbols()
+      || ProcessBinarySymbols()
+      || ProcessDynamicSymbols()
       || ProcessDynamicTargets()
-      || ProcessBinarySymbolsAndRelocations()
+      || ProcessBinaryRelocations()
       || ProcessIFuncResolvers()
       || PrepareToTranslateCode()
       || CreateFunctions()
@@ -772,7 +774,116 @@ struct DynRegionInfo {
   }
 };
 
-int ProcessSymbols(void) {
+int ProcessBinarySymbols(void) {
+  binary_index_t BIdx = BinaryIndex;
+  auto &Binary = Decompilation.Binaries[BIdx];
+  auto &st = BinStateVec[BIdx];
+
+  //
+  // parse the ELF
+  //
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                         Binary.Data.size());
+  llvm::StringRef Identifier(Binary.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from " << Binary.Path
+                       << '\n';
+    return 1;
+  }
+
+  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+  assert(llvm::isa<ELFO>(Bin.get()));
+  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+  const ELFT &E = *O.getELFFile();
+
+  typedef typename ELFT::Elf_Phdr Elf_Phdr;
+  typedef typename ELFT::Elf_Dyn Elf_Dyn;
+  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Sym Elf_Sym;
+
+  llvm::StringRef StrTable;
+  const Elf_Shdr *DotSymtabSec = nullptr;
+  auto symbols = [&](void) -> Elf_Sym_Range {
+    return unwrapOrError(E.symbols(DotSymtabSec));
+  };
+
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+      assert(!DotSymtabSec);
+      DotSymtabSec = &Sec;
+    }
+  }
+
+  if (!DotSymtabSec)
+    continue;
+
+  StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
+
+  for (const Elf_Sym &Sym : symbols()) {
+    if (Sym.getType() != llvm::ELF::STT_TLS)
+      continue;
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+
+    auto it = TLSValueToSymbolMap.find(Sym.st_value);
+    if (it != TLSValueToSymbolMap.end()) {
+      WithColor::warning() << "multiple TLS symbols at "
+                           << (fmt("%#lx") % Sym.st_value).str() << " : "
+                           << SymName << ", " << (*it).second << "\n";
+    } else {
+      TLSValueToSymbolMap.insert({Sym.st_value, SymName});
+    }
+
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
+    if (GV)
+      continue;
+
+    auto is_integral_size = [](unsigned n) -> bool {
+      switch (n) {
+      case 1:
+        return true;
+      case 2:
+        return true;
+      case 4:
+        return true;
+      case 8:
+        return true;
+      default:
+        return false;
+      }
+    };
+
+    llvm::Type *T;
+    llvm::Constant *Init;
+
+    if (is_integral_size(Sym.st_size)) {
+      T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Sym.st_size);
+    }
+
+    new llvm::GlobalVariable(*Module, T, false,
+                             llvm::GlobalValue::InternalLinkage,
+                             llvm::Constant::getNullValue(T), SymName, nullptr,
+                             llvm::GlobalValue::GeneralDynamicTLSModel);
+  }
+
+  for (const auto &entry : TLSValueToSymbolMap) {
+    llvm::outs() << "TLS symbol " << entry.second << " @ +" << entry.first
+                 << '\n';
+  }
+
+  return 0;
+}
+
+int ProcessDynamicSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = Decompilation.Binaries[BIdx];
     auto &st = BinStateVec[BIdx];
@@ -998,76 +1109,6 @@ int ProcessSymbols(void) {
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       }
     }
-
-    if (BIdx != BinaryIndex)
-      continue;
-
-    llvm::StringRef StrTable;
-    const Elf_Shdr *DotSymtabSec = nullptr;
-    auto symbols = [&](void) -> Elf_Sym_Range {
-      return unwrapOrError(E.symbols(DotSymtabSec));
-    };
-
-    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
-        assert(!DotSymtabSec);
-        DotSymtabSec = &Sec;
-      }
-    }
-
-    if (!DotSymtabSec)
-      continue;
-
-    StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
-
-    for (const Elf_Sym &Sym : symbols()) {
-      if (Sym.getType() != llvm::ELF::STT_TLS)
-        continue;
-
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-
-      auto it = TLSValueToSymbolMap.find(Sym.st_value);
-      if (it != TLSValueToSymbolMap.end()) {
-        WithColor::warning()
-            << "multiple TLS symbols at " << (fmt("%#lx") % Sym.st_value).str()
-            << " : " << SymName << ", " << (*it).second << "\n";
-      } else {
-        TLSValueToSymbolMap.insert({Sym.st_value, SymName});
-      }
-
-      llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-      if (GV)
-        continue;
-
-      auto is_integral_size = [](unsigned n) -> bool {
-        switch (n) {
-        case 1:
-          return true;
-        case 2:
-          return true;
-        case 4:
-          return true;
-        case 8:
-          return true;
-        default:
-          return false;
-        }
-      };
-
-      llvm::Type *T;
-      llvm::Constant *Init;
-
-      if (is_integral_size(Sym.st_size)) {
-        T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
-      } else {
-        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Sym.st_size);
-      }
-
-      new llvm::GlobalVariable(
-          *Module, T, false, llvm::GlobalValue::InternalLinkage,
-          llvm::Constant::getNullValue(T), SymName, nullptr,
-          llvm::GlobalValue::GeneralDynamicTLSModel);
-    }
   }
 
   for (const auto &entry : TLSValueToSymbolMap) {
@@ -1127,7 +1168,7 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
-int ProcessBinarySymbolsAndRelocations(void) {
+int ProcessBinaryRelocations(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
