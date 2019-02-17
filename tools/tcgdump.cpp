@@ -20,6 +20,8 @@
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/InitLLVM.h>
 
+#include <boost/icl/split_interval_map.hpp>
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -31,11 +33,7 @@ namespace opts {
 }
 
 namespace jove {
-
-void _qemu_log(const char *cstr) {
-  fputs(cstr, stdout);
-}
-
+static int tcgdump(void);
 }
 
 int main(int argc, char **argv) {
@@ -43,6 +41,44 @@ int main(int argc, char **argv) {
 
   cl::ParseCommandLineOptions(argc, argv, "TCG Dump\n");
 
+  return jove::tcgdump();
+}
+
+namespace jove {
+
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename obj::ELF64LEObjectFile ELFO;
+typedef typename obj::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename obj::ELF32LEObjectFile ELFO;
+typedef typename obj::ELF32LEFile ELFT;
+#endif
+
+typedef typename ELFT::Elf_Dyn Elf_Dyn;
+typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFT::Elf_Phdr Elf_Phdr;
+typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFT::Elf_Rela Elf_Rela;
+typedef typename ELFT::Elf_Shdr Elf_Shdr;
+typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFT::Elf_Sym Elf_Sym;
+typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+
+template <class T>
+static T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  fprintf(stderr, "%s\n", Buf.c_str());
+  exit(1);
+}
+
+int tcgdump(void) {
   if (!fs::exists(opts::Binary)) {
     llvm::errs() << "given binary " << opts::Binary << " does not exist\n";
     return 1;
@@ -57,14 +93,19 @@ int main(int argc, char **argv) {
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
       obj::createBinary(opts::Binary);
 
-  if (!BinaryOrErr ||
-      !llvm::isa<obj::ObjectFile>(BinaryOrErr.get().getBinary())) {
-    fprintf(stderr, "failed to open %s\n", argv[1]);
+  if (!BinaryOrErr) {
+    fprintf(stderr, "failed to open %s\n", opts::Binary.c_str());
     return 1;
   }
 
-  obj::ObjectFile &O =
-      *llvm::cast<obj::ObjectFile>(BinaryOrErr.get().getBinary());
+  obj::Binary *B = BinaryOrErr.get().getBinary();
+  if (!llvm::isa<ELFO>(B)) {
+    fprintf(stderr, "invalid binary\n");
+    return 1;
+  }
+
+  const ELFO &O = *llvm::cast<ELFO>(B);
+  const ELFT &E = *O.getELFFile();
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -134,112 +175,182 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  llvm::StringRef SectNm;
-  for (obj::SymbolRef Sym : O.symbols()) {
-    if (!Sym.getName() || Sym.getName()->empty() ||
-        !Sym.getType() || Sym.getType().get() != obj::SymbolRef::ST_Function ||
-        !Sym.getSection() || Sym.getSection().get() == O.section_end() ||
-        !Sym.getAddress() ||
-        !(Sym.getAddress().get() >= Sym.getSection().get()->getAddress()) ||
-        Sym.getSection().get()->getName(SectNm))
+  //
+  // build section map
+  //
+  struct section_properties_t {
+    llvm::StringRef name;
+    llvm::ArrayRef<uint8_t> contents;
+
+    bool operator==(const section_properties_t &sect) const {
+      return name == sect.name;
+    }
+
+    bool operator<(const section_properties_t &sect) const {
+      return name < sect.name;
+    }
+  };
+
+  typedef std::set<section_properties_t> section_properties_set_t;
+  boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
+      SectMap;
+
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
       continue;
 
-    obj::SectionRef Sect = *Sym.getSection().get();
+    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+        E.getSectionContents(&Sec);
 
-    const std::uintptr_t Addr = Sym.getAddress().get();
-    const std::uintptr_t Base = Sect.getAddress();
+    if (!contents)
+      continue;
 
-    llvm::StringRef SecContentsStr;
-    Sect.getContents(SecContentsStr);
+    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+    if (!name)
+      continue;
+
+    boost::icl::interval<std::uintptr_t>::type intervl =
+        boost::icl::interval<std::uintptr_t>::right_open(
+            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+    section_properties_t sectprop;
+    sectprop.name = *name;
+    sectprop.contents = *contents;
+
+    SectMap.add({intervl, {sectprop}});
+  }
+
+  //
+  // examine defined symbols which are functions and have a nonzero size
+  //
+  llvm::StringRef StrTable;
+  const Elf_Shdr *DotSymtabSec = nullptr;
+
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+      assert(!DotSymtabSec);
+      DotSymtabSec = &Sec;
+    }
+  }
+
+  if (!DotSymtabSec)
+    return 0;
+
+  StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
+
+  auto symbols = [&](void) -> Elf_Sym_Range {
+    return unwrapOrError(E.symbols(DotSymtabSec));
+  };
+
+  for (const Elf_Sym &Sym : symbols()) {
+    if (Sym.getType() != llvm::ELF::STT_FUNC)
+      continue;
+    if (Sym.isUndefined())
+      continue;
+    if (!Sym.st_size)
+      continue;
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+    uintptr_t Addr = Sym.st_value;
+
+    auto it = SectMap.find(Addr);
+    if (it == SectMap.end()) {
+      fprintf(stderr, "warning: no section for symbol %s @ %" PRIxPTR "\n",
+              SymName.str().c_str(), Addr);
+      continue;
+    }
+
+    const auto &SectProp = *(*it).second.begin();
+
+    const uintptr_t SectBase = (*it).first.lower();
+
+    printf("%s @ %s+0x%" PRIxPTR " <%u>\n",
+           SymName.str().c_str(),
+           SectProp.name.str().c_str(),
+           static_cast<std::uintptr_t>(Addr - SectBase),
+           static_cast<unsigned>(Sym.st_size));
 
     //
-    // translate machine code to TCG
+    // linear scan translation
     //
-    tcg.set_section(Base, SecContentsStr.bytes_begin());
+    tcg.set_section(SectBase, SectProp.contents.data());
 
     unsigned BBSize;
-    jove::terminator_info_t T;
-    std::tie(BBSize, T) = tcg.translate(Addr);
+    for (uintptr_t A = Addr; A < Addr + Sym.st_size; A += BBSize) {
+      jove::terminator_info_t T;
+      std::tie(BBSize, T) = tcg.translate(A);
 
-    //
-    // print machine code which was translated
-    //
-    std::ptrdiff_t Offset = Addr - Base;
-    assert(Offset >= 0);
-    printf("%s @ %s+0x%" PRIxPTR "\n", Sym.getName()->str().c_str(),
-           SectNm.str().c_str(), static_cast<std::uintptr_t>(Offset));
+      //
+      // print machine code
+      //
+      uint64_t InstLen;
+      for (uintptr_t _A = A; _A < A + BBSize; _A += InstLen) {
+        llvm::MCInst Inst;
+        llvm::raw_ostream &DebugOut = llvm::nulls();
+        llvm::raw_ostream &CommentStream = llvm::nulls();
 
-    uint64_t InstLen;
-    for (std::uintptr_t A = Addr; A < Addr + BBSize; A += InstLen) {
-      llvm::MCInst Inst;
-      llvm::raw_ostream &DebugOut = llvm::nulls();
-      llvm::raw_ostream &CommentStream = llvm::nulls();
-      llvm::ArrayRef<uint8_t> SecContents(
-          reinterpret_cast<const uint8_t *>(SecContentsStr.data()),
-          SecContentsStr.size());
+        ptrdiff_t Offset = _A - SectBase;
+        bool Disassembled = DisAsm->getInstruction(
+            Inst, InstLen, SectProp.contents.slice(Offset), _A, DebugOut,
+            CommentStream);
+        if (!Disassembled) {
+          fprintf(stderr, "failed to disassemble %" PRIxPTR "\n", _A);
+          break;
+        }
 
-      Offset = A - Base;
-      bool Disassembled =
-          DisAsm->getInstruction(Inst, InstLen, SecContents.slice(Offset), Addr,
-                                 DebugOut, CommentStream);
-      if (!Disassembled) {
-        fprintf(stderr, "failed to disassemble %p\n",
-                reinterpret_cast<void *>(Addr));
+        std::string str;
+        {
+          llvm::raw_string_ostream StrStream(str);
+          IP->printInst(&Inst, StrStream, "", *STI);
+        }
+        puts(str.c_str());
+      }
+      fputc('\n', stdout);
+
+      //
+      // print TCG
+      //
+      tcg.dump_operations();
+      fputc('\n', stdout);
+
+      //
+      // print basic block terminator
+      //
+      printf("%s @ 0x%" PRIxPTR "\n",
+             description_of_terminator(T.Type), T.Addr);
+
+      switch (T.Type) {
+      case jove::TERMINATOR::UNCONDITIONAL_JUMP:
+        printf("Target: 0x%" PRIxPTR "\n", T._unconditional_jump.Target);
+        break;
+
+      case jove::TERMINATOR::CONDITIONAL_JUMP:
+        printf("Target: 0x%" PRIxPTR "\n", T._conditional_jump.Target);
+        printf("NextPC: 0x%" PRIxPTR "\n", T._conditional_jump.NextPC);
+        break;
+
+      case jove::TERMINATOR::INDIRECT_CALL:
+        printf("NextPC: 0x%" PRIxPTR "\n", T._indirect_call.NextPC);
+        break;
+
+      case jove::TERMINATOR::CALL:
+        printf("Target: 0x%" PRIxPTR "\n", T._call.Target);
+        printf("NextPC: 0x%" PRIxPTR "\n", T._call.NextPC);
+        break;
+
+      default:
         break;
       }
-
-      std::string str;
-      {
-        llvm::raw_string_ostream StrStream(str);
-        IP->printInst(&Inst, StrStream, "", *STI);
-      }
-      puts(str.c_str());
+      fputc('\n', stdout);
     }
-
-    fputc('\n', stdout);
-
-    //
-    // print TCG
-    //
-    tcg.dump_operations();
-
-    fputc('\n', stdout);
-
-    printf("live:");
-    for (int i = 0; i < tcg._ctx.nb_globals; ++i) {
-      const TCGTemp &ts = tcg._ctx.temps[i];
-      if (ts.state & TS_DEAD)
-        continue;
-
-      printf(" %s", ts.name);
-    }
-    fputc('\n', stdout);
-
-    printf("%s @ 0x%" PRIxPTR "\n", description_of_terminator(T.Type), T.Addr);
-    switch (T.Type) {
-    case jove::TERMINATOR::UNCONDITIONAL_JUMP:
-      printf("Target: 0x%" PRIxPTR "\n", T._unconditional_jump.Target);
-      break;
-
-    case jove::TERMINATOR::CONDITIONAL_JUMP:
-      printf("Target: 0x%" PRIxPTR "\n", T._conditional_jump.Target);
-      printf("NextPC: 0x%" PRIxPTR "\n", T._conditional_jump.NextPC);
-      break;
-
-    case jove::TERMINATOR::INDIRECT_CALL:
-      printf("NextPC: 0x%" PRIxPTR "\n", T._indirect_call.NextPC);
-      break;
-
-    case jove::TERMINATOR::CALL:
-      printf("Target: 0x%" PRIxPTR "\n", T._call.Target);
-      printf("NextPC: 0x%" PRIxPTR "\n", T._call.NextPC);
-      break;
-
-    default:
-      break;
-    }
-    fputc('\n', stdout);
   }
 
   return 0;
+}
+
+void _qemu_log(const char *cstr) {
+  fputs(cstr, stdout);
+}
+
 }
