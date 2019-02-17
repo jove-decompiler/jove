@@ -1370,6 +1370,8 @@ int ProcessIFuncResolvers(void) {
 
     function_t &resolver = Binary.Analysis.Functions[(*it).second];
     resolver.IsABI = true;
+
+    // TODO we know function type is i64 (*)(void)
   }
 
   return 0;
