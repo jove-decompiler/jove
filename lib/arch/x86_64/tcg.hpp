@@ -1,3 +1,5 @@
+#define CONFIG_ATOMIC64 1
+
 #define USE_TCG_OPTIMIZATIONS
 
 #define CONFIG_CPUID_H 1

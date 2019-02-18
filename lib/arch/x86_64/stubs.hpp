@@ -565,57 +565,80 @@ uint64_t helper_clrsb_i64 (uint64_t) { return 0u; }
 uint32_t helper_ctpop_i32 (uint32_t) { return 0u; }
 uint64_t helper_ctpop_i64 (uint64_t) { return 0u; }
 void * helper_lookup_tb_ptr (struct CPUX86State *) { return nullptr; }
-void helper_exit_atomic (struct CPUX86State *) { __builtin_unreachable(); }
-uint32_t helper_atomic_cmpxchgb (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0u; }
-uint32_t helper_atomic_cmpxchgw_be (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0u; }
-uint32_t helper_atomic_cmpxchgw_le (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0u; }
-uint32_t helper_atomic_cmpxchgl_be (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0u; }
-uint32_t helper_atomic_cmpxchgl_le (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_addb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_addw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_addw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_addl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_addl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_andb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_andw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_andw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_andl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_andl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_orb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_orw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_orw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_orl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_orl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_xorb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_xorw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_xorw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_xorl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_fetch_xorl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_add_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_add_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_add_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_add_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_add_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_and_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_and_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_and_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_and_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_and_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_or_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_or_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_or_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_or_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_or_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xor_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xor_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xor_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xor_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xor_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xchgb (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xchgw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xchgw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xchgl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
-uint32_t helper_atomic_xchgl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0u; }
+void __attribute__ ((__noreturn__)) helper_exit_atomic (struct CPUX86State *) { __builtin_unreachable(); }
+uint32_t helper_atomic_cmpxchgb (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0; }
+uint32_t helper_atomic_cmpxchgw_be (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0; }
+uint32_t helper_atomic_cmpxchgw_le (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0; }
+uint32_t helper_atomic_cmpxchgl_be (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0; }
+uint32_t helper_atomic_cmpxchgl_le (struct CPUX86State *, target_ulong, uint32_t, uint32_t) { return 0; }
+
+uint64_t helper_atomic_cmpxchgq_be (struct CPUX86State *, target_ulong, uint64_t, uint64_t) { return 0; }
+uint64_t helper_atomic_cmpxchgq_le (struct CPUX86State *, target_ulong, uint64_t, uint64_t) { return 0; }
+uint32_t helper_atomic_fetch_addb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_addw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_addw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_addl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_addl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_fetch_addq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_fetch_addq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_fetch_andb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_andw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_andw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_andl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_andl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_fetch_andq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_fetch_andq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_fetch_orb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_orw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_orw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_orl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_orl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_fetch_orq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_fetch_orq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_fetch_xorb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_xorw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_xorw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_xorl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_fetch_xorl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_fetch_xorq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_fetch_xorq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+
+uint32_t helper_atomic_add_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_add_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_add_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_add_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_add_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_add_fetchq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_add_fetchq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_and_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_and_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_and_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_and_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_and_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_and_fetchq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_and_fetchq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_or_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_or_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_or_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_or_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_or_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_or_fetchq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_or_fetchq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint32_t helper_atomic_xor_fetchb (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xor_fetchw_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xor_fetchw_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xor_fetchl_le (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xor_fetchl_be (struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_xor_fetchq_le (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_xor_fetchq_be (struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+
+uint32_t helper_atomic_xchgb(struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xchgw_le(struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xchgw_be(struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xchgl_le(struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint32_t helper_atomic_xchgl_be(struct CPUX86State *, target_ulong, uint32_t) { return 0; }
+uint64_t helper_atomic_xchgq_le(struct CPUX86State *, target_ulong, uint64_t) { return 0; }
+uint64_t helper_atomic_xchgq_be(struct CPUX86State *, target_ulong, uint64_t) { return 0; }
 void helper_gvec_mov (void *, void *, uint32_t) {}
 void helper_gvec_dup8 (void *, uint32_t, uint32_t) {}
 void helper_gvec_dup16 (void *, uint32_t, uint32_t) {}
