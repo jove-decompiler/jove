@@ -64,7 +64,7 @@ $(BINDIR)/jove/jove.bc.inc: $(BINDIR)/jove.bc
 	xxd -include < $< > $@
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/helpers/jove.c
-	clang -o $@ -c -emit-llvm -Oz -fPIC -fno-stack-protector $<
+	clang -o $@ -c -emit-llvm -Oz -fPIC -fno-stack-protector -g $<
 
 -include $(DEPS)
 
@@ -114,6 +114,9 @@ i386_SOURCE_LOCATIONS := $(_SL_X86_64_TCG_CONTEXT_INIT) \
                          $(_SL_X86_64_TCG_GEN_CODE) \
                          $(_SL_X86_64_GEN_INTERMEDIATE_CODE) \
                          $(_SL_X86_64_TCG_X86_INIT)
+
+x86_64_HELPER_CFLAGS := -DCONFIG_ATOMIC64=1 \
+                        -DCONFIG_USER_ONLY=1
 
 #                           $(_SL_X86_64_TCG_GEN_GVEC_NOT) \
 #                           $(_SL_X86_64_TCG_GEN_LD_VEC)
@@ -166,7 +169,7 @@ build-helpers: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 define build_helper_template
 .PHONY: $(BINDIR)/$(1).bc
 $(BINDIR)/$(1).bc:
-	clang -o $$@ -c -emit-llvm -fPIC -Oz -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides lib/arch/$(ARCH)/helpers/$(1).c
+	clang -o $$@ -c -emit-llvm -fPIC -g -Oz -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides $($(ARCH)_HELPER_CFLAGS) lib/arch/$(ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
