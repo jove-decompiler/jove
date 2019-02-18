@@ -909,7 +909,7 @@ static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
     return g2h(addr);
 }
 
-ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
+ABI_TYPE __attribute__((always_inline)) ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
                               ABI_TYPE cmpv, ABI_TYPE newv EXTRA_ARGS)
 {
     ATOMIC_MMU_DECLS;
@@ -929,7 +929,7 @@ ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
 
 # define END  _le
 
-ABI_TYPE ATOMIC_NAME(xchg)(CPUArchState *env, target_ulong addr,
+ABI_TYPE __attribute__((always_inline)) ATOMIC_NAME(xchg)(CPUArchState *env, target_ulong addr,
                            ABI_TYPE val EXTRA_ARGS)
 {
     ATOMIC_MMU_DECLS;
