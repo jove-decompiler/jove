@@ -83,6 +83,7 @@ class DISubprogram;
 #include <llvm/IR/GlobalAlias.h>
 #include <llvm/IR/GlobalIFunc.h>
 #include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/Intrinsics.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
@@ -5680,6 +5681,36 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     set(y, dst);
     break;
   }
+
+#if defined(__x86_64__)
+  case INDEX_op_mb: {
+    // TODO relaxed version
+    // see smp_mb() in tcg/tci.c
+
+    std::vector<llvm::Type *> AsmArgTypes;
+    std::vector<llvm::Value *> AsmArgs;
+
+    llvm::FunctionType *AsmFTy =
+        llvm::FunctionType::get(VoidType(), AsmArgTypes, false);
+
+    llvm::StringRef AsmText("mfence");
+    llvm::StringRef Constraints("~{memory},~{dirflag},~{fpsr},~{flags}");
+
+    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
+                                               true /* hasSideEffects */);
+    IRB.CreateCall(IA);
+
+#if 0
+    WithColor::note() << "INDEX_op_mb" << '\n'
+      << def.name << ' '
+      << nb_oargs << ' '
+      << nb_iargs << ' '
+      << nb_cargs << '\n';
+#endif
+
+    break;
+  }
+#endif
 
   default:
     WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
