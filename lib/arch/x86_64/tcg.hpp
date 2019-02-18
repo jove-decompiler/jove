@@ -1,8 +1,8 @@
-#define CONFIG_ATOMIC64 1
-
 #define USE_TCG_OPTIMIZATIONS
 
 #define CONFIG_CPUID_H 1
+
+#define CONFIG_ATOMIC64 1
 
 #define TARGET_X86_64 1
 
@@ -4458,6 +4458,10 @@ DEF_HELPER_FLAGS_4(atomic_cmpxchgl_be, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
 
 DEF_HELPER_FLAGS_4(atomic_cmpxchgl_le, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
 
+DEF_HELPER_FLAGS_4(atomic_cmpxchgq_be, TCG_CALL_NO_WG, i64, env, tl, i64, i64)
+
+DEF_HELPER_FLAGS_4(atomic_cmpxchgq_le, TCG_CALL_NO_WG, i64, env, tl, i64, i64)
+
 #define GEN_ATOMIC_HELPERS(NAME)                             \
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), b),         \
                        TCG_CALL_NO_WG, i32, env, tl, i32)    \
@@ -4468,7 +4472,11 @@ DEF_HELPER_FLAGS_4(atomic_cmpxchgl_le, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), l_le),      \
                        TCG_CALL_NO_WG, i32, env, tl, i32)    \
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), l_be),      \
-                       TCG_CALL_NO_WG, i32, env, tl, i32)
+                       TCG_CALL_NO_WG, i32, env, tl, i32)    \
+    DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), q_le),      \
+                       TCG_CALL_NO_WG, i64, env, tl, i64)    \
+    DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), q_be),      \
+                       TCG_CALL_NO_WG, i64, env, tl, i64)
 
 GEN_ATOMIC_HELPERS(fetch_add)
 
@@ -5785,8 +5793,6 @@ DEF_HELPER_FLAGS_1(ctpop_i64, TCG_CALL_NO_RWG_SE, i64, i64)
 
 DEF_HELPER_FLAGS_1(lookup_tb_ptr, TCG_CALL_NO_WG_SE, ptr, env)
 
-DEF_HELPER_FLAGS_1(exit_atomic, TCG_CALL_NO_WG, noreturn, env)
-
 DEF_HELPER_FLAGS_4(atomic_cmpxchgb, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
 
 DEF_HELPER_FLAGS_4(atomic_cmpxchgw_be, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
@@ -5796,6 +5802,10 @@ DEF_HELPER_FLAGS_4(atomic_cmpxchgw_le, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
 DEF_HELPER_FLAGS_4(atomic_cmpxchgl_be, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
 
 DEF_HELPER_FLAGS_4(atomic_cmpxchgl_le, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
+
+DEF_HELPER_FLAGS_4(atomic_cmpxchgq_be, TCG_CALL_NO_WG, i64, env, tl, i64, i64)
+
+DEF_HELPER_FLAGS_4(atomic_cmpxchgq_le, TCG_CALL_NO_WG, i64, env, tl, i64, i64)
 
 #define GEN_ATOMIC_HELPERS(NAME)                             \
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), b),         \
@@ -5807,7 +5817,11 @@ DEF_HELPER_FLAGS_4(atomic_cmpxchgl_le, TCG_CALL_NO_WG, i32, env, tl, i32, i32)
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), l_le),      \
                        TCG_CALL_NO_WG, i32, env, tl, i32)    \
     DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), l_be),      \
-                       TCG_CALL_NO_WG, i32, env, tl, i32)
+                       TCG_CALL_NO_WG, i32, env, tl, i32)    \
+    DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), q_le),      \
+                       TCG_CALL_NO_WG, i64, env, tl, i64)    \
+    DEF_HELPER_FLAGS_3(glue(glue(atomic_, NAME), q_be),      \
+                       TCG_CALL_NO_WG, i64, env, tl, i64)
 
 GEN_ATOMIC_HELPERS(fetch_add)
 
@@ -16910,9 +16924,13 @@ static void tcg_gen_ext_i64(TCGv_i64 ret, TCGv_i64 val, TCGMemOp opc)
 
 typedef void (*gen_atomic_cx_i32)(TCGv_i32, TCGv_env, TCGv, TCGv_i32, TCGv_i32);
 
+typedef void (*gen_atomic_cx_i64)(TCGv_i64, TCGv_env, TCGv, TCGv_i64, TCGv_i64);
+
 typedef void (*gen_atomic_op_i32)(TCGv_i32, TCGv_env, TCGv, TCGv_i32);
 
-# define WITH_ATOMIC64(X)
+# define WITH_ATOMIC64(X) X,
+
+typedef void (*gen_atomic_op_i64)(TCGv_i64, TCGv_env, TCGv, TCGv_i64);
 
 static void * const table_cmpxchg[16] = {
     [MO_8] = (void *)gen_helper_atomic_cmpxchgb,
@@ -16994,7 +17012,7 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_cx_i64 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i64)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -17133,7 +17151,7 @@ static void do_atomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_op_i64 gen;
 
-        gen = table[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_op_i64)table[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
