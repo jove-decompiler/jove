@@ -679,16 +679,29 @@ int InitStateForBinaries(void) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
         continue;
 
-      llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-          E.getSectionContents(&Sec);
-
-      if (!contents)
-        continue;
-
       llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
 
       if (!name)
         continue;
+
+#if 0
+      if (BIdx == BinaryIndex) {
+        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+            E.getSectionContents(&Sec);
+
+        if (Sec.sh_type == llvm::ELF::SHT_NOBITS)
+          WithColor::note()
+              << "Sec.sh_type == llvm::ELF::SHT_NOBITS for " << *name << '\n';
+
+        if (!contents) {
+          WithColor::note() << "!contents: for " << *name << '\n';
+        } else {
+          WithColor::note() << "contents: for " << *name
+                            << " contents->size()=" << contents->size() << ' '
+                            << "Sec.sh_size=" << Sec.sh_size << '\n';
+        }
+      }
+#endif
 
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
@@ -696,7 +709,15 @@ int InitStateForBinaries(void) {
 
       section_properties_t sectprop;
       sectprop.name = *name;
-      sectprop.contents = *contents;
+
+      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
+        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+            E.getSectionContents(&Sec);
+
+        sectprop.contents = *contents;
+      }
 
       sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
       sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
@@ -2465,7 +2486,7 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    uintptr_t Addr;
+    uintptr_t Addr = R.Addend;
 
     {
       auto it = SectIdxMap.find(R.Addr);
@@ -2473,7 +2494,8 @@ int CreateSectionGlobalVariables(void) {
       section_t &Sect = SectTable[(*it).second];
       unsigned Off = R.Addr - Sect.Addr;
 
-      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      if (Off + sizeof(uintptr_t) - 1 < Sect.Contents.size())
+        Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
     //llvm::outs() << "RELATIVE! " << (fmt("%#lx") % Addr).str() << '\n';
@@ -2786,7 +2808,7 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    uintptr_t Addr;
+    uintptr_t Addr = R.Addend;
 
     {
       auto it = SectIdxMap.find(R.Addr);
@@ -2794,7 +2816,8 @@ int CreateSectionGlobalVariables(void) {
       section_t &Sect = SectTable[(*it).second];
       unsigned Off = R.Addr - Sect.Addr;
 
-      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      if (Off + sizeof(uintptr_t) - 1 < Sect.Contents.size())
+        Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
     auto it = FuncMap.find(Addr);
@@ -2916,13 +2939,22 @@ int CreateSectionGlobalVariables(void) {
       auto it = Sect.Stuff.Constants.find(intvl.lower());
 
       llvm::Constant *C;
-      if (it == Sect.Stuff.Constants.end())
-        C = llvm::ConstantDataArray::get(
-            *Context,
-            llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
-                                    Sect.Contents.begin() + intvl.upper()));
-      else
+      if (it == Sect.Stuff.Constants.end()) {
+        ptrdiff_t len = intvl.upper() - intvl.lower();
+        assert(len > 0);
+
+        if (Sect.Contents.size() >= len) {
+          C = llvm::ConstantDataArray::get(
+              *Context,
+              llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
+                                      Sect.Contents.begin() + intvl.upper()));
+        } else {
+          C = llvm::Constant::getNullValue(
+              llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
+        }
+      } else {
         C = (*it).second;
+      }
 
       SectFieldInits.push_back(C);
     }
