@@ -3733,114 +3733,106 @@ int FixupFSBaseAddrs(void) {
   if (!FSBaseGlobal)
     return 0;
 
+  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+
+  llvm::InlineAsm *IA;
+  {
+    std::vector<llvm::Type *> AsmArgTypes;
+    std::vector<llvm::Value *> AsmArgs;
+
+    llvm::FunctionType *AsmFTy =
+        llvm::FunctionType::get(WordType(), AsmArgTypes, false);
+
+    llvm::StringRef AsmText("movq \%fs:0x0,$0");
+    llvm::StringRef Constraints("=r,~{dirflag},~{fpsr},~{flags}");
+
+    IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
+                              false /* hasSideEffects */);
+  }
+
   llvm::GlobalVariable *ZeroGV = new llvm::GlobalVariable(
       *Module, WordType(), true, llvm::GlobalValue::InternalLinkage,
       llvm::Constant::getNullValue(WordType()));
   llvm::GlobalVariable *ZeroPGV = new llvm::GlobalVariable(
       *Module, PointerType(), true, llvm::GlobalValue::InternalLinkage, ZeroGV);
-  llvm::GlobalVariable *ZeroPPGV = new llvm::GlobalVariable(
-    *Module, PPointerType(), true, llvm::GlobalValue::InternalLinkage, ZeroPGV);
+  llvm::GlobalVariable *ZeroPPGV =
+      new llvm::GlobalVariable(*Module, PPointerType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroPGV);
 
-  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+  auto build_fsbase_expression =
+      [&](llvm::Instruction *Inst) -> llvm::CallInst * {
+    llvm::IRBuilderTy IRB(Inst);
+    return IRB.CreateCall(IA);
+  };
 
-  using namespace llvm::PatternMatch;
+  auto handle_load_of_fsbase = [&](llvm::LoadInst *L) -> void {
+    for (llvm::User *U : L->users()) {
+      assert(llvm::isa<llvm::Instruction>(U));
+      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
 
-  for (llvm::User *U : FSBaseGlobal->users()) {
-    //   %fs_base87 = load i64*, i64** bitcast (i64* @__jove_fs_base to i64**),
-    //   align 8
-#if 0
-    llvm::Value *
-    if (match(U,
-#endif
+      switch (Inst->getOpcode()) {
+      case llvm::Instruction::Add: {
+        llvm::Value *LHS = Inst->getOperand(0);
+        llvm::Value *RHS = Inst->getOperand(1);
 
-    if (llvm::isa<llvm::LoadInst>(U)) {
-      llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-      for (llvm::User *_U : L->users()) {
-        assert(llvm::isa<llvm::Instruction>(_U));
-        llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
-
-        switch (Inst->getOpcode()) {
-        case llvm::Instruction::Add: {
-          llvm::Value *LHS = Inst->getOperand(0);
-          llvm::Value *RHS = Inst->getOperand(1);
-
-          //
-          // is one of the operands a constant int?
-          //
-          if (!llvm::isa<llvm::ConstantInt>(LHS) &&
-              !llvm::isa<llvm::ConstantInt>(RHS))
-            break;
-
-          if (llvm::isa<llvm::ConstantInt>(LHS) &&
-              llvm::isa<llvm::ConstantInt>(RHS))
-            break;
-
-          llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
-                                      ? llvm::cast<llvm::ConstantInt>(LHS)
-                                      : llvm::cast<llvm::ConstantInt>(RHS);
-
-          auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
-          if (it == TLSValueToSymbolMap.end()) {
-            WithColor::warning() << "unable to find TLS symbol for offset "
-                                 << CI->getZExtValue() << '\n';
-            continue;
-          }
-
-          llvm::GlobalVariable *GV =
-              Module->getGlobalVariable((*it).second, true);
-          assert(GV);
-
-          ToReplace.push_back(
-              {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
-
-          continue;
-        }
-
-        default:
+        //
+        // is one of the operands a constant int?
+        //
+        if (!llvm::isa<llvm::ConstantInt>(LHS) &&
+            !llvm::isa<llvm::ConstantInt>(RHS))
           break;
-        }
 
+        if (llvm::isa<llvm::ConstantInt>(LHS) &&
+            llvm::isa<llvm::ConstantInt>(RHS))
+          break;
 
-#if 0
-        WithColor::warning()
-            << "Instruction user of load(FSBaseGlobal)" << *_U << '\n';
-        for (llvm::Value *OpV : Inst->operands())
-          WithColor::warning() << "  " << *OpV << '\n';
-#endif
-       }
+        llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
+                                    ? llvm::cast<llvm::ConstantInt>(LHS)
+                                    : llvm::cast<llvm::ConstantInt>(RHS);
 
-       ToReplace.push_back({L, llvm::Constant::getNullValue(WordType())});
-    } else if (llvm::isa<llvm::ConstantExpr>(U)) {
-      llvm::ConstantExpr *CE = llvm::cast<llvm::ConstantExpr>(U);
-
-      if (CE->isCast()) {
-        llvm::Type *intpp =
-            llvm::PointerType::get(llvm::PointerType::get(WordType(), 0), 0);
-
-        if (CE->getType() == PPointerType()) {
-          assert(ZeroPGV->getType() == PPointerType());
-          ToReplace.push_back({U, ZeroPGV});
-
-#if 0
-          WithColor::note() << "intpp user of FSBaseGlobal " << *U << '\n';
-#endif
+        auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
+        if (it == TLSValueToSymbolMap.end()) {
+          WithColor::warning() << "unable to find TLS symbol for offset "
+                               << CI->getZExtValue() << '\n';
           continue;
         }
 
-#if 0
-        WithColor::warning() << "cast user of FSBaseGlobal " << *U << '\n';
-#endif
+        llvm::GlobalVariable *GV =
+            Module->getGlobalVariable((*it).second, true);
+        assert(GV);
+
+        ToReplace.push_back(
+            {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
+
         continue;
-      } else {
       }
 
-      WithColor::warning() << "ConstantExpr user of FSBaseGlobal " << *U << '\n';
+      default:
+        break;
+      }
+    }
+
+    ToReplace.push_back({L, build_fsbase_expression(L)});
+  };
+
+  for (llvm::User *U : FSBaseGlobal->users()) {
+    if (llvm::isa<llvm::LoadInst>(U)) {
+      llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
+      handle_load_of_fsbase(L);
     } else {
-      WithColor::warning() << "unknown user of FSBaseGlobal " << *U << '\n';
+      if (U->getType() == ZeroGV->getType())
+        ToReplace.push_back({U, ZeroGV});
+      else if (U->getType() == ZeroPGV->getType())
+        ToReplace.push_back({U, ZeroPGV});
+      else if (U->getType() == ZeroPPGV->getType())
+        ToReplace.push_back({U, ZeroPPGV});
+      else
+        WithColor::warning()
+            << "FixupFSBaseAddrs: unknown user [" << *U << "]\n";
     }
   }
 
-  for (auto &TR : boost::adaptors::reverse(ToReplace)) {
+  for (auto &TR : ToReplace) {
     llvm::Value *I;
     llvm::Value *V;
     std::tie(I, V) = TR;
