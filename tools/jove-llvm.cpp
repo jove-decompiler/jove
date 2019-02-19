@@ -684,25 +684,6 @@ int InitStateForBinaries(void) {
       if (!name)
         continue;
 
-#if 0
-      if (BIdx == BinaryIndex) {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS)
-          WithColor::note()
-              << "Sec.sh_type == llvm::ELF::SHT_NOBITS for " << *name << '\n';
-
-        if (!contents) {
-          WithColor::note() << "!contents: for " << *name << '\n';
-        } else {
-          WithColor::note() << "contents: for " << *name
-                            << " contents->size()=" << contents->size() << ' '
-                            << "Sec.sh_size=" << Sec.sh_size << '\n';
-        }
-      }
-#endif
-
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
