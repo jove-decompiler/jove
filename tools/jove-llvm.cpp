@@ -3521,6 +3521,7 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
                         << '\n';
 
       llvm::Constant *res = *(*it).second.begin();
+      assert(res);
       res = llvm::ConstantExpr::getPtrToInt(res, WordType());
 
       if (off)
@@ -3759,11 +3760,13 @@ int FixupFSBaseAddrs(void) {
       new llvm::GlobalVariable(*Module, PPointerType(), true,
                                llvm::GlobalValue::InternalLinkage, ZeroPGV);
 
+#if 0
   auto build_fsbase_expression =
       [&](llvm::Instruction *Inst) -> llvm::CallInst * {
     llvm::IRBuilderTy IRB(Inst);
     return IRB.CreateCall(IA);
   };
+#endif
 
   auto handle_load_of_fsbase = [&](llvm::LoadInst *L) -> void {
     for (llvm::User *U : L->users()) {
@@ -3794,17 +3797,19 @@ int FixupFSBaseAddrs(void) {
         if (it == TLSValueToSymbolMap.end()) {
           WithColor::warning() << "unable to find TLS symbol for offset "
                                << CI->getZExtValue() << '\n';
-          continue;
+
+          llvm::IRBuilderTy IRB(Inst);
+          ToReplace.push_back({Inst, IRB.CreateAdd(IRB.CreateCall(IA), CI)});
+        } else {
+          llvm::GlobalVariable *GV =
+              Module->getGlobalVariable((*it).second, true);
+          assert(GV);
+
+          ToReplace.push_back(
+              {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
         }
 
-        llvm::GlobalVariable *GV =
-            Module->getGlobalVariable((*it).second, true);
-        assert(GV);
-
-        ToReplace.push_back(
-            {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
-
-        continue;
+        break;
       }
 
       default:
@@ -3812,7 +3817,12 @@ int FixupFSBaseAddrs(void) {
       }
     }
 
+#if 0
     ToReplace.push_back({L, build_fsbase_expression(L)});
+#elif 0
+    llvm::IRBuilderTy IRB(*Context);
+    ToReplace.push_back({L, IRB.getInt64(0)});
+#endif
   };
 
   for (llvm::User *U : FSBaseGlobal->users()) {
@@ -3827,9 +3837,19 @@ int FixupFSBaseAddrs(void) {
       else if (U->getType() == ZeroPPGV->getType())
         ToReplace.push_back({U, ZeroPPGV});
       else
-        WithColor::warning()
-            << "FixupFSBaseAddrs: unknown user [" << *U << "]\n";
+        abort();
     }
+  }
+
+  if (FSBaseGlobal) {
+    if (FSBaseGlobal->getType() == ZeroGV->getType())
+      ToReplace.push_back({FSBaseGlobal, ZeroGV});
+    else if (FSBaseGlobal->getType() == ZeroPGV->getType())
+      ToReplace.push_back({FSBaseGlobal, ZeroPGV});
+    else if (FSBaseGlobal->getType() == ZeroPPGV->getType())
+      ToReplace.push_back({FSBaseGlobal, ZeroPPGV});
+    else
+      abort();
   }
 
   for (auto &TR : ToReplace) {
@@ -4211,6 +4231,7 @@ int TranslateBasicBlock(binary_t &Binary,
                         basic_block_t bb,
                         llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
+  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
 
   const uintptr_t Addr = ICFG[bb].Addr;
   const unsigned Size = ICFG[bb].Size;
@@ -4607,25 +4628,88 @@ int TranslateBasicBlock(binary_t &Binary,
     // else if pc == target_n ; goto target_n
     // else                   ; trap
     //
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    for (auto it = eit_pair.first; it != eit_pair.second; ++it) {
-      basic_block_t succ = boost::target(*it, ICFG);
+    if (boost::out_degree(bb, ICFG) > 0) {
+      auto eit_pair = boost::out_edges(bb, ICFG);
 
-      llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-      llvm::Value *EQV = IRB.CreateICmpEQ(
-          PC, llvm::ConstantExpr::getPtrToInt(SectionPointer(ICFG[succ].Addr),
-                                              WordType()));
+      if (boost::out_degree(bb, ICFG) == 1 &&
+          FuncMap.find(ICFG[boost::target(*eit_pair.first, ICFG)].Addr) !=
+              FuncMap.end()) {
+        //
+        // call it like a function
+        //
+        binary_index_t BIdx = BinaryIndex;
+        function_index_t FIdx =
+            (*FuncMap.find(ICFG[boost::target(*eit_pair.first, ICFG)].Addr))
+                .second;
 
-      llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
+        auto &Binary = Decompilation.Binaries[BIdx];
+        function_t &callee = Binary.Analysis.Functions[FIdx];
 
-      IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
-      IRB.SetInsertPoint(NextB);
-    }
+        std::vector<llvm::Value *> ArgVec;
+        {
+          std::vector<unsigned> glbv;
+          ExplodeFunctionArgs(callee, glbv);
 
-    // does the indirect jump have dynamic targets within the current function?
-    if (eit_pair.first != eit_pair.second) {
-      IRB.CreateCall(
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+          ArgVec.resize(glbv.size());
+          std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
+                         [&](unsigned glb) -> llvm::Value * {
+                           llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+
+                           if (!Ptr)
+                             Ptr = CPUStateGlobalPointer(glb);
+
+                           return IRB.CreateLoad(Ptr);
+                         });
+        }
+
+        llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+        llvm::CallInst *Ret = IRB.CreateCall(
+            IRB.CreateIntToPtr(
+                PC, llvm::PointerType::get(DetermineFunctionType(callee), 0)),
+            ArgVec);
+        Ret->setIsNoInline();
+
+        if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+          std::vector<unsigned> glbv;
+          ExplodeFunctionRets(callee, glbv);
+
+          if (glbv.size() == 1) {
+            assert(
+                DetermineFunctionType(callee)->getReturnType()->isIntegerTy());
+            if (f.GlobalAllocaVec[glbv.front()])
+              IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+          } else {
+            for (unsigned i = 0; i < glbv.size(); ++i) {
+              llvm::Value *Val =
+                  IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+
+              llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
+              if (!Ptr)
+                Ptr = CPUStateGlobalPointer(glbv[i]);
+
+              IRB.CreateStore(Val, Ptr);
+            }
+          }
+        }
+      } else {
+        auto it = eit_pair.first;
+        do {
+          basic_block_t succ = boost::target(*it, ICFG);
+
+          llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+          llvm::Value *EQV =
+              IRB.CreateICmpEQ(PC, ConstantForAddress(ICFG[succ].Addr));
+
+          llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
+
+          IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
+          IRB.SetInsertPoint(NextB);
+        } while (++it != eit_pair.second);
+
+        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
+                                                       llvm::Intrinsic::trap));
+      }
+
       break; /* otherwise fallthrough */
     }
   }
