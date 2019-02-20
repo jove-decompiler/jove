@@ -1095,6 +1095,14 @@ int ProcessDynamicSymbols(void) {
                   : llvm::GlobalValue::NotThreadLocal);
 
           if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
+            if (AddressSpaceObjects.find(Sym.st_value) !=
+                   AddressSpaceObjects.end()) {
+              WithColor::error()
+                  << "overlapping address space object " << SymName << " @ "
+                  << (fmt("%#lx") % Sym.st_value).str() << '\n';
+              continue;
+            }
+
             boost::icl::interval<uintptr_t>::type intervl =
                 boost::icl::interval<uintptr_t>::right_open(
                     Sym.st_value, Sym.st_value + Sym.st_size);
@@ -1107,7 +1115,7 @@ int ProcessDynamicSymbols(void) {
         {
           auto it = st.FuncMap.find(Sym.st_value);
           if (it == st.FuncMap.end()) {
-            WithColor::warning()
+            WithColor::error()
                 << "no function for symbol " << SymName << " found\n";
             continue;
           }
