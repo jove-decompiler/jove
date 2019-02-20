@@ -2134,12 +2134,12 @@ static llvm::Type *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
 
-static llvm::Type *PointerType(void) {
+static llvm::Type *PointerToWordType(void) {
   return llvm::PointerType::get(WordType(), 0);
 }
 
 static llvm::Type *PPointerType(void) {
-  return llvm::PointerType::get(PointerType(), 0);
+  return llvm::PointerType::get(PointerToWordType(), 0);
 }
 
 static unsigned WordBits(void) {
@@ -2890,9 +2890,23 @@ int CreateSectionGlobalVariables(void) {
 
   // puncture the interval set for each section by intervals which represent
   // relocations
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Constant *C = constant_of_relocation(R))
+  for (const relocation_t &R : RelocationTable) {
+    if (llvm::Constant *C = constant_of_relocation(R)) {
       constant_at_address(R.Addr, C);
+
+      auto it = AddressSpaceObjects.find(R.Addr);
+      if (it != AddressSpaceObjects.end()) {
+        const auto &intvl = (*it).first;
+        llvm::GlobalVariable *GV = *(*it).second.begin();
+
+        if (intvl.lower() == R.Addr && GV->getType() == PointerToWordType()) {
+          llvm::outs() << "!!!GlobalVariable = " << *GV << '\n'
+                       << "!!!Constant = " << *C << '\n';
+          GV->setInitializer(llvm::ConstantExpr::getPtrToInt(C, WordType()));
+        }
+      }
+    }
+  }
 
   //
   // create global variable initializer for sections
@@ -3751,11 +3765,13 @@ int FixupFSBaseAddrs(void) {
                               false /* hasSideEffects */);
   }
 
-  llvm::GlobalVariable *ZeroGV = new llvm::GlobalVariable(
-      *Module, WordType(), true, llvm::GlobalValue::InternalLinkage,
-      llvm::Constant::getNullValue(WordType()));
-  llvm::GlobalVariable *ZeroPGV = new llvm::GlobalVariable(
-      *Module, PointerType(), true, llvm::GlobalValue::InternalLinkage, ZeroGV);
+  llvm::GlobalVariable *ZeroGV =
+      new llvm::GlobalVariable(*Module, WordType(), true,
+                               llvm::GlobalValue::InternalLinkage,
+                               llvm::Constant::getNullValue(WordType()));
+  llvm::GlobalVariable *ZeroPGV =
+      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroGV);
   llvm::GlobalVariable *ZeroPPGV =
       new llvm::GlobalVariable(*Module, PPointerType(), true,
                                llvm::GlobalValue::InternalLinkage, ZeroPGV);
