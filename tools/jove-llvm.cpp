@@ -1095,17 +1095,17 @@ int ProcessDynamicSymbols(void) {
                   : llvm::GlobalValue::NotThreadLocal);
 
           if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
-            if (AddressSpaceObjects.find(Sym.st_value) !=
-                   AddressSpaceObjects.end()) {
+            boost::icl::interval<uintptr_t>::type intervl =
+                boost::icl::interval<uintptr_t>::right_open(
+                    Sym.st_value, Sym.st_value + Sym.st_size);
+
+            if (AddressSpaceObjects.find(intervl) !=
+                AddressSpaceObjects.end()) {
               WithColor::error()
                   << "overlapping address space object " << SymName << " @ "
                   << (fmt("%#lx") % Sym.st_value).str() << '\n';
               continue;
             }
-
-            boost::icl::interval<uintptr_t>::type intervl =
-                boost::icl::interval<uintptr_t>::right_open(
-                    Sym.st_value, Sym.st_value + Sym.st_size);
 
             AddressSpaceObjects.insert({intervl, {GV}});
           }
