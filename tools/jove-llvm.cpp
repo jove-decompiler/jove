@@ -427,8 +427,7 @@ static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
 static std::unordered_map<uintptr_t, std::string> TLSValueToSymbolMap;
 
-static boost::icl::split_interval_map<uintptr_t,
-                                      std::set<llvm::GlobalVariable *>>
+static boost::icl::split_interval_map<uintptr_t, std::set<llvm::StringRef>>
     AddressSpaceObjects;
 
 //
@@ -1087,14 +1086,13 @@ int ProcessDynamicSymbols(void) {
                                      Sym.st_size);
           }
 
-          GV = new llvm::GlobalVariable(
-              *Module, T, false, llvm::GlobalValue::ExternalLinkage,
-              llvm::Constant::getNullValue(T), SymName, nullptr,
-              Sym.getType() == llvm::ELF::STT_TLS
-                  ? llvm::GlobalValue::GeneralDynamicTLSModel
-                  : llvm::GlobalValue::NotThreadLocal);
-
-          if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
+          if (Sym.getType() == llvm::ELF::STT_TLS) {
+            // XXX TODO TLS variable constructors
+            new llvm::GlobalVariable(
+                *Module, T, false, llvm::GlobalValue::ExternalLinkage,
+                llvm::Constant::getNullValue(T), SymName, nullptr,
+                llvm::GlobalValue::GeneralDynamicTLSModel);
+          } else if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
             boost::icl::interval<uintptr_t>::type intervl =
                 boost::icl::interval<uintptr_t>::right_open(
                     Sym.st_value, Sym.st_value + Sym.st_size);
@@ -1107,7 +1105,7 @@ int ProcessDynamicSymbols(void) {
               continue;
             }
 
-            AddressSpaceObjects.insert({intervl, {GV}});
+            AddressSpaceObjects.insert({intervl, {SymName}});
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
@@ -2302,7 +2300,10 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
                                                       : SectsGlobal;
 
-  assert(SectsGV);
+  if (!SectsGV) {
+    WithColor::warning() << "SectionPointer: !SectsGV\n";
+    return nullptr;
+  }
 
   unsigned off = Addr - SectsStartAddr;
 
@@ -2324,6 +2325,9 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 }
 
 int CreateSectionGlobalVariables(void) {
+  ConstSectsGlobal = nullptr;
+  SectsGlobal = nullptr;
+
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
   const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
@@ -2468,9 +2472,8 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
-    assert(GV);
-    return GV->getType();
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
+    return GV ? GV->getType() : nullptr;
   };
 
   auto type_of_relative_relocation =
@@ -2565,68 +2568,6 @@ int CreateSectionGlobalVariables(void) {
     // XXX TODO
     return nullptr;
   };
-
-  // puncture the interval set for each section by intervals which represent
-  // relocations
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Type *Ty = type_of_relocation(R))
-      type_at_address(R.Addr, Ty);
-
-  //
-  // create global variable for sections
-  //
-  std::vector<llvm::Type *> SectsGlobalFieldTys;
-  for (unsigned i = 0; i < NumSections; ++i) {
-    section_t &Sect = SectTable[i];
-
-    //
-    // check if there's space between the start of this section and the previous
-    //
-    if (i > 0) {
-      section_t &PrevSect = SectTable[i - 1];
-      ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-      if (space > 0) {
-        // zero padding between sections
-        SectsGlobalFieldTys.push_back(
-            llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
-      }
-    }
-
-    std::vector<llvm::Type *> SectFieldTys;
-
-    for (const auto &intvl : Sect.Stuff.Intervals) {
-      auto it = Sect.Stuff.Types.find(intvl.lower());
-
-      llvm::Type *T;
-      if (it == Sect.Stuff.Types.end())
-        T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
-                                 intvl.upper() - intvl.lower());
-      else
-        T = (*it).second;
-
-      SectFieldTys.push_back(T);
-    }
-
-    std::string SectNm = Sect.Name;
-    SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'), SectNm.end());
-
-    SectTable[i].T = llvm::StructType::create(*Context, SectFieldTys,
-                                              "section." + SectNm, true);
-
-    SectsGlobalFieldTys.push_back(SectTable[i].T);
-  }
-
-  llvm::StructType *SectsGlobalTy = llvm::StructType::create(
-      *Context, SectsGlobalFieldTys, "struct.sections", true);
-  SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                                         llvm::GlobalValue::ExternalLinkage,
-                                         nullptr, "sections");
-  SectsGlobal->setAlignment(4096);
-
-  ConstSectsGlobal = new llvm::GlobalVariable(
-      *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
-      nullptr, "const_sections");
-  ConstSectsGlobal->setAlignment(4096);
 
   auto constant_at_address = [&](uintptr_t Addr, llvm::Constant *C) -> void {
     auto it = SectIdxMap.find(Addr);
@@ -2790,9 +2731,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
-    assert(GV);
-    return GV;
+    return Module->getGlobalVariable(S.Name);
   };
 
   auto constant_of_relative_relocation =
@@ -2811,9 +2750,12 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
+      llvm::Constant *C = SectionPointer(Addr);
+      if (!C)
+        return nullptr;
+
       return llvm::ConstantExpr::getPointerCast(
-          SectionPointer(Addr),
-          llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
+          C, llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
     } else {
       binary_t &Binary = Decompilation.Binaries[BinaryIndex];
       return Binary.Analysis.Functions[(*it).second].F;
@@ -2896,13 +2838,267 @@ int CreateSectionGlobalVariables(void) {
     return nullptr;
   };
 
-  // puncture the interval set for each section by intervals which represent
-  // relocations
-  for (const relocation_t &R : RelocationTable) {
-    if (llvm::Constant *C = constant_of_relocation(R)) {
+  llvm::StructType *SectsGlobalTy;
+
+  auto create_sections = [&](void) -> void {
+    //
+    // create global variable for sections
+    //
+    std::vector<llvm::Type *> SectsGlobalFieldTys;
+    for (unsigned i = 0; i < NumSections; ++i) {
+      section_t &Sect = SectTable[i];
+
+      //
+      // check if there's space between the start of this section and the
+      // previous
+      //
+      if (i > 0) {
+        section_t &PrevSect = SectTable[i - 1];
+        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
+        if (space > 0) {
+          // zero padding between sections
+          SectsGlobalFieldTys.push_back(
+              llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space));
+        }
+      }
+
+      std::vector<llvm::Type *> SectFieldTys;
+
+      for (const auto &intvl : Sect.Stuff.Intervals) {
+        auto it = Sect.Stuff.Types.find(intvl.lower());
+
+        llvm::Type *T;
+        if (it == Sect.Stuff.Types.end())
+          T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
+                                   intvl.upper() - intvl.lower());
+        else
+          T = (*it).second;
+
+        SectFieldTys.push_back(T);
+      }
+
+      std::string SectNm = Sect.Name;
+      SectNm.erase(std::remove(SectNm.begin(), SectNm.end(), '.'),
+                   SectNm.end());
+
+      SectTable[i].T = llvm::StructType::create(
+          *Context, SectFieldTys, "section." + SectNm, true /* isPacked */);
+
+      SectsGlobalFieldTys.push_back(SectTable[i].T);
+    }
+
+    SectsGlobalTy = llvm::StructType::create(*Context, SectsGlobalFieldTys,
+                                             "struct.sections", true);
+    SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
+                                           llvm::GlobalValue::ExternalLinkage,
+                                           nullptr, "sections");
+    SectsGlobal->setAlignment(4096);
+
+    ConstSectsGlobal = new llvm::GlobalVariable(
+        *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
+        nullptr, "const_sections");
+    ConstSectsGlobal->setAlignment(4096);
+  };
+
+  auto create_global_variable =
+      [&](boost::icl::interval<uintptr_t>::type intvl,
+          llvm::StringRef SymName) -> llvm::GlobalVariable * {
+    if (llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName))
+      return GV;
+
+    uintptr_t Addr = intvl.lower();
+    ptrdiff_t Size = intvl.upper() - intvl.lower();
+
+    auto it = SectIdxMap.find(Addr);
+    assert(it != SectIdxMap.end());
+    section_t &Sect = SectTable[(*it).second];
+    unsigned Off = Addr - Sect.Addr;
+
+    auto is_integral_size = [](unsigned n) -> bool {
+      switch (n) {
+      case 1:
+        return true;
+      case 2:
+        return true;
+      case 4:
+        return true;
+      case 8:
+        return true;
+      default:
+        return false;
+      }
+    };
+
+    if (is_integral_size(Size)) {
+      llvm::Type *T = llvm::Type::getIntNTy(*Context, Size * 8);
+      llvm::Constant *Initializer;
+
+      if (Sect.Contents.size() >= Size) {
+        uint64_t X;
+
+        const unsigned char *p = Sect.Contents.begin() + Off;
+        switch (Size) {
+        case 1:
+          X = *reinterpret_cast<const int8_t *>(p);
+          break;
+        case 2:
+          X = *reinterpret_cast<const int16_t *>(p);
+          break;
+        case 4:
+          X = *reinterpret_cast<const int32_t *>(p);
+          break;
+        case 8:
+          X = *reinterpret_cast<const int64_t *>(p);
+          break;
+        default:
+          __builtin_unreachable();
+        }
+        Initializer = llvm::ConstantInt::get(T, X);
+      } else {
+        Initializer = llvm::ConstantInt::get(T, 0);
+      }
+
+      return new llvm::GlobalVariable(*Module, T, false,
+                                      llvm::GlobalValue::ExternalLinkage,
+                                      Initializer, SymName);
+    }
+
+    llvm::outs() << SymName << " [" << Off << ", " << Off + Size << ")\n";
+
+    std::vector<llvm::Type *> GVFieldTys;
+    std::vector<llvm::Constant *> GVFieldInits;
+
+    for (const auto &_intvl : Sect.Stuff.Intervals) {
+      uintptr_t lower = _intvl.lower();
+      uintptr_t upper = _intvl.upper();
+
+      if (upper <= Off)
+        continue;
+
+      if (lower >= Off + Size)
+        break;
+
+      if (lower < Off)
+        lower = Off;
+      if (upper > Off + Size)
+        upper = Off + Size;
+
+      ptrdiff_t len = upper - lower;
+
+      auto typeit = Sect.Stuff.Types.find(lower);
+      auto constit = Sect.Stuff.Constants.find(lower);
+
+      llvm::Type *T;
+      llvm::Constant *C;
+
+      if (typeit == Sect.Stuff.Types.end() ||
+          constit == Sect.Stuff.Constants.end()) {
+        T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), len);
+        if (Sect.Contents.size() >= len) {
+          C = llvm::ConstantDataArray::get(
+              *Context, llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + lower,
+                                                Sect.Contents.begin() + upper));
+        } else {
+          C = llvm::Constant::getNullValue(T);
+        }
+      } else {
+        assert(constit != Sect.Stuff.Constants.end());
+
+        T = (*typeit).second;
+        C = (*constit).second;
+      }
+
+      llvm::outs() << '[' << lower << ", " << upper << ')' << ' ' << *T << '\n';
+
+      GVFieldTys.push_back(T);
+      GVFieldInits.push_back(C);
+    }
+
+    llvm::outs() << "create_global_variable" << '\n'
+                 << "  SymName=" << SymName << '\n'
+                 << "  GVFieldTys.size()=" << GVFieldTys.size() << '\n'
+                 << "  GVFieldInits.size()=" << GVFieldInits.size() << '\n';
+
+    llvm::StructType *ST = llvm::StructType::create(
+        *Context, GVFieldTys, "struct." + SymName.str(), true /* isPacked */);
+
+    return new llvm::GlobalVariable(
+        *Module, ST, false, llvm::GlobalValue::ExternalLinkage,
+        llvm::ConstantStruct::get(ST, GVFieldInits), SymName);
+  };
+
+  auto create_global_variables = [&](void) -> void {
+    for (const auto &pair : AddressSpaceObjects) {
+      llvm::StringRef SymName = *pair.second.begin();
+      const boost::icl::interval<uintptr_t>::type &intervl = pair.first;
+
+      create_global_variable(intervl, SymName);
+    }
+  };
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Type *T = type_of_relocation(R))
+      type_at_address(R.Addr, T);
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Constant *C = constant_of_relocation(R))
       constant_at_address(R.Addr, C);
+
+  create_global_variables();
+
+  {
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      section_t &Sect = SectTable[i];
+
+      Sect.Stuff.Constants.clear();
+      Sect.Stuff.Types.clear();
+      Sect.Stuff.Intervals.clear();
+
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+
+      ++i;
     }
   }
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Type *T = type_of_relocation(R))
+      type_at_address(R.Addr, T);
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Constant *C = constant_of_relocation(R))
+      constant_at_address(R.Addr, C);
+
+  create_global_variables();
+
+  {
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      section_t &Sect = SectTable[i];
+
+      Sect.Stuff.Constants.clear();
+      Sect.Stuff.Types.clear();
+      Sect.Stuff.Intervals.clear();
+
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+
+      ++i;
+    }
+  }
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Type *T = type_of_relocation(R))
+      type_at_address(R.Addr, T);
+
+  create_sections();
+
+  for (const relocation_t &R : RelocationTable)
+    if (llvm::Constant *C = constant_of_relocation(R))
+      constant_at_address(R.Addr, C);
+
+  create_global_variables();
 
   //
   // create global variable initializer for sections
@@ -2970,25 +3166,6 @@ int CreateSectionGlobalVariables(void) {
 
     RelocationsAt.insert(R.Addr);
   }
-
-#if 0
-  //
-  // for each global variable, determine its initializer
-  //
-  auto it = AddressSpaceObjects.find(R.Addr);
-  if (it != AddressSpaceObjects.end()) {
-    const auto &intvl = (*it).first;
-    llvm::GlobalVariable *GV = *(*it).second.begin();
-
-    llvm::outs() << "relocation lies in " << *GV << '\n';
-
-    if (intvl.lower() == R.Addr && GV->getType() == PointerToWordType()) {
-      llvm::outs() << "!!!GlobalVariable = " << *GV << '\n'
-                   << "!!!Constant = " << *C << '\n';
-      GV->setInitializer(llvm::ConstantExpr::getPtrToInt(C, WordType()));
-    }
-  }
-#endif
 
   return 0;
 }
@@ -3549,8 +3726,14 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
       WithColor::note() << (fmt("addrspace obj @ %#lx (%u)") % Addr % off).str()
                         << '\n';
 
-      llvm::Constant *res = *(*it).second.begin();
-      assert(res);
+      llvm::StringRef SymName = *(*it).second.begin();
+      llvm::Constant *res = Module->getGlobalVariable(SymName);
+      if (!res) {
+        WithColor::error() << "ConstantForAddress: no global variable for "
+                           << SymName << '\n';
+        abort();
+      }
+
       res = llvm::ConstantExpr::getPtrToInt(res, WordType());
 
       if (off)
@@ -3565,6 +3748,9 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
   llvm::Constant *res = it == st.FuncMap.end()
                             ? SectionPointer(Addr)
                             : Binary.Analysis.Functions[(*it).second].F;
+
+  if (!res)
+    return nullptr;
 
   res = llvm::ConstantExpr::getPtrToInt(res, WordType());
 
