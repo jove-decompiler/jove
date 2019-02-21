@@ -2901,18 +2901,6 @@ int CreateSectionGlobalVariables(void) {
   for (const relocation_t &R : RelocationTable) {
     if (llvm::Constant *C = constant_of_relocation(R)) {
       constant_at_address(R.Addr, C);
-
-      auto it = AddressSpaceObjects.find(R.Addr);
-      if (it != AddressSpaceObjects.end()) {
-        const auto &intvl = (*it).first;
-        llvm::GlobalVariable *GV = *(*it).second.begin();
-
-        if (intvl.lower() == R.Addr && GV->getType() == PointerToWordType()) {
-          llvm::outs() << "!!!GlobalVariable = " << *GV << '\n'
-                       << "!!!Constant = " << *C << '\n';
-          GV->setInitializer(llvm::ConstantExpr::getPtrToInt(C, WordType()));
-        }
-      }
     }
   }
 
@@ -2982,6 +2970,25 @@ int CreateSectionGlobalVariables(void) {
 
     RelocationsAt.insert(R.Addr);
   }
+
+#if 0
+  //
+  // for each global variable, determine its initializer
+  //
+  auto it = AddressSpaceObjects.find(R.Addr);
+  if (it != AddressSpaceObjects.end()) {
+    const auto &intvl = (*it).first;
+    llvm::GlobalVariable *GV = *(*it).second.begin();
+
+    llvm::outs() << "relocation lies in " << *GV << '\n';
+
+    if (intvl.lower() == R.Addr && GV->getType() == PointerToWordType()) {
+      llvm::outs() << "!!!GlobalVariable = " << *GV << '\n'
+                   << "!!!Constant = " << *C << '\n';
+      GV->setInitializer(llvm::ConstantExpr::getPtrToInt(C, WordType()));
+    }
+  }
+#endif
 
   return 0;
 }
