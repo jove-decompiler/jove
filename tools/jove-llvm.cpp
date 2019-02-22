@@ -3494,18 +3494,24 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
+#if 0
   llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagDefinition |
                                           llvm::DISubprogram::SPFlagOptimized;
+#endif
+
 #if 0
     if (F.hasPrivateLinkage() || F.hasInternalLinkage())
       SPFlags |= DISubprogram::SPFlagLocalToUnit;
 #endif
 
+  bool isLocalToUnit = F->hasPrivateLinkage() || F->hasInternalLinkage();
+
   f.DebugInformation.Subprogram = DIB.createFunction(
       DebugInformation.CompileUnit, F->getName(), F->getName(),
       DebugInformation.File, 1234,
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)),
-      ICFG[entry_bb].Addr, llvm::DINode::FlagZero, SPFlags);
+      isLocalToUnit, true, ICFG[entry_bb].Addr);
+
   F->setSubprogram(f.DebugInformation.Subprogram);
 
   //

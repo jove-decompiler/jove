@@ -79,7 +79,12 @@ static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 static const char *compiler_runtime_afp =
-    "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a";
+#if 0
+    "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a"
+#else
+    "/usr/lib/clang/7.1.0/lib/linux/libclang_rt.builtins-x86_64.a"
+#endif
+    ;
 
 static int await_process_completion(pid_t);
 
