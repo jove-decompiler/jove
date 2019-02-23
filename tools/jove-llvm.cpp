@@ -425,10 +425,17 @@ struct helper_function_t {
 static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
-static std::unordered_map<uintptr_t, std::string> TLSValueToSymbolMap;
+static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
+    TLSValueToSymbolMap;
+static std::unordered_map<uintptr_t, unsigned>
+    TLSValueToSizeMap;
 
-static boost::icl::split_interval_map<uintptr_t, std::set<llvm::StringRef>>
-    AddressSpaceObjects;
+static boost::icl::split_interval_set<uintptr_t> AddressSpaceObjects;
+
+static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
+    AddrToSymbolMap;
+static std::unordered_map<uintptr_t, unsigned>
+    AddrToSizeMap;
 
 //
 // Stages
@@ -509,6 +516,10 @@ int llvm(void) {
 
 void _qemu_log(const char *cstr) {
   llvm::errs() << cstr;
+}
+
+static bool is_integral_size(unsigned n) {
+  return n == 1 || n == 2 || n == 4 || n == 8;
 }
 
 int ParseDecompilation(void) {
@@ -695,7 +706,7 @@ int InitStateForBinaries(void) {
       } else {
         llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
             E.getSectionContents(&Sec);
-
+        assert(contents);
         sectprop.contents = *contents;
       }
 
@@ -838,52 +849,19 @@ int ProcessBinaryTLSSymbols(void) {
 
     llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
 
-    auto it = TLSValueToSymbolMap.find(Sym.st_value);
-    if (it != TLSValueToSymbolMap.end()) {
-      WithColor::warning() << "multiple TLS symbols at "
-                           << (fmt("%#lx") % Sym.st_value).str() << " : "
-                           << SymName << ", " << (*it).second << "\n";
+    auto it = TLSValueToSizeMap.find(Sym.st_value);
+    if (it == TLSValueToSizeMap.end()) {
+      TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
     } else {
-      TLSValueToSymbolMap.insert({Sym.st_value, SymName});
-    }
-
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-    if (GV)
-      continue;
-
-    auto is_integral_size = [](unsigned n) -> bool {
-      switch (n) {
-      case 1:
-        return true;
-      case 2:
-        return true;
-      case 4:
-        return true;
-      case 8:
-        return true;
-      default:
-        return false;
+      if (Sym.st_size != (*it).second) {
+        WithColor::warning()
+            << "TLS symbol has more than one size: " << Sym.st_size << ", "
+            << (*it).second << '\n';
+        continue;
       }
-    };
-
-    llvm::Type *T;
-    llvm::Constant *Init;
-
-    if (is_integral_size(Sym.st_size)) {
-      T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
-    } else {
-      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Sym.st_size);
     }
 
-    new llvm::GlobalVariable(*Module, T, false,
-                             llvm::GlobalValue::InternalLinkage,
-                             llvm::Constant::getNullValue(T), SymName, nullptr,
-                             llvm::GlobalValue::GeneralDynamicTLSModel);
-  }
-
-  for (const auto &entry : TLSValueToSymbolMap) {
-    llvm::outs() << "TLS symbol " << entry.second << " @ +" << entry.first
-                 << '\n';
+    TLSValueToSymbolMap[Sym.st_value].insert(SymName);
   }
 
   return 0;
@@ -1025,8 +1003,9 @@ int ProcessDynamicSymbols(void) {
       if (Sym.getType() == llvm::ELF::STT_OBJECT ||
           Sym.getType() == llvm::ELF::STT_TLS) {
         if (!Sym.st_size) {
-          WithColor::warning()
-              << "symbol '" << SymName << "' defined but size is unknown\n";
+          if (opts::Verbose)
+            WithColor::warning() << "symbol '" << SymName
+                                 << "' defined but size is unknown; ignoring\n";
           continue;
         }
 
@@ -1044,68 +1023,40 @@ int ProcessDynamicSymbols(void) {
           // if this symbol is TLS, update the TLSValueToSymbolMap
           //
           if (Sym.getType() == llvm::ELF::STT_TLS) {
-            bool inserted =
-                TLSValueToSymbolMap.insert({Sym.st_value, SymName}).second;
+            TLSValueToSymbolMap[Sym.st_value].insert(SymName);
 
-            if (!inserted)
-              WithColor::warning() << "multiple TLS symbols at "
-                                   << (fmt("%#lx") % Sym.st_value).str()
-                                   << " : " << SymName << ", "
-                                   << "\n";
-          }
-
-          //
-          // create the global variable if it does not already exist
-          //
-          llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-          if (GV)
-            continue;
-
-          auto is_integral_size = [](unsigned n) -> bool {
-            switch (n) {
-            case 1:
-              return true;
-            case 2:
-              return true;
-            case 4:
-              return true;
-            case 8:
-              return true;
-            default:
-              return false;
+            auto it = TLSValueToSizeMap.find(Sym.st_value);
+            if (it == TLSValueToSizeMap.end()) {
+              TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
+            } else {
+              if (Sym.st_size != (*it).second) {
+                WithColor::warning()
+                    << "TLS symbol has more than one size: " << Sym.st_size
+                    << ", " << (*it).second << '\n';
+                continue;
+              }
             }
-          };
-
-          llvm::Type *T;
-          llvm::Constant *Init;
-
-          if (is_integral_size(Sym.st_size)) {
-            T = llvm::Type::getIntNTy(*Context, Sym.st_size * 8);
           } else {
-            T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context),
-                                     Sym.st_size);
-          }
+            AddrToSymbolMap[Sym.st_value].insert(SymName);
 
-          if (Sym.getType() == llvm::ELF::STT_TLS) {
-            // XXX TODO TLS variable constructors
-            new llvm::GlobalVariable(
-                *Module, T, false, llvm::GlobalValue::ExternalLinkage,
-                llvm::Constant::getNullValue(T), SymName, nullptr,
-                llvm::GlobalValue::GeneralDynamicTLSModel);
-          } else if (Sym.getType() == llvm::ELF::STT_OBJECT) { /* object */
+            auto it = AddrToSizeMap.find(Sym.st_value);
+            if (it == AddrToSizeMap.end()) {
+              AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
+            } else {
+              if (Sym.st_size != (*it).second) {
+                WithColor::warning()
+                    << "symbol " << SymName
+                    << " has more than one size: " << Sym.st_size << ", "
+                    << (*it).second << '\n';
+                continue;
+              }
+            }
+
             boost::icl::interval<uintptr_t>::type intervl =
                 boost::icl::interval<uintptr_t>::right_open(
                     Sym.st_value, Sym.st_value + Sym.st_size);
 
-            if (AddressSpaceObjects.find(intervl) !=
-                AddressSpaceObjects.end()) {
-              WithColor::error()
-                  << "overlapping address space object " << SymName << " @ "
-                  << (fmt("%#lx") % Sym.st_value).str() << '\n';
-              continue;
-            }
-
-            AddressSpaceObjects.insert({intervl, {SymName}});
+            AddressSpaceObjects.insert({intervl});
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
@@ -1131,10 +1082,91 @@ int ProcessDynamicSymbols(void) {
     }
   }
 
+  //
+  // create TLS globals
+  //
   for (const auto &entry : TLSValueToSymbolMap) {
-    llvm::outs() << "TLS symbol " << entry.second << " @ +" << entry.first
-                 << '\n';
+    assert(!entry.second.empty());
+
+    llvm::StringRef SymName = *entry.second.begin();
+    unsigned Size;
+    {
+      auto it = TLSValueToSizeMap.find(entry.first);
+      assert(it != TLSValueToSizeMap.end());
+      Size = (*it).second;
+    }
+
+    llvm::Type *T;
+    llvm::Constant *Init;
+
+    if (is_integral_size(Size)) {
+      T = llvm::Type::getIntNTy(*Context, Size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+    }
+
+    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
+        *Module, T, false, llvm::GlobalValue::InternalLinkage,
+        llvm::Constant::getNullValue(T), SymName, nullptr,
+        llvm::GlobalValue::GeneralDynamicTLSModel);
+
+    for (auto it = std::next(entry.second.begin()); it != entry.second.end();
+         ++it) {
+      if (opts::Verbose)
+        llvm::outs() << "symbol aliases for " << SymName << ':' << ' ' << *it
+                     << '\n';
+
+      llvm::GlobalAlias::create(*it, GV);
+    }
+
+    if (opts::Verbose)
+      llvm::outs() << "TLS symbol " << *entry.second.begin() << " @ +"
+                   << entry.first << '\n';
   }
+
+#if 0
+  //
+  // create global variables
+  //
+  for (const auto &entry : AddrToSymbolMap) {
+    assert(!entry.second.empty());
+
+    llvm::StringRef SymName = *entry.second.begin();
+    unsigned Size;
+    {
+      auto it = AddrToSizeMap.find(entry.first);
+      assert(it != AddrToSizeMap.end());
+      Size = (*it).second;
+    }
+
+    llvm::Type *T;
+    llvm::Constant *Init;
+
+    if (is_integral_size(Size)) {
+      T = llvm::Type::getIntNTy(*Context, Size * 8);
+    } else {
+      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+    }
+
+    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
+        *Module, T, false, llvm::GlobalValue::InternalLinkage,
+        llvm::Constant::getNullValue(T), SymName, nullptr,
+        llvm::GlobalValue::NotThreadLocal);
+
+    for (auto it = std::next(entry.second.begin()); it != entry.second.end();
+         ++it) {
+      if (opts::Verbose)
+        llvm::outs() << "symbol aliases for " << SymName << ':' << ' ' << *it
+                     << '\n';
+
+      llvm::GlobalAlias::create(*it, GV);
+    }
+
+    if (opts::Verbose)
+      llvm::outs() << "TLS symbol " << *entry.second.begin() << " @ +"
+                   << entry.first << '\n';
+  }
+#endif
 
   return 0;
 }
@@ -2325,9 +2357,6 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 }
 
 int CreateSectionGlobalVariables(void) {
-  ConstSectsGlobal = nullptr;
-  SectsGlobal = nullptr;
-
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
   const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
@@ -2443,21 +2472,6 @@ int CreateSectionGlobalVariables(void) {
 
     unsigned Size = (*it).second;
 
-    auto is_integral_size = [](unsigned n) -> bool {
-      switch (n) {
-      case 1:
-        return true;
-      case 2:
-        return true;
-      case 4:
-        return true;
-      case 8:
-        return true;
-      default:
-        return false;
-      }
-    };
-
     llvm::Type *T;
     if (is_integral_size(Size)) {
       T = llvm::Type::getIntNTy(*Context, Size * 8);
@@ -2472,28 +2486,20 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name);
-    return GV ? GV->getType() : nullptr;
+    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
+    if (!G) {
+      WithColor::warning()
+          << "type_of_addressof_defined_data_relocation: !G for symbol "
+          << S.Name << "\n";
+      return nullptr;
+    }
+
+    return G->getType();
   };
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    uintptr_t Addr;
-    {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      if (Sect.Contents.size() >= sizeof(uintptr_t)) {
-        Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
-      } else {
-        WithColor::error()
-            << "type_of_relative_relocation: no sect contents ("
-            << Sect.Name << ")!\n";
-        return nullptr;
-      }
-    }
+    uintptr_t Addr = R.Addend;
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -2528,7 +2534,7 @@ int CreateSectionGlobalVariables(void) {
       return nullptr;
     }
 
-    const std::string &SymName = (*it).second;
+    llvm::StringRef SymName = *(*it).second.begin();
     llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
     if (!GV) {
       WithColor::error() << "no global variable for '" << SymName
@@ -2699,21 +2705,6 @@ int CreateSectionGlobalVariables(void) {
 
     unsigned Size = (*it).second;
 
-    auto is_integral_size = [](unsigned n) -> bool {
-      switch (n) {
-      case 1:
-        return true;
-      case 2:
-        return true;
-      case 4:
-        return true;
-      case 8:
-        return true;
-      default:
-        return false;
-      }
-    };
-
     llvm::Type *T;
     if (is_integral_size(Size)) {
       T = llvm::Type::getIntNTy(*Context, Size * 8);
@@ -2734,27 +2725,12 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    return Module->getGlobalVariable(S.Name);
+    return Module->getNamedValue(S.Name);
   };
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    uintptr_t Addr;
-    {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      if (Sect.Contents.size() >= sizeof(uintptr_t)) {
-        Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
-      } else {
-        WithColor::error()
-            << "constant_of_relative_relocation: no sect contents ("
-            << Sect.Name << ")!\n";
-        return nullptr;
-      }
-    }
+    uintptr_t Addr = R.Addend;
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -2800,7 +2776,7 @@ int CreateSectionGlobalVariables(void) {
       return nullptr;
     }
 
-    const std::string &SymName = (*it).second;
+    llvm::StringRef SymName = *(*it).second.begin();
     llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
     if (!GV) {
       WithColor::error() << "no global variable for '" << SymName
@@ -2846,7 +2822,7 @@ int CreateSectionGlobalVariables(void) {
 
   llvm::StructType *SectsGlobalTy;
 
-  auto create_sections = [&](void) -> void {
+  auto declare_sections = [&](void) -> void {
     //
     // create global variable for sections
     //
@@ -2895,6 +2871,11 @@ int CreateSectionGlobalVariables(void) {
 
     SectsGlobalTy = llvm::StructType::create(*Context, SectsGlobalFieldTys,
                                              "struct.sections", true);
+    struct {
+      llvm::GlobalVariable *SectsGlobal;
+      llvm::GlobalVariable *ConstSectsGlobal;
+    } Old = {SectsGlobal, ConstSectsGlobal};
+
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
                                            nullptr, "sections");
@@ -2904,36 +2885,86 @@ int CreateSectionGlobalVariables(void) {
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
         nullptr, "const_sections");
     ConstSectsGlobal->setAlignment(4096);
+
+    if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
+      return;
+
+    Old.SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+        SectsGlobal, Old.SectsGlobal->getType()));
+
+    Old.ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
+        ConstSectsGlobal, Old.ConstSectsGlobal->getType()));
+  };
+
+  auto define_sections = [&](void) -> void {
+    //
+    // create global variable initializer for sections
+    //
+    {
+      std::vector<llvm::Constant *> SectsGlobalFieldInits;
+      for (unsigned i = 0; i < NumSections; ++i) {
+        section_t &Sect = SectTable[i];
+
+        //
+        // check if there's space between the start of this section and the
+        // previous
+        //
+        if (i > 0) {
+          section_t &PrevSect = SectTable[i - 1];
+          ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
+          if (space > 0) {
+            // zero padding between sections
+            SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
+                llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space)));
+          }
+        }
+
+        std::vector<llvm::Constant *> SectFieldInits;
+
+        for (const auto &intvl : Sect.Stuff.Intervals) {
+          auto it = Sect.Stuff.Constants.find(intvl.lower());
+
+          llvm::Constant *C;
+          if (it == Sect.Stuff.Constants.end()) {
+            ptrdiff_t len = intvl.upper() - intvl.lower();
+            assert(len > 0);
+
+            if (Sect.Contents.size() >= len) {
+              C = llvm::ConstantDataArray::get(
+                  *Context, llvm::ArrayRef<uint8_t>(
+                                Sect.Contents.begin() + intvl.lower(),
+                                Sect.Contents.begin() + intvl.upper()));
+            } else {
+              C = llvm::Constant::getNullValue(
+                  llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
+            }
+          } else {
+            C = (*it).second;
+          }
+
+          SectFieldInits.push_back(C);
+        }
+
+        SectsGlobalFieldInits.push_back(
+            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
+      }
+
+      SectsGlobal->setInitializer(
+          llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+
+      ConstSectsGlobal->setInitializer(
+          llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+      ConstSectsGlobal->setConstant(true);
+    }
   };
 
   auto create_global_variable =
-      [&](boost::icl::interval<uintptr_t>::type intvl,
+      [&](uintptr_t Addr, unsigned Size,
           llvm::StringRef SymName) -> llvm::GlobalVariable * {
-    if (llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName))
-      return GV;
-
-    uintptr_t Addr = intvl.lower();
-    ptrdiff_t Size = intvl.upper() - intvl.lower();
-
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
     section_t &Sect = SectTable[(*it).second];
     unsigned Off = Addr - Sect.Addr;
-
-    auto is_integral_size = [](unsigned n) -> bool {
-      switch (n) {
-      case 1:
-        return true;
-      case 2:
-        return true;
-      case 4:
-        return true;
-      case 8:
-        return true;
-      default:
-        return false;
-      }
-    };
 
     if (is_integral_size(Size)) {
       if (Size == sizeof(uintptr_t)) {
@@ -2982,7 +3013,9 @@ int CreateSectionGlobalVariables(void) {
                                       Initializer, SymName);
     }
 
+#if 0
     llvm::outs() << SymName << " [" << Off << ", " << Off + Size << ")\n";
+#endif
 
     std::vector<llvm::Type *> GVFieldTys;
     std::vector<llvm::Constant *> GVFieldInits;
@@ -3027,16 +3060,13 @@ int CreateSectionGlobalVariables(void) {
         C = (*constit).second;
       }
 
+#if 0
       llvm::outs() << '[' << lower << ", " << upper << ')' << ' ' << *C << '\n';
+#endif
 
       GVFieldTys.push_back(T);
       GVFieldInits.push_back(C);
     }
-
-    llvm::outs() << "create_global_variable" << '\n'
-                 << "  SymName=" << SymName << '\n'
-                 << "  GVFieldTys.size()=" << GVFieldTys.size() << '\n'
-                 << "  GVFieldInits.size()=" << GVFieldInits.size() << '\n';
 
     llvm::StructType *ST = llvm::StructType::create(
         *Context, GVFieldTys, "struct." + SymName.str(), true /* isPacked */);
@@ -3047,34 +3077,155 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto create_global_variables = [&](void) -> void {
-    for (const auto &pair : AddressSpaceObjects) {
-      llvm::StringRef SymName = *pair.second.begin();
-      const boost::icl::interval<uintptr_t>::type &intervl = pair.first;
+    for (const auto &pair : AddrToSymbolMap) {
+      const std::set<llvm::StringRef> &Syms = pair.second;
 
-      create_global_variable(intervl, SymName);
+      llvm::StringRef SymName = *Syms.begin();
+      assert(!Syms.empty());
+
+      if (Module->getNamedValue(SymName)) {
+        WithColor::warning() << SymName << " global already exists" << '\n';
+        continue;
+      }
+
+      uintptr_t Addr = pair.first;
+
+      unsigned Size;
+      {
+        auto it = AddrToSizeMap.find(Addr);
+        assert(it != AddrToSizeMap.end());
+        Size = (*it).second;
+      }
+
+      llvm::GlobalVariable *GV = create_global_variable(Addr, Size, SymName);
+      assert(GV);
+      for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
+        llvm::outs() << "global variable " << SymName << " has alias " << *it
+                     << '\n';
+        llvm::GlobalAlias::create(*it, GV);
+      }
     }
   };
 
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Type *T = type_of_relocation(R))
-      type_at_address(R.Addr, T);
+  auto clear_section_stuff = [&](void) -> void {
+    for (section_t &Sect : SectTable) {
+      Sect.Stuff.Constants.clear();
+      Sect.Stuff.Types.clear();
+      Sect.Stuff.Intervals.clear();
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+    }
+  };
 
-  create_sections();
+  auto string_of_reloc_type = [](relocation_t::TYPE ty) -> const char * {
+    switch (ty) {
+    case relocation_t::TYPE::NONE:
+      return "NONE";
+    case relocation_t::TYPE::RELATIVE:
+      return "RELATIVE";
+    case relocation_t::TYPE::IRELATIVE:
+      return "IRELATIVE";
+    case relocation_t::TYPE::ABSOLUTE:
+      return "ABSOLUTE";
+    case relocation_t::TYPE::COPY:
+      return "COPY";
+    case relocation_t::TYPE::ADDRESSOF:
+      return "ADDRESSOF";
+    case relocation_t::TYPE::TPOFF:
+      return "TPOFF";
+    }
+  };
 
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Constant *C = constant_of_relocation(R))
-      constant_at_address(R.Addr, C);
+  auto string_of_sym_type = [](symbol_t::TYPE ty) -> const char * {
+    switch (ty) {
+    case symbol_t::TYPE::NONE:
+      return "NONE";
+    case symbol_t::TYPE::DATA:
+      return "DATA";
+    case symbol_t::TYPE::FUNCTION:
+      return "FUNCTION";
+    case symbol_t::TYPE::TLSDATA:
+      return "TLSDATA";
+    }
+  };
 
-  create_global_variables();
+  auto string_of_sym_binding = [](symbol_t::BINDING b) -> const char * {
+    switch (b) {
+    case symbol_t::BINDING::NONE:
+      return "NONE";
+    case symbol_t::BINDING::LOCAL:
+      return "LOCAL";
+    case symbol_t::BINDING::WEAK:
+      return "WEAK";
+    case symbol_t::BINDING::GLOBAL:
+      return "GLOBAL";
+    }
+  };
 
+  ConstSectsGlobal = nullptr;
+  SectsGlobal = nullptr;
+
+  // iterative algorithm to create the sections
+  bool done;
+  do {
+    done = true;
+
+    clear_section_stuff();
+
+    for (const relocation_t &R : RelocationTable) {
+      if (llvm::Type *T = type_of_relocation(R)) {
+        type_at_address(R.Addr, T);
+      } else {
+        llvm::outs() << "R with !T:\n"
+          << (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
+                                          % R.Addr
+                                          % R.Addend).str() << '\n';
+
+        done = false;
+      }
+    }
+
+    declare_sections();
+
+    for (const relocation_t &R : RelocationTable) {
+      if (llvm::Constant *C = constant_of_relocation(R)) {
+        constant_at_address(R.Addr, C);
+      } else {
+        llvm::outs() << "R with !C:\n"
+          << (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
+                                          % R.Addr
+                                          % R.Addend).str();
+
+        if (R.SymbolIndex < SymbolTable.size()) {
+          symbol_t &sym = SymbolTable[R.SymbolIndex];
+          llvm::outs() <<
+            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
+             % sym.Name.str()
+             % string_of_sym_type(sym.Type)
+             % string_of_sym_binding(sym.Bind)
+             % sym.Addr
+             % sym.Size).str();
+        }
+        llvm::outs() << '\n';
+
+        done = false;
+      }
+    }
+
+    define_sections();
+
+    create_global_variables();
+  } while (!done);
+
+#if 0
   {
     unsigned i = 0;
     for (const auto &pair : SectMap) {
       section_t &Sect = SectTable[i];
 
       Sect.Stuff.Constants.clear();
-      Sect.Stuff.Types.clear();
       Sect.Stuff.Intervals.clear();
+      Sect.Stuff.Types.clear();
 
       Sect.Stuff.Intervals.insert(
           boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
@@ -3118,76 +3269,14 @@ int CreateSectionGlobalVariables(void) {
       constant_at_address(R.Addr, C);
 
   create_global_variables();
-
-  //
-  // create global variable initializer for sections
-  //
-  {
-    std::vector<llvm::Constant *> SectsGlobalFieldInits;
-    for (unsigned i = 0; i < NumSections; ++i) {
-      section_t &Sect = SectTable[i];
-
-      //
-      // check if there's space between the start of this section and the
-      // previous
-      //
-      if (i > 0) {
-        section_t &PrevSect = SectTable[i - 1];
-        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-        if (space > 0) {
-          // zero padding between sections
-          SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
-              llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space)));
-        }
-      }
-
-      std::vector<llvm::Constant *> SectFieldInits;
-
-      for (const auto &intvl : Sect.Stuff.Intervals) {
-        auto it = Sect.Stuff.Constants.find(intvl.lower());
-
-        llvm::Constant *C;
-        if (it == Sect.Stuff.Constants.end()) {
-          ptrdiff_t len = intvl.upper() - intvl.lower();
-          assert(len > 0);
-
-          if (Sect.Contents.size() >= len) {
-            C = llvm::ConstantDataArray::get(
-                *Context,
-                llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
-                                        Sect.Contents.begin() + intvl.upper()));
-          } else {
-            C = llvm::Constant::getNullValue(
-                llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
-          }
-        } else {
-          C = (*it).second;
-        }
-
-        SectFieldInits.push_back(C);
-      }
-
-      SectsGlobalFieldInits.push_back(
-          llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
-    }
-
-    SectsGlobal->setInitializer(
-        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
-
-    ConstSectsGlobal->setInitializer(
-        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
-    ConstSectsGlobal->setConstant(true);
-  }
+#endif
 
   //
   // it's important that we do this here, after creating the section globals
   //
-  for (const relocation_t &R : RelocationTable) {
-    if (!type_of_relocation(R))
-      continue;
-
-    RelocationsAt.insert(R.Addr);
-  }
+  for (const relocation_t &R : RelocationTable)
+    if (type_of_relocation(R))
+      RelocationsAt.insert(R.Addr);
 
   return 0;
 }
@@ -3750,12 +3839,23 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
   {
     auto it = AddressSpaceObjects.find(Addr);
     if (it != AddressSpaceObjects.end()) {
-      unsigned off = Addr - (*it).first.lower();
-      WithColor::note() << (fmt("addrspace obj @ %#lx (%u)") % Addr % off).str()
-                        << '\n';
+      uintptr_t Base = (*it).lower();
+      unsigned off = Addr - Base;
 
-      llvm::StringRef SymName = *(*it).second.begin();
-      llvm::Constant *res = Module->getGlobalVariable(SymName);
+      llvm::StringRef SymName;
+      {
+        auto _it = AddrToSymbolMap.find(Base);
+        assert(_it != AddrToSymbolMap.end());
+        SymName = *(*_it).second.begin();
+      }
+
+      if (opts::Verbose)
+        WithColor::note() << (fmt("addrspace obj @ %s+%u") %
+                              SymName.str().c_str() % off)
+                                 .str()
+                          << '\n';
+
+      llvm::Constant *res = Module->getGlobalVariable(SymName, true);
       if (!res) {
         WithColor::error() << "ConstantForAddress: no global variable for "
                            << SymName << '\n';
@@ -4047,7 +4147,7 @@ int FixupFSBaseAddrs(void) {
           ToReplace.push_back({Inst, IRB.CreateAdd(IRB.CreateCall(IA), CI)});
         } else {
           llvm::GlobalVariable *GV =
-              Module->getGlobalVariable((*it).second, true);
+              Module->getGlobalVariable(*(*it).second.begin(), true);
           assert(GV);
 
           ToReplace.push_back(
