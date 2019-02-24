@@ -90,7 +90,7 @@ static int await_process_completion(pid_t);
 
 static void print_command(std::vector<char *> &arg_vec);
 
-static std::string jove_llvm_path, llc_path, lld_path;
+static std::string jove_llvm_path, llc_path, lld_path, opt_path;
 static std::string dyn_linker_path;
 
 int recompile(void) {
@@ -135,6 +135,12 @@ int recompile(void) {
   lld_path = "/usr/bin/ld.lld";
   if (!fs::exists(lld_path)) {
     WithColor::error() << "could not find /usr/bin/ld.lld\n";
+    return 1;
+  }
+
+  opt_path = "/usr/bin/opt";
+  if (!fs::exists(opt_path)) {
+    WithColor::error() << "could not find /usr/bin/opt\n";
     return 1;
   }
 
@@ -239,8 +245,10 @@ int recompile(void) {
 
     arg_vec.push_back(const_cast<char *>("-nostdlib"));
 
+#if 0
     arg_vec.push_back(const_cast<char *>("-z"));
     arg_vec.push_back(const_cast<char *>("nodefaultlib"));
+#endif
 
     arg_vec.push_back(const_cast<char *>("-z"));
     arg_vec.push_back(const_cast<char *>("origin"));
@@ -338,13 +346,17 @@ static void worker(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    fs::path tmpdir_path(std::string(tmpdir) + b.Path);
-    fs::path chrooted_path(opts::Output + b.Path);
+    const fs::path tmpdir_path(std::string(tmpdir) + b.Path);
+    const fs::path chrooted_path(opts::Output + b.Path);
 
     fs::create_directories(tmpdir_path.parent_path());
     fs::create_directories(chrooted_path.parent_path());
 
-    std::string bcfp = tmpdir_path.replace_extension("bc").string();
+    std::string bcfp;
+    {
+      fs::path path(tmpdir_path);
+      bcfp = path.replace_extension("bc").string();
+    }
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
@@ -380,9 +392,46 @@ static void worker(void) {
     }
 
     //
+    // optimize bitcode
+    //
+    std::string optbcfp;
+    {
+      fs::path path(tmpdir_path);
+      optbcfp = path.replace_extension("opt.bc").string();
+    }
+
+    pid = fork();
+    if (!pid) {
+      std::vector<char *> arg_vec;
+      arg_vec.push_back(const_cast<char *>(opt_path.c_str()));
+      arg_vec.push_back(const_cast<char *>("-o"));
+      arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
+      arg_vec.push_back(const_cast<char *>("-Oz"));
+      arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
+      arg_vec.push_back(nullptr);
+
+      print_command(arg_vec);
+
+      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      return;
+    }
+
+    //
+    // check exit code
+    //
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << "llvm failed for " << binary_filename << '\n';
+      continue;
+    }
+
+    //
     // compile bitcode
     //
-    std::string objfp = tmpdir_path.replace_extension("o").string();
+    std::string objfp;
+    {
+      fs::path path(tmpdir_path);
+      objfp = path.replace_extension("o").string();
+    }
 
     pid = fork();
     if (!pid) {
@@ -393,7 +442,7 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>("-filetype=obj"));
       arg_vec.push_back(const_cast<char *>("-relocation-model=pic"));
       arg_vec.push_back(const_cast<char *>("-disable-fp-elim"));
-      arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
+      arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
       arg_vec.push_back(nullptr);
 
       print_command(arg_vec);
@@ -415,7 +464,11 @@ static void worker(void) {
     //
     // link object file to create shared library
     //
-    std::string sofp = chrooted_path.replace_extension("so").string();
+    std::string sofp;
+    {
+      fs::path path(chrooted_path);
+      sofp = path.replace_extension("so").string();
+    }
 
     pid = fork();
     if (!pid) {
@@ -437,8 +490,10 @@ static void worker(void) {
 
       arg_vec.push_back(const_cast<char *>("-nostdlib"));
 
+#if 0
       arg_vec.push_back(const_cast<char *>("-z"));
       arg_vec.push_back(const_cast<char *>("nodefaultlib"));
+#endif
 
       arg_vec.push_back(const_cast<char *>("-z"));
       arg_vec.push_back(const_cast<char *>("origin"));
