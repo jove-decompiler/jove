@@ -469,9 +469,7 @@ static int FixupFSBaseAddrs(void);
 #endif
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
-static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
-static int ReplaceAllRemainingUsesOfPCRel(void);
 static int RenameFunctionLocals(void);
 static int RenameFunctions(void);
 static int WriteModule(void);
@@ -506,9 +504,7 @@ int llvm(void) {
 #endif
       || InternalizeStaticFunctions()
       || InternalizeSections()
-      || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
-      || ReplaceAllRemainingUsesOfPCRel()
       || RenameFunctionLocals()
       || RenameFunctions()
       || WriteModule();
@@ -2332,10 +2328,7 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
                                                       : SectsGlobal;
 
-  if (!SectsGV) {
-    WithColor::warning() << "SectionPointer: !SectsGV\n";
-    return nullptr;
-  }
+  assert(SectsGV);
 
   unsigned off = Addr - SectsStartAddr;
 
@@ -2345,12 +2338,9 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
       IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
 
   if (!res)
-    res = llvm::ConstantExpr::getIntToPtr(
-        llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
-            llvm::ConstantInt::get(llvm::IntegerType::get(*Context, WordBits()),
-                                   off)),
-        llvm::PointerType::get(llvm::IntegerType::get(*Context, 8), 0));
+    res = llvm::ConstantExpr::getAdd(
+        llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
+        llvm::ConstantInt::get(WordType(), off));
 
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
@@ -3083,10 +3073,8 @@ int CreateSectionGlobalVariables(void) {
       llvm::StringRef SymName = *Syms.begin();
       assert(!Syms.empty());
 
-      if (Module->getNamedValue(SymName)) {
-        WithColor::warning() << SymName << " global already exists" << '\n';
+      if (Module->getNamedValue(SymName))
         continue;
-      }
 
       uintptr_t Addr = pair.first;
 
@@ -3362,7 +3350,7 @@ int CreateCPUStateGlobal() {
 
   CPUStateGlobal = new llvm::GlobalVariable(
       *Module, CPUStateType, false, llvm::GlobalValue::ExternalLinkage,
-      CPUStateGlobalInitializer, "env", nullptr,
+      CPUStateGlobalInitializer, "__jove_env", nullptr,
       llvm::GlobalValue::NotThreadLocal
       /* llvm::GlobalValue::GeneralDynamicTLSModel */);
 
@@ -3815,7 +3803,7 @@ static int DoOptimize(void) {
 #if defined(__x86_64__)
   FSBaseGlobal = Module->getGlobalVariable("__jove_fs_base", true);
 #endif
-  CPUStateGlobal = Module->getGlobalVariable("env", true);
+  CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
   SectsGlobal = Module->getGlobalVariable("sections", true);
   ConstSectsGlobal = Module->getGlobalVariable("const_sections", true);
 
@@ -3855,12 +3843,8 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
                                  .str()
                           << '\n';
 
-      llvm::Constant *res = Module->getGlobalVariable(SymName, true);
-      if (!res) {
-        WithColor::error() << "ConstantForAddress: no global variable for "
-                           << SymName << '\n';
-        abort();
-      }
+      llvm::Constant *res = Module->getNamedValue(SymName);
+      assert(res);
 
       res = llvm::ConstantExpr::getPtrToInt(res, WordType());
 
@@ -3892,15 +3876,10 @@ int FixupPCRelativeAddrs(void) {
   if (!PCRelGlobal)
     return 0;
 
-  std::vector<std::pair<llvm::Instruction *, llvm::Value *>> ToReplace;
-
-  for (llvm::User *U : PCRelGlobal->users()) {
-    assert(llvm::isa<llvm::LoadInst>(U));
-    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-
-    for (llvm::User *_U : L->users()) {
-      assert(llvm::isa<llvm::Instruction>(_U));
-      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(_U);
+  auto handle_load_of_pcrel = [&](llvm::LoadInst *L) -> void {
+    for (llvm::User *U : L->users()) {
+      assert(llvm::isa<llvm::Instruction>(U));
+      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
 
       switch (Inst->getOpcode()) {
       case llvm::Instruction::Add: {
@@ -3908,163 +3887,90 @@ int FixupPCRelativeAddrs(void) {
         llvm::Value *RHS = Inst->getOperand(1);
 
         llvm::Value *Other = LHS == L ? RHS : LHS;
+        unsigned OtherOperandIdx = LHS == L ? 1 : 0;
 
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
-          ToReplace.push_back({Inst, ConstantForAddress(CI->getZExtValue())});
+          Inst->setOperand(OtherOperandIdx,
+                           ConstantForAddress(CI->getZExtValue()));
           continue;
         }
 
-        if (!llvm::isa<llvm::Instruction>(Other))
-          break;
-
-        unsigned OtherOpc = llvm::cast<llvm::Instruction>(Other)->getOpcode();
-        llvm::Instruction *OtherInst = llvm::cast<llvm::Instruction>(Other);
-
-        if (OtherOpc == llvm::Instruction::Add) {
-          llvm::Value *LHS = OtherInst->getOperand(0);
-          llvm::Value *RHS = OtherInst->getOperand(1);
-
-          if (!llvm::isa<llvm::ConstantInt>(LHS) &&
-              !llvm::isa<llvm::ConstantInt>(RHS))
-            break;
-
-          if (llvm::isa<llvm::ConstantInt>(LHS) &&
-              llvm::isa<llvm::ConstantInt>(RHS))
-            break;
-
-          unsigned operandIdx = llvm::isa<llvm::ConstantInt>(LHS) ? 0 : 1;
-          llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
-                                      ? llvm::cast<llvm::ConstantInt>(LHS)
-                                      : llvm::cast<llvm::ConstantInt>(RHS);
-
-          OtherInst->setOperand(operandIdx, ConstantForAddress(CI->getZExtValue()));
-
-          ToReplace.push_back({Inst, Other});
-          continue;
-        } else if (OtherOpc == llvm::Instruction::Select) {
+        if (llvm::isa<llvm::SelectInst>(Other)) {
           llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(Other);
-
-          llvm::Value *TrueV = SI->getTrueValue();
-          llvm::Value *FalseV = SI->getFalseValue();
-
-          if (llvm::isa<llvm::ConstantInt>(TrueV) &&
-              llvm::isa<llvm::ConstantInt>(FalseV)) {
-            {
-              llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(TrueV);
-              SI->setTrueValue(ConstantForAddress(CI->getZExtValue()));
-            }
-
-            {
-              llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(FalseV);
-              SI->setFalseValue(ConstantForAddress(CI->getZExtValue()));
-            }
-
-            ToReplace.push_back({Inst, Other});
+          if (llvm::isa<llvm::ConstantInt>(SI->getTrueValue()) &&
+              llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
+            SI->setTrueValue(ConstantForAddress(
+                llvm::cast<llvm::ConstantInt>(SI->getTrueValue())
+                    ->getZExtValue()));
+            SI->setFalseValue(ConstantForAddress(
+                llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
+                    ->getZExtValue()));
             continue;
           }
-        } else if (OtherOpc == llvm::Instruction::PHI) {
+        }
+
+        if (llvm::isa<llvm::PHINode>(Other)) {
           llvm::PHINode *PI = llvm::cast<llvm::PHINode>(Other);
 
-          auto phi_node_has_all_const_int = [&](void) -> bool {
-            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
-              if (!llvm::isa<llvm::ConstantInt>(PI->getIncomingValue(i)))
-                return false;
+          for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
+            llvm::Value *incomingValue = PI->getIncomingValue(i);
+
+            if (llvm::isa<llvm::ConstantInt>(incomingValue)) {
+              llvm::ConstantInt *CI =
+                  llvm::cast<llvm::ConstantInt>(incomingValue);
+              PI->setIncomingValue(i, ConstantForAddress(CI->getZExtValue()));
+              continue;
             }
 
-            return true;
-          };
-
-          if (phi_node_has_all_const_int()) {
-            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
-              PI->setIncomingValue(
-                  i, ConstantForAddress(
-                         llvm::cast<llvm::ConstantInt>(PI->getIncomingValue(i))
-                             ->getZExtValue()));
+            if (llvm::isa<llvm::SelectInst>(incomingValue)) {
+              llvm::SelectInst *SI =
+                  llvm::cast<llvm::SelectInst>(incomingValue);
+              if (llvm::isa<llvm::ConstantInt>(SI->getTrueValue()) &&
+                  llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
+                SI->setTrueValue(ConstantForAddress(
+                    llvm::cast<llvm::ConstantInt>(SI->getTrueValue())
+                        ->getZExtValue()));
+                SI->setFalseValue(ConstantForAddress(
+                    llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
+                        ->getZExtValue()));
+                continue;
+              }
             }
 
-            ToReplace.push_back({Inst, Other});
-            continue;
+            WithColor::error()
+                << "handle_load_of_pcrel: unknown PHI node operand "
+                   "in add expression "
+                << *PI->getIncomingValue(i) << '\n';
           }
 
-          auto phi_node_has_all_select_const_int = [&](void) -> bool {
-            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
-              llvm::Value *V = PI->getIncomingValue(i);
-
-              if (!llvm::isa<llvm::SelectInst>(V))
-                return false;
-
-              llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(V);
-
-              if (!llvm::isa<llvm::ConstantInt>(SI->getTrueValue()))
-                return false;
-
-              if (!llvm::isa<llvm::ConstantInt>(SI->getFalseValue()))
-                return false;
-            }
-
-            return true;
-          };
-
-          if (phi_node_has_all_select_const_int()) {
-            for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
-              llvm::Value *V = PI->getIncomingValue(i);
-              llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(V);
-
-              llvm::ConstantInt *TV = llvm::cast<llvm::ConstantInt>(SI->getTrueValue());
-              llvm::ConstantInt *FV = llvm::cast<llvm::ConstantInt>(SI->getFalseValue());
-
-              SI->setTrueValue(ConstantForAddress(TV->getZExtValue()));
-              SI->setFalseValue(ConstantForAddress(FV->getZExtValue()));
-            }
-
-            ToReplace.push_back({Inst, Other});
-            continue;
-          }
-
-          for (llvm::Use &incomingVal : PI->incoming_values()) {
-            llvm::errs() << *incomingVal.get() << '\n';
-          }
-        }
-
-        WithColor::warning() << "Other: " << *Other << '\n';
-        break;
-      }
-
-      case llvm::Instruction::Sub: {
-        llvm::Value *LHS = Inst->getOperand(0);
-        llvm::Value *RHS = Inst->getOperand(1);
-
-        llvm::Value *Other = LHS == L ? RHS : LHS;
-
-        if (llvm::isa<llvm::ConstantInt>(Other)) {
-          llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
-          llvm::APInt x = CI->getValue();
-          if (x.isNegative())
-            x.negate();
-
-          ToReplace.push_back({Inst, ConstantForAddress(x.getZExtValue())});
           continue;
         }
 
+        WithColor::error() << "handle_load_of_pcrel: unknown other operand "
+                              "in add expression "
+                           << *Other << '\n';
         break;
       }
 
       default:
+        WithColor::error() << "handle_load_of_pcrel: unknown Inst user "
+                           << *Inst << '\n';
         break;
       }
-
-      WithColor::warning() << "unhandled PCRelGlobal user " << *Inst << '\n';
     }
+  };
+
+  for (llvm::User *U : PCRelGlobal->users()) {
+    if (!llvm::isa<llvm::LoadInst>(U))
+      continue;
+
+    handle_load_of_pcrel(llvm::cast<llvm::LoadInst>(U));
   }
 
-  for (auto &TR : ToReplace) {
-    llvm::Instruction *I;
-    llvm::Value *V;
-    std::tie(I, V) = TR;
-
-    I->replaceAllUsesWith(V);
-  }
+  PCRelGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
+  PCRelGlobal->setConstant(true);
+  PCRelGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   return 0;
 }
@@ -4093,17 +3999,6 @@ int FixupFSBaseAddrs(void) {
     IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                               false /* hasSideEffects */);
   }
-
-  llvm::GlobalVariable *ZeroGV =
-      new llvm::GlobalVariable(*Module, WordType(), true,
-                               llvm::GlobalValue::InternalLinkage,
-                               llvm::Constant::getNullValue(WordType()));
-  llvm::GlobalVariable *ZeroPGV =
-      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroGV);
-  llvm::GlobalVariable *ZeroPPGV =
-      new llvm::GlobalVariable(*Module, PPointerType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroPGV);
 
 #if 0
   auto build_fsbase_expression =
@@ -4170,6 +4065,17 @@ int FixupFSBaseAddrs(void) {
 #endif
   };
 
+  llvm::GlobalVariable *ZeroGV =
+      new llvm::GlobalVariable(*Module, WordType(), true,
+                               llvm::GlobalValue::InternalLinkage,
+                               llvm::Constant::getNullValue(WordType()));
+  llvm::GlobalVariable *ZeroPGV =
+      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroGV);
+  llvm::GlobalVariable *ZeroPPGV =
+      new llvm::GlobalVariable(*Module, PPointerType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroPGV);
+
   for (llvm::User *U : FSBaseGlobal->users()) {
     if (llvm::isa<llvm::LoadInst>(U)) {
       llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
@@ -4227,18 +4133,10 @@ int InternalizeSections(void) {
   assert(SectsGlobal);
   assert(ConstSectsGlobal);
 
+#if 0
   SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-
-  return 0;
-}
-
-int Optimize2(void) {
-  if (opts::NoOpt2)
-    return 0;
-
-  if (int ret = DoOptimize())
-    return ret;
+#endif
 
   return 0;
 }
@@ -4253,52 +4151,6 @@ int ReplaceAllRemainingUsesOfConstSections(void) {
   ConstSectsGlobal->replaceAllUsesWith(SectsGlobal);
   assert(ConstSectsGlobal->user_begin() == ConstSectsGlobal->user_end());
   ConstSectsGlobal->eraseFromParent();
-
-  return 0;
-}
-
-int ReplaceAllRemainingUsesOfPCRel(void) {
-  if (opts::NoFixupPcrel)
-    return 0;
-
-  if (!PCRelGlobal)
-    return 0;
-
-  binary_state_t &st = BinStateVec[BinaryIndex];
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-
-  std::vector<std::pair<llvm::Instruction *, llvm::Constant *>> ToReplace;
-
-  for (llvm::User *U : PCRelGlobal->users()) {
-    assert(llvm::isa<llvm::LoadInst>(U));
-    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-    ToReplace.push_back(
-        {L, llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType())});
-  }
-
-  for (auto &TR : ToReplace) {
-    llvm::Instruction *I;
-    llvm::Constant *C;
-    std::tie(I, C) = TR;
-
-    assert(I->getType() == C->getType());
-    I->replaceAllUsesWith(C);
-  }
-
-  std::vector<llvm::Instruction *> ToErase;
-
-  for (llvm::User *U : PCRelGlobal->users()) {
-    assert(llvm::isa<llvm::LoadInst>(U));
-    llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-    assert(L->user_begin() == L->user_end());
-    ToErase.push_back(L);
-  }
-
-  for (llvm::Instruction *I : ToErase)
-    I->eraseFromParent();
-
-  assert(PCRelGlobal->user_begin() == PCRelGlobal->user_end());
-  PCRelGlobal->eraseFromParent();
 
   return 0;
 }
