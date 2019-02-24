@@ -276,7 +276,10 @@ int recompile(void) {
       arg_vec.push_back(const_cast<char *>(rpathStr.c_str()));
     }
 
+    arg_vec.push_back(const_cast<char *>("--push-state"));
+    arg_vec.push_back(const_cast<char *>("--as-needed"));
     arg_vec.push_back(const_cast<char *>(compiler_runtime_afp));
+    arg_vec.push_back(const_cast<char *>("--pop-state"));
 
     arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
 
@@ -501,6 +504,11 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>("-shared"));
 
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
+
+      arg_vec.push_back(const_cast<char *>("--push-state"));
+      arg_vec.push_back(const_cast<char *>("--as-needed"));
+      arg_vec.push_back(const_cast<char *>(compiler_runtime_afp));
+      arg_vec.push_back(const_cast<char *>("--pop-state"));
 
       arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
 
