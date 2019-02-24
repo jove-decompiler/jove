@@ -2884,68 +2884,75 @@ int CreateSectionGlobalVariables(void) {
 
     Old.ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
         ConstSectsGlobal, Old.ConstSectsGlobal->getType()));
+
+    assert(Old.SectsGlobal->user_begin() == Old.SectsGlobal->user_end());
+    assert(Old.ConstSectsGlobal->user_begin() == Old.ConstSectsGlobal->user_end());
+
+    Old.SectsGlobal->eraseFromParent();
+    Old.ConstSectsGlobal->eraseFromParent();
+
+    SectsGlobal->setName("sections");
+    ConstSectsGlobal->setName("const_sections");
   };
 
   auto define_sections = [&](void) -> void {
     //
     // create global variable initializer for sections
     //
-    {
-      std::vector<llvm::Constant *> SectsGlobalFieldInits;
-      for (unsigned i = 0; i < NumSections; ++i) {
-        section_t &Sect = SectTable[i];
+    std::vector<llvm::Constant *> SectsGlobalFieldInits;
+    for (unsigned i = 0; i < NumSections; ++i) {
+      section_t &Sect = SectTable[i];
 
-        //
-        // check if there's space between the start of this section and the
-        // previous
-        //
-        if (i > 0) {
-          section_t &PrevSect = SectTable[i - 1];
-          ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
-          if (space > 0) {
-            // zero padding between sections
-            SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
-                llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space)));
-          }
+      //
+      // check if there's space between the start of this section and the
+      // previous
+      //
+      if (i > 0) {
+        section_t &PrevSect = SectTable[i - 1];
+        ptrdiff_t space = Sect.Addr - (PrevSect.Addr + PrevSect.Size);
+        if (space > 0) {
+          // zero padding between sections
+          SectsGlobalFieldInits.push_back(llvm::Constant::getNullValue(
+              llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), space)));
         }
-
-        std::vector<llvm::Constant *> SectFieldInits;
-
-        for (const auto &intvl : Sect.Stuff.Intervals) {
-          auto it = Sect.Stuff.Constants.find(intvl.lower());
-
-          llvm::Constant *C;
-          if (it == Sect.Stuff.Constants.end()) {
-            ptrdiff_t len = intvl.upper() - intvl.lower();
-            assert(len > 0);
-
-            if (Sect.Contents.size() >= len) {
-              C = llvm::ConstantDataArray::get(
-                  *Context, llvm::ArrayRef<uint8_t>(
-                                Sect.Contents.begin() + intvl.lower(),
-                                Sect.Contents.begin() + intvl.upper()));
-            } else {
-              C = llvm::Constant::getNullValue(
-                  llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
-            }
-          } else {
-            C = (*it).second;
-          }
-
-          SectFieldInits.push_back(C);
-        }
-
-        SectsGlobalFieldInits.push_back(
-            llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
       }
 
-      SectsGlobal->setInitializer(
-          llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+      std::vector<llvm::Constant *> SectFieldInits;
 
-      ConstSectsGlobal->setInitializer(
-          llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
-      ConstSectsGlobal->setConstant(true);
+      for (const auto &intvl : Sect.Stuff.Intervals) {
+        auto it = Sect.Stuff.Constants.find(intvl.lower());
+
+        llvm::Constant *C;
+        if (it == Sect.Stuff.Constants.end()) {
+          ptrdiff_t len = intvl.upper() - intvl.lower();
+          assert(len > 0);
+
+          if (Sect.Contents.size() >= len) {
+            C = llvm::ConstantDataArray::get(
+                *Context,
+                llvm::ArrayRef<uint8_t>(Sect.Contents.begin() + intvl.lower(),
+                                        Sect.Contents.begin() + intvl.upper()));
+          } else {
+            C = llvm::Constant::getNullValue(
+                llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), len));
+          }
+        } else {
+          C = (*it).second;
+        }
+
+        SectFieldInits.push_back(C);
+      }
+
+      SectsGlobalFieldInits.push_back(
+          llvm::ConstantStruct::get(SectTable[i].T, SectFieldInits));
     }
+
+    SectsGlobal->setInitializer(
+        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+
+    ConstSectsGlobal->setInitializer(
+        llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+    ConstSectsGlobal->setConstant(true);
   };
 
   auto create_global_variable =
@@ -4133,10 +4140,8 @@ int InternalizeSections(void) {
   assert(SectsGlobal);
   assert(ConstSectsGlobal);
 
-#if 0
   SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-#endif
 
   return 0;
 }
@@ -4147,8 +4152,9 @@ int ReplaceAllRemainingUsesOfConstSections(void) {
 
   assert(SectsGlobal);
 
-  assert(ConstSectsGlobal->user_begin() != ConstSectsGlobal->user_end());
-  ConstSectsGlobal->replaceAllUsesWith(SectsGlobal);
+  if (ConstSectsGlobal->user_begin() != ConstSectsGlobal->user_end())
+    ConstSectsGlobal->replaceAllUsesWith(SectsGlobal);
+
   assert(ConstSectsGlobal->user_begin() == ConstSectsGlobal->user_end());
   ConstSectsGlobal->eraseFromParent();
 
