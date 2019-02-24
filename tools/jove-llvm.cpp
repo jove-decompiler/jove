@@ -437,6 +437,8 @@ static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
 static std::unordered_map<uintptr_t, unsigned>
     AddrToSizeMap;
 
+static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
+
 //
 // Stages
 //
@@ -2582,6 +2584,10 @@ int CreateSectionGlobalVariables(void) {
     if (Sect.initArray || Sect.finiArray) {
       assert(llvm::isa<llvm::Function>(C));
       llvm::Function *F = llvm::cast<llvm::Function>(C);
+      auto it = CtorStubMap.find(F);
+      if (it != CtorStubMap.end())
+        return;
+
       llvm::FunctionType *FTy = F->getFunctionType();
       unsigned N = FTy->getNumParams();
 
@@ -2610,6 +2616,8 @@ int CreateSectionGlobalVariables(void) {
         llvm::appendToGlobalCtors(*Module, CallsF, 0);
       else
         llvm::appendToGlobalDtors(*Module, CallsF, 0);
+
+      CtorStubMap.insert({F, CallsF});
     }
   };
 
@@ -2840,7 +2848,7 @@ int CreateSectionGlobalVariables(void) {
         auto it = Sect.Stuff.Types.find(intvl.lower());
 
         llvm::Type *T;
-        if (it == Sect.Stuff.Types.end())
+        if (it == Sect.Stuff.Types.end() || !(*it).second)
           T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8),
                                    intvl.upper() - intvl.lower());
         else
@@ -2866,6 +2874,11 @@ int CreateSectionGlobalVariables(void) {
       llvm::GlobalVariable *ConstSectsGlobal;
     } Old = {SectsGlobal, ConstSectsGlobal};
 
+    if (Old.SectsGlobal && Old.ConstSectsGlobal) {
+      Old.SectsGlobal->setName("");
+      Old.ConstSectsGlobal->setName("");
+    }
+
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
                                            nullptr, "sections");
@@ -2879,17 +2892,24 @@ int CreateSectionGlobalVariables(void) {
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
       return;
 
+#if 1
     Old.SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
         SectsGlobal, Old.SectsGlobal->getType()));
 
     Old.ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
         ConstSectsGlobal, Old.ConstSectsGlobal->getType()));
 
+#if 0
+    Old.SectsGlobal->replaceAllUsesWith(SectsGlobal);
+    Old.ConstSectsGlobal->replaceAllUsesWith(ConstSectsGlobal);
+#endif
+
     assert(Old.SectsGlobal->user_begin() == Old.SectsGlobal->user_end());
     assert(Old.ConstSectsGlobal->user_begin() == Old.ConstSectsGlobal->user_end());
 
     Old.SectsGlobal->eraseFromParent();
     Old.ConstSectsGlobal->eraseFromParent();
+#endif
 
     SectsGlobal->setName("sections");
     ConstSectsGlobal->setName("const_sections");
@@ -2923,7 +2943,7 @@ int CreateSectionGlobalVariables(void) {
         auto it = Sect.Stuff.Constants.find(intvl.lower());
 
         llvm::Constant *C;
-        if (it == Sect.Stuff.Constants.end()) {
+        if (it == Sect.Stuff.Constants.end() || !(*it).second) {
           ptrdiff_t len = intvl.upper() - intvl.lower();
           assert(len > 0);
 
@@ -2971,6 +2991,10 @@ int CreateSectionGlobalVariables(void) {
         if (typeit != Sect.Stuff.Types.end() &&
             constit != Sect.Stuff.Constants.end()) {
           llvm::Constant *Initializer = (*constit).second;
+
+          if (!Initializer)
+            return nullptr;
+
           return new llvm::GlobalVariable(
               *Module, Initializer->getType(), false,
               llvm::GlobalValue::ExternalLinkage, Initializer, SymName);
@@ -3060,6 +3084,8 @@ int CreateSectionGlobalVariables(void) {
 #if 0
       llvm::outs() << '[' << lower << ", " << upper << ')' << ' ' << *C << '\n';
 #endif
+      if (!T || !C)
+        return nullptr;
 
       GVFieldTys.push_back(T);
       GVFieldInits.push_back(C);
@@ -3071,35 +3097,6 @@ int CreateSectionGlobalVariables(void) {
     return new llvm::GlobalVariable(
         *Module, ST, false, llvm::GlobalValue::ExternalLinkage,
         llvm::ConstantStruct::get(ST, GVFieldInits), SymName);
-  };
-
-  auto create_global_variables = [&](void) -> void {
-    for (const auto &pair : AddrToSymbolMap) {
-      const std::set<llvm::StringRef> &Syms = pair.second;
-
-      llvm::StringRef SymName = *Syms.begin();
-      assert(!Syms.empty());
-
-      if (Module->getNamedValue(SymName))
-        continue;
-
-      uintptr_t Addr = pair.first;
-
-      unsigned Size;
-      {
-        auto it = AddrToSizeMap.find(Addr);
-        assert(it != AddrToSizeMap.end());
-        Size = (*it).second;
-      }
-
-      llvm::GlobalVariable *GV = create_global_variable(Addr, Size, SymName);
-      assert(GV);
-      for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
-        llvm::outs() << "global variable " << SymName << " has alias " << *it
-                     << '\n';
-        llvm::GlobalAlias::create(*it, GV);
-      }
-    }
   };
 
   auto clear_section_stuff = [&](void) -> void {
@@ -3168,48 +3165,58 @@ int CreateSectionGlobalVariables(void) {
     clear_section_stuff();
 
     for (const relocation_t &R : RelocationTable) {
-      if (llvm::Type *T = type_of_relocation(R)) {
-        type_at_address(R.Addr, T);
-      } else {
-        llvm::outs() << "R with !T:\n"
-          << (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
-                                          % R.Addr
-                                          % R.Addend).str() << '\n';
+      llvm::Type *T = type_of_relocation(R);
+      type_at_address(R.Addr, T);
 
+      if (!T)
         done = false;
-      }
     }
 
     declare_sections();
 
     for (const relocation_t &R : RelocationTable) {
-      if (llvm::Constant *C = constant_of_relocation(R)) {
-        constant_at_address(R.Addr, C);
-      } else {
-        llvm::outs() << "R with !C:\n"
-          << (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
-                                          % R.Addr
-                                          % R.Addend).str();
+      llvm::Constant *C = constant_of_relocation(R);
+      constant_at_address(R.Addr, C);
 
-        if (R.SymbolIndex < SymbolTable.size()) {
-          symbol_t &sym = SymbolTable[R.SymbolIndex];
-          llvm::outs() <<
-            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-             % sym.Name.str()
-             % string_of_sym_type(sym.Type)
-             % string_of_sym_binding(sym.Bind)
-             % sym.Addr
-             % sym.Size).str();
-        }
-        llvm::outs() << '\n';
-
+      if (!C)
         done = false;
-      }
     }
 
     define_sections();
 
-    create_global_variables();
+    //
+    // global variables
+    //
+    for (const auto &pair : AddrToSymbolMap) {
+      const std::set<llvm::StringRef> &Syms = pair.second;
+
+      llvm::StringRef SymName = *Syms.begin();
+      assert(!Syms.empty());
+
+      if (Module->getNamedValue(SymName))
+        continue;
+
+      uintptr_t Addr = pair.first;
+
+      unsigned Size;
+      {
+        auto it = AddrToSizeMap.find(Addr);
+        assert(it != AddrToSizeMap.end());
+        Size = (*it).second;
+      }
+
+      llvm::GlobalVariable *GV = create_global_variable(Addr, Size, SymName);
+      if (!GV) {
+        done = false;
+        continue;
+      }
+
+      for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
+        llvm::outs() << "global variable " << SymName << " has alias " << *it
+                     << '\n';
+        llvm::GlobalAlias::create(*it, GV);
+      }
+    }
   } while (!done);
 
 #if 0
@@ -3270,8 +3277,7 @@ int CreateSectionGlobalVariables(void) {
   // it's important that we do this here, after creating the section globals
   //
   for (const relocation_t &R : RelocationTable)
-    if (type_of_relocation(R))
-      RelocationsAt.insert(R.Addr);
+    RelocationsAt.insert(R.Addr);
 
   return 0;
 }
