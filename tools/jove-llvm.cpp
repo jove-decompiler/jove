@@ -3895,6 +3895,7 @@ int FixupPCRelativeAddrs(void) {
       llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
 
       switch (Inst->getOpcode()) {
+      case llvm::Instruction::Sub:
       case llvm::Instruction::Add: {
         llvm::Value *LHS = Inst->getOperand(0);
         llvm::Value *RHS = Inst->getOperand(1);
@@ -3904,8 +3905,9 @@ int FixupPCRelativeAddrs(void) {
 
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
+
           Inst->setOperand(OtherOperandIdx,
-                           ConstantForAddress(CI->getZExtValue()));
+                           ConstantForAddress(CI->getValue().abs().getZExtValue()));
           continue;
         }
 
@@ -3960,10 +3962,48 @@ int FixupPCRelativeAddrs(void) {
           continue;
         }
 
-        WithColor::error() << "handle_load_of_pcrel: unknown other operand "
-                              "in add expression "
-                           << *Other << '\n';
-        break;
+        //
+        //
+        //
+        assert(llvm::isa<llvm::Instruction>(Other));
+        llvm::Instruction *OtherInst = llvm::cast<llvm::Instruction>(Other);
+        switch (OtherInst->getOpcode()) {
+        case llvm::Instruction::Sub:
+        case llvm::Instruction::Add: {
+          llvm::Value *_LHS = OtherInst->getOperand(0);
+          llvm::Value *_RHS = OtherInst->getOperand(1);
+
+          if (llvm::isa<llvm::ConstantInt>(_LHS) ||
+              llvm::isa<llvm::ConstantInt>(_RHS)) {
+            assert(!(llvm::isa<llvm::ConstantInt>(_LHS) &&
+                     llvm::isa<llvm::ConstantInt>(_RHS)));
+
+            unsigned _OtherOperandIdx =
+                llvm::isa<llvm::ConstantInt>(_LHS) ? 0 : 1;
+
+            llvm::ConstantInt *CI = _OtherOperandIdx == 0
+                                        ? llvm::cast<llvm::ConstantInt>(_LHS)
+                                        : llvm::cast<llvm::ConstantInt>(_RHS);
+
+            OtherInst->setOperand(
+                _OtherOperandIdx,
+                ConstantForAddress(CI->getValue().abs().getZExtValue()));
+            continue;
+          }
+
+
+          llvm::outs() << "what the fuck is this?\n"
+                       << "_LHS: " << *_LHS << '\n'
+                       << "_RHS: " << *_RHS << '\n';
+          break;
+        }
+
+        default:
+          WithColor::error() << "handle_load_of_pcrel: unknown other operand "
+                                "in add expression "
+                             << *Other << '\n';
+          break;
+        }
       }
 
       default:
