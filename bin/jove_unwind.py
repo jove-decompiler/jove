@@ -5,6 +5,7 @@
 
 import optparse
 import lldb
+import shlex
 from binaryornot.check import is_binary
 import os
 import subprocess
