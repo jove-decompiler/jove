@@ -2853,27 +2853,17 @@ int CreateSectionGlobalVariables(void) {
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
       return;
 
-#if 1
     Old.SectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
         SectsGlobal, Old.SectsGlobal->getType()));
 
     Old.ConstSectsGlobal->replaceAllUsesWith(llvm::ConstantExpr::getPointerCast(
         ConstSectsGlobal, Old.ConstSectsGlobal->getType()));
 
-#if 0
-    Old.SectsGlobal->replaceAllUsesWith(SectsGlobal);
-    Old.ConstSectsGlobal->replaceAllUsesWith(ConstSectsGlobal);
-#endif
-
     assert(Old.SectsGlobal->user_begin() == Old.SectsGlobal->user_end());
     assert(Old.ConstSectsGlobal->user_begin() == Old.ConstSectsGlobal->user_end());
 
     Old.SectsGlobal->eraseFromParent();
     Old.ConstSectsGlobal->eraseFromParent();
-#endif
-
-    SectsGlobal->setName("sections");
-    ConstSectsGlobal->setName("const_sections");
   };
 
   auto define_sections = [&](void) -> void {
