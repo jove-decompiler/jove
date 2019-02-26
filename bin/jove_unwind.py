@@ -44,12 +44,8 @@ def jove_unwind(debugger, command, result, dict):
                     #
                     # exec llvm-symbolizer
                     #
-                    if True:
-                        p = subprocess.Popen(["/usr/bin/addr2line", "-p", "-i", "-f", "-e", path], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-                    else:
-                        p = subprocess.Popen(["/usr/bin/llvm-symbolizer", "-print-source-context-lines=10"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-
-                    (stdoutdata, stderrdata) = p.communicate('0x%x' % addr)
+                    p = subprocess.Popen(["/usr/bin/llvm-symbolizer", "-print-source-context-lines=10"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE);
+                    (stdoutdata, stderrdata) = p.communicate('%s 0x%x' % (path, addr))
 
                     print stdoutdata
                     print stderrdata
