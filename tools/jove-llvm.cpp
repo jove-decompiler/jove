@@ -3294,7 +3294,7 @@ int CreateCPUStateGlobal() {
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   if (Binary.IsExecutable) {
-    constexpr unsigned StackLen = 10 * 4096;
+    constexpr unsigned StackLen = 100 * 4096;
 
     llvm::Type *StackTy =
         llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
@@ -3611,10 +3611,19 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   {
     llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
 
-    for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb)
+    for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
+      switch (glb) {
+      case tcg_env_index:
+#if defined(__x86_64__)
+      case tcg_fs_base_index:
+#endif
+        continue;
+      }
+
       f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
           IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
           std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+    }
 
     f.PCAlloca = tcg_program_counter_index < 0
                      ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
@@ -3663,12 +3672,6 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
           IRB.CreateStore(Val, Ptr);
           break;
         }
-
-#if defined(__x86_64__)
-        case tcg_fs_base_index:
-          IRB.CreateStore(f.FSBaseVal, f.GlobalAllocaVec[glb]);
-          break;
-#endif
 
         default:
           continue;
@@ -5198,6 +5201,13 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
     unsigned idx = temp_idx(ts);
 
+    if (ts->temp_global) {
+      assert(idx != tcg_env_index);
+#if defined(__x86_64__)
+      assert(idx != tcg_fs_base_index);
+#endif
+    }
+
     llvm::AllocaInst *Ptr =
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
     assert(Ptr);
@@ -5209,8 +5219,16 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
     unsigned idx = temp_idx(ts);
 
-    if (ts->temp_global && idx == tcg_env_index)
-      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+    if (ts->temp_global) {
+      switch (idx) {
+      case tcg_env_index:
+        return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+#if defined(__x86_64__)
+      case tcg_fs_base_index:
+        return f.FSBaseVal;
+#endif
+      }
+    }
 
     llvm::AllocaInst *Ptr =
         ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
