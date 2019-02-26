@@ -4714,32 +4714,6 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 #endif
 
-  auto store = [&](unsigned glb) -> void {
-    llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-    llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-  };
-
-  auto reload = [&](unsigned glb) -> void {
-    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-    llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-  };
-
-  auto store_stack_pointers = [&](void) -> void {
-    store(tcg_frame_pointer_index);
-    store(tcg_stack_pointer_index);
-  };
-
-  auto reload_stack_pointers = [&](void) -> void {
-    reload(tcg_frame_pointer_index);
-    reload(tcg_stack_pointer_index);
-  };
-
   //
   // examine terminator multiple times
   //
@@ -4747,6 +4721,19 @@ int TranslateBasicBlock(binary_t &Binary,
     IRB.CreateUnreachable();
     return 0;
   }
+
+  auto store_stack_pointers = [&](void) -> void {
+    auto store = [&](unsigned glb) -> void {
+      llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    };
+
+    store(tcg_frame_pointer_index);
+    store(tcg_stack_pointer_index);
+  };
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
@@ -4986,6 +4973,19 @@ int TranslateBasicBlock(binary_t &Binary,
   default:
     break;
   }
+
+  auto reload_stack_pointers = [&](void) -> void {
+    auto reload = [&](unsigned glb) -> void {
+      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    };
+
+    reload(tcg_frame_pointer_index);
+    reload(tcg_stack_pointer_index);
+  };
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
