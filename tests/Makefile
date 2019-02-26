@@ -7,7 +7,8 @@ ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
 CFLAGS := -Wall \
           -fno-stack-protector \
           -fPIE \
-          -Oz
+          -Oz \
+          -g
 
 LDFLAGS := -pie
 
