@@ -2580,45 +2580,6 @@ int CreateSectionGlobalVariables(void) {
     Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
         Off, Off + sizeof(uintptr_t)));
     Sect.Stuff.Constants[Off] = C;
-
-    if (Sect.initArray || Sect.finiArray) {
-      assert(llvm::isa<llvm::Function>(C));
-      llvm::Function *F = llvm::cast<llvm::Function>(C);
-      auto it = CtorStubMap.find(F);
-      if (it != CtorStubMap.end())
-        return;
-
-      llvm::FunctionType *FTy = F->getFunctionType();
-      unsigned N = FTy->getNumParams();
-
-      llvm::Function *CallsF =
-          llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
-                                 llvm::GlobalValue::InternalLinkage,
-                                 "_" + std::string(F->getName()), Module.get());
-
-      {
-        llvm::BasicBlock *EntryB =
-            llvm::BasicBlock::Create(*Context, "", CallsF);
-
-        llvm::IRBuilderTy IRB(EntryB);
-
-        std::vector<llvm::Value *> ArgVec;
-        ArgVec.resize(N);
-
-        for (unsigned i = 0; i < N; ++i)
-          ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
-
-        IRB.CreateCall(F, ArgVec);
-        IRB.CreateRetVoid();
-      }
-
-      if (Sect.initArray)
-        llvm::appendToGlobalCtors(*Module, CallsF, 0);
-      else
-        llvm::appendToGlobalDtors(*Module, CallsF, 0);
-
-      CtorStubMap.insert({F, CallsF});
-    }
   };
 
   auto constant_of_addressof_undefined_function_relocation =
@@ -3219,59 +3180,57 @@ int CreateSectionGlobalVariables(void) {
     }
   } while (!done);
 
-#if 0
-  {
-    unsigned i = 0;
-    for (const auto &pair : SectMap) {
-      section_t &Sect = SectTable[i];
+  //
+  // Global Ctors/Dtors
+  //
+  for (section_t &Sect : SectTable) {
+    if (!Sect.initArray && !Sect.finiArray)
+      continue;
 
-      Sect.Stuff.Constants.clear();
-      Sect.Stuff.Intervals.clear();
-      Sect.Stuff.Types.clear();
+    assert(!(Sect.initArray && Sect.finiArray));
 
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+    for (const auto &pair : Sect.Stuff.Constants) {
+      llvm::Constant *C = pair.second;
+      assert(llvm::isa<llvm::Function>(C));
 
-      ++i;
+      llvm::Function *F = llvm::cast<llvm::Function>(C);
+      auto it = CtorStubMap.find(F);
+      if (it == CtorStubMap.end()) {
+        llvm::FunctionType *FTy = F->getFunctionType();
+        unsigned N = FTy->getNumParams();
+
+        llvm::Function *CallsF = llvm::Function::Create(
+            llvm::FunctionType::get(VoidType(), false),
+            llvm::GlobalValue::InternalLinkage, "_" + std::string(F->getName()),
+            Module.get());
+
+        {
+          llvm::BasicBlock *EntryB =
+              llvm::BasicBlock::Create(*Context, "", CallsF);
+
+          llvm::IRBuilderTy IRB(EntryB);
+
+          std::vector<llvm::Value *> ArgVec;
+          ArgVec.resize(N);
+
+          for (unsigned i = 0; i < N; ++i)
+            ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
+
+          IRB.CreateCall(F, ArgVec);
+          IRB.CreateRetVoid();
+        }
+
+        it = CtorStubMap.insert({F, CallsF}).first;
+      }
+
+      llvm::Function *CallsF = (*it).second;
+
+      if (Sect.initArray)
+        llvm::appendToGlobalCtors(*Module, CallsF, 0);
+      else
+        llvm::appendToGlobalDtors(*Module, CallsF, 0);
     }
   }
-
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Type *T = type_of_relocation(R))
-      type_at_address(R.Addr, T);
-
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Constant *C = constant_of_relocation(R))
-      constant_at_address(R.Addr, C);
-
-  create_global_variables();
-
-  {
-    unsigned i = 0;
-    for (const auto &pair : SectMap) {
-      section_t &Sect = SectTable[i];
-
-      Sect.Stuff.Constants.clear();
-      Sect.Stuff.Types.clear();
-      Sect.Stuff.Intervals.clear();
-
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
-
-      ++i;
-    }
-  }
-
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Type *T = type_of_relocation(R))
-      type_at_address(R.Addr, T);
-
-  for (const relocation_t &R : RelocationTable)
-    if (llvm::Constant *C = constant_of_relocation(R))
-      constant_at_address(R.Addr, C);
-
-  create_global_variables();
-#endif
 
   //
   // it's important that we do this here, after creating the section globals
