@@ -4748,9 +4748,13 @@ int TranslateBasicBlock(binary_t &Binary,
       store_stack_pointers();
     break;
 
-  case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::INDIRECT_CALL:
     store_stack_pointers();
+    break;
+
+  case TERMINATOR::INDIRECT_JUMP:
+    if (boost::out_degree(bb, ICFG) == 0)
+      store_stack_pointers();
     break;
 
   default:
@@ -4769,10 +4773,9 @@ int TranslateBasicBlock(binary_t &Binary,
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
-                       if (f.GlobalAllocaVec[glb])
-                         return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
-                       else
-                         return IRB.CreateLoad(CPUStateGlobalPointer(glb));
+                       llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+                       assert(Ptr);
+                       return IRB.CreateLoad(Ptr);
                      });
     }
 
@@ -4797,6 +4800,7 @@ int TranslateBasicBlock(binary_t &Binary,
           unsigned glb = glbv[i];
 
           llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+          assert(Ptr);
           llvm::Value *Val =
               IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
 
@@ -4842,10 +4846,7 @@ int TranslateBasicBlock(binary_t &Binary,
           std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                          [&](unsigned glb) -> llvm::Value * {
                            llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-
-                           if (!Ptr)
-                             Ptr = CPUStateGlobalPointer(glb);
-
+                           assert(Ptr);
                            return IRB.CreateLoad(Ptr);
                          });
         }
@@ -4907,8 +4908,9 @@ int TranslateBasicBlock(binary_t &Binary,
 
     const auto &DynTargets = ICFG[bb].DynTargets;
     if (DynTargets.empty()) {
-      if (opts::Verbose)
-        WithColor::warning() << "indirect branch has zero dyn targets\n";
+      WithColor::warning() << "indirect branch @ "
+                           << (fmt("%#lx") % ICFG[bb].Addr).str()
+                           << " has zero dyn targets\n";
 
       // apparently this is necessary
       IRB.CreateCall(IRB.CreateIntToPtr(
@@ -4932,10 +4934,7 @@ int TranslateBasicBlock(binary_t &Binary,
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
                        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-
-                       if (!Ptr)
-                         Ptr = CPUStateGlobalPointer(glb);
-
+                       assert(Ptr);
                        return IRB.CreateLoad(Ptr);
                      });
     }
@@ -4996,6 +4995,10 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::INDIRECT_JUMP:
+    if (boost::out_degree(bb, ICFG) == 0)
+      reload_stack_pointers();
+    break;
+
   case TERMINATOR::INDIRECT_CALL:
     reload_stack_pointers();
     break;
