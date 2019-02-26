@@ -52,7 +52,7 @@ class DISubprogram;
     llvm::DISubprogram *Subprogram;                                            \
   } DebugInformation;                                                          \
                                                                                \
-  bool IsThunk, IsABI;                                                         \
+  bool IsNamed, IsThunk, IsABI;                                                \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t args, rets;                                               \
@@ -60,7 +60,8 @@ class DISubprogram;
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
-  function_t() : IsThunk(false), IsABI(false), Analyzed(false) {}              \
+  function_t()                                                                 \
+      : IsNamed(false), IsThunk(false), IsABI(false), Analyzed(false) {}       \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -471,6 +472,7 @@ static int FixupFSBaseAddrs(void);
 #endif
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
+static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RenameFunctionLocals(void);
 static int RenameFunctions(void);
@@ -506,6 +508,7 @@ int llvm(void) {
 #endif
       || InternalizeStaticFunctions()
       || InternalizeSections()
+      || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
       || RenameFunctionLocals()
       || RenameFunctions()
@@ -1445,6 +1448,9 @@ int ProcessBinaryRelocations(void) {
     llvm::outs() << '\n';
   }
 
+  for (const relocation_t &R : RelocationTable)
+    RelocationsAt.insert(R.Addr);
+
   return 0;
 }
 
@@ -2325,6 +2331,7 @@ struct section_t {
 
 llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(Addr >= SectsStartAddr && Addr < SectsEndAddr);
+  assert(!RelocationsAt.empty());
 
   llvm::GlobalVariable *SectsGV =
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
@@ -2840,14 +2847,16 @@ int CreateSectionGlobalVariables(void) {
       Old.ConstSectsGlobal->setName("");
     }
 
-    SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                                           llvm::GlobalValue::ExternalLinkage,
-                                           nullptr, "sections");
+    SectsGlobal =
+      new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
+                               llvm::GlobalValue::ExternalLinkage,
+                               nullptr, "sections");
     SectsGlobal->setAlignment(4096);
 
-    ConstSectsGlobal = new llvm::GlobalVariable(
-        *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
-        nullptr, "const_sections");
+    ConstSectsGlobal =
+      new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
+                               llvm::GlobalValue::ExternalLinkage,
+                               nullptr, "const_sections");
     ConstSectsGlobal->setAlignment(4096);
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
@@ -2920,9 +2929,9 @@ int CreateSectionGlobalVariables(void) {
 
     SectsGlobal->setInitializer(
         llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
-
     ConstSectsGlobal->setInitializer(
         llvm::ConstantStruct::get(SectsGlobalTy, SectsGlobalFieldInits));
+
     ConstSectsGlobal->setConstant(true);
   };
 
@@ -3221,12 +3230,6 @@ int CreateSectionGlobalVariables(void) {
         llvm::appendToGlobalDtors(*Module, CallsF, 0);
     }
   }
-
-  //
-  // it's important that we do this here, after creating the section globals
-  //
-  for (const relocation_t &R : RelocationTable)
-    RelocationsAt.insert(R.Addr);
 
   return 0;
 }
@@ -4135,11 +4138,20 @@ int InternalizeStaticFunctions(void) {
 }
 
 int InternalizeSections(void) {
-  assert(SectsGlobal);
-  assert(ConstSectsGlobal);
+  if (SectsGlobal)
+    SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+  if (ConstSectsGlobal)
+    ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-  SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-  ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+  return 0;
+}
+
+int Optimize2(void) {
+  if (opts::NoOpt2)
+    return 0;
+
+  if (int ret = DoOptimize())
+    return ret;
 
   return 0;
 }
@@ -4207,10 +4219,19 @@ int RenameFunctions(void) {
       if (BinIdx != BinaryIndex)
         continue;
 
-      // XXX TODO symbol versions
-      llvm::GlobalValue *Aliasee =
-          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx].F;
-      llvm::GlobalAlias::create(pair.first, Aliasee);
+      function_t &f =
+          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+
+      if (!f.IsNamed) {
+        f.IsNamed = true;
+
+        std::string oldName = f.F->getName();
+        f.F->setName(pair.first);
+
+        llvm::GlobalAlias::create(oldName, f.F);
+      } else {
+        llvm::GlobalAlias::create(pair.first, f.F);
+      }
     }
   }
 
