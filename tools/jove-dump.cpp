@@ -117,9 +117,34 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
           Writer.getOStream() << '\n';
 
-          {
-            auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+          if (!ICFG[bb].DynTargets.empty()) {
+            std::vector<std::string> descv;
+            descv.resize(ICFG[bb].DynTargets.size());
 
+            std::transform(
+                ICFG[bb].DynTargets.begin(),
+                ICFG[bb].DynTargets.end(),
+                descv.begin(),
+                [&](const auto &pair) -> std::string {
+                  binary_index_t BIdx;
+                  function_index_t FIdx;
+                  std::tie(BIdx, FIdx) = pair;
+
+                  auto &b = decompilation.Binaries[BIdx];
+                  const auto &ICFG = b.Analysis.ICFG;
+                  auto &callee = b.Analysis.Functions[FIdx];
+                  uintptr_t target_addr = ICFG[boost::vertex(callee.Entry, ICFG)].Addr;
+
+                  return (fmt("%#lx @ %s")
+                          % target_addr
+                          % fs::path(b.Path).filename().string()).str();
+                });
+
+            Writer.printList("DynTargets", descv);
+          }
+
+          auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+          if (std::distance(adj_it_pair.first, adj_it_pair.second) > 0) {
             std::vector<uintptr_t> succs;
             succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
 
