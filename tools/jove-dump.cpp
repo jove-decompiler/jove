@@ -131,9 +131,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                   std::tie(BIdx, FIdx) = pair;
 
                   auto &b = decompilation.Binaries[BIdx];
-                  const auto &ICFG = b.Analysis.ICFG;
+                  const auto &_ICFG = b.Analysis.ICFG;
                   auto &callee = b.Analysis.Functions[FIdx];
-                  uintptr_t target_addr = ICFG[boost::vertex(callee.Entry, ICFG)].Addr;
+                  uintptr_t target_addr =
+                      _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
                   return (fmt("%#lx @ %s")
                           % target_addr
