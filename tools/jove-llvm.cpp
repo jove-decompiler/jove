@@ -2268,7 +2268,8 @@ int CreateFunctions(void) {
 
     std::string name;
     name.push_back(f.IsABI ? 'J' : 'j');
-    name.append((fmt("%lx") % ICFG[f.Entry].Addr).str());
+
+    name.append((fmt("%lx") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
 
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  llvm::GlobalValue::ExternalLinkage, name,
