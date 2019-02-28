@@ -720,6 +720,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                            << ")\n";
 
         assert(intervl.lower() < _intervl.lower());
+        assert(intervl.upper() == _intervl.upper());
+
         if (intervl.upper() != _intervl.upper()) {
           WithColor::warning() << "we've translated into another basic block:"
                                << (fmt("%#lx") % intervl.lower()).str()
@@ -739,7 +741,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
         Size = _intervl.lower() - intervl.lower();
         T.Type = TERMINATOR::NONE;
         T.Addr = 0; /* XXX? */
-        next_insn_addr = _intervl.lower();
+        T._none.NextPC = _intervl.lower();
         break;
       }
     }
@@ -866,8 +868,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     break;
 
   case TERMINATOR::NONE:
-    assert(next_insn_addr);
-    control_flow(next_insn_addr);
+    control_flow(T._none.NextPC);
     break;
 
   default:

@@ -221,7 +221,7 @@ struct terminator_info_t {
     } _unreachable;
 
     struct {
-      /* deliberately left empty */
+      uintptr_t NextPC;
     } _none;
   };
 };
