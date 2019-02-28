@@ -519,7 +519,7 @@ static basic_block_index_t translate_basic_block(binary_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-static std::unordered_map<std::uintptr_t, basic_block_index_t> BBMap;
+static boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
 static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
 static function_index_t translate_function(binary_t &binary,
@@ -545,11 +545,145 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
+  //
+  // does this new basic block start in the middle of a previously-created
+  // basic block?
+  //
   {
     auto it = BBMap.find(Addr);
-    if (it != BBMap.end())
-      return (*it).second;
+    if (it != BBMap.end()) {
+      basic_block_index_t bbidx = (*it).second;
+      auto &ICFG = binary.Analysis.ICFG;
+      basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+      assert(bbidx < boost::num_vertices(ICFG));
+
+      uintptr_t beg = ICFG[bb].Addr;
+      uintptr_t end = ICFG[bb].Addr + ICFG[bb].Size;
+
+      if (beg == Addr) {
+        assert(ICFG[bb].Addr == (*it).first.lower());
+        return (*it).second;
+      }
+
+      // if we get here, we know that beg != Addr
+      assert(Addr > beg);
+
+      ptrdiff_t off = Addr - beg;
+      assert(off > 0);
+
+      boost::icl::interval<uintptr_t>::type orig_intervl = (*it).first;
+
+      basic_block_index_t newbbidx = boost::num_vertices(ICFG);
+      basic_block_t newbb = boost::add_vertex(ICFG);
+      {
+        basic_block_properties_t &newbbprop = ICFG[newbb];
+        newbbprop.Addr = beg;
+        newbbprop.Size = off;
+        newbbprop.Term.Type = TERMINATOR::NONE;
+        newbbprop.Term.Addr = 0; /* XXX? */
+      }
+
+      std::swap(ICFG[bb], ICFG[newbb]);
+      ICFG[newbb].Addr = Addr;
+      ICFG[newbb].Size -= off;
+
+      assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
+
+      std::vector<basic_block_t> out_verts;
+      {
+        icfg_t::out_edge_iterator e_it, e_it_end;
+        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
+             e_it != e_it_end; ++e_it)
+          out_verts.push_back(boost::target(*e_it, ICFG));
+      }
+
+      boost::clear_out_edges(bb, ICFG);
+      boost::add_edge(bb, newbb, ICFG);
+
+      for (basic_block_t out_vert : out_verts) {
+        boost::add_edge(newbb, out_vert, ICFG);
+      }
+
+      boost::icl::interval<uintptr_t>::type intervl1 =
+          boost::icl::interval<uintptr_t>::right_open(
+              ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
+
+      boost::icl::interval<uintptr_t>::type intervl2 =
+          boost::icl::interval<uintptr_t>::right_open(
+              ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
+
+      assert(boost::icl::disjoint(intervl1, intervl2));
+
+      llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
+                   << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
+
+      llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
+                   << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
+
+      llvm::outs() << "orig_intervl: ["
+                   << (fmt("%#lx") % orig_intervl.lower()).str()
+                   << ", "
+                   << (fmt("%#lx") % orig_intervl.upper()).str()
+                   << ")\n";
+     
+      BBMap.erase(*it);
+
+      //assert(BBMap.find(intervl1) == BBMap.end());
+
+      {
+        auto _it = BBMap.find(intervl1);
+        if (_it != BBMap.end()) {
+          const auto &intervl = (*_it).first;
+          WithColor::error() << "can't add interval1 to BBMap: ["
+                             << (fmt("%#lx") % intervl1.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl1.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
+        }
+        assert(_it == BBMap.end());
+      }
+
+      {
+        auto _it = BBMap.find(intervl2);
+        if (_it != BBMap.end()) {
+          const auto &intervl = (*_it).first;
+          llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
+
+          WithColor::error() << "can't add interval2 to BBMap: ["
+                             << (fmt("%#lx") % intervl2.lower()).str()
+                             << ", "
+                             << (fmt("%#lx") % intervl2.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % intervl.lower()).str()
+                             << ", "
+                             << (fmt("%#lx") % intervl.upper()).str()
+                             << ")";
+        }
+        assert(_it == BBMap.end());
+      }
+
+      BBMap.add({intervl1, {bbidx}});
+      BBMap.add({intervl2, {newbbidx}});
+
+      {
+        auto _it = BBMap.find(intervl1);
+        assert(_it != BBMap.end());
+        assert((*_it).second == bbidx);
+      }
+
+      {
+        auto _it = BBMap.find(intervl2);
+        assert(_it != BBMap.end());
+        assert((*_it).second == newbbidx);
+      }
+
+      return newbbidx;
+    }
   }
+
+  uintptr_t next_insn_addr = 0;
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
@@ -567,6 +701,47 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     std::tie(size, T) = tcg.translate(Addr + Size);
 
     Size += size;
+
+    {
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
+      auto it = BBMap.find(intervl);
+      if (it != BBMap.end()) {
+        const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
+
+        WithColor::error() << "can't translate further ["
+                           << (fmt("%#lx") % intervl.lower()).str()
+                           << ", "
+                           << (fmt("%#lx") % intervl.upper()).str()
+                           << "), BBMap already contains ["
+                           << (fmt("%#lx") % _intervl.lower()).str()
+                           << ", "
+                           << (fmt("%#lx") % _intervl.upper()).str()
+                           << ")\n";
+
+        assert(intervl.lower() < _intervl.lower());
+        if (intervl.upper() != _intervl.upper()) {
+          WithColor::warning() << "we've translated into another basic block:"
+                               << (fmt("%#lx") % intervl.lower()).str()
+                               << ", "
+                               << (fmt("%#lx") % intervl.upper()).str()
+                               << "), BBMap already contains ["
+                               << (fmt("%#lx") % _intervl.lower()).str()
+                               << ", "
+                               << (fmt("%#lx") % _intervl.upper()).str()
+                               << ")\n";
+        }
+
+        //
+        // solution here is to prematurely end the basic block with a NONE
+        // terminator, and with a next_insn address of _intervl.lower()
+        //
+        Size = _intervl.lower() - intervl.lower();
+        T.Type = TERMINATOR::NONE;
+        next_insn_addr = _intervl.lower();
+        break;
+      }
+    }
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
@@ -626,9 +801,25 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
-  }
 
-  BBMap[Addr] = bbidx;
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
+                                                    bbprop.Addr + bbprop.Size);
+    auto it = BBMap.find(intervl);
+    if (it != BBMap.end()) {
+      WithColor::error() << "can't insert ["
+                         << (fmt("%#lx") % bbprop.Addr).str() << ", "
+                         << (fmt("%#lx") % (bbprop.Addr + bbprop.Size)).str()
+                         << ") [bbidx=" << bbidx
+                         << "], BBMap already contains ["
+                         << (fmt("%#lx") % (*it).first.lower()).str() << ", "
+                         << (fmt("%#lx") % (*it).first.upper()).str()
+                         << ") [bbidx=" << (*it).second << "]\n";
+    }
+
+    assert(BBMap.find(intervl) == BBMap.end());
+    BBMap.add({intervl, {bbidx}});
+  }
 
   //
   // conduct analysis of last instruction (the terminator of the block) and
@@ -639,10 +830,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
     basic_block_index_t succidx;
 
-    auto it = BBMap.find(Target);
-    succidx = it != BBMap.end()
-                  ? (*it).second
-                  : translate_basic_block(binary, tcg, dis, Target);
+    succidx = translate_basic_block(binary, tcg, dis, Target);
 
     if (succidx != invalid_basic_block_index) {
       basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
@@ -674,6 +862,11 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::RETURN:
   case TERMINATOR::UNREACHABLE:
+    break;
+
+  case TERMINATOR::NONE:
+    assert(next_insn_addr);
+    control_flow(next_insn_addr);
     break;
 
   default:
