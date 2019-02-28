@@ -83,6 +83,8 @@ typedef boost::adjacency_list<boost::setS,             /* OutEdgeList */
                               basic_block_properties_t /* VertexProperties */>
     interprocedural_control_flow_graph_t;
 
+typedef interprocedural_control_flow_graph_t icfg_t;
+
 typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
 typedef interprocedural_control_flow_graph_t::edge_descriptor control_flow_t;
 
