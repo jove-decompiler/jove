@@ -738,6 +738,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
         //
         Size = _intervl.lower() - intervl.lower();
         T.Type = TERMINATOR::NONE;
+        T.Addr = 0; /* XXX? */
         next_insn_addr = _intervl.lower();
         break;
       }
