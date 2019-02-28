@@ -1316,6 +1316,18 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         translate_function(child, binary_idx, tcg, dis,
                            rva_of_va(target, binary_idx), brkpt_count);
 
+#if 0
+    if (rva_of_va(target, binary_idx) == 0x2050) {
+      llvm::errs() << "target binary_idx=" << binary_idx << " f_idx=" << f_idx
+                   << " ICFG[bb].Addr=" << (fmt("%#lx") % ICFG[bb].Addr).str()
+                   << " DynTargets.size=" << ICFG[bb].DynTargets.size() << '\n';
+      llvm::errs() << "[after] DynTargets.size=" << ICFG[bb].DynTargets.size()
+                   << " isNewTarget=" << isNewTarget << '\n';
+
+      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+    }
+#endif
+
     isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     if (isLocal) {
@@ -1333,7 +1345,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                              rva_of_va(target, binary_idx), brkpt_count);
 
       isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
-
     }
   } else {
     abort();
@@ -1571,6 +1582,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
         uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
 
+        assert(IndBrMap.find(Addr) == IndBrMap.end());
         indirect_branch_t &IndBrInfo = IndBrMap[Addr];
         IndBrInfo.binary_idx = binary_idx;
         IndBrInfo.bb = bb;
