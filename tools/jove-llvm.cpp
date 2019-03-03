@@ -1916,8 +1916,15 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   unsigned size = 0;
   jove::terminator_info_t T;
   do {
+    do_tcg_optimization = true;
+
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
+
+    do_tcg_optimization = false;
+
+    TCGArg constprop[tcg_max_temps];
+    constprop[tcg_syscall_number_index] = std::numeric_limits<TCGArg>::max();
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
@@ -1934,11 +1941,59 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
+
+#if defined(__x86_64__)
+        void *helper_ptr =
+            reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
+        if (helper_ptr == helper_syscall) {
+          const auto &N = constprop[tcg_syscall_number_index];
+          if (N != std::numeric_limits<TCGArg>::max() &&
+              N < sizeof(sys_call_arg_cnt_table) / sizeof(unsigned)) {
+            iglbs.reset();
+
+            unsigned M = sys_call_arg_cnt_table[N];
+            assert(M < 7);
+            switch (M) {
+            case 6:
+              iglbs.set(tcg_syscall_arg6_index);
+            case 5:
+              iglbs.set(tcg_syscall_arg5_index);
+            case 4:
+              iglbs.set(tcg_syscall_arg4_index);
+            case 3:
+              iglbs.set(tcg_syscall_arg3_index);
+            case 2:
+              iglbs.set(tcg_syscall_arg2_index);
+            case 1:
+              iglbs.set(tcg_syscall_arg1_index);
+            case 0:
+              break;
+            }
+          }
+        }
+#endif
       } else {
         const TCGOpDef &opdef = tcg_op_defs[opc];
 
         nb_iargs = opdef.nb_iargs;
         nb_oargs = opdef.nb_oargs;
+      }
+
+      if (opc == INDEX_op_movi_i64) {
+        TCGTemp *ts = arg_temp(op->args[0]);
+        unsigned glb_idx = temp_idx(ts);
+
+        constprop[glb_idx] = op->args[1];
+      }
+
+      if (opc == INDEX_op_mov_i64) {
+        TCGTemp *dst = arg_temp(op->args[0]);
+        TCGTemp *src = arg_temp(op->args[1]);
+
+        unsigned dst_idx = temp_idx(dst);
+        unsigned src_idx = temp_idx(src);
+
+        constprop[dst_idx] = constprop[src_idx];
       }
 
       for (int i = 0; i < nb_iargs; ++i) {

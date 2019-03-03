@@ -153,6 +153,70 @@ int main(int argc, char **argv) {
     return -1;
 #endif
   };
+  auto syscall_number_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rax");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("eax");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x8");
+#endif
+  };
+
+  auto syscall_arg1_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rdi");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("ebx");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x0");
+#endif
+  };
+  auto syscall_arg2_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rsi");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("ecx");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x1");
+#endif
+  };
+  auto syscall_arg3_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rdx");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("edx");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x2");
+#endif
+  };
+  auto syscall_arg4_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("r10");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("esi");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x3");
+#endif
+  };
+  auto syscall_arg5_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("r8");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("edi");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x4");
+#endif
+  };
+  auto syscall_arg6_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("r9");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("ebp");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x5");
+#endif
+  };
 
 #if defined(__x86_64__)
   auto fs_base_index = [&](void) -> int {
@@ -175,10 +239,18 @@ int main(int argc, char **argv) {
   __TCG_CONST(program_counter_index);
   __TCG_CONST(frame_pointer_index);
   __TCG_CONST(stack_pointer_index);
+  __TCG_CONST(program_counter_env_offset);
+  __TCG_CONST(syscall_number_index);
+  __TCG_CONST(syscall_arg1_index);
+  __TCG_CONST(syscall_arg2_index);
+  __TCG_CONST(syscall_arg3_index);
+  __TCG_CONST(syscall_arg4_index);
+  __TCG_CONST(syscall_arg5_index);
+  __TCG_CONST(syscall_arg6_index);
+
 #if defined(__x86_64__)
   __TCG_CONST(fs_base_index);
 #endif
-  __TCG_CONST(program_counter_env_offset);
 
 #undef __TCG_CONST
 

@@ -30,6 +30,9 @@ namespace opts {
   static cl::opt<std::string> Binary(cl::Positional,
     cl::desc("<binary>"),
     cl::Required);
+
+  static cl::opt<bool> DoTCGOpt("do-tcg-opt",
+    cl::desc("Run QEMU TCG optimizations"));
 }
 
 namespace jove {
@@ -40,6 +43,9 @@ int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
   cl::ParseCommandLineOptions(argc, argv, "TCG Dump\n");
+
+  if (opts::DoTCGOpt)
+    jove::do_tcg_optimization = true;
 
   return jove::tcgdump();
 }
