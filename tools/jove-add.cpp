@@ -552,18 +552,40 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   {
     auto it = BBMap.find(Addr);
     if (it != BBMap.end()) {
-      basic_block_index_t bbidx = (*it).second;
+      basic_block_index_t bbidx = (*it).second - 1;
       auto &ICFG = binary.Analysis.ICFG;
       basic_block_t bb = boost::vertex(bbidx, ICFG);
 
       assert(bbidx < boost::num_vertices(ICFG));
 
       uintptr_t beg = ICFG[bb].Addr;
-      uintptr_t end = ICFG[bb].Addr + ICFG[bb].Size;
 
       if (beg == Addr) {
         assert(ICFG[bb].Addr == (*it).first.lower());
-        return (*it).second;
+        return bbidx;
+      }
+
+      unsigned deg = boost::out_degree(bb, ICFG);
+
+      std::vector<basic_block_t> out_verts;
+      {
+        icfg_t::out_edge_iterator e_it, e_it_end;
+        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
+             e_it != e_it_end; ++e_it)
+          out_verts.push_back(boost::target(*e_it, ICFG));
+      }
+
+      if (beg == 0x109130) {
+        llvm::errs() << "//////////////////////////////////////////////\n"
+                     << "//////////////////////////////////////////////\n"
+                     << "//////////////////////////////////////////////\n"
+                     << "deg=" << deg << ' '
+                     << "out_verts.size()=" << out_verts.size()
+                     << " {";
+        for (basic_block_t out_vert : out_verts)
+          llvm::errs() << ' ' << (fmt("%#lx") % ICFG[out_vert].Addr).str();
+        llvm::errs() << "} Term="
+                     << description_of_terminator(ICFG[bb].Term.Type) << '\n';
       }
 
       // if we get here, we know that beg != Addr
@@ -590,20 +612,19 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
       assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
 
-      std::vector<basic_block_t> out_verts;
-      {
-        icfg_t::out_edge_iterator e_it, e_it_end;
-        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-             e_it != e_it_end; ++e_it)
-          out_verts.push_back(boost::target(*e_it, ICFG));
-      }
-
       boost::clear_out_edges(bb, ICFG);
+      assert(boost::out_degree(bb, ICFG) == 0);
+
       boost::add_edge(bb, newbb, ICFG);
 
       for (basic_block_t out_vert : out_verts) {
         boost::add_edge(newbb, out_vert, ICFG);
       }
+
+      assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
+      assert(boost::out_degree(bb, ICFG) == 1);
+
+      assert(boost::out_degree(newbb, ICFG) == deg);
 
       boost::icl::interval<uintptr_t>::type intervl1 =
           boost::icl::interval<uintptr_t>::right_open(
@@ -627,9 +648,12 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                    << (fmt("%#lx") % orig_intervl.upper()).str()
                    << ")\n";
      
-      BBMap.erase(*it);
+      unsigned n = BBMap.iterative_size();
+      BBMap.erase((*it).first);
+      assert(BBMap.iterative_size() == n - 1);
 
-      //assert(BBMap.find(intervl1) == BBMap.end());
+      assert(BBMap.find(intervl1) == BBMap.end());
+      assert(BBMap.find(intervl2) == BBMap.end());
 
       {
         auto _it = BBMap.find(intervl1);
@@ -641,8 +665,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                              << "), BBMap already contains ["
                              << (fmt("%#lx") % intervl.lower()).str() << ", "
                              << (fmt("%#lx") % intervl.upper()).str() << ")\n";
+          abort();
         }
-        assert(_it == BBMap.end());
       }
 
       {
@@ -652,38 +676,33 @@ basic_block_index_t translate_basic_block(binary_t &binary,
           llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
 
           WithColor::error() << "can't add interval2 to BBMap: ["
-                             << (fmt("%#lx") % intervl2.lower()).str()
-                             << ", "
+                             << (fmt("%#lx") % intervl2.lower()).str() << ", "
                              << (fmt("%#lx") % intervl2.upper()).str()
                              << "), BBMap already contains ["
-                             << (fmt("%#lx") % intervl.lower()).str()
-                             << ", "
-                             << (fmt("%#lx") % intervl.upper()).str()
-                             << ")";
+                             << (fmt("%#lx") % intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
+          abort();
         }
-        assert(_it == BBMap.end());
       }
 
-      BBMap.add({intervl1, {bbidx}});
-      BBMap.add({intervl2, {newbbidx}});
+      BBMap.add({intervl1, 1 + bbidx});
+      BBMap.add({intervl2, 1 + newbbidx});
 
       {
         auto _it = BBMap.find(intervl1);
         assert(_it != BBMap.end());
-        assert((*_it).second == bbidx);
+        assert((*_it).second == 1 + bbidx);
       }
 
       {
         auto _it = BBMap.find(intervl2);
         assert(_it != BBMap.end());
-        assert((*_it).second == newbbidx);
+        assert((*_it).second == 1 + newbbidx);
       }
 
       return newbbidx;
     }
   }
-
-  uintptr_t next_insn_addr = 0;
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
@@ -706,44 +725,40 @@ basic_block_index_t translate_basic_block(binary_t &binary,
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
       auto it = BBMap.find(intervl);
-      if (it != BBMap.end()) {
-        const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
+      if (it == BBMap.end())
+        continue; /* proceed */
 
-        WithColor::error() << "can't translate further ["
-                           << (fmt("%#lx") % intervl.lower()).str()
-                           << ", "
-                           << (fmt("%#lx") % intervl.upper()).str()
-                           << "), BBMap already contains ["
-                           << (fmt("%#lx") % _intervl.lower()).str()
-                           << ", "
-                           << (fmt("%#lx") % _intervl.upper()).str()
-                           << ")\n";
+      const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
 
-        assert(intervl.lower() < _intervl.lower());
-        assert(intervl.upper() == _intervl.upper());
+      WithColor::error() << "can't translate further ["
+                         << (fmt("%#lx") % intervl.lower()).str() << ", "
+                         << (fmt("%#lx") % intervl.upper()).str()
+                         << "), BBMap already contains ["
+                         << (fmt("%#lx") % _intervl.lower()).str() << ", "
+                         << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
 
-        if (intervl.upper() != _intervl.upper()) {
-          WithColor::warning() << "we've translated into another basic block:"
-                               << (fmt("%#lx") % intervl.lower()).str()
-                               << ", "
-                               << (fmt("%#lx") % intervl.upper()).str()
-                               << "), BBMap already contains ["
-                               << (fmt("%#lx") % _intervl.lower()).str()
-                               << ", "
-                               << (fmt("%#lx") % _intervl.upper()).str()
-                               << ")\n";
-        }
+      assert(intervl.lower() < _intervl.lower());
 
-        //
-        // solution here is to prematurely end the basic block with a NONE
-        // terminator, and with a next_insn address of _intervl.lower()
-        //
-        Size = _intervl.lower() - intervl.lower();
-        T.Type = TERMINATOR::NONE;
-        T.Addr = 0; /* XXX? */
-        T._none.NextPC = _intervl.lower();
-        break;
+      // assert(intervl.upper() == _intervl.upper());
+
+      if (intervl.upper() != _intervl.upper()) {
+        WithColor::warning() << "we've translated into another basic block:"
+                             << (fmt("%#lx") % intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % _intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
       }
+
+      //
+      // solution here is to prematurely end the basic block with a NONE
+      // terminator, and with a next_insn address of _intervl.lower()
+      //
+      Size = _intervl.lower() - intervl.lower();
+      T.Type = TERMINATOR::NONE;
+      T.Addr = 0; /* XXX? */
+      T._none.NextPC = _intervl.lower();
+      break;
     }
   } while (T.Type == TERMINATOR::NONE);
 
@@ -818,10 +833,10 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                          << (fmt("%#lx") % (*it).first.lower()).str() << ", "
                          << (fmt("%#lx") % (*it).first.upper()).str()
                          << ") [bbidx=" << (*it).second << "]\n";
+      abort();
     }
 
-    assert(BBMap.find(intervl) == BBMap.end());
-    BBMap.add({intervl, {bbidx}});
+    BBMap.add({intervl, 1 + bbidx});
   }
 
   //
@@ -831,14 +846,24 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   auto control_flow = [&](std::uintptr_t Target) -> void {
     assert(Target);
 
-    basic_block_index_t succidx;
+    basic_block_index_t succidx =
+        translate_basic_block(binary, tcg, dis, Target);
 
-    succidx = translate_basic_block(binary, tcg, dis, Target);
+    assert(succidx != invalid_basic_block_index);
 
-    if (succidx != invalid_basic_block_index) {
-      basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
-      boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    basic_block_t _bb;
+    {
+      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
+      assert(it != BBMap.end());
+
+      auto &ICFG = binary.Analysis.ICFG;
+      basic_block_index_t _bbidx = (*it).second - 1;
+      _bb = boost::vertex(_bbidx, ICFG);
+      assert(T.Type == ICFG[_bb].Term.Type);
     }
+
+    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+    boost::add_edge(_bb, succ, binary.Analysis.ICFG);
   };
 
   switch (T.Type) {
@@ -847,8 +872,31 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     break;
 
   case TERMINATOR::CONDITIONAL_JUMP:
+#if 0
+    if (T._conditional_jump.Target == 0x10915f) {
+      auto &ICFG = binary.Analysis.ICFG;
+      llvm::errs() << "----------------------------------------------\n"
+                   << "----------------------------------------------\n"
+                   << "----------------------------------------------\n"
+                   << "T._conditional_jump.Target=0x10915f\n"
+                   << "T._conditional_jump.NextPC=" << (fmt("%#lx") % T._conditional_jump.NextPC).str() << '\n'
+                   << "boost::out_degree(bb, ICFG)=" << boost::out_degree(bb, ICFG) << '\n';
+    }
+#endif
+
     control_flow(T._conditional_jump.Target);
     control_flow(T._conditional_jump.NextPC);
+
+#if 0
+    if (T._conditional_jump.Target == 0x10915f) {
+      auto &ICFG = binary.Analysis.ICFG;
+      llvm::errs() << "----------------------------------------------\n"
+                   << "----------------------------------------------\n"
+                   << "----------------------------------------------\n"
+                   << "T._conditional_jump.Target=0x10915f\n"
+                   << "boost::out_degree(bb, ICFG)=" << boost::out_degree(bb, ICFG) << '\n';
+    }
+#endif
     break;
 
   case TERMINATOR::CALL:

@@ -1915,7 +1915,7 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   jove::terminator_info_t T;
   do {
     unsigned len;
-    std::tie(len, T) = TCG->translate(Addr + size);
+    std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
@@ -4478,7 +4478,7 @@ int TranslateBasicBlock(binary_t &Binary,
   jove::terminator_info_t T;
   do {
     unsigned len;
-    std::tie(len, T) = TCG->translate(Addr + size);
+    std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
 
     std::vector<llvm::AllocaInst *> TempAllocaVec(s->nb_temps, nullptr);
     std::vector<llvm::BasicBlock *> LabelVec(s->nb_labels, nullptr);
@@ -4560,6 +4560,16 @@ int TranslateBasicBlock(binary_t &Binary,
 
     size += len;
   } while (size < Size);
+
+  assert(T.Type == ICFG[bb].Term.Type);
+  //assert(size == ICFG[bb].Size);
+
+  if (!IRB.GetInsertBlock()->getTerminator()) {
+    if (opts::Verbose)
+      WithColor::warning() << "TranslateBasicBlock: no terminator in block\n";
+    assert(ExitBB);
+    IRB.CreateBr(ExitBB);
+  }
 
   IRB.SetInsertPoint(ExitBB);
 
@@ -4744,6 +4754,16 @@ int TranslateBasicBlock(binary_t &Binary,
     return 0;
   }
 
+  if (T.Type == TERMINATOR::NONE) {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    assert(eit_pair.first != eit_pair.second &&
+           std::next(eit_pair.first) == eit_pair.second);
+    control_flow_t cf = *eit_pair.first;
+    basic_block_t succ = boost::target(cf, ICFG);
+    IRB.CreateBr(ICFG[succ].B);
+    return 0;
+  }
+
   auto store_stack_pointers = [&](void) -> void {
     auto store = [&](unsigned glb) -> void {
       llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
@@ -4755,6 +4775,24 @@ int TranslateBasicBlock(binary_t &Binary,
 
     store(tcg_frame_pointer_index);
     store(tcg_stack_pointer_index);
+  };
+
+  auto store_stack_pointers_if_not_dynl = [&](void) -> void {
+    bool dynl = false;
+
+    const auto &DynTargets = ICFG[bb].DynTargets;
+    if (!DynTargets.empty()) {
+      binary_index_t BIdx = (*DynTargets.begin()).first;
+      function_index_t FuncIdx = (*DynTargets.begin()).second;
+
+      if (Decompilation.Binaries[BIdx].IsDynamicLinker)
+        dynl = true;
+    }
+
+    if (dynl) {
+    } else {
+      store_stack_pointers();
+    }
   };
 
   switch (T.Type) {
@@ -4770,14 +4808,18 @@ int TranslateBasicBlock(binary_t &Binary,
       store_stack_pointers();
     break;
 
-  case TERMINATOR::INDIRECT_CALL:
-    store_stack_pointers();
+  case TERMINATOR::INDIRECT_CALL: {
+    store_stack_pointers_if_not_dynl();
     break;
+  }
 
-  case TERMINATOR::INDIRECT_JUMP:
-    if (boost::out_degree(bb, ICFG) == 0)
-      store_stack_pointers();
+  case TERMINATOR::INDIRECT_JUMP: {
+    if (boost::out_degree(bb, ICFG) != 0)
+      break;
+
+    store_stack_pointers_if_not_dynl();
     break;
+  }
 
   default:
     break;
@@ -5008,6 +5050,36 @@ int TranslateBasicBlock(binary_t &Binary,
     reload(tcg_stack_pointer_index);
   };
 
+  auto reload_stack_pointers_if_not_dynl = [&](void) -> void {
+    bool dynl = false;
+
+    const auto &DynTargets = ICFG[bb].DynTargets;
+    if (!DynTargets.empty()) {
+      binary_index_t BIdx = (*DynTargets.begin()).first;
+      function_index_t FuncIdx = (*DynTargets.begin()).second;
+
+      if (Decompilation.Binaries[BIdx].IsDynamicLinker)
+        dynl = true;
+    }
+
+    if (dynl) {
+      //
+      // if we are calling into the dynamic linker, then we need to "emulate"
+      // the popping of return address from the stack (decremented by
+      // sizeof(uintptr))
+      //
+#if defined(__x86_64__)
+      auto &sp_alloca = f.GlobalAllocaVec[tcg_stack_pointer_index];
+      IRB.CreateStore(
+          IRB.CreateAdd(IRB.CreateLoad(sp_alloca),
+                        llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
+          sp_alloca);
+#endif
+    } else {
+      reload_stack_pointers();
+    }
+  };
+
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
@@ -5017,12 +5089,14 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::INDIRECT_JUMP:
-    if (boost::out_degree(bb, ICFG) == 0)
-      reload_stack_pointers();
+    if (boost::out_degree(bb, ICFG) != 0)
+      break;
+
+    reload_stack_pointers_if_not_dynl();
     break;
 
   case TERMINATOR::INDIRECT_CALL:
-    reload_stack_pointers();
+    reload_stack_pointers_if_not_dynl();
     break;
 
   default:
@@ -5031,9 +5105,20 @@ int TranslateBasicBlock(binary_t &Binary,
 
   switch (T.Type) {
   case TERMINATOR::CONDITIONAL_JUMP: {
+
     auto eit_pair = boost::out_edges(bb, ICFG);
-    assert(eit_pair.first != eit_pair.second &&
-           std::next(std::next(eit_pair.first)) == eit_pair.second);
+
+    if (boost::out_degree(bb, ICFG) != 2) {
+      WithColor::error() << "WTF? conditional jump @ "
+                         << (fmt("%#lx") % ICFG[bb].Addr).str()
+                         << " with size "
+                         << ICFG[bb].Size
+                         << " has out degree of "
+                         << boost::out_degree(bb, ICFG)
+                         << '\n';
+    }
+
+    assert(boost::out_degree(bb, ICFG) == 2);
 
     control_flow_t cf1 = *eit_pair.first;
     control_flow_t cf2 = *std::next(eit_pair.first);

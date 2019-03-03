@@ -1,4 +1,7 @@
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <sched.h>
@@ -79,9 +82,20 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
+static void print_command(std::vector<char *> &arg_vec);
+
 static std::string jove_add_path;
 
+static int null_fd;
+
 int init(void) {
+  null_fd = open("/dev/null", O_WRONLY);
+  if (null_fd < 0) {
+    WithColor::error() << "could not open /dev/null : " << strerror(errno)
+                       << '\n';
+    return 1;
+  }
+
   jove_add_path =
       (boost::dll::program_location().parent_path() / std::string("jove-add"))
           .string();
@@ -124,7 +138,8 @@ int init(void) {
     env_vec.push_back(const_cast<char *>("LD_TRACE_LOADED_OBJECTS=1"));
     env_vec.push_back(nullptr);
 
-    return execve(opts::Input.c_str(), arg_vec.data(), env_vec.data());
+    print_command(arg_vec);
+    return execve(arg_vec.front(), arg_vec.data(), env_vec.data());
   }
 
   close(pipefd[1]); /* close unused write end */
@@ -308,7 +323,8 @@ int init(void) {
       arg_vec.push_back(const_cast<char *>("init"));
       arg_vec.push_back(nullptr);
 
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
+      print_command(arg_vec);
+      return execve(arg_vec.front(), arg_vec.data(), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -346,7 +362,8 @@ int init(void) {
       arg_vec.push_back(const_cast<char *>("decompilation.jv"));
       arg_vec.push_back(nullptr);
 
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
+      print_command(arg_vec);
+      return execve(arg_vec.front(), arg_vec.data(), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -367,7 +384,8 @@ int init(void) {
       arg_vec.push_back(const_cast<char *>("initial commit"));
       arg_vec.push_back(nullptr);
 
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
+      print_command(arg_vec);
+      return execve(arg_vec.front(), arg_vec.data(), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -409,7 +427,12 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(path.c_str()));
       arg_vec.push_back(nullptr);
 
-      execve(jove_add_path.c_str(), arg_vec.data(), ::environ);
+      print_command(arg_vec);
+
+      dup2(null_fd, STDOUT_FILENO);
+      dup2(null_fd, STDERR_FILENO);
+
+      execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
 
@@ -454,6 +477,17 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
+}
+
+void print_command(std::vector<char *> &arg_vec) {
+  for (char *s : arg_vec) {
+    if (!s)
+      continue;
+
+    llvm::outs() << s << ' ';
+  }
+
+  llvm::outs() << '\n';
 }
 
 }

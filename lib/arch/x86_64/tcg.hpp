@@ -1236,6 +1236,8 @@ typedef uint64_t target_ulong;
 constexpr target_ulong JOVE_PCREL_MAGIC =
   std::numeric_limits<target_ulong>::max();
 
+static target_ulong __jove_end_pc = 0;
+
 enum {
     R_EAX = 0,
     R_ECX = 1,
@@ -26908,6 +26910,15 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
                 tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
+        }
+
+        if (__jove_end_pc) {
+          if (db->pc_next >= __jove_end_pc) {
+            tb->jove.T.Type = jove::TERMINATOR::NONE;
+            tb->jove.T.Addr = 0; /* XXX */
+            tb->jove.T._none.NextPC = __jove_end_pc;
+            break;
+          }
         }
 
         tb->jove.T.Addr = db->pc_next;

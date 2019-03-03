@@ -134,7 +134,8 @@ struct tiny_code_generator_t {
     guest_base = reinterpret_cast<unsigned long>(contents);
   }
 
-  std::pair<unsigned, terminator_info_t> translate(target_ulong pc) {
+  std::pair<unsigned, terminator_info_t> translate(target_ulong pc,
+                                                   target_ulong pc_end = 0) {
     tcg_func_start(&_ctx);
 
     struct TranslationBlock tb;
@@ -157,6 +158,7 @@ struct tiny_code_generator_t {
     tb.jove.T.Addr = pc;
     tb.jove.T.Type = TERMINATOR::UNKNOWN;
 
+    __jove_end_pc = pc_end;
     gen_intermediate_code(&_cpu.parent_obj, &tb);
 
 #if 0

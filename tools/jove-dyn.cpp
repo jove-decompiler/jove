@@ -171,7 +171,7 @@ typedef std::set<section_properties_t> section_properties_set_t;
 // we have a BB & Func map for each binary_t
 struct binary_state_t {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;
-  std::unordered_map<uintptr_t, basic_block_index_t> BBMap;
+  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
   boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 
   struct {
@@ -189,7 +189,9 @@ static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
 
 struct indirect_branch_t {
   binary_index_t binary_idx;
-  basic_block_t bb;
+  basic_block_index_t bbidx;
+
+  uintptr_t TermAddr;
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
@@ -354,8 +356,24 @@ int ParentProc(pid_t child) {
     for (basic_block_index_t bb_idx = 0;
          bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
       basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+      const auto &bbprop = binary.Analysis.ICFG[bb];
 
-      st.BBMap[binary.Analysis.ICFG[bb].Addr] = bb_idx;
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              bbprop.Addr, bbprop.Addr + bbprop.Size);
+      assert(st.BBMap.find(intervl) == st.BBMap.end());
+
+#if 1
+      llvm::errs() << "BBMap entry ["
+                   << (fmt("%#lx") % intervl.lower()).str()
+                   << ", "
+                   << (fmt("%#lx") % intervl.upper()).str()
+                   << ")" << st.BBMap.iterative_size() << "\n";
+#endif
+
+      st.BBMap.add({intervl, 1 + bb_idx});
+
+      llvm::errs() << "after=" << st.BBMap.iterative_size() << '\n';
     }
 
     //
@@ -764,12 +782,158 @@ basic_block_index_t translate_basic_block(pid_t child,
                                           disas_t &dis,
                                           const target_ulong Addr,
                                           unsigned &brkpt_count) {
+  binary_t &binary = decompilation.Binaries[binary_idx];
   auto &BBMap = BinStateVec[binary_idx].BBMap;
 
+  //
+  // does this new basic block start in the middle of a previously-created
+  // basic block?
+  //
   {
     auto it = BBMap.find(Addr);
-    if (it != BBMap.end())
-      return (*it).second;
+    if (it != BBMap.end()) {
+      basic_block_index_t bbidx = (*it).second - 1;
+      auto &ICFG = binary.Analysis.ICFG;
+      basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+      assert(bbidx < boost::num_vertices(ICFG));
+
+      uintptr_t beg = ICFG[bb].Addr;
+
+      if (Addr == beg) {
+        assert(ICFG[bb].Addr == (*it).first.lower());
+        return bbidx;
+      }
+
+      std::vector<basic_block_t> out_verts;
+      {
+        icfg_t::out_edge_iterator e_it, e_it_end;
+        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
+             e_it != e_it_end; ++e_it)
+          out_verts.push_back(boost::target(*e_it, ICFG));
+      }
+
+      // if we get here, we know that beg != Addr
+      assert(Addr > beg);
+
+      ptrdiff_t off = Addr - beg;
+      assert(off > 0);
+
+      boost::icl::interval<uintptr_t>::type orig_intervl = (*it).first;
+
+      basic_block_index_t newbbidx = boost::num_vertices(ICFG);
+      basic_block_t newbb = boost::add_vertex(ICFG);
+      {
+        basic_block_properties_t &newbbprop = ICFG[newbb];
+        newbbprop.Addr = beg;
+        newbbprop.Size = off;
+        newbbprop.Term.Type = TERMINATOR::NONE;
+        newbbprop.Term.Addr = 0; /* XXX? */
+      }
+
+      std::swap(ICFG[bb], ICFG[newbb]);
+      ICFG[newbb].Addr = Addr;
+      ICFG[newbb].Size -= off;
+
+      assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
+
+      boost::clear_out_edges(bb, ICFG);
+      boost::add_edge(bb, newbb, ICFG);
+
+      for (basic_block_t out_vert : out_verts) {
+        boost::add_edge(newbb, out_vert, ICFG);
+      }
+
+      assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
+      assert(boost::out_degree(bb, ICFG) == 1);
+
+      boost::icl::interval<uintptr_t>::type intervl1 =
+          boost::icl::interval<uintptr_t>::right_open(
+              ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
+
+      boost::icl::interval<uintptr_t>::type intervl2 =
+          boost::icl::interval<uintptr_t>::right_open(
+              ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
+
+      assert(boost::icl::disjoint(intervl1, intervl2));
+
+      llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
+                   << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
+
+      llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
+                   << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
+
+      llvm::outs() << "orig_intervl: ["
+                   << (fmt("%#lx") % orig_intervl.lower()).str()
+                   << ", "
+                   << (fmt("%#lx") % orig_intervl.upper()).str()
+                   << ")\n";
+
+#if 0
+      if ((*it).first.lower() == 0x1070 ||
+          (*it).first.upper() == 0x109e) {
+        llvm::outs()
+          << "ISTHISIT?    ["
+          << (fmt("%#lx") % (*it).first.lower()).str()
+          << ", "
+          << (fmt("%#lx") % (*it).first.upper()).str() << ")\n";
+      }
+#endif
+
+      unsigned n = BBMap.iterative_size();
+      BBMap.erase((*it).first);
+      assert(BBMap.iterative_size() == n - 1);
+
+      assert(BBMap.find(intervl1) == BBMap.end());
+      assert(BBMap.find(intervl2) == BBMap.end());
+
+      {
+        auto _it = BBMap.find(intervl1);
+        if (_it != BBMap.end()) {
+          const auto &intervl = (*_it).first;
+          WithColor::error() << "can't add interval1 to BBMap: ["
+                             << (fmt("%#lx") % intervl1.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl1.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
+          abort();
+        }
+      }
+
+      {
+        auto _it = BBMap.find(intervl2);
+        if (_it != BBMap.end()) {
+          const auto &intervl = (*_it).first;
+          llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
+
+          WithColor::error() << "can't add interval2 to BBMap: ["
+                             << (fmt("%#lx") % intervl2.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl2.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % intervl.lower()).str() << ", "
+                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
+          abort();
+        }
+      }
+
+      BBMap.add({intervl1, 1 + bbidx});
+      BBMap.add({intervl2, 1 + newbbidx});
+
+      {
+        auto _it = BBMap.find(intervl1);
+        assert(_it != BBMap.end());
+        assert((*_it).second == 1 + bbidx);
+      }
+
+      {
+        auto _it = BBMap.find(intervl2);
+        assert(_it != BBMap.end());
+        assert((*_it).second == 1 + newbbidx);
+      }
+
+      return newbbidx;
+    }
   }
 
   auto &SectMap = BinStateVec[binary_idx].SectMap;
@@ -789,6 +953,51 @@ basic_block_index_t translate_basic_block(pid_t child,
     std::tie(size, T) = tcg.translate(Addr + Size);
 
     Size += size;
+
+    {
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
+      auto it = BBMap.find(intervl);
+      if (it != BBMap.end()) {
+        const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
+
+        WithColor::error() << "can't translate further ["
+                           << (fmt("%#lx") % intervl.lower()).str()
+                           << ", "
+                           << (fmt("%#lx") % intervl.upper()).str()
+                           << "), BBMap already contains ["
+                           << (fmt("%#lx") % _intervl.lower()).str()
+                           << ", "
+                           << (fmt("%#lx") % _intervl.upper()).str()
+                           << ")\n";
+
+        assert(intervl.lower() < _intervl.lower());
+
+        //assert(intervl.upper() == _intervl.upper());
+
+        if (intervl.upper() != _intervl.upper()) {
+          WithColor::warning() << "we've translated into another basic block:"
+                               << (fmt("%#lx") % intervl.lower()).str()
+                               << ", "
+                               << (fmt("%#lx") % intervl.upper()).str()
+                               << "), BBMap already contains ["
+                               << (fmt("%#lx") % _intervl.lower()).str()
+                               << ", "
+                               << (fmt("%#lx") % _intervl.upper()).str()
+                               << ")\n";
+        }
+
+        //
+        // solution here is to prematurely end the basic block with a NONE
+        // terminator, and with a next_insn address of _intervl.lower()
+        //
+        Size = _intervl.lower() - intervl.lower();
+        T.Type = TERMINATOR::NONE;
+        T.Addr = 0; /* XXX? */
+        T._none.NextPC = _intervl.lower();
+        break;
+      }
+    }
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
@@ -841,7 +1050,6 @@ basic_block_index_t translate_basic_block(pid_t child,
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
-  binary_t &binary = decompilation.Binaries[binary_idx];
   basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
   basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
   {
@@ -851,6 +1059,12 @@ basic_block_index_t translate_basic_block(pid_t child,
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
 
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
+                                                    bbprop.Addr + bbprop.Size);
+    assert(BBMap.find(intervl) == BBMap.end());
+    BBMap.add({intervl, 1 + bbidx});
+
     //
     // if it's an indirect branch, we need to (1) add it to the indirect branch
     // map and (2) install a breakpoint at the correct program counter
@@ -859,9 +1073,11 @@ basic_block_index_t translate_basic_block(pid_t child,
         bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
       uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
 
+      assert(IndBrMap.find(termpc) == IndBrMap.end());
       indirect_branch_t &indbr = IndBrMap[termpc];
       indbr.binary_idx = binary_idx;
-      indbr.bb = bb;
+      indbr.bbidx = bbidx;
+      indbr.TermAddr = bbprop.Term.Addr;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 
       memcpy(&indbr.InsnBytes[0],
@@ -885,8 +1101,6 @@ basic_block_index_t translate_basic_block(pid_t child,
     }
   }
 
-  BBMap[Addr] = bbidx;
-
   //
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
@@ -894,18 +1108,24 @@ basic_block_index_t translate_basic_block(pid_t child,
   auto control_flow = [&](uintptr_t Target) -> void {
     assert(Target);
 
-    basic_block_index_t succidx;
+    basic_block_index_t succidx =
+        translate_basic_block(child, binary_idx, tcg, dis, Target, brkpt_count);
 
-    auto it = BBMap.find(Target);
-    succidx = it != BBMap.end()
-                  ? (*it).second
-                  : translate_basic_block(child, binary_idx, tcg, dis, Target,
-                                          brkpt_count);
+    assert(succidx != invalid_basic_block_index);
 
-    if (succidx != invalid_basic_block_index) {
-      basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
-      boost::add_edge(bb, succ, binary.Analysis.ICFG);
+    basic_block_t _bb;
+    {
+      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
+      assert(it != BBMap.end());
+
+      auto &ICFG = binary.Analysis.ICFG;
+      basic_block_index_t _bbidx = (*it).second - 1;
+      _bb = boost::vertex(_bbidx, ICFG);
+      assert(T.Type == ICFG[_bb].Term.Type);
     }
+
+    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
+    boost::add_edge(_bb, succ, binary.Analysis.ICFG);
   };
 
   switch (T.Type) {
@@ -932,6 +1152,10 @@ basic_block_index_t translate_basic_block(pid_t child,
   case TERMINATOR::INDIRECT_JUMP:
   case TERMINATOR::RETURN:
   case TERMINATOR::UNREACHABLE:
+    break;
+
+  case TERMINATOR::NONE:
+    control_flow(T._none.NextPC);
     break;
 
   default:
@@ -975,7 +1199,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            "%s")
        % Addr
        % Binary.Path
-       % ICFG[indbr.bb].Addr
+       % ICFG[boost::vertex(indbr.bbidx, ICFG)].Addr
        % StringOfMCInst(Inst, dis)).str());
   }
 
@@ -1020,8 +1244,6 @@ void place_breakpoint(pid_t child,
 }
 
 static std::string description_of_program_counter(uintptr_t);
-
-static bool is_address_in_global_offset_table(uintptr_t Addr, binary_index_t);
 
 struct ScopedGPR {
   pid_t child;
@@ -1081,7 +1303,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(_pc);
   binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
-  interprocedural_control_flow_graph_t &ICFG = binary.Analysis.ICFG;
+  auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
+  auto &ICFG = binary.Analysis.ICFG;
 
   //
   // update program counter so it is as it should be
@@ -1091,7 +1314,37 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // shorthand-functions for reading the tracee's memory and registers
   //
-  basic_block_t bb = IndBrInfo.bb;
+  basic_block_index_t bbidx;
+  {
+    assert(IndBrInfo.TermAddr);
+    auto it = BBMap.find(IndBrInfo.TermAddr);
+
+    if (it == BBMap.end()) {
+      WithColor::error() << "WTF? BBMap has no entry for "
+                         << (fmt("%#lx") % IndBrInfo.TermAddr).str()
+                         << " @ "
+                         << fs::path(binary.Path).filename().string()
+                         << '\n';
+      llvm::errs() << "dumping BBMap (iterative_size=" << BBMap.iterative_size()
+                   << ")\n";
+      for (const auto &pair : BBMap) {
+        llvm::errs()
+          << "["
+          << (fmt("%#lx") % pair.first.lower()).str()
+          << ", "
+          << (fmt("%#lx") % pair.first.upper()).str()
+          << ")\n";
+      }
+      abort();
+    }
+
+    bbidx = (*it).second - 1;
+  }
+
+  basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+  assert(ICFG[bb].Term.Type != TERMINATOR::NONE);
+
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
   auto RegValue = [&](unsigned llreg) -> long {
@@ -1361,23 +1614,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                << description_of_program_counter(target) << '\n';
 }
 
-bool is_address_in_global_offset_table(uintptr_t Addr,
-                                       binary_index_t binary_idx) {
-  if (!(Addr >= BinStateVec[binary_idx].dyn.LoadAddr &&
-        Addr < BinStateVec[binary_idx].dyn.LoadAddrEnd))
-    return false;
-
-  Addr = rva_of_va(Addr, binary_idx);
-  auto &SectMap = BinStateVec[binary_idx].SectMap;
-
-  auto sectit = SectMap.find(Addr);
-  if (sectit == SectMap.end())
-    return false;
-
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  return sectprop.name == ".got";
-}
-
 template <class T>
 static T unwrapOrError(llvm::Expected<T> EO) {
   if (EO)
@@ -1409,7 +1645,6 @@ static void harvest_ifunc_resolver_targets(pid_t child,
                                            disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
-    auto &st = BinStateVec[BIdx];
 
     //
     // parse the ELF
@@ -1571,10 +1806,11 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
 
       unsigned cnt = 0;
-      interprocedural_control_flow_graph_t::vertex_iterator vi, vi_end;
-      for (std::tie(vi, vi_end) = boost::vertices(binary.Analysis.ICFG);
-           vi != vi_end; ++vi) {
-        basic_block_t bb = *vi;
+
+      for (basic_block_index_t bbidx = 0;
+           bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
+        basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
+
         basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
         if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
             bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
@@ -1582,10 +1818,37 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
         uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
 
+        {
+          auto it = IndBrMap.find(Addr);
+          if (it != IndBrMap.end()) {
+            indirect_branch_t &indbr = (*it).second;
+            binary_t &indbr_binary = decompilation.Binaries[indbr.binary_idx];
+            const auto &indbr_ICFG = indbr_binary.Analysis.ICFG;
+
+            WithColor::error() << "WTF?\n"
+              << "["
+              << (fmt("%#lx") % binary.Analysis.ICFG[bb].Addr).str()
+              << ", "
+              << (fmt("%#lx") % (binary.Analysis.ICFG[bb].Addr +
+                                 binary.Analysis.ICFG[bb].Size)).str()
+              << ") @ "
+              << fs::path(binary.Path).filename().string()
+              << "but IndBr already exists...\n"
+              << "["
+              << (fmt("%#lx") % indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Addr).str()
+              << ", "
+              << (fmt("%#lx") % (indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Addr +
+                                 indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Size)).str()
+              << ") @ "
+              << fs::path(indbr_binary.Path).filename().string();
+          }
+        }
+
         assert(IndBrMap.find(Addr) == IndBrMap.end());
         indirect_branch_t &IndBrInfo = IndBrMap[Addr];
         IndBrInfo.binary_idx = binary_idx;
-        IndBrInfo.bb = bb;
+        IndBrInfo.bbidx = bbidx;
+        IndBrInfo.TermAddr = bbprop.Term.Addr;
         IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 
         auto sectit = st.SectMap.find(bbprop.Term.Addr);
