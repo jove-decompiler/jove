@@ -201,6 +201,8 @@ namespace opts {
 
   static cl::opt<bool> DumpTCG("dump-tcg",
     cl::desc("Dump TCG operations when translating basic blocks"));
+  static cl::opt<std::string> ForAddr("for-addr",
+    cl::desc("Do stuff for the given address"));
 
   static cl::opt<bool> NoOpt1("no-opt1",
     cl::desc("Don't optimize bitcode (1)"));
@@ -4545,8 +4547,10 @@ int TranslateBasicBlock(binary_t &Binary,
       LabelVec[i] = llvm::BasicBlock::Create(
           *Context, (boost::format("%#lx_L%u") % ICFG[bb].Addr % i).str(), f.F);
 
-    if (opts::DumpTCG)
-      TCG->dump_operations();
+    if (opts::DumpTCG) {
+      if (Addr == std::stoi(opts::ForAddr.c_str(), nullptr, 16))
+        TCG->dump_operations();
+    }
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
@@ -5369,15 +5373,12 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     break;
 
   case INDEX_op_set_label: {
-    if (!IRB.GetInsertBlock()->getTerminator()) {
-      if (opts::Verbose)
-        WithColor::warning() << "INDEX_op_set_label: no terminator in block\n";
-      assert(ExitBB);
-      IRB.CreateBr(ExitBB);
-    }
-
     llvm::BasicBlock* lblB = LabelVec.at(arg_label(op->args[0])->id);
     assert(lblB);
+
+    if (!IRB.GetInsertBlock()->getTerminator())
+      IRB.CreateBr(lblB);
+
     IRB.SetInsertPoint(lblB);
     break;
   }
