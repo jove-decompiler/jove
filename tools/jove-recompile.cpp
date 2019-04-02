@@ -79,12 +79,7 @@ static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 static const char *compiler_runtime_afp =
-#if 0
-    "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a"
-#else
-    "/usr/lib/clang/7.1.0/lib/linux/libclang_rt.builtins-x86_64.a"
-#endif
-    ;
+    "/usr/lib/clang/8.0.0/lib/linux/libclang_rt.builtins-x86_64.a";
 
 static int await_process_completion(pid_t);
 
@@ -444,7 +439,7 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(objfp.c_str()));
       arg_vec.push_back(const_cast<char *>("-filetype=obj"));
       arg_vec.push_back(const_cast<char *>("-relocation-model=pic"));
-      arg_vec.push_back(const_cast<char *>("-disable-fp-elim"));
+      arg_vec.push_back(const_cast<char *>("-frame-pointer=all"));
       arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
       arg_vec.push_back(nullptr);
 

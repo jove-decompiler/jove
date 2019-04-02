@@ -3594,23 +3594,25 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
-#if 0
   llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagDefinition |
                                           llvm::DISubprogram::SPFlagOptimized;
-#endif
 
-#if 0
-    if (F.hasPrivateLinkage() || F.hasInternalLinkage())
-      SPFlags |= DISubprogram::SPFlagLocalToUnit;
-#endif
+  if (F->hasPrivateLinkage() || F->hasInternalLinkage())
+    SPFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
-  bool isLocalToUnit = F->hasPrivateLinkage() || F->hasInternalLinkage();
+  llvm::DISubroutineType *SPType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
-  f.DebugInformation.Subprogram = DIB.createFunction(
-      DebugInformation.CompileUnit, F->getName(), F->getName(),
-      DebugInformation.File, 1234,
-      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None)),
-      isLocalToUnit, true, ICFG[entry_bb].Addr);
+  f.DebugInformation.Subprogram =
+    DIB.createFunction(DebugInformation.CompileUnit, /* Scope */
+                       F->getName(),                 /* Name */
+                       F->getName(),                 /* LinkageName */
+                       DebugInformation.File,        /* File */
+                       0,                            /* LineNo */
+                       SPType,                       /* Ty */
+                       0,                            /* ScopeLine */
+                       llvm::DINode::FlagZero,       /* Flags */
+                       SPFlags);                     /* SPFlags */
 
   F->setSubprogram(f.DebugInformation.Subprogram);
 
