@@ -163,59 +163,84 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace opts {
-  static cl::opt<std::string> jv("decompilation",
-    cl::desc("Jove decompilation"),
-    cl::Required);
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  static cl::opt<std::string> Binary("binary",
-    cl::desc("Binary to decompile"),
-    cl::Required);
+static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
+                               cl::Required, cl::value_desc("filename"),
+                               cl::cat(JoveCategory));
 
-  static cl::opt<std::string> Output("output",
-    cl::desc("LLVM bitcode"),
-    cl::Required);
+static cl::opt<std::string> Binary("binary", cl::desc("Binary to decompile"),
+                                   cl::Required, cl::value_desc("filename"),
+                                   cl::cat(JoveCategory));
 
-  static cl::opt<bool> NoFixupFSBase("no-fixup-fsbase",
-    cl::desc("Don't fixup FS-relative references"));
+static cl::opt<std::string> Output("output", cl::desc("Output bitcode"),
+                                   cl::Required, cl::value_desc("filename"),
+                                   cl::cat(JoveCategory));
 
-  static cl::opt<bool> PrintPCRel("pcrel",
-    cl::desc("Print pc-relative references"));
+static cl::opt<bool>
+    NoFixupFSBase("no-fixup-fsbase",
+                  cl::desc("Don't fixup FS-relative references"),
+                  cl::cat(JoveCategory));
 
-  static cl::opt<bool> Emu("emu",
-    cl::desc("Code operates on TLS globals which represent the CPU state"));
+static cl::opt<bool> PrintPCRel("pcrel",
+                                cl::desc("Print pc-relative references"),
+                                cl::cat(JoveCategory));
 
-  static cl::opt<bool> NoInline("noinline",
-    cl::desc("Prevents inlining internal functions"));
+static cl::opt<bool>
+    Emu("emu",
+        cl::desc("Code operates on TLS globals which represent the CPU state"),
+        cl::cat(JoveCategory));
 
-  static cl::opt<bool> PrintDefAndUse("print-def-and-use",
-    cl::desc("Print use_B and def_B for every basic block B"));
+static cl::opt<bool> NoInline("noinline",
+                              cl::desc("Prevents inlining internal functions"),
+                              cl::cat(JoveCategory));
 
-  static cl::opt<bool> PrintLiveness("print-liveness",
-    cl::desc("Print liveness for every function"));
+static cl::opt<bool>
+    PrintDefAndUse("print-def-and-use",
+                   cl::desc("Print use_B and def_B for every basic block B"),
+                   cl::cat(JoveCategory));
 
-  static cl::opt<bool> PrintFunctionSignatures("print-function-types",
-    cl::desc("Print type of every function"));
+static cl::opt<bool>
+    PrintLiveness("print-liveness",
+                  cl::desc("Print liveness for every function"),
+                  cl::cat(JoveCategory));
 
-  static cl::opt<bool> Verbose("verbose",
-    cl::desc("Print extra information for debugging purposes"));
+static cl::opt<bool>
+    PrintFunctionSignatures("print-function-types",
+                            cl::desc("Print type of every function"),
+                            cl::cat(JoveCategory));
 
-  static cl::opt<bool> DumpTCG("dump-tcg",
-    cl::desc("Dump TCG operations when translating basic blocks"));
-  static cl::opt<std::string> ForAddr("for-addr",
-    cl::desc("Do stuff for the given address"));
+static cl::opt<bool>
+    Verbose("verbose",
+            cl::desc("Print extra information for debugging purposes"),
+            cl::cat(JoveCategory));
 
-  static cl::opt<bool> NoOpt1("no-opt1",
-    cl::desc("Don't optimize bitcode (1)"));
+static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
 
-  static cl::opt<bool> NoFixupPcrel("no-fixup-pcrel",
-    cl::desc("Don't fixup pc-relative references"));
+static cl::opt<bool>
+    DumpTCG("dump-tcg",
+            cl::desc("Dump TCG operations when translating basic blocks"),
+            cl::cat(JoveCategory));
+static cl::opt<std::string> ForAddr("for-addr",
+                                    cl::desc("Do stuff for the given address"),
+                                    cl::cat(JoveCategory));
 
-  static cl::opt<bool> NoOpt2("no-opt2",
-    cl::desc("Don't optimize bitcode (2)"));
+static cl::opt<bool> NoOpt1("no-opt1", cl::desc("Don't optimize bitcode (1)"),
+                            cl::cat(JoveCategory));
 
-  static cl::opt<bool> Graphviz("graphviz",
-    cl::desc("Dump graphviz of flow graphs"));
-}
+static cl::opt<bool>
+    NoFixupPcrel("no-fixup-pcrel",
+                 cl::desc("Don't fixup pc-relative references"),
+                 cl::cat(JoveCategory));
+
+static cl::opt<bool> NoOpt2("no-opt2", cl::desc("Don't optimize bitcode (2)"),
+                            cl::cat(JoveCategory));
+
+static cl::opt<bool> Graphviz("graphviz",
+                              cl::desc("Dump graphviz of flow graphs"),
+                              cl::cat(JoveCategory));
+} // namespace opts
 
 namespace jove {
 static int llvm(void);
@@ -224,6 +249,7 @@ static int llvm(void);
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove LLVM\n");
 
   if (!fs::exists(opts::jv)) {

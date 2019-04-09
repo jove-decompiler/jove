@@ -41,24 +41,27 @@ static unsigned num_cpus(void);
 }
 
 namespace opts {
-  static cl::opt<std::string> Input(cl::Positional,
-    cl::desc("<program>"),
-    cl::Required);
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  static cl::opt<std::string> Output("output",
-    cl::desc("Output decompilation"),
-    cl::Required);
+static cl::opt<std::string> Input(cl::Positional, cl::desc("prog"),
+                                  cl::Required, cl::value_desc("filename"),
+                                  cl::cat(JoveCategory));
 
-  static cl::opt<unsigned> Threads("num-threads",
-    cl::desc("Number of CPU threads to use"),
-    cl::init(jove::num_cpus()));
+static cl::opt<std::string> Output("output", cl::desc("Output"), cl::Required,
+                                   cl::value_desc("filename"),
+                                   cl::cat(JoveCategory));
 
-  static cl::opt<bool> Git("git",
-    cl::desc("Create git repository for decompilation"));
+static cl::opt<unsigned> Threads("num-threads",
+                                 cl::desc("Number of CPU threads to use"),
+                                 cl::init(jove::num_cpus()),
+                                 cl::value_desc("int"), cl::cat(JoveCategory));
 
-  static cl::opt<bool> Verbose("verbose",
-    cl::desc("Print extra information for debugging purposes"));
-}
+static cl::opt<bool> Git("git", cl::desc("git mode"), cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Verbose("verbose",
+            cl::desc("Print extra information for debugging purposes"));
+} // namespace opts
 
 namespace jove {
 static int init(void);
@@ -67,6 +70,7 @@ static int init(void);
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Init\n");
 
   return jove::init();

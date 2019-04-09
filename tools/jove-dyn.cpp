@@ -75,24 +75,37 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace opts {
-  static cl::opt<std::string> Prog(cl::Positional,
-    cl::desc("<program>"),
-    cl::Required);
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  static cl::list<std::string> Args("args",
-    cl::CommaSeparated,
-    cl::desc("<arg_1,arg_2,...,arg_n>"));
+static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
+                                 cl::value_desc("filename"),
+                                 cl::cat(JoveCategory));
 
-  static cl::opt<std::string> jv("decompilation",
-    cl::desc("Jove decompilation"),
-    cl::Required);
+static cl::list<std::string> Args("args", cl::CommaSeparated,
+                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
+                                  cl::desc("Program arguments"),
+                                  cl::cat(JoveCategory));
 
-  static cl::opt<bool> Verbose("verbose",
-    cl::desc("Print extra information on indirect branch targets"));
+static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
+                               cl::Required, cl::value_desc("filename"),
+                               cl::cat(JoveCategory));
 
-  static cl::opt<bool> VeryVerbose("veryverbose",
-    cl::desc("Print information helpful for debugging ptrace"));
-}
+static cl::opt<bool>
+    Verbose("verbose",
+            cl::desc("Print extra information for debugging purposes"),
+            cl::cat(JoveCategory));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
+static cl::opt<bool>
+    VeryVerbose("veryverbose",
+                cl::desc("Print extra information for debugging purposes"),
+                cl::cat(JoveCategory));
+
+static cl::alias VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
+                                  cl::aliasopt(VeryVerbose),
+                                  cl::cat(JoveCategory));
+} // namespace opts
 
 namespace jove {
 
@@ -104,6 +117,7 @@ static int ParentProc(pid_t child);
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Dynamic Analysis\n");
 
   if (!fs::exists(opts::Prog)) {

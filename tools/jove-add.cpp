@@ -45,17 +45,25 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace opts {
-  static cl::opt<std::string> Input("input",
-    cl::desc("Input binary"),
-    cl::Required);
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  static cl::opt<std::string> Output("output",
-    cl::desc("Output decompilation"),
-    cl::Required);
+static cl::opt<std::string> Input("input",
+                                  cl::desc("DSO"),
+                                  cl::Required, cl::value_desc("filename"),
+                                  cl::cat(JoveCategory));
 
-  static cl::opt<bool> Verbose("verbose",
-    cl::desc("Print extra information for debugging purposes"));
-}
+static cl::opt<std::string> Output("output", cl::desc("Jove decompilation"),
+                                   cl::Required, cl::value_desc("filename"),
+                                   cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Verbose("verbose",
+            cl::desc("Print extra information for debugging purposes"),
+            cl::cat(JoveCategory));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
+} // namespace opts
 
 namespace jove {
 static int add(void);
@@ -64,6 +72,7 @@ static int add(void);
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Add\n");
 
   if (!fs::exists(opts::Input)) {

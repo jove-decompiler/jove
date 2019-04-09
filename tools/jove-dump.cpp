@@ -27,16 +27,22 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace opts {
-  cl::list<std::string> InputFilenames(cl::Positional,
-    cl::desc("<input jove files>"),
-    cl::OneOrMore);
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  cl::opt<bool> Compact("compact",
-    cl::desc("Print functions as list of basic-blocks addresses"));
+static cl::list<std::string>
+    InputFilenames(cl::Positional, cl::desc("<input jove decompilations>"),
+                   cl::OneOrMore, cl::cat(JoveCategory));
 
-  cl::opt<bool> Graphviz("graphviz",
-    cl::desc("Produce control-flow graphs for each function"));
-}
+static cl::opt<bool>
+    Compact("compact",
+            cl::desc("Print functions as list of basic-blocks addresses"),
+            cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Graphviz("graphviz",
+             cl::desc("Produce control-flow graphs for each function"),
+             cl::cat(JoveCategory));
+} // namespace opts
 
 namespace jove {
 
@@ -180,6 +186,7 @@ static void dumpInput(const std::string &Path) {
 int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Decompilation Reader\n");
 
   for (const std::string &Path : opts::InputFilenames) {
