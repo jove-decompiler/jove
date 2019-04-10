@@ -7,6 +7,10 @@
 #define JOVE_EXTRA_FN_PROPERTIES
 #endif
 
+#ifndef JOVE_EXTRA_BIN_PROPERTIES
+#define JOVE_EXTRA_BIN_PROPERTIES
+#endif
+
 #include <cstdint>
 #include <vector>
 #include <boost/graph/adjacency_list.hpp>
@@ -116,6 +120,8 @@ struct binary_t {
     interprocedural_control_flow_graph_t ICFG;
     std::map<uintptr_t, std::set<function_index_t>> IFuncRelocDynTargets;
   } Analysis;
+
+  JOVE_EXTRA_BIN_PROPERTIES;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {

@@ -1,5 +1,8 @@
 #include "jove/tcgconstants.h"
 
+//
+// forward decls
+//
 namespace llvm {
 class Function;
 class BasicBlock;
@@ -7,6 +10,9 @@ class AllocaInst;
 class Type;
 class LoadInst;
 class DISubprogram;
+namespace object {
+class Binary;
+}
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -67,6 +73,9 @@ class DISubprogram;
                                                                                \
   llvm::Function *F;
 
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -105,6 +114,7 @@ class DISubprogram;
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -581,14 +591,6 @@ int FindBinary(void) {
   return 1;
 }
 
-#if defined(__x86_64__) || defined(__aarch64__)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
-#elif defined(__i386__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
-#endif
-
 template <class T>
 static T unwrapOrError(llvm::Expected<T> EO) {
   if (EO)
@@ -614,20 +616,28 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename llvm::object::ELF64LEObjectFile ELFO;
+typedef typename llvm::object::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename llvm::object::ELF32LEObjectFile ELFO;
+typedef typename llvm::object::ELF32LEFile ELFT;
+#endif
+
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = Decompilation.Binaries[BIdx];
-    auto &ICFG = Binary.Analysis.ICFG;
+    auto &binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = binary.Analysis.ICFG;
     auto &st = BinStateVec[BIdx];
 
     //
     // FuncMap
     //
-    for (function_index_t FIdx = 0; FIdx < Binary.Analysis.Functions.size();
+    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size();
          ++FIdx) {
-      function_t &f = Binary.Analysis.Functions[FIdx];
+      function_t &f = binary.Analysis.Functions[FIdx];
       f.BIdx = BIdx;
       f.FIdx = FIdx;
 
@@ -675,23 +685,25 @@ int InitStateForBinaries(void) {
     //
     // parse the ELF
     //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
     llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << Binary.Path
+      WithColor::error() << "failed to create binary from " << binary.Path
                          << '\n';
       return 1;
     }
 
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    binary.ObjectFile = std::move(BinRef);
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
 
     TheTriple = O.makeTriple();
     Features = O.getFeatures();
@@ -707,12 +719,12 @@ int InitStateForBinaries(void) {
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
       WithColor::error() << "error: could not get ELF sections for binary "
-                         << Binary.Path << '\n';
+                         << binary.Path << '\n';
       return 1;
     }
 
     if (opts::Verbose)
-      llvm::outs() << Binary.Path << '\n';
+      llvm::outs() << binary.Path << '\n';
 
     for (const Elf_Shdr &Sec : *sections) {
       if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
@@ -822,29 +834,11 @@ struct DynRegionInfo {
 
 int ProcessBinaryTLSSymbols(void) {
   binary_index_t BIdx = BinaryIndex;
-  auto &Binary = Decompilation.Binaries[BIdx];
+  auto &binary = Decompilation.Binaries[BIdx];
   auto &st = BinStateVec[BIdx];
 
-  //
-  // parse the ELF
-  //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                         Binary.Data.size());
-  llvm::StringRef Identifier(Binary.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-  if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from " << Binary.Path
-                       << '\n';
-    return 1;
-  }
-
-  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-  assert(llvm::isa<ELFO>(Bin.get()));
-  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
   const ELFT &E = *O.getELFFile();
 
   typedef typename ELFT::Elf_Phdr Elf_Phdr;
@@ -898,29 +892,11 @@ int ProcessBinaryTLSSymbols(void) {
 
 int ProcessDynamicSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = Decompilation.Binaries[BIdx];
+    auto &binary = Decompilation.Binaries[BIdx];
     auto &st = BinStateVec[BIdx];
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << Binary.Path
-                         << '\n';
-      return 1;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-    assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
     const ELFT &E = *O.getELFFile();
 
     typedef typename ELFT::Elf_Phdr Elf_Phdr;
@@ -1101,7 +1077,7 @@ int ProcessDynamicSymbols(void) {
           FuncIdx = (*it).second;
         }
 
-        Binary.Analysis.Functions[FuncIdx].IsABI = true;
+        binary.Analysis.Functions[FuncIdx].IsABI = true;
 
         if (!ExportedFunctions[SymName].empty())
           WithColor::note() << ' ' << SymName << '\n';
@@ -1206,8 +1182,8 @@ int ProcessDynamicTargets(void) {
   // branch must conform to the system ABI calling convention
   //
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = Decompilation.Binaries[BIdx];
-    auto &ICFG = Binary.Analysis.ICFG;
+    auto &binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = binary.Analysis.ICFG;
 
     for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
          ++BBIdx) {
@@ -1226,8 +1202,8 @@ int ProcessDynamicTargets(void) {
   // for the binary under consideration, we'll build a set of dynamic
   // targets that can be used for the purposes of dynamic symbol resolution
   //
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
-  auto &ICFG = Binary.Analysis.ICFG;
+  auto &binary = Decompilation.Binaries[BinaryIndex];
+  auto &ICFG = binary.Analysis.ICFG;
 
   auto it_pair = boost::vertices(ICFG);
   for (auto it = it_pair.first; it != it_pair.second; ++it) {
@@ -1250,25 +1226,10 @@ int ProcessDynamicTargets(void) {
 }
 
 int ProcessBinaryRelocations(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                         Binary.Data.size());
-  llvm::StringRef Identifier(Binary.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-  if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from " << Binary.Path
-                       << '\n';
-    return 1;
-  }
-
-  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-  assert(llvm::isa<ELFO>(Bin.get()));
-  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
 
   TheTriple = O.makeTriple();
   Features = O.getFeatures();
