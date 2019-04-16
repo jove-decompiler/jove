@@ -448,6 +448,10 @@ static llvm::MDNode *AliasScopeMetadata;
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
 static struct {
+  uintptr_t Beg, End;
+} ThreadLocalStorage;
+
+static struct {
   llvm::DIFile *File;
   llvm::DICompileUnit *CompileUnit;
 } DebugInformation;
@@ -475,6 +479,8 @@ static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
     AddrToSymbolMap;
 static std::unordered_map<uintptr_t, unsigned>
     AddrToSizeMap;
+static std::unordered_set<uintptr_t>
+    TLSObjects; // XXX
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
@@ -624,6 +630,18 @@ typedef typename llvm::object::ELF32LEObjectFile ELFO;
 typedef typename llvm::object::ELF32LEFile ELFT;
 #endif
 
+typedef typename ELFT::Elf_Dyn Elf_Dyn;
+typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFT::Elf_Phdr Elf_Phdr;
+typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFT::Elf_Rel Elf_Rel;
+typedef typename ELFT::Elf_Rela Elf_Rela;
+typedef typename ELFT::Elf_Shdr Elf_Shdr;
+typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFT::Elf_Sym Elf_Sym;
+typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+typedef typename ELFT::Elf_Word Elf_Word;
+
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
 
@@ -713,9 +731,6 @@ int InitStateForBinaries(void) {
     //
     // build section map
     //
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {
       WithColor::error() << "error: could not get ELF sections for binary "
@@ -841,37 +856,115 @@ int ProcessBinaryTLSSymbols(void) {
   ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
   const ELFT &E = *O.getELFFile();
 
-  typedef typename ELFT::Elf_Phdr Elf_Phdr;
-  typedef typename ELFT::Elf_Dyn Elf_Dyn;
-  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Sym Elf_Sym;
-
-  llvm::StringRef StrTable;
-  const Elf_Shdr *DotSymtabSec = nullptr;
-  auto symbols = [&](void) -> Elf_Sym_Range {
-    return unwrapOrError(E.symbols(DotSymtabSec));
-  };
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
-      assert(!DotSymtabSec);
-      DotSymtabSec = &Sec;
+  //
+  // To set up the memory for the thread-local storage the dynamic linker gets
+  // the information about each module's thread-local storage requirements from
+  // the PT TLS program header entry
+  //
+  const Elf_Phdr *tlsPhdr = nullptr;
+  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+    if (Phdr.p_type == llvm::ELF::PT_TLS) {
+      tlsPhdr = &Phdr;
+      break;
     }
   }
 
-  if (!DotSymtabSec)
+  if (!tlsPhdr)
     return 0;
 
-  StrTable = unwrapOrError(E.getStringTableForSymtab(*DotSymtabSec));
+  ThreadLocalStorage.Beg = tlsPhdr->p_vaddr;
+  ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
-  for (const Elf_Sym &Sym : symbols()) {
+  llvm::outs() << llvm::format("TLS: [0x%" PRIx64 ", 0x%" PRIx64 ")",
+                               ThreadLocalStorage.Beg, ThreadLocalStorage.End)
+               << '\n';
+
+  const Elf_Shdr *SymTab = nullptr;
+  llvm::ArrayRef<Elf_Word> ShndxTable;
+
+  for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
+    if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+      assert(!SymTab);
+      SymTab = &Sect;
+    } else if (Sect.sh_type == llvm::ELF::SHT_SYMTAB_SHNDX) {
+      ShndxTable = unwrapOrError(E.getSHNDXTable(Sect));
+    }
+  }
+
+  if (!SymTab)
+    return 0;
+
+  llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*SymTab));
+
+  for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
     if (Sym.getType() != llvm::ELF::STT_TLS)
       continue;
 
     llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
 
+    if (Sym.st_value >= tlsPhdr->p_memsz) {
+      WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
+                                          Sym.st_value, SymName)
+                         << '\n';
+      continue;
+    }
+
+    uintptr_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
+    AddrToSymbolMap[Addr].insert(SymName);
+    AddrToSizeMap[Addr] = Sym.st_size;
+
+    TLSObjects.insert(Addr);
+
+    TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
+    TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+
+#if 0
+    llvm::Expected<const Elf_Shdr *> SectExpected =
+        E.getSection(&Sym, SymTab, ShndxTable);
+    if (!SectExpected) {
+      WithColor::warning() << "failed to lookup section for TLS symbol "
+                           << SymName << '\n';
+      continue;
+    }
+
+    // in memory, the .tbss section is allocated directly following the .tdata
+    // section, with the aligment obeyed
+    const Elf_Shdr &Sect = *SectExpected.get();
+    llvm::StringRef SectName = unwrapOrError(E.getSectionName(&Sect));
+    if (!(Sym.st_value < Sect.sh_size)) {
+      WithColor::warning() << "invalid TLS symbol " << SymName << " @ "
+                           << SectName << " + " << Sym.st_value << " length of "
+                           << SectName << " is " << Sect.sh_size << '\n';
+      continue;
+    }
+
+    // In object files the st_value field would contain the usual offset from
+    // the beginning of the section the st shndx field refers to. For
+    // executables and DSOs the st_value field contains the offset of the
+    // variable in the TLS initialization image.
+    llvm::outs() << "TLS Symbol " << SymName << " @ " << SectName << " + "
+                 << Sym.st_value << '\n';
+#endif
+
+#if 0
+    unsigned SectIdx = Sym.st_shndx;
+    if (SectIdx != llvm::ELF::SHN_XINDEX)
+      continue;
+
+    SectIdx = unwrapOrError(
+        obj::getExtendedSymbolTableIndex<ELFT>(&Sym, &FirstSym, ShndxTable));
+
+    const Elf_Shdr *Sect = unwrapOrError(E.getSection(SectIdx));
+    llvm::StringRef SectName = unwrapOrError(E.getSectionName(Sect));
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+    llvm::outs() << __func__
+                 << ": SymName=" << SymName
+                 << " SectName=" << SectName
+                 << '\n';
+#endif
+
+#if 0
     auto it = TLSValueToSizeMap.find(Sym.st_value);
     if (it == TLSValueToSizeMap.end()) {
       TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
@@ -885,7 +978,13 @@ int ProcessBinaryTLSSymbols(void) {
     }
 
     TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+#endif
   }
+
+  // The names of the sections, as is in theory the case for all sections in ELF
+  // files, are not important. Instead the linker will treat all sections of
+  // type SHT PROGBITS with the SHF TLS flags set as .tdata sections, and all
+  // sections of type SHT NOBITS with SHF TLS set as .tbss sections.
 
   return 0;
 }
@@ -898,13 +997,6 @@ int ProcessDynamicSymbols(void) {
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
     const ELFT &E = *O.getELFFile();
-
-    typedef typename ELFT::Elf_Phdr Elf_Phdr;
-    typedef typename ELFT::Elf_Dyn Elf_Dyn;
-    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Sym Elf_Sym;
 
     auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
       if (DRI.Addr < E.base() ||
@@ -1087,6 +1179,7 @@ int ProcessDynamicSymbols(void) {
     }
   }
 
+#if 0
   //
   // create TLS globals
   //
@@ -1113,7 +1206,12 @@ int ProcessDynamicSymbols(void) {
     llvm::GlobalVariable *GV = new llvm::GlobalVariable(
         *Module, T, false, llvm::GlobalValue::InternalLinkage,
         llvm::Constant::getNullValue(T), SymName, nullptr,
-        llvm::GlobalValue::GeneralDynamicTLSModel);
+#if 0
+        llvm::GlobalValue::NotThreadLocal
+#else
+        llvm::GlobalValue::GeneralDynamicTLSModel
+#endif
+    );
 
     for (auto it = std::next(entry.second.begin()); it != entry.second.end();
          ++it) {
@@ -1128,6 +1226,7 @@ int ProcessDynamicSymbols(void) {
       llvm::outs() << "TLS symbol " << *entry.second.begin() << " @ +"
                    << entry.first << '\n';
   }
+#endif
 
 #if 0
   //
@@ -1235,11 +1334,6 @@ int ProcessBinaryRelocations(void) {
   Features = O.getFeatures();
 
   const ELFT &E = *O.getELFFile();
-
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Sym Elf_Sym;
-  typedef typename ELFT::Elf_Rel Elf_Rel;
-  typedef typename ELFT::Elf_Rela Elf_Rela;
 
   auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
     symbol_t res;
@@ -2016,19 +2110,25 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
     size += len;
   } while (size < Size);
 
-  if (this->Term.Type == TERMINATOR::INDIRECT_JUMP &&
-      !this->DynTargets.empty()) {
-    binary_index_t BinIdx;
-    function_index_t FuncIdx;
-    std::tie(BinIdx, FuncIdx) = *this->DynTargets.begin();
-
-    function_t &callee =
-        Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
+  if (this->Term.Type == TERMINATOR::INDIRECT_JUMP ||
+      this->Term.Type == TERMINATOR::INDIRECT_CALL) {
     tcg_global_set_t iglbs, oglbs;
 
-    iglbs = DetermineFunctionArgs(callee);
-    oglbs = DetermineFunctionRets(callee);
+    if (!this->DynTargets.empty()) {
+      binary_index_t BinIdx;
+      function_index_t FuncIdx;
+      std::tie(BinIdx, FuncIdx) = *this->DynTargets.begin();
+
+      function_t &callee =
+          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+
+      iglbs = DetermineFunctionArgs(callee);
+      oglbs = DetermineFunctionRets(callee);
+    }
+
+    // XXX
+    iglbs.set(tcg_stack_pointer_index);
+    oglbs.set(tcg_stack_pointer_index);
 
     this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
     this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
@@ -2980,9 +3080,10 @@ int CreateSectionGlobalVariables(void) {
     ConstSectsGlobal->setConstant(true);
   };
 
-  auto create_global_variable =
-      [&](uintptr_t Addr, unsigned Size,
-          llvm::StringRef SymName) -> llvm::GlobalVariable * {
+  auto create_global_variable = [&](uintptr_t Addr, unsigned Size,
+                                    llvm::StringRef SymName,
+                                    llvm::GlobalValue::ThreadLocalMode tlsMode)
+      -> llvm::GlobalVariable * {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
     section_t &Sect = SectTable[(*it).second];
@@ -3002,7 +3103,8 @@ int CreateSectionGlobalVariables(void) {
 
           return new llvm::GlobalVariable(
               *Module, Initializer->getType(), false,
-              llvm::GlobalValue::ExternalLinkage, Initializer, SymName);
+              llvm::GlobalValue::ExternalLinkage, Initializer, SymName, nullptr,
+              tlsMode);
         }
       }
 
@@ -3036,7 +3138,7 @@ int CreateSectionGlobalVariables(void) {
 
       return new llvm::GlobalVariable(*Module, T, false,
                                       llvm::GlobalValue::ExternalLinkage,
-                                      Initializer, SymName);
+                                      Initializer, SymName, nullptr, tlsMode);
     }
 
 #if 0
@@ -3101,7 +3203,7 @@ int CreateSectionGlobalVariables(void) {
 
     return new llvm::GlobalVariable(
         *Module, ST, false, llvm::GlobalValue::ExternalLinkage,
-        llvm::ConstantStruct::get(ST, GVFieldInits), SymName);
+        llvm::ConstantStruct::get(ST, GVFieldInits), SymName, nullptr, tlsMode);
   };
 
   auto clear_section_stuff = [&](void) -> void {
@@ -3210,7 +3312,12 @@ int CreateSectionGlobalVariables(void) {
         Size = (*it).second;
       }
 
-      llvm::GlobalVariable *GV = create_global_variable(Addr, Size, SymName);
+      llvm::GlobalVariable *GV =
+          create_global_variable(Addr, Size, SymName,
+                                 TLSObjects.find(Addr) != TLSObjects.end()
+                                     ? llvm::GlobalValue::GeneralDynamicTLSModel
+                                     : llvm::GlobalValue::NotThreadLocal);
+
       if (!GV) {
         done = false;
         continue;
