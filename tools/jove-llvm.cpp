@@ -1997,12 +1997,12 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   unsigned size = 0;
   jove::terminator_info_t T;
   do {
-    do_tcg_optimization = true;
+    do_tcg_optimization = true; /* XXX */
 
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
 
-    do_tcg_optimization = false;
+    do_tcg_optimization = false; /* XXX */
 
     TCGArg constprop[tcg_max_temps];
     constprop[tcg_syscall_number_index] = std::numeric_limits<TCGArg>::max();
@@ -2110,8 +2110,9 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
     size += len;
   } while (size < Size);
 
-  if (this->Term.Type == TERMINATOR::INDIRECT_JUMP ||
-      this->Term.Type == TERMINATOR::INDIRECT_CALL) {
+  switch (this->Term.Type) {
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::INDIRECT_CALL: {
     tcg_global_set_t iglbs, oglbs;
 
     if (!this->DynTargets.empty()) {
@@ -2134,6 +2135,27 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
     this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
 
     this->Analysis.reach.def |= oglbs;
+    break;
+  }
+
+  case TERMINATOR::CALL: {
+    tcg_global_set_t iglbs, oglbs;
+
+    binary_t &binary = Decompilation.Binaries[BIdx];
+    function_t &callee = binary.Analysis.Functions[this->Term._call.Target];
+
+    iglbs = DetermineFunctionArgs(callee);
+    oglbs = DetermineFunctionRets(callee);
+
+    this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
+    this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
+
+    this->Analysis.reach.def |= oglbs;
+    break;
+  }
+
+  default:
+    break;
   }
 
   if (opts::PrintDefAndUse) {
