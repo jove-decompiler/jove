@@ -2497,7 +2497,7 @@ struct section_t {
 };
 
 llvm::Constant *SectionPointer(uintptr_t Addr) {
-  assert(Addr >= SectsStartAddr && Addr < SectsEndAddr);
+  assert(Addr >= SectsStartAddr && Addr <= SectsEndAddr);
   assert(!RelocationsAt.empty());
 
   llvm::GlobalVariable *SectsGV =
