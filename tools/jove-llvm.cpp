@@ -3253,8 +3253,19 @@ int CreateSectionGlobalVariables(void) {
     function_t &resolver =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
 
-    return llvm::GlobalIFunc::create(FTy, 0, llvm::GlobalValue::InternalLinkage,
-                                     "", resolver.F, Module.get());
+    return llvm::GlobalIFunc::create(
+        FTy, 0, llvm::GlobalValue::InternalLinkage, "",
+#if 0
+        llvm::ConstantExpr::getPointerCast(
+            resolver.F,
+            llvm::PointerType::get(
+                llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
+                0)),
+#else
+        llvm::ConstantExpr::getPointerCast(resolver.F,
+                                           llvm::PointerType::get(FTy, 0)),
+#endif
+        Module.get());
   };
 
   auto constant_of_tpoff_relocation =
