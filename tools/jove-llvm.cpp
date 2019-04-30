@@ -3242,11 +3242,15 @@ int CreateSectionGlobalVariables(void) {
           Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
       auto it = IFuncRelocDynTargets.find(R.Addr);
       if (it == IFuncRelocDynTargets.end() || (*it).second.empty())
-        FTy = llvm::FunctionType::get(VoidType(), false);
+        return llvm::Constant::getNullValue(llvm::PointerType::get(
+            llvm::FunctionType::get(VoidType(), false), 0));
       else
-        FTy = DetermineFunctionType(BinaryIndex, *(*it).second.begin());
+        return Decompilation.Binaries[BinaryIndex]
+            .Analysis.Functions[*(*it).second.begin()]
+            .F;
     }
 
+#if 0
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
@@ -3266,6 +3270,7 @@ int CreateSectionGlobalVariables(void) {
                                            llvm::PointerType::get(FTy, 0)),
 #endif
         Module.get());
+#endif
   };
 
   auto constant_of_tpoff_relocation =
