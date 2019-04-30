@@ -2491,24 +2491,22 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
     size += len;
   } while (size < Size);
 
-  {
+  switch (this->Term.Type) {
+  case TERMINATOR::INDIRECT_JUMP:
+  case TERMINATOR::INDIRECT_CALL: {
     tcg_global_set_t iglbs, oglbs;
-
-    switch (this->Term.Type) {
-    case TERMINATOR::INDIRECT_JUMP:
-    case TERMINATOR::INDIRECT_CALL:
-      iglbs.set(tcg_stack_pointer_index);
-      oglbs.set(tcg_stack_pointer_index);
-      break;
-
-    default:
-      break;
-    }
+    iglbs.set(tcg_stack_pointer_index);
+    oglbs.set(tcg_stack_pointer_index);
 
     this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
     this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
 
     this->Analysis.reach.def |= oglbs;
+    break;
+  }
+
+  default:
+    break;
   }
 
   if (opts::PrintDefAndUse) {
@@ -5345,6 +5343,20 @@ int TranslateBasicBlock(binary_t &Binary,
     }
   };
 
+  struct {
+    bool IsTailCall;
+  } _indirect_jump;
+
+  if (T.Type == TERMINATOR::INDIRECT_JUMP) {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    _indirect_jump.IsTailCall =
+        std::accumulate(eit_pair.first, eit_pair.second, true,
+                        [&](bool res, control_flow_t E) -> bool {
+                          uintptr_t dstaddr = ICFG[boost::target(E, ICFG)].Addr;
+                          return res && FuncMap.find(dstaddr) != FuncMap.end();
+                        });
+  }
+
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
@@ -5358,18 +5370,13 @@ int TranslateBasicBlock(binary_t &Binary,
       store_stack_pointers();
     break;
 
-  case TERMINATOR::INDIRECT_CALL: {
-    store_stack_pointers_if_not_dynl();
-    break;
-  }
-
-  case TERMINATOR::INDIRECT_JUMP: {
-    if (boost::out_degree(bb, ICFG) != 0)
+  case TERMINATOR::INDIRECT_JUMP:
+    if (!_indirect_jump.IsTailCall) /* otherwise fallthrough */
       break;
 
+  case TERMINATOR::INDIRECT_CALL:
     store_stack_pointers_if_not_dynl();
     break;
-  }
 
   default:
     break;
@@ -5434,6 +5441,31 @@ int TranslateBasicBlock(binary_t &Binary,
     // else if pc == target_n ; goto target_n
     // else                   ; trap
     //
+    if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
+      assert(boost::out_degree(bb, ICFG) > 0);
+      auto eit_pair = boost::out_edges(bb, ICFG);
+
+      auto it = eit_pair.first;
+      do {
+        basic_block_t succ = boost::target(*it, ICFG);
+
+        llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+        llvm::Value *EQV =
+            IRB.CreateICmpEQ(PC, ConstantForAddress(ICFG[succ].Addr));
+
+        llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
+
+        IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
+        IRB.SetInsertPoint(NextB);
+      } while (++it != eit_pair.second);
+
+      IRB.CreateCall(
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      IRB.CreateUnreachable();
+      break;
+    }
+
+#if 0
     if (boost::out_degree(bb, ICFG) > 0) {
       auto eit_pair = boost::out_edges(bb, ICFG);
 
@@ -5515,29 +5547,48 @@ int TranslateBasicBlock(binary_t &Binary,
 
       break; /* otherwise fallthrough */
     }
+#endif
   }
 
   case TERMINATOR::INDIRECT_CALL: {
-    llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+    auto get_a_callee = [&](void) -> function_t * {
+      const auto &DynTargets = ICFG[bb].DynTargets;
 
-    const auto &DynTargets = ICFG[bb].DynTargets;
-    if (DynTargets.empty()) {
+      if (!DynTargets.empty()) {
+        binary_index_t BinIdx = (*DynTargets.begin()).first;
+        function_index_t FnIdx = (*DynTargets.begin()).second;
+        return &Decompilation.Binaries[BinIdx].Analysis.Functions[FnIdx];
+      }
+
+      auto eit_pair = boost::out_edges(bb, ICFG);
+      for (auto eit = eit_pair.first; eit != eit_pair.second; ++eit) {
+        basic_block_t succ = boost::target(*eit, ICFG);
+        auto it = FuncMap.find(ICFG[succ].Addr);
+        if (it != FuncMap.end()) {
+          function_index_t FnIdx = (*it).second;
+          return &Decompilation.Binaries[BinaryIndex].Analysis.Functions[FnIdx];
+        }
+      }
+
+      return nullptr;
+    };
+
+    function_t *callee_ptr = get_a_callee();
+
+    if (!callee_ptr) {
       WithColor::warning() << "indirect branch @ "
                            << (fmt("%#lx") % ICFG[bb].Addr).str()
                            << " has zero dyn targets\n";
 
-      // apparently this is necessary
+      // TODO in strict mode, we should just insert a trap here
       IRB.CreateCall(IRB.CreateIntToPtr(
-          PC, llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
-                                     0)));
+          IRB.CreateLoad(f.PCAlloca),
+          llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
+                                 0)));
       break;
     }
 
-    function_index_t BinIdx = (*DynTargets.begin()).first;
-    function_index_t FuncIdx = (*DynTargets.begin()).second;
-
-    function_t &callee =
-        Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+    function_t &callee = *callee_ptr;
 
     std::vector<llvm::Value *> ArgVec;
     {
@@ -5555,7 +5606,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
     llvm::CallInst *Ret = IRB.CreateCall(
         IRB.CreateIntToPtr(
-            PC, llvm::PointerType::get(DetermineFunctionType(callee), 0)),
+            IRB.CreateLoad(f.PCAlloca),
+            llvm::PointerType::get(DetermineFunctionType(callee), 0)),
         ArgVec);
     Ret->setIsNoInline();
 
@@ -5571,10 +5623,7 @@ int TranslateBasicBlock(binary_t &Binary,
         for (unsigned i = 0; i < glbv.size(); ++i) {
           llvm::Value *Val =
               IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-
           llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
-          if (!Ptr)
-            Ptr = CPUStateGlobalPointer(glbv[i]);
 
           IRB.CreateStore(Val, Ptr);
         }
@@ -5638,11 +5687,8 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::INDIRECT_JUMP:
-    if (boost::out_degree(bb, ICFG) != 0)
+    if (!_indirect_jump.IsTailCall) /* otherwise fallthrough */
       break;
-
-    reload_stack_pointers_if_not_dynl();
-    break;
 
   case TERMINATOR::INDIRECT_CALL:
     reload_stack_pointers_if_not_dynl();
@@ -5695,6 +5741,9 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::INDIRECT_JUMP:
+    if (!_indirect_jump.IsTailCall) /* otherwise fallthrough */
+      break;
+
   case TERMINATOR::RETURN: {
     if (DetermineFunctionType(f)->getReturnType()->isVoidTy()) {
       IRB.CreateRetVoid();
