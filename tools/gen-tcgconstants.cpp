@@ -116,6 +116,13 @@ int main(int argc, char **argv) {
 
     for (int i = 0; i < tcg._ctx.nb_globals; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
+
+      if (!ts.mem_base)
+        continue;
+
+      if (strcmp(ts.mem_base->name, "env") != 0)
+        continue;
+
       printf("[%u] = %d,\n", static_cast<unsigned>(ts.mem_offset), i);
     }
 
