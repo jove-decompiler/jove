@@ -1739,12 +1739,272 @@ struct graphviz_label_writer {
   }
 };
 
+struct flow_vertex_properties_t {
+  const basic_block_properties_t *bbprop;
+
+  tcg_global_set_t IN, OUT;
+};
+
+static tcg_global_set_t identity_flow(tcg_global_set_t x) {
+  return x;
+}
+
+static tcg_global_set_t mask_CallConvRets_flow(tcg_global_set_t x) {
+  return x & CallConvRets;
+}
+
+static tcg_global_set_t mask_CallConvArgs_flow(tcg_global_set_t x) {
+  return x & CallConvArgs;
+}
+
+struct flow_edge_properties_t {
+  struct {
+    tcg_global_set_t (*flow)(tcg_global_set_t);
+  } live;
+
+  struct {
+    tcg_global_set_t (*flow)(tcg_global_set_t);
+  } reach;
+
+  flow_edge_properties_t () {
+    live.flow = identity_flow;
+    reach.flow = identity_flow;
+  }
+};
+
+typedef boost::adjacency_list<boost::setS,              /* OutEdgeList */
+                              boost::vecS,              /* VertexList */
+                              boost::bidirectionalS,    /* Directed */
+                              flow_vertex_properties_t, /* VertexProperties */
+                              flow_edge_properties_t    /* EdgeProperties */>
+    flow_graph_t;
+
+typedef flow_graph_t::vertex_descriptor flow_vertex_t;
+typedef flow_graph_t::edge_descriptor flow_edge_t;
+
+struct vertex_copier {
+  const interprocedural_control_flow_graph_t &ICFG;
+  flow_graph_t &G;
+
+  vertex_copier(const interprocedural_control_flow_graph_t &ICFG,
+                flow_graph_t &G)
+      : ICFG(ICFG), G(G) {}
+
+  void operator()(basic_block_t bb, flow_vertex_t V) const {
+    G[V].bbprop = &ICFG[bb];
+  }
+};
+
+struct edge_copier {
+  void operator()(control_flow_t, flow_edge_t) const {}
+};
+
+struct function_flow_vertex_pair_t {
+  function_t *f;
+  flow_vertex_t entryV;
+};
+
+static bool fn_flow_vert_pair_comp(const function_flow_vertex_pair_t &lhs,
+                                   const function_flow_vertex_pair_t &rhs) {
+  return lhs.f < rhs.f;
+}
+
+static flow_vertex_t
+copy_function_cfg(flow_graph_t &G, function_t &f,
+                  std::vector<flow_vertex_t> &exitVertices,
+                  std::unordered_map<function_t *, flow_vertex_t> &memoize) {
+  //
+  // make sure basic blocks have been analyzed
+  //
+  auto &Binary = Decompilation.Binaries[f.BIdx];
+  auto &ICFG = Binary.Analysis.ICFG;
+  for (basic_block_t bb : f.BasicBlocks)
+    ICFG[bb].Analyze(f.BIdx);
+
+  //
+  // check for back edge
+  //
+  {
+    auto it = memoize.find(&f);
+    if (it != memoize.end())
+      return (*it).second;
+  }
+
+#if 0
+  llvm::outs() << (fmt("%#lx") % ICFG[f.BasicBlocks.front()].Addr).str()
+               << '\n';
+#endif
+
+  assert(!f.BasicBlocks.empty());
+#if 0
+  llvm::outs() << "copy_function_cfg: "
+               << (fmt("%#lx") % ICFG[f.BasicBlocks.front()].Addr).str() << " ["
+               << fs::path(Binary.Path).filename().string() << "]\n";
+#endif
+
+  //
+  // copy the function's CFG into the flow graph, maintaining a mapping from the
+  // CFG's basic blocks to the flow graph vertices
+  //
+  std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
+  {
+    vertex_copier vc(ICFG, G);
+    edge_copier ec;
+
+    boost::copy_component(
+        ICFG, f.BasicBlocks.front(), G,
+        boost::orig_to_copy(
+            boost::associative_property_map<
+                std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
+            .vertex_copy(vc)
+            .edge_copy(ec));
+  }
+
+  flow_vertex_t res;
+  {
+    auto it = Orig2CopyMap.find(f.BasicBlocks.front());
+    assert(it != Orig2CopyMap.end());
+    res = (*it).second;
+  }
+
+  memoize.insert({&f, res});
+
+  exitVertices.resize(f.ExitBasicBlocks.size());
+  std::transform(f.ExitBasicBlocks.begin(),
+                 f.ExitBasicBlocks.end(),
+                 exitVertices.begin(),
+                 [&](basic_block_t bb) -> flow_vertex_t {
+                   auto it = Orig2CopyMap.find(bb);
+                   assert(it != Orig2CopyMap.end());
+                   return (*it).second;
+                 });
+
+#if 0
+  std::vector<function_flow_vertex_pair_t> _callStack(callStack);
+#endif
+
+  //
+  // this recursive function's duty is also to inline calls to functions and
+  // indirect jumps
+  //
+  for (basic_block_t bb : f.BasicBlocks) {
+    function_t *callee_ptr = nullptr;
+
+#if 0
+    std::vector<function_flow_vertex_pair_t> _callStack(callStack);
+    std::vector<function_flow_vertex_pair_t> emptyCallStack;
+    std::vector<function_flow_vertex_pair_t> *callStackToPass = nullptr;
+#endif
+
+    switch (ICFG[bb].Term.Type) {
+    case TERMINATOR::INDIRECT_CALL: {
+      auto &DynTargets = ICFG[bb].DynTargets;
+      if (DynTargets.empty())
+        continue;
+      auto &DynTarget = *DynTargets.begin();
+
+      callee_ptr = &Decompilation.Binaries[DynTarget.first]
+                        .Analysis.Functions[DynTarget.second];
+      /* fallthrough */
+    }
+
+    case TERMINATOR::CALL: {
+      function_t &callee =
+          callee_ptr ? *callee_ptr
+                     : Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+
+#if 0
+      std::vector<function_flow_vertex_pair_t> &_callStack =
+          callStackToPass ? *callStackToPass : callStack;
+#endif
+#if 0
+      std::vector<function_flow_vertex_pair_t> _callStack(callStack);
+#endif
+
+      std::vector<flow_vertex_t> calleeExitVertices;
+      flow_vertex_t calleeEntryV =
+          copy_function_cfg(G, callee, calleeExitVertices, memoize);
+
+      auto eit_pair = boost::out_edges(bb, ICFG);
+#if 0
+      if (eit_pair.first == eit_pair.second ||
+          std::next(eit_pair.first) != eit_pair.second) {
+        WithColor::error() << "WTF @ " << (fmt("%#lx") % ICFG[bb].Addr).str()
+                           << " [" << fs::path(Binary.Path).filename().string()
+                           << "] (" << boost::out_degree(bb, ICFG) << ")\n";
+      }
+#endif
+      assert(eit_pair.first != eit_pair.second &&
+             std::next(eit_pair.first) == eit_pair.second);
+
+      flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
+
+      boost::remove_edge(Orig2CopyMap[bb], succV, G);
+
+      {
+        auto e = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
+        if (callee.IsABI)
+          G[e].live.flow = mask_CallConvArgs_flow;
+      }
+
+      for (flow_vertex_t exitV : calleeExitVertices)
+        boost::add_edge(exitV, succV, G);
+
+      break;
+    }
+
+    case TERMINATOR::INDIRECT_JUMP: {
+      auto it = std::find(exitVertices.begin(),
+                          exitVertices.end(),
+                          Orig2CopyMap[bb]);
+      if (it == exitVertices.end())
+        continue;
+
+      const auto &DynTargets = ICFG[bb].DynTargets;
+      if (DynTargets.empty())
+        continue;
+      auto &DynTarget = *DynTargets.begin();
+
+      auto eit_pair = boost::out_edges(bb, ICFG);
+      assert(eit_pair.first == eit_pair.second);
+
+      function_t &callee = Decompilation.Binaries[DynTarget.first]
+                               .Analysis.Functions[DynTarget.second];
+
+#if 0
+      std::vector<function_flow_vertex_pair_t> _callStack(callStack);
+#endif
+
+      std::vector<flow_vertex_t> calleeExitVertices;
+      flow_vertex_t calleeEntryV =
+          copy_function_cfg(G, callee, calleeExitVertices, memoize);
+
+      {
+        auto e = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
+        if (callee.IsABI)
+          G[e].live.flow = mask_CallConvArgs_flow;
+      }
+
+      exitVertices.erase(it);
+      exitVertices.insert(exitVertices.end(),
+                          calleeExitVertices.begin(),
+                          calleeExitVertices.end());
+      break;
+    }
+
+    default:
+      continue;
+    }
+  }
+
+  return res;
+}
+
 void function_t::Analyze(void) {
   if (this->Analyzed)
     return;
 
-  this->Analyzed = true;
-
+#if 0
   //
   // using boost::filtered_graph we can efficiently construct a
   // control-flow-graph for the current function
@@ -1810,40 +2070,6 @@ void function_t::Analyze(void) {
 #endif
 
   //
-  // for ABI's, if we need a register parameter whose index > 0, then we will
-  // infer that all the preceeding paramter registers are live as well
-  //
-  if (this->IsABI) {
-    this->Analysis.args &= CallConvArgs;
-
-    std::vector<unsigned> glbv;
-    explode_tcg_global_set(glbv, this->Analysis.args);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-    });
-
-    auto rit = std::accumulate(
-        glbv.begin(), glbv.end(), CallConvArgArray.crend(),
-        [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
-          return std::min(res, std::find(CallConvArgArray.crbegin(),
-                                         CallConvArgArray.crend(), glb));
-        });
-
-    if (rit != CallConvArgArray.crend()) {
-      unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
-      for (unsigned i = 0; i <= idx; ++i)
-        this->Analysis.args.set(CallConvArgArray[i]);
-    }
-  } else {
-#if 0
-    if (opts::Emu)
-      if (!this->IsSimple)
-        this->Analysis.args.reset();
-#endif
-  }
-
-  //
   // reaching definitions
   //
   for (basic_block_t bb : this->BasicBlocks) {
@@ -1902,6 +2128,135 @@ void function_t::Analyze(void) {
   this->Analysis.rets.reset(tcg_fs_base_index);
 #endif
 
+#else /* interprocedural */
+  {
+    flow_graph_t G;
+
+#if 0
+  std::vector<function_flow_vertex_pair_t> _unused;
+#else
+    std::unordered_map<function_t *, flow_vertex_t> _unused;
+#endif
+
+    std::vector<flow_vertex_t> exitVertices;
+    flow_vertex_t entryV = copy_function_cfg(G, *this, exitVertices, _unused);
+
+    //
+    // build vector of vertices in DFS order
+    //
+    std::vector<flow_vertex_t> Vertices;
+    Vertices.reserve(boost::num_vertices(G));
+
+    {
+      dfs_visitor<flow_graph_t> vis(Vertices);
+
+      std::map<flow_vertex_t, boost::default_color_type> colorMap;
+#if 0
+    boost::depth_first_visit(
+        G, entryV, vis,
+        boost::associative_property_map<
+            std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
+#else
+      boost::depth_first_search(
+          G, vis,
+          boost::associative_property_map<
+              std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
+#endif
+    }
+
+    //
+    // liveness analysis
+    //
+    bool change;
+    do {
+      change = false;
+
+      for (basic_block_t V : boost::adaptors::reverse(Vertices)) {
+        const tcg_global_set_t _IN = G[V].IN;
+
+        auto eit_pair = boost::out_edges(V, G);
+        G[V].OUT =
+            std::accumulate(eit_pair.first, eit_pair.second, tcg_global_set_t(),
+                            [&](tcg_global_set_t glbs, control_flow_t E) {
+                              return glbs | G[boost::target(E, G)].IN;
+                            });
+        G[V].IN = G[V].bbprop->Analysis.live.use |
+                  (G[V].OUT & ~(G[V].bbprop->Analysis.live.def));
+
+        change = change || _IN != G[V].IN;
+      }
+    } while (change);
+
+    this->Analysis.args = G[entryV].IN;
+    this->Analysis.args.reset(tcg_env_index);
+#if defined(__x86_64__)
+    this->Analysis.args.reset(tcg_fs_base_index);
+#endif
+  }
+
+  {
+    //
+    // using boost::filtered_graph we can efficiently construct a
+    // control-flow-graph for the current function
+    //
+    auto &ICFG = Decompilation.Binaries[this->BIdx].Analysis.ICFG;
+
+    edge_predicate_t EdgePred;
+    vertex_predicate_t VertPred(this->BasicBlocksSet);
+
+    control_flow_graph_t CFG(ICFG, EdgePred, VertPred);
+
+    //
+    // analyze basic blocks
+    //
+    for (basic_block_t bb : this->BasicBlocks)
+      CFG[bb].Analyze(this->BIdx);
+
+    //
+    // reaching definitions
+    //
+    for (basic_block_t bb : this->BasicBlocks) {
+      CFG[bb].IN.reset();
+      CFG[bb].OUT.reset();
+    }
+
+    bool change;
+    do {
+      change = false;
+
+      for (basic_block_t bb : this->BasicBlocks) {
+        const tcg_global_set_t _OUT = CFG[bb].OUT;
+
+        auto eit_pair = boost::in_edges(bb, CFG);
+        CFG[bb].IN =
+            std::accumulate(eit_pair.first, eit_pair.second, tcg_global_set_t(),
+                            [&](tcg_global_set_t glbs, control_flow_t E) {
+                              return glbs | CFG[boost::source(E, CFG)].OUT;
+                            });
+        CFG[bb].OUT = CFG[bb].Analysis.reach.def | CFG[bb].IN;
+
+        change = change || _OUT != CFG[bb].OUT;
+      }
+    } while (change);
+
+    if (this->ExitBasicBlocks.empty()) {
+      this->Analysis.rets.reset();
+    } else {
+      this->Analysis.rets = std::accumulate(
+          std::next(this->ExitBasicBlocks.begin()), this->ExitBasicBlocks.end(),
+          CFG[this->ExitBasicBlocks.front()].OUT,
+          [&](tcg_global_set_t res, basic_block_t bb) {
+            return res & CFG[bb].OUT;
+          });
+    }
+
+#if defined(__x86_64__)
+    this->Analysis.rets.reset(tcg_fs_base_index);
+#endif
+  }
+
+#endif /* interprocedural */
+
   if (this->IsABI) {
 #if 0
     this->Analysis.rets &= CallConvRets;
@@ -1939,17 +2294,40 @@ void function_t::Analyze(void) {
       this->Analysis.rets.reset();
     }
 #endif
-  } else {
-#if 0
-    if (opts::Emu)
-      if (!this->IsSimple)
-        this->Analysis.rets.reset();
-#endif
   }
 
+  //
+  // for ABI's, if we need a register parameter whose index > 0, then we will
+  // infer that all the preceeding paramter registers are live as well
+  //
+  if (this->IsABI) {
+    this->Analysis.args &= CallConvArgs;
+
+    std::vector<unsigned> glbv;
+    explode_tcg_global_set(glbv, this->Analysis.args);
+    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
+             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+    });
+
+    auto rit = std::accumulate(
+        glbv.begin(), glbv.end(), CallConvArgArray.crend(),
+        [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
+          return std::min(res, std::find(CallConvArgArray.crbegin(),
+                                         CallConvArgArray.crend(), glb));
+        });
+
+    if (rit != CallConvArgArray.crend()) {
+      unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
+      for (unsigned i = 0; i <= idx; ++i)
+        this->Analysis.args.set(CallConvArgArray[i]);
+    }
+  }
+
+#if 0
   if (opts::PrintFunctionSignatures) {
     llvm::outs() << "Function @ "
-                 << (fmt("%#lx") % CFG[this->BasicBlocks.front()].Addr).str()
+                 << (fmt("%#lx") % this->Addr).str()
                  << '\n';
     llvm::outs() << "  args:";
     {
@@ -1968,6 +2346,9 @@ void function_t::Analyze(void) {
     }
     llvm::outs() << '\n';
   }
+#endif
+
+  this->Analyzed = true;
 }
 
 const helper_function_t &LookupHelper(TCGOp *op);
@@ -2110,52 +2491,24 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
     size += len;
   } while (size < Size);
 
-  switch (this->Term.Type) {
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::INDIRECT_CALL: {
+  {
     tcg_global_set_t iglbs, oglbs;
 
-    if (!this->DynTargets.empty()) {
-      binary_index_t BinIdx;
-      function_index_t FuncIdx;
-      std::tie(BinIdx, FuncIdx) = *this->DynTargets.begin();
+    switch (this->Term.Type) {
+    case TERMINATOR::INDIRECT_JUMP:
+    case TERMINATOR::INDIRECT_CALL:
+      iglbs.set(tcg_stack_pointer_index);
+      oglbs.set(tcg_stack_pointer_index);
+      break;
 
-      function_t &callee =
-          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
-      iglbs = DetermineFunctionArgs(callee);
-      oglbs = DetermineFunctionRets(callee);
+    default:
+      break;
     }
 
-    // XXX
-    iglbs.set(tcg_stack_pointer_index);
-    oglbs.set(tcg_stack_pointer_index);
-
     this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
     this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
 
     this->Analysis.reach.def |= oglbs;
-    break;
-  }
-
-  case TERMINATOR::CALL: {
-    tcg_global_set_t iglbs, oglbs;
-
-    binary_t &binary = Decompilation.Binaries[BIdx];
-    function_t &callee = binary.Analysis.Functions[this->Term._call.Target];
-
-    iglbs = DetermineFunctionArgs(callee);
-    oglbs = DetermineFunctionRets(callee);
-
-    this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
-    this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
-
-    this->Analysis.reach.def |= oglbs;
-    break;
-  }
-
-  default:
-    break;
   }
 
   if (opts::PrintDefAndUse) {
@@ -2497,16 +2850,21 @@ struct section_t {
 };
 
 llvm::Constant *SectionPointer(uintptr_t Addr) {
-  assert(Addr >= SectsStartAddr && Addr <= SectsEndAddr);
-  assert(!RelocationsAt.empty());
+  if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
+    return nullptr;
+
+  unsigned off = Addr - SectsStartAddr;
 
   llvm::GlobalVariable *SectsGV =
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
                                                       : SectsGlobal;
-
   assert(SectsGV);
 
-  unsigned off = Addr - SectsStartAddr;
+  if (Addr == SectsEndAddr) {
+    return llvm::ConstantExpr::getAdd(
+        llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
+        llvm::ConstantInt::get(WordType(), off));
+  }
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
@@ -3740,6 +4098,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
 
     for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
+#if 0
       switch (glb) {
       case tcg_env_index:
 #if defined(__x86_64__)
@@ -3747,10 +4106,18 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 #endif
         continue;
       }
+#endif
 
       f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
           IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
           std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+
+#if 0
+      IRB.CreateStore(llvm::ConstantInt::get(IRB.getIntNTy(bitsOfTCGType(
+                                                 TCG->_ctx.temps[glb].type)),
+                                             0xdeadbeef),
+                      f.GlobalAllocaVec[glb]);
+#endif
     }
 
     f.PCAlloca = tcg_program_counter_index < 0
@@ -3792,18 +4159,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        switch (glb) {
-        case tcg_frame_pointer_index:
-        case tcg_stack_pointer_index: {
-          llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
-          llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-          IRB.CreateStore(Val, Ptr);
-          break;
-        }
-
-        default:
-          continue;
-        }
+        llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+        IRB.CreateStore(Val, Ptr);
       }
     }
 
@@ -3964,7 +4322,13 @@ int Optimize1(void) {
   return 0;
 }
 
-static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
+static llvm::Constant *
+ConstantForAddress(uintptr_t Addr) {
+  if (!Addr) {
+    // the NULL pointer is a special case
+    return llvm::ConstantInt::get(WordType(), 0);
+  }
+
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
@@ -4000,17 +4364,26 @@ static llvm::Constant *ConstantForAddress(uintptr_t Addr) {
     }
   }
 
+  llvm::Constant *res;
+
   auto it = st.FuncMap.find(Addr);
-  llvm::Constant *res = it == st.FuncMap.end()
-                            ? SectionPointer(Addr)
-                            : Binary.Analysis.Functions[(*it).second].F;
+  if (it != st.FuncMap.end()) {
+    res = Binary.Analysis.Functions[(*it).second].F;
+  } else {
+    res = SectionPointer(Addr);
+    if (!res) {
+      WithColor::error() << __func__ << ": !SectionPointer("
+                         << llvm::format_hex(Addr, 1) << ")\n";
 
-  if (!res)
-    return nullptr;
+      llvm::GlobalVariable *PCRelFailGlobal = new llvm::GlobalVariable(
+          *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
+          nullptr, (fmt("PCRelFail0x%lx") % Addr).str());
 
-  res = llvm::ConstantExpr::getPtrToInt(res, WordType());
+      return llvm::ConstantExpr::getPtrToInt(PCRelFailGlobal, WordType());
+    }
+  }
 
-  return res;
+  return llvm::ConstantExpr::getPtrToInt(res, WordType());
 }
 
 int FixupPCRelativeAddrs(void) {
@@ -4037,8 +4410,9 @@ int FixupPCRelativeAddrs(void) {
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
 
-          Inst->setOperand(OtherOperandIdx,
-                           ConstantForAddress(CI->getValue().abs().getZExtValue()));
+          Inst->setOperand(
+              OtherOperandIdx,
+              ConstantForAddress(CI->getValue().abs().getZExtValue()));
           continue;
         }
 
@@ -4950,7 +5324,6 @@ int TranslateBasicBlock(binary_t &Binary,
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     };
 
-    store(tcg_frame_pointer_index);
     store(tcg_stack_pointer_index);
   };
 
@@ -5223,7 +5596,6 @@ int TranslateBasicBlock(binary_t &Binary,
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     };
 
-    reload(tcg_frame_pointer_index);
     reload(tcg_stack_pointer_index);
   };
 
