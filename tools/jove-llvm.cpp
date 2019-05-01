@@ -2375,6 +2375,7 @@ void function_t::Analyze(void) {
     // XXX TODO
     assert(!CallConvRetArray.empty());
     if (this->Analysis.rets[CallConvRetArray.front()]) {
+      this->Analysis.rets.reset();
       this->Analysis.rets.set(CallConvRetArray.front());
     } else {
       this->Analysis.rets.reset();
