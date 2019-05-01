@@ -1,3 +1,5 @@
+#define CONFIG_ATOMIC128 1
+
 #define TARGET_X86_64 1
 
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
@@ -468,6 +470,16 @@ enum {
 
 #define CC_Z    0x0040
 
+#define AC_MASK                 0x00040000
+
+#define HF_CPL_SHIFT         0
+
+#define HF_SMAP_SHIFT       23
+
+#define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
+
+#define HF_SMAP_MASK         (1 << HF_SMAP_SHIFT)
+
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -898,6 +910,19 @@ static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
     return container_of(env, X86CPU, env);
 }
 
+#define MMU_KSMAP_IDX   0
+
+#define MMU_USER_IDX    1
+
+#define MMU_KNOSMAP_IDX 2
+
+static inline int cpu_mmu_index(CPUX86State *env, bool ifetch)
+{
+    return (env->hflags & HF_CPL_MASK) == 3 ? MMU_USER_IDX :
+        (!(env->hflags & HF_SMAP_MASK) || (env->eflags & AC_MASK))
+        ? MMU_KNOSMAP_IDX : MMU_KSMAP_IDX;
+}
+
 #define CC_SRC  (env->cc_src)
 
 #define CC_OP   (env->cc_op)
@@ -906,14 +931,10 @@ static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
 
 #define stq_p(p, v) stq_le_p(p, v)
 
-extern unsigned long guest_base;
-
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
-
-static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
@@ -965,6 +986,8 @@ static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr,
         _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
     }
 }
+
+# define tcg_debug_assert(X) do { (void)(X); } while (0)
 
 typedef enum TCGMemOp {
     MO_8     = 0,
@@ -1052,6 +1075,40 @@ typedef enum TCGMemOp {
 
     MO_SSIZE = MO_SIZE | MO_SIGN,
 } TCGMemOp;
+
+typedef uint32_t TCGMemOpIdx;
+
+static inline TCGMemOpIdx make_memop_idx(TCGMemOp op, unsigned idx)
+{
+    tcg_debug_assert(idx <= 15);
+    return (op << 4) | idx;
+}
+
+typedef __int128_t Int128;
+
+static inline Int128 int128_make128(uint64_t lo, uint64_t hi)
+{
+    return (__uint128_t)hi << 64 | lo;
+}
+
+static inline uint64_t int128_getlo(Int128 a)
+{
+    return a;
+}
+
+static inline int64_t int128_gethi(Int128 a)
+{
+    return a >> 64;
+}
+
+static inline bool int128_eq(Int128 a, Int128 b)
+{
+    return a == b;
+}
+
+Int128 helper_atomic_cmpxchgo_le_mmu(CPUArchState *env, target_ulong addr,
+                                     Int128 cmpv, Int128 newv,
+                                     TCGMemOpIdx oi, uintptr_t retaddr);
 
 static inline uint8_t trace_mem_build_info(
     TCGMemOp size, bool sign_extend, TCGMemOp endianness, bool store)
