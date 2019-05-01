@@ -1750,11 +1750,17 @@ static tcg_global_set_t identity_flow(tcg_global_set_t x) {
 }
 
 static tcg_global_set_t mask_CallConvRets_flow(tcg_global_set_t x) {
-  return x & CallConvRets;
+  tcg_global_set_t mask(CallConvRets);
+  mask.set(tcg_stack_pointer_index);
+
+  return x & mask;
 }
 
 static tcg_global_set_t mask_CallConvArgs_flow(tcg_global_set_t x) {
-  return x & CallConvArgs;
+  tcg_global_set_t mask(CallConvArgs);
+  mask.set(tcg_stack_pointer_index);
+
+  return x & mask;
 }
 
 struct flow_edge_properties_t {
@@ -1809,10 +1815,13 @@ static bool fn_flow_vert_pair_comp(const function_flow_vertex_pair_t &lhs,
   return lhs.f < rhs.f;
 }
 
-static flow_vertex_t
-copy_function_cfg(flow_graph_t &G, function_t &f,
-                  std::vector<flow_vertex_t> &exitVertices,
-                  std::unordered_map<function_t *, flow_vertex_t> &memoize) {
+static basic_block_properties_t empty_bb_prop;
+
+static flow_vertex_t copy_function_cfg(
+    flow_graph_t &G, function_t &f, std::vector<flow_vertex_t> &exitVertices,
+    std::unordered_map<function_t *,
+                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
+        &memoize) {
   //
   // make sure basic blocks have been analyzed
   //
@@ -1826,8 +1835,10 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
   //
   {
     auto it = memoize.find(&f);
-    if (it != memoize.end())
-      return (*it).second;
+    if (it != memoize.end()) {
+      exitVertices = (*it).second.second;
+      return (*it).second.first;
+    }
   }
 
 #if 0
@@ -1867,8 +1878,6 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
     res = (*it).second;
   }
 
-  memoize.insert({&f, res});
-
   exitVertices.resize(f.ExitBasicBlocks.size());
   std::transform(f.ExitBasicBlocks.begin(),
                  f.ExitBasicBlocks.end(),
@@ -1878,6 +1887,8 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
                    assert(it != Orig2CopyMap.end());
                    return (*it).second;
                  });
+
+  memoize.insert({&f, {res, exitVertices}});
 
 #if 0
   std::vector<function_flow_vertex_pair_t> _callStack(callStack);
@@ -1942,13 +1953,16 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
       boost::remove_edge(Orig2CopyMap[bb], succV, G);
 
       {
-        auto e = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
+        flow_edge_t E = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
         if (callee.IsABI)
-          G[e].live.flow = mask_CallConvArgs_flow;
+          G[E].live.flow = mask_CallConvArgs_flow;
       }
 
-      for (flow_vertex_t exitV : calleeExitVertices)
-        boost::add_edge(exitV, succV, G);
+      for (flow_vertex_t exitV : calleeExitVertices) {
+        flow_edge_t E = boost::add_edge(exitV, succV, G).first;
+        if (callee.IsABI)
+          G[E].reach.flow = mask_CallConvRets_flow;
+      }
 
       break;
     }
@@ -1978,17 +1992,23 @@ copy_function_cfg(flow_graph_t &G, function_t &f,
       std::vector<flow_vertex_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
           copy_function_cfg(G, callee, calleeExitVertices, memoize);
+      flow_vertex_t newExitV = boost::add_vertex(G);
+      G[newExitV].bbprop = &empty_bb_prop;
 
       {
-        auto e = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        if (callee.IsABI)
-          G[e].live.flow = mask_CallConvArgs_flow;
+        flow_edge_t E =
+            boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
+        assert(callee.IsABI);
+        G[E].live.flow = mask_CallConvArgs_flow;
+      }
+
+      for (flow_vertex_t V : calleeExitVertices) {
+        flow_edge_t E = boost::add_edge(V, newExitV, G).first;
+        G[E].reach.flow = mask_CallConvRets_flow;
       }
 
       exitVertices.erase(it);
-      exitVertices.insert(exitVertices.end(),
-                          calleeExitVertices.begin(),
-                          calleeExitVertices.end());
+      exitVertices.push_back(newExitV);
       break;
     }
 
@@ -2135,7 +2155,9 @@ void function_t::Analyze(void) {
 #if 0
   std::vector<function_flow_vertex_pair_t> _unused;
 #else
-    std::unordered_map<function_t *, flow_vertex_t> _unused;
+    std::unordered_map<function_t *,
+                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
+        _unused;
 #endif
 
     std::vector<flow_vertex_t> exitVertices;
@@ -2164,22 +2186,28 @@ void function_t::Analyze(void) {
 #endif
     }
 
+    bool change;
+
     //
     // liveness analysis
     //
-    bool change;
+    for (flow_vertex_t V : Vertices) {
+      G[V].IN.reset();
+      G[V].OUT.reset();
+    }
+
     do {
       change = false;
 
-      for (basic_block_t V : boost::adaptors::reverse(Vertices)) {
+      for (flow_vertex_t V : boost::adaptors::reverse(Vertices)) {
         const tcg_global_set_t _IN = G[V].IN;
 
         auto eit_pair = boost::out_edges(V, G);
-        G[V].OUT =
-            std::accumulate(eit_pair.first, eit_pair.second, tcg_global_set_t(),
-                            [&](tcg_global_set_t glbs, control_flow_t E) {
-                              return glbs | G[boost::target(E, G)].IN;
-                            });
+        G[V].OUT = std::accumulate(
+            eit_pair.first, eit_pair.second, tcg_global_set_t(),
+            [&](tcg_global_set_t res, control_flow_t E) {
+              return res | G[E].live.flow(G[boost::target(E, G)].IN);
+            });
         G[V].IN = G[V].bbprop->Analysis.live.use |
                   (G[V].OUT & ~(G[V].bbprop->Analysis.live.def));
 
@@ -2192,8 +2220,66 @@ void function_t::Analyze(void) {
 #if defined(__x86_64__)
     this->Analysis.args.reset(tcg_fs_base_index);
 #endif
+
+    //
+    // reaching definitions
+    //
+    for (flow_vertex_t V : Vertices) {
+      G[V].IN.reset();
+      G[V].OUT.reset();
+    }
+
+    do {
+      change = false;
+
+      for (flow_vertex_t V : Vertices) {
+        const tcg_global_set_t _OUT = G[V].OUT;
+
+        auto eit_pair = boost::in_edges(V, G);
+#if 1
+        G[V].IN = std::accumulate(
+            eit_pair.first, eit_pair.second, tcg_global_set_t(),
+            [&](tcg_global_set_t glbs, flow_edge_t E) {
+              return glbs | G[E].reach.flow(G[boost::source(E, G)].OUT);
+            });
+#else
+        if (eit_pair.first == eit_pair.second) {
+          G[V].IN.reset();
+        } else {
+          flow_edge_t E0 = *eit_pair.first;
+          flow_vertex_t E0_V = boost::source(E0, G);
+
+          G[V].IN = std::accumulate(
+              std::next(eit_pair.first), eit_pair.second,
+              G[E0].reach.flow(G[E0_V].OUT),
+              [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
+                flow_vertex_t E_V = boost::source(E, G);
+                return res & G[E].reach.flow(G[E_V].OUT);
+              });
+        }
+#endif
+        G[V].OUT = G[V].bbprop->Analysis.reach.def | G[V].IN;
+
+        change = change || _OUT != G[V].OUT;
+      }
+    } while (change);
+
+    if (exitVertices.empty()) {
+      this->Analysis.rets.reset();
+    } else {
+      this->Analysis.rets =
+          std::accumulate(std::next(exitVertices.begin()), exitVertices.end(),
+                          G[exitVertices.front()].OUT,
+                          [&](tcg_global_set_t res, flow_vertex_t V) {
+                            return res & G[V].OUT;
+                          });
+#if defined(__x86_64__)
+      this->Analysis.rets.reset(tcg_fs_base_index);
+#endif
+    }
   }
 
+#if 0
   {
     //
     // using boost::filtered_graph we can efficiently construct a
@@ -2215,9 +2301,9 @@ void function_t::Analyze(void) {
     //
     // reaching definitions
     //
-    for (basic_block_t bb : this->BasicBlocks) {
-      CFG[bb].IN.reset();
-      CFG[bb].OUT.reset();
+    for (flow_vertex_t V : Vertices) {
+      G[V].IN.reset();
+      G[V].OUT.reset();
     }
 
     bool change;
@@ -2254,13 +2340,14 @@ void function_t::Analyze(void) {
     this->Analysis.rets.reset(tcg_fs_base_index);
 #endif
   }
+#endif
 
 #endif /* interprocedural */
 
   if (this->IsABI) {
-#if 0
     this->Analysis.rets &= CallConvRets;
 
+#if 0
     //
     // for ABI's, if we need a return register whose index > 0, then we will
     // infer that all the preceeding return registers are live as well
@@ -2288,7 +2375,6 @@ void function_t::Analyze(void) {
     // XXX TODO
     assert(!CallConvRetArray.empty());
     if (this->Analysis.rets[CallConvRetArray.front()]) {
-      this->Analysis.rets.reset();
       this->Analysis.rets.set(CallConvRetArray.front());
     } else {
       this->Analysis.rets.reset();
@@ -5418,11 +5504,13 @@ int TranslateBasicBlock(binary_t &Binary,
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
 
+#if 1
     if (!opts::NoInline &&
         callee.BasicBlocks.size() == 1 &&
         ICFG[callee.BasicBlocks.front()].IsSingleInstruction())
       ; /* allow this call to be inlined */
     else
+#endif
       Ret->setIsNoInline();
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
