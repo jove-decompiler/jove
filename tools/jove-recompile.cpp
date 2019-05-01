@@ -411,7 +411,7 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(opt_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-o"));
       arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
-      arg_vec.push_back(const_cast<char *>("-Oz"));
+      arg_vec.push_back(const_cast<char *>("-Os"));
       arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
       arg_vec.push_back(nullptr);
 
