@@ -1,83 +1,59 @@
+#define CONFIG_ATOMIC64 1
+
 #define TARGET_X86_64 1
 
-#define QEMU_NORETURN __attribute__ ((__noreturn__))
+#define CONFIG_USER_ONLY 1
 
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
 
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
-#define container_of(ptr, type, member) ({                      \
-        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
-        (type *) ((char *) __mptr - offsetof(type, member));})
-
-#include <stddef.h>
-
 #include <stdbool.h>
 
 #include <stdint.h>
 
-#include <sys/types.h>
-
-#include <stdio.h>
-
-#include <string.h>
-
-#include <limits.h>
-
 #include <assert.h>
 
-#include <setjmp.h>
+#define typeof_strip_qual(expr)                                                    \
+  typeof(                                                                          \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), bool) ||                          \
+        __builtin_types_compatible_p(typeof(expr), const bool) ||                  \
+        __builtin_types_compatible_p(typeof(expr), volatile bool) ||               \
+        __builtin_types_compatible_p(typeof(expr), const volatile bool),           \
+        (bool)1,                                                                   \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), signed char) ||                   \
+        __builtin_types_compatible_p(typeof(expr), const signed char) ||           \
+        __builtin_types_compatible_p(typeof(expr), volatile signed char) ||        \
+        __builtin_types_compatible_p(typeof(expr), const volatile signed char),    \
+        (signed char)1,                                                            \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), unsigned char) ||                 \
+        __builtin_types_compatible_p(typeof(expr), const unsigned char) ||         \
+        __builtin_types_compatible_p(typeof(expr), volatile unsigned char) ||      \
+        __builtin_types_compatible_p(typeof(expr), const volatile unsigned char),  \
+        (unsigned char)1,                                                          \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), signed short) ||                  \
+        __builtin_types_compatible_p(typeof(expr), const signed short) ||          \
+        __builtin_types_compatible_p(typeof(expr), volatile signed short) ||       \
+        __builtin_types_compatible_p(typeof(expr), const volatile signed short),   \
+        (signed short)1,                                                           \
+    __builtin_choose_expr(                                                         \
+      __builtin_types_compatible_p(typeof(expr), unsigned short) ||                \
+        __builtin_types_compatible_p(typeof(expr), const unsigned short) ||        \
+        __builtin_types_compatible_p(typeof(expr), volatile unsigned short) ||     \
+        __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
+        (unsigned short)1,                                                         \
+      (expr)+0))))))
 
-typedef void* gpointer;
-
-typedef struct _GHashTable  GHashTable;
-
-typedef struct _GSList GSList;
-
-struct _GSList
-{
-  gpointer data;
-  GSList *next;
-};
-
-typedef struct AddressSpace AddressSpace;
-
-typedef struct BusState BusState;
-
-typedef struct CPUAddressSpace CPUAddressSpace;
-
-typedef struct CPUState CPUState;
-
-typedef struct DeviceState DeviceState;
-
-typedef struct MemoryRegion MemoryRegion;
-
-typedef struct QemuMutex QemuMutex;
-
-typedef struct QemuOpts QemuOpts;
-
-#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
-}
-
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
+#define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
+    typeof_strip_qual(*ptr) _old = (old);                               \
+    __atomic_compare_exchange_n(ptr, &_old, new, false,                 \
+                              __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
+    _old;                                                               \
+})
 
 #define Q_TAILQ_ENTRY(type, qual)                                       \
 struct {                                                                \
@@ -113,40 +89,30 @@ typedef struct float_status {
 
 #define le_bswap(v, size) (v)
 
-static inline uint64_t ldq_he_p(const void *ptr)
-{
-    uint64_t r;
-    memcpy(&r, ptr, sizeof(r));
-    return r;
+#define le_bswaps(v, size)
+
+#define CPU_CONVERT(endian, size, type)\
+static inline type endian ## size ## _to_cpu(type v)\
+{\
+    return glue(endian, _bswap)(v, size);\
+}\
+\
+static inline type cpu_to_ ## endian ## size(type v)\
+{\
+    return glue(endian, _bswap)(v, size);\
+}\
+\
+static inline void endian ## size ## _to_cpus(type *p)\
+{\
+    glue(endian, _bswaps)(p, size);\
+}\
+\
+static inline void cpu_to_ ## endian ## size ## s(type *p)\
+{\
+    glue(endian, _bswaps)(p, size);\
 }
 
-static inline void stq_he_p(void *ptr, uint64_t v)
-{
-    memcpy(ptr, &v, sizeof(v));
-}
-
-static inline uint64_t ldq_le_p(const void *ptr)
-{
-    return le_bswap(ldq_he_p(ptr), 64);
-}
-
-static inline void stq_le_p(void *ptr, uint64_t v)
-{
-    stq_he_p(ptr, le_bswap(v, 64));
-}
-
-#define BITS_PER_BYTE           CHAR_BIT
-
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
+CPU_CONVERT(le, 64, uint64_t)
 
 static inline uint64_t deposit64(uint64_t value, int start, int length,
                                  uint64_t fieldval)
@@ -156,76 +122,6 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
     mask = (~0ULL >> (64 - length)) << start;
     return (value & ~mask) | ((fieldval << start) & mask);
 }
-
-#define DECLARE_BITMAP(name,bits)                  \
-        unsigned long name[BITS_TO_LONGS(bits)]
-
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct ObjectClass ObjectClass;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *klass;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
-
-typedef struct IRQState *qemu_irq;
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -244,34 +140,7 @@ typedef struct MemTxAttrs {
     unsigned int requester_id:16;
 } MemTxAttrs;
 
-struct QemuMutex {
-    pthread_mutex_t lock;
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-struct Notifier;
-
-#define CPU(obj) ((CPUState *)(obj))
-
 typedef uint64_t vaddr;
-
-typedef struct CPUWatchpoint CPUWatchpoint;
-
-struct TranslationBlock;
-
-typedef struct icount_decr_u16 {
-    uint16_t low;
-    uint16_t high;
-} icount_decr_u16;
 
 typedef struct CPUBreakpoint {
     vaddr pc;
@@ -288,134 +157,6 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(breakpoints_head, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(watchpoints_head, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-    vaddr mem_io_vaddr;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    /* Note that this is accessed at the start of every TB via a negative
-       offset from AREG0.  Leave this field at the end so as to make the
-       (absolute value) offset as small as possible.  This reduces code
-       size, especially for hosts without large memory offsets.  */
-    union {
-        uint32_t u32;
-        icount_decr_u16 u16;
-    } icount_decr;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    /* The pending_tlb_flush flag is set and cleared atomically to
-     * avoid potential races. The aim of the flag is to avoid
-     * unnecessary flushes.
-     */
-    uint16_t pending_tlb_flush;
-
-    int hvf_fd;
-};
-
-typedef struct Notifier Notifier;
-
-struct Notifier
-{
-    void (*notify)(Notifier *notifier, void *data);
-    QLIST_ENTRY(Notifier) node;
-};
-
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
 #define HV_X64_MSR_CRASH_P4                     0x40000104
@@ -426,15 +167,11 @@ struct Notifier
 
 #define HV_STIMER_COUNT                       4
 
-typedef struct X86CPU X86CPU;
-
 #define CPU_COMMON_TLB
 
 #define CPU_COMMON                                                      \
     /* soft mmu support */                                              \
     CPU_COMMON_TLB
-
-#define CPUArchState struct CPUX86State
 
 typedef uint64_t target_ulong;
 
@@ -797,349 +534,15 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-struct kvm_msrs;
-
-struct X86CPU {
-    /*< private >*/
-    CPUState parent_obj;
-    /*< public >*/
-
-    CPUX86State env;
-
-    bool hyperv_vapic;
-    bool hyperv_relaxed_timing;
-    int hyperv_spinlock_attempts;
-    char *hyperv_vendor_id;
-    bool hyperv_time;
-    bool hyperv_crash;
-    bool hyperv_reset;
-    bool hyperv_vpindex;
-    bool hyperv_runtime;
-    bool hyperv_synic;
-    bool hyperv_stimer;
-    bool hyperv_frequencies;
-    bool check_cpuid;
-    bool enforce_cpuid;
-    bool expose_kvm;
-    bool expose_tcg;
-    bool migratable;
-    bool max_features; /* Enable all supported features automatically */
-    uint32_t apic_id;
-
-    /* Enables publishing of TSC increment and Local APIC bus frequencies to
-     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
-    bool vmware_cpuid_freq;
-
-    /* if true the CPUID code directly forward host cache leaves to the guest */
-    bool cache_info_passthrough;
-
-    /* Features that were filtered out because of missing host capabilities */
-    uint32_t filtered_features[FEATURE_WORDS];
-
-    /* Enable PMU CPUID bits. This can't be enabled by default yet because
-     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
-     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
-     * capabilities) directly to the guest.
-     */
-    bool enable_pmu;
-
-    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
-     * disabled by default to avoid breaking migration between QEMU with
-     * different LMCE configurations.
-     */
-    bool enable_lmce;
-
-    /* Compatibility bits for old machine types.
-     * If true present virtual l3 cache for VM, the vcpus in the same virtual
-     * socket share an virtual l3 cache.
-     */
-    bool enable_l3_cache;
-
-    /* Compatibility bits for old machine types: */
-    bool enable_cpuid_0xb;
-
-    /* Enable auto level-increase for all CPUID leaves */
-    bool full_cpuid_auto_level;
-
-    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
-    bool fill_mtrr_mask;
-
-    /* if true override the phys_bits value with a value read from the host */
-    bool host_phys_bits;
-
-    /* Stop SMI delivery for migration compatibility with old machines */
-    bool kvm_no_smi_migration;
-
-    /* Number of physical address bits supported */
-    uint32_t phys_bits;
-
-    /* in order to simplify APIC support, we leave this pointer to the
-       user */
-    struct DeviceState *apic_state;
-    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
-    Notifier machine_done;
-
-    struct kvm_msrs *kvm_msr_buf;
-
-    int32_t node_id; /* NUMA node this CPU belongs to */
-    int32_t socket_id;
-    int32_t core_id;
-    int32_t thread_id;
-
-    int32_t hv_max_vps;
-};
-
-#define ENV_GET_CPU(e) CPU(x86_env_get_cpu(e))
-
-static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
-{
-    return container_of(env, X86CPU, env);
-}
-
 #define CC_SRC  (env->cc_src)
 
 #define CC_OP   (env->cc_op)
-
-#define ldq_p(p) ldq_le_p(p)
-
-#define stq_p(p, v) stq_le_p(p, v)
 
 extern unsigned long guest_base;
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
-static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
 #define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
-
-#define MEMSUFFIX _data
-
-static uintptr_t helper_retaddr;
-
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-extern int trace_events_enabled_count;
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
-{
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
-}
-
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
-
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
-
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint8_t info)
-{
-}
-
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint8_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
-
-typedef enum TCGMemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
-
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
-
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-
-    /* MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} TCGMemOp;
-
-static inline uint8_t trace_mem_build_info(
-    TCGMemOp size, bool sign_extend, TCGMemOp endianness, bool store)
-{
-    uint8_t res = 0;
-    res |= size;
-    res |= (sign_extend << 2);
-    if (endianness == MO_BE) {
-        res |= (1ULL << 3);
-    }
-    res |= (store << 4);
-    return res;
-}
-
-#define DATA_SIZE 8
-
-#define SUFFIX q
-
-#define USUFFIX q
-
-#define RES_TYPE uint64_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
-{
-#if !defined(CODE_ACCESS)
-    trace_guest_mem_before_exec(
-        ENV_GET_CPU(env), ptr,
-        trace_mem_build_info(DATA_SIZE, false, MO_TE, false));
-#endif
-    return glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  target_ulong ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    helper_retaddr = retaddr;
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    helper_retaddr = 0;
-    return ret;
-}
-
-static inline void
-glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr,
-                                      RES_TYPE v)
-{
-#if !defined(CODE_ACCESS)
-    trace_guest_mem_before_exec(
-        ENV_GET_CPU(env), ptr,
-        trace_mem_build_info(DATA_SIZE, false, MO_TE, true));
-#endif
-    glue(glue(st, SUFFIX), _p)(g2h(ptr), v);
-}
-
-static inline void
-glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  target_ulong ptr,
-                                                  RES_TYPE v,
-                                                  uintptr_t retaddr)
-{
-    helper_retaddr = retaddr;
-    glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(env, ptr, v);
-    helper_retaddr = 0;
-}
-
-void helper_cmpxchg8b_unlocked(CPUX86State *env, target_ulong a0)
-{
-    uintptr_t ra = GETPC();
-    uint64_t oldv, cmpv, newv;
-    int eflags;
-
-    eflags = cpu_cc_compute_all(env, CC_OP);
-
-    cmpv = deposit64(env->regs[R_EAX], 32, 32, env->regs[R_EDX]);
-    newv = deposit64(env->regs[R_EBX], 32, 32, env->regs[R_ECX]);
-
-    oldv = cpu_ldq_data_ra(env, a0, ra);
-    newv = (cmpv == oldv ? newv : oldv);
-    /* always do the store */
-    cpu_stq_data_ra(env, a0, newv, ra);
-
-    if (oldv == cmpv) {
-        eflags |= CC_Z;
-    } else {
-        env->regs[R_EAX] = (uint32_t)oldv;
-        env->regs[R_EDX] = (uint32_t)(oldv >> 32);
-        eflags &= ~CC_Z;
-    }
-    CC_SRC = eflags;
-}
 
 void helper_cmpxchg8b(CPUX86State *env, target_ulong a0)
 {
