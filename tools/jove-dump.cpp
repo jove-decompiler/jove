@@ -65,8 +65,16 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
   for (const auto &B : decompilation.Binaries) {
     Writer.printString("Binary", B.Path);
     llvm::ListScope _(Writer);
+    Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
+    Writer.printBoolean("IsExecutable", B.IsExecutable);
 
     const auto &ICFG = B.Analysis.ICFG;
+
+    if (is_function_index_valid(B.Analysis.EntryFunction)) {
+      const function_t &entryFunc =
+          B.Analysis.Functions.at(B.Analysis.EntryFunction);
+      Writer.printHex("Entry", ICFG[boost::vertex(entryFunc.Entry, ICFG)].Addr);
+    }
 
     for (const auto &F : B.Analysis.Functions) {
       basic_block_t entry = boost::vertex(F.Entry, ICFG);
