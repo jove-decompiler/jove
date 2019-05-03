@@ -487,7 +487,7 @@ int add(void) {
     binary.Analysis.EntryFunction = invalid_function_index;
   }
 
-  binary.IsDynamicLinker = !Interp.Found;
+  binary.IsDynamicLinker = !Interp.Found && IsStaticallyLinked;
 
   //
   // translate all exported functions
