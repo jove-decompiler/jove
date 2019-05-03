@@ -493,10 +493,8 @@ static void worker(void) {
 
       arg_vec.push_back(const_cast<char *>("-nostdlib"));
 
-#if 0
       arg_vec.push_back(const_cast<char *>("-z"));
       arg_vec.push_back(const_cast<char *>("nodefaultlib"));
-#endif
 
       arg_vec.push_back(const_cast<char *>("-z"));
       arg_vec.push_back(const_cast<char *>("origin"));
