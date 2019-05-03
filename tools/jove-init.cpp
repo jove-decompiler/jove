@@ -284,8 +284,8 @@ int init(void) {
 
   assert(final_decompilation.Binaries.size() >= 2);
 
-  final_decompilation.Binaries[0].IsExecutable = true;
-  assert(final_decompilation.Binaries[1].IsDynamicLinker);
+  final_decompilation.Binaries.at(0).IsExecutable = true;
+  assert(final_decompilation.Binaries.at(1).IsDynamicLinker);
 
   if (fs::exists(opts::Output)) {
     if (opts::Verbose)
