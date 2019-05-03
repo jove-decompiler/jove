@@ -384,6 +384,57 @@ struct relocation_t {
   uintptr_t Addend;
 };
 
+static const char *string_of_reloc_type(relocation_t::TYPE ty) {
+  switch (ty) {
+  case relocation_t::TYPE::NONE:
+    return "NONE";
+  case relocation_t::TYPE::RELATIVE:
+    return "RELATIVE";
+  case relocation_t::TYPE::IRELATIVE:
+    return "IRELATIVE";
+  case relocation_t::TYPE::ABSOLUTE:
+    return "ABSOLUTE";
+  case relocation_t::TYPE::COPY:
+    return "COPY";
+  case relocation_t::TYPE::ADDRESSOF:
+    return "ADDRESSOF";
+  case relocation_t::TYPE::TPOFF:
+    return "TPOFF";
+  }
+
+  abort();
+};
+
+static const char *string_of_sym_type(symbol_t::TYPE ty) {
+  switch (ty) {
+  case symbol_t::TYPE::NONE:
+    return "NONE";
+  case symbol_t::TYPE::DATA:
+    return "DATA";
+  case symbol_t::TYPE::FUNCTION:
+    return "FUNCTION";
+  case symbol_t::TYPE::TLSDATA:
+    return "TLSDATA";
+  }
+
+  abort();
+}
+
+static const char *string_of_sym_binding(symbol_t::BINDING b) {
+  switch (b) {
+  case symbol_t::BINDING::NONE:
+    return "NONE";
+  case symbol_t::BINDING::LOCAL:
+    return "LOCAL";
+  case symbol_t::BINDING::WEAK:
+    return "WEAK";
+  case symbol_t::BINDING::GLOBAL:
+    return "GLOBAL";
+  }
+
+  abort();
+}
+
 typedef boost::keep_all edge_predicate_t;
 typedef boost::is_in_subset<std::set<basic_block_t>> vertex_predicate_t;
 typedef boost::filtered_graph<interprocedural_control_flow_graph_t,
@@ -483,6 +534,8 @@ static std::unordered_set<uintptr_t>
     TLSObjects; // XXX
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
+
+static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
 //
 // Stages
@@ -1106,14 +1159,19 @@ int ProcessDynamicSymbols(void) {
           continue;
         }
 
-        auto it = GlobalSymbolDefinedSizeMap.find(SymName);
-        if (it != GlobalSymbolDefinedSizeMap.end()) {
-          WithColor::warning()
-              << "data symbol \"" << SymName << "\" has multiple definitions ("
-              << (*it).second << ", " << Sym.st_size << ")\n";
+        {
+          auto it = GlobalSymbolDefinedSizeMap.find(SymName);
+          if (it == GlobalSymbolDefinedSizeMap.end()) {
+            GlobalSymbolDefinedSizeMap.insert({SymName, Sym.st_size});
+          } else {
+            if ((*it).second != Sym.st_size) {
+              WithColor::warning()
+                  << "data symbol \"" << SymName
+                  << "\" has multiple disagreeing sizes (" << (*it).second
+                  << ", " << Sym.st_size << ")\n";
+            }
+          }
         }
-
-        GlobalSymbolDefinedSizeMap[SymName] = Sym.st_size;
 
         if (BIdx == BinaryIndex) {
           //
@@ -1140,11 +1198,11 @@ int ProcessDynamicSymbols(void) {
             if (it == AddrToSizeMap.end()) {
               AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
             } else {
-              if (Sym.st_size != (*it).second) {
+              if ((*it).second != Sym.st_size) {
                 WithColor::warning()
-                    << "symbol " << SymName
-                    << " has more than one size: " << Sym.st_size << ", "
-                    << (*it).second << '\n';
+                    << "binary symbol " << SymName
+                    << " has multiple disagreeing sizes (" << Sym.st_size
+                    << ", " << (*it).second << ")\n";
                 continue;
               }
             }
@@ -1466,51 +1524,6 @@ int ProcessBinaryRelocations(void) {
   //
   // print relocations & symbols
   //
-  auto string_of_reloc_type = [](relocation_t::TYPE ty) -> const char * {
-    switch (ty) {
-    case relocation_t::TYPE::NONE:
-      return "NONE";
-    case relocation_t::TYPE::RELATIVE:
-      return "RELATIVE";
-    case relocation_t::TYPE::IRELATIVE:
-      return "IRELATIVE";
-    case relocation_t::TYPE::ABSOLUTE:
-      return "ABSOLUTE";
-    case relocation_t::TYPE::COPY:
-      return "COPY";
-    case relocation_t::TYPE::ADDRESSOF:
-      return "ADDRESSOF";
-    case relocation_t::TYPE::TPOFF:
-      return "TPOFF";
-    }
-  };
-
-  auto string_of_sym_type = [](symbol_t::TYPE ty) -> const char * {
-    switch (ty) {
-    case symbol_t::TYPE::NONE:
-      return "NONE";
-    case symbol_t::TYPE::DATA:
-      return "DATA";
-    case symbol_t::TYPE::FUNCTION:
-      return "FUNCTION";
-    case symbol_t::TYPE::TLSDATA:
-      return "TLSDATA";
-    }
-  };
-
-  auto string_of_sym_binding = [](symbol_t::BINDING b) -> const char * {
-    switch (b) {
-    case symbol_t::BINDING::NONE:
-      return "NONE";
-    case symbol_t::BINDING::LOCAL:
-      return "LOCAL";
-    case symbol_t::BINDING::WEAK:
-      return "WEAK";
-    case symbol_t::BINDING::GLOBAL:
-      return "GLOBAL";
-    }
-  };
-
   llvm::outs() << "\nRelocations:\n\n";
   for (const relocation_t &reloc : RelocationTable) {
     llvm::outs() << "  " <<
@@ -3154,6 +3167,22 @@ int CreateSectionGlobalVariables(void) {
     return GV->getType();
   };
 
+  auto type_of_copy_relocation = [&](const relocation_t &R,
+                                     const symbol_t &S) -> llvm::Type * {
+    // this relocation indicates that the global variable should be extern
+    assert(R.Addr == S.Addr);
+    ExternGlobalAddrs.insert(R.Addr);
+
+    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
+    if (!G) {
+      WithColor::warning() << "type_of_copy_relocation: !G for symbol "
+                           << S.Name << "\n";
+      return nullptr;
+    }
+
+    return G->getType();
+  };
+
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -3181,10 +3210,18 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPOFF:
       return type_of_tpoff_relocation(R);
+
+    case relocation_t::TYPE::COPY: {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      return type_of_copy_relocation(R, S);
     }
 
-    // XXX TODO
-    return nullptr;
+    default:
+      WithColor::error() << "type_of_relocation: unhandled relocation type "
+                         << string_of_reloc_type(R.Type) << '\n';
+      abort();
+    }
   };
 
   auto constant_at_address = [&](uintptr_t Addr, llvm::Constant *C) -> void {
@@ -3379,6 +3416,18 @@ int CreateSectionGlobalVariables(void) {
     return GV;
   };
 
+  auto constant_of_copy_relocation =
+      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
+    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
+    if (!G) {
+      WithColor::warning() << "constant_of_copy_relocation: !G for symbol "
+                           << S.Name << "\n";
+      return nullptr;
+    }
+
+    return G;
+  };
+
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -3406,10 +3455,18 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPOFF:
       return constant_of_tpoff_relocation(R);
+
+    case relocation_t::TYPE::COPY: {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      return constant_of_copy_relocation(R, S);
     }
 
-    // XXX TODO
-    return nullptr;
+    default:
+      WithColor::error() << "constant_of_relocation: unhandled relocation type "
+                         << string_of_reloc_type(R.Type) << '\n';
+      abort();
+    }
   };
 
   llvm::StructType *SectsGlobalTy;
@@ -3571,6 +3628,12 @@ int CreateSectionGlobalVariables(void) {
     unsigned Off = Addr - Sect.Addr;
 
     if (is_integral_size(Size)) {
+      if (ExternGlobalAddrs.find(Addr) != ExternGlobalAddrs.end())
+        return new llvm::GlobalVariable(
+            *Module, llvm::Type::getIntNTy(*Context, Size * 8), false,
+            llvm::GlobalValue::ExternalLinkage, nullptr, SymName, nullptr,
+            tlsMode);
+
       if (Size == sizeof(uintptr_t)) {
         auto typeit = Sect.Stuff.Types.find(Off);
         auto constit = Sect.Stuff.Constants.find(Off);
@@ -3697,51 +3760,6 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
-  auto string_of_reloc_type = [](relocation_t::TYPE ty) -> const char * {
-    switch (ty) {
-    case relocation_t::TYPE::NONE:
-      return "NONE";
-    case relocation_t::TYPE::RELATIVE:
-      return "RELATIVE";
-    case relocation_t::TYPE::IRELATIVE:
-      return "IRELATIVE";
-    case relocation_t::TYPE::ABSOLUTE:
-      return "ABSOLUTE";
-    case relocation_t::TYPE::COPY:
-      return "COPY";
-    case relocation_t::TYPE::ADDRESSOF:
-      return "ADDRESSOF";
-    case relocation_t::TYPE::TPOFF:
-      return "TPOFF";
-    }
-  };
-
-  auto string_of_sym_type = [](symbol_t::TYPE ty) -> const char * {
-    switch (ty) {
-    case symbol_t::TYPE::NONE:
-      return "NONE";
-    case symbol_t::TYPE::DATA:
-      return "DATA";
-    case symbol_t::TYPE::FUNCTION:
-      return "FUNCTION";
-    case symbol_t::TYPE::TLSDATA:
-      return "TLSDATA";
-    }
-  };
-
-  auto string_of_sym_binding = [](symbol_t::BINDING b) -> const char * {
-    switch (b) {
-    case symbol_t::BINDING::NONE:
-      return "NONE";
-    case symbol_t::BINDING::LOCAL:
-      return "LOCAL";
-    case symbol_t::BINDING::WEAK:
-      return "WEAK";
-    case symbol_t::BINDING::GLOBAL:
-      return "GLOBAL";
-    }
-  };
-
   ConstSectsGlobal = nullptr;
   SectsGlobal = nullptr;
 
@@ -3805,6 +3823,12 @@ int CreateSectionGlobalVariables(void) {
       }
 
       for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
+        if (!GV->hasInitializer()) {
+          WithColor::warning() << "global variable " << SymName << " has alias "
+                               << *it << " but is extern\n";
+          continue;
+        }
+
         llvm::outs() << "global variable " << SymName << " has alias " << *it
                      << '\n';
         llvm::GlobalAlias::create(*it, GV);
