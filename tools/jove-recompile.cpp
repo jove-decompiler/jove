@@ -218,7 +218,7 @@ int recompile(void) {
     exe_fp = opts::Output + b.Path;
 
     fs::path tmpdir_path(std::string(tmpdir) + b.Path);
-    exe_objfp = tmpdir_path.replace_extension("o").string();
+    exe_objfp = tmpdir_path.string() + ".o";
 
     break;
   }
@@ -355,11 +355,7 @@ static void worker(void) {
     fs::create_directories(tmpdir_path.parent_path());
     fs::create_directories(chrooted_path.parent_path());
 
-    std::string bcfp;
-    {
-      fs::path path(tmpdir_path);
-      bcfp = path.replace_extension("bc").string();
-    }
+    std::string bcfp(tmpdir_path.string() + ".bc");
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
@@ -397,11 +393,7 @@ static void worker(void) {
     //
     // optimize bitcode
     //
-    std::string optbcfp;
-    {
-      fs::path path(tmpdir_path);
-      optbcfp = path.replace_extension("opt.bc").string();
-    }
+    std::string optbcfp(tmpdir_path.string() + ".opt.bc");
 
     pid = fork();
     if (!pid) {
@@ -430,11 +422,7 @@ static void worker(void) {
     //
     // compile bitcode
     //
-    std::string objfp;
-    {
-      fs::path path(tmpdir_path);
-      objfp = path.replace_extension("o").string();
-    }
+    std::string objfp(tmpdir_path.string() + ".o");
 
     pid = fork();
     if (!pid) {
@@ -467,11 +455,7 @@ static void worker(void) {
     //
     // link object file to create shared library
     //
-    std::string sofp;
-    {
-      fs::path path(chrooted_path);
-      sofp = path.replace_extension("so").string();
-    }
+    std::string sofp(chrooted_path.string());
 
     pid = fork();
     if (!pid) {
