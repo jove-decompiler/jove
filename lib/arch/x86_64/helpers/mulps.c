@@ -1,8 +1,44 @@
 #define TARGET_X86_64 1
 
+#define likely(x)   __builtin_expect(!!(x), 1)
+
+#define unlikely(x)   __builtin_expect(!!(x), 0)
+
+#include <stddef.h>
+
 #include <stdbool.h>
 
 #include <stdint.h>
+
+#include <stdio.h>
+
+#include <assert.h>
+
+#define G_GNUC_NORETURN                         \
+  __attribute__((__noreturn__))
+
+#define G_STRFUNC     ((const char*) (__FUNCTION__))
+
+#define G_STMT_START  do
+
+#define G_STMT_END    while (0)
+
+#define _GLIB_EXTERN extern
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
+
+typedef char   gchar;
+
+#define G_LOG_DOMAIN    ((gchar*) 0)
+
+#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr) G_GNUC_NORETURN;
 
 #define Q_TAILQ_ENTRY(type, qual)                                       \
 struct {                                                                \
@@ -16,12 +52,49 @@ typedef uint8_t flag;
 
 typedef uint32_t float32;
 
+#define float32_val(x) (x)
+
+#define float64_val(x) (x)
+
+#define make_float32(x) (x)
+
+#define make_float64(x) (x)
+
+#define const_float32(x) (x)
+
+#define const_float64(x) (x)
+
 typedef uint64_t float64;
 
 typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_tininess_after_rounding  = 0,
+    float_tininess_before_rounding = 1
+};
+
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +108,26 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+static inline uint64_t extract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    return (value >> start) & (~0ULL >> (64 - length));
+}
+
+static inline uint64_t deposit64(uint64_t value, int start, int length,
+                                 uint64_t fieldval)
+{
+    uint64_t mask;
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    mask = (~0ULL >> (64 - length)) << start;
+    return (value & ~mask) | ((fieldval << start) & mask);
+}
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -421,6 +514,8 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#define LIT64( a ) a##LL
+
 float32 float32_mul(float32, float32, float_status *status);
 
 float64 float64_mul(float64, float64, float_status *status);
@@ -455,4 +550,611 @@ float64 float64_mul(float64, float64, float_status *status);
 #define FPU_MUL(size, a, b) float ## size ## _mul(a, b, &env->sse_status)
 
 SSE_HELPER_S(mul, FPU_MUL)
+
+static inline void shift64RightJamming(uint64_t a, int count, uint64_t *zPtr)
+{
+    uint64_t z;
+
+    if ( count == 0 ) {
+        z = a;
+    }
+    else if ( count < 64 ) {
+        z = ( a>>count ) | ( ( a<<( ( - count ) & 63 ) ) != 0 );
+    }
+    else {
+        z = ( a != 0 );
+    }
+    *zPtr = z;
+
+}
+
+static inline void
+ shift128RightJamming(
+     uint64_t a0, uint64_t a1, int count, uint64_t *z0Ptr, uint64_t *z1Ptr)
+{
+    uint64_t z0, z1;
+    int8_t negCount = ( - count ) & 63;
+
+    if ( count == 0 ) {
+        z1 = a1;
+        z0 = a0;
+    }
+    else if ( count < 64 ) {
+        z1 = ( a0<<negCount ) | ( a1>>count ) | ( ( a1<<negCount ) != 0 );
+        z0 = a0>>count;
+    }
+    else {
+        if ( count == 64 ) {
+            z1 = a0 | ( a1 != 0 );
+        }
+        else if ( count < 128 ) {
+            z1 = ( a0>>( count & 63 ) ) | ( ( ( a0<<negCount ) | a1 ) != 0 );
+        }
+        else {
+            z1 = ( ( a0 | a1 ) != 0 );
+        }
+        z0 = 0;
+    }
+    *z1Ptr = z1;
+    *z0Ptr = z0;
+
+}
+
+static inline void mul64To128( uint64_t a, uint64_t b, uint64_t *z0Ptr, uint64_t *z1Ptr )
+{
+    uint32_t aHigh, aLow, bHigh, bLow;
+    uint64_t z0, zMiddleA, zMiddleB, z1;
+
+    aLow = a;
+    aHigh = a>>32;
+    bLow = b;
+    bHigh = b>>32;
+    z1 = ( (uint64_t) aLow ) * bLow;
+    zMiddleA = ( (uint64_t) aLow ) * bHigh;
+    zMiddleB = ( (uint64_t) aHigh ) * bLow;
+    z0 = ( (uint64_t) aHigh ) * bHigh;
+    zMiddleA += zMiddleB;
+    z0 += ( ( (uint64_t) ( zMiddleA < zMiddleB ) )<<32 ) + ( zMiddleA>>32 );
+    zMiddleA <<= 32;
+    z1 += zMiddleA;
+    z0 += ( z1 < zMiddleA );
+    *z1Ptr = z1;
+    *z0Ptr = z0;
+
+}
+
+float32 float32_default_nan(float_status *status)
+{
+#if defined(TARGET_SPARC) || defined(TARGET_M68K)
+    return const_float32(0x7FFFFFFF);
+#elif defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_ALPHA) || \
+      defined(TARGET_XTENSA) || defined(TARGET_S390X) || \
+      defined(TARGET_TRICORE) || defined(TARGET_RISCV)
+    return const_float32(0x7FC00000);
+#elif defined(TARGET_HPPA)
+    return const_float32(0x7FA00000);
+#else
+    if (status->snan_bit_is_one) {
+        return const_float32(0x7FBFFFFF);
+    } else {
+#if defined(TARGET_MIPS)
+        return const_float32(0x7FC00000);
+#else
+        return const_float32(0xFFC00000);
+#endif
+    }
+#endif
+}
+
+float64 float64_default_nan(float_status *status)
+{
+#if defined(TARGET_SPARC) || defined(TARGET_M68K)
+    return const_float64(LIT64(0x7FFFFFFFFFFFFFFF));
+#elif defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_ALPHA) || \
+      defined(TARGET_S390X) || defined(TARGET_RISCV)
+    return const_float64(LIT64(0x7FF8000000000000));
+#elif defined(TARGET_HPPA)
+    return const_float64(LIT64(0x7FF4000000000000));
+#else
+    if (status->snan_bit_is_one) {
+        return const_float64(LIT64(0x7FF7FFFFFFFFFFFF));
+    } else {
+#if defined(TARGET_MIPS)
+        return const_float64(LIT64(0x7FF8000000000000));
+#else
+        return const_float64(LIT64(0xFFF8000000000000));
+#endif
+    }
+#endif
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+int float32_is_signaling_nan(float32 a_, float_status *status)
+{
+    uint32_t a = float32_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((uint32_t)(a << 1) >= 0xFF800000);
+    } else {
+        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
+    }
+}
+
+float32 float32_maybe_silence_nan(float32 a_, float_status *status)
+{
+    if (float32_is_signaling_nan(a_, status)) {
+        if (status->snan_bit_is_one) {
+#ifdef TARGET_HPPA
+            uint32_t a = float32_val(a_);
+            a &= ~0x00400000;
+            a |=  0x00200000;
+            return make_float32(a);
+#else
+            return float32_default_nan(status);
+#endif
+        } else {
+            uint32_t a = float32_val(a_);
+            a |= (1 << 22);
+            return make_float32(a);
+        }
+    }
+    return a_;
+}
+
+static int pickNaN(flag aIsQNaN, flag aIsSNaN, flag bIsQNaN, flag bIsSNaN,
+                    flag aIsLargerSignificand)
+{
+    /* This implements x87 NaN propagation rules:
+     * SNaN + QNaN => return the QNaN
+     * two SNaNs => return the one with the larger significand, silenced
+     * two QNaNs => return the one with the larger significand
+     * SNaN and a non-NaN => return the SNaN, silenced
+     * QNaN and a non-NaN => return the QNaN
+     *
+     * If we get down to comparing significands and they are the same,
+     * return the NaN with the positive sign bit (if any).
+     */
+    if (aIsSNaN) {
+        if (bIsSNaN) {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+        return bIsQNaN ? 1 : 0;
+    } else if (aIsQNaN) {
+        if (bIsSNaN || !bIsQNaN) {
+            return 0;
+        } else {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+    } else {
+        return 1;
+    }
+}
+
+int float64_is_signaling_nan(float64 a_, float_status *status)
+{
+    uint64_t a = float64_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((a << 1) >= 0xFFF0000000000000ULL);
+    } else {
+        return (((a >> 51) & 0xFFF) == 0xFFE)
+            && (a & LIT64(0x0007FFFFFFFFFFFF));
+    }
+}
+
+float64 float64_maybe_silence_nan(float64 a_, float_status *status)
+{
+    if (float64_is_signaling_nan(a_, status)) {
+        if (status->snan_bit_is_one) {
+#ifdef TARGET_HPPA
+            uint64_t a = float64_val(a_);
+            a &= ~0x0008000000000000ULL;
+            a |=  0x0004000000000000ULL;
+            return make_float64(a);
+#else
+            return float64_default_nan(status);
+#endif
+        } else {
+            uint64_t a = float64_val(a_);
+            a |= LIT64(0x0008000000000000);
+            return make_float64(a);
+        }
+    }
+    return a_;
+}
+
+typedef enum __attribute__ ((__packed__)) {
+    float_class_unclassified,
+    float_class_zero,
+    float_class_normal,
+    float_class_inf,
+    float_class_qnan,  /* all NaNs from here */
+    float_class_snan,
+    float_class_dnan,
+    float_class_msnan, /* maybe silenced */
+} FloatClass;
+
+#define DECOMPOSED_BINARY_POINT    (64 - 2)
+
+#define DECOMPOSED_IMPLICIT_BIT    (1ull << DECOMPOSED_BINARY_POINT)
+
+#define DECOMPOSED_OVERFLOW_BIT    (DECOMPOSED_IMPLICIT_BIT << 1)
+
+typedef struct {
+    uint64_t frac;
+    int32_t  exp;
+    FloatClass cls;
+    bool sign;
+} FloatParts;
+
+#define FLOAT_PARAMS(E, F)                                           \
+    .exp_size       = E,                                             \
+    .exp_bias       = ((1 << E) - 1) >> 1,                           \
+    .exp_max        = (1 << E) - 1,                                  \
+    .frac_size      = F,                                             \
+    .frac_shift     = DECOMPOSED_BINARY_POINT - F,                   \
+    .frac_lsb       = 1ull << (DECOMPOSED_BINARY_POINT - F),         \
+    .frac_lsbm1     = 1ull << ((DECOMPOSED_BINARY_POINT - F) - 1),   \
+    .round_mask     = (1ull << (DECOMPOSED_BINARY_POINT - F)) - 1,   \
+    .roundeven_mask = (2ull << (DECOMPOSED_BINARY_POINT - F)) - 1
+
+typedef struct {
+    int exp_size;
+    int exp_bias;
+    int exp_max;
+    int frac_size;
+    int frac_shift;
+    uint64_t frac_lsb;
+    uint64_t frac_lsbm1;
+    uint64_t round_mask;
+    uint64_t roundeven_mask;
+} FloatFmt;
+
+static const FloatFmt float32_params = {
+    FLOAT_PARAMS(8, 23)
+};
+
+static const FloatFmt float64_params = {
+    FLOAT_PARAMS(11, 52)
+};
+
+static inline FloatParts unpack_raw(FloatFmt fmt, uint64_t raw)
+{
+    const int sign_pos = fmt.frac_size + fmt.exp_size;
+
+    return (FloatParts) {
+        .cls = float_class_unclassified,
+        .sign = extract64(raw, sign_pos, 1),
+        .exp = extract64(raw, fmt.frac_size, fmt.exp_size),
+        .frac = extract64(raw, 0, fmt.frac_size),
+    };
+}
+
+static inline FloatParts float32_unpack_raw(float32 f)
+{
+    return unpack_raw(float32_params, f);
+}
+
+static inline FloatParts float64_unpack_raw(float64 f)
+{
+    return unpack_raw(float64_params, f);
+}
+
+static inline uint64_t pack_raw(FloatFmt fmt, FloatParts p)
+{
+    const int sign_pos = fmt.frac_size + fmt.exp_size;
+    uint64_t ret = deposit64(p.frac, fmt.frac_size, fmt.exp_size, p.exp);
+    return deposit64(ret, sign_pos, 1, p.sign);
+}
+
+static inline float32 float32_pack_raw(FloatParts p)
+{
+    return make_float32(pack_raw(float32_params, p));
+}
+
+static inline float64 float64_pack_raw(FloatParts p)
+{
+    return make_float64(pack_raw(float64_params, p));
+}
+
+static FloatParts canonicalize(FloatParts part, const FloatFmt *parm,
+                               float_status *status)
+{
+    if (part.exp == parm->exp_max) {
+        if (part.frac == 0) {
+            part.cls = float_class_inf;
+        } else {
+#ifdef NO_SIGNALING_NANS
+            part.cls = float_class_qnan;
+#else
+            int64_t msb = part.frac << (parm->frac_shift + 2);
+            if ((msb < 0) == status->snan_bit_is_one) {
+                part.cls = float_class_snan;
+            } else {
+                part.cls = float_class_qnan;
+            }
+#endif
+        }
+    } else if (part.exp == 0) {
+        if (likely(part.frac == 0)) {
+            part.cls = float_class_zero;
+        } else if (status->flush_inputs_to_zero) {
+            float_raise(float_flag_input_denormal, status);
+            part.cls = float_class_zero;
+            part.frac = 0;
+        } else {
+            int shift = clz64(part.frac) - 1;
+            part.cls = float_class_normal;
+            part.exp = parm->frac_shift - parm->exp_bias - shift + 1;
+            part.frac <<= shift;
+        }
+    } else {
+        part.cls = float_class_normal;
+        part.exp -= parm->exp_bias;
+        part.frac = DECOMPOSED_IMPLICIT_BIT + (part.frac << parm->frac_shift);
+    }
+    return part;
+}
+
+static FloatParts round_canonical(FloatParts p, float_status *s,
+                                  const FloatFmt *parm)
+{
+    const uint64_t frac_lsbm1 = parm->frac_lsbm1;
+    const uint64_t round_mask = parm->round_mask;
+    const uint64_t roundeven_mask = parm->roundeven_mask;
+    const int exp_max = parm->exp_max;
+    const int frac_shift = parm->frac_shift;
+    uint64_t frac, inc;
+    int exp, flags = 0;
+    bool overflow_norm;
+
+    frac = p.frac;
+    exp = p.exp;
+
+    switch (p.cls) {
+    case float_class_normal:
+        switch (s->float_rounding_mode) {
+        case float_round_nearest_even:
+            overflow_norm = false;
+            inc = ((frac & roundeven_mask) != frac_lsbm1 ? frac_lsbm1 : 0);
+            break;
+        case float_round_ties_away:
+            overflow_norm = false;
+            inc = frac_lsbm1;
+            break;
+        case float_round_to_zero:
+            overflow_norm = true;
+            inc = 0;
+            break;
+        case float_round_up:
+            inc = p.sign ? 0 : round_mask;
+            overflow_norm = p.sign;
+            break;
+        case float_round_down:
+            inc = p.sign ? round_mask : 0;
+            overflow_norm = !p.sign;
+            break;
+        default:
+            g_assert_not_reached();
+        }
+
+        exp += parm->exp_bias;
+        if (likely(exp > 0)) {
+            if (frac & round_mask) {
+                flags |= float_flag_inexact;
+                frac += inc;
+                if (frac & DECOMPOSED_OVERFLOW_BIT) {
+                    frac >>= 1;
+                    exp++;
+                }
+            }
+            frac >>= frac_shift;
+
+            if (unlikely(exp >= exp_max)) {
+                flags |= float_flag_overflow | float_flag_inexact;
+                if (overflow_norm) {
+                    exp = exp_max - 1;
+                    frac = -1;
+                } else {
+                    p.cls = float_class_inf;
+                    goto do_inf;
+                }
+            }
+        } else if (s->flush_to_zero) {
+            flags |= float_flag_output_denormal;
+            p.cls = float_class_zero;
+            goto do_zero;
+        } else {
+            bool is_tiny = (s->float_detect_tininess
+                            == float_tininess_before_rounding)
+                        || (exp < 0)
+                        || !((frac + inc) & DECOMPOSED_OVERFLOW_BIT);
+
+            shift64RightJamming(frac, 1 - exp, &frac);
+            if (frac & round_mask) {
+                /* Need to recompute round-to-even.  */
+                if (s->float_rounding_mode == float_round_nearest_even) {
+                    inc = ((frac & roundeven_mask) != frac_lsbm1
+                           ? frac_lsbm1 : 0);
+                }
+                flags |= float_flag_inexact;
+                frac += inc;
+            }
+
+            exp = (frac & DECOMPOSED_IMPLICIT_BIT ? 1 : 0);
+            frac >>= frac_shift;
+
+            if (is_tiny && (flags & float_flag_inexact)) {
+                flags |= float_flag_underflow;
+            }
+            if (exp == 0 && frac == 0) {
+                p.cls = float_class_zero;
+            }
+        }
+        break;
+
+    case float_class_zero:
+    do_zero:
+        exp = 0;
+        frac = 0;
+        break;
+
+    case float_class_inf:
+    do_inf:
+        exp = exp_max;
+        frac = 0;
+        break;
+
+    case float_class_qnan:
+    case float_class_snan:
+        exp = exp_max;
+        break;
+
+    default:
+        g_assert_not_reached();
+    }
+
+    float_raise(flags, s);
+    p.exp = exp;
+    p.frac = frac;
+    return p;
+}
+
+static FloatParts float32_unpack_canonical(float32 f, float_status *s)
+{
+    return canonicalize(float32_unpack_raw(f), &float32_params, s);
+}
+
+static float32 float32_round_pack_canonical(FloatParts p, float_status *s)
+{
+    switch (p.cls) {
+    case float_class_dnan:
+        return float32_default_nan(s);
+    case float_class_msnan:
+        return float32_maybe_silence_nan(float32_pack_raw(p), s);
+    default:
+        p = round_canonical(p, s, &float32_params);
+        return float32_pack_raw(p);
+    }
+}
+
+static FloatParts float64_unpack_canonical(float64 f, float_status *s)
+{
+    return canonicalize(float64_unpack_raw(f), &float64_params, s);
+}
+
+static float64 float64_round_pack_canonical(FloatParts p, float_status *s)
+{
+    switch (p.cls) {
+    case float_class_dnan:
+        return float64_default_nan(s);
+    case float_class_msnan:
+        return float64_maybe_silence_nan(float64_pack_raw(p), s);
+    default:
+        p = round_canonical(p, s, &float64_params);
+        return float64_pack_raw(p);
+    }
+}
+
+static bool is_nan(FloatClass c)
+{
+    return unlikely(c >= float_class_qnan);
+}
+
+static bool is_snan(FloatClass c)
+{
+    return c == float_class_snan;
+}
+
+static bool is_qnan(FloatClass c)
+{
+    return c == float_class_qnan;
+}
+
+static FloatParts pick_nan(FloatParts a, FloatParts b, float_status *s)
+{
+    if (is_snan(a.cls) || is_snan(b.cls)) {
+        s->float_exception_flags |= float_flag_invalid;
+    }
+
+    if (s->default_nan_mode) {
+        a.cls = float_class_dnan;
+    } else {
+        if (pickNaN(is_qnan(a.cls), is_snan(a.cls),
+                    is_qnan(b.cls), is_snan(b.cls),
+                    a.frac > b.frac ||
+                    (a.frac == b.frac && a.sign < b.sign))) {
+            a = b;
+        }
+        a.cls = float_class_msnan;
+    }
+    return a;
+}
+
+static FloatParts mul_floats(FloatParts a, FloatParts b, float_status *s)
+{
+    bool sign = a.sign ^ b.sign;
+
+    if (a.cls == float_class_normal && b.cls == float_class_normal) {
+        uint64_t hi, lo;
+        int exp = a.exp + b.exp;
+
+        mul64To128(a.frac, b.frac, &hi, &lo);
+        shift128RightJamming(hi, lo, DECOMPOSED_BINARY_POINT, &hi, &lo);
+        if (lo & DECOMPOSED_OVERFLOW_BIT) {
+            shift64RightJamming(lo, 1, &lo);
+            exp += 1;
+        }
+
+        /* Re-use a */
+        a.exp = exp;
+        a.sign = sign;
+        a.frac = lo;
+        return a;
+    }
+    /* handle all the NaN cases */
+    if (is_nan(a.cls) || is_nan(b.cls)) {
+        return pick_nan(a, b, s);
+    }
+    /* Inf * Zero == NaN */
+    if ((a.cls == float_class_inf && b.cls == float_class_zero) ||
+        (a.cls == float_class_zero && b.cls == float_class_inf)) {
+        s->float_exception_flags |= float_flag_invalid;
+        a.cls = float_class_dnan;
+        a.sign = sign;
+        return a;
+    }
+    /* Multiply by 0 or Inf */
+    if (a.cls == float_class_inf || a.cls == float_class_zero) {
+        a.sign = sign;
+        return a;
+    }
+    if (b.cls == float_class_inf || b.cls == float_class_zero) {
+        b.sign = sign;
+        return b;
+    }
+    g_assert_not_reached();
+}
+
+float32 __attribute__((flatten)) float32_mul(float32 a, float32 b,
+                                             float_status *status)
+{
+    FloatParts pa = float32_unpack_canonical(a, status);
+    FloatParts pb = float32_unpack_canonical(b, status);
+    FloatParts pr = mul_floats(pa, pb, status);
+
+    return float32_round_pack_canonical(pr, status);
+}
+
+float64 __attribute__((flatten)) float64_mul(float64 a, float64 b,
+                                             float_status *status)
+{
+    FloatParts pa = float64_unpack_canonical(a, status);
+    FloatParts pb = float64_unpack_canonical(b, status);
+    FloatParts pr = mul_floats(pa, pb, status);
+
+    return float64_round_pack_canonical(pr, status);
+}
 

@@ -1,8 +1,44 @@
 #define TARGET_X86_64 1
 
+#define likely(x)   __builtin_expect(!!(x), 1)
+
+#define unlikely(x)   __builtin_expect(!!(x), 0)
+
+#include <stddef.h>
+
 #include <stdbool.h>
 
 #include <stdint.h>
+
+#include <stdio.h>
+
+#include <assert.h>
+
+#define G_GNUC_NORETURN                         \
+  __attribute__((__noreturn__))
+
+#define G_STRFUNC     ((const char*) (__FUNCTION__))
+
+#define G_STMT_START  do
+
+#define G_STMT_END    while (0)
+
+#define _GLIB_EXTERN extern
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
+
+typedef char   gchar;
+
+#define G_LOG_DOMAIN    ((gchar*) 0)
+
+#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr) G_GNUC_NORETURN;
 
 #define Q_TAILQ_ENTRY(type, qual)                                       \
 struct {                                                                \
@@ -23,6 +59,26 @@ typedef struct {
     uint16_t high;
 } floatx80;
 
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
+
 typedef struct float_status {
     signed char float_detect_tininess;
     signed char float_rounding_mode;
@@ -35,6 +91,17 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+static inline uint64_t extract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    return (value >> start) & (~0ULL >> (64 - length));
+}
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -421,6 +488,11 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+static inline int get_float_exception_flags(float_status *status)
+{
+    return status->float_exception_flags;
+}
+
 int32_t float64_to_int32_round_to_zero(float64, float_status *status);
 
 void helper_cvttpd2pi(CPUX86State *env, MMXReg *d, ZMMReg *s)
@@ -428,4 +500,305 @@ void helper_cvttpd2pi(CPUX86State *env, MMXReg *d, ZMMReg *s)
     d->MMX_L(0) = float64_to_int32_round_to_zero(s->ZMM_D(0), &env->sse_status);
     d->MMX_L(1) = float64_to_int32_round_to_zero(s->ZMM_D(1), &env->sse_status);
 }
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+typedef enum __attribute__ ((__packed__)) {
+    float_class_unclassified,
+    float_class_zero,
+    float_class_normal,
+    float_class_inf,
+    float_class_qnan,  /* all NaNs from here */
+    float_class_snan,
+    float_class_dnan,
+    float_class_msnan, /* maybe silenced */
+} FloatClass;
+
+#define DECOMPOSED_BINARY_POINT    (64 - 2)
+
+#define DECOMPOSED_IMPLICIT_BIT    (1ull << DECOMPOSED_BINARY_POINT)
+
+#define DECOMPOSED_OVERFLOW_BIT    (DECOMPOSED_IMPLICIT_BIT << 1)
+
+typedef struct {
+    uint64_t frac;
+    int32_t  exp;
+    FloatClass cls;
+    bool sign;
+} FloatParts;
+
+#define FLOAT_PARAMS(E, F)                                           \
+    .exp_size       = E,                                             \
+    .exp_bias       = ((1 << E) - 1) >> 1,                           \
+    .exp_max        = (1 << E) - 1,                                  \
+    .frac_size      = F,                                             \
+    .frac_shift     = DECOMPOSED_BINARY_POINT - F,                   \
+    .frac_lsb       = 1ull << (DECOMPOSED_BINARY_POINT - F),         \
+    .frac_lsbm1     = 1ull << ((DECOMPOSED_BINARY_POINT - F) - 1),   \
+    .round_mask     = (1ull << (DECOMPOSED_BINARY_POINT - F)) - 1,   \
+    .roundeven_mask = (2ull << (DECOMPOSED_BINARY_POINT - F)) - 1
+
+typedef struct {
+    int exp_size;
+    int exp_bias;
+    int exp_max;
+    int frac_size;
+    int frac_shift;
+    uint64_t frac_lsb;
+    uint64_t frac_lsbm1;
+    uint64_t round_mask;
+    uint64_t roundeven_mask;
+} FloatFmt;
+
+static const FloatFmt float64_params = {
+    FLOAT_PARAMS(11, 52)
+};
+
+static inline FloatParts unpack_raw(FloatFmt fmt, uint64_t raw)
+{
+    const int sign_pos = fmt.frac_size + fmt.exp_size;
+
+    return (FloatParts) {
+        .cls = float_class_unclassified,
+        .sign = extract64(raw, sign_pos, 1),
+        .exp = extract64(raw, fmt.frac_size, fmt.exp_size),
+        .frac = extract64(raw, 0, fmt.frac_size),
+    };
+}
+
+static inline FloatParts float64_unpack_raw(float64 f)
+{
+    return unpack_raw(float64_params, f);
+}
+
+static FloatParts canonicalize(FloatParts part, const FloatFmt *parm,
+                               float_status *status)
+{
+    if (part.exp == parm->exp_max) {
+        if (part.frac == 0) {
+            part.cls = float_class_inf;
+        } else {
+#ifdef NO_SIGNALING_NANS
+            part.cls = float_class_qnan;
+#else
+            int64_t msb = part.frac << (parm->frac_shift + 2);
+            if ((msb < 0) == status->snan_bit_is_one) {
+                part.cls = float_class_snan;
+            } else {
+                part.cls = float_class_qnan;
+            }
+#endif
+        }
+    } else if (part.exp == 0) {
+        if (likely(part.frac == 0)) {
+            part.cls = float_class_zero;
+        } else if (status->flush_inputs_to_zero) {
+            float_raise(float_flag_input_denormal, status);
+            part.cls = float_class_zero;
+            part.frac = 0;
+        } else {
+            int shift = clz64(part.frac) - 1;
+            part.cls = float_class_normal;
+            part.exp = parm->frac_shift - parm->exp_bias - shift + 1;
+            part.frac <<= shift;
+        }
+    } else {
+        part.cls = float_class_normal;
+        part.exp -= parm->exp_bias;
+        part.frac = DECOMPOSED_IMPLICIT_BIT + (part.frac << parm->frac_shift);
+    }
+    return part;
+}
+
+static FloatParts float64_unpack_canonical(float64 f, float_status *s)
+{
+    return canonicalize(float64_unpack_raw(f), &float64_params, s);
+}
+
+static bool is_nan(FloatClass c)
+{
+    return unlikely(c >= float_class_qnan);
+}
+
+static FloatParts return_nan(FloatParts a, float_status *s)
+{
+    switch (a.cls) {
+    case float_class_snan:
+        s->float_exception_flags |= float_flag_invalid;
+        a.cls = float_class_msnan;
+        /* fall through */
+    case float_class_qnan:
+        if (s->default_nan_mode) {
+            a.cls = float_class_dnan;
+        }
+        break;
+
+    default:
+        g_assert_not_reached();
+    }
+    return a;
+}
+
+static FloatParts round_to_int(FloatParts a, int rounding_mode, float_status *s)
+{
+    if (is_nan(a.cls)) {
+        return return_nan(a, s);
+    }
+
+    switch (a.cls) {
+    case float_class_zero:
+    case float_class_inf:
+    case float_class_qnan:
+        /* already "integral" */
+        break;
+    case float_class_normal:
+        if (a.exp >= DECOMPOSED_BINARY_POINT) {
+            /* already integral */
+            break;
+        }
+        if (a.exp < 0) {
+            bool one;
+            /* all fractional */
+            s->float_exception_flags |= float_flag_inexact;
+            switch (rounding_mode) {
+            case float_round_nearest_even:
+                one = a.exp == -1 && a.frac > DECOMPOSED_IMPLICIT_BIT;
+                break;
+            case float_round_ties_away:
+                one = a.exp == -1 && a.frac >= DECOMPOSED_IMPLICIT_BIT;
+                break;
+            case float_round_to_zero:
+                one = false;
+                break;
+            case float_round_up:
+                one = !a.sign;
+                break;
+            case float_round_down:
+                one = a.sign;
+                break;
+            default:
+                g_assert_not_reached();
+            }
+
+            if (one) {
+                a.frac = DECOMPOSED_IMPLICIT_BIT;
+                a.exp = 0;
+            } else {
+                a.cls = float_class_zero;
+            }
+        } else {
+            uint64_t frac_lsb = DECOMPOSED_IMPLICIT_BIT >> a.exp;
+            uint64_t frac_lsbm1 = frac_lsb >> 1;
+            uint64_t rnd_even_mask = (frac_lsb - 1) | frac_lsb;
+            uint64_t rnd_mask = rnd_even_mask >> 1;
+            uint64_t inc;
+
+            switch (rounding_mode) {
+            case float_round_nearest_even:
+                inc = ((a.frac & rnd_even_mask) != frac_lsbm1 ? frac_lsbm1 : 0);
+                break;
+            case float_round_ties_away:
+                inc = frac_lsbm1;
+                break;
+            case float_round_to_zero:
+                inc = 0;
+                break;
+            case float_round_up:
+                inc = a.sign ? 0 : rnd_mask;
+                break;
+            case float_round_down:
+                inc = a.sign ? rnd_mask : 0;
+                break;
+            default:
+                g_assert_not_reached();
+            }
+
+            if (a.frac & rnd_mask) {
+                s->float_exception_flags |= float_flag_inexact;
+                a.frac += inc;
+                a.frac &= ~rnd_mask;
+                if (a.frac & DECOMPOSED_OVERFLOW_BIT) {
+                    a.frac >>= 1;
+                    a.exp++;
+                }
+            }
+        }
+        break;
+    default:
+        g_assert_not_reached();
+    }
+    return a;
+}
+
+#define FLOAT_TO_INT(fsz, isz)                                          \
+int ## isz ## _t float ## fsz ## _to_int ## isz(float ## fsz a,         \
+                                                float_status *s)        \
+{                                                                       \
+    FloatParts p = float ## fsz ## _unpack_canonical(a, s);             \
+    return round_to_int_and_pack(p, s->float_rounding_mode,             \
+                                 INT ## isz ## _MIN, INT ## isz ## _MAX,\
+                                 s);                                    \
+}                                                                       \
+                                                                        \
+int ## isz ## _t float ## fsz ## _to_int ## isz ## _round_to_zero       \
+ (float ## fsz a, float_status *s)                                      \
+{                                                                       \
+    FloatParts p = float ## fsz ## _unpack_canonical(a, s);             \
+    return round_to_int_and_pack(p, float_round_to_zero,                \
+                                 INT ## isz ## _MIN, INT ## isz ## _MAX,\
+                                 s);                                    \
+}
+
+static int64_t round_to_int_and_pack(FloatParts in, int rmode,
+                                     int64_t min, int64_t max,
+                                     float_status *s)
+{
+    uint64_t r;
+    int orig_flags = get_float_exception_flags(s);
+    FloatParts p = round_to_int(in, rmode, s);
+
+    switch (p.cls) {
+    case float_class_snan:
+    case float_class_qnan:
+    case float_class_dnan:
+    case float_class_msnan:
+        s->float_exception_flags = orig_flags | float_flag_invalid;
+        return max;
+    case float_class_inf:
+        s->float_exception_flags = orig_flags | float_flag_invalid;
+        return p.sign ? min : max;
+    case float_class_zero:
+        return 0;
+    case float_class_normal:
+        if (p.exp < DECOMPOSED_BINARY_POINT) {
+            r = p.frac >> (DECOMPOSED_BINARY_POINT - p.exp);
+        } else if (p.exp - DECOMPOSED_BINARY_POINT < 2) {
+            r = p.frac << (p.exp - DECOMPOSED_BINARY_POINT);
+        } else {
+            r = UINT64_MAX;
+        }
+        if (p.sign) {
+            if (r < -(uint64_t) min) {
+                return -r;
+            } else {
+                s->float_exception_flags = orig_flags | float_flag_invalid;
+                return min;
+            }
+        } else {
+            if (r < max) {
+                return r;
+            } else {
+                s->float_exception_flags = orig_flags | float_flag_invalid;
+                return max;
+            }
+        }
+    default:
+        g_assert_not_reached();
+    }
+}
+
+FLOAT_TO_INT(64, 32)
 

@@ -16,12 +16,30 @@ typedef uint8_t flag;
 
 typedef uint32_t float32;
 
+#define float32_val(x) (x)
+
+#define make_float32(x) (x)
+
+#define make_float64(x) (x)
+
+#define const_float64(x) (x)
+
 typedef uint64_t float64;
 
 typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +53,11 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz32(uint32_t val)
+{
+    return val ? __builtin_clz(val) : 32;
+}
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -421,6 +444,8 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#define LIT64( a ) a##LL
+
 float64 float32_to_float64(float32, float_status *status);
 
 #define Reg ZMMReg
@@ -433,5 +458,194 @@ void helper_cvtps2pd(CPUX86State *env, Reg *d, Reg *s)
     s1 = s->ZMM_S(1);
     d->ZMM_D(0) = float32_to_float64(s0, &env->sse_status);
     d->ZMM_D(1) = float32_to_float64(s1, &env->sse_status);
+}
+
+# define SOFTFLOAT_GNUC_PREREQ(maj, min) \
+         ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+
+static inline int8_t countLeadingZeros32(uint32_t a)
+{
+#if SOFTFLOAT_GNUC_PREREQ(3, 4)
+    if (a) {
+        return __builtin_clz(a);
+    } else {
+        return 32;
+    }
+#else
+    static const int8_t countLeadingZerosHigh[] = {
+        8, 7, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
+        3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    int8_t shiftCount;
+
+    shiftCount = 0;
+    if ( a < 0x10000 ) {
+        shiftCount += 16;
+        a <<= 16;
+    }
+    if ( a < 0x1000000 ) {
+        shiftCount += 8;
+        a <<= 8;
+    }
+    shiftCount += countLeadingZerosHigh[ a>>24 ];
+    return shiftCount;
+#endif
+}
+
+float64 float64_default_nan(float_status *status)
+{
+#if defined(TARGET_SPARC) || defined(TARGET_M68K)
+    return const_float64(LIT64(0x7FFFFFFFFFFFFFFF));
+#elif defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_ALPHA) || \
+      defined(TARGET_S390X) || defined(TARGET_RISCV)
+    return const_float64(LIT64(0x7FF8000000000000));
+#elif defined(TARGET_HPPA)
+    return const_float64(LIT64(0x7FF4000000000000));
+#else
+    if (status->snan_bit_is_one) {
+        return const_float64(LIT64(0x7FF7FFFFFFFFFFFF));
+    } else {
+#if defined(TARGET_MIPS)
+        return const_float64(LIT64(0x7FF8000000000000));
+#else
+        return const_float64(LIT64(0xFFF8000000000000));
+#endif
+    }
+#endif
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+typedef struct {
+    flag sign;
+    uint64_t high, low;
+} commonNaNT;
+
+int float32_is_signaling_nan(float32 a_, float_status *status)
+{
+    uint32_t a = float32_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((uint32_t)(a << 1) >= 0xFF800000);
+    } else {
+        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
+    }
+}
+
+static commonNaNT float32ToCommonNaN(float32 a, float_status *status)
+{
+    commonNaNT z;
+
+    if (float32_is_signaling_nan(a, status)) {
+        float_raise(float_flag_invalid, status);
+    }
+    z.sign = float32_val(a) >> 31;
+    z.low = 0;
+    z.high = ((uint64_t)float32_val(a)) << 41;
+    return z;
+}
+
+static float64 commonNaNToFloat64(commonNaNT a, float_status *status)
+{
+    uint64_t mantissa = a.high >> 12;
+
+    if (status->default_nan_mode) {
+        return float64_default_nan(status);
+    }
+
+    if (mantissa) {
+        return make_float64(
+              (((uint64_t) a.sign) << 63)
+            | LIT64(0x7FF0000000000000)
+            | (a.high >> 12));
+    } else {
+        return float64_default_nan(status);
+    }
+}
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+static inline flag extractFloat32Sign(float32 a)
+{
+    return float32_val(a) >> 31;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat32Exp(a) == 0 && extractFloat32Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float32(float32_val(a) & 0x80000000);
+        }
+    }
+    return a;
+}
+
+static void
+ normalizeFloat32Subnormal(uint32_t aSig, int *zExpPtr, uint32_t *zSigPtr)
+{
+    int8_t shiftCount;
+
+    shiftCount = countLeadingZeros32( aSig ) - 8;
+    *zSigPtr = aSig<<shiftCount;
+    *zExpPtr = 1 - shiftCount;
+
+}
+
+static inline float64 packFloat64(flag zSign, int zExp, uint64_t zSig)
+{
+
+    return make_float64(
+        ( ( (uint64_t) zSign )<<63 ) + ( ( (uint64_t) zExp )<<52 ) + zSig);
+
+}
+
+float64 float32_to_float64(float32 a, float_status *status)
+{
+    flag aSign;
+    int aExp;
+    uint32_t aSig;
+    a = float32_squash_input_denormal(a, status);
+
+    aSig = extractFloat32Frac( a );
+    aExp = extractFloat32Exp( a );
+    aSign = extractFloat32Sign( a );
+    if ( aExp == 0xFF ) {
+        if (aSig) {
+            return commonNaNToFloat64(float32ToCommonNaN(a, status), status);
+        }
+        return packFloat64( aSign, 0x7FF, 0 );
+    }
+    if ( aExp == 0 ) {
+        if ( aSig == 0 ) return packFloat64( aSign, 0, 0 );
+        normalizeFloat32Subnormal( aSig, &aExp, &aSig );
+        --aExp;
+    }
+    return packFloat64( aSign, aExp + 0x380, ( (uint64_t) aSig )<<29 );
+
 }
 

@@ -16,12 +16,26 @@ typedef uint8_t flag;
 
 typedef uint32_t float32;
 
+#define float32_val(x) (x)
+
+#define make_float32(x) (x)
+
 typedef uint64_t float64;
 
 typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -429,5 +443,58 @@ void helper_pfcmpge(CPUX86State *env, MMXReg *d, MMXReg *s)
                              &env->mmx_status) ? -1 : 0;
     d->MMX_L(1) = float32_le(s->MMX_S(1), d->MMX_S(1),
                              &env->mmx_status) ? -1 : 0;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+static inline flag extractFloat32Sign(float32 a)
+{
+    return float32_val(a) >> 31;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat32Exp(a) == 0 && extractFloat32Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float32(float32_val(a) & 0x80000000);
+        }
+    }
+    return a;
+}
+
+int float32_le(float32 a, float32 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint32_t av, bv;
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 0;
+    }
+    aSign = extractFloat32Sign( a );
+    bSign = extractFloat32Sign( b );
+    av = float32_val(a);
+    bv = float32_val(b);
+    if ( aSign != bSign ) return aSign || ( (uint32_t) ( ( av | bv )<<1 ) == 0 );
+    return ( av == bv ) || ( aSign ^ ( av < bv ) );
+
 }
 

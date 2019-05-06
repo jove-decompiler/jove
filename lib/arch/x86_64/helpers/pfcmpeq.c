@@ -16,12 +16,26 @@ typedef uint8_t flag;
 
 typedef uint32_t float32;
 
+#define float32_val(x) (x)
+
+#define make_float32(x) (x)
+
 typedef uint64_t float64;
 
 typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -429,5 +443,59 @@ void helper_pfcmpeq(CPUX86State *env, MMXReg *d, MMXReg *s)
                                    &env->mmx_status) ? -1 : 0;
     d->MMX_L(1) = float32_eq_quiet(d->MMX_S(1), s->MMX_S(1),
                                    &env->mmx_status) ? -1 : 0;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+int float32_is_signaling_nan(float32 a_, float_status *status)
+{
+    uint32_t a = float32_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((uint32_t)(a << 1) >= 0xFF800000);
+    } else {
+        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
+    }
+}
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat32Exp(a) == 0 && extractFloat32Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float32(float32_val(a) & 0x80000000);
+        }
+    }
+    return a;
+}
+
+int float32_eq_quiet(float32 a, float32 b, float_status *status)
+{
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        if (float32_is_signaling_nan(a, status)
+         || float32_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return 0;
+    }
+    return ( float32_val(a) == float32_val(b) ) ||
+            ( (uint32_t) ( ( float32_val(a) | float32_val(b) )<<1 ) == 0 );
 }
 
