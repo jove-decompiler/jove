@@ -33,7 +33,7 @@ typedef char   gchar;
 
 #define G_LOG_DOMAIN    ((gchar*) 0)
 
-#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+#define g_assert_not_reached()          G_STMT_START { __builtin_trap(); __builtin_unreachable(); } G_STMT_END
 
 GLIB_AVAILABLE_IN_ALL
 void    g_assertion_message_expr        (const char     *domain,
