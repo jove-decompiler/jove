@@ -2697,12 +2697,43 @@ const helper_function_t &LookupHelper(TCGOp *op) {
       exit(1);
     }
 
-    for (llvm::Function &F : *helperModuleOr.get()) {
-      if (!F.empty() && F.getName() != std::string("helper_") + helper_nm)
+    std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
+
+    {
+      llvm::Module &helperM = *helperModule;
+
+      for (llvm::Function &F : helperM.functions()) {
+        if (F.isIntrinsic())
+          continue;
+
+        // TODO in strict mode
+        if (F.empty()) { /* is declaration? */
+#if 0
+          llvm::outs() << helperM << '\n';
+
+          WithColor::error() << "undefined function " << F.getName()
+                             << " in helper module " << helper_nm << '\n';
+          exit(1);
+#else
+          continue;
+#endif
+        }
+
+        if (F.getName() == std::string("helper_") + helper_nm)
+          continue;
+
         F.setLinkage(llvm::GlobalValue::InternalLinkage);
+      }
+
+      for (llvm::GlobalVariable &GV : helperM.globals()) {
+        if (!GV.hasInitializer())
+          continue;
+
+        GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+      }
     }
 
-    llvm::Linker::linkModules(*Module, std::move(helperModuleOr.get()));
+    llvm::Linker::linkModules(*Module, std::move(helperModule));
 
     llvm::Function *helperF =
         Module->getFunction(std::string("helper_") + helper_nm);
