@@ -4,17 +4,17 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
+
+#define float32_val(x) (x)
+
+#define float64_val(x) (x)
+
+#define make_float32(x) (x)
+
+#define make_float64(x) (x)
 
 typedef uint64_t float64;
 
@@ -22,6 +22,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +45,121 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+#define LIT64( a ) a##LL
+
+int float32_lt(float32, float32, float_status *status);
+
+int float64_lt(float64, float64, float_status *status);
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+static inline flag extractFloat32Sign(float32 a)
+{
+    return float32_val(a) >> 31;
+}
+
+static inline uint64_t extractFloat64Frac(float64 a)
+{
+    return float64_val(a) & LIT64(0x000FFFFFFFFFFFFF);
+}
+
+static inline int extractFloat64Exp(float64 a)
+{
+    return (float64_val(a) >> 52) & 0x7FF;
+}
+
+static inline flag extractFloat64Sign(float64 a)
+{
+    return float64_val(a) >> 63;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat32Exp(a) == 0 && extractFloat32Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float32(float32_val(a) & 0x80000000);
+        }
+    }
+    return a;
+}
+
+float64 float64_squash_input_denormal(float64 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat64Exp(a) == 0 && extractFloat64Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float64(float64_val(a) & (1ULL << 63));
+        }
+    }
+    return a;
+}
+
+int float32_lt(float32 a, float32 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint32_t av, bv;
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 0;
+    }
+    aSign = extractFloat32Sign( a );
+    bSign = extractFloat32Sign( b );
+    av = float32_val(a);
+    bv = float32_val(b);
+    if ( aSign != bSign ) return aSign && ( (uint32_t) ( ( av | bv )<<1 ) != 0 );
+    return ( av != bv ) && ( aSign ^ ( av < bv ) );
+
+}
+
+int float64_lt(float64 a, float64 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint64_t av, bv;
+
+    a = float64_squash_input_denormal(a, status);
+    b = float64_squash_input_denormal(b, status);
+    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
+         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 0;
+    }
+    aSign = extractFloat64Sign( a );
+    bSign = extractFloat64Sign( b );
+    av = float64_val(a);
+    bv = float64_val(b);
+    if ( aSign != bSign ) return aSign && ( (uint64_t) ( ( av | bv )<<1 ) != 0 );
+    return ( av != bv ) && ( aSign ^ ( av < bv ) );
+
+}
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -424,10 +549,6 @@ typedef struct CPUX86State {
 
     TPRAccess tpr_access_type;
 } CPUX86State;
-
-int float32_lt(float32, float32, float_status *status);
-
-int float64_lt(float64, float64, float_status *status);
 
 #define Reg ZMMReg
 
