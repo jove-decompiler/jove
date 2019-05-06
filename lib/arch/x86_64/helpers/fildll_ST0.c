@@ -4,14 +4,6 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -35,6 +27,70 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+floatx80 int64_to_floatx80(int64_t, float_status *status);
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+# define SOFTFLOAT_GNUC_PREREQ(maj, min) \
+         ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+
+static inline int8_t countLeadingZeros64(uint64_t a)
+{
+#if SOFTFLOAT_GNUC_PREREQ(3, 4)
+    if (a) {
+        return __builtin_clzll(a);
+    } else {
+        return 64;
+    }
+#else
+    int8_t shiftCount;
+
+    shiftCount = 0;
+    if ( a < ( (uint64_t) 1 )<<32 ) {
+        shiftCount += 32;
+    }
+    else {
+        a >>= 32;
+    }
+    shiftCount += countLeadingZeros32( a );
+    return shiftCount;
+#endif
+}
+
+floatx80 int64_to_floatx80(int64_t a, float_status *status)
+{
+    flag zSign;
+    uint64_t absA;
+    int8_t shiftCount;
+
+    if ( a == 0 ) return packFloatx80( 0, 0, 0 );
+    zSign = ( a < 0 );
+    absA = zSign ? - a : a;
+    shiftCount = countLeadingZeros64( absA );
+    return packFloatx80( zSign, 0x403E - shiftCount, absA<<shiftCount );
+
+}
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -416,8 +472,6 @@ typedef struct CPUX86State {
 
     TPRAccess tpr_access_type;
 } CPUX86State;
-
-floatx80 int64_to_floatx80(int64_t, float_status *status);
 
 void helper_fildll_ST0(CPUX86State *env, int64_t val)
 {
