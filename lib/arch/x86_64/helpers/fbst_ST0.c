@@ -18,6 +18,8 @@
 
 #include <sys/types.h>
 
+#include <stdlib.h>
+
 #include <stdio.h>
 
 #include <string.h>
@@ -56,33 +58,6 @@ typedef struct QemuOpts QemuOpts;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
-}
-
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
-
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -93,6 +68,26 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -158,6 +153,179 @@ static inline int test_bit(long nr, const unsigned long *addr)
 {
     return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
 }
+
+#define LIT64( a ) a##LL
+
+int64_t floatx80_to_int64(floatx80, float_status *status);
+
+static inline int floatx80_is_any_nan(floatx80 a)
+{
+    return ((a.high & 0x7fff) == 0x7fff) && (a.low<<1);
+}
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+static inline void
+ shift64ExtraRightJamming(
+     uint64_t a0, uint64_t a1, int count, uint64_t *z0Ptr, uint64_t *z1Ptr)
+{
+    uint64_t z0, z1;
+    int8_t negCount = ( - count ) & 63;
+
+    if ( count == 0 ) {
+        z1 = a1;
+        z0 = a0;
+    }
+    else if ( count < 64 ) {
+        z1 = ( a0<<negCount ) | ( a1 != 0 );
+        z0 = a0>>count;
+    }
+    else {
+        if ( count == 64 ) {
+            z1 = a0 | ( a1 != 0 );
+        }
+        else {
+            z1 = ( ( a0 | a1 ) != 0 );
+        }
+        z0 = 0;
+    }
+    *z1Ptr = z1;
+    *z0Ptr = z0;
+
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static void myabort(void) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+static int64_t roundAndPackInt64(flag zSign, uint64_t absZ0, uint64_t absZ1,
+                               float_status *status)
+{
+    int8_t roundingMode;
+    flag roundNearestEven, increment;
+    int64_t z;
+
+    roundingMode = status->float_rounding_mode;
+    roundNearestEven = ( roundingMode == float_round_nearest_even );
+    switch (roundingMode) {
+    case float_round_nearest_even:
+    case float_round_ties_away:
+        increment = ((int64_t) absZ1 < 0);
+        break;
+    case float_round_to_zero:
+        increment = 0;
+        break;
+    case float_round_up:
+        increment = !zSign && absZ1;
+        break;
+    case float_round_down:
+        increment = zSign && absZ1;
+        break;
+    default:
+        myabort();
+    }
+    if ( increment ) {
+        ++absZ0;
+        if ( absZ0 == 0 ) goto overflow;
+        absZ0 &= ~ ( ( (uint64_t) ( absZ1<<1 ) == 0 ) & roundNearestEven );
+    }
+    z = absZ0;
+    if ( zSign ) z = - z;
+    if ( z && ( ( z < 0 ) ^ zSign ) ) {
+ overflow:
+        float_raise(float_flag_invalid, status);
+        return
+              zSign ? (int64_t) LIT64( 0x8000000000000000 )
+            : LIT64( 0x7FFFFFFFFFFFFFFF );
+    }
+    if (absZ1) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    return z;
+
+}
+
+int64_t floatx80_to_int64(floatx80 a, float_status *status)
+{
+    flag aSign;
+    int32_t aExp, shiftCount;
+    uint64_t aSig, aSigExtra;
+
+    if (floatx80_invalid_encoding(a)) {
+        float_raise(float_flag_invalid, status);
+        return 1ULL << 63;
+    }
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    aSign = extractFloatx80Sign( a );
+    shiftCount = 0x403E - aExp;
+    if ( shiftCount <= 0 ) {
+        if ( shiftCount ) {
+            float_raise(float_flag_invalid, status);
+            if (!aSign || floatx80_is_any_nan(a)) {
+                return LIT64( 0x7FFFFFFFFFFFFFFF );
+            }
+            return (int64_t) LIT64( 0x8000000000000000 );
+        }
+        aSigExtra = 0;
+    }
+    else {
+        shift64ExtraRightJamming( aSig, 0, shiftCount, &aSig, &aSigExtra );
+    }
+    return roundAndPackInt64(aSign, aSig, aSigExtra, status);
+
+}
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define Q_TAILQ_HEAD(name, type, qual)                                  \
+struct name {                                                           \
+        qual type *tqh_first;           /* first element */             \
+        qual type *qual *tqh_last;      /* addr of last next element */ \
+}
+
+#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
@@ -879,13 +1047,13 @@ extern unsigned long guest_base;
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 #define MEMSUFFIX _data
 
 #define DATA_SIZE 1
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;
@@ -1113,8 +1281,6 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     helper_retaddr = 0;
     return ret;
 }
-
-int64_t floatx80_to_int64(floatx80, float_status *status);
 
 static inline floatx80 helper_fldt(CPUX86State *env, target_ulong ptr,
                                    uintptr_t retaddr)
