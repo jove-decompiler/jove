@@ -1005,8 +1005,12 @@ static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
 
 extern unsigned long guest_base;
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
