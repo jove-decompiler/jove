@@ -4,17 +4,13 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
+
+#define float32_val(x) (x)
+
+#define make_float32(x) (x)
 
 typedef uint64_t float64;
 
@@ -22,6 +18,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +41,214 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz32(uint32_t val)
+{
+    return val ? __builtin_clz(val) : 32;
+}
+
+#define LIT64( a ) a##LL
+
+floatx80 float32_to_floatx80(float32, float_status *status);
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+# define SOFTFLOAT_GNUC_PREREQ(maj, min) \
+         ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+
+static inline int8_t countLeadingZeros32(uint32_t a)
+{
+#if SOFTFLOAT_GNUC_PREREQ(3, 4)
+    if (a) {
+        return __builtin_clz(a);
+    } else {
+        return 32;
+    }
+#else
+    static const int8_t countLeadingZerosHigh[] = {
+        8, 7, 6, 6, 5, 5, 5, 5, 4, 4, 4, 4, 4, 4, 4, 4,
+        3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    };
+    int8_t shiftCount;
+
+    shiftCount = 0;
+    if ( a < 0x10000 ) {
+        shiftCount += 16;
+        a <<= 16;
+    }
+    if ( a < 0x1000000 ) {
+        shiftCount += 8;
+        a <<= 8;
+    }
+    shiftCount += countLeadingZerosHigh[ a>>24 ];
+    return shiftCount;
+#endif
+}
+
+#define floatx80_infinity_high 0x7FFF
+
+#define floatx80_infinity_low  LIT64(0x8000000000000000)
+
+floatx80 floatx80_default_nan(float_status *status)
+{
+    floatx80 r;
+#if defined(TARGET_M68K)
+    r.low = LIT64(0xFFFFFFFFFFFFFFFF);
+    r.high = 0x7FFF;
+#else
+    if (status->snan_bit_is_one) {
+        r.low = LIT64(0xBFFFFFFFFFFFFFFF);
+        r.high = 0x7FFF;
+    } else {
+        r.low = LIT64(0xC000000000000000);
+        r.high = 0xFFFF;
+    }
+#endif
+    return r;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+typedef struct {
+    flag sign;
+    uint64_t high, low;
+} commonNaNT;
+
+int float32_is_signaling_nan(float32 a_, float_status *status)
+{
+    uint32_t a = float32_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((uint32_t)(a << 1) >= 0xFF800000);
+    } else {
+        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
+    }
+}
+
+static commonNaNT float32ToCommonNaN(float32 a, float_status *status)
+{
+    commonNaNT z;
+
+    if (float32_is_signaling_nan(a, status)) {
+        float_raise(float_flag_invalid, status);
+    }
+    z.sign = float32_val(a) >> 31;
+    z.low = 0;
+    z.high = ((uint64_t)float32_val(a)) << 41;
+    return z;
+}
+
+static floatx80 commonNaNToFloatx80(commonNaNT a, float_status *status)
+{
+    floatx80 z;
+
+    if (status->default_nan_mode) {
+        return floatx80_default_nan(status);
+    }
+
+    if (a.high >> 1) {
+        z.low = LIT64(0x8000000000000000) | a.high >> 1;
+        z.high = (((uint16_t)a.sign) << 15) | 0x7FFF;
+    } else {
+        z = floatx80_default_nan(status);
+    }
+    return z;
+}
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+static inline flag extractFloat32Sign(float32 a)
+{
+    return float32_val(a) >> 31;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat32Exp(a) == 0 && extractFloat32Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float32(float32_val(a) & 0x80000000);
+        }
+    }
+    return a;
+}
+
+static void
+ normalizeFloat32Subnormal(uint32_t aSig, int *zExpPtr, uint32_t *zSigPtr)
+{
+    int8_t shiftCount;
+
+    shiftCount = countLeadingZeros32( aSig ) - 8;
+    *zSigPtr = aSig<<shiftCount;
+    *zExpPtr = 1 - shiftCount;
+
+}
+
+floatx80 float32_to_floatx80(float32 a, float_status *status)
+{
+    flag aSign;
+    int aExp;
+    uint32_t aSig;
+
+    a = float32_squash_input_denormal(a, status);
+    aSig = extractFloat32Frac( a );
+    aExp = extractFloat32Exp( a );
+    aSign = extractFloat32Sign( a );
+    if ( aExp == 0xFF ) {
+        if (aSig) {
+            return commonNaNToFloatx80(float32ToCommonNaN(a, status), status);
+        }
+        return packFloatx80(aSign,
+                            floatx80_infinity_high,
+                            floatx80_infinity_low);
+    }
+    if ( aExp == 0 ) {
+        if ( aSig == 0 ) return packFloatx80( aSign, 0, 0 );
+        normalizeFloat32Subnormal( aSig, &aExp, &aSig );
+    }
+    aSig |= 0x00800000;
+    return packFloatx80( aSign, aExp + 0x3F80, ( (uint64_t) aSig )<<40 );
+
+}
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -416,8 +630,6 @@ typedef struct CPUX86State {
 
     TPRAccess tpr_access_type;
 } CPUX86State;
-
-floatx80 float32_to_floatx80(float32, float_status *status);
 
 void helper_flds_ST0(CPUX86State *env, uint32_t val)
 {
