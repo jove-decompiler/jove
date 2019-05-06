@@ -56,33 +56,6 @@ typedef struct QemuOpts QemuOpts;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
-}
-
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
-
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -146,6 +119,11 @@ static inline uint64_t ldq_le_p(const void *ptr)
     return le_bswap(ldq_he_p(ptr), 64);
 }
 
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
 #define BITS_PER_BYTE           CHAR_BIT
 
 #define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
@@ -158,6 +136,90 @@ static inline int test_bit(long nr, const unsigned long *addr)
 {
     return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
 }
+
+floatx80 int64_to_floatx80(int64_t, float_status *status);
+
+static inline floatx80 floatx80_chs(floatx80 a)
+{
+    a.high ^= 0x8000;
+    return a;
+}
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+# define SOFTFLOAT_GNUC_PREREQ(maj, min) \
+         ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+
+static inline int8_t countLeadingZeros64(uint64_t a)
+{
+#if SOFTFLOAT_GNUC_PREREQ(3, 4)
+    if (a) {
+        return __builtin_clzll(a);
+    } else {
+        return 64;
+    }
+#else
+    int8_t shiftCount;
+
+    shiftCount = 0;
+    if ( a < ( (uint64_t) 1 )<<32 ) {
+        shiftCount += 32;
+    }
+    else {
+        a >>= 32;
+    }
+    shiftCount += countLeadingZeros32( a );
+    return shiftCount;
+#endif
+}
+
+floatx80 int64_to_floatx80(int64_t a, float_status *status)
+{
+    flag zSign;
+    uint64_t absA;
+    int8_t shiftCount;
+
+    if ( a == 0 ) return packFloatx80( 0, 0, 0 );
+    zSign = ( a < 0 );
+    absA = zSign ? - a : a;
+    shiftCount = countLeadingZeros64( absA );
+    return packFloatx80( zSign, 0x403E - shiftCount, absA<<shiftCount );
+
+}
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define Q_TAILQ_HEAD(name, type, qual)                                  \
+struct name {                                                           \
+        qual type *tqh_first;           /* first element */             \
+        qual type *qual *tqh_last;      /* addr of last next element */ \
+}
+
+#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
@@ -879,13 +941,13 @@ extern unsigned long guest_base;
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
 
 #define MEMSUFFIX _data
 
 #define DATA_SIZE 1
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 typedef struct TraceEvent {
     uint32_t id;
@@ -1112,14 +1174,6 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
     helper_retaddr = 0;
     return ret;
-}
-
-floatx80 int64_to_floatx80(int64_t, float_status *status);
-
-static inline floatx80 floatx80_chs(floatx80 a)
-{
-    a.high ^= 0x8000;
-    return a;
 }
 
 static inline void fpush(CPUX86State *env)
