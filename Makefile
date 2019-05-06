@@ -169,9 +169,19 @@ build-helpers: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 define build_helper_template
 .PHONY: $(BINDIR)/$(1).bc
 $(BINDIR)/$(1).bc:
-	clang -o $$@ -c -emit-llvm -fPIC -g -Oz -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides $($(ARCH)_HELPER_CFLAGS) lib/arch/$(ARCH)/helpers/$(1).c
+	clang -o $$@ -c -emit-llvm -fPIC -g -Os -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides $($(ARCH)_HELPER_CFLAGS) lib/arch/$(ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
+
+.PHONY: check-helpers
+check-helpers: $(foreach helper,$($(ARCH)_HELPERS),check-$(helper))
+
+define check_helper_template
+.PHONY: check-$(1)
+check-$(1): $(BINDIR)/$(1).bc $(BINDIR)/check-helper
+	-$(BINDIR)/check-helper $(1)
+endef
+$(foreach helper,$($(ARCH)_HELPERS),$(eval $(call check_helper_template,$(helper))))
 
 #
 # qemu configure command
