@@ -831,59 +831,7 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
-{
-    return container_of(env, X86CPU, env);
+__attribute__((always_inline)) void helper_pause(CPUX86State *env,
+                                                 int next_eip_addend) {
+  __asm("pause");
 }
-
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
-
-#define EXCP_INTERRUPT 	0x10000
-
-#define SVM_EXIT_CPUID		0x072
-
-#define SVM_EXIT_PAUSE		0x077
-
-void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
-                                   uint64_t param, uintptr_t retaddr);
-
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-void helper_cpuid(CPUX86State *env)
-{
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
-}
-
-static void do_pause(X86CPU *cpu)
-{
-    CPUState *cs = CPU(cpu);
-
-    /* Just let another CPU run.  */
-    cs->exception_index = EXCP_INTERRUPT;
-    cpu_loop_exit(cs);
-}
-
-void helper_pause(CPUX86State *env, int next_eip_addend)
-{
-    X86CPU *cpu = x86_env_get_cpu(env);
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_PAUSE, 0, GETPC());
-    env->eip += next_eip_addend;
-
-    do_pause(cpu);
-}
-
