@@ -4,14 +4,6 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -22,6 +14,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +37,117 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+#define LIT64( a ) a##LL
+
+enum {
+    float_relation_less      = -1,
+    float_relation_equal     =  0,
+    float_relation_greater   =  1,
+    float_relation_unordered =  2
+};
+
+int floatx80_compare_quiet(floatx80, floatx80, float_status *status);
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+static inline flag lt128( uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1 )
+{
+
+    return ( a0 < b0 ) || ( ( a0 == b0 ) && ( a1 < b1 ) );
+
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+int floatx80_is_signaling_nan(floatx80 a, float_status *status)
+{
+    if (status->snan_bit_is_one) {
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && ((a.low << 1) >= 0x8000000000000000ULL);
+    } else {
+        uint64_t aLow;
+
+        aLow = a.low & ~LIT64(0x4000000000000000);
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && (uint64_t)(aLow << 1)
+            && (a.low == aLow);
+    }
+}
+
+static inline int floatx80_compare_internal(floatx80 a, floatx80 b,
+                                            int is_quiet, float_status *status)
+{
+    flag aSign, bSign;
+
+    if (floatx80_invalid_encoding(a) || floatx80_invalid_encoding(b)) {
+        float_raise(float_flag_invalid, status);
+        return float_relation_unordered;
+    }
+    if (( ( extractFloatx80Exp( a ) == 0x7fff ) &&
+          ( extractFloatx80Frac( a )<<1 ) ) ||
+        ( ( extractFloatx80Exp( b ) == 0x7fff ) &&
+          ( extractFloatx80Frac( b )<<1 ) )) {
+        if (!is_quiet ||
+            floatx80_is_signaling_nan(a, status) ||
+            floatx80_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return float_relation_unordered;
+    }
+    aSign = extractFloatx80Sign( a );
+    bSign = extractFloatx80Sign( b );
+    if ( aSign != bSign ) {
+
+        if ( ( ( (uint16_t) ( ( a.high | b.high ) << 1 ) ) == 0) &&
+             ( ( a.low | b.low ) == 0 ) ) {
+            /* zero case */
+            return float_relation_equal;
+        } else {
+            return 1 - (2 * aSign);
+        }
+    } else {
+        if (a.low == b.low && a.high == b.high) {
+            return float_relation_equal;
+        } else {
+            return 1 - 2 * (aSign ^ ( lt128( a.high, a.low, b.high, b.low ) ));
+        }
+    }
+}
+
+int floatx80_compare_quiet(floatx80 a, floatx80 b, float_status *status)
+{
+    return floatx80_compare_internal(a, b, 1, status);
+}
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -420,8 +533,6 @@ typedef struct CPUX86State {
 #define FT0    (env->ft0)
 
 #define ST0    (env->fpregs[env->fpstt].d)
-
-int floatx80_compare_quiet(floatx80, floatx80, float_status *status);
 
 static const int fcom_ccval[4] = {0x0100, 0x4000, 0x0000, 0x4500};
 
