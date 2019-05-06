@@ -4,17 +4,13 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
+
+#define float64_val(x) (x)
+
+#define make_float64(x) (x)
 
 typedef uint64_t float64;
 
@@ -22,6 +18,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -35,6 +41,196 @@ typedef struct float_status {
     flag default_nan_mode;
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+#define LIT64( a ) a##LL
+
+floatx80 float64_to_floatx80(float64, float_status *status);
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+# define SOFTFLOAT_GNUC_PREREQ(maj, min) \
+         ((__GNUC__ << 16) + __GNUC_MINOR__ >= ((maj) << 16) + (min))
+
+static inline int8_t countLeadingZeros64(uint64_t a)
+{
+#if SOFTFLOAT_GNUC_PREREQ(3, 4)
+    if (a) {
+        return __builtin_clzll(a);
+    } else {
+        return 64;
+    }
+#else
+    int8_t shiftCount;
+
+    shiftCount = 0;
+    if ( a < ( (uint64_t) 1 )<<32 ) {
+        shiftCount += 32;
+    }
+    else {
+        a >>= 32;
+    }
+    shiftCount += countLeadingZeros32( a );
+    return shiftCount;
+#endif
+}
+
+#define floatx80_infinity_high 0x7FFF
+
+#define floatx80_infinity_low  LIT64(0x8000000000000000)
+
+floatx80 floatx80_default_nan(float_status *status)
+{
+    floatx80 r;
+#if defined(TARGET_M68K)
+    r.low = LIT64(0xFFFFFFFFFFFFFFFF);
+    r.high = 0x7FFF;
+#else
+    if (status->snan_bit_is_one) {
+        r.low = LIT64(0xBFFFFFFFFFFFFFFF);
+        r.high = 0x7FFF;
+    } else {
+        r.low = LIT64(0xC000000000000000);
+        r.high = 0xFFFF;
+    }
+#endif
+    return r;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+typedef struct {
+    flag sign;
+    uint64_t high, low;
+} commonNaNT;
+
+int float64_is_signaling_nan(float64 a_, float_status *status)
+{
+    uint64_t a = float64_val(a_);
+    if (status->snan_bit_is_one) {
+        return ((a << 1) >= 0xFFF0000000000000ULL);
+    } else {
+        return (((a >> 51) & 0xFFF) == 0xFFE)
+            && (a & LIT64(0x0007FFFFFFFFFFFF));
+    }
+}
+
+static commonNaNT float64ToCommonNaN(float64 a, float_status *status)
+{
+    commonNaNT z;
+
+    if (float64_is_signaling_nan(a, status)) {
+        float_raise(float_flag_invalid, status);
+    }
+    z.sign = float64_val(a) >> 63;
+    z.low = 0;
+    z.high = float64_val(a) << 12;
+    return z;
+}
+
+static floatx80 commonNaNToFloatx80(commonNaNT a, float_status *status)
+{
+    floatx80 z;
+
+    if (status->default_nan_mode) {
+        return floatx80_default_nan(status);
+    }
+
+    if (a.high >> 1) {
+        z.low = LIT64(0x8000000000000000) | a.high >> 1;
+        z.high = (((uint16_t)a.sign) << 15) | 0x7FFF;
+    } else {
+        z = floatx80_default_nan(status);
+    }
+    return z;
+}
+
+static inline uint64_t extractFloat64Frac(float64 a)
+{
+    return float64_val(a) & LIT64(0x000FFFFFFFFFFFFF);
+}
+
+static inline int extractFloat64Exp(float64 a)
+{
+    return (float64_val(a) >> 52) & 0x7FF;
+}
+
+static inline flag extractFloat64Sign(float64 a)
+{
+    return float64_val(a) >> 63;
+}
+
+float64 float64_squash_input_denormal(float64 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        if (extractFloat64Exp(a) == 0 && extractFloat64Frac(a) != 0) {
+            float_raise(float_flag_input_denormal, status);
+            return make_float64(float64_val(a) & (1ULL << 63));
+        }
+    }
+    return a;
+}
+
+static void
+ normalizeFloat64Subnormal(uint64_t aSig, int *zExpPtr, uint64_t *zSigPtr)
+{
+    int8_t shiftCount;
+
+    shiftCount = countLeadingZeros64( aSig ) - 11;
+    *zSigPtr = aSig<<shiftCount;
+    *zExpPtr = 1 - shiftCount;
+
+}
+
+floatx80 float64_to_floatx80(float64 a, float_status *status)
+{
+    flag aSign;
+    int aExp;
+    uint64_t aSig;
+
+    a = float64_squash_input_denormal(a, status);
+    aSig = extractFloat64Frac( a );
+    aExp = extractFloat64Exp( a );
+    aSign = extractFloat64Sign( a );
+    if ( aExp == 0x7FF ) {
+        if (aSig) {
+            return commonNaNToFloatx80(float64ToCommonNaN(a, status), status);
+        }
+        return packFloatx80(aSign,
+                            floatx80_infinity_high,
+                            floatx80_infinity_low);
+    }
+    if ( aExp == 0 ) {
+        if ( aSig == 0 ) return packFloatx80( aSign, 0, 0 );
+        normalizeFloat64Subnormal( aSig, &aExp, &aSig );
+    }
+    return
+        packFloatx80(
+            aSign, aExp + 0x3C00, ( aSig | LIT64( 0x0010000000000000 ) )<<11 );
+
+}
+
+#define Q_TAILQ_ENTRY(type, qual)                                       \
+struct {                                                                \
+        qual type *tqe_next;            /* next element */              \
+        qual type *qual *tqe_prev;      /* address of previous next element */\
+}
+
+#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -418,8 +614,6 @@ typedef struct CPUX86State {
 } CPUX86State;
 
 #define FT0    (env->ft0)
-
-floatx80 float64_to_floatx80(float64, float_status *status);
 
 void helper_fldl_FT0(CPUX86State *env, uint64_t val)
 {
