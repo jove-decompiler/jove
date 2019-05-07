@@ -105,6 +105,12 @@ static cl::opt<bool>
 static cl::alias VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
                                   cl::aliasopt(VeryVerbose),
                                   cl::cat(JoveCategory));
+
+static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
+                           cl::cat(JoveCategory));
+
+static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
+                            cl::aliasopt(Quiet), cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -377,17 +383,18 @@ int ParentProc(pid_t child) {
               bbprop.Addr, bbprop.Addr + bbprop.Size);
       assert(st.BBMap.find(intervl) == st.BBMap.end());
 
-#if 1
-      llvm::errs() << "BBMap entry ["
-                   << (fmt("%#lx") % intervl.lower()).str()
-                   << ", "
-                   << (fmt("%#lx") % intervl.upper()).str()
-                   << ")" << st.BBMap.iterative_size() << "\n";
-#endif
+      if (opts::Verbose)
+        llvm::errs() << "BBMap entry ["
+                     << (fmt("%#lx") % intervl.lower()).str()
+                     << ", "
+                     << (fmt("%#lx") % intervl.upper()).str()
+                     << ")" << st.BBMap.iterative_size() << "\n";
 
       st.BBMap.add({intervl, 1 + bb_idx});
 
+#if 0
       llvm::errs() << "after=" << st.BBMap.iterative_size() << '\n';
+#endif
     }
 
     //
@@ -1623,9 +1630,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                  << binary.Path << '\n';
   }
 
-  llvm::errs() << print_prefix
-               << description_of_program_counter(_pc) << " -> "
-               << description_of_program_counter(target) << '\n';
+  if (!opts::Quiet)
+    llvm::errs() << print_prefix
+                 << description_of_program_counter(_pc) << " -> "
+                 << description_of_program_counter(target) << '\n';
 }
 
 template <class T>
