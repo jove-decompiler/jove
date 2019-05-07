@@ -42,6 +42,12 @@ static cl::opt<bool>
     Graphviz("graphviz",
              cl::desc("Produce control-flow graphs for each function"),
              cl::cat(JoveCategory));
+
+static cl::opt<bool> List("list", cl::desc("List binaries for decompilation"),
+                          cl::cat(JoveCategory));
+
+static cl::alias ListAlias("l", cl::desc("Alias for -list."),
+                           cl::aliasopt(List), cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -186,7 +192,13 @@ static void dumpInput(const std::string &Path) {
     ia >> decompilation;
   }
 
-  dumpDecompilation(decompilation);
+  if (opts::List) {
+    for (const auto &binary : decompilation.Binaries) {
+      llvm::outs() << fs::path(binary.Path).filename().string() << '\n';
+    }
+  } else {
+    dumpDecompilation(decompilation);
+  }
 }
 
 }
