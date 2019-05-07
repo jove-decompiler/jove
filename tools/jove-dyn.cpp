@@ -878,17 +878,17 @@ basic_block_index_t translate_basic_block(pid_t child,
 
       assert(boost::icl::disjoint(intervl1, intervl2));
 
-      llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
-                   << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
+      if (opts::Verbose) {
+        llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
+                     << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
 
-      llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
-                   << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
+        llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
+                     << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
 
-      llvm::outs() << "orig_intervl: ["
-                   << (fmt("%#lx") % orig_intervl.lower()).str()
-                   << ", "
-                   << (fmt("%#lx") % orig_intervl.upper()).str()
-                   << ")\n";
+        llvm::outs() << "orig_intervl: ["
+                     << (fmt("%#lx") % orig_intervl.lower()).str() << ", "
+                     << (fmt("%#lx") % orig_intervl.upper()).str() << ")\n";
+      }
 
 #if 0
       if ((*it).first.lower() == 0x1070 ||
@@ -982,21 +982,22 @@ basic_block_index_t translate_basic_block(pid_t child,
       if (it != BBMap.end()) {
         const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
 
-        WithColor::error() << "can't translate further ["
-                           << (fmt("%#lx") % intervl.lower()).str()
-                           << ", "
-                           << (fmt("%#lx") % intervl.upper()).str()
-                           << "), BBMap already contains ["
-                           << (fmt("%#lx") % _intervl.lower()).str()
-                           << ", "
-                           << (fmt("%#lx") % _intervl.upper()).str()
-                           << ")\n";
+        if (opts::Verbose)
+          WithColor::error() << "can't translate further ["
+                             << (fmt("%#lx") % intervl.lower()).str()
+                             << ", "
+                             << (fmt("%#lx") % intervl.upper()).str()
+                             << "), BBMap already contains ["
+                             << (fmt("%#lx") % _intervl.lower()).str()
+                             << ", "
+                             << (fmt("%#lx") % _intervl.upper()).str()
+                             << ")\n";
 
         assert(intervl.lower() < _intervl.lower());
 
         //assert(intervl.upper() == _intervl.upper());
 
-        if (intervl.upper() != _intervl.upper()) {
+        if (opts::Verbose && intervl.upper() != _intervl.upper()) {
           WithColor::warning() << "we've translated into another basic block:"
                                << (fmt("%#lx") % intervl.lower()).str()
                                << ", "
@@ -1571,8 +1572,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    llvm::errs() << "warning: unknown binary for "
-                 << description_of_program_counter(target) << '\n';
+    if (!opts::Quiet)
+      llvm::errs() << "warning: unknown binary for "
+                   << description_of_program_counter(target) << '\n';
     return;
   }
 
