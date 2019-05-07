@@ -3940,9 +3940,10 @@ int CreateCPUStateGlobal() {
         llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
     llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
         *Module, StackTy, false, llvm::GlobalValue::ExternalLinkage,
-        llvm::Constant::getNullValue(StackTy), "stack", nullptr,
+        llvm::Constant::getNullValue(StackTy), "__jove_stack", nullptr,
         llvm::GlobalValue::NotThreadLocal
         /* llvm::GlobalValue::GeneralDynamicTLSModel */);
+    Stack->setAlignment(4096);
 
     llvm::IRBuilderTy IRB(*Context);
     llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
