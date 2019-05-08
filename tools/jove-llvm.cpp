@@ -1654,7 +1654,7 @@ int PrepareToTranslateCode(void) {
   llvm::DIBuilder &DIB = *DIBuilder;
 
   DebugInformation.File =
-      DIB.createFile(fs::path(Binary.Path).filename().string(),
+      DIB.createFile(fs::path(Binary.Path).filename().string() + ".fake",
                      fs::path(Binary.Path).parent_path().string());
   DebugInformation.CompileUnit = DIB.createCompileUnit(
       llvm::dwarf::DW_LANG_C, DebugInformation.File, "jove",
