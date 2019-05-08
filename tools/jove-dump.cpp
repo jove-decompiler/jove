@@ -43,11 +43,21 @@ static cl::opt<bool>
              cl::desc("Produce control-flow graphs for each function"),
              cl::cat(JoveCategory));
 
-static cl::opt<bool> List("list", cl::desc("List binaries for decompilation"),
-                          cl::cat(JoveCategory));
+static cl::opt<bool> ListBinaries("list-binaries",
+                                  cl::desc("List binaries for decompilation"),
+                                  cl::cat(JoveCategory));
 
-static cl::alias ListAlias("l", cl::desc("Alias for -list."),
-                           cl::aliasopt(List), cl::cat(JoveCategory));
+static cl::alias ListBinariesAlias("l", cl::desc("Alias for -list-binaries."),
+                                   cl::aliasopt(ListBinaries),
+                                   cl::cat(JoveCategory));
+
+static cl::opt<std::string>
+    ListFunctions("list-functions", cl::desc("List functions for given binary"),
+                  cl::cat(JoveCategory));
+
+static cl::alias ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
+                                    cl::aliasopt(ListFunctions),
+                                    cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -192,9 +202,28 @@ static void dumpInput(const std::string &Path) {
     ia >> decompilation;
   }
 
-  if (opts::List) {
+  if (opts::ListBinaries) {
     for (const auto &binary : decompilation.Binaries) {
       llvm::outs() << fs::path(binary.Path).filename().string() << '\n';
+    }
+  } else if (!opts::ListFunctions.empty()) {
+    for (const auto &binary : decompilation.Binaries) {
+      if (fs::path(binary.Path).filename().string() != opts::ListFunctions)
+        continue;
+
+      std::vector<uintptr_t> AddrVec;
+      AddrVec.resize(binary.Analysis.Functions.size());
+
+      const auto &ICFG = binary.Analysis.ICFG;
+
+      std::transform(binary.Analysis.Functions.begin(),
+                     binary.Analysis.Functions.end(), AddrVec.begin(),
+                     [&](const function_t &function) -> uintptr_t {
+                       return ICFG[boost::vertex(function.Entry, ICFG)].Addr;
+                     });
+
+      for (uintptr_t Addr : AddrVec)
+        llvm::outs() << llvm::format_hex(Addr, 1) << '\n';
     }
   } else {
     dumpDecompilation(decompilation);
