@@ -803,10 +803,6 @@ int InitStateForBinaries(void) {
       if (!name)
         continue;
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
       section_properties_t sectprop;
       sectprop.name = *name;
 
@@ -825,8 +821,21 @@ int InitStateForBinaries(void) {
       sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
       sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
-      section_properties_set_t sectprops = {sectprop};
-      st.SectMap.add(std::make_pair(intervl, sectprops));
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      {
+        auto it = st.SectMap.find(intervl);
+        if (it != st.SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          return 1;
+        }
+      }
+
+      st.SectMap.add({intervl, {sectprop}});
     }
 
     if (BIdx == BinaryIndex) {
