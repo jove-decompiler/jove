@@ -1649,7 +1649,7 @@ int PrepareToTranslateCode(void) {
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-  DIBuilder.reset(new llvm::DIBuilder (*Module));
+  DIBuilder.reset(new llvm::DIBuilder(*Module));
 
   llvm::DIBuilder &DIB = *DIBuilder;
 
