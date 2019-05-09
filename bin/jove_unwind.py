@@ -33,13 +33,14 @@ def jove_unwind(debugger, command, result, dict):
                     path = str(line_entry.GetFileSpec())
                     addr = line_entry.GetLine()
 
-                    print(frame)
-
-                    if not os.path.isfile(path):
+                    suffix = ".fake"
+                    if not path.endswith(suffix):
                         continue
 
-                    if not is_binary(path):
-                        continue
+                    path = path[:-len(suffix)]
+
+                    #print('path=%s' % path)
+                    #print('addr=0x%x' % addr)
 
                     #
                     # exec llvm-symbolizer
