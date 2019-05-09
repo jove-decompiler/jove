@@ -803,6 +803,9 @@ int InitStateForBinaries(void) {
       if (!name)
         continue;
 
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
+        continue;
+
       section_properties_t sectprop;
       sectprop.name = *name;
 
