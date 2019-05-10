@@ -499,6 +499,12 @@ static llvm::MDNode *AliasScopeMetadata;
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
 static struct {
+  struct {
+    // in memory, the .tbss section is allocated directly following the .tdata
+    // section, with the aligment obeyed
+    unsigned Size;
+  } Data;
+
   uintptr_t Beg, End;
 } ThreadLocalStorage;
 
@@ -939,6 +945,7 @@ int ProcessBinaryTLSSymbols(void) {
 
   ThreadLocalStorage.Beg = tlsPhdr->p_vaddr;
   ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
+  ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
 
   llvm::outs() << llvm::format("TLS: [0x%" PRIx64 ", 0x%" PRIx64 ")",
                                ThreadLocalStorage.Beg, ThreadLocalStorage.End)
@@ -3665,6 +3672,26 @@ int CreateSectionGlobalVariables(void) {
                                     llvm::StringRef SymName,
                                     llvm::GlobalValue::ThreadLocalMode tlsMode)
       -> llvm::GlobalVariable * {
+    if (tlsMode != llvm::GlobalValue::NotThreadLocal) {
+      unsigned tlsOff = Addr - ThreadLocalStorage.Beg;
+      bool isZero = !(tlsOff < ThreadLocalStorage.Data.Size);
+
+      if (isZero) {
+        //
+        // initialize to zero
+        //
+        llvm::Type *T;
+        if (is_integral_size(Size))
+          T = llvm::Type::getIntNTy(*Context, Size * 8);
+        else
+          T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), Size);
+
+        return new llvm::GlobalVariable(
+            *Module, T, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::Constant::getNullValue(T), SymName, nullptr, tlsMode);
+      }
+    }
+
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
     section_t &Sect = SectTable[(*it).second];
