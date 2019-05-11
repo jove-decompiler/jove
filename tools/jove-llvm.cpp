@@ -482,6 +482,7 @@ static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<uintptr_t> RelocationsAt;
 
 static llvm::GlobalVariable *CPUStateGlobal;
+static llvm::GlobalVariable *TLSStackGlobal;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *SectsGlobal;
@@ -558,7 +559,9 @@ static int ProcessIFuncResolvers(void);
 static int PrepareToTranslateCode(void);
 static int CreateFunctions(void);
 static int CreateSectionGlobalVariables(void);
+#if 0
 static int CreateCPUStateGlobal(void);
+#endif
 static int CreatePCRelGlobal(void);
 #if defined(__x86_64__)
 static int CreateFSBaseGlobal(void);
@@ -594,7 +597,9 @@ int llvm(void) {
       || PrepareToTranslateCode()
       || CreateFunctions()
       || CreateSectionGlobalVariables()
+#if 0
       || CreateCPUStateGlobal()
+#endif
       || CreatePCRelGlobal()
 #if defined(__x86_64__)
       || CreateFSBaseGlobal()
@@ -865,29 +870,70 @@ int InitStateForBinaries(void) {
   return 0;
 }
 
-static const uint8_t bcbytes[] = {
-#include "jove/jove.bc.inc"
-};
-
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&bcbytes[0]),
-                         sizeof(bcbytes));
-  llvm::StringRef Identifier(opts::Binary);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+  const char *bootstrap_mod_name =
+      Decompilation.Binaries[BinaryIndex].IsExecutable ? "jove_start" : "jove";
 
-  llvm::Expected<std::unique_ptr<llvm::Module>> ModuleOr =
-      llvm::parseBitcodeFile(MemBuffRef, *Context);
-  if (!ModuleOr) {
-    WithColor::error() << "failed to parse bitcode\n";
+  std::string bootstrap_mod_path =
+      (boost::dll::program_location().parent_path() /
+       (std::string(bootstrap_mod_name) + ".bc"))
+          .string();
+
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
+      llvm::MemoryBuffer::getFile(bootstrap_mod_path);
+  if (!BufferOr) {
+    WithColor::error() << "failed to open bitcode " << bootstrap_mod_path
+                       << ": " << BufferOr.getError().message() << '\n';
     return 1;
   }
 
-  std::unique_ptr<llvm::Module> &ModuleRef = ModuleOr.get();
+  llvm::Expected<std::unique_ptr<llvm::Module>> moduleOr =
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
+  if (!moduleOr) {
+    llvm::logAllUnhandledErrors(moduleOr.takeError(), llvm::errs(),
+                                "could not parse helper bitcode: ");
+    return 1;
+  }
+
+  std::unique_ptr<llvm::Module> &ModuleRef = moduleOr.get();
   Module = std::move(ModuleRef);
 
   DL = Module->getDataLayout();
+
+  CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
+  assert(CPUStateGlobal);
+
+  {
+    llvm::Function *joveF = Module->getFunction("jove_state");
+    assert(joveF);
+    llvm::FunctionType *joveFTy = joveF->getFunctionType();
+    llvm::Type *joveFRetTy = joveFTy->getReturnType();
+    assert(joveFRetTy->isPointerTy());
+    CPUStateType = llvm::cast<llvm::PointerType>(joveFRetTy)->getElementType();
+
+    //
+    // no longer need struct CPUX86State *jove_state()
+    //
+    assert(joveF->user_begin() == joveF->user_end());
+    joveF->eraseFromParent();
+  }
+
+  TLSStackGlobal = Module->getGlobalVariable("__jove_stack", true);
+  assert(TLSStackGlobal);
+
+  {
+    llvm::Function *joveF = Module->getFunction("jove_stack");
+    assert(joveF);
+
+    //
+    // no longer need char *jove_stack(void)
+    //
+    assert(joveF->user_begin() == joveF->user_end());
+    joveF->eraseFromParent();
+  }
+
   return 0;
 }
 
@@ -2707,9 +2753,8 @@ const helper_function_t &LookupHelper(TCGOp *op) {
       exit(1);
     }
 
-    llvm::MemoryBuffer *Buffer = BufferOr.get().get();
     llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
-        llvm::parseBitcodeFile(Buffer->getMemBufferRef(), *Context);
+        llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
     if (!helperModuleOr) {
       llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
                                   "could not parse helper bitcode: ");
@@ -3027,6 +3072,8 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
 }
+
+static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
 
 int CreateSectionGlobalVariables(void) {
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
@@ -3930,11 +3977,17 @@ int CreateSectionGlobalVariables(void) {
             llvm::GlobalValue::InternalLinkage, "_" + std::string(F->getName()),
             Module.get());
 
-        {
-          llvm::BasicBlock *EntryB =
-              llvm::BasicBlock::Create(*Context, "", CallsF);
+        llvm::BasicBlock *EntryB =
+            llvm::BasicBlock::Create(*Context, "", CallsF);
 
+        {
           llvm::IRBuilderTy IRB(EntryB);
+
+          IRB.CreateStore(
+              llvm::ConstantExpr::getAdd(
+                  llvm::ConstantExpr::getPtrToInt(TLSStackGlobal, WordType()),
+                  IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
+              CPUStateGlobalPointer(tcg_stack_pointer_index));
 
           std::vector<llvm::Value *> ArgVec;
           ArgVec.resize(N);
@@ -3961,6 +4014,7 @@ int CreateSectionGlobalVariables(void) {
   return 0;
 }
 
+#if 0
 int CreateCPUStateGlobal() {
   llvm::Function *joveF = Module->getFunction("jove");
   llvm::FunctionType *joveFTy = joveF->getFunctionType();
@@ -4054,6 +4108,7 @@ int CreateCPUStateGlobal() {
   joveF->eraseFromParent();
   return 0;
 }
+#endif
 
 int CreatePCRelGlobal(void) {
   PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
@@ -4072,23 +4127,12 @@ int CreateFSBaseGlobal(void) {
 #endif
 
 int FixupHelperStubs(void) {
-  llvm::Function *GetGlobalCPUStateF =
-      Module->getFunction("_jove_get_global_cpu_state");
-  assert(GetGlobalCPUStateF);
-
-  {
-    llvm::BasicBlock *BB =
-        llvm::BasicBlock::Create(*Context, "", GetGlobalCPUStateF);
-
-    llvm::IRBuilderTy IRB(BB);
-    IRB.CreateRet(CPUStateGlobal);
-  }
-
-  GetGlobalCPUStateF->setLinkage(llvm::GlobalValue::InternalLinkage);
-
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  if (!is_function_index_valid(Binary.Analysis.EntryFunction))
+
+  if (!Binary.IsExecutable)
     return 0;
+
+  assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
   llvm::Function *CallEntryF =
       Module->getFunction("_jove_call_entry");
@@ -4226,7 +4270,7 @@ int CreateNoAliasMetadata(void) {
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
 
-static llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
+llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
   if (glb == tcg_env_index)
     return CPUStateGlobal;
 
