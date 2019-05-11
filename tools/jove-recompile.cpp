@@ -313,6 +313,7 @@ int recompile(void) {
     break;
   }
 
+#if 0
   //
   // copy compiler runtime
   //
@@ -321,6 +322,7 @@ int recompile(void) {
     fs::create_directories(chrooted_path.parent_path());
     fs::copy(compiler_runtime_afp, chrooted_path);
   }
+#endif
 
   return 0;
 }
@@ -472,8 +474,10 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
       arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
 
+#if 0
       arg_vec.push_back(const_cast<char *>("-e"));
       arg_vec.push_back(const_cast<char *>("__jove_start"));
+#endif
 
       arg_vec.push_back(const_cast<char *>("-nostdlib"));
 
