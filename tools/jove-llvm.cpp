@@ -5589,15 +5589,8 @@ int TranslateBasicBlock(binary_t &Binary,
     bool IsTailCall;
   } _indirect_jump;
 
-  if (T.Type == TERMINATOR::INDIRECT_JUMP) {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    _indirect_jump.IsTailCall =
-        std::accumulate(eit_pair.first, eit_pair.second, true,
-                        [&](bool res, control_flow_t E) -> bool {
-                          uintptr_t dstaddr = ICFG[boost::target(E, ICFG)].Addr;
-                          return res && FuncMap.find(dstaddr) != FuncMap.end();
-                        });
-  }
+  if (T.Type == TERMINATOR::INDIRECT_JUMP)
+    _indirect_jump.IsTailCall = !(boost::out_degree(bb, ICFG) > 0);
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
@@ -5824,12 +5817,20 @@ int TranslateBasicBlock(binary_t &Binary,
                            << (fmt("%#lx") % ICFG[bb].Addr).str()
                            << " has zero dyn targets\n";
 
+#if 0
       // TODO in strict mode, we should just insert a trap here
       IRB.CreateCall(IRB.CreateIntToPtr(
           IRB.CreateLoad(f.PCAlloca),
           llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
                                  0)));
+
       break;
+#else
+      IRB.CreateCall(
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      IRB.CreateUnreachable();
+      return 0;
+#endif
     }
 
     function_t &callee = *callee_ptr;

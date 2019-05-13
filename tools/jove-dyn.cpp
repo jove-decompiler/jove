@@ -452,16 +452,28 @@ int ParentProc(pid_t child) {
       if (!name)
         continue;
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
+        continue;
 
       section_properties_t sectprop;
       sectprop.name = *name;
       sectprop.contents = *contents;
 
-      section_properties_set_t sectprops = {sectprop};
-      st.SectMap.add(std::make_pair(intervl, sectprops));
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      {
+        auto it = st.SectMap.find(intervl);
+        if (it != st.SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          return 1;
+        }
+      }
+
+      st.SectMap.add({intervl, {sectprop}});
 
       if (opts::VeryVerbose)
         llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
@@ -1581,7 +1593,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   binary_index_t binary_idx = *(*it).second.begin();
 
   bool isNewTarget = false;
-  bool isLocal = IndBrInfo.binary_idx == binary_idx;
 
   const char *print_prefix = "(call) ";
 
@@ -1606,7 +1617,29 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-    if (isLocal) {
+    // on an indirect jump, we must determine one of two possibilities.
+    //
+    // (1) transfers control to a label (i.e. a goto or switch-case statement)
+    //
+    // or
+    //
+    // (2) transfers control to a function (i.e. calling a function pointer)
+    //
+    bool isTailCall = IndBrInfo.binary_idx != binary_idx;
+    if (!isTailCall) {
+      binary_state_t &st = BinStateVec[binary_idx];
+      auto it = st.FuncMap.find(rva_of_va(target, binary_idx));
+      if (it != st.FuncMap.end())
+        isTailCall = true;
+    }
+
+    if (isTailCall) {
+      function_index_t f_idx =
+          translate_function(child, binary_idx, tcg, dis,
+                             rva_of_va(target, binary_idx), brkpt_count);
+
+      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+    } else {
       basic_block_index_t target_bb_idx =
           translate_basic_block(child, binary_idx, tcg, dis,
                                 rva_of_va(target, binary_idx), brkpt_count);
@@ -1614,13 +1647,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
 
-      print_prefix = "(jump) ";
-    } else { /* tail call */
-      function_index_t f_idx =
-          translate_function(child, binary_idx, tcg, dis,
-                             rva_of_va(target, binary_idx), brkpt_count);
-
-      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+      print_prefix = "(goto) ";
     }
   } else {
     abort();
