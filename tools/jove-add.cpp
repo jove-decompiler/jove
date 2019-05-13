@@ -328,16 +328,28 @@ int add(void) {
     if (!name)
       continue;
 
-    boost::icl::interval<std::uintptr_t>::type intervl =
-        boost::icl::interval<std::uintptr_t>::right_open(
-            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+    if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
+      continue;
 
     section_properties_t sectprop;
     sectprop.name = *name;
     sectprop.contents = *contents;
 
-    section_properties_set_t sectprops = {sectprop};
-    sectm.add(std::make_pair(intervl, sectprops));
+    boost::icl::interval<std::uintptr_t>::type intervl =
+        boost::icl::interval<std::uintptr_t>::right_open(
+            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+    {
+      auto it = sectm.find(intervl);
+      if (it != sectm.end()) {
+        WithColor::error() << "the following sections intersect: "
+                           << (*(*it).second.begin()).name << " and "
+                           << sectprop.name << '\n';
+        return 1;
+      }
+    }
+
+    sectm.add({intervl, {sectprop}});
 
     if (opts::Verbose)
       llvm::outs() <<
@@ -488,6 +500,33 @@ int add(void) {
   }
 
   binary.IsDynamicLinker = !Interp.Found && IsStaticallyLinked;
+
+  //
+  // search symbols
+  //
+  const Elf_Shdr *SymTab = nullptr;
+
+  for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
+    if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+      assert(!SymTab);
+      SymTab = &Sect;
+    }
+  }
+
+  if (SymTab) {
+    llvm::StringRef StrTable =
+        unwrapOrError(E.getStringTableForSymtab(*SymTab));
+    for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
+      if (Sym.isUndefined())
+        continue;
+      if (Sym.getType() != llvm::ELF::STT_FUNC)
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+      llvm::outs() << "translating " << SymName << "...\n";
+      translate_function(binary, tcg, dis, Sym.st_value);
+    }
+  }
 
   //
   // translate all exported functions
