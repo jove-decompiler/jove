@@ -86,6 +86,11 @@ static cl::list<std::string> Args("args", cl::CommaSeparated,
                                   cl::desc("Program arguments"),
                                   cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    Envs("env", cl::CommaSeparated,
+         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -736,7 +741,15 @@ int ParentProc(pid_t child) {
   if (git) {
     pid_t pid = fork();
     if (!pid) { /* child */
-      std::string msg(opts::Prog);
+      std::string msg;
+
+      for (const std::string &env : opts::Envs) {
+        msg.append(env);
+        msg.push_back(' ');
+      }
+
+      msg.append(opts::Prog);
+
       for (const std::string &arg : opts::Args) {
         msg.push_back(' ');
         msg.push_back('\'');
@@ -2038,19 +2051,37 @@ int ChildProc(void) {
   //
 
   std::vector<char *> arg_vec;
-  arg_vec.resize(opts::Args.size());
-  std::transform(opts::Args.begin(), opts::Args.end(), arg_vec.begin(),
-                 [](const std::string &arg) -> char * {
-                   return const_cast<char *>(arg.c_str());
-                 });
+  arg_vec.push_back(const_cast<char *>(opts::Prog.c_str()));
 
-  arg_vec.insert(arg_vec.begin(), const_cast<char *>(opts::Prog.c_str()));
+  {
+    std::vector<char *> _arg_vec;
+    _arg_vec.resize(opts::Args.size());
+    std::transform(opts::Args.begin(), opts::Args.end(), _arg_vec.begin(),
+                   [](const std::string &arg) -> char * {
+                     return const_cast<char *>(arg.c_str());
+                   });
+
+    arg_vec.insert(arg_vec.end(), _arg_vec.begin(), _arg_vec.end());
+  }
+
   arg_vec.push_back(nullptr);
 
   std::vector<char *> env_vec;
   for (char **env = ::environ; *env; ++env)
     env_vec.push_back(*env);
   env_vec.push_back(const_cast<char *>("LD_BIND_NOW=1"));
+
+  {
+    std::vector<char *> _env_vec;
+    _env_vec.resize(opts::Envs.size());
+    std::transform(opts::Envs.begin(), opts::Envs.end(), _env_vec.begin(),
+                   [](const std::string &arg) -> char * {
+                     return const_cast<char *>(arg.c_str());
+                   });
+
+    env_vec.insert(env_vec.end(), _env_vec.begin(), _env_vec.end());
+  }
+
   env_vec.push_back(nullptr);
 
   return execve(opts::Prog.c_str(), arg_vec.data(), env_vec.data());
