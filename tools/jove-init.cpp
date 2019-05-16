@@ -22,6 +22,7 @@
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -426,25 +427,19 @@ static void worker(void) {
 
     pid_t pid = fork();
     if (!pid) {
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>(jove_add_path.c_str()));
-      arg_vec.push_back(const_cast<char *>("-output"));
-      arg_vec.push_back(const_cast<char *>(jvfp.c_str()));
-      arg_vec.push_back(const_cast<char *>("-input"));
-      arg_vec.push_back(const_cast<char *>(path.c_str()));
-      arg_vec.push_back(nullptr);
-
-      print_command(arg_vec);
+      const char *argv[] = {jove_add_path.c_str(), "-o",   jvfp.c_str(), "-i",
+                            path.c_str(),          nullptr};
 
       dup2(null_fd, STDOUT_FILENO);
       dup2(null_fd, STDERR_FILENO);
 
-      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      execve(argv[0], const_cast<char **>(argv), ::environ);
       return;
     }
 
     if (int ret = await_process_completion(pid))
-      WithColor::error() << "jove-add failed for " << path << '\n';
+      WithColor::error() << llvm::formatv("jove-add -o {0} -i {1}\n", jvfp,
+                                          path);
   }
 }
 
@@ -464,15 +459,24 @@ void spawn_workers(void) {
 int await_process_completion(pid_t pid) {
   int wstatus;
   do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
-      if (errno != EINTR) {
-        WithColor::error() << "waitpid failed : " << strerror(errno) << '\n';
-        abort();
-      }
-    }
-  } while (!WIFEXITED(wstatus));
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
+      abort();
 
-  return WEXITSTATUS(wstatus);
+    if (WIFEXITED(wstatus)) {
+      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      return WEXITSTATUS(wstatus);
+    } else if (WIFSIGNALED(wstatus)) {
+      //printf("killed by signal %d\n", WTERMSIG(wstatus));
+      return 1;
+    } else if (WIFSTOPPED(wstatus)) {
+      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      return 1;
+    } else if (WIFCONTINUED(wstatus)) {
+      //printf("continued\n");
+    }
+  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+
+  abort();
 }
 
 unsigned num_cpus(void) {
