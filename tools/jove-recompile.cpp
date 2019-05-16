@@ -46,8 +46,14 @@ static cl::OptionCategory JoveCategory("Specific Options");
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::cat(JoveCategory));
 
+static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
+                         cl::aliasopt(jv), cl::cat(JoveCategory));
+
 static cl::opt<std::string> Output("output", cl::desc("Output directory"),
                                    cl::Required, cl::cat(JoveCategory));
+
+static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
+                             cl::aliasopt(Output), cl::cat(JoveCategory));
 
 static cl::opt<unsigned> Threads("num-threads",
                                  cl::desc("Number of CPU threads to use"),

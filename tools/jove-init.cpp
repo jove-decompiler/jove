@@ -51,6 +51,9 @@ static cl::opt<std::string> Output("output", cl::desc("Output"), cl::Required,
                                    cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
 
+static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
+                             cl::aliasopt(Output), cl::cat(JoveCategory));
+
 static cl::opt<unsigned> Threads("num-threads",
                                  cl::desc("Number of CPU threads to use"),
                                  cl::init(jove::num_cpus()),

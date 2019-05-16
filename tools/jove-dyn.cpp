@@ -95,6 +95,9 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
 
+static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
+                         cl::aliasopt(jv), cl::cat(JoveCategory));
+
 static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
