@@ -629,19 +629,6 @@ basic_block_index_t translate_basic_block(binary_t &binary,
           out_verts.push_back(boost::target(*e_it, ICFG));
       }
 
-      if (beg == 0x109130) {
-        llvm::errs() << "//////////////////////////////////////////////\n"
-                     << "//////////////////////////////////////////////\n"
-                     << "//////////////////////////////////////////////\n"
-                     << "deg=" << deg << ' '
-                     << "out_verts.size()=" << out_verts.size()
-                     << " {";
-        for (basic_block_t out_vert : out_verts)
-          llvm::errs() << ' ' << (fmt("%#lx") % ICFG[out_vert].Addr).str();
-        llvm::errs() << "} Term="
-                     << description_of_terminator(ICFG[bb].Term.Type) << '\n';
-      }
-
       // if we get here, we know that beg != Addr
       assert(Addr > beg);
 
