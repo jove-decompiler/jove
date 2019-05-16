@@ -27,6 +27,7 @@
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -677,17 +678,17 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
       assert(boost::icl::disjoint(intervl1, intervl2));
 
-      llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
-                   << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
+      if (opts::Verbose) {
+        llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
+                     << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
 
-      llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
-                   << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
+        llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
+                     << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
 
-      llvm::outs() << "orig_intervl: ["
-                   << (fmt("%#lx") % orig_intervl.lower()).str()
-                   << ", "
-                   << (fmt("%#lx") % orig_intervl.upper()).str()
-                   << ")\n";
+        llvm::outs() << "orig_intervl: ["
+                     << (fmt("%#lx") % orig_intervl.lower()).str() << ", "
+                     << (fmt("%#lx") % orig_intervl.upper()).str() << ")\n";
+      }
      
       unsigned n = BBMap.iterative_size();
       BBMap.erase((*it).first);
@@ -747,8 +748,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
   auto sectit = sectm.find(Addr);
   if (sectit == sectm.end()) {
-    WithColor::error() << "warning: no section @ " << (fmt("%#lx") % Addr).str()
-                       << '\n';
+    if (opts::Verbose)
+      WithColor::note() << llvm::formatv("no section @ {0:x}\n", Addr);
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
@@ -771,18 +772,19 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
       const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
 
-      WithColor::error() << "can't translate further ["
-                         << (fmt("%#lx") % intervl.lower()).str() << ", "
-                         << (fmt("%#lx") % intervl.upper()).str()
-                         << "), BBMap already contains ["
-                         << (fmt("%#lx") % _intervl.lower()).str() << ", "
-                         << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
+      if (opts::Verbose)
+        WithColor::error() << "can't translate further ["
+                           << (fmt("%#lx") % intervl.lower()).str() << ", "
+                           << (fmt("%#lx") % intervl.upper()).str()
+                           << "), BBMap already contains ["
+                           << (fmt("%#lx") % _intervl.lower()).str() << ", "
+                           << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
 
       assert(intervl.lower() < _intervl.lower());
 
       // assert(intervl.upper() == _intervl.upper());
 
-      if (intervl.upper() != _intervl.upper()) {
+      if (intervl.upper() != _intervl.upper() && opts::Verbose) {
         WithColor::warning() << "we've translated into another basic block:"
                              << (fmt("%#lx") % intervl.lower()).str() << ", "
                              << (fmt("%#lx") % intervl.upper()).str()
@@ -804,8 +806,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   } while (T.Type == TERMINATOR::NONE);
 
   if (T.Type == TERMINATOR::UNKNOWN) {
-    WithColor::error() << "error: unknown terminator @ "
-                       << (fmt("%#lx") % Addr).str() << '\n';
+    WithColor::error() << llvm::formatv("unknown terminator @ {0:x}\n", Addr);
 
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
@@ -821,8 +822,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                                 A, llvm::nulls(), llvm::nulls());
 
       if (!Disassembled) {
-        WithColor::error() << "failed to disassemble "
-                           << (fmt("%#lx") % Addr).str() << '\n';
+        WithColor::error() << llvm::formatv("failed to disassemble {0:x}\n",
+                                            Addr);
         break;
       }
 
@@ -879,7 +880,11 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     basic_block_index_t succidx =
         translate_basic_block(binary, tcg, dis, Target);
 
-    assert(succidx != invalid_basic_block_index);
+    if (succidx == invalid_basic_block_index) {
+      WithColor::note() << llvm::formatv(
+          "control_flow: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
+      return;
+    }
 
     basic_block_t _bb;
     {
