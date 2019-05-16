@@ -864,18 +864,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
                                                     bbprop.Addr + bbprop.Size);
-    auto it = BBMap.find(intervl);
-    if (it != BBMap.end()) {
-      WithColor::error() << "can't insert ["
-                         << (fmt("%#lx") % bbprop.Addr).str() << ", "
-                         << (fmt("%#lx") % (bbprop.Addr + bbprop.Size)).str()
-                         << ") [bbidx=" << bbidx
-                         << "], BBMap already contains ["
-                         << (fmt("%#lx") % (*it).first.lower()).str() << ", "
-                         << (fmt("%#lx") % (*it).first.upper()).str()
-                         << ") [bbidx=" << (*it).second << "]\n";
-      abort();
-    }
+    assert(BBMap.find(intervl) == BBMap.end());
 
     BBMap.add({intervl, 1 + bbidx});
   }
