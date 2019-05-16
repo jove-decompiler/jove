@@ -183,9 +183,15 @@ static cl::opt<std::string> Binary("binary", cl::desc("Binary to decompile"),
                                    cl::Required, cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
 
+static cl::alias BinaryAlias("b", cl::desc("Alias for -binary."),
+                             cl::aliasopt(Binary), cl::cat(JoveCategory));
+
 static cl::opt<std::string> Output("output", cl::desc("Output bitcode"),
                                    cl::Required, cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
+
+static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
+                             cl::aliasopt(Output), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     NoFixupFSBase("no-fixup-fsbase",
