@@ -5813,9 +5813,10 @@ int TranslateBasicBlock(binary_t &Binary,
     function_t *callee_ptr = get_a_callee();
 
     if (!callee_ptr) {
-      WithColor::warning() << "indirect branch @ "
-                           << (fmt("%#lx") % ICFG[bb].Addr).str()
-                           << " has zero dyn targets\n";
+      if (opts::Verbose)
+        WithColor::warning()
+            << "indirect branch @ " << (fmt("%#lx") % ICFG[bb].Addr).str()
+            << " has zero dyn targets\n";
 
 #if 0
       // TODO in strict mode, we should just insert a trap here
