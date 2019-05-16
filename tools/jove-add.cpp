@@ -48,13 +48,19 @@ namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
 
 static cl::opt<std::string> Input("input",
-                                  cl::desc("DSO"),
+                                  cl::desc("Path to DSO"),
                                   cl::Required, cl::value_desc("filename"),
                                   cl::cat(JoveCategory));
+
+static cl::alias InputAlias("i", cl::desc("Alias for -input."),
+                            cl::aliasopt(Input), cl::cat(JoveCategory));
 
 static cl::opt<std::string> Output("output", cl::desc("Jove decompilation"),
                                    cl::Required, cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
+
+static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
+                             cl::aliasopt(Output), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     Verbose("verbose",
