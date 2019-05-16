@@ -463,6 +463,9 @@ int ParentProc(pid_t child) {
       if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
         continue;
 
+      if (!Sec.sh_size)
+        continue;
+
       section_properties_t sectprop;
       sectprop.name = *name;
       sectprop.contents = *contents;
