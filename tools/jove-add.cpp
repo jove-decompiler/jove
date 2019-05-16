@@ -913,31 +913,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     break;
 
   case TERMINATOR::CONDITIONAL_JUMP:
-#if 0
-    if (T._conditional_jump.Target == 0x10915f) {
-      auto &ICFG = binary.Analysis.ICFG;
-      llvm::errs() << "----------------------------------------------\n"
-                   << "----------------------------------------------\n"
-                   << "----------------------------------------------\n"
-                   << "T._conditional_jump.Target=0x10915f\n"
-                   << "T._conditional_jump.NextPC=" << (fmt("%#lx") % T._conditional_jump.NextPC).str() << '\n'
-                   << "boost::out_degree(bb, ICFG)=" << boost::out_degree(bb, ICFG) << '\n';
-    }
-#endif
-
     control_flow(T._conditional_jump.Target);
     control_flow(T._conditional_jump.NextPC);
-
-#if 0
-    if (T._conditional_jump.Target == 0x10915f) {
-      auto &ICFG = binary.Analysis.ICFG;
-      llvm::errs() << "----------------------------------------------\n"
-                   << "----------------------------------------------\n"
-                   << "----------------------------------------------\n"
-                   << "T._conditional_jump.Target=0x10915f\n"
-                   << "boost::out_degree(bb, ICFG)=" << boost::out_degree(bb, ICFG) << '\n';
-    }
-#endif
     break;
 
   case TERMINATOR::CALL:
