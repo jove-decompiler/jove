@@ -576,168 +576,172 @@ int ParentProc(pid_t child) {
   siginfo_t si;
   long sig = 0;
 
-  for (;;) {
-    if (likely(!(child < 0))) {
-      if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
-                                                         : PTRACE_CONT,
-                          child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-        WithColor::error() << "failed to resume tracee : " << strerror(errno)
-                           << '\n';
-    }
+  try {
+    for (;;) {
+      if (likely(!(child < 0))) {
+        if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
+                                                           : PTRACE_CONT,
+                            child, nullptr, reinterpret_cast<void *>(sig)) < 0))
+          WithColor::error() << "failed to resume tracee : " << strerror(errno)
+                             << '\n';
+      }
 
-    //
-    // reset restart signal
-    //
-    sig = 0;
+      //
+      // reset restart signal
+      //
+      sig = 0;
 
-    //
-    // wait for a child process to stop or terminate
-    //
-    int status;
-    child = waitpid(-1, &status, __WALL);
+      //
+      // wait for a child process to stop or terminate
+      //
+      int status;
+      child = waitpid(-1, &status, __WALL);
 
-    if (unlikely(child < 0)) {
-      llvm::errs() << "exiting... (" << strerror(errno) << ")\n";
-      break;
-    }
+      if (unlikely(child < 0)) {
+        llvm::errs() << "exiting... (" << strerror(errno) << ")\n";
+        break;
+      }
 
-    if (likely(WIFSTOPPED(status))) {
-      //
-      // the following kinds of ptrace-stops exist:
-      //
-      //   (1) syscall-stops
-      //   (2) PTRACE_EVENT stops
-      //   (3) group-stops
-      //   (4) signal-delivery-stops
-      //
-      // they all are reported by waitpid(2) with WIFSTOPPED(status) true.
-      // They may be differentiated by examining the value status>>8, and if
-      // there is ambiguity in that value, by querying PTRACE_GETSIGINFO.
-      // (Note: the WSTOPSIG(status) macro can't be used to perform this
-      // examination, because it returns the value (status>>8) & 0xff.)
-      //
-      const int stopsig = WSTOPSIG(status);
-      if (stopsig == (SIGTRAP | 0x80)) {
+      if (likely(WIFSTOPPED(status))) {
         //
-        // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
-        // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
-        // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
-        // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
+        // the following kinds of ptrace-stops exist:
         //
-        struct user_regs_struct gpr;
-        _ptrace_get_gpr(child, gpr);
+        //   (1) syscall-stops
+        //   (2) PTRACE_EVENT stops
+        //   (3) group-stops
+        //   (4) signal-delivery-stops
+        //
+        // they all are reported by waitpid(2) with WIFSTOPPED(status) true.
+        // They may be differentiated by examining the value status>>8, and if
+        // there is ambiguity in that value, by querying PTRACE_GETSIGINFO.
+        // (Note: the WSTOPSIG(status) macro can't be used to perform this
+        // examination, because it returns the value (status>>8) & 0xff.)
+        //
+        const int stopsig = WSTOPSIG(status);
+        if (stopsig == (SIGTRAP | 0x80)) {
+          //
+          // (1) Syscall-enter-stop and syscall-exit-stop are observed by the
+          // tracer as waitpid(2) returning with WIFSTOPPED(status) true, and-
+          // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
+          // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
+          //
+          struct user_regs_struct gpr;
+          _ptrace_get_gpr(child, gpr);
 
-        unsigned syscallno =
+          unsigned syscallno =
 #if defined(__x86_64__)
-            gpr.orig_rax
+              gpr.orig_rax
 #elif defined(__i386__)
-            gpr.orig_eax
+              gpr.orig_eax
 #elif defined(__aarch64__)
-            gpr.regs[8]
+              gpr.regs[8]
 #endif
-            ;
+              ;
 
-        bool does_mmap = false
+          bool does_mmap = false
 #ifdef __NR_mmap
-                         || syscallno == __NR_mmap
+                           || syscallno == __NR_mmap
 #endif
 #ifdef __NR_mmap2
-                         || syscallno == __NR_mmap2
+                           || syscallno == __NR_mmap2
 #endif
-            ;
+              ;
 
-        if (does_mmap)
-          search_address_space_for_binaries(child, dis);
-      } else if (stopsig == SIGTRAP) {
-        const unsigned int event = (unsigned int)status >> 16;
+          if (does_mmap)
+            search_address_space_for_binaries(child, dis);
+        } else if (stopsig == SIGTRAP) {
+          const unsigned int event = (unsigned int)status >> 16;
 
-        //
-        // PTRACE_EVENT stops (2) are observed by the tracer as waitpid(2)
-        // returning with WIFSTOPPED(status), and WSTOPSIG(status) returns
-        // SIGTRAP.
-        //
-        if (unlikely(event)) {
-          switch (event) {
-          case PTRACE_EVENT_VFORK:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
-                           << "]\n";
-            break;
-          case PTRACE_EVENT_FORK:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_FORK) [" << child
-                           << "]\n";
-            break;
-          case PTRACE_EVENT_CLONE: {
-            pid_t new_child;
-            ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
+          //
+          // PTRACE_EVENT stops (2) are observed by the tracer as waitpid(2)
+          // returning with WIFSTOPPED(status), and WSTOPSIG(status) returns
+          // SIGTRAP.
+          //
+          if (unlikely(event)) {
+            switch (event) {
+            case PTRACE_EVENT_VFORK:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
+                             << "]\n";
+              break;
+            case PTRACE_EVENT_FORK:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_FORK) [" << child
+                             << "]\n";
+              break;
+            case PTRACE_EVENT_CLONE: {
+              pid_t new_child;
+              ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_CLONE) -> "
-                           << new_child << " [" << child << "]\n";
-            break;
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_CLONE) -> "
+                             << new_child << " [" << child << "]\n";
+              break;
+            }
+            case PTRACE_EVENT_VFORK_DONE:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
+                             << child << "]\n";
+              break;
+            case PTRACE_EVENT_EXEC:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
+                             << "]\n";
+              SeenExec = true;
+              break;
+            case PTRACE_EVENT_EXIT:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
+                             << "]\n";
+              break;
+            case PTRACE_EVENT_STOP:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_STOP) [" << child
+                             << "]\n";
+              break;
+            case PTRACE_EVENT_SECCOMP:
+              if (opts::VeryVerbose)
+                llvm::errs() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
+                             << "]\n";
+              break;
+            }
+          } else {
+            on_breakpoint(child, tcg, dis);
           }
-          case PTRACE_EVENT_VFORK_DONE:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
-                           << child << "]\n";
-            break;
-          case PTRACE_EVENT_EXEC:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
-                           << "]\n";
-            SeenExec = true;
-            break;
-          case PTRACE_EVENT_EXIT:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
-                           << "]\n";
-            break;
-          case PTRACE_EVENT_STOP:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_STOP) [" << child
-                           << "]\n";
-            break;
-          case PTRACE_EVENT_SECCOMP:
-            if (opts::VeryVerbose)
-              llvm::errs() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
-                           << "]\n";
-            break;
-          }
+        } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
+          //
+          // (3) group-stop
+          //
+
+          if (opts::VeryVerbose)
+            llvm::errs() << "ptrace group-stop [" << child << "]\n";
+
+          // When restarting a tracee from a ptrace-stop other than
+          // signal-delivery-stop, recommended practice is to always pass 0 in
+          // sig.
         } else {
-          on_breakpoint(child, tcg, dis);
+          //
+          // (4) signal-delivery-stop
+          //
+          if (opts::VeryVerbose)
+            llvm::errs() << "delivering signal number " << stopsig << " ["
+                         << child << "]\n";
+
+          // deliver it
+          sig = stopsig;
         }
-      } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
-        //
-        // (3) group-stop
-        //
-
-        if (opts::VeryVerbose)
-          llvm::errs() << "ptrace group-stop [" << child << "]\n";
-
-        // When restarting a tracee from a ptrace-stop other than
-        // signal-delivery-stop, recommended practice is to always pass 0 in
-        // sig.
       } else {
         //
-        // (4) signal-delivery-stop
+        // the child terminated
         //
         if (opts::VeryVerbose)
-          llvm::errs() << "delivering signal number " << stopsig << " ["
-                       << child << "]\n";
+          llvm::errs() << "child " << child << " terminated\n";
 
-        // deliver it
-        sig = stopsig;
+        child = -1;
       }
-    } else {
-      //
-      // the child terminated
-      //
-      if (opts::VeryVerbose)
-        llvm::errs() << "child " << child << " terminated\n";
-
-      child = -1;
     }
+  } catch (const std::exception &e) {
+    WithColor::note() << llvm::formatv("{0}\n", e.what());
   }
 
   //
