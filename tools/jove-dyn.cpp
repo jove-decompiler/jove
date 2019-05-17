@@ -119,6 +119,23 @@ static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
 
 static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
                             cl::aliasopt(Quiet), cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    PrintPtraceEvents("events", cl::desc("Print PTRACE events when they occur"),
+                      cl::cat(JoveCategory));
+
+static cl::alias PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
+                                        cl::aliasopt(PrintPtraceEvents),
+                                        cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    PrintSignals("signals", cl::desc("Print signals when they are delivered"),
+                 cl::cat(JoveCategory));
+
+static cl::alias PrintSignalsAlias("s", cl::desc("Alias for -signals."),
+                                   cl::aliasopt(PrintSignals),
+                                   cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -660,12 +677,12 @@ int ParentProc(pid_t child) {
           if (unlikely(event)) {
             switch (event) {
             case PTRACE_EVENT_VFORK:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
                              << "]\n";
               break;
             case PTRACE_EVENT_FORK:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_FORK) [" << child
                              << "]\n";
               break;
@@ -673,34 +690,34 @@ int ParentProc(pid_t child) {
               pid_t new_child;
               ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_CLONE) -> "
                              << new_child << " [" << child << "]\n";
               break;
             }
             case PTRACE_EVENT_VFORK_DONE:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
                              << child << "]\n";
               break;
             case PTRACE_EVENT_EXEC:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
                              << "]\n";
               SeenExec = true;
               break;
             case PTRACE_EVENT_EXIT:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
               break;
             case PTRACE_EVENT_STOP:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_STOP) [" << child
                              << "]\n";
               break;
             case PTRACE_EVENT_SECCOMP:
-              if (opts::VeryVerbose)
+              if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
                              << "]\n";
               break;
@@ -713,7 +730,7 @@ int ParentProc(pid_t child) {
           // (3) group-stop
           //
 
-          if (opts::VeryVerbose)
+          if (opts::PrintPtraceEvents)
             llvm::errs() << "ptrace group-stop [" << child << "]\n";
 
           // When restarting a tracee from a ptrace-stop other than
@@ -723,7 +740,7 @@ int ParentProc(pid_t child) {
           //
           // (4) signal-delivery-stop
           //
-          if (opts::VeryVerbose)
+          if (opts::PrintSignals)
             llvm::errs() << "delivering signal number " << stopsig << " ["
                          << child << "]\n";
 
