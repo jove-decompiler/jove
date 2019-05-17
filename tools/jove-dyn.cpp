@@ -499,6 +499,16 @@ int ParentProc(pid_t child) {
   BinFoundVec.resize(decompilation.Binaries.size());
 
   //
+  // XXX hack
+  //
+  for (unsigned i = 0; i < decompilation.Binaries.size(); ++i) {
+    std::string binpath(decompilation.Binaries[i].Path);
+    if (binpath.find("libwebkit2gtk") != std::string::npos ||
+        binpath.find("libX11") != std::string::npos)
+      BinFoundVec.set(i);
+  }
+
+  //
   // initialize the LLVM objects necessary for disassembling instructions
   //
   std::string ArchName;
