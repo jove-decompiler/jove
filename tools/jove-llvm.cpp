@@ -921,27 +921,10 @@ int CreateModule(void) {
     llvm::Type *joveFRetTy = joveFTy->getReturnType();
     assert(joveFRetTy->isPointerTy());
     CPUStateType = llvm::cast<llvm::PointerType>(joveFRetTy)->getElementType();
-
-    //
-    // no longer need struct CPUX86State *jove_state()
-    //
-    assert(joveF->user_begin() == joveF->user_end());
-    joveF->eraseFromParent();
   }
 
   TLSStackGlobal = Module->getGlobalVariable("__jove_stack", true);
   assert(TLSStackGlobal);
-
-  {
-    llvm::Function *joveF = Module->getFunction("jove_stack");
-    assert(joveF);
-
-    //
-    // no longer need char *jove_stack(void)
-    //
-    assert(joveF->user_begin() == joveF->user_end());
-    joveF->eraseFromParent();
-  }
 
   return 0;
 }
@@ -3057,9 +3040,14 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 
   unsigned off = Addr - SectsStartAddr;
 
+#if 1
   llvm::GlobalVariable *SectsGV =
       RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
                                                       : SectsGlobal;
+#else
+  llvm::GlobalVariable *SectsGV = SectsGlobal;
+#endif
+
   assert(SectsGV);
 
   if (Addr == SectsEndAddr) {
