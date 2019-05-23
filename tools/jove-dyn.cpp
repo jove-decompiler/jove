@@ -1653,18 +1653,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         translate_function(child, binary_idx, tcg, dis,
                            rva_of_va(target, binary_idx), brkpt_count);
 
-#if 0
-    if (rva_of_va(target, binary_idx) == 0x2050) {
-      llvm::errs() << "target binary_idx=" << binary_idx << " f_idx=" << f_idx
-                   << " ICFG[bb].Addr=" << (fmt("%#lx") % ICFG[bb].Addr).str()
-                   << " DynTargets.size=" << ICFG[bb].DynTargets.size() << '\n';
-      llvm::errs() << "[after] DynTargets.size=" << ICFG[bb].DynTargets.size()
-                   << " isNewTarget=" << isNewTarget << '\n';
-
-      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
-    }
-#endif
-
     isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     // on an indirect jump, we must determine one of two possibilities.
@@ -1676,9 +1664,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     // (2) transfers control to a function (i.e. calling a function pointer)
     //
     bool isTailCall =
-        IndBrInfo.binary_idx != binary_idx ||
-        BinStateVec[binary_idx].FuncMap.find(rva_of_va(target, binary_idx)) !=
-            BinStateVec[binary_idx].FuncMap.end();
+        boost::out_degree(bb, ICFG) == 0 &&
+        (IndBrInfo.binary_idx != binary_idx ||
+         BinStateVec[binary_idx].FuncMap.find(rva_of_va(target, binary_idx)) !=
+             BinStateVec[binary_idx].FuncMap.end());
 
     if (isTailCall) {
       function_index_t f_idx =
@@ -1706,7 +1695,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                  << binary.Path << '\n';
   }
 
-  if (!opts::Quiet)
+  if (!opts::Quiet || isNewTarget)
     llvm::errs() << print_prefix
                  << description_of_program_counter(_pc) << " -> "
                  << description_of_program_counter(target) << '\n';
