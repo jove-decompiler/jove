@@ -174,8 +174,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             Writer.printList("DynTargets", descv);
           }
 
-          auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
-          if (std::distance(adj_it_pair.first, adj_it_pair.second) > 0) {
+          if (boost::out_degree(bb, ICFG) > 0) {
+            auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+
             std::vector<uintptr_t> succs;
             succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
 
