@@ -5587,7 +5587,7 @@ int TranslateBasicBlock(binary_t &Binary,
   } _indirect_jump;
 
   if (T.Type == TERMINATOR::INDIRECT_JUMP)
-    _indirect_jump.IsTailCall = !(boost::out_degree(bb, ICFG) > 0);
+    _indirect_jump.IsTailCall = boost::out_degree(bb, ICFG) == 0;
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
