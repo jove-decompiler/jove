@@ -4749,16 +4749,16 @@ int FixupPCRelativeAddrs(void) {
       }
 
       default:
-        WithColor::error() << "handle_load_of_pcrel: unknown Inst user "
-                           << *Inst << '\n';
+        WithColor::error() << llvm::formatv(
+            "handle_load_of_pcrel: unknown Inst user {0} in function {1}\n",
+            *Inst, Inst->getParent()->getParent()->getName());
         break;
       }
     }
   };
 
   for (llvm::User *U : PCRelGlobal->users()) {
-    if (!llvm::isa<llvm::LoadInst>(U))
-      continue;
+    assert(llvm::isa<llvm::LoadInst>(U));
 
     handle_load_of_pcrel(llvm::cast<llvm::LoadInst>(U));
   }
