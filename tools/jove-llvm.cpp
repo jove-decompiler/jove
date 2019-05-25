@@ -4697,6 +4697,8 @@ int FixupPCRelativeAddrs(void) {
         llvm::Value *LHS = Inst->getOperand(0);
         llvm::Value *RHS = Inst->getOperand(1);
 
+        assert(LHS == L || RHS == L);
+
         llvm::Value *Other = LHS == L ? RHS : LHS;
         unsigned OtherOperandIdx = LHS == L ? 1 : 0;
 
@@ -4751,10 +4753,10 @@ int FixupPCRelativeAddrs(void) {
               }
             }
 
-            WithColor::error()
-                << "handle_load_of_pcrel: unknown PHI node operand "
-                   "in add expression "
-                << *PI->getIncomingValue(i) << '\n';
+            WithColor::error() << llvm::formatv(
+                "handle_load_of_pcrel: unknown PHI operand {0} in function {1}\n",
+                *PI->getIncomingValue(i),
+                Inst->getParent()->getParent()->getName());
           }
 
           continue;
@@ -4789,17 +4791,18 @@ int FixupPCRelativeAddrs(void) {
             continue;
           }
 
-
-          llvm::outs() << "what the fuck is this?\n"
-                       << "_LHS: " << *_LHS << '\n'
-                       << "_RHS: " << *_RHS << '\n';
+          WithColor::error() << llvm::formatv(
+              "handle_load_of_pcrel: unknown _LHS={0} _RHS={1} in function {2}\n",
+              *_LHS, *_RHS,
+              Inst->getParent()->getParent()->getName());
           break;
         }
 
         default:
-          WithColor::error() << "handle_load_of_pcrel: unknown other operand "
-                                "in add expression "
-                             << *Other << '\n';
+          WithColor::error() << llvm::formatv(
+              "handle_load_of_pcrel: unknown OtherInst {0} in function {1}\n",
+              *OtherInst,
+              Inst->getParent()->getParent()->getName());
           break;
         }
       }
@@ -4807,7 +4810,8 @@ int FixupPCRelativeAddrs(void) {
       default:
         WithColor::error() << llvm::formatv(
             "handle_load_of_pcrel: unknown Inst user {0} in function {1}\n",
-            *Inst, Inst->getParent()->getParent()->getName());
+            *Inst,
+            Inst->getParent()->getParent()->getName());
         break;
       }
     }
