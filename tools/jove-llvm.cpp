@@ -2853,13 +2853,41 @@ void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
 
   explode_tcg_global_set(glbv, args);
 
-  if (f.IsABI)
+  if (f.IsABI) {
     std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
       return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
              std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
     });
-  else
-    std::sort(glbv.begin(), glbv.end());
+
+    return;
+  }
+
+  // otherwise, the order we want to impose is
+  // CallConvArgs [sorted as CallConvArgs] ... !(CallConvArgs) [sorted by index]
+  std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+    CallConvArgArrayTy::const_iterator a_it =
+        std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a);
+    CallConvArgArrayTy::const_iterator b_it =
+        std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
+
+    bool A = a_it != CallConvArgArray.end();
+    bool B = b_it != CallConvArgArray.end();
+
+    if (A && B)
+      return a_it < b_it;
+
+    if (A && !B)
+      return 0 < 1;
+
+    if (!A && B)
+      return 1 < 0;
+
+    if (!A && !B)
+      return a < b;
+
+    __builtin_trap();
+    __builtin_unreachable();
+  });
 }
 
 void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
@@ -2867,13 +2895,41 @@ void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
 
   explode_tcg_global_set(glbv, rets);
 
-  if (f.IsABI)
+  if (f.IsABI) {
     std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
       return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
              std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
     });
-  else
-    std::sort(glbv.begin(), glbv.end());
+
+    return;
+  }
+
+  // otherwise, the order we want to impose is
+  // CallConvRets [sorted as CallConvRets] ... !(CallConvRets) [sorted by index]
+  std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
+    CallConvRetArrayTy::const_iterator a_it =
+        std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a);
+    CallConvRetArrayTy::const_iterator b_it =
+        std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
+
+    bool A = a_it != CallConvRetArray.end();
+    bool B = b_it != CallConvRetArray.end();
+
+    if (A && B)
+      return a_it < b_it;
+
+    if (A && !B)
+      return 0 < 1;
+
+    if (!A && B)
+      return 1 < 0;
+
+    if (!A && !B)
+      return a < b;
+
+    __builtin_trap();
+    __builtin_unreachable();
+  });
 }
 
 static llvm::Type *WordType(void) {
