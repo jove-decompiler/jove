@@ -5666,7 +5666,7 @@ int TranslateBasicBlock(binary_t &Binary,
     break;
   }
 
-  case TERMINATOR::INDIRECT_JUMP: {
+  case TERMINATOR::INDIRECT_JUMP:
     //
     // if      pc == target_1 ; goto target_1
     // else if pc == target_2 ; goto target_2
@@ -5676,113 +5676,47 @@ int TranslateBasicBlock(binary_t &Binary,
     // else                   ; trap
     //
     if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
-      assert(boost::out_degree(bb, ICFG) > 0);
-      auto eit_pair = boost::out_edges(bb, ICFG);
+      auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
+      unsigned N = std::distance(adj_it_pair.first, adj_it_pair.second);
+      assert(N > 0);
 
-      auto it = eit_pair.first;
-      do {
-        basic_block_t succ = boost::target(*it, ICFG);
+      std::vector<basic_block_t> succ_bb_vec;
+      succ_bb_vec.resize(N);
+      std::transform(adj_it_pair.first, adj_it_pair.second, succ_bb_vec.begin(),
+                     [](basic_block_t bb) -> basic_block_t { return bb; });
 
+      std::vector<llvm::BasicBlock *> IfSuccBlockVec;
+      IfSuccBlockVec.resize(N);
+      for (unsigned i = 0; i < N; ++i) {
+        basic_block_t succ = succ_bb_vec[i];
+
+        IfSuccBlockVec[i] = llvm::BasicBlock::Create(
+            *Context, (fmt("if_%#lx") % ICFG[succ].Addr).str(), f.F);
+      }
+
+      llvm::BasicBlock *ElseBlock =
+          llvm::BasicBlock::Create(*Context, "else", f.F);
+
+      IRB.CreateBr(IfSuccBlockVec.front());
+
+      for (unsigned i = 0; i < N; ++i) {
+        basic_block_t succ = succ_bb_vec[i];
+
+        IRB.SetInsertPoint(IfSuccBlockVec[i]);
         llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
         llvm::Value *EQV =
             IRB.CreateICmpEQ(PC, ConstantForAddress(ICFG[succ].Addr));
+        IRB.CreateCondBr(EQV, ICFG[succ].B,
+                         i + 1 < N ? IfSuccBlockVec[i + 1] : ElseBlock);
+      }
 
-        llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
-
-        IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
-        IRB.SetInsertPoint(NextB);
-      } while (++it != eit_pair.second);
-
+      IRB.SetInsertPoint(ElseBlock);
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
+
       break;
     }
-
-#if 0
-    if (boost::out_degree(bb, ICFG) > 0) {
-      auto eit_pair = boost::out_edges(bb, ICFG);
-
-      if (boost::out_degree(bb, ICFG) == 1 &&
-          FuncMap.find(ICFG[boost::target(*eit_pair.first, ICFG)].Addr) !=
-              FuncMap.end()) {
-        //
-        // call it like a function
-        //
-        binary_index_t BIdx = BinaryIndex;
-        function_index_t FIdx =
-            (*FuncMap.find(ICFG[boost::target(*eit_pair.first, ICFG)].Addr))
-                .second;
-
-        auto &Binary = Decompilation.Binaries[BIdx];
-        function_t &callee = Binary.Analysis.Functions[FIdx];
-
-        std::vector<llvm::Value *> ArgVec;
-        {
-          std::vector<unsigned> glbv;
-          ExplodeFunctionArgs(callee, glbv);
-
-          ArgVec.resize(glbv.size());
-          std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
-                         [&](unsigned glb) -> llvm::Value * {
-                           llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-                           assert(Ptr);
-                           return IRB.CreateLoad(Ptr);
-                         });
-        }
-
-        llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-        llvm::CallInst *Ret = IRB.CreateCall(
-            IRB.CreateIntToPtr(
-                PC, llvm::PointerType::get(DetermineFunctionType(callee), 0)),
-            ArgVec);
-        Ret->setIsNoInline();
-
-        if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
-          std::vector<unsigned> glbv;
-          ExplodeFunctionRets(callee, glbv);
-
-          if (glbv.size() == 1) {
-            assert(
-                DetermineFunctionType(callee)->getReturnType()->isIntegerTy());
-            if (f.GlobalAllocaVec[glbv.front()])
-              IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
-          } else {
-            for (unsigned i = 0; i < glbv.size(); ++i) {
-              llvm::Value *Val =
-                  IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-
-              llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
-              if (!Ptr)
-                Ptr = CPUStateGlobalPointer(glbv[i]);
-
-              IRB.CreateStore(Val, Ptr);
-            }
-          }
-        }
-      } else {
-        auto it = eit_pair.first;
-        do {
-          basic_block_t succ = boost::target(*it, ICFG);
-
-          llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-          llvm::Value *EQV =
-              IRB.CreateICmpEQ(PC, ConstantForAddress(ICFG[succ].Addr));
-
-          llvm::BasicBlock *NextB = llvm::BasicBlock::Create(*Context, "", f.F);
-
-          IRB.CreateCondBr(EQV, ICFG[succ].B, NextB);
-          IRB.SetInsertPoint(NextB);
-        } while (++it != eit_pair.second);
-
-        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
-                                                       llvm::Intrinsic::trap));
-      }
-
-      break; /* otherwise fallthrough */
-    }
-#endif
-  }
 
   case TERMINATOR::INDIRECT_CALL: {
     auto get_a_callee = [&](void) -> function_t * {
