@@ -3193,8 +3193,9 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = ExportedFunctions.find(S.Name);
     if (it == ExportedFunctions.end()) {
-      WithColor::warning() << "no exported function found by the name "
-                           << S.Name << '\n';
+      if (S.Bind != symbol_t::BINDING::WEAK)
+        WithColor::warning() << llvm::formatv(
+            "no exported function found by the name {0}\n", S.Name);
 
       FTy = llvm::FunctionType::get(VoidType(), false);
     } else {
@@ -3209,16 +3210,13 @@ int CreateSectionGlobalVariables(void) {
                               std::back_inserter(intersect));
 
         if (intersect.empty()) {
-          WithColor::warning()
-              << "no dynamic target found to symbol " << S.Name << '\n';
-
           resolved = *(*it).second.begin();
         } else {
           resolved = intersect.front();
         }
       }
 
-      FTy = DetermineFunctionType(resolved.first, resolved.second);
+      FTy = DetermineFunctionType(resolved);
     }
 
     return llvm::PointerType::get(FTy, 0);
