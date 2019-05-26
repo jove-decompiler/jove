@@ -4837,14 +4837,6 @@ int FixupFSBaseAddrs(void) {
                               false /* hasSideEffects */);
   }
 
-#if 0
-  auto build_fsbase_expression =
-      [&](llvm::Instruction *Inst) -> llvm::CallInst * {
-    llvm::IRBuilderTy IRB(Inst);
-    return IRB.CreateCall(IA);
-  };
-#endif
-
   auto handle_load_of_fsbase = [&](llvm::LoadInst *L) -> void {
     for (llvm::User *U : L->users()) {
       assert(llvm::isa<llvm::Instruction>(U));
@@ -4870,22 +4862,8 @@ int FixupFSBaseAddrs(void) {
                                     ? llvm::cast<llvm::ConstantInt>(LHS)
                                     : llvm::cast<llvm::ConstantInt>(RHS);
 
-        auto it = TLSValueToSymbolMap.find(CI->getZExtValue());
-        if (it == TLSValueToSymbolMap.end()) {
-          WithColor::warning() << "unable to find TLS symbol for offset "
-                               << CI->getZExtValue() << '\n';
-
-          llvm::IRBuilderTy IRB(Inst);
-          ToReplace.push_back({Inst, IRB.CreateAdd(IRB.CreateCall(IA), CI)});
-        } else {
-          llvm::GlobalVariable *GV =
-              Module->getGlobalVariable(*(*it).second.begin(), true);
-          assert(GV);
-
-          ToReplace.push_back(
-              {Inst, llvm::ConstantExpr::getPtrToInt(GV, WordType())});
-        }
-
+        llvm::IRBuilderTy IRB(Inst);
+        ToReplace.push_back({Inst, IRB.CreateAdd(IRB.CreateCall(IA), CI)});
         break;
       }
 
@@ -4893,13 +4871,6 @@ int FixupFSBaseAddrs(void) {
         break;
       }
     }
-
-#if 0
-    ToReplace.push_back({L, build_fsbase_expression(L)});
-#elif 0
-    llvm::IRBuilderTy IRB(*Context);
-    ToReplace.push_back({L, IRB.getInt64(0)});
-#endif
   };
 
   llvm::GlobalVariable *ZeroGV =
