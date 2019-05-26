@@ -4785,6 +4785,8 @@ int FixupPCRelativeAddrs(void) {
               Inst->getParent()->getParent()->getName());
           break;
         }
+
+        break;
       }
 
       default:
