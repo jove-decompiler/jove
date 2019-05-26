@@ -3258,15 +3258,11 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
-    if (!G) {
-      WithColor::warning()
-          << "type_of_addressof_defined_data_relocation: !G for symbol "
-          << S.Name << "\n";
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+    if (!GV)
       return nullptr;
-    }
 
-    return G->getType();
+    return GV->getType();
   };
 
   auto type_of_relative_relocation =
@@ -3308,11 +3304,8 @@ int CreateSectionGlobalVariables(void) {
 
     llvm::StringRef SymName = *(*it).second.begin();
     llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-    if (!GV) {
-      WithColor::error() << "no global variable for '" << SymName
-                         << "' in tpoff relocation\n";
+    if (!GV)
       return nullptr;
-    }
 
     return GV->getType();
   };
@@ -3323,14 +3316,11 @@ int CreateSectionGlobalVariables(void) {
     assert(R.Addr == S.Addr);
     ExternGlobalAddrs.insert(R.Addr);
 
-    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
-    if (!G) {
-      WithColor::warning() << "type_of_copy_relocation: !G for symbol "
-                           << S.Name << "\n";
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+    if (!GV)
       return nullptr;
-    }
 
-    return G->getType();
+    return GV->getType();
   };
 
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -3557,25 +3547,19 @@ int CreateSectionGlobalVariables(void) {
 
     llvm::StringRef SymName = *(*it).second.begin();
     llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-    if (!GV) {
-      WithColor::error() << "no global variable for '" << SymName
-                         << "' in tpoff relocation\n";
+    if (!GV)
       return nullptr;
-    }
 
     return GV;
   };
 
   auto constant_of_copy_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    llvm::GlobalValue *G = Module->getNamedValue(S.Name);
-    if (!G) {
-      WithColor::warning() << "constant_of_copy_relocation: !G for symbol "
-                           << S.Name << "\n";
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+    if (!GV)
       return nullptr;
-    }
 
-    return G;
+    return GV;
   };
 
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
