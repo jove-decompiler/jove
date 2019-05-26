@@ -3018,6 +3018,11 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
       Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx]);
 }
 
+static llvm::FunctionType *DetermineFunctionType(
+    const std::pair<binary_index_t, function_index_t> &FuncIdxPair) {
+  return DetermineFunctionType(FuncIdxPair.first, FuncIdxPair.second);
+}
+
 int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -3387,14 +3392,13 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = ExportedFunctions.find(S.Name);
     if (it == ExportedFunctions.end()) {
-      WithColor::warning() << "no exported function found by the name "
-                           << S.Name << '\n';
-
-      F = llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
-                                 S.Bind == symbol_t::BINDING::WEAK
-                                     ? llvm::GlobalValue::ExternalWeakLinkage
-                                     : llvm::GlobalValue::ExternalLinkage,
-                                 S.Name, Module.get());
+      if (S.Bind == symbol_t::BINDING::WEAK)
+        F = llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
+                                   llvm::GlobalValue::ExternalWeakLinkage,
+                                   S.Name, Module.get());
+      else
+        WithColor::warning() << llvm::formatv(
+            "no exported function found by the name {0}\n", S.Name);
     } else {
       std::pair<binary_index_t, function_index_t> resolved;
 
@@ -3406,22 +3410,17 @@ int CreateSectionGlobalVariables(void) {
                               BinaryDynamicTargets.end(),
                               std::back_inserter(intersect));
 
-        if (intersect.empty()) {
-          WithColor::warning()
-              << "no dynamic target found to symbol " << S.Name << '\n';
-
+        if (intersect.empty())
           resolved = *(*it).second.begin();
-        } else {
+        else
           resolved = intersect.front();
-        }
       }
 
-      F = llvm::Function::Create(
-          DetermineFunctionType(resolved.first, resolved.second),
-          S.Bind == symbol_t::BINDING::WEAK
-              ? llvm::GlobalValue::ExternalWeakLinkage
-              : llvm::GlobalValue::ExternalLinkage,
-          S.Name, Module.get());
+      F = llvm::Function::Create(DetermineFunctionType(resolved),
+                                 S.Bind == symbol_t::BINDING::WEAK
+                                     ? llvm::GlobalValue::ExternalWeakLinkage
+                                     : llvm::GlobalValue::ExternalLinkage,
+                                 S.Name, Module.get());
     }
 
     return F;
@@ -3978,13 +3977,12 @@ int CreateSectionGlobalVariables(void) {
 
       for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
         if (!GV->hasInitializer()) {
-          WithColor::warning() << "global variable " << SymName << " has alias "
-                               << *it << " but is extern\n";
-          continue;
+          WithColor::warning() << llvm::formatv(
+              "global variable {0} has alias {1} but is extern\n", SymName,
+              *it);
+          break;
         }
 
-        llvm::outs() << "global variable " << SymName << " has alias " << *it
-                     << '\n';
         llvm::GlobalAlias::create(*it, GV);
       }
     }
