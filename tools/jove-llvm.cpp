@@ -3262,11 +3262,6 @@ int CreateSectionGlobalVariables(void) {
     if (!GV)
       return nullptr;
 
-    if (!llvm::isa<llvm::GlobalVariable>(GV))
-      WithColor::warning() << llvm::formatv(
-          "type_of_addressof_defined_data_relocation: sym {0} is not var\n",
-          S.Name);
-
     return GV->getType();
   };
 
