@@ -985,9 +985,10 @@ int ProcessBinaryTLSSymbols(void) {
   ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
 
-  llvm::outs() << llvm::format("TLS: [0x%" PRIx64 ", 0x%" PRIx64 ")",
-                               ThreadLocalStorage.Beg, ThreadLocalStorage.End)
-               << '\n';
+  if (opts::Verbose)
+    llvm::outs() << llvm::formatv("TLS: [0x{0:x}, 0x{1:x})\n",
+                                  ThreadLocalStorage.Beg,
+                                  ThreadLocalStorage.End);
 
   const Elf_Shdr *SymTab = nullptr;
   llvm::ArrayRef<Elf_Word> ShndxTable;
@@ -1222,10 +1223,12 @@ int ProcessDynamicSymbols(void) {
             GlobalSymbolDefinedSizeMap.insert({SymName, Sym.st_size});
           } else {
             if ((*it).second != Sym.st_size) {
-              WithColor::warning()
-                  << "data symbol \"" << SymName
-                  << "\" has multiple disagreeing sizes (" << (*it).second
-                  << ", " << Sym.st_size << ")\n";
+              if (opts::Verbose)
+                WithColor::warning()
+                    << llvm::formatv("global symbol {0} is defined with "
+                                     "multiple distinct sizes: {1}, {2}\n",
+                                     SymName, Sym.st_size, (*it).second);
+              (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
             }
           }
         }
@@ -1241,32 +1244,46 @@ int ProcessDynamicSymbols(void) {
             if (it == TLSValueToSizeMap.end()) {
               TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
             } else {
-              if (Sym.st_size != (*it).second) {
+              if ((*it).second != Sym.st_size) {
                 WithColor::warning()
-                    << "TLS symbol has more than one size: " << Sym.st_size
-                    << ", " << (*it).second << '\n';
-                continue;
+                    << llvm::formatv("binary TLS symbol {0} is defined with "
+                                     "multiple distinct sizes: {1}, {2}\n",
+                                     SymName, Sym.st_size, (*it).second);
+                (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
               }
             }
           } else {
             AddrToSymbolMap[Sym.st_value].insert(SymName);
 
-            auto it = AddrToSizeMap.find(Sym.st_value);
-            if (it == AddrToSizeMap.end()) {
-              AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
-            } else {
-              if ((*it).second != Sym.st_size) {
-                WithColor::warning()
-                    << "binary symbol " << SymName
-                    << " has multiple disagreeing sizes (" << Sym.st_size
-                    << ", " << (*it).second << ")\n";
-                continue;
+            {
+              auto it = AddrToSizeMap.find(Sym.st_value);
+              if (it == AddrToSizeMap.end()) {
+                AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
+              } else {
+                if ((*it).second != Sym.st_size) {
+                  // TODO symbol versions
+                  if (opts::Verbose)
+                    WithColor::warning()
+                        << llvm::formatv("binary symbol {0} is defined with "
+                                         "multiple distinct sizes: {1}, {2}\n",
+                                         SymName, Sym.st_size, (*it).second);
+
+                  (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
+                }
               }
             }
 
             boost::icl::interval<uintptr_t>::type intervl =
                 boost::icl::interval<uintptr_t>::right_open(
                     Sym.st_value, Sym.st_value + Sym.st_size);
+
+            auto it = AddressSpaceObjects.find(intervl);
+            if (it != AddressSpaceObjects.end()) {
+              if (boost::icl::contains(intervl, *it)) {
+                intervl = boost::icl::hull(*it, intervl);
+                AddressSpaceObjects.erase(it);
+              }
+            }
 
             AddressSpaceObjects.insert({intervl});
           }
@@ -1276,8 +1293,9 @@ int ProcessDynamicSymbols(void) {
         {
           auto it = st.FuncMap.find(Sym.st_value);
           if (it == st.FuncMap.end()) {
-            WithColor::error()
-                << "no function for symbol " << SymName << " found\n";
+            WithColor::warning()
+                << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
+                                 Sym.st_value, SymName);
             continue;
           }
 
@@ -1285,9 +1303,6 @@ int ProcessDynamicSymbols(void) {
         }
 
         binary.Analysis.Functions[FuncIdx].IsABI = true;
-
-        if (!ExportedFunctions[SymName].empty())
-          WithColor::note() << ' ' << SymName << '\n';
 
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       }
