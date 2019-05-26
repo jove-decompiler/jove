@@ -3258,9 +3258,14 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+    llvm::GlobalValue *GV = Module->getNamedValue(S.Name);
     if (!GV)
       return nullptr;
+
+    if (!llvm::isa<llvm::GlobalVariable>(GV))
+      WithColor::warning() << llvm::formatv(
+          "type_of_addressof_defined_data_relocation: sym {0} is not var\n",
+          S.Name);
 
     return GV->getType();
   };
