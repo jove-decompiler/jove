@@ -564,6 +564,7 @@ static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int PrepareToTranslateCode(void);
 static int CreateFunctions(void);
+static int RenameFunctions(void);
 static int CreateSectionGlobalVariables(void);
 #if 0
 static int CreateCPUStateGlobal(void);
@@ -587,7 +588,6 @@ static int InternalizeSections(void);
 static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RenameFunctionLocals(void);
-static int RenameFunctions(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -602,6 +602,7 @@ int llvm(void) {
       || ProcessIFuncResolvers()
       || PrepareToTranslateCode()
       || CreateFunctions()
+      || RenameFunctions()
       || CreateSectionGlobalVariables()
 #if 0
       || CreateCPUStateGlobal()
@@ -625,7 +626,6 @@ int llvm(void) {
       || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
       || RenameFunctionLocals()
-      || RenameFunctions()
       || WriteModule();
 }
 
@@ -1728,9 +1728,14 @@ int PrepareToTranslateCode(void) {
   DebugInformation.File =
       DIB.createFile(fs::path(Binary.Path).filename().string() + ".fake",
                      fs::path(Binary.Path).parent_path().string());
+
   DebugInformation.CompileUnit = DIB.createCompileUnit(
-      llvm::dwarf::DW_LANG_C, DebugInformation.File, "jove",
-      /*isOptimized=*/true, "", 0);
+      /* Lang        */ llvm::dwarf::DW_LANG_C,
+      /* File        */ DebugInformation.File,
+      /* Producer    */ "jove",
+      /* isOptimized */ true,
+      /* Flags       */ "",
+      /* RunTimeVer  */ 0);
 
   return 0;
 }
@@ -3068,6 +3073,37 @@ int CreateFunctions(void) {
   return 0;
 }
 
+int RenameFunctions(void) {
+  for (const auto &pair : ExportedFunctions) {
+    assert(!pair.second.empty());
+
+    for (const auto &IdxPair : pair.second) {
+      binary_index_t BinIdx;
+      function_index_t FuncIdx;
+      std::tie(BinIdx, FuncIdx) = IdxPair;
+
+      if (BinIdx != BinaryIndex)
+        continue;
+
+      function_t &f =
+          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
+
+      if (!f.IsNamed) {
+        f.IsNamed = true;
+
+        std::string oldName = f.F->getName();
+        f.F->setName(pair.first);
+
+        llvm::GlobalAlias::create(oldName, f.F);
+      } else {
+        llvm::GlobalAlias::create(pair.first, f.F);
+      }
+    }
+  }
+
+  return 0;
+}
+
 } // namespace jove
 
 namespace llvm {
@@ -4356,25 +4392,26 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
   std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
 
-  llvm::DISubprogram::DISPFlags SPFlags = llvm::DISubprogram::SPFlagDefinition |
-                                          llvm::DISubprogram::SPFlagOptimized;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
 
   if (F->hasPrivateLinkage() || F->hasInternalLinkage())
-    SPFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
-  llvm::DISubroutineType *SPType =
+  llvm::DISubroutineType *SubProgType =
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
-  f.DebugInformation.Subprogram =
-    DIB.createFunction(DebugInformation.CompileUnit, /* Scope */
-                       F->getName(),                 /* Name */
-                       F->getName(),                 /* LinkageName */
-                       DebugInformation.File,        /* File */
-                       0,                            /* LineNo */
-                       SPType,                       /* Ty */
-                       0,                            /* ScopeLine */
-                       llvm::DINode::FlagZero,       /* Flags */
-                       SPFlags);                     /* SPFlags */
+  f.DebugInformation.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ F->getName(),
+      /* LinkageName */ F->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
 
   F->setSubprogram(f.DebugInformation.Subprogram);
 
@@ -5016,37 +5053,6 @@ int RenameFunctionLocals(void) {
     for (llvm::User *UU : U->users()) {
       if (llvm::isa<llvm::LoadInst>(UU))
         UU->setName(nm);
-    }
-  }
-
-  return 0;
-}
-
-int RenameFunctions(void) {
-  for (const auto &pair : ExportedFunctions) {
-    assert(!pair.second.empty());
-
-    for (const auto &IdxPair : pair.second) {
-      binary_index_t BinIdx;
-      function_index_t FuncIdx;
-      std::tie(BinIdx, FuncIdx) = IdxPair;
-
-      if (BinIdx != BinaryIndex)
-        continue;
-
-      function_t &f =
-          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
-      if (!f.IsNamed) {
-        f.IsNamed = true;
-
-        std::string oldName = f.F->getName();
-        f.F->setName(pair.first);
-
-        llvm::GlobalAlias::create(oldName, f.F);
-      } else {
-        llvm::GlobalAlias::create(pair.first, f.F);
-      }
     }
   }
 
