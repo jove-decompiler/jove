@@ -537,15 +537,24 @@ void spawn_workers(void) {
 int await_process_completion(pid_t pid) {
   int wstatus;
   do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
-      if (errno != EINTR) {
-        WithColor::error() << "waitpid failed : " << strerror(errno) << '\n';
-        abort();
-      }
-    }
-  } while (!WIFEXITED(wstatus));
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
+      abort();
 
-  return WEXITSTATUS(wstatus);
+    if (WIFEXITED(wstatus)) {
+      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      return WEXITSTATUS(wstatus);
+    } else if (WIFSIGNALED(wstatus)) {
+      //printf("killed by signal %d\n", WTERMSIG(wstatus));
+      return 1;
+    } else if (WIFSTOPPED(wstatus)) {
+      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      return 1;
+    } else if (WIFCONTINUED(wstatus)) {
+      //printf("continued\n");
+    }
+  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+
+  abort();
 }
 
 unsigned num_cpus(void) {
