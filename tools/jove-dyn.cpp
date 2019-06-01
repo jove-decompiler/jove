@@ -175,7 +175,7 @@ typedef boost::format fmt;
 static decompilation_t decompilation;
 
 static bool verify_arch(const obj::ObjectFile &);
-static bool update_view_of_virtual_memory(int child);
+static bool update_view_of_virtual_memory(pid_t child);
 
 static bool SeenExec = false;
 
@@ -2124,7 +2124,7 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   return Obj.getArch() == archty;
 }
 
-bool update_view_of_virtual_memory(int child) {
+bool update_view_of_virtual_memory(pid_t child) {
   FILE *fp;
   char *line = NULL;
   size_t len = 0;
@@ -2132,7 +2132,7 @@ bool update_view_of_virtual_memory(int child) {
 
   {
     char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/maps", child);
+    snprintf(path, sizeof(path), "/proc/%d/maps", static_cast<int>(child));
 
     fp = fopen(path, "r");
   }
