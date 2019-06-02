@@ -1,0 +1,270 @@
+#include "jove/jove.h"
+
+#include <cstdlib>
+#include <sys/wait.h>
+#include <boost/filesystem.hpp>
+#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/WithColor.h>
+#include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/FormatVariadic.h>
+
+namespace fs = boost::filesystem;
+namespace cl = llvm::cl;
+
+using llvm::WithColor;
+
+namespace opts {
+static cl::OptionCategory JoveCategory("Specific Options");
+
+static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
+                                 cl::value_desc("filename"),
+                                 cl::cat(JoveCategory));
+
+static cl::list<std::string> Args("args", cl::CommaSeparated,
+                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
+                                  cl::desc("Program arguments"),
+                                  cl::cat(JoveCategory));
+
+static cl::list<std::string>
+    Envs("env", cl::CommaSeparated,
+         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
+
+static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
+                               cl::Required, cl::value_desc("filename"),
+                               cl::cat(JoveCategory));
+
+static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
+                         cl::aliasopt(jv), cl::cat(JoveCategory));
+} // namespace opts
+
+namespace jove {
+static int trace(void);
+}
+
+int main(int argc, char **argv) {
+  llvm::InitLLVM X(argc, argv);
+
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
+  cl::ParseCommandLineOptions(argc, argv, "Jove Trace\n");
+
+  if (!fs::exists(opts::Prog)) {
+    WithColor::error() << "program does not exist\n";
+    return 1;
+  }
+
+  if (!fs::exists(opts::jv)) {
+    WithColor::error() << "decompilation does not exist\n";
+    return 1;
+  }
+
+  return jove::trace();
+}
+
+namespace jove {
+
+static decompilation_t Decompilation;
+
+static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
+                        'X', 'X', 'X', 'X', 'X', '\0'};
+
+static int await_process_completion(pid_t);
+
+int trace(void) {
+  bool git = fs::is_directory(opts::jv);
+
+  //
+  // parse the existing decompilation file
+  //
+  {
+    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> Decompilation;
+  }
+
+  //
+  // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
+  // standard output, which will tell us what binaries are needed by prog.
+  //
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(errno));
+    return 1;
+  }
+
+  const pid_t pid = fork();
+
+  //
+  // are we the child?
+  //
+  if (!pid) {
+    close(pipefd[0]); /* close unused read end */
+
+    /* make stdout be the write end of the pipe */
+    if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+      WithColor::error() << llvm::formatv("dup2 failed: {0}\n",
+                                          strerror(errno));
+      exit(1);
+    }
+
+    const char *argv[] = {opts::Prog.c_str(), nullptr};
+
+    std::vector<const char *> envv;
+    for (char **env = ::environ; *env; ++env)
+      envv.push_back(*env);
+    envv.push_back("LD_TRACE_LOADED_OBJECTS=1");
+    envv.push_back(nullptr);
+
+    return execve(argv[0],
+                  const_cast<char **>(&argv[0]),
+                  const_cast<char **>(&envv[0]));
+  }
+
+  close(pipefd[1]); /* close unused write end */
+
+  //
+  // slurp up the result of executing the binary
+  //
+  std::string dynlink_stdout;
+  {
+    char ch;
+    while (read(pipefd[0], &ch, 1) > 0)
+      dynlink_stdout += ch;
+  }
+
+  close(pipefd[0]); /* close read end */
+
+  //
+  // check exit code
+  //
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << llvm::formatv("LD_TRACE_LOADED_OBJECTS=1 {0}\n",
+                                        opts::Prog);
+    return 1;
+  }
+
+  std::vector<fs::path> binary_paths = {opts::Prog};
+
+  //
+  // get the path to the dynamic linker
+  //
+  {
+    std::string::size_type pos = dynlink_stdout.find("\t/");
+    if (pos == std::string::npos) {
+      WithColor::error()
+          << "could not find interpreter path in output from dynamic linker\n";
+      return 1;
+    }
+
+    ++pos; /* skip '\t' */
+
+    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
+    std::string dynl_path = dynlink_stdout.substr(pos, space_pos - pos);
+
+    // (don't canonicalize)
+    binary_paths.push_back(dynl_path);
+  }
+
+  //
+  // consider everything else, except vdso
+  //
+  std::string::size_type pos = 0;
+  for (;;) {
+    std::string::size_type arrow_pos = dynlink_stdout.find(" => /", pos);
+
+    if (arrow_pos == std::string::npos)
+      break;
+
+    pos = arrow_pos + strlen(" => /") - 1;
+
+    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
+
+    if (space_pos == std::string::npos)
+      break;
+
+    std::string path = dynlink_stdout.substr(pos, space_pos - pos);
+
+    assert(std::find(binary_paths.begin(), binary_paths.end(), path) ==
+           binary_paths.end());
+
+    // (don't canonicalize)
+    binary_paths.push_back(path);
+  }
+
+  //
+  // creating a unique temporary directory that will serve as a sysroot
+  //
+  if (!mkdtemp(tmpdir)) {
+    WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n",
+                                        strerror(errno));
+    return 1;
+  }
+
+  fs::path sysroot(tmpdir);
+
+  //
+  // copy the binaries to the sysroot, making symbolic links as necessary
+  //
+  for (const fs::path &p : binary_paths) {
+    if (!fs::exists(p)) {
+      WithColor::error() << llvm::formatv(
+          "path from dynamic linker '{0}' is bogus\n", p.c_str());
+      return 1;
+    }
+
+    llvm::outs() << llvm::formatv("binary path: {0}\n", p.c_str());
+
+    fs::path chrooted(sysroot / p);
+
+    llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
+
+    fs::create_directories(chrooted.parent_path());
+
+    if (fs::is_symlink(p)) {
+      fs::copy_symlink(p, chrooted);
+
+      fs::path _p = p.parent_path() / fs::read_symlink(p);
+      fs::path _chrooted(sysroot / _p);
+
+      fs::create_directories(_chrooted.parent_path());
+      fs::copy_file(_p, _chrooted);
+    } else {
+      assert(fs::is_regular_file(p));
+      fs::copy_file(p, chrooted);
+    }
+  }
+
+  return 0;
+}
+
+int await_process_completion(pid_t pid) {
+  int wstatus;
+  do {
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
+      abort();
+
+    if (WIFEXITED(wstatus)) {
+      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      return WEXITSTATUS(wstatus);
+    } else if (WIFSIGNALED(wstatus)) {
+      //printf("killed by signal %d\n", WTERMSIG(wstatus));
+      return 1;
+    } else if (WIFSTOPPED(wstatus)) {
+      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      return 1;
+    } else if (WIFCONTINUED(wstatus)) {
+      //printf("continued\n");
+    }
+  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+
+  abort();
+}
+
+}
