@@ -266,8 +266,7 @@ int trace(void) {
   }
 
   //
-  // first thing we gotta do is clear any uprobe_events already registered, if
-  // any exist
+  // open with O_TRUNC to clear any uprobe_events already registered
   //
   {
     int fd = open(PATH_TO_TRACEFS "/uprobe_events", O_TRUNC | O_WRONLY);
@@ -278,11 +277,52 @@ int trace(void) {
       return 1;
     }
 
-    if (write(fd, "\n", 1) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to clear uprobe_events: {0}\n",
-                                          strerror(err));
-      return 1;
+    //
+    // create a uprobe_event for every basic block in every DSO except the
+    // dynamic linker
+    //
+    for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      const binary_t &binary = Decompilation.Binaries[BIdx];
+
+      if (binary.IsDynamicLinker)
+        continue;
+
+      fs::path chrooted(sysroot / binary.Path);
+      if (!fs::exists(chrooted)) {
+        WithColor::error() << llvm::formatv("binary does not exist at {0}\n",
+                                            chrooted.c_str());
+        return 1;
+      }
+
+      const auto &ICFG = binary.Analysis.ICFG;
+
+      for (unsigned BBIdx = 0; BBIdx < boost::num_vertices(ICFG); ++BBIdx) {
+        basic_block_t bb = boost::vertex(BBIdx, ICFG);
+
+        //
+        // e.g.
+        //
+        // $ cat /sys/kernel/debug/tracing/uprobe_events
+        //
+        // p:jove/JV_0_0 /tmp/XdoHpm/usr/bin/ls:0x0000000000005ac0
+        // p:jove/JV_0_1 /tmp/XdoHpm/usr/bin/ls:0x0000000000005aee
+        //
+
+        char buff[0x100];
+        snprintf(buff, sizeof(buff),
+                 "p:jove/JV_%u_%u %s:0x%lx\n",
+                 BIdx,
+                 BBIdx,
+                 chrooted.c_str(),
+                 ICFG[bb].Addr);
+
+        if (write(fd, buff, strlen(buff)) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv(
+              "failed to write to uprobe_events: {0}\n", strerror(err));
+          return 1;
+        }
+      }
     }
 
     if (close(fd) < 0) {
