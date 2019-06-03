@@ -2,6 +2,11 @@
 
 #include <cstdlib>
 #include <sys/wait.h>
+#include <sys/vfs.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <linux/magic.h>
 #include <boost/filesystem.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
@@ -238,6 +243,53 @@ int trace(void) {
     } else {
       assert(fs::is_regular_file(p));
       fs::copy_file(p, chrooted);
+    }
+  }
+
+  //
+  // check for tracefs filesystem
+  //
+#define PATH_TO_TRACEFS "/sys/kernel/debug/tracing"
+  {
+    struct statfs buf;
+    if (statfs(PATH_TO_TRACEFS "/README", &buf) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("statfs failed: {0}\n",
+                                          strerror(err));
+      return 1;
+    }
+
+    if (buf.f_type != TRACEFS_MAGIC) {
+      WithColor::error() << "no tracefs found at " PATH_TO_TRACEFS "\n";
+      return 1;
+    }
+  }
+
+  //
+  // first thing we gotta do is clear any uprobe_events already registered, if
+  // any exist
+  //
+  {
+    int fd = open(PATH_TO_TRACEFS "/uprobe_events", O_TRUNC | O_WRONLY);
+    if (fd < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to open uprobe_events: {0}\n",
+                                          strerror(err));
+      return 1;
+    }
+
+    if (write(fd, "\n", 1) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to clear uprobe_events: {0}\n",
+                                          strerror(err));
+      return 1;
+    }
+
+    if (close(fd) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to close uprobe_events: {0}\n",
+                                          strerror(err));
+      return 1;
     }
   }
 
