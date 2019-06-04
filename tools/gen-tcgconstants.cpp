@@ -87,8 +87,7 @@ int main(int argc, char **argv) {
     {
       printf("typedef std::array<unsigned, %u> CallConvRetArrayTy;\n",
              static_cast<unsigned>(ret_regs.size()));
-      printf("static const CallConvRetArrayTy CallConvRetArray{",
-             static_cast<unsigned>(ret_regs.size()));
+      printf("static const CallConvRetArrayTy CallConvRetArray{");
 
       bool first = true;
       for (const char *nm : ret_regs) {
