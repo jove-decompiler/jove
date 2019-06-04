@@ -47,6 +47,11 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
+
+static cl::opt<bool> SkipUProbe("skip-uprobe",
+                                cl::desc("Skip adding userspace tracepoints"),
+                                cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -80,6 +85,8 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
 static int await_process_completion(pid_t);
+
+static int ChildProc(void);
 
 int trace(void) {
   bool git = fs::is_directory(opts::jv);
@@ -224,11 +231,11 @@ int trace(void) {
       return 1;
     }
 
-    llvm::outs() << llvm::formatv("binary path: {0}\n", p.c_str());
+    //llvm::outs() << llvm::formatv("binary path: {0}\n", p.c_str());
 
     fs::path chrooted(sysroot / p);
 
-    llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
+    //llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
 
     fs::create_directories(chrooted.parent_path());
 
@@ -264,6 +271,9 @@ int trace(void) {
       return 1;
     }
   }
+
+  if (opts::SkipUProbe)
+    goto skip_uprobe;
 
   //
   // open with O_TRUNC to clear any uprobe_events already registered
@@ -333,7 +343,85 @@ int trace(void) {
     }
   }
 
+  //
+  // enable the uprobe_events we just added
+  //
+  {
+    int fd = open(PATH_TO_TRACEFS "/events/jove/enable", O_WRONLY);
+    if (fd < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv(
+          "failed to open uprobe_events enable: {0}\n", strerror(err));
+      return 1;
+    }
+
+    if (write(fd, "1\n", 2) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv(
+          "failed to write to uprobe_events enable: {0}\n", strerror(err));
+      return 1;
+    }
+
+    if (close(fd) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv(
+          "failed to close uprobe_events enable: {0}\n", strerror(err));
+      return 1;
+    }
+  }
+
+skip_uprobe:
+
+  //
+  // fork, chroot, exec
+  //
+  pid_t child = fork();
+  if (!child) {
+    if (chroot(sysroot.c_str()) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
+                                          strerror(err));
+      exit(1);
+    }
+
+    ChildProc();
+    exit(1); /* execve failed TODO */
+  }
+
+  if (int ret = await_process_completion(child))
+    return ret;
+
   return 0;
+}
+
+int ChildProc(void) {
+  //
+  // arguments
+  //
+  std::vector<const char *> argv;
+  argv.push_back(opts::Prog.c_str());
+
+  for (const std::string &arg : opts::Args)
+    argv.push_back(arg.c_str());
+
+  argv.push_back(nullptr);
+
+  //
+  // environment
+  //
+  std::vector<const char *> envv;
+  for (char **env = ::environ; *env; ++env)
+    envv.push_back(*env);
+  //envv.push_back("LD_BIND_NOW=1");
+
+  for (const std::string &env : opts::Envs)
+    envv.push_back(env.c_str());
+
+  envv.push_back(nullptr);
+
+  return execve(argv[0],
+                const_cast<char **>(&argv[0]),
+                const_cast<char **>(&envv[0]));
 }
 
 int await_process_completion(pid_t pid) {
