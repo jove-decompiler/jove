@@ -30,9 +30,9 @@ enum class TERMINATOR : uint8_t {
   NONE
 };
 
-typedef unsigned binary_index_t;
-typedef unsigned function_index_t;
-typedef unsigned basic_block_index_t;
+typedef uint32_t binary_index_t;
+typedef uint32_t function_index_t;
+typedef uint32_t basic_block_index_t;
 
 constexpr binary_index_t invalid_binary_index =
     std::numeric_limits<binary_index_t>::max();
