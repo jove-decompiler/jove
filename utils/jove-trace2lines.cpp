@@ -112,8 +112,38 @@ int trace2lines(void) {
     ia >> decompilation;
   }
 
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
+    return 1;
+  }
+
+  pid_t pid = fork();
+
   //
-  // execute addr2line for every block in the trace
+  // are we the child?
+  //
+  if (!pid) {
+    close(pipefd[1]); /* close unused write end */
+
+    /* make stdin be the read end of the pipe */
+    if (dup2(pipefd[0], STDIN_FILENO) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("dup2 failed: {0}\n", strerror(err));
+      exit(1);
+    }
+
+    const char *argv[] = {"/usr/bin/llvm-symbolizer",
+                          "-print-source-context-lines=10", nullptr};
+
+    return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+  }
+
+  close(pipefd[0]); /* close unused read end */
+
+  //
+  // addr2line for every block in the trace
   //
   for (const auto &pair : trace) {
     binary_index_t BIdx;
@@ -121,44 +151,12 @@ int trace2lines(void) {
 
     std::tie(BIdx, BBIdx) = pair;
 
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
-      return 1;
-    }
-
-    pid_t pid = fork();
-
-    //
-    // are we the child?
-    //
-    if (!pid) {
-      close(pipefd[1]); /* close unused write end */
-
-      /* make stdin be the read end of the pipe */
-      if (dup2(pipefd[0], STDIN_FILENO) < 0) {
-	int err = errno;
-        WithColor::error() << llvm::formatv("dup2 failed: {0}\n",
-                                            strerror(err));
-        exit(1);
-      }
-
-      const char *argv[] = {"/usr/bin/llvm-symbolizer",
-                            "-print-source-context-lines=10",
-			    nullptr};
-
-      return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
-    }
-
-    close(pipefd[0]); /* close unused read end */
-
     const auto &binary = decompilation.Binaries.at(BIdx);
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
     char buff[0x100];
-    snprintf(buff, sizeof(buff), "%s 0x%lx",
+    snprintf(buff, sizeof(buff), "%s 0x%lx\n",
 	     binary.Path.c_str(),
              ICFG[bb].Addr);
 
@@ -169,13 +167,14 @@ int trace2lines(void) {
       return 1;
     }
 
-    close(pipefd[1]); /* close write end */
-
-    if (int ret = await_process_completion(pid))
-      return 1;
-
 //    llvm::outs() << llvm::formatv("JV_{0}_{1}\n", BIdx, BBIdx);
   }
+
+  close(pipefd[1]); /* close write end */
+
+  if (int ret = await_process_completion(pid))
+    return 1;
+
   return 0;
 }
 
