@@ -445,8 +445,12 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+void _jove_trace_init(void);
+
 extern __thread struct CPUX86State __jove_env;
 extern __thread char __jove_stack[0x100000];
+extern __thread uint64_t *__jove_trace;
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
+uint64_t           *jove_trace(void) { return (_jove_trace_init(), __jove_trace); }

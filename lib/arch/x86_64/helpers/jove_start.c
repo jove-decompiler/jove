@@ -447,9 +447,11 @@ typedef struct CPUX86State {
 
 __thread struct CPUX86State __jove_env;
 __thread char __jove_stack[0x100000];
+__thread uint64_t *__jove_trace;
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
+uint64_t           *jove_trace(void) { return __jove_trace; }
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -459,6 +461,7 @@ char               *jove_stack(void) { return &__jove_stack[0]; }
 #include <errno.h>
 #include <inttypes.h>
 #include <unistd.h>
+#include <sys/mman.h>
 
 void _jove_call_entry(void);
 
@@ -473,6 +476,9 @@ static _INL ssize_t _read(int, void *, size_t);
 static _INL int _close(int);
 static _INL ssize_t _write(int, const void *, size_t);
 static _INL void _exit_group(int status);
+static _INL int _ftruncate(int fd, off_t length);
+static _INL void *_mmap(void *addr, size_t length, int prot, int flags, int fd,
+                        off_t offset);
 
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
@@ -481,6 +487,8 @@ static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uint64_t _get_stack_end(void);
+
+void _jove_trace_init(void);
 
 void __jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
@@ -512,6 +520,8 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   _memcpy(env_sp_addr, (void *)sp_addr, len);
 
   __jove_env.regs[R_ESP] = (target_ulong)env_sp_addr;
+
+  _jove_trace_init();
 
   return _jove_call_entry();
 }
@@ -756,4 +766,59 @@ void *_memcpy(void *dest, const void *src, size_t n) {
     *d++ = *s++;
 
   return dest;
+}
+
+int _ftruncate(int fd, off_t length) {
+  long resultvar;
+
+  off_t __arg2 = length;
+  int   __arg1 = fd;
+
+  register off_t _a2 asm("rsi") = __arg2;
+  register int   _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_ftruncate), "r"(_a1), "r"(_a2)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+void *_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
+  long resultvar;
+
+  off_t  __arg6 = offset;
+  int    __arg5 = fd;
+  int    __arg4 = flags;
+  int    __arg3 = prot;
+  size_t __arg2 = length;
+  void * __arg1 = addr;
+
+  register off_t  _a6 asm("r9")  = __arg6;
+  register int    _a5 asm("r8")  = __arg5;
+  register int    _a4 asm("r10") = __arg4;
+  register int    _a3 asm("rdx") = __arg3;
+  register size_t _a2 asm("rsi") = __arg2;
+  register void * _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_mmap), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4),
+                 "r"(_a5), "r"(_a6)
+               : "memory", "cc", "r11", "cx");
+
+  return (void *)resultvar;
+}
+
+void _jove_trace_init(void) {
+  if (__jove_trace)
+    return;
+
+  int fd = _open("trace.bin", O_WRONLY | O_CREAT | O_TRUNC | O_SYNC, 0666);
+  off_t size = 1UL << 31; /* 2 GiB */
+  _ftruncate(fd, size);
+  void *p = _mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
+
+  __jove_trace = p;
 }

@@ -194,6 +194,11 @@ static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
                              cl::aliasopt(Output), cl::cat(JoveCategory));
 
 static cl::opt<bool>
+    Trace("trace",
+          cl::desc("Instrument code to output basic block execution trace"),
+          cl::cat(JoveCategory));
+
+static cl::opt<bool>
     NoFixupFSBase("no-fixup-fsbase",
                   cl::desc("Don't fixup FS-relative references"),
                   cl::cat(JoveCategory));
@@ -202,10 +207,12 @@ static cl::opt<bool> PrintPCRel("pcrel",
                                 cl::desc("Print pc-relative references"),
                                 cl::cat(JoveCategory));
 
+#if 0
 static cl::opt<bool>
     Emu("emu",
         cl::desc("Code operates on TLS globals which represent the CPU state"),
         cl::cat(JoveCategory));
+#endif
 
 static cl::opt<bool> NoInline("noinline",
                               cl::desc("Prevents inlining internal functions"),
@@ -490,6 +497,10 @@ static std::unordered_set<uintptr_t> RelocationsAt;
 static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::GlobalVariable *TLSStackGlobal;
 static llvm::Type *CPUStateType;
+
+static llvm::GlobalVariable *TraceGlobal;
+
+static llvm::Function *JoveTraceInitFunc;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -925,6 +936,12 @@ int CreateModule(void) {
 
   TLSStackGlobal = Module->getGlobalVariable("__jove_stack", true);
   assert(TLSStackGlobal);
+
+  TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
+  assert(TraceGlobal);
+
+  JoveTraceInitFunc = Module->getFunction("_jove_trace_init");
+  assert(JoveTraceInitFunc);
 
   return 0;
 }
@@ -4073,6 +4090,8 @@ int CreateSectionGlobalVariables(void) {
                   IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
               CPUStateGlobalPointer(tcg_stack_pointer_index));
 
+          IRB.CreateCall(JoveTraceInitFunc);
+
           std::vector<llvm::Value *> ArgVec;
           ArgVec.resize(N);
 
@@ -5278,6 +5297,28 @@ int TranslateBasicBlock(binary_t &Binary,
 
   const uintptr_t Addr = ICFG[bb].Addr;
   const unsigned Size = ICFG[bb].Size;
+
+  if (opts::Trace) {
+    binary_index_t BIdx = BinaryIndex;
+
+    boost::property_map<interprocedural_control_flow_graph_t,
+                        boost::vertex_index_t>::type bb_idx_map =
+        boost::get(boost::vertex_index, ICFG);
+
+    basic_block_index_t BBIdx = bb_idx_map[bb];
+
+    static_assert(sizeof(BIdx) == sizeof(uint32_t));
+    static_assert(sizeof(BBIdx) == sizeof(uint32_t));
+
+    uint64_t comb =
+        (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
+
+    llvm::Value *Ptr = IRB.CreateLoad(TraceGlobal);
+    llvm::Value *PtrInc = IRB.CreateConstGEP1_64(Ptr, 1);
+
+    IRB.CreateStore(IRB.getInt64(comb), Ptr, true /* Volatile */);
+    IRB.CreateStore(PtrInc, TraceGlobal);
+  }
 
   binary_state_t &st = BinStateVec[BinaryIndex];
 

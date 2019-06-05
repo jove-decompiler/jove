@@ -61,6 +61,11 @@ static cl::opt<unsigned> Threads("num-threads",
                                  cl::cat(JoveCategory));
 
 static cl::opt<bool>
+    Trace("trace",
+          cl::desc("Instrument code to output basic block execution trace"),
+          cl::cat(JoveCategory));
+
+static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
@@ -375,6 +380,8 @@ static void worker(void) {
       arg_vec.push_back(const_cast<char *>(opts::jv.c_str()));
       arg_vec.push_back(const_cast<char *>("-binary"));
       arg_vec.push_back(const_cast<char *>(binary_filename.c_str()));
+      if (opts::Trace)
+        arg_vec.push_back(const_cast<char *>("-trace"));
       arg_vec.push_back(const_cast<char *>("-output"));
       arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
       arg_vec.push_back(nullptr);
