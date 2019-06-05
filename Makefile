@@ -32,25 +32,41 @@ LDFLAGS := $(shell pkg-config --libs glib-2.0) \
 #
 # important directories
 #
-SRCDIR := tools
 BINDIR := bin
 
 #
 # find tools
 #
-SRCS  := $(wildcard $(SRCDIR)/*.cpp)
-TOOLS := $(patsubst $(SRCDIR)/%.cpp,%,$(SRCS))
-BINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
-DEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
+TOOLSRCDIR := tools
+TOOLSRCS  := $(wildcard $(TOOLSRCDIR)/*.cpp)
+TOOLS := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
+TOOLBINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
+TOOLDEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
 
-all: $(BINS)
+#
+# find utils
+#
+UTILSRCDIR := utils
+UTILSRCS  := $(wildcard $(UTILSRCDIR)/*.cpp)
+UTILS := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
+UTILBINS  := $(foreach util,$(UTILS),$(BINDIR)/$(util))
+UTILDEPS  := $(foreach util,$(UTILS),$(BINDIR)/$(util).d)
+
+all: $(UTILBINS) $(TOOLBINS)
 
 define build_tool_template
-$(BINDIR)/$(1): $(SRCDIR)/$(1).cpp Makefile
+$(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp Makefile
 	@echo CXX $(1)
 	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
+
+define build_util_template
+$(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp Makefile
+	@echo CXX $(1)
+	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
+endef
+$(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
 $(BINDIR)/jove-llvm: $(BINDIR)/jove/tcgconstants.h
 
@@ -63,7 +79,7 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 
 .PHONY: clean
 clean:
-	rm -rf $(BINS) $(DEPS) $(BINDIR)/jove $(BINDIR)/jove.bc
+	rm -rf $(UTILBINS) $(TOOLBINS) $(UTILDEPS) $(TOOLDEPS) $(BINDIR)/jove $(BINDIR)/jove.bc
 
 #
 # for extricating QEMU code
