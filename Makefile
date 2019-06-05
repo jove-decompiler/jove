@@ -75,11 +75,12 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@echo GEN $@
 	@$< > $@
 
--include $(DEPS)
+-include $(TOOLDEPS)
+-include $(UTILDEPS)
 
 .PHONY: clean
 clean:
-	rm -rf $(UTILBINS) $(TOOLBINS) $(UTILDEPS) $(TOOLDEPS) $(BINDIR)/jove $(BINDIR)/jove.bc
+	rm -rf $(TOOLBINS) $(UTILBINS) $(TOOLDEPS) $(UTILDEPS) $(BINDIR)/jove $(BINDIR)/*.bc
 
 #
 # for extricating QEMU code
