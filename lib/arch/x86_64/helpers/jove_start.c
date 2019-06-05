@@ -816,9 +816,17 @@ void _jove_trace_init(void) {
     return;
 
   int fd = _open("trace.bin", O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
+  if (fd < 0)
+    return;
+
   off_t size = 1UL << 31; /* 2 GiB */
   _ftruncate(fd, size);
   void *p = _mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+
+  if (p == MAP_FAILED) {
+    _close(fd);
+    return;
+  }
 
   __jove_trace = p;
 }
