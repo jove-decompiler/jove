@@ -1,3 +1,8 @@
+#include <vector>
+
+#define JOVE_EXTRA_FN_PROPERTIES                                               \
+  std::vector<basic_block_t> BasicBlocks;
+
 #include "jove/jove.h"
 
 #include <cstdlib>
@@ -15,6 +20,7 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
@@ -39,6 +45,12 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
+static cl::list<unsigned>
+    ExcludeFns("exclude-fns", cl::CommaSeparated,
+               cl::value_desc("bidx_1,fidx_1,...,bidx_n,fidx_n"),
+               cl::desc("Indices of functions to exclude"),
+               cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -61,12 +73,28 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (opts::ExcludeFns.size() % 2 != 0) {
+    WithColor::error() << "number of args given for exclude-fns is odd\n";
+    return 1;
+  }
+
   return jove::trace2lines();
 }
 
 namespace jove {
 
 static int await_process_completion(pid_t);
+
+template <typename GraphTy>
+struct dfs_visitor : public boost::default_dfs_visitor {
+  typedef typename GraphTy::vertex_descriptor VertTy;
+
+  std::vector<VertTy> &out;
+
+  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
+
+  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
+};
 
 int trace2lines(void) {
   //
@@ -112,6 +140,49 @@ int trace2lines(void) {
     ia >> decompilation;
   }
 
+  //
+  // compute the set of verts for each function
+  //
+  for (binary_t &binary : decompilation.Binaries) {
+    auto &ICFG = binary.Analysis.ICFG;
+
+    for (function_t &function : binary.Analysis.Functions) {
+      //
+      // BasicBlocks (in DFS order)
+      //
+      std::map<basic_block_t, boost::default_color_type> color;
+      dfs_visitor<interprocedural_control_flow_graph_t> vis(
+          function.BasicBlocks);
+      depth_first_visit(
+          ICFG, boost::vertex(function.Entry, ICFG), vis,
+          boost::associative_property_map<
+              std::map<basic_block_t, boost::default_color_type>>(color));
+    }
+  }
+
+  std::vector<std::unordered_set<basic_block_index_t>> Excludes;
+  Excludes.resize(decompilation.Binaries.size());
+
+  for (unsigned i = 0; i < opts::ExcludeFns.size(); i += 2) {
+    binary_index_t   BIdx = opts::ExcludeFns[i + 0];
+    function_index_t FIdx = opts::ExcludeFns[i + 1];
+
+    binary_t &binary = decompilation.Binaries.at(BIdx);
+    function_t &function = binary.Analysis.Functions.at(FIdx);
+
+    const auto &ICFG = binary.Analysis.ICFG;
+
+    boost::property_map<interprocedural_control_flow_graph_t,
+                        boost::vertex_index_t>::type bb_idx_map =
+        boost::get(boost::vertex_index, ICFG);
+
+    for (basic_block_t bb : function.BasicBlocks) {
+      basic_block_index_t BBIdx = bb_idx_map[bb];
+
+      Excludes[BIdx].insert(BBIdx);
+    }
+  }
+
   int pipefd[2];
   if (pipe(pipefd) < 0) {
     int err = errno;
@@ -150,6 +221,9 @@ int trace2lines(void) {
     basic_block_index_t BBIdx;
 
     std::tie(BIdx, BBIdx) = pair;
+
+    if (Excludes[BIdx].find(BBIdx) != Excludes[BIdx].end())
+      continue;
 
     const auto &binary = decompilation.Binaries.at(BIdx);
     const auto &ICFG = binary.Analysis.ICFG;
