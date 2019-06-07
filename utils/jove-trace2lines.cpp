@@ -205,8 +205,14 @@ int trace2lines(void) {
       exit(1);
     }
 
-    const char *argv[] = {"/usr/bin/llvm-symbolizer",
-                          "-print-source-context-lines=10", nullptr};
+    const char *argv[] = {
+      "/usr/bin/llvm-symbolizer",
+      "-print-address",
+      "-inlining=0",
+      "-pretty-print",
+      "-print-source-context-lines=10",
+      nullptr
+    };
 
     return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
   }
