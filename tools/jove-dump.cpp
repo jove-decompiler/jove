@@ -208,23 +208,20 @@ static void dumpInput(const std::string &Path) {
       llvm::outs() << fs::path(binary.Path).filename().string() << '\n';
     }
   } else if (!opts::ListFunctions.empty()) {
-    for (const auto &binary : decompilation.Binaries) {
+    for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+      const binary_t &binary = decompilation.Binaries[BIdx];
+
       if (fs::path(binary.Path).filename().string() != opts::ListFunctions)
         continue;
 
-      std::vector<uintptr_t> AddrVec;
-      AddrVec.resize(binary.Analysis.Functions.size());
-
       const auto &ICFG = binary.Analysis.ICFG;
 
-      std::transform(binary.Analysis.Functions.begin(),
-                     binary.Analysis.Functions.end(), AddrVec.begin(),
-                     [&](const function_t &function) -> uintptr_t {
-                       return ICFG[boost::vertex(function.Entry, ICFG)].Addr;
-                     });
+      for (unsigned FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
+        const function_t &function = binary.Analysis.Functions[FIdx];
+        uintptr_t Addr = ICFG[boost::vertex(function.Entry, ICFG)].Addr;
 
-      for (uintptr_t Addr : AddrVec)
-        llvm::outs() << llvm::format_hex(Addr, 1) << '\n';
+        llvm::outs() << llvm::formatv("{0},{1} @ {2:x}\n", BIdx, FIdx, Addr);
+      }
     }
   } else {
     dumpDecompilation(decompilation);
