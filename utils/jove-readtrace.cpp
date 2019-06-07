@@ -74,7 +74,7 @@ int readtrace(void) {
   }
 
   for (uint32_t *p = reinterpret_cast<uint32_t *>(trace_begin);
-       (p[0] || p[1]) && (p[2] || p[3]);
+       p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7] || p[8];
        p += 2) {
     uint32_t BIdx = p[1];
     uint32_t BBIdx = p[0];
