@@ -508,6 +508,7 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   __jove_env.regs[R_EDX] = rdx;
   __jove_env.regs[R_ECX] = rcx;
   __jove_env.regs[R_R8] = r8;
+  __jove_env.df = 1;
 
   //
   // setup the stack
