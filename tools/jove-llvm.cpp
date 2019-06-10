@@ -1360,11 +1360,8 @@ int ProcessBinaryRelocations(void) {
 
     if (res.Type == symbol_t::TYPE::NONE &&
         res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
-      // XXX FIXME
-#if 0
-      cout << "WARNING: making " << res.name << " into function symbol!"
-           << endl;
-#endif
+      WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
+                                            res.Name);
       res.Type = symbol_t::TYPE::FUNCTION;
     }
 
