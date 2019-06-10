@@ -66,6 +66,11 @@ static cl::opt<bool>
           cl::cat(JoveCategory));
 
 static cl::opt<bool>
+    NoOpt("no-opt",
+          cl::desc("Don't optimize bitcode any further"),
+          cl::cat(JoveCategory));
+
+static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
@@ -409,6 +414,10 @@ static void worker(void) {
     // optimize bitcode
     //
     std::string optbcfp(tmpdir_path.string() + ".opt.bc");
+    if (opts::NoOpt) {
+      optbcfp = bcfp;
+      goto skip_opt;
+    }
 
     pid = fork();
     if (!pid) {
@@ -434,6 +443,7 @@ static void worker(void) {
       continue;
     }
 
+skip_opt:
     //
     // compile bitcode
     //
