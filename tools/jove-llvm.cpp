@@ -207,13 +207,6 @@ static cl::opt<bool> PrintPCRel("pcrel",
                                 cl::desc("Print pc-relative references"),
                                 cl::cat(JoveCategory));
 
-#if 0
-static cl::opt<bool>
-    Emu("emu",
-        cl::desc("Code operates on TLS globals which represent the CPU state"),
-        cl::cat(JoveCategory));
-#endif
-
 static cl::opt<bool> NoInline("noinline",
                               cl::desc("Prevents inlining internal functions"),
                               cl::cat(JoveCategory));
@@ -227,11 +220,6 @@ static cl::opt<bool>
     PrintLiveness("print-liveness",
                   cl::desc("Print liveness for every function"),
                   cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    PrintFunctionSignatures("print-function-types",
-                            cl::desc("Print type of every function"),
-                            cl::cat(JoveCategory));
 
 static cl::opt<bool>
     Verbose("verbose",
@@ -577,9 +565,6 @@ static int PrepareToTranslateCode(void);
 static int CreateFunctions(void);
 static int RenameFunctions(void);
 static int CreateSectionGlobalVariables(void);
-#if 0
-static int CreateCPUStateGlobal(void);
-#endif
 static int CreatePCRelGlobal(void);
 #if defined(__x86_64__)
 static int CreateFSBaseGlobal(void);
@@ -615,9 +600,6 @@ int llvm(void) {
       || CreateFunctions()
       || RenameFunctions()
       || CreateSectionGlobalVariables()
-#if 0
-      || CreateCPUStateGlobal()
-#endif
       || CreatePCRelGlobal()
 #if defined(__x86_64__)
       || CreateFSBaseGlobal()
@@ -1045,68 +1027,6 @@ int ProcessBinaryTLSSymbols(void) {
 
     TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
     TLSValueToSymbolMap[Sym.st_value].insert(SymName);
-
-#if 0
-    llvm::Expected<const Elf_Shdr *> SectExpected =
-        E.getSection(&Sym, SymTab, ShndxTable);
-    if (!SectExpected) {
-      WithColor::warning() << "failed to lookup section for TLS symbol "
-                           << SymName << '\n';
-      continue;
-    }
-
-    // in memory, the .tbss section is allocated directly following the .tdata
-    // section, with the aligment obeyed
-    const Elf_Shdr &Sect = *SectExpected.get();
-    llvm::StringRef SectName = unwrapOrError(E.getSectionName(&Sect));
-    if (!(Sym.st_value < Sect.sh_size)) {
-      WithColor::warning() << "invalid TLS symbol " << SymName << " @ "
-                           << SectName << " + " << Sym.st_value << " length of "
-                           << SectName << " is " << Sect.sh_size << '\n';
-      continue;
-    }
-
-    // In object files the st_value field would contain the usual offset from
-    // the beginning of the section the st shndx field refers to. For
-    // executables and DSOs the st_value field contains the offset of the
-    // variable in the TLS initialization image.
-    llvm::outs() << "TLS Symbol " << SymName << " @ " << SectName << " + "
-                 << Sym.st_value << '\n';
-#endif
-
-#if 0
-    unsigned SectIdx = Sym.st_shndx;
-    if (SectIdx != llvm::ELF::SHN_XINDEX)
-      continue;
-
-    SectIdx = unwrapOrError(
-        obj::getExtendedSymbolTableIndex<ELFT>(&Sym, &FirstSym, ShndxTable));
-
-    const Elf_Shdr *Sect = unwrapOrError(E.getSection(SectIdx));
-    llvm::StringRef SectName = unwrapOrError(E.getSectionName(Sect));
-
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-    llvm::outs() << __func__
-                 << ": SymName=" << SymName
-                 << " SectName=" << SectName
-                 << '\n';
-#endif
-
-#if 0
-    auto it = TLSValueToSizeMap.find(Sym.st_value);
-    if (it == TLSValueToSizeMap.end()) {
-      TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
-    } else {
-      if (Sym.st_size != (*it).second) {
-        WithColor::warning()
-            << "TLS symbol has more than one size: " << Sym.st_size << ", "
-            << (*it).second << '\n';
-        continue;
-      }
-    }
-
-    TLSValueToSymbolMap[Sym.st_value].insert(SymName);
-#endif
   }
 
   // The names of the sections, as is in theory the case for all sections in ELF
@@ -1325,99 +1245,6 @@ int ProcessDynamicSymbols(void) {
       }
     }
   }
-
-#if 0
-  //
-  // create TLS globals
-  //
-  for (const auto &entry : TLSValueToSymbolMap) {
-    assert(!entry.second.empty());
-
-    llvm::StringRef SymName = *entry.second.begin();
-    unsigned Size;
-    {
-      auto it = TLSValueToSizeMap.find(entry.first);
-      assert(it != TLSValueToSizeMap.end());
-      Size = (*it).second;
-    }
-
-    llvm::Type *T;
-    llvm::Constant *Init;
-
-    if (is_integral_size(Size)) {
-      T = llvm::Type::getIntNTy(*Context, Size * 8);
-    } else {
-      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-    }
-
-    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
-        *Module, T, false, llvm::GlobalValue::InternalLinkage,
-        llvm::Constant::getNullValue(T), SymName, nullptr,
-#if 0
-        llvm::GlobalValue::NotThreadLocal
-#else
-        llvm::GlobalValue::GeneralDynamicTLSModel
-#endif
-    );
-
-    for (auto it = std::next(entry.second.begin()); it != entry.second.end();
-         ++it) {
-      if (opts::Verbose)
-        llvm::outs() << "symbol aliases for " << SymName << ':' << ' ' << *it
-                     << '\n';
-
-      llvm::GlobalAlias::create(*it, GV);
-    }
-
-    if (opts::Verbose)
-      llvm::outs() << "TLS symbol " << *entry.second.begin() << " @ +"
-                   << entry.first << '\n';
-  }
-#endif
-
-#if 0
-  //
-  // create global variables
-  //
-  for (const auto &entry : AddrToSymbolMap) {
-    assert(!entry.second.empty());
-
-    llvm::StringRef SymName = *entry.second.begin();
-    unsigned Size;
-    {
-      auto it = AddrToSizeMap.find(entry.first);
-      assert(it != AddrToSizeMap.end());
-      Size = (*it).second;
-    }
-
-    llvm::Type *T;
-    llvm::Constant *Init;
-
-    if (is_integral_size(Size)) {
-      T = llvm::Type::getIntNTy(*Context, Size * 8);
-    } else {
-      T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-    }
-
-    llvm::GlobalVariable *GV = new llvm::GlobalVariable(
-        *Module, T, false, llvm::GlobalValue::InternalLinkage,
-        llvm::Constant::getNullValue(T), SymName, nullptr,
-        llvm::GlobalValue::NotThreadLocal);
-
-    for (auto it = std::next(entry.second.begin()); it != entry.second.end();
-         ++it) {
-      if (opts::Verbose)
-        llvm::outs() << "symbol aliases for " << SymName << ':' << ' ' << *it
-                     << '\n';
-
-      llvm::GlobalAlias::create(*it, GV);
-    }
-
-    if (opts::Verbose)
-      llvm::outs() << "TLS symbol " << *entry.second.begin() << " @ +"
-                   << entry.first << '\n';
-  }
-#endif
 
   return 0;
 }
@@ -1948,17 +1775,7 @@ static flow_vertex_t copy_function_cfg(
     }
   }
 
-#if 0
-  llvm::outs() << (fmt("%#lx") % ICFG[f.BasicBlocks.front()].Addr).str()
-               << '\n';
-#endif
-
   assert(!f.BasicBlocks.empty());
-#if 0
-  llvm::outs() << "copy_function_cfg: "
-               << (fmt("%#lx") % ICFG[f.BasicBlocks.front()].Addr).str() << " ["
-               << fs::path(Binary.Path).filename().string() << "]\n";
-#endif
 
   //
   // copy the function's CFG into the flow graph, maintaining a mapping from the
@@ -1997,22 +1814,12 @@ static flow_vertex_t copy_function_cfg(
 
   memoize.insert({&f, {res, exitVertices}});
 
-#if 0
-  std::vector<function_flow_vertex_pair_t> _callStack(callStack);
-#endif
-
   //
   // this recursive function's duty is also to inline calls to functions and
   // indirect jumps
   //
   for (basic_block_t bb : f.BasicBlocks) {
     function_t *callee_ptr = nullptr;
-
-#if 0
-    std::vector<function_flow_vertex_pair_t> _callStack(callStack);
-    std::vector<function_flow_vertex_pair_t> emptyCallStack;
-    std::vector<function_flow_vertex_pair_t> *callStackToPass = nullptr;
-#endif
 
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
@@ -2031,27 +1838,11 @@ static flow_vertex_t copy_function_cfg(
           callee_ptr ? *callee_ptr
                      : Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
 
-#if 0
-      std::vector<function_flow_vertex_pair_t> &_callStack =
-          callStackToPass ? *callStackToPass : callStack;
-#endif
-#if 0
-      std::vector<function_flow_vertex_pair_t> _callStack(callStack);
-#endif
-
       std::vector<flow_vertex_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
           copy_function_cfg(G, callee, calleeExitVertices, memoize);
 
       auto eit_pair = boost::out_edges(bb, ICFG);
-#if 0
-      if (eit_pair.first == eit_pair.second ||
-          std::next(eit_pair.first) != eit_pair.second) {
-        WithColor::error() << "WTF @ " << (fmt("%#lx") % ICFG[bb].Addr).str()
-                           << " [" << fs::path(Binary.Path).filename().string()
-                           << "] (" << boost::out_degree(bb, ICFG) << ")\n";
-      }
-#endif
       assert(eit_pair.first != eit_pair.second &&
              std::next(eit_pair.first) == eit_pair.second);
 
@@ -2092,10 +1883,6 @@ static flow_vertex_t copy_function_cfg(
       function_t &callee = Decompilation.Binaries[DynTarget.first]
                                .Analysis.Functions[DynTarget.second];
 
-#if 0
-      std::vector<function_flow_vertex_pair_t> _callStack(callStack);
-#endif
-
       std::vector<flow_vertex_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
           copy_function_cfg(G, callee, calleeExitVertices, memoize);
@@ -2131,141 +1918,12 @@ void function_t::Analyze(void) {
   if (this->Analyzed)
     return;
 
-#if 0
-  //
-  // using boost::filtered_graph we can efficiently construct a
-  // control-flow-graph for the current function
-  //
-  auto &ICFG = Decompilation.Binaries[this->BIdx].Analysis.ICFG;
-
-  edge_predicate_t EdgePred;
-  vertex_predicate_t VertPred(this->BasicBlocksSet);
-
-  control_flow_graph_t CFG(ICFG, EdgePred, VertPred);
-
-  //
-  // analyze basic blocks
-  //
-  for (basic_block_t bb : this->BasicBlocks)
-    CFG[bb].Analyze(this->BIdx);
-
-  //
-  // data-flow analysis
-  //
-  bool change;
-
-  //
-  // liveness
-  //
-  for (basic_block_t bb : this->BasicBlocks) {
-    CFG[bb].IN.reset();
-    CFG[bb].OUT.reset();
-  }
-
-  do {
-    change = false;
-
-    for (basic_block_t bb : boost::adaptors::reverse(this->BasicBlocks)) {
-      const tcg_global_set_t _IN = CFG[bb].IN;
-
-      auto eit_pair = boost::out_edges(bb, CFG);
-      CFG[bb].OUT = std::accumulate(
-          eit_pair.first, eit_pair.second, tcg_global_set_t(),
-          [&](tcg_global_set_t glbs, control_flow_t E) {
-            return glbs | CFG[boost::target(E, CFG)].IN;
-          });
-      CFG[bb].IN = CFG[bb].Analysis.live.use |
-                    (CFG[bb].OUT & ~(CFG[bb].Analysis.live.def));
-
-      change = change || _IN != CFG[bb].IN;
-    }
-  } while (change);
-
-  if (opts::Graphviz) {
-    std::ofstream ofs(
-        (fmt("/tmp/%#lx.live.dot") % CFG[this->BasicBlocks.front()].Addr)
-            .str());
-
-    graphviz_label_writer<control_flow_graph_t> vertPropWriter(CFG);
-    boost::write_graphviz(ofs, CFG, vertPropWriter);
-  }
-
-  this->Analysis.args = CFG[this->BasicBlocks.front()].IN;
-  this->Analysis.args.reset(tcg_env_index);
-#if defined(__x86_64__)
-  this->Analysis.args.reset(tcg_fs_base_index);
-#endif
-
-  //
-  // reaching definitions
-  //
-  for (basic_block_t bb : this->BasicBlocks) {
-    CFG[bb].IN.reset();
-    CFG[bb].OUT.reset();
-  }
-
-  do {
-    change = false;
-
-    for (basic_block_t bb : this->BasicBlocks) {
-      const tcg_global_set_t _OUT = CFG[bb].OUT;
-
-      auto eit_pair = boost::in_edges(bb, CFG);
-      CFG[bb].IN = std::accumulate(
-          eit_pair.first, eit_pair.second, tcg_global_set_t(),
-          [&](tcg_global_set_t glbs, control_flow_t E) {
-            return glbs | CFG[boost::source(E, CFG)].OUT;
-          });
-      CFG[bb].OUT = CFG[bb].Analysis.reach.def | CFG[bb].IN;
-
-      change = change || _OUT != CFG[bb].OUT;
-    }
-  } while (change);
-
-  if (opts::Graphviz) {
-    std::ofstream ofs(
-        (fmt("/tmp/%#lx.reach.dot") % CFG[this->BasicBlocks.front()].Addr)
-            .str());
-
-    graphviz_label_writer<control_flow_graph_t> vertPropWriter(CFG);
-
-    boost::write_graphviz(ofs, CFG, vertPropWriter);
-  }
-
-#if 1
-  if (this->ExitBasicBlocks.empty()) {
-    this->Analysis.rets.reset();
-  } else {
-    this->Analysis.rets = std::accumulate(
-        std::next(this->ExitBasicBlocks.begin()), this->ExitBasicBlocks.end(),
-        CFG[this->ExitBasicBlocks.front()].OUT,
-        [&](tcg_global_set_t res, basic_block_t bb) {
-          return res & CFG[bb].OUT;
-        });
-  }
-#else
-  this->Analysis.rets = std::accumulate(
-      this->ExitBasicBlocks.begin(), this->ExitBasicBlocks.end(),
-      tcg_global_set_t(), [&](tcg_global_set_t res, basic_block_t bb) {
-        return res | CFG[bb].OUT;
-      });
-#endif
-
-#if defined(__x86_64__)
-  this->Analysis.rets.reset(tcg_fs_base_index);
-#endif
-
-#else /* interprocedural */
   {
     flow_graph_t G;
 
-#if 0
-  std::vector<function_flow_vertex_pair_t> _unused;
-#else
     std::unordered_map<function_t *,
                        std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
         _unused;
-#endif
 
     std::vector<flow_vertex_t> exitVertices;
     flow_vertex_t entryV = copy_function_cfg(G, *this, exitVertices, _unused);
@@ -2343,28 +2001,11 @@ void function_t::Analyze(void) {
         const tcg_global_set_t _OUT = G[V].OUT;
 
         auto eit_pair = boost::in_edges(V, G);
-#if 1
         G[V].IN = std::accumulate(
             eit_pair.first, eit_pair.second, tcg_global_set_t(),
             [&](tcg_global_set_t glbs, flow_edge_t E) {
               return glbs | G[E].reach.flow(G[boost::source(E, G)].OUT);
             });
-#else
-        if (eit_pair.first == eit_pair.second) {
-          G[V].IN.reset();
-        } else {
-          flow_edge_t E0 = *eit_pair.first;
-          flow_vertex_t E0_V = boost::source(E0, G);
-
-          G[V].IN = std::accumulate(
-              std::next(eit_pair.first), eit_pair.second,
-              G[E0].reach.flow(G[E0_V].OUT),
-              [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
-                flow_vertex_t E_V = boost::source(E, G);
-                return res & G[E].reach.flow(G[E_V].OUT);
-              });
-        }
-#endif
         G[V].OUT = G[V].bbprop->Analysis.reach.def | G[V].IN;
 
         change = change || _OUT != G[V].OUT;
@@ -2385,71 +2026,6 @@ void function_t::Analyze(void) {
 #endif
     }
   }
-
-#if 0
-  {
-    //
-    // using boost::filtered_graph we can efficiently construct a
-    // control-flow-graph for the current function
-    //
-    auto &ICFG = Decompilation.Binaries[this->BIdx].Analysis.ICFG;
-
-    edge_predicate_t EdgePred;
-    vertex_predicate_t VertPred(this->BasicBlocksSet);
-
-    control_flow_graph_t CFG(ICFG, EdgePred, VertPred);
-
-    //
-    // analyze basic blocks
-    //
-    for (basic_block_t bb : this->BasicBlocks)
-      CFG[bb].Analyze(this->BIdx);
-
-    //
-    // reaching definitions
-    //
-    for (flow_vertex_t V : Vertices) {
-      G[V].IN.reset();
-      G[V].OUT.reset();
-    }
-
-    bool change;
-    do {
-      change = false;
-
-      for (basic_block_t bb : this->BasicBlocks) {
-        const tcg_global_set_t _OUT = CFG[bb].OUT;
-
-        auto eit_pair = boost::in_edges(bb, CFG);
-        CFG[bb].IN =
-            std::accumulate(eit_pair.first, eit_pair.second, tcg_global_set_t(),
-                            [&](tcg_global_set_t glbs, control_flow_t E) {
-                              return glbs | CFG[boost::source(E, CFG)].OUT;
-                            });
-        CFG[bb].OUT = CFG[bb].Analysis.reach.def | CFG[bb].IN;
-
-        change = change || _OUT != CFG[bb].OUT;
-      }
-    } while (change);
-
-    if (this->ExitBasicBlocks.empty()) {
-      this->Analysis.rets.reset();
-    } else {
-      this->Analysis.rets = std::accumulate(
-          std::next(this->ExitBasicBlocks.begin()), this->ExitBasicBlocks.end(),
-          CFG[this->ExitBasicBlocks.front()].OUT,
-          [&](tcg_global_set_t res, basic_block_t bb) {
-            return res & CFG[bb].OUT;
-          });
-    }
-
-#if defined(__x86_64__)
-    this->Analysis.rets.reset(tcg_fs_base_index);
-#endif
-  }
-#endif
-
-#endif /* interprocedural */
 
   if (this->IsABI) {
     this->Analysis.rets &= CallConvRets;
@@ -2517,30 +2093,6 @@ void function_t::Analyze(void) {
         this->Analysis.args.set(CallConvArgArray[i]);
     }
   }
-
-#if 0
-  if (opts::PrintFunctionSignatures) {
-    llvm::outs() << "Function @ "
-                 << (fmt("%#lx") % this->Addr).str()
-                 << '\n';
-    llvm::outs() << "  args:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, this->Analysis.args);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << TCG->_ctx.temps[glb].name;
-    }
-    llvm::outs() << '\n';
-    llvm::outs() << "  rets:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, this->Analysis.rets);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << TCG->_ctx.temps[glb].name;
-    }
-    llvm::outs() << '\n';
-  }
-#endif
 
   this->Analyzed = true;
 }
@@ -2799,19 +2351,11 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         if (F.isIntrinsic())
           continue;
 
-        // TODO in strict mode
-        if (F.empty()) { /* is declaration? */
-#if 0
-          llvm::outs() << helperM << '\n';
-
-          WithColor::error() << "undefined function " << F.getName()
-                             << " in helper module " << helper_nm << '\n';
-          exit(1);
-#else
+        // is declaration?
+        if (F.empty())
           continue;
-#endif
-        }
 
+        // is helper function?
         if (F.getName() == std::string("helper_") + helper_nm)
           continue;
 
@@ -3904,10 +3448,6 @@ int CreateSectionGlobalVariables(void) {
                                       Initializer, SymName, nullptr, tlsMode);
     }
 
-#if 0
-    llvm::outs() << SymName << " [" << Off << ", " << Off + Size << ")\n";
-#endif
-
     std::vector<llvm::Type *> GVFieldTys;
     std::vector<llvm::Constant *> GVFieldInits;
 
@@ -3951,9 +3491,6 @@ int CreateSectionGlobalVariables(void) {
         C = (*constit).second;
       }
 
-#if 0
-      llvm::outs() << '[' << lower << ", " << upper << ')' << ' ' << *C << '\n';
-#endif
       if (!T || !C)
         return nullptr;
 
@@ -4116,102 +3653,6 @@ int CreateSectionGlobalVariables(void) {
 
   return 0;
 }
-
-#if 0
-int CreateCPUStateGlobal() {
-  llvm::Function *joveF = Module->getFunction("jove");
-  llvm::FunctionType *joveFTy = joveF->getFunctionType();
-  assert(joveFTy->getNumParams() == 1);
-  llvm::Type *cpuStatePtrTy = joveFTy->getParamType(0);
-  assert(llvm::isa<llvm::PointerType>(cpuStatePtrTy));
-  CPUStateType = llvm::cast<llvm::PointerType>(cpuStatePtrTy)->getElementType();
-
-  llvm::Constant *CPUStateGlobalInitializer = nullptr;
-
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  if (Binary.IsExecutable) {
-    constexpr unsigned StackLen = 100 * 4096;
-
-    llvm::Type *StackTy =
-        llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), StackLen);
-    llvm::GlobalVariable *Stack = new llvm::GlobalVariable(
-        *Module, StackTy, false, llvm::GlobalValue::ExternalLinkage,
-        llvm::Constant::getNullValue(StackTy), "__jove_stack", nullptr,
-        llvm::GlobalValue::NotThreadLocal
-        /* llvm::GlobalValue::GeneralDynamicTLSModel */);
-    Stack->setAlignment(4096);
-
-    llvm::IRBuilderTy IRB(*Context);
-    llvm::Constant *StackStart = llvm::ConstantExpr::getIntToPtr(
-        llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
-            IRB.getIntN(sizeof(uintptr_t) * 8, StackLen - 512)),
-        IRB.getInt8PtrTy());
-    llvm::Constant *StackEnd = llvm::ConstantExpr::getIntToPtr(
-        llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(Stack, WordType()),
-            IRB.getIntN(sizeof(uintptr_t) * 8, StackLen)),
-        IRB.getInt8PtrTy());
-
-    assert(CPUStateType->isStructTy());
-    llvm::StructType *CPUStateSType =
-        llvm::cast<llvm::StructType>(CPUStateType);
-
-    std::vector<llvm::Constant *> CPUStateGlobalFieldInits;
-    CPUStateGlobalFieldInits.resize(CPUStateSType->getNumElements());
-    std::transform(CPUStateSType->element_begin(),
-                   CPUStateSType->element_end(),
-                   CPUStateGlobalFieldInits.begin(),
-                   [&](llvm::Type *Ty) -> llvm::Constant * {
-                     return llvm::Constant::getNullValue(Ty);
-                   });
-
-#if defined(__x86_64__) || defined(__i386__)
-    llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[0];
-    unsigned mem_offset_bias = __builtin_offsetof(CPUX86State, regs[0]);
-#elif defined(__aarch64__)
-    llvm::Constant *&regsFieldInit = CPUStateGlobalFieldInits[1];
-    unsigned mem_offset_bias = __builtin_offsetof(CPUARMState, xregs[0]);
-#endif
-
-    assert(regsFieldInit->getType()->isArrayTy());
-
-    llvm::ArrayType *regsFieldTy =
-        llvm::cast<llvm::ArrayType>(regsFieldInit->getType());
-
-    std::vector<llvm::Constant *> regsFieldInits(
-        regsFieldTy->getNumElements(),
-        llvm::Constant::getNullValue(regsFieldTy->getElementType()));
-
-    regsFieldInits.at(
-        (TCG->_ctx.temps[tcg_stack_pointer_index].mem_offset - mem_offset_bias) /
-        sizeof(uintptr_t)) =
-        llvm::ConstantExpr::getPtrToInt(StackStart,
-                                        regsFieldTy->getElementType());
-    regsFieldInits.at(
-        (TCG->_ctx.temps[tcg_frame_pointer_index].mem_offset - mem_offset_bias) /
-        sizeof(uintptr_t)) =
-        llvm::ConstantExpr::getPtrToInt(StackEnd, regsFieldTy->getElementType());
-
-    regsFieldInit = llvm::ConstantArray::get(regsFieldTy, regsFieldInits);
-    CPUStateGlobalInitializer =
-        llvm::ConstantStruct::get(CPUStateSType, CPUStateGlobalFieldInits);
-  }
-
-  CPUStateGlobal = new llvm::GlobalVariable(
-      *Module, CPUStateType, false, llvm::GlobalValue::ExternalLinkage,
-      CPUStateGlobalInitializer, "__jove_env", nullptr,
-      llvm::GlobalValue::NotThreadLocal
-      /* llvm::GlobalValue::GeneralDynamicTLSModel */);
-
-  //
-  // no longer need jove(CPUState*)
-  //
-  joveF->replaceAllUsesWith(llvm::UndefValue::get(joveF->getType()));
-  joveF->eraseFromParent();
-  return 0;
-}
-#endif
 
 int CreatePCRelGlobal(void) {
   PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
@@ -4442,26 +3883,9 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
 
     for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
-#if 0
-      switch (glb) {
-      case tcg_env_index:
-#if defined(__x86_64__)
-      case tcg_fs_base_index:
-#endif
-        continue;
-      }
-#endif
-
       f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
           IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
           std::string(TCG->_ctx.temps[glb].name) + "_ptr");
-
-#if 0
-      IRB.CreateStore(llvm::ConstantInt::get(IRB.getIntNTy(bitsOfTCGType(
-                                                 TCG->_ctx.temps[glb].type)),
-                                             0xdeadbeef),
-                      f.GlobalAllocaVec[glb]);
-#endif
     }
 
     f.PCAlloca = tcg_program_counter_index < 0
@@ -4522,14 +3946,6 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   }
 
   DIB.finalizeSubprogram(f.DebugInformation.Subprogram);
-
-#if 0
-  if (llvm::verifyFunction(*F, &llvm::errs())) {
-    WithColor::error() << "TranslateFunction: failed to verify function...\n";
-    llvm::errs() << *F << '\n';
-    return 1;
-  }
-#endif
 
   return 0;
 }
@@ -5084,16 +4500,6 @@ int WriteModule(void) {
     llvm::errs() << *Module << '\n';
     return 1;
   }
-
-#if 0
-  {
-    std::error_code ec;
-    llvm::raw_fd_ostream rfo(
-        fs::path(opts::Output).replace_extension("ll").string(), ec);
-
-    rfo << *Module;
-  }
-#endif
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
@@ -5824,20 +5230,10 @@ int TranslateBasicBlock(binary_t &Binary,
             << "indirect branch @ " << (fmt("%#lx") % ICFG[bb].Addr).str()
             << " has zero dyn targets\n";
 
-#if 0
-      // TODO in strict mode, we should just insert a trap here
-      IRB.CreateCall(IRB.CreateIntToPtr(
-          IRB.CreateLoad(f.PCAlloca),
-          llvm::PointerType::get(llvm::FunctionType::get(VoidType(), false),
-                                 0)));
-
-      break;
-#else
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
       return 0;
-#endif
     }
 
     function_t &callee = *callee_ptr;
@@ -6175,13 +5571,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   int nb_oargs = def.nb_oargs;
   int nb_iargs = def.nb_iargs;
   int nb_cargs = def.nb_cargs;
-
-#if 0
-  llvm::errs() << def.name << ' '
-               << nb_oargs << ' '
-               << nb_iargs << ' '
-               << nb_cargs << '\n';
-#endif
 
   switch (opc) {
   case INDEX_op_insn_start:
@@ -6961,15 +6350,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                                                true /* hasSideEffects */);
     IRB.CreateCall(IA);
-
-#if 0
-    WithColor::note() << "INDEX_op_mb" << '\n'
-      << def.name << ' '
-      << nb_oargs << ' '
-      << nb_iargs << ' '
-      << nb_cargs << '\n';
-#endif
-
     break;
   }
 #endif
