@@ -58,7 +58,7 @@ class Binary;
     llvm::DISubprogram *Subprogram;                                            \
   } DebugInformation;                                                          \
                                                                                \
-  bool IsNamed, IsThunk, IsABI;                                                \
+  bool IsNamed, IsABI;                                                         \
                                                                                \
   struct {                                                                     \
     tcg_global_set_t args, rets;                                               \
@@ -66,8 +66,7 @@ class Binary;
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
-  function_t()                                                                 \
-      : IsNamed(false), IsThunk(false), IsABI(false), Analyzed(false) {}       \
+  function_t() : IsNamed(false), IsABI(false), Analyzed(false) {}              \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -570,7 +569,6 @@ static int CreatePCRelGlobal(void);
 static int CreateFSBaseGlobal(void);
 #endif
 static int FixupHelperStubs(void);
-static int IdentifyThunks(void);
 static int CreateNoAliasMetadata(void);
 static int TranslateFunctions(void);
 static int PrepareToOptimize(void);
@@ -605,7 +603,6 @@ int llvm(void) {
       || CreateFSBaseGlobal()
 #endif
       || FixupHelperStubs()
-      || IdentifyThunks()
       || CreateNoAliasMetadata()
       || TranslateFunctions()
       || PrepareToOptimize()
@@ -3717,82 +3714,6 @@ int FixupHelperStubs(void) {
   return 0;
 }
 
-int IdentifyThunks(void) {
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  auto &ICFG = Binary.Analysis.ICFG;
-  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
-
-  for (function_t &f : Binary.Analysis.Functions) {
-#if defined(__i386__)
-    if (f.BasicBlocks.size() != 1)
-      continue;
-
-    basic_block_t bb = f.BasicBlocks.front();
-
-    if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP &&
-        ICFG[bb].Term.Type != TERMINATOR::RETURN)
-      continue;
-
-    const uintptr_t Addr = ICFG[bb].Addr;
-    const unsigned Size = ICFG[bb].Size;
-
-    auto disassemble_block = [&](std::vector<llvm::MCInst> &out) -> int {
-      auto sectit = SectMap.find(Addr);
-      assert(sectit != SectMap.end());
-
-      const section_properties_t &sectprop = *(*sectit).second.begin();
-
-      const uintptr_t Base = (*sectit).first.lower();
-
-      uint64_t InstLen;
-      for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
-        llvm::MCInst Inst;
-
-        ptrdiff_t Offset = A - Base;
-        bool Disassembled = DisAsm->getInstruction(
-            Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls(),
-            llvm::nulls());
-        if (!Disassembled) {
-          WithColor::error()
-              << "failed to disassemble " << (fmt("%#lx") % A).str() << '\n';
-          return 1;
-        }
-
-        out.push_back(Inst);
-      }
-
-      return 0;
-    };
-
-    std::vector<llvm::MCInst> InstVec;
-    if (int ret = disassemble_block(InstVec))
-      return ret;
-
-    auto is_thunk = [&](void) -> bool {
-      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
-        return InstVec.size() == 1 &&
-               InstVec[0].getOpcode() == llvm::X86::JMP32m &&
-               InstVec[0].getOperand(0).getReg() == llvm::X86::EBX;
-
-      if (ICFG[bb].Term.Type == TERMINATOR::RETURN)
-        return InstVec.size() == 2 &&
-               InstVec[0].getOpcode() == llvm::X86::MOV32rm &&
-               InstVec[1].getOpcode() == llvm::X86::RETL;
-
-      abort();
-    };
-
-    if (is_thunk()) {
-      f.Analysis.IsThunk = true;
-
-      WithColor::note() << "thunk @ " << (fmt("%#lx") % Addr).str() << '\n';
-    }
-#endif
-  }
-
-  return 0;
-}
-
 int CreateNoAliasMetadata(void) {
   //
   // create noalias metadata
@@ -3950,9 +3871,6 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 int TranslateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
-    if (f.IsThunk)
-      continue;
-
     if (int ret = TranslateFunction(Binary, f))
       return ret;
   }
@@ -4838,179 +4756,6 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   IRB.SetInsertPoint(ExitBB);
-
-  //
-  // if this basic block calls a thunk, then we'll translate the thunk in-place
-  //
-#if 0
-  if (T.Type == TERMINATOR::CALL) {
-    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
-    if (callee.IsThunk) {
-      basic_block_t thunkbb = callee.BasicBlocks.front();
-      uintptr_t ThunkAddr = ICFG[thunkbb].Addr;
-
-      auto sectit = st.SectMap.find(ThunkAddr);
-      assert(sectit != st.SectMap.end());
-
-      const section_properties_t &sectprop = *(*sectit).second.begin();
-      TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
-
-      jove::terminator_info_t ThunkT;
-      unsigned len;
-      std::tie(len, ThunkT) = TCG->translate(ThunkAddr);
-
-      std::vector<llvm::AllocaInst *> TempAllocaVec(s->nb_temps, nullptr);
-      std::vector<llvm::BasicBlock *> LabelVec(s->nb_labels, nullptr);
-
-      //
-      // create temp alloca's up-front
-      //
-      {
-        TCGOp *op, *op_next;
-        QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-          TCGOpcode opc = op->opc;
-
-          int nb_oargs, nb_iargs;
-          if (opc == INDEX_op_call) {
-            nb_oargs = TCGOP_CALLO(op);
-            nb_iargs = TCGOP_CALLI(op);
-          } else {
-            const TCGOpDef &opdef = tcg_op_defs[opc];
-
-            nb_iargs = opdef.nb_iargs;
-            nb_oargs = opdef.nb_oargs;
-          }
-
-          for (int i = 0; i < nb_iargs; ++i) {
-            TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-            if (ts->temp_global)
-              continue;
-
-            unsigned idx = temp_idx(ts);
-            if (TempAllocaVec.at(idx))
-              continue;
-
-            TempAllocaVec.at(idx) = IRB.CreateAlloca(
-                IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                (fmt("%#lx_%s%u") % ICFG[thunkbb].Addr %
-                 (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
-                    .str());
-          }
-
-          for (int i = 0; i < nb_oargs; ++i) {
-            TCGTemp *ts = arg_temp(op->args[i]);
-            if (ts->temp_global)
-              continue;
-
-            unsigned idx = temp_idx(ts);
-            if (TempAllocaVec.at(idx))
-              continue;
-
-            TempAllocaVec.at(idx) = IRB.CreateAlloca(
-                IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                (fmt("%#lx_%s%u") % ICFG[thunkbb].Addr %
-                 (ts->temp_local ? "loc" : "tmp") % (idx - tcg_num_globals))
-                    .str());
-          }
-        }
-      }
-
-      ExitBB = llvm::BasicBlock::Create(
-          *Context, (fmt("%#lx_thunk_exit") % Addr).str(), f.F);
-
-      TCGOp *op, *op_next;
-      QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-        if (int ret =
-                TranslateTCGOp(op, op_next, Binary, f /* callee */, thunkbb,
-                               TempAllocaVec, LabelVec, ExitBB, IRB)) {
-          TCG->dump_operations();
-          return ret;
-        }
-      }
-
-      IRB.SetInsertPoint(ExitBB);
-
-      if (ThunkT.Type == TERMINATOR::INDIRECT_JUMP) {
-        llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-
-        const auto &DynTargets = ICFG[thunkbb].DynTargets;
-        if (DynTargets.empty()) {
-          // apparently this is necessary
-          IRB.CreateCall(IRB.CreateIntToPtr(
-              PC, llvm::PointerType::get(
-                      llvm::FunctionType::get(VoidType(), false), 0)));
-        } else {
-          function_index_t BinIdx = (*DynTargets.begin()).first;
-          function_index_t FuncIdx = (*DynTargets.begin()).second;
-
-          function_t &callee =
-              Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
-          std::vector<llvm::Value *> ArgVec;
-          {
-            std::vector<unsigned> glbv;
-            explode_tcg_global_set(glbv, callee.live & CallConvArgs);
-            std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-              return std::find(CallConvArgArray.begin(), CallConvArgArray.end(),
-                               a) < std::find(CallConvArgArray.begin(),
-                                              CallConvArgArray.end(), b);
-            });
-
-            ArgVec.resize(glbv.size());
-            std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
-                           [&](unsigned glb) -> llvm::Value * {
-                             return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
-                           });
-          }
-
-          llvm::CallInst *Ret = IRB.CreateCall(
-              IRB.CreateIntToPtr(
-                  PC, llvm::PointerType::get(
-                          DetermineFunctionType(BinIdx, FuncIdx), 0)),
-              ArgVec);
-          Ret->setIsNoInline();
-
-          if (!callee.retTy->isVoidTy()) {
-            std::vector<unsigned> glbv;
-            explode_tcg_global_set(glbv,
-                                   callee.Analysis.defined & CallConvRets);
-            std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-              return std::find(CallConvRetArray.begin(), CallConvRetArray.end(),
-                               a) < std::find(CallConvRetArray.begin(),
-                                              CallConvRetArray.end(), b);
-            });
-
-            if (glbv.size() == 1) {
-              assert(callee.retTy->isIntegerTy());
-              IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
-            } else {
-              for (unsigned i = 0; i < glbv.size(); ++i) {
-                llvm::AllocaInst *Ptr = f.GlobalAllocaVec[glbv[i]];
-                if (!Ptr) {
-                  WithColor::error() << "no alloca for global "
-                                     << TCG->_ctx.temps[glbv[i]].name << '\n';
-                  return 1;
-                }
-                llvm::Value *Val =
-                    IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-                IRB.CreateStore(Val, Ptr);
-              }
-            }
-          }
-        }
-      }
-
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      assert(eit_pair.first != eit_pair.second &&
-             std::next(eit_pair.first) == eit_pair.second);
-      control_flow_t cf = *eit_pair.first;
-      basic_block_t succ = boost::target(cf, ICFG);
-      IRB.CreateBr(ICFG[succ].B);
-
-      return 0;
-    }
-  }
-#endif
 
   //
   // examine terminator multiple times
