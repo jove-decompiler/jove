@@ -54,25 +54,20 @@ int main(int argc, char **argv) {
 namespace jove {
 
 #if defined(__x86_64__) || defined(__aarch64__)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #endif
 
-typedef typename ELFT::Elf_Dyn Elf_Dyn;
-typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFT::Elf_Phdr Elf_Phdr;
-typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFT::Elf_Shdr Elf_Shdr;
-typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFT::Elf_Sym Elf_Sym;
-typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-typedef typename ELFT::Elf_Rela Elf_Rela;
-typedef typename ELFT::Elf_Ehdr Elf_Ehdr;
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
 
-static void printFileHeaders(const ELFT &, llvm::formatted_raw_ostream &);
+typedef typename ELFF::Elf_Ehdr Elf_Ehdr;
+typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFF::Elf_Phdr Elf_Phdr;
+
+static int printFileHeaders(const ELFF &, llvm::formatted_raw_ostream &);
+static int printProgramHeaders(const ELFF &, llvm::formatted_raw_ostream &);
 
 int ReadVDSO(void) {
   // Initialize targets and assembly printers/parsers.
@@ -89,7 +84,7 @@ int ReadVDSO(void) {
 
   std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
 
-  llvm::Expected<ELFT> ELFOrErr = ELFT::create(Buffer->getBuffer());
+  llvm::Expected<ELFF> ELFOrErr = ELFF::create(Buffer->getBuffer());
 
   if (!ELFOrErr) {
     WithColor::error() << "failed to create binary from " << opts::Input << ": "
@@ -97,14 +92,28 @@ int ReadVDSO(void) {
     return 1;
   }
 
-  const ELFT &E = ELFOrErr.get();
+  const ELFF &E = ELFOrErr.get();
 
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::formatted_raw_ostream OS(Writer.getOStream());
 
-  printFileHeaders(E, OS);
+  if (int ret = printFileHeaders(E, OS))
+    return ret;
 
-  //llvm::outs() << llvm::formatv("
+  OS << "\n";
+
+  if (int ret = printProgramHeaders(E, OS))
+    return ret;
+
+  llvm::Expected<Elf_Phdr_Range> ProgHdrsOrErr = E.program_headers();
+  if (!ProgHdrsOrErr) {
+    WithColor::error() << "failed to get program headers\n";
+    return 1;
+  }
+
+  for (const Elf_Phdr &Phdr : ProgHdrsOrErr.get()) {
+    ;
+  }
 
   return 0;
 }
@@ -328,7 +337,7 @@ printEnum(T Value, llvm::ArrayRef<llvm::EnumEntry<TEnum>> EnumValues) {
   return llvm::to_hexString(Value, false);
 }
 
-void printFileHeaders(const ELFT &E, llvm::formatted_raw_ostream &OS) {
+int printFileHeaders(const ELFF &E, llvm::formatted_raw_ostream &OS) {
   const Elf_Ehdr *e = E.getHeader();
 
   OS << "ELF Header:\n";
@@ -392,16 +401,143 @@ void printFileHeaders(const ELFT &E, llvm::formatted_raw_ostream &OS) {
 
   Str = llvm::to_string(e->e_shentsize) + " (bytes)";
   printFields(OS, "Size of section headers:", Str);
+
+  return 0;
 }
 
-static inline void printFields(llvm::formatted_raw_ostream &OS,
-                               llvm::StringRef Str1,
-                               llvm::StringRef Str2) {
+static std::string printPhdrFlags(unsigned Flag);
+
+struct Field {
+  llvm::StringRef Str;
+  unsigned Column;
+
+  Field(llvm::StringRef S, unsigned Col) : Str(S), Column(Col) {}
+  Field(unsigned Col) : Str(""), Column(Col) {}
+};
+
+static void printField(llvm::formatted_raw_ostream &OS, struct Field F);
+static std::string getElfPtType(unsigned Arch, unsigned Type);
+
+int printProgramHeaders(const ELFF &E, llvm::formatted_raw_ostream &OS) {
+  OS << "ELF Program Headers:\n";
+
+  unsigned Bias = ELFT::Is64Bits ? 8 : 0;
+  unsigned Width = ELFT::Is64Bits ? 18 : 10;
+  unsigned SizeWidth = ELFT::Is64Bits ? 8 : 7;
+  std::string Type, Offset, VMA, LMA, FileSz, MemSz, Flag, Align;
+
+  const Elf_Ehdr *Header = E.getHeader();
+  Field Fields[8] = {2,         17,        26,        37 + Bias,
+                     48 + Bias, 56 + Bias, 64 + Bias, 68 + Bias};
+
+  if (ELFT::Is64Bits)
+    OS << "  Type           Offset   VirtAddr           PhysAddr         "
+       << "  FileSiz  MemSiz   Flg Align\n";
+  else
+    OS << "  Type           Offset   VirtAddr   PhysAddr   FileSiz "
+       << "MemSiz  Flg Align\n";
+
+  llvm::Expected<Elf_Phdr_Range> ProgHdrsOrErr = E.program_headers();
+  if (!ProgHdrsOrErr) {
+    WithColor::error() << "failed to get program headers\n";
+    return 1;
+  }
+
+  for (const Elf_Phdr &Phdr : ProgHdrsOrErr.get()) {
+    Type = getElfPtType(Header->e_machine, Phdr.p_type);
+    Offset = llvm::to_string(llvm::format_hex(Phdr.p_offset, 8));
+    VMA = llvm::to_string(llvm::format_hex(Phdr.p_vaddr, Width));
+    LMA = llvm::to_string(llvm::format_hex(Phdr.p_paddr, Width));
+    FileSz = llvm::to_string(llvm::format_hex(Phdr.p_filesz, SizeWidth));
+    MemSz = llvm::to_string(llvm::format_hex(Phdr.p_memsz, SizeWidth));
+    Flag = printPhdrFlags(Phdr.p_flags);
+    Align = llvm::to_string(llvm::format_hex(Phdr.p_align, 1));
+    Fields[0].Str = Type;
+    Fields[1].Str = Offset;
+    Fields[2].Str = VMA;
+    Fields[3].Str = LMA;
+    Fields[4].Str = FileSz;
+    Fields[5].Str = MemSz;
+    Fields[6].Str = Flag;
+    Fields[7].Str = Align;
+    for (auto Field : Fields)
+      printField(OS, Field);
+    if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+      OS << "\n      [Requesting program interpreter: ";
+      OS << reinterpret_cast<const char *>(E.base()) + Phdr.p_offset << "]";
+    }
+    OS << "\n";
+  }
+
+  return 0;
+}
+
+#define LLVM_READOBJ_PHDR_ENUM(ns, enum)                                       \
+  case ns::enum:                                                               \
+    return std::string(#enum).substr(3);
+
+std::string getElfPtType(unsigned Arch, unsigned Type) {
+  switch (Type) {
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_NULL)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_LOAD)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_DYNAMIC)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_INTERP)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_NOTE)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_SHLIB)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_PHDR)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_TLS)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_GNU_EH_FRAME)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_SUNW_UNWIND)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_GNU_STACK)
+    LLVM_READOBJ_PHDR_ENUM(llvm::ELF, PT_GNU_RELRO)
+  default:
+    // All machine specific PT_* types
+    switch (Arch) {
+    case llvm::ELF::EM_ARM:
+      if (Type == llvm::ELF::PT_ARM_EXIDX)
+        return "EXIDX";
+      break;
+    case llvm::ELF::EM_MIPS:
+    case llvm::ELF::EM_MIPS_RS3_LE:
+      switch (Type) {
+      case llvm::ELF::PT_MIPS_REGINFO:
+        return "REGINFO";
+      case llvm::ELF::PT_MIPS_RTPROC:
+        return "RTPROC";
+      case llvm::ELF::PT_MIPS_OPTIONS:
+        return "OPTIONS";
+      case llvm::ELF::PT_MIPS_ABIFLAGS:
+        return "ABIFLAGS";
+      }
+      break;
+    }
+  }
+  return std::string("<unknown>: ") +
+         llvm::to_string(llvm::format_hex(Type, 1));
+}
+
+std::string printPhdrFlags(unsigned Flag) {
+  std::string Str;
+  Str = (Flag & llvm::ELF::PF_R) ? "R" : " ";
+  Str += (Flag & llvm::ELF::PF_W) ? "W" : " ";
+  Str += (Flag & llvm::ELF::PF_X) ? "E" : " ";
+  return Str;
+}
+
+void printField(llvm::formatted_raw_ostream &OS, struct Field F) {
+  if (F.Column != 0)
+    OS.PadToColumn(F.Column);
+  OS << F.Str;
+  OS.flush();
+}
+
+void printFields(llvm::formatted_raw_ostream &OS,
+                 llvm::StringRef Str1,
+                 llvm::StringRef Str2) {
   OS.PadToColumn(2u);
   OS << Str1;
   OS.PadToColumn(37u);
   OS << Str2 << "\n";
   OS.flush();
 }
-
 }
