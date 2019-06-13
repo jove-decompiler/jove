@@ -65,9 +65,12 @@ typedef typename obj::ELFFile<ELFT> ELFF;
 typedef typename ELFF::Elf_Ehdr Elf_Ehdr;
 typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
 typedef typename ELFF::Elf_Phdr Elf_Phdr;
+typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFF::Elf_Dyn Elf_Dyn;
 
 static int printFileHeaders(const ELFF &, llvm::formatted_raw_ostream &);
 static int printProgramHeaders(const ELFF &, llvm::formatted_raw_ostream &);
+static int printDynamicTable(const ELFF &, llvm::formatted_raw_ostream &);
 
 int ReadVDSO(void) {
   // Initialize targets and assembly printers/parsers.
@@ -103,6 +106,9 @@ int ReadVDSO(void) {
   OS << "\n";
 
   if (int ret = printProgramHeaders(E, OS))
+    return ret;
+
+  if (int ret = printDynamicTable(E, OS))
     return ret;
 
   llvm::Expected<Elf_Phdr_Range> ProgHdrsOrErr = E.program_headers();
@@ -540,4 +546,135 @@ void printFields(llvm::formatted_raw_ostream &OS,
   OS << Str2 << "\n";
   OS.flush();
 }
+
+/// Represents a contiguous uniform range in the file. We cannot just create a
+/// range directly because when creating one of these from the .dynamic table
+/// the size, entity size and virtual address are different entries in arbitrary
+/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
+struct DynRegionInfo {
+  DynRegionInfo() = default;
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES) {}
+
+  /// Address in current address space.
+  const void *Addr = nullptr;
+  /// Size in bytes of the region.
+  uint64_t Size = 0;
+  /// Size of each entity in the region.
+  uint64_t EntSize = 0;
+
+  template <typename Type>
+    llvm::ArrayRef<Type> getAsArrayRef() const {
+    const Type *Start = reinterpret_cast<const Type *>(Addr);
+    if (!Start)
+      return {Start, Start};
+    if (EntSize != sizeof(Type) || Size % EntSize)
+      abort();
+    return {Start, Start + (Size / EntSize)};
+  }
+};
+
+static const char *getTypeString(unsigned Arch, uint64_t Type);
+
+int printDynamicTable(const ELFF &E, llvm::formatted_raw_ostream &OS) {
+  llvm::Expected<Elf_Phdr_Range> ProgHdrsOrErr = E.program_headers();
+  if (!ProgHdrsOrErr) {
+    WithColor::error() << "failed to get program headers\n";
+    return 1;
+  }
+
+  DynRegionInfo DynamicTable;
+
+  auto checkDRI = [&](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
+
+  auto createDRIFrom = [&](const Elf_Phdr *P,
+                           uint64_t EntSize) -> DynRegionInfo {
+    return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+  };
+
+  for (const Elf_Phdr &Phdr : ProgHdrsOrErr.get()) {
+    if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+      break;
+    }
+  }
+
+  if (!DynamicTable.Addr) {
+    WithColor::error() << "failed to find dynamic table\n";
+    return 1;
+  }
+
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  OS << "ELF Dynamic Table:\n";
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    OS << getTypeString(E.getHeader()->e_machine, Dyn.getTag());
+    OS << "\n";
+  }
+
+  return 0;
+}
+
+const char *getTypeString(unsigned Arch, uint64_t Type) {
+#define DYNAMIC_TAG(n, v)
+  switch (Arch) {
+  case llvm::ELF::EM_HEXAGON:
+    switch (Type) {
+#define HEXAGON_DYNAMIC_TAG(name, value)                                       \
+    case llvm::ELF::DT_##name:                                                 \
+      return #name;
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef HEXAGON_DYNAMIC_TAG
+    }
+    break;
+
+  case llvm::ELF::EM_MIPS:
+    switch (Type) {
+#define MIPS_DYNAMIC_TAG(name, value)                                          \
+    case llvm::ELF::DT_##name:                                                 \
+      return #name;
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef MIPS_DYNAMIC_TAG
+    }
+    break;
+
+  case llvm::ELF::EM_PPC64:
+    switch(Type) {
+#define PPC64_DYNAMIC_TAG(name, value)                                         \
+    case llvm::ELF::DT_##name:                                                 \
+      return #name;
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef PPC64_DYNAMIC_TAG
+    }
+    break;
+  }
+#undef DYNAMIC_TAG
+  switch (Type) {
+// Now handle all dynamic tags except the architecture specific ones
+#define MIPS_DYNAMIC_TAG(name, value)
+#define HEXAGON_DYNAMIC_TAG(name, value)
+#define PPC64_DYNAMIC_TAG(name, value)
+// Also ignore marker tags such as DT_HIOS (maps to DT_VERNEEDNUM), etc.
+#define DYNAMIC_TAG_MARKER(name, value)
+#define DYNAMIC_TAG(name, value)                                               \
+  case llvm::ELF::DT_##name:                                                   \
+    return #name;
+#include "llvm/BinaryFormat/DynamicTags.def"
+#undef DYNAMIC_TAG
+#undef MIPS_DYNAMIC_TAG
+#undef HEXAGON_DYNAMIC_TAG
+#undef PPC64_DYNAMIC_TAG
+#undef DYNAMIC_TAG_MARKER
+  default: return "unknown";
+  }
+}
+
 }
