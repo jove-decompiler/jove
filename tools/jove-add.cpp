@@ -287,6 +287,7 @@ int add(void) {
 
   binary.IsDynamicLinker = false;
   binary.IsExecutable = false;
+  binary.IsVDSO = false;
 
   binary.Path = fs::canonical(opts::Input).string();
   binary.Data.resize(Buffer->getBufferSize());
@@ -508,8 +509,6 @@ int add(void) {
   } else {
     binary.Analysis.EntryFunction = invalid_function_index;
   }
-
-  binary.IsDynamicLinker = !Interp.Found && IsStaticallyLinked;
 
   //
   // search symbols
