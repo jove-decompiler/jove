@@ -83,6 +83,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     llvm::ListScope _(Writer);
     Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
     Writer.printBoolean("IsExecutable", B.IsExecutable);
+    Writer.printBoolean("IsVDSO", B.IsVDSO);
 
     const auto &ICFG = B.Analysis.ICFG;
 
