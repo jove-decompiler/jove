@@ -555,13 +555,14 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
-static int ProcessBinaryTLSSymbols(void);
-static int ProcessDynamicSymbols(void);
+static int PrepareToTranslateCode(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
-static int PrepareToTranslateCode(void);
+static int ProcessExportedFunctions(void);
 static int CreateFunctions(void);
+static int ProcessBinaryTLSSymbols(void);
+static int ProcessDynamicSymbols(void);
 static int RenameFunctions(void);
 static int CreateSectionGlobalVariables(void);
 static int CreatePCRelGlobal(void);
@@ -589,13 +590,14 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || CreateModule()
-      || ProcessBinaryTLSSymbols()
-      || ProcessDynamicSymbols()
+      || PrepareToTranslateCode()
       || ProcessDynamicTargets()
       || ProcessBinaryRelocations()
       || ProcessIFuncResolvers()
-      || PrepareToTranslateCode()
+      || ProcessExportedFunctions()
       || CreateFunctions()
+      || ProcessBinaryTLSSymbols()
+      || ProcessDynamicSymbols()
       || RenameFunctions()
       || CreateSectionGlobalVariables()
       || CreatePCRelGlobal()
@@ -1034,6 +1036,143 @@ int ProcessBinaryTLSSymbols(void) {
   return 0;
 }
 
+static llvm::Type *VoidType(void);
+static llvm::FunctionType *DetermineFunctionType(function_t &);
+static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
+                                                 function_index_t FuncIdx);
+static llvm::FunctionType *DetermineFunctionType(
+    const std::pair<binary_index_t, function_index_t> &FuncIdxPair);
+
+int ProcessExportedFunctions(void) {
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &binary = Decompilation.Binaries[BIdx];
+    auto &st = BinStateVec[BIdx];
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    const ELFT &E = *O.getELFFile();
+
+    auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+      if (DRI.Addr < E.base() ||
+          (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+        abort();
+      return DRI;
+    };
+
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+    DynRegionInfo DynamicTable;
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                           uint64_t EntSize) -> DynRegionInfo {
+        return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+      };
+
+      for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+          DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+          continue;
+        }
+        if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+          continue;
+        LoadSegments.push_back(&Phdr);
+      }
+    }
+
+    assert(DynamicTable.Addr);
+
+    DynRegionInfo DynSymRegion;
+    llvm::StringRef DynSymtabName;
+    llvm::StringRef DynamicStringTable;
+
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+        return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+      };
+
+      for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+        switch (Sec.sh_type) {
+        case llvm::ELF::SHT_DYNSYM:
+          DynSymRegion = createDRIFrom(&Sec);
+          DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+          DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+          break;
+        }
+      }
+    }
+
+    //
+    // parse dynamic table
+    //
+    {
+      auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+        return DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+
+      auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+        const Elf_Phdr *const *I =
+            std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                             [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                               return VAddr < Phdr->p_vaddr;
+                             });
+        if (I == LoadSegments.begin())
+          abort();
+        --I;
+        const Elf_Phdr &Phdr = **I;
+        uint64_t Delta = VAddr - Phdr.p_vaddr;
+        if (Delta >= Phdr.p_filesz)
+          abort();
+        return E.base() + Phdr.p_offset + Delta;
+      };
+
+      const char *StringTableBegin = nullptr;
+      uint64_t StringTableSize = 0;
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        switch (Dyn.d_tag) {
+        case llvm::ELF::DT_STRTAB:
+          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          break;
+        case llvm::ELF::DT_STRSZ:
+          StringTableSize = Dyn.getVal();
+          break;
+        }
+      };
+
+      if (StringTableBegin)
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined()) /* defined */
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+      if (Sym.getType() == llvm::ELF::STT_FUNC) {
+        function_index_t FuncIdx;
+        {
+          auto it = st.FuncMap.find(Sym.st_value);
+          if (it == st.FuncMap.end()) {
+            WithColor::warning()
+                << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
+                                 SymName, Sym.st_value);
+            continue;
+          }
+
+          FuncIdx = (*it).second;
+        }
+
+        binary.Analysis.Functions[FuncIdx].IsABI = true;
+      }
+    }
+  }
+
+  return 0;
+}
+
 int ProcessDynamicSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -1229,16 +1368,47 @@ int ProcessDynamicSymbols(void) {
           if (it == st.FuncMap.end()) {
             WithColor::warning()
                 << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
-                                 Sym.st_value, SymName);
+                                 SymName, Sym.st_value);
             continue;
           }
 
           FuncIdx = (*it).second;
         }
 
-        binary.Analysis.Functions[FuncIdx].IsABI = true;
-
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
+      } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
+        if (BIdx == BinaryIndex) {
+          auto it = st.FuncMap.find(Sym.st_value);
+          assert(it != st.FuncMap.end());
+
+          function_t &resolver = binary.Analysis.Functions.at((*it).second);
+
+          llvm::FunctionType *FTy;
+
+          {
+            auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+            auto it = IFuncDynTargets.find(Sym.st_value);
+            if (it == IFuncDynTargets.end() || (*it).second.empty())
+              FTy = llvm::FunctionType::get(VoidType(), false);
+            else
+              FTy = DetermineFunctionType(*(*it).second.begin());
+          }
+
+          llvm::GlobalIFunc::create(FTy, 0, llvm::GlobalValue::ExternalLinkage,
+                                    SymName,
+#if 0
+        llvm::ConstantExpr::getPointerCast(
+            resolver.F,
+            llvm::PointerType::get(
+                llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
+                0)),
+#else
+                                    llvm::ConstantExpr::getPointerCast(
+                                        resolver.F,
+                                        llvm::PointerType::get(FTy, 0)),
+#endif
+                                    Module.get());
+        }
       }
     }
   }
@@ -1272,24 +1442,31 @@ int ProcessDynamicTargets(void) {
   // for the binary under consideration, we'll build a set of dynamic
   // targets that can be used for the purposes of dynamic symbol resolution
   //
-  auto &binary = Decompilation.Binaries[BinaryIndex];
-  auto &ICFG = binary.Analysis.ICFG;
+  {
+    auto &binary = Decompilation.Binaries[BinaryIndex];
+    auto &ICFG = binary.Analysis.ICFG;
 
-  auto it_pair = boost::vertices(ICFG);
-  for (auto it = it_pair.first; it != it_pair.second; ++it) {
-    auto &DynTargets = ICFG[*it].DynTargets;
-    BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
+    auto it_pair = boost::vertices(ICFG);
+    for (auto it = it_pair.first; it != it_pair.second; ++it) {
+      auto &DynTargets = ICFG[*it].DynTargets;
+
+      BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
+    }
   }
 
   //
   // dynamic ifunc resolver targets are ABIs
   //
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &IFuncRelocDynTargets =
-        Decompilation.Binaries[BIdx].Analysis.IFuncRelocDynTargets;
-    for (const auto &pair : IFuncRelocDynTargets)
-      for (function_index_t FIdx : pair.second)
-        Decompilation.Binaries[BIdx].Analysis.Functions[FIdx].IsABI = true;
+  for (const binary_t &binary : Decompilation.Binaries) {
+    for (const auto &pair : binary.Analysis.IFuncDynTargets) {
+      for (const auto &IdxPair : pair.second) {
+        binary_index_t BIdx;
+        function_index_t FIdx;
+        std::tie(BIdx, FIdx) = IdxPair;
+
+        Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).IsABI = true;
+      }
+    }
   }
 
   return 0;
@@ -2523,7 +2700,7 @@ static unsigned WordBits(void) {
   return sizeof(uintptr_t) * 8;
 }
 
-static llvm::Type *VoidType(void) {
+llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
@@ -2543,7 +2720,7 @@ static unsigned bitsOfTCGType(TCGType ty) {
   }
 }
 
-static llvm::FunctionType *DetermineFunctionType(function_t &f) {
+llvm::FunctionType *DetermineFunctionType(function_t &f) {
   f.Analyze();
 
   std::vector<llvm::Type *> argTypes;
@@ -2587,13 +2764,13 @@ static llvm::FunctionType *DetermineFunctionType(function_t &f) {
   return llvm::FunctionType::get(retTy, argTypes, false);
 }
 
-static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
-                                                 function_index_t FuncIdx) {
+llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
+                                          function_index_t FuncIdx) {
   return DetermineFunctionType(
       Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx]);
 }
 
-static llvm::FunctionType *DetermineFunctionType(
+llvm::FunctionType *DetermineFunctionType(
     const std::pair<binary_index_t, function_index_t> &FuncIdxPair) {
   return DetermineFunctionType(FuncIdxPair.first, FuncIdxPair.second);
 }
@@ -2893,13 +3070,13 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R) -> llvm::Type * {
     llvm::FunctionType *FTy;
 
-    auto &IFuncRelocDynTargets =
-        Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
-    auto it = IFuncRelocDynTargets.find(R.Addr);
-    if (it == IFuncRelocDynTargets.end() || (*it).second.empty())
+    auto &IFuncDynTargets =
+        Decompilation.Binaries[BinaryIndex].Analysis.IFuncDynTargets;
+    auto it = IFuncDynTargets.find(R.Addend);
+    if (it == IFuncDynTargets.end() || (*it).second.empty())
       FTy = llvm::FunctionType::get(VoidType(), false);
     else
-      FTy = DetermineFunctionType(BinaryIndex, *(*it).second.begin());
+      FTy = DetermineFunctionType(*(*it).second.begin());
 
     return llvm::PointerType::get(FTy, 0);
   };
@@ -3105,19 +3282,32 @@ int CreateSectionGlobalVariables(void) {
     llvm::FunctionType *FTy;
 
     {
-      auto &IFuncRelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
-      auto it = IFuncRelocDynTargets.find(R.Addr);
-      if (it == IFuncRelocDynTargets.end() || (*it).second.empty())
-        return llvm::Constant::getNullValue(llvm::PointerType::get(
-            llvm::FunctionType::get(VoidType(), false), 0));
+      auto &IFuncDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.IFuncDynTargets;
+      auto it = IFuncDynTargets.find(R.Addend);
+      if (it == IFuncDynTargets.end() || (*it).second.empty())
+        FTy = llvm::FunctionType::get(VoidType(), false);
       else
-        return Decompilation.Binaries[BinaryIndex]
-            .Analysis.Functions[*(*it).second.begin()]
-            .F;
+        FTy = DetermineFunctionType(*(*it).second.begin());
     }
 
 #if 0
+    {
+      auto &IFuncRelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
+      auto it = IFuncRelocDynTargets.find(R.Addr);
+      if (it == IFuncRelocDynTargets.end() || (*it).second.empty()) {
+        return llvm::Constant::getNullValue(llvm::PointerType::get(
+            llvm::FunctionType::get(VoidType(), false), 0));
+      } else {
+        binary_index_t BIdx;
+        function_index_t FIdx;
+        std::tie(BIdx, FIdx) = *(*it).second.begin();
+
+        return Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).F;
+      }
+    }
+#else
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
@@ -3126,7 +3316,7 @@ int CreateSectionGlobalVariables(void) {
 
     return llvm::GlobalIFunc::create(
         FTy, 0, llvm::GlobalValue::InternalLinkage, "",
-#if 0
+#if 1
         llvm::ConstantExpr::getPointerCast(
             resolver.F,
             llvm::PointerType::get(
