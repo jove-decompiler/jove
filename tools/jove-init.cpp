@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <sys/auxv.h>
 #include <sched.h>
 #include <tuple>
 #include <thread>
@@ -173,13 +174,20 @@ int init(void) {
     return 1;
   }
 
+  //
+  // prepare to process the binaries by creating a unique temporary directory
+  //
+  if (!mkdtemp(tmpdir)) {
+    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
+    return 1;
+  }
 
   //
   // parse the standard output from the dynamic linker to produce a set of paths
   // to binaries that will be added to the decompilation
   //
   std::vector<std::string> binary_paths;
-  binary_paths.reserve(2);
+  binary_paths.reserve(3);
 
   binary_paths.push_back(fs::canonical(opts::Input).string());
 
@@ -206,6 +214,26 @@ int init(void) {
 
     llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
     binary_paths.push_back(fs::canonical(path).string());
+  }
+
+  //
+  // vdso
+  //
+  bool haveVDSO = dynlink_stdout.find("linux-vdso.so.1") != std::string::npos;
+  if (haveVDSO) {
+    const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
+    assert(vdso);
+
+    unsigned n = sysconf(_SC_PAGESIZE);
+
+    char path[0x100];
+    snprintf(path, sizeof(path), "%s/linux-vdso.so.1", tmpdir);
+
+    int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    assert(write(fd, vdso, n) == n);
+    close(fd);
+
+    binary_paths.push_back(path);
   }
 
   //
@@ -236,14 +264,6 @@ int init(void) {
     assert(std::find(binary_paths.begin(), binary_paths.end(), bin_path) ==
            binary_paths.end());
     binary_paths.push_back(bin_path);
-  }
-
-  //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  if (!mkdtemp(tmpdir)) {
-    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
-    return 1;
   }
 
   //
@@ -289,7 +309,9 @@ int init(void) {
   assert(final_decompilation.Binaries.size() >= 2);
 
   final_decompilation.Binaries.at(0).IsExecutable = true;
-  assert(final_decompilation.Binaries.at(1).IsDynamicLinker);
+  final_decompilation.Binaries.at(1).IsDynamicLinker = true;
+  if (haveVDSO)
+    final_decompilation.Binaries.at(2).IsVDSO = true;
 
   if (fs::exists(opts::Output)) {
     if (opts::Verbose)
