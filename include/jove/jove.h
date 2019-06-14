@@ -112,13 +112,14 @@ struct binary_t {
   std::string Path;
   std::vector<uint8_t> Data;
 
-  bool IsDynamicLinker, IsExecutable;
+  bool IsDynamicLinker, IsExecutable, IsVDSO;
 
   struct {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
-    std::map<uintptr_t, std::set<function_index_t>> IFuncRelocDynTargets;
+    std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
+        IFuncDynTargets;
   } Analysis;
 
   JOVE_EXTRA_BIN_PROPERTIES;
@@ -129,10 +130,11 @@ struct binary_t {
        &Data
        &IsDynamicLinker
        &IsExecutable
+       &IsVDSO
        &Analysis.EntryFunction
        &Analysis.Functions
        &Analysis.ICFG
-       &Analysis.IFuncRelocDynTargets;
+       &Analysis.IFuncDynTargets;
   }
 };
 
