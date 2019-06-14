@@ -382,7 +382,10 @@ int ParentProc(pid_t child) {
     binary_state_t &st = BinStateVec[i];
 
     // add to path -> index map
-    BinPathToIdxMap[binary.Path] = i;
+    if (binary.IsVDSO)
+      BinPathToIdxMap["[vdso]"] = i;
+    else
+      BinPathToIdxMap[binary.Path] = i;
 
     //
     // build FuncMap
@@ -1786,38 +1789,36 @@ static void harvest_ifunc_resolver_targets(pid_t child,
       relocation_t::TYPE reloc_type =
           relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
       if (reloc_type == relocation_t::TYPE::IRELATIVE) {
-        uintptr_t Addr = va_of_rva(R.r_offset, BIdx);
-        unsigned long resolved_addr = _ptrace_peekdata(child, Addr);
+        struct {
+          uintptr_t Addr;
 
-        auto it = AddressSpace.find(resolved_addr);
+          binary_index_t BIdx;
+          function_index_t FIdx;
+        } Resolved;
+
+        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+
+        auto it = AddressSpace.find(Resolved.Addr);
         if (it == AddressSpace.end()) {
           WithColor::warning()
-              << "harvest_ifunc_resolver_targets: unknown binary for "
-              << description_of_program_counter(resolved_addr) << '\n';
+              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                               description_of_program_counter(Resolved.Addr));
           return;
         }
 
-        binary_index_t binary_idx = *(*it).second.begin();
-        bool isLocal = binary_idx == BIdx;
+        Resolved.BIdx = *(*it).second.begin();
 
-        if (!isLocal) {
-          WithColor::warning()
-              << "nonlocal ifunc resolver target "
-              << description_of_program_counter(resolved_addr) << '\n';
-          return;
-        }
-
-        llvm::outs() << "ifunc resolver target: "
-                     << (fmt("%#lx") % rva_of_va(resolved_addr, BIdx)).str()
-                     << '\n';
+        llvm::outs() << llvm::formatv("IFunc dyn target: {0:x}\n",
+                                      rva_of_va(Resolved.Addr, Resolved.BIdx));
 
         unsigned brkpt_count = 0;
-        function_index_t resolved_fidx = translate_function(
-            child, BIdx, tcg, dis, rva_of_va(resolved_addr, BIdx), brkpt_count);
+        Resolved.FIdx = translate_function(
+            child, Resolved.BIdx, tcg, dis,
+            rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
-        if (is_function_index_valid(resolved_fidx))
-          Binary.Analysis.IFuncRelocDynTargets[R.r_offset].insert(
-              resolved_fidx);
+        if (is_function_index_valid(Resolved.FIdx))
+          Binary.Analysis.IFuncDynTargets[R.r_addend].insert(
+              {Resolved.BIdx, Resolved.FIdx});
       }
     };
 
@@ -1845,11 +1846,15 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       continue;
     if (vm_prop.nm.empty())
       continue;
-    if (!fs::exists(vm_prop.nm))
-      continue;
+    bool isVDSO = false;
+    if (vm_prop.nm[0] != '/') {
+      isVDSO = vm_prop.nm.find("[vdso]") != std::string::npos;
+      if (!isVDSO)
+        continue;
+    }
 
-    std::string Path = fs::canonical(vm_prop.nm).string();
-    auto it = BinPathToIdxMap.find(Path);
+    // thus, if we get here, it's either a file or [vdso]
+    auto it = BinPathToIdxMap.find(vm_prop.nm);
     if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
       binary_index_t binary_idx = (*it).second;
       BinFoundVec.set(binary_idx);
@@ -1860,7 +1865,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       st.dyn.LoadAddrEnd = vm_prop.end;
 
       llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
-                       % Path
+                       % vm_prop.nm
                        % st.dyn.LoadAddr
                        % st.dyn.LoadAddrEnd).str()
                    << '\n';
@@ -1875,8 +1880,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       //
       // if Prog has been loaded, set a breakpoint on the entry point of prog
       //
-      bool IsProg = fs::equivalent(Path, opts::Prog);
-      if (IsProg) {
+      if (binary.IsExecutable) {
         assert(is_function_index_valid(binary.Analysis.EntryFunction));
 
         basic_block_t entry_bb = boost::vertex(
