@@ -209,6 +209,8 @@ int recompile(void) {
     binary_t &b = Decompilation.Binaries[BIdx];
     if (b.IsDynamicLinker)
       continue;
+    if (b.IsVDSO)
+      continue;
 
     Q.push(BIdx);
   }
@@ -220,6 +222,8 @@ int recompile(void) {
     if (b.IsExecutable)
       continue;
     if (b.IsDynamicLinker)
+      continue;
+    if (b.IsVDSO)
       continue;
 
     sofp_vec.push_back(opts::Output + b.Path);
