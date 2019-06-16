@@ -10,6 +10,7 @@ class AllocaInst;
 class Type;
 class LoadInst;
 class DISubprogram;
+class GlobalIFunc;
 namespace object {
 class Binary;
 }
@@ -55,6 +56,10 @@ class Binary;
   llvm::LoadInst *FSBaseVal;                                                   \
                                                                                \
   struct {                                                                     \
+    llvm::GlobalIFunc *IFunc;                                                  \
+  } _resolver;                                                                 \
+                                                                               \
+  struct {                                                                     \
     llvm::DISubprogram *Subprogram;                                            \
   } DebugInformation;                                                          \
                                                                                \
@@ -66,7 +71,9 @@ class Binary;
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
-  function_t() : IsNamed(false), IsABI(false), Analyzed(false) {}              \
+  function_t()                                                                 \
+      : _resolver({.IFunc = nullptr}), IsNamed(false), IsABI(false),           \
+        Analyzed(false) {}                                                     \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -268,6 +275,13 @@ int main(int argc, char **argv) {
   }
 
   return jove::llvm();
+}
+
+
+namespace llvm {
+
+using IRBuilderTy = IRBuilder<ConstantFolder, IRBuilderDefaultInserter>;
+
 }
 
 namespace jove {
@@ -1173,6 +1187,12 @@ int ProcessExportedFunctions(void) {
   return 0;
 }
 
+static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
+
+static llvm::Type *WordType(void) {
+  return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
+}
+
 int ProcessDynamicSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -1381,7 +1401,7 @@ int ProcessDynamicSymbols(void) {
           auto it = st.FuncMap.find(Sym.st_value);
           assert(it != st.FuncMap.end());
 
-          function_t &resolver = binary.Analysis.Functions.at((*it).second);
+          function_t &f = binary.Analysis.Functions.at((*it).second);
 
           llvm::FunctionType *FTy;
 
@@ -1394,20 +1414,47 @@ int ProcessDynamicSymbols(void) {
               FTy = DetermineFunctionType(*(*it).second.begin());
           }
 
-          llvm::GlobalIFunc::create(FTy, 0, llvm::GlobalValue::ExternalLinkage,
-                                    SymName,
-#if 0
-        llvm::ConstantExpr::getPointerCast(
-            resolver.F,
-            llvm::PointerType::get(
+          if (f._resolver.IFunc) {
+            llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
+          } else {
+            // TODO refactor this
+            llvm::Function *CallsF = llvm::Function::Create(
                 llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-                0)),
-#else
-                                    llvm::ConstantExpr::getPointerCast(
-                                        resolver.F,
-                                        llvm::PointerType::get(FTy, 0)),
-#endif
-                                    Module.get());
+                llvm::GlobalValue::InternalLinkage,
+                "_" + std::string(f.F->getName()), Module.get());
+
+            llvm::BasicBlock *EntryB =
+                llvm::BasicBlock::Create(*Context, "", CallsF);
+
+            {
+              llvm::IRBuilderTy IRB(EntryB);
+
+              IRB.CreateStore(
+                  llvm::ConstantExpr::getAdd(
+                      llvm::ConstantExpr::getPtrToInt(TLSStackGlobal,
+                                                      WordType()),
+                      IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
+                  CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+              if (opts::Trace)
+                IRB.CreateCall(JoveTraceInitFunc);
+
+              std::vector<llvm::Value *> ArgVec;
+              ArgVec.resize(f.F->getFunctionType()->getNumParams());
+
+              for (unsigned i = 0; i < ArgVec.size(); ++i)
+                ArgVec[i] = llvm::UndefValue::get(
+                    f.F->getFunctionType()->getParamType(i));
+
+              llvm::Value *Addr = IRB.CreateCall(f.F, ArgVec);
+              IRB.CreateRet(IRB.CreateIntToPtr(
+                  Addr, CallsF->getFunctionType()->getReturnType()));
+            }
+
+            f._resolver.IFunc = llvm::GlobalIFunc::create(
+                FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
+                Module.get());
+          }
         }
       }
     }
@@ -2684,10 +2731,6 @@ void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
   });
 }
 
-static llvm::Type *WordType(void) {
-  return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
-}
-
 static llvm::Type *PointerToWordType(void) {
   return llvm::PointerType::get(WordType(), 0);
 }
@@ -2840,8 +2883,6 @@ int RenameFunctions(void) {
 
 namespace llvm {
 
-using IRBuilderTy = IRBuilder<ConstantFolder, IRBuilderDefaultInserter>;
-
 /// Get a natural GEP from a base pointer to a particular offset and
 /// resulting in a particular type.
 ///
@@ -2913,8 +2954,6 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(llvm::isa<llvm::Constant>(res));
   return llvm::cast<llvm::Constant>(res);
 }
-
-static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
 
 int CreateSectionGlobalVariables(void) {
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
@@ -3311,22 +3350,46 @@ int CreateSectionGlobalVariables(void) {
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
-    function_t &resolver =
+    function_t &f =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
+    if (!f._resolver.IFunc) {
+      // TODO refactor this
+      llvm::Function *CallsF = llvm::Function::Create(
+          llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
+          llvm::GlobalValue::InternalLinkage, "_" + std::string(f.F->getName()),
+          Module.get());
 
-    return llvm::GlobalIFunc::create(
-        FTy, 0, llvm::GlobalValue::InternalLinkage, "",
-#if 1
-        llvm::ConstantExpr::getPointerCast(
-            resolver.F,
-            llvm::PointerType::get(
-                llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-                0)),
-#else
-        llvm::ConstantExpr::getPointerCast(resolver.F,
-                                           llvm::PointerType::get(FTy, 0)),
-#endif
-        Module.get());
+      llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", CallsF);
+
+      {
+        llvm::IRBuilderTy IRB(EntryB);
+
+        IRB.CreateStore(
+            llvm::ConstantExpr::getAdd(
+                llvm::ConstantExpr::getPtrToInt(TLSStackGlobal, WordType()),
+                IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
+            CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+        if (opts::Trace)
+          IRB.CreateCall(JoveTraceInitFunc);
+
+        std::vector<llvm::Value *> ArgVec;
+        ArgVec.resize(f.F->getFunctionType()->getNumParams());
+
+        for (unsigned i = 0; i < ArgVec.size(); ++i)
+          ArgVec[i] =
+              llvm::UndefValue::get(f.F->getFunctionType()->getParamType(i));
+
+        llvm::Value *Addr = IRB.CreateCall(f.F, ArgVec);
+        IRB.CreateRet(IRB.CreateIntToPtr(
+            Addr, CallsF->getFunctionType()->getReturnType()));
+      }
+
+      f._resolver.IFunc = llvm::GlobalIFunc::create(
+          FTy, 0, llvm::GlobalValue::InternalLinkage, "", CallsF, Module.get());
+    }
+
+    return f._resolver.IFunc;
 #endif
   };
 
@@ -3794,6 +3857,7 @@ int CreateSectionGlobalVariables(void) {
         llvm::FunctionType *FTy = F->getFunctionType();
         unsigned N = FTy->getNumParams();
 
+        // TODO refactor this
         llvm::Function *CallsF = llvm::Function::Create(
             llvm::FunctionType::get(VoidType(), false),
             llvm::GlobalValue::InternalLinkage, "_" + std::string(F->getName()),
@@ -3811,7 +3875,8 @@ int CreateSectionGlobalVariables(void) {
                   IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
               CPUStateGlobalPointer(tcg_stack_pointer_index));
 
-          IRB.CreateCall(JoveTraceInitFunc);
+          if (opts::Trace)
+            IRB.CreateCall(JoveTraceInitFunc);
 
           std::vector<llvm::Value *> ArgVec;
           ArgVec.resize(N);
