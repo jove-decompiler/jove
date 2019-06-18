@@ -398,7 +398,7 @@ static void worker(void) {
       print_command(arg_vec);
 
       std::string stdoutfp = bcfp + ".txt";
-      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_WRONLY);
+      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       dup2(stdoutfd, STDOUT_FILENO);
       dup2(stdoutfd, STDERR_FILENO);
 
