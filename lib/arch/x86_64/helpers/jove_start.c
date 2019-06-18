@@ -445,9 +445,9 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-__thread struct CPUX86State __jove_env;
-__thread char __jove_stack[0x100000];
-__thread uint64_t *__jove_trace;
+/* __thread */ struct CPUX86State __jove_env;
+/* __thread */ char __jove_stack[0x100000];
+/* __thread */ uint64_t *__jove_trace;
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
@@ -463,13 +463,15 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #include <unistd.h>
 #include <sys/mman.h>
 
+#define _NOINL __attribute__((noinline))
+#define _INL __attribute__((always_inline))
+#define _NAKED __attribute__((naked))
+
 void _jove_call_entry(void);
 
-void __jove_start(void) __attribute__((naked));
+_NAKED void __jove_start(void);
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
                  target_ulong, target_ulong);
-
-#define _INL __attribute__((always_inline))
 
 static _INL int _open(const char *, int, mode_t);
 static _INL ssize_t _read(int, void *, size_t);
@@ -489,6 +491,10 @@ static _INL unsigned _getHexDigit(char cdigit);
 static _INL uint64_t _get_stack_end(void);
 
 void _jove_trace_init(void);
+
+_NAKED _NOINL unsigned long _jove_thunk(unsigned long,
+                                        unsigned long *,
+                                        unsigned long *);
 
 void __jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
@@ -830,4 +836,35 @@ void _jove_trace_init(void) {
   }
 
   __jove_trace = p;
+}
+
+unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
+                          unsigned long *args   /* rsi */,
+                          unsigned long *emuspp /* rdx */) {
+  asm volatile("pushq %r15\n" /* callee-saved registers */
+               "pushq %r14\n"
+
+               "movq %rdx, %r14\n" /* emuspp in r14 */
+               "movq %rsp, %r15\n" /* put old sp in r15 */
+
+               "movq (%rdx), %rsp\n" /* make emusp be the sp */
+
+               "movq %rdi, %r10\n" /* put dstpc in temporary register */
+
+               /* unpack args */
+               "movq 40(%rsi), %r9\n"
+               "movq 32(%rsi), %r8\n"
+               "movq 24(%rsi), %rcx\n"
+               "movq 16(%rsi), %rdx\n"
+               "movq  0(%rsi), %rdi\n"
+               "movq  8(%rsi), %rsi\n"
+
+               "callq *%r10\n" /* call dstpc */
+
+               "movq %rsp, (%r14)\n" /* store modified emusp */
+               "movq %r15, %rsp\n" /* restore stack pointer */
+
+               "popq %r14\n"
+               "popq %r15\n" /* callee-saved registers */
+               "ret");
 }

@@ -141,6 +141,7 @@ class Binary;
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
+#include <llvm/Transforms/Utils/Cloning.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -502,6 +503,7 @@ static llvm::Type *CPUStateType;
 static llvm::GlobalVariable *TraceGlobal;
 
 static llvm::Function *JoveTraceInitFunc;
+static llvm::Function *JoveThunkFunc;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -937,6 +939,9 @@ int CreateModule(void) {
 
   JoveTraceInitFunc = Module->getFunction("_jove_trace_init");
   assert(JoveTraceInitFunc);
+
+  JoveThunkFunc = Module->getFunction("_jove_thunk");
+  assert(JoveThunkFunc);
 
   return 0;
 }
@@ -1426,6 +1431,7 @@ int ProcessDynamicSymbols(void) {
             llvm::BasicBlock *EntryB =
                 llvm::BasicBlock::Create(*Context, "", CallsF);
 
+            llvm::CallInst *Call;
             {
               llvm::IRBuilderTy IRB(EntryB);
 
@@ -1446,10 +1452,25 @@ int ProcessDynamicSymbols(void) {
                 ArgVec[i] = llvm::UndefValue::get(
                     f.F->getFunctionType()->getParamType(i));
 
-              llvm::Value *Addr = IRB.CreateCall(f.F, ArgVec);
+              Call = IRB.CreateCall(f.F, ArgVec);
+
               IRB.CreateRet(IRB.CreateIntToPtr(
-                  Addr, CallsF->getFunctionType()->getReturnType()));
+                  Call, CallsF->getFunctionType()->getReturnType()));
             }
+
+            // we can't have calls to PLT entries in resolver functions
+            f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+#if 0
+            llvm::InlineFunctionInfo IFI;
+            llvm::InlineResult InlRes = llvm::InlineFunction(Call, IFI);
+            if (!InlRes) {
+              WithColor::error() << llvm::formatv(
+                  "unable to inline IFunc resolver function: {0}\n",
+                  InlRes.message);
+              abort();
+            }
+#endif
 
             f._resolver.IFunc = llvm::GlobalIFunc::create(
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
@@ -3361,6 +3382,7 @@ int CreateSectionGlobalVariables(void) {
 
       llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", CallsF);
 
+      llvm::CallInst *Call;
       {
         llvm::IRBuilderTy IRB(EntryB);
 
@@ -3380,10 +3402,24 @@ int CreateSectionGlobalVariables(void) {
           ArgVec[i] =
               llvm::UndefValue::get(f.F->getFunctionType()->getParamType(i));
 
-        llvm::Value *Addr = IRB.CreateCall(f.F, ArgVec);
+        Call = IRB.CreateCall(f.F, ArgVec);
         IRB.CreateRet(IRB.CreateIntToPtr(
-            Addr, CallsF->getFunctionType()->getReturnType()));
+            Call, CallsF->getFunctionType()->getReturnType()));
       }
+
+      // we can't have calls to PLT entries in resolver functions
+      f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+#if 0
+      llvm::InlineFunctionInfo IFI;
+      llvm::InlineResult InlRes = llvm::InlineFunction(Call, IFI);
+      if (!InlRes) {
+        WithColor::error() << llvm::formatv(
+            "unable to inline IFunc resolver function: {0}\n",
+            InlRes.message);
+        abort();
+      }
+#endif
 
       f._resolver.IFunc = llvm::GlobalIFunc::create(
           FTy, 0, llvm::GlobalValue::InternalLinkage, "", CallsF, Module.get());
@@ -4591,6 +4627,12 @@ int InternalizeStaticFunctions(void) {
       f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
+  JoveThunkFunc = Module->getFunction("_jove_thunk");
+  if (JoveThunkFunc) {
+    JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+    JoveThunkFunc->setCallingConv(llvm::CallingConv::C);
+  }
+
   return 0;
 }
 
@@ -5042,24 +5084,6 @@ int TranslateBasicBlock(binary_t &Binary,
     store(tcg_stack_pointer_index);
   };
 
-  auto store_stack_pointers_if_not_dynl = [&](void) -> void {
-    bool dynl = false;
-
-    const auto &DynTargets = ICFG[bb].DynTargets;
-    if (!DynTargets.empty()) {
-      binary_index_t BIdx = (*DynTargets.begin()).first;
-      function_index_t FuncIdx = (*DynTargets.begin()).second;
-
-      if (Decompilation.Binaries[BIdx].IsDynamicLinker)
-        dynl = true;
-    }
-
-    if (dynl) {
-    } else {
-      store_stack_pointers();
-    }
-  };
-
   struct {
     bool IsTailCall;
   } _indirect_jump;
@@ -5085,7 +5109,7 @@ int TranslateBasicBlock(binary_t &Binary,
       break;
 
   case TERMINATOR::INDIRECT_CALL:
-    store_stack_pointers_if_not_dynl();
+    store_stack_pointers();
     break;
 
   default:
@@ -5197,35 +5221,12 @@ int TranslateBasicBlock(binary_t &Binary,
     }
 
   case TERMINATOR::INDIRECT_CALL: {
-    auto get_a_callee = [&](void) -> function_t * {
-      const auto &DynTargets = ICFG[bb].DynTargets;
-
-      if (!DynTargets.empty()) {
-        binary_index_t BinIdx = (*DynTargets.begin()).first;
-        function_index_t FnIdx = (*DynTargets.begin()).second;
-        return &Decompilation.Binaries[BinIdx].Analysis.Functions[FnIdx];
-      }
-
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      for (auto eit = eit_pair.first; eit != eit_pair.second; ++eit) {
-        basic_block_t succ = boost::target(*eit, ICFG);
-        auto it = FuncMap.find(ICFG[succ].Addr);
-        if (it != FuncMap.end()) {
-          function_index_t FnIdx = (*it).second;
-          return &Decompilation.Binaries[BinaryIndex].Analysis.Functions[FnIdx];
-        }
-      }
-
-      return nullptr;
-    };
-
-    function_t *callee_ptr = get_a_callee();
-
-    if (!callee_ptr) {
+    const auto &DynTargets = ICFG[bb].DynTargets;
+    if (DynTargets.empty()) {
       if (opts::Verbose)
-        WithColor::warning()
-            << "indirect branch @ " << (fmt("%#lx") % ICFG[bb].Addr).str()
-            << " has zero dyn targets\n";
+        WithColor::warning() << llvm::formatv(
+            "indirect control transfer @ 0x{0:x} has zero dyn targets\n",
+            ICFG[bb].Addr);
 
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
@@ -5233,7 +5234,36 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
-    function_t &callee = *callee_ptr;
+    auto DynTargetNeedsThunkPred = [](const auto &DynTarget) -> bool {
+      binary_index_t BIdx = DynTarget.first;
+
+      const binary_t &binary = Decompilation.Binaries[BIdx];
+      return binary.IsDynamicLinker || binary.IsVDSO;
+    };
+
+    struct {
+      bool AnyOf;
+      bool AllOf;
+    } NeedsThunk = {std::any_of(DynTargets.cbegin(), DynTargets.cend(),
+                                DynTargetNeedsThunkPred),
+                    std::all_of(DynTargets.cbegin(), DynTargets.cend(),
+                                DynTargetNeedsThunkPred)};
+
+    if (NeedsThunk.AnyOf != NeedsThunk.AllOf) {
+      WithColor::warning() << llvm::formatv("ambiguous NeedsThunk for {0:x}\n",
+                                            ICFG[bb].Term.Addr);
+    }
+
+    struct {
+      binary_index_t BIdx;
+      function_index_t FIdx;
+    } ADynTarget;
+
+    std::tie(ADynTarget.BIdx,
+             ADynTarget.FIdx) = *DynTargets.begin();
+
+    function_t &callee = Decompilation.Binaries[ADynTarget.BIdx]
+                             .Analysis.Functions[ADynTarget.FIdx];
 
     std::vector<llvm::Value *> ArgVec;
     {
@@ -5249,12 +5279,50 @@ int TranslateBasicBlock(binary_t &Binary,
                      });
     }
 
-    llvm::CallInst *Ret = IRB.CreateCall(
-        IRB.CreateIntToPtr(
-            IRB.CreateLoad(f.PCAlloca),
-            llvm::PointerType::get(DetermineFunctionType(callee), 0)),
-        ArgVec);
+    llvm::CallInst *Ret;
+
+    if (NeedsThunk.AnyOf) {
+#if defined(__x86_64__)
+      if (T.Type == TERMINATOR::INDIRECT_CALL) {
+        llvm::LoadInst *SPVal =
+            IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
+
+        llvm::AllocaInst *SPAlloca = f.GlobalAllocaVec[tcg_stack_pointer_index];
+        IRB.CreateStore(IRB.CreateAdd(IRB.CreateLoad(SPAlloca),
+                                      llvm::ConstantInt::get(
+                                          WordType(), sizeof(uintptr_t))),
+                        SPAlloca);
+
+        store_stack_pointers();
+      }
+#endif
+
+      llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
+          llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
+
+      for (unsigned i = 0; i < ArgVec.size(); ++i) {
+        llvm::Value *Val = ArgVec[i];
+        llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
+
+        IRB.CreateStore(Val, Ptr);
+      }
+
+      llvm::Value *CallArgs[] = {
+          IRB.CreateLoad(f.PCAlloca),
+          IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
+          CPUStateGlobalPointer(tcg_stack_pointer_index)};
+
+      Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
+    } else {
+      Ret = IRB.CreateCall(
+          IRB.CreateIntToPtr(
+              IRB.CreateLoad(f.PCAlloca),
+              llvm::PointerType::get(DetermineFunctionType(callee), 0)),
+          ArgVec);
+    }
+
     Ret->setIsNoInline();
+    Ret->setCallingConv(llvm::CallingConv::C);
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
       std::vector<unsigned> glbv;
@@ -5293,36 +5361,6 @@ int TranslateBasicBlock(binary_t &Binary,
     reload(tcg_stack_pointer_index);
   };
 
-  auto reload_stack_pointers_if_not_dynl = [&](void) -> void {
-    bool dynl = false;
-
-    const auto &DynTargets = ICFG[bb].DynTargets;
-    if (!DynTargets.empty()) {
-      binary_index_t BIdx = (*DynTargets.begin()).first;
-      function_index_t FuncIdx = (*DynTargets.begin()).second;
-
-      if (Decompilation.Binaries[BIdx].IsDynamicLinker)
-        dynl = true;
-    }
-
-    if (dynl) {
-      //
-      // if we are calling into the dynamic linker, then we need to "emulate"
-      // the popping of return address from the stack (decremented by
-      // sizeof(uintptr))
-      //
-#if defined(__x86_64__)
-      auto &sp_alloca = f.GlobalAllocaVec[tcg_stack_pointer_index];
-      IRB.CreateStore(
-          IRB.CreateAdd(IRB.CreateLoad(sp_alloca),
-                        llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
-          sp_alloca);
-#endif
-    } else {
-      reload_stack_pointers();
-    }
-  };
-
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
@@ -5336,7 +5374,7 @@ int TranslateBasicBlock(binary_t &Binary,
       break;
 
   case TERMINATOR::INDIRECT_CALL:
-    reload_stack_pointers_if_not_dynl();
+    reload_stack_pointers();
     break;
 
   default:

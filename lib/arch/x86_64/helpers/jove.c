@@ -445,12 +445,49 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-void _jove_trace_init(void);
+#define _NAKED __attribute__((naked))
+#define _NOINL __attribute__((noinline))
 
-extern __thread struct CPUX86State __jove_env;
-extern __thread char __jove_stack[0x100000];
-extern __thread uint64_t *__jove_trace;
+void _jove_trace_init(void);
+_NAKED _NOINL unsigned long _jove_thunk(unsigned long,
+                                        unsigned long *,
+                                        unsigned long *);
+
+extern /* __thread */ struct CPUX86State __jove_env;
+extern /* __thread */ char __jove_stack[0x100000];
+extern /* __thread */ uint64_t *__jove_trace;
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
-uint64_t           *jove_trace(void) { return (_jove_trace_init(), __jove_trace); }
+uint64_t           *jove_trace(void) { return (_jove_trace_init(), _jove_thunk(0, 0, 0), __jove_trace); }
+
+unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
+                          unsigned long *args   /* rsi */,
+                          unsigned long *emuspp /* rdx */) {
+  asm volatile("pushq %r15\n" /* callee-saved registers */
+               "pushq %r14\n"
+
+               "movq %rdx, %r14\n" /* emuspp in r14 */
+               "movq %rsp, %r15\n" /* put old sp in r15 */
+
+               "movq (%rdx), %rsp\n" /* make emusp be the sp */
+
+               "movq %rdi, %r10\n" /* put dstpc in temporary register */
+
+               /* unpack args */
+               "movq 40(%rsi), %r9\n"
+               "movq 32(%rsi), %r8\n"
+               "movq 24(%rsi), %rcx\n"
+               "movq 16(%rsi), %rdx\n"
+               "movq  0(%rsi), %rdi\n"
+               "movq  8(%rsi), %rsi\n"
+
+               "callq *%r10\n" /* call dstpc */
+
+               "movq %rsp, (%r14)\n" /* store modified emusp */
+               "movq %r15, %rsp\n" /* restore stack pointer */
+
+               "popq %r14\n"
+               "popq %r15\n" /* callee-saved registers */
+               "ret");
+}
