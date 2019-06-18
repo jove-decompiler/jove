@@ -5281,7 +5281,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
     llvm::CallInst *Ret;
 
-    if (NeedsThunk.AnyOf) {
+    if (NeedsThunk.AllOf) {
 #if defined(__x86_64__)
       if (T.Type == TERMINATOR::INDIRECT_CALL) {
         llvm::LoadInst *SPVal =
