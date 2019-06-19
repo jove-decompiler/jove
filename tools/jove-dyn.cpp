@@ -1727,21 +1727,13 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   exit(1);
 }
 
-struct relocation_t {
-  enum class TYPE {
-    NONE,
-    RELATIVE,
-    IRELATIVE,
-    ABSOLUTE,
-    COPY,
-    ADDRESSOF,
-    TPOFF
-  } Type;
-};
+//
+// TODO refactor the following code
+//
 
-static void harvest_ifunc_resolver_targets(pid_t child,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis) {
+static void harvest_irelative_reloc_targets(pid_t child,
+                                            tiny_code_generator_t &tcg,
+                                            disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
@@ -1777,49 +1769,53 @@ static void harvest_ifunc_resolver_targets(pid_t child,
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
                                 const Elf_Rela &R) -> void {
-      auto relocation_type_of_elf_rela_type =
-          [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
-        switch (elf_rela_ty) {
-#include "relocs.hpp"
-        default:
-          return relocation_t::TYPE::NONE;
-        }
-      };
+      constexpr unsigned long desired_reloc_ty =
+#if defined(__x86_64__)
+          llvm::ELF::R_X86_64_IRELATIVE
+#elif defined(__i386__)
+          llvm::ELF::R_386_IRELATIVE
+#elif defined(__aarch64__)
+          llvm::ELF::R_AARCH64_IRELATIVE;
+#else
+          0
+#error
+#endif
+          ;
 
-      relocation_t::TYPE reloc_type =
-          relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
-      if (reloc_type == relocation_t::TYPE::IRELATIVE) {
-        struct {
-          uintptr_t Addr;
+      if (R.getType(E.isMips64EL()) != desired_reloc_ty)
+        return;
 
-          binary_index_t BIdx;
-          function_index_t FIdx;
-        } Resolved;
+      struct {
+        uintptr_t Addr;
 
-        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+        binary_index_t BIdx;
+        function_index_t FIdx;
+      } Resolved;
 
-        auto it = AddressSpace.find(Resolved.Addr);
-        if (it == AddressSpace.end()) {
-          WithColor::warning()
-              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                               description_of_program_counter(Resolved.Addr));
-          return;
-        }
+      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
 
-        Resolved.BIdx = *(*it).second.begin();
+      auto it = AddressSpace.find(Resolved.Addr);
+      if (it == AddressSpace.end()) {
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(Resolved.Addr));
+        return;
+      }
 
+      Resolved.BIdx = *(*it).second.begin();
+
+      if (opts::Verbose)
         llvm::outs() << llvm::formatv("IFunc dyn target: {0:x}\n",
                                       rva_of_va(Resolved.Addr, Resolved.BIdx));
 
-        unsigned brkpt_count = 0;
-        Resolved.FIdx = translate_function(
-            child, Resolved.BIdx, tcg, dis,
-            rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+      unsigned brkpt_count = 0;
+      Resolved.FIdx = translate_function(
+          child, Resolved.BIdx, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
-        if (is_function_index_valid(Resolved.FIdx))
-          Binary.Analysis.IFuncDynTargets[R.r_addend].insert(
-              {Resolved.BIdx, Resolved.FIdx});
-      }
+      if (is_function_index_valid(Resolved.FIdx))
+        Binary.Analysis.IFuncDynTargets[R.r_addend].insert(
+            {Resolved.BIdx, Resolved.FIdx});
     };
 
     for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
@@ -1830,6 +1826,114 @@ static void harvest_ifunc_resolver_targets(pid_t child,
         process_elf_rela(Sec, Rela);
     }
   }
+}
+
+static void harvest_jump_slot_reloc_targets(pid_t child,
+                                            tiny_code_generator_t &tcg,
+                                            disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = decompilation.Binaries[BIdx];
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from " << Binary.Path
+                         << '\n';
+      return;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    assert(llvm::isa<ELFO>(Bin.get()));
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Phdr Elf_Phdr;
+    typedef typename ELFT::Elf_Dyn Elf_Dyn;
+    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Sym Elf_Sym;
+    typedef typename ELFT::Elf_Rela Elf_Rela;
+
+    auto process_elf_rela = [&](const Elf_Shdr &Sec,
+                                const Elf_Rela &R) -> void {
+      constexpr unsigned long desired_reloc_ty =
+#if defined(__x86_64__)
+          llvm::ELF::R_X86_64_JUMP_SLOT
+#elif defined(__i386__)
+          llvm::ELF::R_386_JUMP_SLOT
+#elif defined(__aarch64__)
+          llvm::ELF::R_AARCH64_JUMP_SLOT
+#else
+          0
+#error
+#endif
+          ;
+
+      if (R.getType(E.isMips64EL()) != desired_reloc_ty)
+        return;
+
+      const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
+      const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
+      llvm::StringRef StrTable =
+          unwrapOrError(E.getStringTableForSymtab(*SymTab));
+      std::string SymName = unwrapOrError(Sym->getName(StrTable));
+
+      llvm::outs() << llvm::formatv("{0} SymName={1}\n", __func__, SymName);
+
+      struct {
+        uintptr_t Addr;
+
+        binary_index_t BIdx;
+        function_index_t FIdx;
+      } Resolved;
+
+      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+
+      auto it = AddressSpace.find(Resolved.Addr);
+      if (it == AddressSpace.end()) {
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(Resolved.Addr));
+        return;
+      }
+
+      Resolved.BIdx = *(*it).second.begin();
+
+      unsigned brkpt_count = 0;
+      Resolved.FIdx = translate_function(
+          child, Resolved.BIdx, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+
+      if (is_function_index_valid(Resolved.FIdx))
+        Binary.Analysis.SymDynTargets[SymName].insert(
+            {Resolved.BIdx, Resolved.FIdx});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      if (Sec.sh_type != llvm::ELF::SHT_RELA)
+        continue;
+
+      for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
+        process_elf_rela(Sec, Rela);
+    }
+  }
+}
+
+static void harvest_reloc_targets(pid_t child,
+                                  tiny_code_generator_t &tcg,
+                                  disas_t &dis) {
+  harvest_irelative_reloc_targets(child, tcg, dis);
+  harvest_jump_slot_reloc_targets(child, tcg, dis);
 }
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
@@ -1895,7 +1999,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
             << "\n";
 
         breakpoint_t &brk = BrkMap[Addr];
-        brk.callback = harvest_ifunc_resolver_targets;
+        brk.callback = harvest_reloc_targets;
 
         place_breakpoint(child, Addr, brk, dis);
       }
