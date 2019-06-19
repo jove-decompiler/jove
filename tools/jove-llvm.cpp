@@ -1402,22 +1402,26 @@ int ProcessDynamicSymbols(void) {
 
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
+
+        llvm::FunctionType *FTy;
+
+        {
+          auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+          auto it = IFuncDynTargets.find(Sym.st_value);
+          if (it == IFuncDynTargets.end() || (*it).second.empty()) {
+            FTy = llvm::FunctionType::get(VoidType(), false);
+          } else {
+            FTy = DetermineFunctionType(*(*it).second.begin());
+
+            ExportedFunctions[SymName].insert(*(*it).second.begin());
+          }
+        }
+
         if (BIdx == BinaryIndex) {
           auto it = st.FuncMap.find(Sym.st_value);
           assert(it != st.FuncMap.end());
 
           function_t &f = binary.Analysis.Functions.at((*it).second);
-
-          llvm::FunctionType *FTy;
-
-          {
-            auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
-            auto it = IFuncDynTargets.find(Sym.st_value);
-            if (it == IFuncDynTargets.end() || (*it).second.empty())
-              FTy = llvm::FunctionType::get(VoidType(), false);
-            else
-              FTy = DetermineFunctionType(*(*it).second.begin());
-          }
 
           if (f._resolver.IFunc) {
             llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
@@ -1426,7 +1430,7 @@ int ProcessDynamicSymbols(void) {
             llvm::Function *CallsF = llvm::Function::Create(
                 llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
                 llvm::GlobalValue::InternalLinkage,
-                "_" + std::string(f.F->getName()), Module.get());
+                std::string(f.F->getName()) + "_ifunc", Module.get());
 
             llvm::BasicBlock *EntryB =
                 llvm::BasicBlock::Create(*Context, "", CallsF);
@@ -1706,8 +1710,9 @@ int ProcessBinaryRelocations(void) {
 }
 
 int ProcessIFuncResolvers(void) {
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
-  auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
+  auto &binary = Decompilation.Binaries[BinaryIndex];
+  auto &st = BinStateVec[BinaryIndex];
+  auto &FuncMap = st.FuncMap;
 
   for (const relocation_t &R : RelocationTable) {
     if (R.Type != relocation_t::TYPE::IRELATIVE)
@@ -1716,10 +1721,120 @@ int ProcessIFuncResolvers(void) {
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
-    function_t &resolver = Binary.Analysis.Functions[(*it).second];
+    function_t &resolver = binary.Analysis.Functions[(*it).second];
     resolver.IsABI = true;
 
     // TODO we know function type is i64 (*)(void)
+  }
+
+  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+  const ELFT &E = *O.getELFFile();
+
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
+
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
+
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
+    }
+  }
+
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion;
+  llvm::StringRef DynSymtabName;
+  llvm::StringRef DynamicStringTable;
+
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+      }
+    }
+  }
+
+  //
+  // parse dynamic table
+  //
+  {
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        break;
+      case llvm::ELF::DT_STRSZ:
+        StringTableSize = Dyn.getVal();
+        break;
+      }
+    };
+
+    if (StringTableBegin)
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
+    if (Sym.isUndefined()) /* defined */
+      continue;
+    if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
+      continue;
+
+    auto it = st.FuncMap.find(Sym.st_value);
+    assert(it != st.FuncMap.end());
+
+    function_t &resolver = binary.Analysis.Functions.at((*it).second);
+    resolver.IsABI = true;
   }
 
   return 0;
@@ -3377,8 +3492,8 @@ int CreateSectionGlobalVariables(void) {
       // TODO refactor this
       llvm::Function *CallsF = llvm::Function::Create(
           llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-          llvm::GlobalValue::InternalLinkage, "_" + std::string(f.F->getName()),
-          Module.get());
+          llvm::GlobalValue::InternalLinkage,
+          std::string(f.F->getName()) + "_ifunc", Module.get());
 
       llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", CallsF);
 
