@@ -191,6 +191,72 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         }
       }
     }
+
+    if (!B.Analysis.IFuncDynTargets.empty()) {
+      llvm::ListScope _(Writer);
+
+      for (const auto &pair : B.Analysis.IFuncDynTargets) {
+        llvm::DictScope _(Writer);
+
+        Writer.printHex("IFunc Resolver Address", pair.first);
+        if (!pair.second.empty()) {
+          std::vector<std::string> descv;
+          descv.resize(pair.second.size());
+
+          std::transform(pair.second.begin(), pair.second.end(), descv.begin(),
+                         [&](const auto &pair) -> std::string {
+                           binary_index_t BIdx;
+                           function_index_t FIdx;
+                           std::tie(BIdx, FIdx) = pair;
+
+                           auto &b = decompilation.Binaries[BIdx];
+                           const auto &_ICFG = b.Analysis.ICFG;
+                           auto &callee = b.Analysis.Functions[FIdx];
+                           uintptr_t target_addr =
+                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+
+                           return (fmt("%#lx @ %s") % target_addr %
+                                   fs::path(b.Path).filename().string())
+                               .str();
+                         });
+
+          Writer.printList("DynTargets", descv);
+        }
+      }
+    }
+
+    if (!B.Analysis.SymDynTargets.empty()) {
+      llvm::ListScope _(Writer);
+
+      for (const auto &pair : B.Analysis.SymDynTargets) {
+        llvm::DictScope _(Writer);
+
+        Writer.printString("Symbol Name", pair.first);
+        if (!pair.second.empty()) {
+          std::vector<std::string> descv;
+          descv.resize(pair.second.size());
+
+          std::transform(pair.second.begin(), pair.second.end(), descv.begin(),
+                         [&](const auto &pair) -> std::string {
+                           binary_index_t BIdx;
+                           function_index_t FIdx;
+                           std::tie(BIdx, FIdx) = pair;
+
+                           auto &b = decompilation.Binaries[BIdx];
+                           const auto &_ICFG = b.Analysis.ICFG;
+                           auto &callee = b.Analysis.Functions[FIdx];
+                           uintptr_t target_addr =
+                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+
+                           return (fmt("%#lx @ %s") % target_addr %
+                                   fs::path(b.Path).filename().string())
+                               .str();
+                         });
+
+          Writer.printList("DynTargets", descv);
+        }
+      }
+    }
   }
 }
 
