@@ -7,6 +7,8 @@ case llvm::ELF::R_386_32:
   return relocation_t::TYPE::ABSOLUTE;
 case llvm::ELF::R_386_RELATIVE:
   return relocation_t::TYPE::RELATIVE;
+case llvm::ELF::R_386_IRELATIVE:
+  return relocation_t::TYPE::IRELATIVE;
 case llvm::ELF::R_386_NONE:
 case llvm::ELF::R_386_PC32:
 case llvm::ELF::R_386_GOT32:
@@ -41,6 +43,5 @@ case llvm::ELF::R_386_TLS_TPOFF32:
 case llvm::ELF::R_386_TLS_GOTDESC:
 case llvm::ELF::R_386_TLS_DESC_CALL:
 case llvm::ELF::R_386_TLS_DESC:
-case llvm::ELF::R_386_IRELATIVE:
 case llvm::ELF::R_386_GOT32X:
   return relocation_t::TYPE::NONE;

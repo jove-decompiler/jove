@@ -5,6 +5,8 @@ case llvm::ELF::R_AARCH64_COPY:
   return relocation_t::TYPE::COPY;
 case llvm::ELF::R_AARCH64_RELATIVE:
   return relocation_t::TYPE::RELATIVE;
+case llvm::ELF::R_AARCH64_IRELATIVE:
+  return relocation_t::TYPE::IRELATIVE;
 case llvm::ELF::R_AARCH64_NONE:
 case llvm::ELF::R_AARCH64_ABS64:
 case llvm::ELF::R_AARCH64_ABS32:
@@ -123,6 +125,4 @@ case llvm::ELF::R_AARCH64_TLS_DTPREL64:
 case llvm::ELF::R_AARCH64_TLS_DTPMOD64:
 case llvm::ELF::R_AARCH64_TLS_TPREL64:
 case llvm::ELF::R_AARCH64_TLSDESC:
-case llvm::ELF::R_AARCH64_IRELATIVE:
   return relocation_t::TYPE::NONE;
-
