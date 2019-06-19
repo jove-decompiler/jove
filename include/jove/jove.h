@@ -120,6 +120,8 @@ struct binary_t {
     interprocedural_control_flow_graph_t ICFG;
     std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
         IFuncDynTargets;
+    std::map<std::string, std::set<std::pair<binary_index_t, function_index_t>>>
+        SymDynTargets;
   } Analysis;
 
   JOVE_EXTRA_BIN_PROPERTIES;
@@ -134,7 +136,8 @@ struct binary_t {
        &Analysis.EntryFunction
        &Analysis.Functions
        &Analysis.ICFG
-       &Analysis.IFuncDynTargets;
+       &Analysis.IFuncDynTargets
+       &Analysis.SymDynTargets;
   }
 };
 
