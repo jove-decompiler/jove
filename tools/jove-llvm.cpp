@@ -1402,20 +1402,34 @@ int ProcessDynamicSymbols(void) {
 
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
-
-        llvm::FunctionType *FTy;
+        std::pair<binary_index_t, function_index_t> IdxPair(
+            invalid_binary_index, invalid_function_index);
 
         {
           auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
           auto it = IFuncDynTargets.find(Sym.st_value);
-          if (it == IFuncDynTargets.end() || (*it).second.empty()) {
-            FTy = llvm::FunctionType::get(VoidType(), false);
+          if (it == IFuncDynTargets.end()) {
+            for (const auto &_binary : Decompilation.Binaries) {
+              auto &_SymDynTargets = _binary.Analysis.SymDynTargets;
+              auto _it = _SymDynTargets.find(SymName);
+              if (_it != _SymDynTargets.end()) {
+                IdxPair = *(*_it).second.begin();
+                break;
+              }
+            }
           } else {
-            FTy = DetermineFunctionType(*(*it).second.begin());
-
-            ExportedFunctions[SymName].insert(*(*it).second.begin());
+            IdxPair = *(*it).second.begin();
           }
         }
+
+        if (IdxPair.first == invalid_binary_index &&
+            IdxPair.second == invalid_function_index) {
+          WithColor::warning()
+              << llvm::formatv("failed to process {0} ifunc symbol\n", SymName);
+          continue;
+        }
+
+        ExportedFunctions[SymName].insert(IdxPair);
 
         if (BIdx == BinaryIndex) {
           auto it = st.FuncMap.find(Sym.st_value);
@@ -1426,6 +1440,8 @@ int ProcessDynamicSymbols(void) {
           if (f._resolver.IFunc) {
             llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
           } else {
+            llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
+
             // TODO refactor this
             llvm::Function *CallsF = llvm::Function::Create(
                 llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
@@ -3788,13 +3804,23 @@ int CreateSectionGlobalVariables(void) {
     section_t &Sect = SectTable[(*it).second];
     unsigned Off = Addr - Sect.Addr;
 
-    if (is_integral_size(Size)) {
-      if (ExternGlobalAddrs.find(Addr) != ExternGlobalAddrs.end())
+    if (ExternGlobalAddrs.find(Addr) != ExternGlobalAddrs.end()) {
+      if (is_integral_size(Size)) {
         return new llvm::GlobalVariable(
             *Module, llvm::Type::getIntNTy(*Context, Size * 8), false,
             llvm::GlobalValue::ExternalLinkage, nullptr, SymName, nullptr,
             tlsMode);
+      } else {
+        // TODO weak linkage
+        return new llvm::GlobalVariable(
+            *Module,
+            llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), Size),
+            false, llvm::GlobalValue::ExternalLinkage, nullptr, SymName,
+            nullptr, tlsMode);
+      }
+    }
 
+    if (is_integral_size(Size)) {
       if (Size == sizeof(uintptr_t)) {
         auto typeit = Sect.Stuff.Types.find(Off);
         auto constit = Sect.Stuff.Constants.find(Off);
@@ -3928,8 +3954,14 @@ int CreateSectionGlobalVariables(void) {
       llvm::Type *T = type_of_relocation(R);
       type_at_address(R.Addr, T);
 
-      if (!T)
+      if (!T) {
         done = false;
+
+        llvm::outs() << "!type_of_relocation(R): " <<
+          (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
+                                       % R.Addr
+                                       % R.Addend).str() << '\n';
+      }
     }
 
     declare_sections();
@@ -3938,8 +3970,14 @@ int CreateSectionGlobalVariables(void) {
       llvm::Constant *C = constant_of_relocation(R);
       constant_at_address(R.Addr, C);
 
-      if (!C)
+      if (!C) {
         done = false;
+
+        llvm::outs() << "!constant_of_relocation(R): " <<
+          (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
+                                       % R.Addr
+                                       % R.Addend).str() << '\n';
+      }
     }
 
     define_sections();
@@ -3973,6 +4011,8 @@ int CreateSectionGlobalVariables(void) {
 
       if (!GV) {
         done = false;
+
+        llvm::outs() << "!create_global_variable(...): " << SymName << '\n';
         continue;
       }
 
