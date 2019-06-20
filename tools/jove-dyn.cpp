@@ -1828,7 +1828,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
   }
 }
 
-static void harvest_jump_slot_reloc_targets(pid_t child,
+static void harvest_addressof_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
@@ -1866,7 +1866,8 @@ static void harvest_jump_slot_reloc_targets(pid_t child,
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
                                 const Elf_Rela &R) -> void {
-      constexpr unsigned long desired_reloc_ty =
+      // TODO code duplication XXX
+      constexpr unsigned long jump_slot_reloc_ty =
 #if defined(__x86_64__)
           llvm::ELF::R_X86_64_JUMP_SLOT
 #elif defined(__i386__)
@@ -1879,11 +1880,32 @@ static void harvest_jump_slot_reloc_targets(pid_t child,
 #endif
           ;
 
-      if (R.getType(E.isMips64EL()) != desired_reloc_ty)
+      constexpr unsigned long glob_dat_reloc_ty =
+#if defined(__x86_64__)
+          llvm::ELF::R_X86_64_GLOB_DAT
+#elif defined(__i386__)
+          llvm::ELF::R_386_GLOB_DAT
+#elif defined(__aarch64__)
+          llvm::ELF::R_AARCH64_GLOB_DAT
+#else
+          0
+#error
+#endif
+          ;
+
+      unsigned reloc_ty = R.getType(E.isMips64EL());
+      if (reloc_ty != jump_slot_reloc_ty &&
+          reloc_ty != glob_dat_reloc_ty)
         return;
 
       const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
       const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
+
+      if (Sym->getType() != llvm::ELF::STT_FUNC)
+        return;
+      if (!Sym->isUndefined())
+        return;
+
       llvm::StringRef StrTable =
           unwrapOrError(E.getStringTableForSymtab(*SymTab));
       std::string SymName = unwrapOrError(Sym->getName(StrTable));
@@ -1933,7 +1955,7 @@ static void harvest_reloc_targets(pid_t child,
                                   tiny_code_generator_t &tcg,
                                   disas_t &dis) {
   harvest_irelative_reloc_targets(child, tcg, dis);
-  harvest_jump_slot_reloc_targets(child, tcg, dis);
+  harvest_addressof_reloc_targets(child, tcg, dis);
 }
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
