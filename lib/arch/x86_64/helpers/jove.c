@@ -482,6 +482,7 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq  0(%rsi), %rdi\n"
                "movq  8(%rsi), %rsi\n"
 
+               "addq $8, %rsp\n" /* replace return address on the stack */
                "callq *%r10\n" /* call dstpc */
 
                "movq %rsp, (%r14)\n" /* store modified emusp */
