@@ -1455,6 +1455,23 @@ int ProcessDynamicSymbols(void) {
             {
               llvm::IRBuilderTy IRB(EntryB);
 
+              llvm::Value *SPPtr =
+                  CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+              llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+
+              {
+                constexpr unsigned StackAllocaSize = 0x10000;
+
+                llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                    llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+
+                llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                    StackAlloca, 0, StackAllocaSize - 4096);
+
+                IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+              }
+
               IRB.CreateStore(
                   llvm::ConstantExpr::getAdd(
                       llvm::ConstantExpr::getPtrToInt(TLSStackGlobal,
@@ -1473,6 +1490,8 @@ int ProcessDynamicSymbols(void) {
                     f.F->getFunctionType()->getParamType(i));
 
               Call = IRB.CreateCall(f.F, ArgVec);
+
+              IRB.CreateStore(SavedSP, SPPtr);
 
               IRB.CreateRet(IRB.CreateIntToPtr(
                   Call, CallsF->getFunctionType()->getReturnType()));
@@ -1547,6 +1566,21 @@ int ProcessDynamicTargets(void) {
   //
   for (const binary_t &binary : Decompilation.Binaries) {
     for (const auto &pair : binary.Analysis.IFuncDynTargets) {
+      for (const auto &IdxPair : pair.second) {
+        binary_index_t BIdx;
+        function_index_t FIdx;
+        std::tie(BIdx, FIdx) = IdxPair;
+
+        Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).IsABI = true;
+      }
+    }
+  }
+
+  //
+  // resolved symbols are ABIs
+  //
+  for (const binary_t &binary : Decompilation.Binaries) {
+    for (const auto &pair : binary.Analysis.SymDynTargets) {
       for (const auto &IdxPair : pair.second) {
         binary_index_t BIdx;
         function_index_t FIdx;
@@ -5437,21 +5471,6 @@ int TranslateBasicBlock(binary_t &Binary,
     llvm::CallInst *Ret;
 
     if (NeedsThunk.AllOf) {
-#if defined(__x86_64__)
-      if (T.Type == TERMINATOR::INDIRECT_CALL) {
-        llvm::LoadInst *SPVal =
-            IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
-
-        llvm::AllocaInst *SPAlloca = f.GlobalAllocaVec[tcg_stack_pointer_index];
-        IRB.CreateStore(IRB.CreateAdd(IRB.CreateLoad(SPAlloca),
-                                      llvm::ConstantInt::get(
-                                          WordType(), sizeof(uintptr_t))),
-                        SPAlloca);
-
-        store_stack_pointers();
-      }
-#endif
-
       llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
           llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
 
@@ -5793,7 +5812,16 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     }
     break;
 
-  case INDEX_op_discard:
+  case INDEX_op_discard: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    unsigned idx = temp_idx(dst);
+
+    llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[idx].type));
+    set(llvm::UndefValue::get(Ty), dst);
+    //set(llvm::Constant::getNullValue(Ty), dst);
+    break;
+  }
+
   case INDEX_op_goto_tb:
     break;
 
