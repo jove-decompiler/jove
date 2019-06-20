@@ -52,6 +52,10 @@ static cl::opt<bool> SkipUProbe("skip-uprobe",
                                 cl::desc("Skip adding userspace tracepoints"),
                                 cl::cat(JoveCategory));
 
+static cl::opt<bool> SkipExec("skip-exec",
+                              cl::desc("Skip executing prog"),
+                              cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -296,6 +300,8 @@ int trace(void) {
 
       if (binary.IsDynamicLinker)
         continue;
+      if (binary.IsVDSO)
+        continue;
 
       fs::path chrooted(sysroot / binary.Path);
       if (!fs::exists(chrooted)) {
@@ -375,21 +381,23 @@ skip_uprobe:
   //
   // fork, chroot, exec
   //
-  pid_t child = fork();
-  if (!child) {
-    if (chroot(sysroot.c_str()) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
-                                          strerror(err));
-      exit(1);
+  if (!opts::SkipExec) {
+    pid_t child = fork();
+    if (!child) {
+      if (chroot(sysroot.c_str()) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
+                                            strerror(err));
+        exit(1);
+      }
+
+      ChildProc();
+      exit(1); /* execve failed TODO */
     }
 
-    ChildProc();
-    exit(1); /* execve failed TODO */
+    if (int ret = await_process_completion(child))
+      return ret;
   }
-
-  if (int ret = await_process_completion(child))
-    return ret;
 
   return 0;
 }
