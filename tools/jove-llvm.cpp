@@ -1459,6 +1459,7 @@ int ProcessDynamicSymbols(void) {
                   CPUStateGlobalPointer(tcg_stack_pointer_index);
 
               llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+              SavedSP->setName("saved_sp");
 
               {
                 constexpr unsigned StackAllocaSize = 0x10000;
@@ -1472,15 +1473,23 @@ int ProcessDynamicSymbols(void) {
                 IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
               }
 
-              IRB.CreateStore(
-                  llvm::ConstantExpr::getAdd(
-                      llvm::ConstantExpr::getPtrToInt(TLSStackGlobal,
-                                                      WordType()),
-                      IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
-                  CPUStateGlobalPointer(tcg_stack_pointer_index));
+              llvm::Value *SavedTraceP = nullptr;
+              if (opts::Trace) {
+                SavedTraceP = IRB.CreateLoad(TraceGlobal);
+                SavedTraceP->setName("saved_tracep");
 
-              if (opts::Trace)
-                IRB.CreateCall(JoveTraceInitFunc);
+                {
+                  constexpr unsigned TraceAllocaSize = 4096;
+
+                  llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                      llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
+
+                  llvm::Value *NewTraceP =
+                      IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+                  IRB.CreateStore(NewTraceP, TraceGlobal);
+                }
+              }
 
               std::vector<llvm::Value *> ArgVec;
               ArgVec.resize(f.F->getFunctionType()->getNumParams());
@@ -1492,6 +1501,9 @@ int ProcessDynamicSymbols(void) {
               Call = IRB.CreateCall(f.F, ArgVec);
 
               IRB.CreateStore(SavedSP, SPPtr);
+
+              if (opts::Trace)
+                IRB.CreateStore(SavedTraceP, TraceGlobal);
 
               IRB.CreateRet(IRB.CreateIntToPtr(
                   Call, CallsF->getFunctionType()->getReturnType()));
@@ -3551,14 +3563,40 @@ int CreateSectionGlobalVariables(void) {
       {
         llvm::IRBuilderTy IRB(EntryB);
 
-        IRB.CreateStore(
-            llvm::ConstantExpr::getAdd(
-                llvm::ConstantExpr::getPtrToInt(TLSStackGlobal, WordType()),
-                IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
-            CPUStateGlobalPointer(tcg_stack_pointer_index));
+        llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
 
-        if (opts::Trace)
-          IRB.CreateCall(JoveTraceInitFunc);
+        llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+        SavedSP->setName("saved_sp");
+
+        {
+          constexpr unsigned StackAllocaSize = 0x10000;
+
+          llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+              llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+
+          llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+              StackAlloca, 0, StackAllocaSize - 4096);
+
+          IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+        }
+
+        llvm::Value *SavedTraceP = nullptr;
+        if (opts::Trace) {
+          SavedTraceP = IRB.CreateLoad(TraceGlobal);
+          SavedTraceP->setName("saved_tracep");
+
+          {
+            constexpr unsigned TraceAllocaSize = 4096;
+
+            llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
+
+            llvm::Value *NewTraceP =
+                IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+            IRB.CreateStore(NewTraceP, TraceGlobal);
+          }
+        }
 
         std::vector<llvm::Value *> ArgVec;
         ArgVec.resize(f.F->getFunctionType()->getNumParams());
@@ -3568,6 +3606,12 @@ int CreateSectionGlobalVariables(void) {
               llvm::UndefValue::get(f.F->getFunctionType()->getParamType(i));
 
         Call = IRB.CreateCall(f.F, ArgVec);
+
+        IRB.CreateStore(SavedSP, SPPtr);
+
+        if (opts::Trace)
+          IRB.CreateStore(SavedTraceP, TraceGlobal);
+
         IRB.CreateRet(IRB.CreateIntToPtr(
             Call, CallsF->getFunctionType()->getReturnType()));
       }
@@ -4530,11 +4574,15 @@ ConstantForAddress(uintptr_t Addr) {
       WithColor::error() << __func__ << ": !SectionPointer("
                          << llvm::format_hex(Addr, 1) << ")\n";
 
+#if 0
       llvm::GlobalVariable *PCRelFailGlobal = new llvm::GlobalVariable(
           *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
           nullptr, (fmt("PCRelFail0x%lx") % Addr).str());
 
       return llvm::ConstantExpr::getPtrToInt(PCRelFailGlobal, WordType());
+#else
+      return llvm::Constant::getNullValue(WordType());
+#endif
     }
   }
 
@@ -5813,12 +5861,14 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     break;
 
   case INDEX_op_discard: {
+#if 0
     TCGTemp *dst = arg_temp(op->args[0]);
     unsigned idx = temp_idx(dst);
 
     llvm::Type *Ty = IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[idx].type));
-    set(llvm::UndefValue::get(Ty), dst);
-    //set(llvm::Constant::getNullValue(Ty), dst);
+    //set(llvm::UndefValue::get(Ty), dst);
+    set(llvm::Constant::getNullValue(Ty), dst);
+#endif
     break;
   }
 
