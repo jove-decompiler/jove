@@ -497,13 +497,8 @@ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *);
 
 void __jove_start(void) {
-  asm volatile("movq %%rsp, %%r9\n"
-               "jmp _jove_start\n"
-
-               : // OutputOperands
-               : // InputOperands
-               : // Clobbers
-  );
+  asm volatile("movq %rsp, %r9\n"
+               "jmp _jove_start\n");
 }
 
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
@@ -859,6 +854,7 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq  0(%rsi), %rdi\n"
                "movq  8(%rsi), %rsi\n"
 
+               "addq $8, %rsp\n" /* replace return address on the stack */
                "callq *%r10\n" /* call dstpc */
 
                "movq %rsp, (%r14)\n" /* store modified emusp */
