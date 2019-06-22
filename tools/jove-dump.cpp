@@ -43,6 +43,9 @@ static cl::opt<bool>
              cl::desc("Produce control-flow graphs for each function"),
              cl::cat(JoveCategory));
 
+static cl::opt<bool> Statistics("binary-stats", cl::desc("Print statistics"),
+                                cl::cat(JoveCategory));
+
 static cl::opt<bool> ListBinaries("list-binaries",
                                   cl::desc("List binaries for decompilation"),
                                   cl::cat(JoveCategory));
@@ -273,6 +276,12 @@ static void dumpInput(const std::string &Path) {
   if (opts::ListBinaries) {
     for (const auto &binary : decompilation.Binaries) {
       llvm::outs() << fs::path(binary.Path).filename().string() << '\n';
+    }
+  } else if (opts::Statistics) {
+    for (const binary_t &binary : decompilation.Binaries) {
+      llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Path);
+      llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
+                                    boost::num_vertices(binary.Analysis.ICFG));
     }
   } else if (!opts::ListFunctions.empty()) {
     for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
