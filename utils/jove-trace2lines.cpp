@@ -51,6 +51,12 @@ static cl::list<unsigned>
                cl::desc("Indices of functions to exclude"),
                cl::cat(JoveCategory));
 
+static cl::list<unsigned>
+    ExcludeBinaries("exclude-bins", cl::CommaSeparated,
+               cl::value_desc("bidx_1,bidx_2,...,bidx_n"),
+               cl::desc("Indices of binaries to exclude"),
+               cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -229,6 +235,10 @@ int trace2lines(void) {
     std::tie(BIdx, BBIdx) = pair;
 
     if (Excludes[BIdx].find(BBIdx) != Excludes[BIdx].end())
+      continue;
+
+    if (std::find(opts::ExcludeBinaries.begin(),
+                  opts::ExcludeBinaries.end(), BIdx) != opts::ExcludeBinaries.end())
       continue;
 
     const auto &binary = decompilation.Binaries.at(BIdx);
