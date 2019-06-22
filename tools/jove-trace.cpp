@@ -56,6 +56,11 @@ static cl::opt<bool> SkipExec("skip-exec",
                               cl::desc("Skip executing prog"),
                               cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    Excludes("exclude-binaries", cl::CommaSeparated,
+             cl::value_desc("binary_1,binary_2,...,binary_n"),
+             cl::desc("Binaries to exclude from trace"), cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -301,6 +306,11 @@ int trace(void) {
       if (binary.IsDynamicLinker)
         continue;
       if (binary.IsVDSO)
+        continue;
+
+      std::string binaryName = fs::path(binary.Path).filename().string();
+      if (std::find(opts::Excludes.begin(),
+                    opts::Excludes.end(), binaryName) != opts::Excludes.end())
         continue;
 
       fs::path chrooted(sysroot / binary.Path);
