@@ -4108,8 +4108,119 @@ int CreateSectionGlobalVariables(void) {
   } while (!done);
 
   //
+  // Binary DT_INIT
+  //
+  // XXX this should go somewhere else
+  {
+    auto &binary = Decompilation.Binaries[BinaryIndex];
+    auto &st = BinStateVec[BinaryIndex];
+    auto &FuncMap = st.FuncMap;
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    const ELFT &E = *O.getELFFile();
+
+    auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+      if (DRI.Addr < E.base() ||
+          (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+        abort();
+      return DRI;
+    };
+
+    DynRegionInfo DynamicTable;
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                           uint64_t EntSize) -> DynRegionInfo {
+        return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+      };
+
+      for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+        if (Phdr.p_type != llvm::ELF::PT_DYNAMIC)
+          continue;
+
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        break;
+      }
+    }
+
+    assert(DynamicTable.Addr);
+
+    //
+    // parse dynamic table
+    //
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    uintptr_t initFunctionAddr = 0;
+
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_INIT:
+        initFunctionAddr = Dyn.getVal();
+        break;
+      }
+    };
+
+    if (initFunctionAddr) {
+      auto it = FuncMap.find(initFunctionAddr);
+      if (it == FuncMap.end()) {
+        WithColor::error() << llvm::formatv(
+            "DT_INIT: unknown function @ {0:x}\n", initFunctionAddr);
+      } else {
+        function_t &f = Decompilation.Binaries[BinaryIndex]
+                            .Analysis.Functions[(*it).second];
+        llvm::Function *F = f.F;
+        auto it = CtorStubMap.find(F);
+        if (it == CtorStubMap.end()) {
+          llvm::FunctionType *FTy = F->getFunctionType();
+          unsigned N = FTy->getNumParams();
+
+          // TODO refactor this
+          llvm::Function *CallsF = llvm::Function::Create(
+              llvm::FunctionType::get(VoidType(), false),
+              llvm::GlobalValue::InternalLinkage,
+              "_" + std::string(F->getName()), Module.get());
+
+          llvm::BasicBlock *EntryB =
+              llvm::BasicBlock::Create(*Context, "", CallsF);
+
+          {
+            llvm::IRBuilderTy IRB(EntryB);
+
+            IRB.CreateStore(
+                llvm::ConstantExpr::getAdd(
+                    llvm::ConstantExpr::getPtrToInt(TLSStackGlobal, WordType()),
+                    IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
+                CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+            if (opts::Trace)
+              IRB.CreateCall(JoveTraceInitFunc);
+
+            std::vector<llvm::Value *> ArgVec;
+            ArgVec.resize(N);
+
+            for (unsigned i = 0; i < N; ++i)
+              ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
+
+            IRB.CreateCall(F, ArgVec);
+            IRB.CreateRetVoid();
+          }
+
+          it = CtorStubMap.insert({F, CallsF}).first;
+        }
+
+        llvm::Function *CallsF = (*it).second;
+
+        llvm::appendToGlobalCtors(*Module, CallsF, 0);
+      }
+    }
+  }
+
+  //
   // Global Ctors/Dtors
   //
+  // XXX this should go somewhere else
   for (section_t &Sect : SectTable) {
     if (!Sect.initArray && !Sect.finiArray)
       continue;
