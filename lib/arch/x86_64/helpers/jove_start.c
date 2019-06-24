@@ -464,7 +464,7 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #include <sys/mman.h>
 
 #define _NOINL __attribute__((noinline))
-#define _INL __attribute__((always_inline))
+#define _INL   __attribute__((always_inline))
 #define _NAKED __attribute__((naked))
 
 void _jove_call_entry(void);
