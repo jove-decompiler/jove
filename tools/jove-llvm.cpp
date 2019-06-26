@@ -502,6 +502,9 @@ static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *TraceGlobal;
 
+static llvm::GlobalVariable *JoveFunctionTablesGlobal;
+static llvm::Function *JoveRecoverDynTargetFunc;
+
 static llvm::Function *JoveTraceInitFunc;
 static llvm::Function *JoveThunkFunc;
 
@@ -577,6 +580,7 @@ static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int ProcessExportedFunctions(void);
 static int CreateFunctions(void);
+static int CreateFunctionTable(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int RenameFunctions(void);
@@ -612,6 +616,7 @@ int llvm(void) {
       || ProcessIFuncResolvers()
       || ProcessExportedFunctions()
       || CreateFunctions()
+      || CreateFunctionTable()
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
       || RenameFunctions()
@@ -942,6 +947,13 @@ int CreateModule(void) {
 
   JoveThunkFunc = Module->getFunction("_jove_thunk");
   assert(JoveThunkFunc);
+
+  JoveFunctionTablesGlobal =
+      Module->getGlobalVariable("__jove_function_tables", true);
+  assert(JoveFunctionTablesGlobal);
+
+  JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
+  assert(JoveRecoverDynTargetFunc);
 
   return 0;
 }
@@ -3042,6 +3054,49 @@ int CreateFunctions(void) {
       ++i;
     }
   }
+
+  return 0;
+}
+
+int CreateFunctionTable(void) {
+  binary_t &binary = Decompilation.Binaries[BinaryIndex];
+
+  std::vector<llvm::Constant *> constantTable;
+  constantTable.resize(binary.Analysis.Functions.size());
+
+  std::transform(binary.Analysis.Functions.begin(),
+                 binary.Analysis.Functions.end(), constantTable.begin(),
+                 [](const function_t &f) -> llvm::Constant * {
+                   return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+                 });
+
+  constantTable.push_back(llvm::Constant::getNullValue(WordType()));
+
+  llvm::ArrayType *T =
+      llvm::ArrayType::get(WordType(), binary.Analysis.Functions.size() + 1);
+  llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
+  llvm::GlobalVariable *FuncTableGV = new llvm::GlobalVariable(
+      *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
+      "__jove_function_table");
+
+  llvm::Function *StoresFnTblPtrF = llvm::Function::Create(
+      llvm::FunctionType::get(VoidType(), false),
+      llvm::GlobalValue::InternalLinkage, "StoresFnTblPtrF", Module.get());
+
+  llvm::BasicBlock *EntryB =
+      llvm::BasicBlock::Create(*Context, "", StoresFnTblPtrF);
+
+  {
+    llvm::IRBuilderTy IRB(EntryB);
+
+    IRB.CreateStore(IRB.CreateConstInBoundsGEP2_64(FuncTableGV, 0, 0),
+                    IRB.CreateConstInBoundsGEP2_64(JoveFunctionTablesGlobal, 0,
+                                                   BinaryIndex));
+
+    IRB.CreateRetVoid();
+  }
+
+  llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
 
   return 0;
 }
@@ -5406,6 +5461,8 @@ int TranslateBasicBlock(binary_t &Binary,
   // examine terminator multiple times
   //
   if (T.Type == TERMINATOR::UNREACHABLE) {
+    IRB.CreateCall(
+        llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
     IRB.CreateUnreachable();
     return 0;
   }
@@ -5576,6 +5633,17 @@ int TranslateBasicBlock(binary_t &Binary,
             "indirect control transfer @ 0x{0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
 
+    boost::property_map<interprocedural_control_flow_graph_t,
+                        boost::vertex_index_t>::type bb_idx_map =
+        boost::get(boost::vertex_index, ICFG);
+
+      llvm::Value *RecoverArgs[] = {
+        IRB.getInt32(BinaryIndex),
+        IRB.getInt32(bb_idx_map[bb]),
+        IRB.CreateLoad(f.PCAlloca)
+      };
+
+      IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();

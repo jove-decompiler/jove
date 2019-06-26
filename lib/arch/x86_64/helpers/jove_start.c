@@ -445,9 +445,17 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#include <stddef.h>
+
 /* __thread */ struct CPUX86State __jove_env;
 /* __thread */ char __jove_stack[0x100000];
 /* __thread */ uint64_t *__jove_trace;
+
+#define _JOVE_MAX_BINARIES 512
+
+uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
+    [0 ... _JOVE_MAX_BINARIES - 1] = NULL
+};
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
@@ -459,8 +467,8 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #include <stdio.h>
 #include <sys/syscall.h>
 #include <errno.h>
-#include <inttypes.h>
 #include <unistd.h>
+#include <inttypes.h>
 #include <sys/mman.h>
 
 #define _NOINL __attribute__((noinline))
@@ -481,11 +489,14 @@ static _INL void _exit_group(int status);
 static _INL int _ftruncate(int fd, off_t length);
 static _INL void *_mmap(void *addr, size_t length, int prot, int flags, int fd,
                         off_t offset);
+static _INL int _execve(char *pathname, char **argv, char **envp);
 
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL char *__findenv(const char *name, int len, int *offset);
+static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uint64_t _get_stack_end(void);
@@ -496,10 +507,19 @@ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
 
+_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
+                                     uintptr_t CalleeAddr);
+
 void __jove_start(void) {
   asm volatile("movq %rsp, %r9\n"
                "jmp _jove_start\n");
 }
+
+static struct {
+  int argc;
+  char **argv;
+  char **environ;
+} _jove_startup_info;
 
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
                  target_ulong rcx, target_ulong r8,
@@ -510,6 +530,24 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   __jove_env.regs[R_ECX] = rcx;
   __jove_env.regs[R_R8] = r8;
   __jove_env.df = 1;
+
+  //
+  // _jove_startup_info
+  //
+  {
+    uintptr_t addr = sp_addr;
+
+    _jove_startup_info.argc = *((long *)addr);
+
+    addr += sizeof(long);
+
+    _jove_startup_info.argv = (char **)addr;
+
+    addr += _jove_startup_info.argc * sizeof(char *);
+    addr += sizeof(char *);
+
+    _jove_startup_info.environ = (char **)addr;
+  }
 
   //
   // setup the stack
@@ -526,6 +564,34 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   _jove_trace_init();
 
   return _jove_call_entry();
+}
+
+char *__findenv(const char *name, int len, int *offset) {
+  int i;
+  const char *np;
+  char **p, *cp;
+
+  if (name == NULL || _jove_startup_info.environ == NULL)
+    return (NULL);
+  for (p = _jove_startup_info.environ + *offset; (cp = *p) != NULL; ++p) {
+    for (np = name, i = len; i && *cp; i--)
+      if (*cp++ != *np++)
+        break;
+    if (i == 0 && *cp++ == '=') {
+      *offset = p - _jove_startup_info.environ;
+      return (cp);
+    }
+  }
+  return (NULL);
+}
+
+char *_getenv(const char *name) {
+  int offset = 0;
+  const char *np;
+
+  for (np = name; *np && *np != '='; ++np)
+    ;
+  return (__findenv(name, (int)(np - name), &offset));
 }
 
 uint64_t _get_stack_end(void) {
@@ -831,6 +897,131 @@ void _jove_trace_init(void) {
   }
 
   __jove_trace = p;
+}
+
+int _execve(char *pathname, char **argv, char **envp) {
+  long resultvar;
+
+  char **__arg3 = envp;
+  char **__arg2 = argv;
+  char  *__arg1 = pathname;
+
+  register char **_a3 asm("rdx") = __arg3;
+  register char **_a2 asm("rsi") = __arg2;
+  register char  *_a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_execve), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+static char *u32tostr(char *dst, uint32_t N) {
+  char *Str = dst;
+
+  const unsigned Radix = 10;
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (N == 0) {
+    *Str++ = '0';
+    goto out;
+  }
+
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+  char Buffer[65];
+  char *const BufEnd = &Buffer[sizeof(Buffer)];
+
+  char *BufPtr = BufEnd;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *Ptr = BufPtr; Ptr != BufEnd; ++Ptr)
+    *Str++ = *Ptr;
+
+out:
+  *Str = '\0';
+  return Str;
+}
+
+void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
+                              uintptr_t CalleeAddr) {
+  if (!_jove_startup_info.environ)
+    return;
+
+  char *jove_recover_path = _getenv("JOVE_RECOVER_PATH");
+  if (!jove_recover_path)
+    return;
+
+  char *jv_path = _getenv("JOVE_DECOMPILATION_PATH");
+  if (!jv_path)
+    return;
+
+  struct {
+    bool found;
+
+    uint32_t BIdx;
+    uint32_t FIdx;
+  } Callee;
+
+  Callee.found = false;
+
+  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
+    uintptr_t *fns = __jove_function_tables[BIdx];
+    if (!fns)
+      continue;
+
+    for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
+      if (CalleeAddr == fns[FIdx]) {
+        Callee.BIdx = BIdx;
+        Callee.FIdx = FIdx;
+        Callee.found = true;
+        break;
+      }
+    }
+  }
+
+  if (!Callee.found)
+    return;
+
+  char *argv0 = jove_recover_path;
+  char  argv1[] = "-d";
+  char *argv2 = jv_path;
+  char  argv3[256];
+
+  {
+    char *p = &argv3[0];
+
+    *p++ = '-';
+    *p++ = 'd';
+    *p++ = 'y';
+    *p++ = 'n';
+    *p++ = '-';
+    *p++ = 't';
+    *p++ = 'a';
+    *p++ = 'r';
+    *p++ = 'g';
+    *p++ = 'e';
+    *p++ = 't';
+    *p++ = '=';
+
+    p = u32tostr(p, CallerBIdx);
+    *p++ = ',';
+    p = u32tostr(p, CallerBBIdx);
+    *p++ = ',';
+    p = u32tostr(p, Callee.BIdx);
+    *p++ = ',';
+    p = u32tostr(p, Callee.FIdx);
+  }
+
+  char *argv[] = {argv0, argv1, argv2, argv3, NULL};
+
+  _execve(argv0, argv, _jove_startup_info.environ);
 }
 
 unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
