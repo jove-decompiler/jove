@@ -1,6 +1,6 @@
 # This implements the "jove-unwind" command, usually installed
 # in the debug session like
-#   command script import jove_unwind.py
+#   command script import ~/jove/scripts/lldb/unwind.py
 # it is used to produce meaningful backtraces of recompiled-code.
 
 import optparse
