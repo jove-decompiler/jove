@@ -27,12 +27,14 @@ def jove_trace_insns(debugger, command, result, dict):
         if process:
             thread = process.GetSelectedThread()
             if thread:
-                f = open("/tmp/trace.txt", "w")
                 while True:
-                    cmd_result = lldb.SBCommandReturnObject()
-                    debugger.GetCommandInterpreter().HandleCommand("stepi", cmd_result)
-                    f.write(cmd_result.GetOutput())
-                f.close()
+                    error = lldb.SBError()
+                    thread.StepInstruction(False, error)
+                    frame = thread.GetFrameAtIndex(0)
+                    print(frame)
+                    if error.Fail():
+                        print(error)
+                        return
 
 
 def create_jove_trace_insns_options():
