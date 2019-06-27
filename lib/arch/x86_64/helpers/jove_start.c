@@ -963,13 +963,9 @@ void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
     return;
 
   struct {
-    bool found;
-
     uint32_t BIdx;
     uint32_t FIdx;
   } Callee;
-
-  Callee.found = false;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
     uintptr_t *fns = __jove_function_tables[BIdx];
@@ -980,48 +976,50 @@ void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
       if (CalleeAddr == fns[FIdx]) {
         Callee.BIdx = BIdx;
         Callee.FIdx = FIdx;
-        Callee.found = true;
-        break;
+
+        goto found;
       }
     }
   }
 
-  if (!Callee.found)
-    return;
+  return; /* not found */
 
-  char *argv0 = jove_recover_path;
-  char  argv1[] = "-d";
-  char *argv2 = jv_path;
-  char  argv3[256];
-
+found:
   {
-    char *p = &argv3[0];
+    char *argv0 = jove_recover_path;
+    char  argv1[] = "-d";
+    char *argv2 = jv_path;
+    char  argv3[256];
 
-    *p++ = '-';
-    *p++ = 'd';
-    *p++ = 'y';
-    *p++ = 'n';
-    *p++ = '-';
-    *p++ = 't';
-    *p++ = 'a';
-    *p++ = 'r';
-    *p++ = 'g';
-    *p++ = 'e';
-    *p++ = 't';
-    *p++ = '=';
+    {
+      char *p = &argv3[0];
 
-    p = u32tostr(p, CallerBIdx);
-    *p++ = ',';
-    p = u32tostr(p, CallerBBIdx);
-    *p++ = ',';
-    p = u32tostr(p, Callee.BIdx);
-    *p++ = ',';
-    p = u32tostr(p, Callee.FIdx);
+      *p++ = '-';
+      *p++ = 'd';
+      *p++ = 'y';
+      *p++ = 'n';
+      *p++ = '-';
+      *p++ = 't';
+      *p++ = 'a';
+      *p++ = 'r';
+      *p++ = 'g';
+      *p++ = 'e';
+      *p++ = 't';
+      *p++ = '=';
+
+      p = u32tostr(p, CallerBIdx);
+      *p++ = ',';
+      p = u32tostr(p, CallerBBIdx);
+      *p++ = ',';
+      p = u32tostr(p, Callee.BIdx);
+      *p++ = ',';
+      p = u32tostr(p, Callee.FIdx);
+    }
+
+    char *argv[] = {argv0, argv1, argv2, argv3, NULL};
+
+    _execve(argv0, argv, _jove_startup_info.environ);
   }
-
-  char *argv[] = {argv0, argv1, argv2, argv3, NULL};
-
-  _execve(argv0, argv, _jove_startup_info.environ);
 }
 
 unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
