@@ -34,6 +34,11 @@ def jove_trace_insns(debugger, command, result, dict):
                         print(error)
                         return
 
+                    reason = thread.GetStopReason();
+                    if reason == lldb.eStopReasonSignal or reason == lldb.eStopReasonThreadExiting:
+                        debugger.HandleCommand("bt")
+                        return
+
                     frame = thread.GetFrameAtIndex(0)
                     line_entry = frame.GetLineEntry()
                     line_path = str(line_entry.GetFileSpec())
