@@ -1,6 +1,6 @@
 # This implements the "jove-trace-insns" command, usually installed
 # in the debug session like
-#   command script import ~/jove/scripts/lldb/trace-insns.py
+#   command script import ~/jove/scripts/lldb/trace_insns.py
 # it is used to produce meaningful backtraces of recompiled-code.
 
 import optparse
@@ -57,7 +57,7 @@ def jove_trace_insns(debugger, command, result, dict):
 
 def create_jove_trace_insns_options():
     usage = "usage: %prog"
-    description = '''Print diagnostic information about a thread backtrace which will help to debug unwind problems'''
+    description = '''Trace instructions'''
     parser = optparse.OptionParser(
         description=description,
         prog='jove_trace_insns',
