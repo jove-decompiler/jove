@@ -30,11 +30,24 @@ def jove_trace_insns(debugger, command, result, dict):
                 while True:
                     error = lldb.SBError()
                     thread.StepInstruction(False, error)
-                    frame = thread.GetFrameAtIndex(0)
-                    print(frame)
                     if error.Fail():
                         print(error)
                         return
+
+                    frame = thread.GetFrameAtIndex(0)
+                    line_entry = frame.GetLineEntry()
+                    line_path = str(line_entry.GetFileSpec())
+
+                    suffix = ".fake"
+                    if not line_path.endswith(suffix):
+                        continue
+
+                    # check for non-zero line number
+                    line_addr = line_entry.GetLine()
+                    if line_addr == 0:
+                        continue
+
+                    print(frame)
 
 
 def create_jove_trace_insns_options():
