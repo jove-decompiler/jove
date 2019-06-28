@@ -9,6 +9,7 @@ import shlex
 from binaryornot.check import is_binary
 import os
 import subprocess
+import fcntl
 
 def jove_trace_insns(debugger, command, result, dict):
     """
@@ -27,17 +28,31 @@ def jove_trace_insns(debugger, command, result, dict):
         if process:
             thread = process.GetSelectedThread()
             if thread:
+                p = subprocess.Popen(["/usr/bin/llvm-symbolizer",
+                "-print-address",
+                "-inlining=0",
+                "-pretty-print",
+                "-print-source-context-lines=20"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT);
+
+                flags = fcntl.fcntl(p.stdout, fcntl.F_GETFL) # get current p.stdout flags
+                fcntl.fcntl(p.stdout, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+
+                lastAddr = 0
+
                 while True:
                     error = lldb.SBError()
                     thread.StepInstruction(False, error)
                     if error.Fail():
                         print(error)
-                        return
+                        break
 
                     reason = thread.GetStopReason();
                     if reason == lldb.eStopReasonSignal or reason == lldb.eStopReasonThreadExiting:
                         debugger.HandleCommand("bt")
-                        return
+                        break
 
                     frame = thread.GetFrameAtIndex(0)
                     line_entry = frame.GetLineEntry()
@@ -52,7 +67,29 @@ def jove_trace_insns(debugger, command, result, dict):
                     if line_addr == 0:
                         continue
 
+                    if line_addr == lastAddr:
+                        continue
+
+                    lastAddr = line_addr
+                    line_path = line_path[:-len(suffix)]
+
                     print(frame)
+
+                    #
+                    # exec llvm-symbolizer
+                    #
+                    p.stdin.write('%s 0x%x\n' % (line_path, line_addr))
+                    p.stdin.flush()
+
+                    while True:
+                        try:
+                            print(p.stdout.read(4096))
+                        except IOError as err:
+                            break
+                        except OSError as err:
+                            break
+
+                (stdoutdata, stderrdata) = p.communicate('\n')
 
 
 def create_jove_trace_insns_options():
