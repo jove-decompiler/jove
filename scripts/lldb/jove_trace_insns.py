@@ -1,7 +1,7 @@
 # This implements the "jove-trace-insns" command, usually installed
 # in the debug session like
-#   command script import ~/jove/scripts/lldb/trace_insns.py
-# it is used to produce meaningful backtraces of recompiled-code.
+#   command script import ~/jove/scripts/lldb/jove_trace_insns.py
+# it is used to produce meaningful instruction traces of recompiled-code.
 
 import optparse
 import lldb
