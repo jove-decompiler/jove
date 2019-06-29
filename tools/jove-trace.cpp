@@ -230,6 +230,8 @@ int trace(void) {
 
   fs::path sysroot(tmpdir);
 
+  WithColor::note() << llvm::formatv("sysroot: {0}\n", sysroot.c_str());
+
   //
   // copy the binaries to the sysroot, making symbolic links as necessary
   //
