@@ -233,6 +233,10 @@ static cl::opt<bool>
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
 
+static cl::opt<bool> DumpModule("dump-mod",
+                                cl::desc("dump the module to stderr"),
+                                cl::cat(JoveCategory));
+
 static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
 
@@ -1196,7 +1200,9 @@ int ProcessExportedFunctions(void) {
           FuncIdx = (*it).second;
         }
 
-        binary.Analysis.Functions[FuncIdx].IsABI = true;
+        function_t &f = binary.Analysis.Functions[FuncIdx];
+        assert(!f.Analyzed);
+        f.IsABI = true;
       }
     }
   }
@@ -1564,6 +1570,7 @@ int ProcessDynamicTargets(void) {
         function_t &callee = Decompilation.Binaries[dyn_targ.first]
                                  .Analysis.Functions[dyn_targ.second];
 
+        assert(!callee.Analyzed);
         callee.IsABI = true;
       }
     }
@@ -1595,7 +1602,11 @@ int ProcessDynamicTargets(void) {
         function_index_t FIdx;
         std::tie(BIdx, FIdx) = IdxPair;
 
-        Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).IsABI = true;
+        function_t &f =
+            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+
+        assert(!f.Analyzed);
+        f.IsABI = true;
       }
     }
   }
@@ -1610,7 +1621,11 @@ int ProcessDynamicTargets(void) {
         function_index_t FIdx;
         std::tie(BIdx, FIdx) = IdxPair;
 
-        Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).IsABI = true;
+        function_t &f =
+            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+
+        assert(!f.Analyzed);
+        f.IsABI = true;
       }
     }
   }
@@ -1796,6 +1811,7 @@ int ProcessIFuncResolvers(void) {
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions[(*it).second];
+    assert(!resolver.Analyzed);
     resolver.IsABI = true;
 
     // TODO we know function type is i64 (*)(void)
@@ -1856,11 +1872,11 @@ int ProcessIFuncResolvers(void) {
   //
   // parse dynamic table
   //
-  {
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
 
+  {
     auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
       const Elf_Phdr *const *I =
           std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
@@ -1904,11 +1920,35 @@ int ProcessIFuncResolvers(void) {
     if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
       continue;
 
-    auto it = st.FuncMap.find(Sym.st_value);
-    assert(it != st.FuncMap.end());
+    auto it = FuncMap.find(Sym.st_value);
+    assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions.at((*it).second);
+    assert(!resolver.Analyzed);
     resolver.IsABI = true;
+  }
+
+  //
+  // DT_INIT
+  //
+  uintptr_t initFunctionAddr = 0;
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_INIT:
+      initFunctionAddr = Dyn.getVal();
+      break;
+    }
+  };
+
+  if (initFunctionAddr) {
+    auto it = FuncMap.find(initFunctionAddr);
+    assert(it != FuncMap.end());
+
+    function_t &f =
+        Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
+    assert(!f.Analyzed);
+    f.IsABI = true;
   }
 
   return 0;
@@ -4225,16 +4265,16 @@ int CreateSectionGlobalVariables(void) {
       } else {
         function_t &f = Decompilation.Binaries[BinaryIndex]
                             .Analysis.Functions[(*it).second];
+        assert(f.IsABI);
+
         llvm::Function *F = f.F;
         auto it = CtorStubMap.find(F);
         if (it == CtorStubMap.end()) {
           llvm::FunctionType *FTy = F->getFunctionType();
-          unsigned N = FTy->getNumParams();
 
           // TODO refactor this
           llvm::Function *CallsF = llvm::Function::Create(
-              llvm::FunctionType::get(VoidType(), false),
-              llvm::GlobalValue::InternalLinkage,
+              FTy, llvm::GlobalValue::InternalLinkage,
               "_" + std::string(F->getName()), Module.get());
 
           llvm::BasicBlock *EntryB =
@@ -4242,6 +4282,23 @@ int CreateSectionGlobalVariables(void) {
 
           {
             llvm::IRBuilderTy IRB(EntryB);
+
+            llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+            llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+            SavedSP->setName("saved_sp");
+
+            {
+              constexpr unsigned StackAllocaSize = 0x10000;
+
+              llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                  llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+
+              llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                  StackAlloca, 0, StackAllocaSize - 4096);
+
+              IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+            }
 
             IRB.CreateStore(
                 llvm::ConstantExpr::getAdd(
@@ -4252,14 +4309,22 @@ int CreateSectionGlobalVariables(void) {
             if (opts::Trace)
               IRB.CreateCall(JoveTraceInitFunc);
 
+            unsigned N = FTy->getNumParams();
+
             std::vector<llvm::Value *> ArgVec;
             ArgVec.resize(N);
 
             for (unsigned i = 0; i < N; ++i)
-              ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
+              ArgVec[i] = &CallsF->arg_begin()[i];
 
-            IRB.CreateCall(F, ArgVec);
-            IRB.CreateRetVoid();
+            llvm::CallInst *Call = IRB.CreateCall(F, ArgVec);
+
+            IRB.CreateStore(SavedSP, SPPtr);
+
+            if (FTy->getReturnType()->isVoidTy())
+              IRB.CreateRetVoid();
+            else
+              IRB.CreateRet(Call);
           }
 
           it = CtorStubMap.insert({F, CallsF}).first;
@@ -4267,7 +4332,7 @@ int CreateSectionGlobalVariables(void) {
 
         llvm::Function *CallsF = (*it).second;
 
-        llvm::appendToGlobalCtors(*Module, CallsF, 0);
+        llvm::appendToGlobalCtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
       }
     }
   }
@@ -4290,19 +4355,34 @@ int CreateSectionGlobalVariables(void) {
       auto it = CtorStubMap.find(F);
       if (it == CtorStubMap.end()) {
         llvm::FunctionType *FTy = F->getFunctionType();
-        unsigned N = FTy->getNumParams();
 
         // TODO refactor this
         llvm::Function *CallsF = llvm::Function::Create(
-            llvm::FunctionType::get(VoidType(), false),
-            llvm::GlobalValue::InternalLinkage, "_" + std::string(F->getName()),
-            Module.get());
+            FTy, llvm::GlobalValue::InternalLinkage,
+            "_" + std::string(F->getName()), Module.get());
 
         llvm::BasicBlock *EntryB =
             llvm::BasicBlock::Create(*Context, "", CallsF);
 
         {
           llvm::IRBuilderTy IRB(EntryB);
+
+          llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+          llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+          SavedSP->setName("saved_sp");
+
+          {
+            constexpr unsigned StackAllocaSize = 0x10000;
+
+            llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+
+            llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                StackAlloca, 0, StackAllocaSize - 4096);
+
+            IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+          }
 
           IRB.CreateStore(
               llvm::ConstantExpr::getAdd(
@@ -4313,14 +4393,22 @@ int CreateSectionGlobalVariables(void) {
           if (opts::Trace)
             IRB.CreateCall(JoveTraceInitFunc);
 
+          unsigned N = FTy->getNumParams();
+
           std::vector<llvm::Value *> ArgVec;
           ArgVec.resize(N);
 
           for (unsigned i = 0; i < N; ++i)
-            ArgVec[i] = llvm::UndefValue::get(FTy->getParamType(i));
+            ArgVec[i] = &CallsF->arg_begin()[i];
 
-          IRB.CreateCall(F, ArgVec);
-          IRB.CreateRetVoid();
+          llvm::CallInst *Call = IRB.CreateCall(F, ArgVec);
+
+          IRB.CreateStore(SavedSP, SPPtr);
+
+          if (FTy->getReturnType()->isVoidTy())
+            IRB.CreateRetVoid();
+          else
+            IRB.CreateRet(Call);
         }
 
         it = CtorStubMap.insert({F, CallsF}).first;
@@ -4329,9 +4417,9 @@ int CreateSectionGlobalVariables(void) {
       llvm::Function *CallsF = (*it).second;
 
       if (Sect.initArray)
-        llvm::appendToGlobalCtors(*Module, CallsF, 0);
+        llvm::appendToGlobalCtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
       else
-        llvm::appendToGlobalDtors(*Module, CallsF, 0);
+        llvm::appendToGlobalDtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
     }
   }
 
@@ -5115,6 +5203,9 @@ int WriteModule(void) {
     llvm::errs() << *Module << '\n';
     return 1;
   }
+
+  if (opts::DumpModule)
+    llvm::outs() << *Module << '\n';
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
