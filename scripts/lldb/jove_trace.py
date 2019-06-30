@@ -139,12 +139,19 @@ def jove_trace(debugger, command, result, dict):
                 return
             bb_bp.AddName("JV_%d_%d" % (BIdx, BBIdx))
 
+    brkpt_hits = 0
+
     output_f = open(options.out_path, "w")
     while True:
         err = process.Continue()
         if not err.Success():
             print("failed to continue")
             break
+
+        #
+        # we hit a breakpoint
+        #
+        brkpt_hits += 1
 
         t = get_stopped_thread(process, lldb.eStopReasonBreakpoint)
         if not t:
@@ -162,6 +169,10 @@ def jove_trace(debugger, command, result, dict):
 
     output_f.close()
 
+    #
+    # we're done
+    #
+    print("%d breakpoint hits" % brkpt_hits)
     debugger.HandleCommand("bt")
 
 def get_stopped_threads(process, reason):
