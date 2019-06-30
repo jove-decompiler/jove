@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <vector>
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/serialization/nvp.hpp>
 #include <numeric>
 
 namespace jove {
@@ -72,12 +73,12 @@ struct basic_block_properties_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Addr
-       &Size
-       &Term.Addr
-       &Term.Type
-       &Term._call.Target
-       &DynTargets;
+    ar &BOOST_SERIALIZATION_NVP(Addr)
+       &BOOST_SERIALIZATION_NVP(Size)
+       &BOOST_SERIALIZATION_NVP(Term.Addr)
+       &BOOST_SERIALIZATION_NVP(Term.Type)
+       &BOOST_SERIALIZATION_NVP(Term._call.Target)
+       &BOOST_SERIALIZATION_NVP(DynTargets);
   }
 };
 
@@ -104,7 +105,7 @@ struct function_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Entry;
+    ar &BOOST_SERIALIZATION_NVP(Entry);
   }
 };
 
@@ -128,16 +129,16 @@ struct binary_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Path
-       &Data
-       &IsDynamicLinker
-       &IsExecutable
-       &IsVDSO
-       &Analysis.EntryFunction
-       &Analysis.Functions
-       &Analysis.ICFG
-       &Analysis.IFuncDynTargets
-       &Analysis.SymDynTargets;
+    ar &BOOST_SERIALIZATION_NVP(Path)
+       &BOOST_SERIALIZATION_NVP(Data)
+       &BOOST_SERIALIZATION_NVP(IsDynamicLinker)
+       &BOOST_SERIALIZATION_NVP(IsExecutable)
+       &BOOST_SERIALIZATION_NVP(IsVDSO)
+       &BOOST_SERIALIZATION_NVP(Analysis.EntryFunction)
+       &BOOST_SERIALIZATION_NVP(Analysis.Functions)
+       &BOOST_SERIALIZATION_NVP(Analysis.ICFG)
+       &BOOST_SERIALIZATION_NVP(Analysis.IFuncDynTargets)
+       &BOOST_SERIALIZATION_NVP(Analysis.SymDynTargets);
   }
 };
 
@@ -146,7 +147,7 @@ struct decompilation_t {
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &Binaries;
+    ar &BOOST_SERIALIZATION_NVP(Binaries);
   }
 };
 
