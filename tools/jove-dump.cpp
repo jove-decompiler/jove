@@ -96,101 +96,86 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       Writer.printHex("Entry", ICFG[boost::vertex(entryFunc.Entry, ICFG)].Addr);
     }
 
-    for (const auto &F : B.Analysis.Functions) {
-      basic_block_t entry = boost::vertex(F.Entry, ICFG);
+    auto it_pair = boost::vertices(ICFG);
 
-      std::vector<basic_block_t> blocks;
-      blocks.reserve(boost::num_vertices(ICFG));
+    std::vector<basic_block_t> blocks;
+    blocks.resize(boost::num_vertices(ICFG));
 
-      reached_visitor vis(blocks);
-      boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
+    std::transform(it_pair.first, it_pair.second, blocks.begin(),
+                   [](basic_block_t bb) -> basic_block_t { return bb; });
 
-      if (opts::Compact) {
-        std::vector<uintptr_t> addrs;
-        addrs.resize(blocks.size());
+    {
+      llvm::ListScope _(Writer);
 
-        std::transform(
-            blocks.begin(), blocks.end(), addrs.begin(),
-            [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
+      for (basic_block_t bb : blocks) {
+        llvm::DictScope _(Writer);
 
-        Writer.printHexList("Fn", addrs);
-      } else {
-        llvm::ListScope _(Writer);
+        {
+          auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
 
-        for (basic_block_t bb : blocks) {
+          std::vector<uintptr_t> preds;
+          preds.resize(
+              std::distance(inv_adj_it_pair.first, inv_adj_it_pair.second));
+
+          std::transform(inv_adj_it_pair.first, inv_adj_it_pair.second,
+                         preds.begin(), [&](basic_block_t target) -> uintptr_t {
+                           return ICFG[target].Addr;
+                         });
+
+          Writer.printHexList("Predecessors", preds);
+        }
+
+        Writer.getOStream() << '\n';
+
+        Writer.printHex("Addr", ICFG[bb].Addr);
+        Writer.printNumber("Size", ICFG[bb].Size);
+
+        {
           llvm::DictScope _(Writer);
 
-          {
-            auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
+          Writer.printHex("Addr", ICFG[bb].Term.Addr);
+          Writer.printString("Type",
+                             description_of_terminator(ICFG[bb].Term.Type));
+        }
 
-            std::vector<uintptr_t> preds;
-            preds.resize(
-                std::distance(inv_adj_it_pair.first, inv_adj_it_pair.second));
+        Writer.getOStream() << '\n';
 
-            std::transform(inv_adj_it_pair.first, inv_adj_it_pair.second,
-                           preds.begin(),
-                           [&](basic_block_t target) -> uintptr_t {
-                             return ICFG[target].Addr;
-                           });
+        if (!ICFG[bb].DynTargets.empty()) {
+          std::vector<std::string> descv;
+          descv.resize(ICFG[bb].DynTargets.size());
 
-            Writer.printHexList("Predecessors", preds);
-          }
+          std::transform(ICFG[bb].DynTargets.begin(), ICFG[bb].DynTargets.end(),
+                         descv.begin(), [&](const auto &pair) -> std::string {
+                           binary_index_t BIdx;
+                           function_index_t FIdx;
+                           std::tie(BIdx, FIdx) = pair;
 
-          Writer.getOStream() << '\n';
+                           auto &b = decompilation.Binaries[BIdx];
+                           const auto &_ICFG = b.Analysis.ICFG;
+                           auto &callee = b.Analysis.Functions[FIdx];
+                           uintptr_t target_addr =
+                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
-          Writer.printHex("Addr", ICFG[bb].Addr);
-          Writer.printNumber("Size", ICFG[bb].Size);
+                           return (fmt("%#lx @ %s") % target_addr %
+                                   fs::path(b.Path).filename().string())
+                               .str();
+                         });
 
-          {
-            llvm::DictScope _(Writer);
+          Writer.printList("DynTargets", descv);
+        }
 
-            Writer.printHex("Addr", ICFG[bb].Term.Addr);
-            Writer.printString("Type",
-                               description_of_terminator(ICFG[bb].Term.Type));
-          }
+        if (boost::out_degree(bb, ICFG) > 0) {
+          auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
 
-          Writer.getOStream() << '\n';
+          std::vector<uintptr_t> succs;
+          succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
 
-          if (!ICFG[bb].DynTargets.empty()) {
-            std::vector<std::string> descv;
-            descv.resize(ICFG[bb].DynTargets.size());
+          std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
+                         [&](basic_block_t target) -> uintptr_t {
+                           return ICFG[target].Addr;
+                         });
 
-            std::transform(
-                ICFG[bb].DynTargets.begin(),
-                ICFG[bb].DynTargets.end(),
-                descv.begin(),
-                [&](const auto &pair) -> std::string {
-                  binary_index_t BIdx;
-                  function_index_t FIdx;
-                  std::tie(BIdx, FIdx) = pair;
-
-                  auto &b = decompilation.Binaries[BIdx];
-                  const auto &_ICFG = b.Analysis.ICFG;
-                  auto &callee = b.Analysis.Functions[FIdx];
-                  uintptr_t target_addr =
-                      _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
-
-                  return (fmt("%#lx @ %s")
-                          % target_addr
-                          % fs::path(b.Path).filename().string()).str();
-                });
-
-            Writer.printList("DynTargets", descv);
-          }
-
-          if (boost::out_degree(bb, ICFG) > 0) {
-            auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
-
-            std::vector<uintptr_t> succs;
-            succs.resize(std::distance(adj_it_pair.first, adj_it_pair.second));
-
-            std::transform(adj_it_pair.first, adj_it_pair.second, succs.begin(),
-                           [&](basic_block_t target) -> uintptr_t {
-                             return ICFG[target].Addr;
-                           });
-
-            Writer.printHexList("Successors", succs);
-          }
+          Writer.printHexList("Successors", succs);
         }
       }
     }
