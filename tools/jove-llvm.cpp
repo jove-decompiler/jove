@@ -1440,7 +1440,7 @@ int ProcessDynamicSymbols(void) {
           }
         }
 
-        if (IdxPair.first == invalid_binary_index &&
+        if (IdxPair.first == invalid_binary_index ||
             IdxPair.second == invalid_function_index) {
           WithColor::warning()
               << llvm::formatv("failed to process {0} ifunc symbol\n", SymName);
@@ -1456,7 +1456,15 @@ int ProcessDynamicSymbols(void) {
           function_t &f = binary.Analysis.Functions.at((*it).second);
 
           if (f._resolver.IFunc) {
+#if 0
             llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
+#else
+            llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
+
+            llvm::GlobalIFunc::create(
+                FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
+                f._resolver.IFunc->getResolver(), Module.get());
+#endif
           } else {
             llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
 
