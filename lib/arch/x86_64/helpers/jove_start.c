@@ -507,8 +507,16 @@ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
 
-_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
+_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
+                                     uint32_t CallerBBIdx,
                                      uintptr_t CalleeAddr);
+
+_NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
+                                      uint32_t IndBrBBIdx,
+                                      uintptr_t SectsStartAddr,
+                                      uintptr_t SectionsBeg,
+                                      uintptr_t SectionsEnd,
+                                      uintptr_t BBAddr);
 
 void __jove_start(void) {
   asm volatile("movq %rsp, %r9\n"
@@ -918,7 +926,7 @@ int _execve(char *pathname, char **argv, char **envp) {
   return resultvar;
 }
 
-static char *u32tostr(char *dst, uint32_t N) {
+static char *ulongtostr(char *dst, unsigned long N) {
   char *Str = dst;
 
   const unsigned Radix = 10;
@@ -949,7 +957,8 @@ out:
   return Str;
 }
 
-void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
+void _jove_recover_dyn_target(uint32_t CallerBIdx,
+                              uint32_t CallerBBIdx,
                               uintptr_t CalleeAddr) {
   if (!_jove_startup_info.environ)
     return;
@@ -1007,13 +1016,13 @@ found:
       *p++ = 't';
       *p++ = '=';
 
-      p = u32tostr(p, CallerBIdx);
+      p = ulongtostr(p, CallerBIdx);
       *p++ = ',';
-      p = u32tostr(p, CallerBBIdx);
+      p = ulongtostr(p, CallerBBIdx);
       *p++ = ',';
-      p = u32tostr(p, Callee.BIdx);
+      p = ulongtostr(p, Callee.BIdx);
       *p++ = ',';
-      p = u32tostr(p, Callee.FIdx);
+      p = ulongtostr(p, Callee.FIdx);
     }
 
     char *argv[] = {argv0, argv1, argv2, argv3, NULL};
@@ -1021,6 +1030,65 @@ found:
     _execve(argv0, argv, _jove_startup_info.environ);
   }
 }
+
+void _jove_recover_basic_block(uint32_t IndBrBIdx,
+                               uint32_t IndBrBBIdx,
+                               uintptr_t SectsStartAddr,
+                               uintptr_t SectionsBeg,
+                               uintptr_t SectionsEnd,
+                               uintptr_t BBAddr) {
+  if (!_jove_startup_info.environ)
+    return;
+
+  char *jove_recover_path = _getenv("JOVE_RECOVER_PATH");
+  if (!jove_recover_path)
+    return;
+
+  char *jv_path = _getenv("JOVE_DECOMPILATION_PATH");
+  if (!jv_path)
+    return;
+
+  if (!(BBAddr >= SectionsBeg && BBAddr < SectionsEnd))
+    return;
+
+  uintptr_t FileAddr = (BBAddr - SectionsBeg) + SectsStartAddr;
+
+  {
+    char *argv0 = jove_recover_path;
+    char  argv1[] = "-d";
+    char *argv2 = jv_path;
+    char  argv3[256];
+
+    {
+      char *p = &argv3[0];
+
+      *p++ = '-';
+      *p++ = 'b';
+      *p++ = 'a';
+      *p++ = 's';
+      *p++ = 'i';
+      *p++ = 'c';
+      *p++ = '-';
+      *p++ = 'b';
+      *p++ = 'l';
+      *p++ = 'o';
+      *p++ = 'c';
+      *p++ = 'k';
+      *p++ = '=';
+
+      p = ulongtostr(p, IndBrBIdx);
+      *p++ = ',';
+      p = ulongtostr(p, IndBrBBIdx);
+      *p++ = ',';
+      p = ulongtostr(p, FileAddr);
+    }
+
+    char *argv[] = {argv0, argv1, argv2, argv3, NULL};
+
+    _execve(argv0, argv, _jove_startup_info.environ);
+  }
+}
+
 
 unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                           unsigned long *args   /* rsi */,

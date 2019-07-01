@@ -78,11 +78,17 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
-static cl::list<uint32_t>
+static cl::list<std::string>
     DynTarget("dyn-target", cl::CommaSeparated,
               cl::value_desc("CallerBIdx,CallerBBIdx,CalleeBIdx,CalleeFIdx"),
               cl::desc("New target for indirect branch"),
               cl::cat(JoveCategory));
+
+static cl::list<std::string>
+    BasicBlock("basic-block", cl::CommaSeparated,
+               cl::value_desc("IndBrBIdx,IndBrBBIdx,FileAddr"),
+               cl::desc("New target for indirect branch"),
+               cl::cat(JoveCategory));
 
 } // namespace opts
 
@@ -108,6 +114,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  if (opts::BasicBlock.size() > 0 && opts::BasicBlock.size() != 3) {
+    WithColor::error() << "-basic-block: invalid tuple\n";
+    return 1;
+  }
+
   return jove::recover();
 }
 
@@ -130,29 +141,54 @@ int recover(void) {
     ia >> Decompilation;
   }
 
-  struct {
-    binary_index_t BIdx;
-    basic_block_index_t BBIdx;
-  } Caller;
+  if (opts::DynTarget.size() > 0) {
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+    } Caller;
 
-  struct {
-    binary_index_t BIdx;
-    function_index_t FIdx;
-  } Callee;
+    struct {
+      binary_index_t BIdx;
+      function_index_t FIdx;
+    } Callee;
 
-  Caller.BIdx  = opts::DynTarget[0];
-  Caller.BBIdx = opts::DynTarget[1];
+    Caller.BIdx = strtoul(opts::DynTarget[0].c_str(), nullptr, 10);
+    Caller.BBIdx = strtoul(opts::DynTarget[1].c_str(), nullptr, 10);
 
-  Callee.BIdx = opts::DynTarget[2];
-  Callee.FIdx = opts::DynTarget[3];
+    Callee.BIdx = strtoul(opts::DynTarget[2].c_str(), nullptr, 10);
+    Callee.FIdx = strtoul(opts::DynTarget[3].c_str(), nullptr, 10);
 
-  // Check that Callee is valid
-  (void)Decompilation.Binaries.at(Callee.BIdx)
-      .Analysis.Functions.at(Callee.FIdx);
+    // Check that Callee is valid
+    (void)Decompilation.Binaries.at(Callee.BIdx)
+        .Analysis.Functions.at(Callee.FIdx);
 
-  auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
-  ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.insert(
-      {Callee.BIdx, Callee.FIdx});
+    auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
+    ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.insert(
+        {Callee.BIdx, Callee.FIdx});
+  } else if (opts::BasicBlock.size() > 0) {
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+
+      basic_block_t bb;
+    } IndBr;
+
+    IndBr.BIdx = strtoul(opts::BasicBlock[0].c_str(), nullptr, 10);
+    IndBr.BBIdx = strtoul(opts::BasicBlock[1].c_str(), nullptr, 10);
+
+    uint64_t Target = strtoul(opts::BasicBlock[2].c_str(), nullptr, 10);
+
+    auto &ICFG = Decompilation.Binaries.at(IndBr.BIdx).Analysis.ICFG;
+    IndBr.bb = boost::vertex(IndBr.BBIdx, ICFG);
+
+    llvm::outs() << llvm::formatv("ICFG[IndBr.bb].Addr={0:x}\n"
+                                  "Target={1:x}\n",
+                                  ICFG[IndBr.bb].Addr,
+                                  Target);
+  } else {
+    WithColor::error() << "no command provided\n";
+    return 1;
+  }
 
   //
   // write decompilation

@@ -453,8 +453,16 @@ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
 
-_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx, uint32_t CallerBBIdx,
+_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
+                                     uint32_t CallerBBIdx,
                                      uintptr_t CalleeAddr);
+
+_NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
+                                      uint32_t IndBrBBIdx,
+                                      uintptr_t SectsStartAddr,
+                                      uintptr_t SectionsBeg,
+                                      uintptr_t SectionsEnd,
+                                      uintptr_t BBAddr);
 
 extern /* __thread */ struct CPUX86State __jove_env;
 extern /* __thread */ char __jove_stack[0x100000];
@@ -471,7 +479,9 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 /* this function is never to be called. its only purpose is to prevent
    optimizations from eliminating the declarations above from the bitcode */
 unsigned long _jove_keep(void) {
-  return (_jove_trace_init(), _jove_recover_dyn_target(0, 0, 0),
+  return (_jove_trace_init(),
+          _jove_recover_dyn_target(0, 0, 0),
+          _jove_recover_basic_block(0, 0, 0, 0, 0, 0),
           __jove_function_tables[0][0]);
 }
 

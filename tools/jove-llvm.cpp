@@ -508,6 +508,7 @@ static llvm::GlobalVariable *TraceGlobal;
 
 static llvm::GlobalVariable *JoveFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
+static llvm::Function *JoveRecoverBasicBlockFunc;
 
 static llvm::Function *JoveTraceInitFunc;
 static llvm::Function *JoveThunkFunc;
@@ -958,6 +959,9 @@ int CreateModule(void) {
 
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   assert(JoveRecoverDynTargetFunc);
+
+  JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
+  assert(JoveRecoverBasicBlockFunc);
 
   return 0;
 }
@@ -5717,10 +5721,28 @@ int TranslateBasicBlock(binary_t &Binary,
       }
 
       IRB.SetInsertPoint(ElseBlock);
+
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
+
+      // TODO call DL.getAllocSize and verify the numbers are the same
+      uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
+
+      llvm::Value *RecoverArgs[] = {
+          IRB.getInt32(BinaryIndex),
+          IRB.getInt32(bb_idx_map[bb]),
+          IRB.getInt64(SectsStartAddr),
+          llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+          llvm::ConstantExpr::getAdd(
+              llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+              IRB.getInt64(SectsGlobalSize)),
+          IRB.CreateLoad(f.PCAlloca)};
+
+      IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
-
       break;
     }
 
@@ -5732,15 +5754,13 @@ int TranslateBasicBlock(binary_t &Binary,
             "indirect control transfer @ 0x{0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
 
-    boost::property_map<interprocedural_control_flow_graph_t,
-                        boost::vertex_index_t>::type bb_idx_map =
-        boost::get(boost::vertex_index, ICFG);
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
 
-      llvm::Value *RecoverArgs[] = {
-        IRB.getInt32(BinaryIndex),
-        IRB.getInt32(bb_idx_map[bb]),
-        IRB.CreateLoad(f.PCAlloca)
-      };
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(BinaryIndex),
+                                    IRB.getInt32(bb_idx_map[bb]),
+                                    IRB.CreateLoad(f.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
       IRB.CreateCall(
