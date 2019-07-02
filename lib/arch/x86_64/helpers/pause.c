@@ -833,5 +833,7 @@ struct X86CPU {
 
 __attribute__((always_inline)) void helper_pause(CPUX86State *env,
                                                  int next_eip_addend) {
+#if 0
   __asm("pause");
+#endif
 }
