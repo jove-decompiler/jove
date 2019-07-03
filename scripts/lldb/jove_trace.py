@@ -10,6 +10,7 @@ import shlex
 import os
 import subprocess
 import fcntl
+import sys
 import xml.etree.cElementTree as ET
 
 def jove_trace(debugger, command, result, dict):
@@ -137,6 +138,10 @@ def jove_trace(debugger, command, result, dict):
             if not bb_bp.IsValid():
                 print("Can't set a breakpoint at %s+%x" % (path, bb_addr))
                 return
+
+            bb_bp_id = bb_bp.GetID()
+            print("bb_bp_id=%d" % bb_bp_id)
+
             bb_bp.AddName("JV_%d_%d" % (BIdx, BBIdx))
 
     brkpt_hits = 0
@@ -145,7 +150,7 @@ def jove_trace(debugger, command, result, dict):
     while True:
         err = process.Continue()
         if not err.Success():
-            print("failed to continue")
+            print("failed to continue : %s" % err.GetCString())
             break
 
         #
@@ -159,6 +164,10 @@ def jove_trace(debugger, command, result, dict):
             break
 
         brkpt_id = t.GetStopReasonDataAtIndex(0)
+        print('brkpt_id=%d' % brkpt_id)
+        if brkpt_id > sys.maxint:
+            print('invalid breakpoint id')
+            continue
         brkpt = t.process.target.FindBreakpointByID(brkpt_id)
         name_list = lldb.SBStringList()
         brkpt.GetNames(name_list)
