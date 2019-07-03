@@ -815,8 +815,9 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-void helper_raise_exception(CPUX86State *env, int exception_index)
-{
-    __builtin_trap();
-    __builtin_unreachable();
+__attribute__((always_inline)) void helper_raise_exception(CPUX86State *, int);
+
+void helper_raise_exception(CPUX86State *env, int exception_index) {
+  __builtin_trap();
+  __builtin_unreachable();
 }
