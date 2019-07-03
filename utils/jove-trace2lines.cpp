@@ -57,6 +57,10 @@ static cl::list<unsigned>
                cl::desc("Indices of binaries to exclude"),
                cl::cat(JoveCategory));
 
+static cl::opt<bool> SkipRepeated("skip-repeated",
+                                  cl::desc("Skip repeated blocks"),
+                                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -117,6 +121,14 @@ int trace2lines(void) {
       return 1;
     }
 
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+    } Last;
+
+    Last.BIdx = invalid_binary_index;
+    Last.BBIdx = invalid_basic_block_index;
+
     char *line = nullptr;
     size_t len = 0;
     ssize_t read;
@@ -127,7 +139,16 @@ int trace2lines(void) {
       if (fields != 2)
         break;
 
+      if (opts::SkipRepeated) {
+        if (Last.BIdx == BIdx &&
+            Last.BBIdx == BBIdx)
+          continue;
+      }
+
       trace.push_back({BIdx, BBIdx});
+
+      Last.BIdx = BIdx;
+      Last.BBIdx = BBIdx;
     }
 
     free(line);
