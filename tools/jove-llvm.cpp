@@ -4408,14 +4408,23 @@ int CreateSectionGlobalVariables(void) {
             IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
           }
 
-          IRB.CreateStore(
-              llvm::ConstantExpr::getAdd(
-                  llvm::ConstantExpr::getPtrToInt(TLSStackGlobal, WordType()),
-                  IRB.getIntN(sizeof(uintptr_t) * 8, 0x100000 - 4096)),
-              CPUStateGlobalPointer(tcg_stack_pointer_index));
+          llvm::Value *SavedTraceP = nullptr;
+          if (opts::Trace) {
+            SavedTraceP = IRB.CreateLoad(TraceGlobal);
+            SavedTraceP->setName("saved_tracep");
 
-          if (opts::Trace)
-            IRB.CreateCall(JoveTraceInitFunc);
+            {
+              constexpr unsigned TraceAllocaSize = 4096;
+
+              llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                  llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
+
+              llvm::Value *NewTraceP =
+                  IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+              IRB.CreateStore(NewTraceP, TraceGlobal);
+            }
+          }
 
           unsigned N = FTy->getNumParams();
 
@@ -4428,6 +4437,9 @@ int CreateSectionGlobalVariables(void) {
           llvm::CallInst *Call = IRB.CreateCall(F, ArgVec);
 
           IRB.CreateStore(SavedSP, SPPtr);
+
+          if (opts::Trace)
+            IRB.CreateStore(SavedTraceP, TraceGlobal);
 
           if (FTy->getReturnType()->isVoidTy())
             IRB.CreateRetVoid();
