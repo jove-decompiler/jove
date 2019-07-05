@@ -896,10 +896,14 @@ void _jove_trace_init(void) {
     return;
 
   off_t size = 1UL << 31; /* 2 GiB */
-  _ftruncate(fd, size);
+  if (_ftruncate(fd, size) < 0)
+    __builtin_trap();
+
   void *p = _mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
   if (p == MAP_FAILED) {
+    __builtin_trap();
+
     _close(fd);
     return;
   }
