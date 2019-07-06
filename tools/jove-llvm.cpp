@@ -4481,6 +4481,9 @@ int CreateFSBaseGlobal(void) {
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
+  if (!Binary.IsExecutable)
+    return 0;
+
   {
     llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
     assert(TraceEnabledF);
@@ -4496,9 +4499,6 @@ int FixupHelperStubs(void) {
 
     TraceEnabledF->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
-
-  if (!Binary.IsExecutable)
-    return 0;
 
   assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
