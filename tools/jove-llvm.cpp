@@ -4481,49 +4481,67 @@ int CreateFSBaseGlobal(void) {
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
+  {
+    llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
+    assert(TraceEnabledF);
+    assert(TraceEnabledF->empty());
+
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", TraceEnabledF);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(IRB.getInt1(opts::Trace));
+    }
+
+    TraceEnabledF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
   if (!Binary.IsExecutable)
     return 0;
 
   assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
-  llvm::Function *CallEntryF =
-      Module->getFunction("_jove_call_entry");
-  assert(CallEntryF);
-
   {
+    llvm::Function *CallEntryF = Module->getFunction("_jove_call_entry");
+    assert(CallEntryF);
+    assert(CallEntryF->empty());
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", CallEntryF);
-
-    llvm::IRBuilderTy IRB(BB);
-
-    function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
-
-    std::vector<llvm::Value *> ArgVec;
     {
-      std::vector<unsigned> glbv;
-      ExplodeFunctionArgs(f, glbv);
+      llvm::IRBuilderTy IRB(BB);
 
-      ArgVec.resize(glbv.size());
-      std::transform(
-          glbv.begin(), glbv.end(), ArgVec.begin(),
-          [&](unsigned glb) -> llvm::Value * {
-            llvm::SmallVector<llvm::Value *, 4> Indices;
-            llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
-                IRB, DL, CPUStateGlobal,
-                llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
-                IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
-                Indices, ""));
-            res->setName(TCG->_ctx.temps[glb].name);
-            return res;
-          });
+      function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
+
+      std::vector<llvm::Value *> ArgVec;
+      {
+        std::vector<unsigned> glbv;
+        ExplodeFunctionArgs(f, glbv);
+
+        ArgVec.resize(glbv.size());
+        std::transform(
+            glbv.begin(), glbv.end(), ArgVec.begin(),
+            [&](unsigned glb) -> llvm::Value * {
+              llvm::SmallVector<llvm::Value *, 4> Indices;
+              llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
+                  IRB, DL, CPUStateGlobal,
+                  llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
+                  IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+                  Indices, ""));
+              res->setName(TCG->_ctx.temps[glb].name);
+              return res;
+            });
+      }
+
+      IRB.CreateCall(f.F, ArgVec)->setIsNoInline();
+
+      IRB.CreateCall(
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      IRB.CreateUnreachable();
     }
 
-    llvm::CallInst *Ret = IRB.CreateCall(f.F, ArgVec);
-    Ret->setIsNoInline();
-
-    IRB.CreateUnreachable();
+    CallEntryF->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
-
-  CallEntryF->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   return 0;
 }
