@@ -562,7 +562,7 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   //
   unsigned len = _get_stack_end() - sp_addr;
 
-  char *const env_stack_end_addr = &__jove_stack[0] + sizeof(__jove_stack);
+  char *const env_stack_end_addr = &__jove_stack[sizeof(__jove_stack)];
   char *env_sp_addr = env_stack_end_addr - len;
 
   _memcpy(env_sp_addr, (void *)sp_addr, len);
