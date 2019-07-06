@@ -306,8 +306,6 @@ int init(void) {
     final_decompilation.Binaries.push_back(decompilation.Binaries.front());
   }
 
-  assert(final_decompilation.Binaries.size() >= 2);
-
   final_decompilation.Binaries.at(0).IsExecutable = true;
   final_decompilation.Binaries.at(1).IsDynamicLinker = true;
   if (haveVDSO)
