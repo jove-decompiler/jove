@@ -4543,6 +4543,86 @@ int FixupHelperStubs(void) {
     CallEntryF->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
+  {
+    binary_t &dynl_binary = Decompilation.Binaries.at(1);
+    auto &ICFG = dynl_binary.Analysis.ICFG;
+
+    std::vector<llvm::Constant *> constantTable;
+    constantTable.resize(dynl_binary.Analysis.Functions.size());
+
+    std::transform(dynl_binary.Analysis.Functions.begin(),
+                   dynl_binary.Analysis.Functions.end(), constantTable.begin(),
+                   [&](const function_t &f) -> llvm::Constant * {
+                     uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+                     return llvm::ConstantInt::get(WordType(), Addr);
+                   });
+
+    constantTable.push_back(llvm::Constant::getNullValue(WordType()));
+
+    llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
+
+    llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
+    llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
+        *Module, T, false, llvm::GlobalValue::InternalLinkage, Init,
+        "__jove_dynl_function_table");
+
+    llvm::Function *GetDynlFunctionTableF =
+        Module->getFunction("_jove_get_dynl_function_table");
+    assert(GetDynlFunctionTableF);
+    assert(GetDynlFunctionTableF->empty());
+
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", GetDynlFunctionTableF);
+
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+    }
+
+    GetDynlFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    binary_t &vdso_binary = Decompilation.Binaries.at(2);
+    auto &ICFG = vdso_binary.Analysis.ICFG;
+
+    std::vector<llvm::Constant *> constantTable;
+    constantTable.resize(vdso_binary.Analysis.Functions.size());
+
+    std::transform(vdso_binary.Analysis.Functions.begin(),
+                   vdso_binary.Analysis.Functions.end(), constantTable.begin(),
+                   [&](const function_t &f) -> llvm::Constant * {
+                     uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+                     return llvm::ConstantInt::get(WordType(), Addr);
+                   });
+
+    constantTable.push_back(llvm::Constant::getNullValue(WordType()));
+
+    llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
+
+    llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
+    llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
+        *Module, T, false, llvm::GlobalValue::InternalLinkage, Init,
+        "__jove_vdso_function_table");
+
+    llvm::Function *GetVDSOFunctionTableF =
+        Module->getFunction("_jove_get_vdso_function_table");
+    assert(GetVDSOFunctionTableF);
+    assert(GetVDSOFunctionTableF->empty());
+
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", GetVDSOFunctionTableF);
+
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+    }
+
+    GetVDSOFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
   return 0;
 }
 
@@ -5454,6 +5534,9 @@ static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
                           llvm::BasicBlock *,
                           llvm::IRBuilderTy &);
 
+static std::string
+dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
+
 int TranslateBasicBlock(binary_t &Binary,
                         function_t &f,
                         basic_block_t bb,
@@ -5732,6 +5815,7 @@ int TranslateBasicBlock(binary_t &Binary,
       unsigned N = std::distance(adj_it_pair.first, adj_it_pair.second);
       assert(N > 0);
 
+      // TODO fix style here
       std::vector<basic_block_t> succ_bb_vec;
       succ_bb_vec.resize(N);
       std::transform(adj_it_pair.first, adj_it_pair.second, succ_bb_vec.begin(),
@@ -5856,8 +5940,6 @@ int TranslateBasicBlock(binary_t &Binary,
                      });
     }
 
-    llvm::CallInst *Ret;
-
     if (NeedsThunk.AllOf) {
       llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
           llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
@@ -5874,36 +5956,216 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
           CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-      Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
+      llvm::CallInst *Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
+
+      Ret->setIsNoInline();
+      Ret->setCallingConv(llvm::CallingConv::C);
+
+      if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+        std::vector<unsigned> glbv;
+        ExplodeFunctionRets(callee, glbv);
+
+        assert(glbv.size() == 1);
+        IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+      }
+    } else if (NeedsThunk.AnyOf) {
+      // XXX TODO code duplication below
+      llvm::BasicBlock *DoThunkB = llvm::BasicBlock::Create(
+          *Context, (fmt("%#lx_DoThunk") % ICFG[bb].Addr).str(), f.F);
+      llvm::BasicBlock *NoThunkB = llvm::BasicBlock::Create(
+          *Context, (fmt("%#lx_NoThunk") % ICFG[bb].Addr).str(), f.F);
+      llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(
+          *Context, (fmt("%#lx_Thru") % ICFG[bb].Addr).str(), f.F);
+
+      // slow-path. we need to compare the function pointer against known
+      // targets.
+      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
+          DynTargets.begin(), DynTargets.end());
+
+      auto middle_it = std::partition(DynTargetsVec.begin(),
+                                      DynTargetsVec.end(),
+                                      DynTargetNeedsThunkPred);
+
+      assert(std::distance(DynTargetsVec.begin(), middle_it) > 0);
+      assert(std::distance(middle_it, DynTargetsVec.end()) > 0);
+
+      auto GetDynTargetAddress = [&](const auto &IdxPair) -> llvm::Value * {
+        struct {
+          binary_index_t BIdx;
+          function_index_t FIdx;
+        } DynTarget;
+
+        std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
+
+        llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+            JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
+
+        return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
+      };
+
+      llvm::BasicBlock *ElseB = nullptr;
+
+      {
+        llvm::BasicBlock *B = llvm::BasicBlock::Create(
+            *Context,
+            (fmt("if_%s") % dyn_target_desc(*DynTargetsVec.begin())).str(),
+            f.F);
+        IRB.CreateBr(B);
+
+        auto it = DynTargetsVec.begin();
+        do {
+          const auto &dyn_targ = *it;
+
+          IRB.SetInsertPoint(B);
+          llvm::Value *EQV = IRB.CreateICmpEQ(IRB.CreateLoad(f.PCAlloca),
+                                              GetDynTargetAddress(dyn_targ));
+
+          auto nit = std::next(it);
+          if (nit == middle_it)
+            B = llvm::BasicBlock::Create(*Context, "else", f.F);
+          else
+            B = llvm::BasicBlock::Create(
+                *Context, (fmt("if_%s") % dyn_target_desc(*nit)).str(), f.F);
+
+          IRB.CreateCondBr(EQV, DoThunkB, B);
+        } while (++it != middle_it);
+
+        assert(it == middle_it);
+        do {
+          const auto &dyn_targ = *it;
+
+          IRB.SetInsertPoint(B);
+          llvm::Value *EQV = IRB.CreateICmpEQ(IRB.CreateLoad(f.PCAlloca),
+                                              GetDynTargetAddress(dyn_targ));
+
+          auto nit = std::next(it);
+          if (nit == DynTargetsVec.end())
+            B = llvm::BasicBlock::Create(*Context, "else", f.F);
+          else
+            B = llvm::BasicBlock::Create(
+                *Context, (fmt("if_%s") % dyn_target_desc(*nit)).str(), f.F);
+
+          IRB.CreateCondBr(EQV, NoThunkB, B);
+        } while (++it != DynTargetsVec.end());
+
+        ElseB = B;
+      }
+
+      assert(ElseB);
+
+      {
+        IRB.SetInsertPoint(ElseB);
+
+        boost::property_map<interprocedural_control_flow_graph_t,
+                            boost::vertex_index_t>::type bb_idx_map =
+            boost::get(boost::vertex_index, ICFG);
+
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(BinaryIndex),
+                                      IRB.getInt32(bb_idx_map[bb]),
+                                      IRB.CreateLoad(f.PCAlloca)};
+
+        IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
+        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
+                                                       llvm::Intrinsic::trap));
+        IRB.CreateUnreachable();
+      }
+
+      {
+        IRB.SetInsertPoint(DoThunkB);
+
+        llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
+            llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
+
+        for (unsigned i = 0; i < ArgVec.size(); ++i) {
+          llvm::Value *Val = ArgVec[i];
+          llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
+
+          IRB.CreateStore(Val, Ptr);
+        }
+
+        llvm::Value *CallArgs[] = {
+            IRB.CreateLoad(f.PCAlloca),
+            IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
+            CPUStateGlobalPointer(tcg_stack_pointer_index)};
+
+        llvm::CallInst *Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
+
+        Ret->setIsNoInline();
+        Ret->setCallingConv(llvm::CallingConv::C);
+
+        if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+          std::vector<unsigned> glbv;
+          ExplodeFunctionRets(callee, glbv);
+
+          assert(glbv.size() == 1);
+          IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+        }
+
+        IRB.CreateBr(ThruB);
+      }
+
+      {
+        IRB.SetInsertPoint(NoThunkB);
+
+        llvm::CallInst *Ret = IRB.CreateCall(
+            IRB.CreateIntToPtr(
+                IRB.CreateLoad(f.PCAlloca),
+                llvm::PointerType::get(DetermineFunctionType(callee), 0)),
+            ArgVec);
+
+        Ret->setIsNoInline();
+        Ret->setCallingConv(llvm::CallingConv::C);
+
+        if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+          std::vector<unsigned> glbv;
+          ExplodeFunctionRets(callee, glbv);
+
+          if (glbv.size() == 1) {
+            IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+          } else {
+            for (unsigned i = 0; i < glbv.size(); ++i) {
+              llvm::Value *Val =
+                  IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+              llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
+
+              IRB.CreateStore(Val, Ptr);
+            }
+          }
+        }
+
+        IRB.CreateBr(ThruB);
+      }
+
+      IRB.SetInsertPoint(ThruB);
+      // XXX refactor the above (obvious code duplication)
     } else {
-      Ret = IRB.CreateCall(
+      llvm::CallInst *Ret = IRB.CreateCall(
           IRB.CreateIntToPtr(
               IRB.CreateLoad(f.PCAlloca),
               llvm::PointerType::get(DetermineFunctionType(callee), 0)),
           ArgVec);
-    }
 
-    Ret->setIsNoInline();
-    Ret->setCallingConv(llvm::CallingConv::C);
+      Ret->setIsNoInline();
+      Ret->setCallingConv(llvm::CallingConv::C);
 
-    if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
-      std::vector<unsigned> glbv;
-      ExplodeFunctionRets(callee, glbv);
+      if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+        std::vector<unsigned> glbv;
+        ExplodeFunctionRets(callee, glbv);
 
-      if (glbv.size() == 1) {
-        assert(DetermineFunctionType(callee)->getReturnType()->isIntegerTy());
-        if (f.GlobalAllocaVec[glbv.front()])
+        if (glbv.size() == 1) {
           IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
-      } else {
-        for (unsigned i = 0; i < glbv.size(); ++i) {
-          llvm::Value *Val =
-              IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-          llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
+        } else {
+          for (unsigned i = 0; i < glbv.size(); ++i) {
+            llvm::Value *Val =
+                IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+            llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
 
-          IRB.CreateStore(Val, Ptr);
+            IRB.CreateStore(Val, Ptr);
+          }
         }
       }
     }
+
     break;
   }
 
@@ -6030,6 +6292,24 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   return 0;
+}
+
+std::string
+dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
+  struct {
+    binary_index_t BIdx;
+    function_index_t FIdx;
+  } DynTarget;
+
+  std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
+
+  binary_t &b = Decompilation.Binaries[DynTarget.BIdx];
+  function_t &f = b.Analysis.Functions[DynTarget.FIdx];
+
+  uintptr_t Addr =
+      b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
+
+  return (fmt("%#lx @ %s") % Addr % fs::path(b.Path).filename().string()).str();
 }
 
 void AnalyzeTCGHelper(helper_function_t &hf) {

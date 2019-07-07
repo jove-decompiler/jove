@@ -474,9 +474,12 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #define _NOINL __attribute__((noinline))
 #define _INL   __attribute__((always_inline))
 #define _NAKED __attribute__((naked))
+#define _CTOR  __attribute__((constructor))
 
 bool _jove_trace_enabled(void);
 void _jove_call_entry(void);
+uintptr_t *_jove_get_dynl_function_table(void);
+uintptr_t *_jove_get_vdso_function_table(void);
 
 _NAKED void __jove_start(void);
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
@@ -493,14 +496,16 @@ static _INL void *_mmap(void *addr, size_t length, int prot, int flags, int fd,
 static _INL int _execve(char *pathname, char **argv, char **envp);
 
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
-static _INL uint64_t _parse_stack_end_of_maps(char *maps, unsigned n);
+static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
+static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
+static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL char *__findenv(const char *name, int len, int *offset);
 static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
-static _INL uint64_t _get_stack_end(void);
+static _INL uintptr_t _get_stack_end(void);
 
 void _jove_trace_init(void);
 
@@ -607,12 +612,12 @@ char *_getenv(const char *name) {
   return (__findenv(name, (int)(np - name), &offset));
 }
 
-uint64_t _get_stack_end(void) {
+uintptr_t _get_stack_end(void) {
   char buff[4096 * 16];
   unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
   buff[n] = '\0';
 
-  uint64_t res = _parse_stack_end_of_maps(buff, n);
+  uintptr_t res = _parse_stack_end_of_maps(buff, n);
   return res;
 }
 
@@ -690,7 +695,7 @@ uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   return res;
 }
 
-uint64_t _parse_stack_end_of_maps(char *maps, unsigned n) {
+uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
 
@@ -706,8 +711,13 @@ uint64_t _parse_stack_end_of_maps(char *maps, unsigned n) {
     //
     // second hex address
     //
-    if (eol[-1] == ']' && eol[-2] == 'k' && eol[-3] == 'c' && eol[-4] == 'a' &&
-        eol[-5] == 't' && eol[-6] == 's' && eol[-7] == '[') {
+    if (eol[-1] == ']' &&
+        eol[-2] == 'k' &&
+        eol[-3] == 'c' &&
+        eol[-4] == 'a' &&
+        eol[-5] == 't' &&
+        eol[-6] == 's' &&
+        eol[-7] == '[') {
       char *dash = _memchr(line, '-', left);
 
       char *space = _memchr(line, ' ', left);
@@ -716,7 +726,8 @@ uint64_t _parse_stack_end_of_maps(char *maps, unsigned n) {
     }
   }
 
-  return 0;
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 int _open(const char *filename, int flags, mode_t mode) {
@@ -803,6 +814,7 @@ void _exit_group(int status) {
                : "0"(__NR_exit_group), "r"(_a1)
                : "memory", "cc", "r11", "cx");
 
+  __builtin_trap();
   __builtin_unreachable();
 }
 
@@ -811,8 +823,10 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
 
   {
     int fd = _open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0)
-      return 0;
+    if (fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
     // let n denote the number of characters read
     n = 0;
@@ -827,13 +841,17 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
         if (ret == -EINTR)
           continue;
 
-        break;
+        __builtin_trap();
+        __builtin_unreachable();
       }
 
       n += ret;
     }
 
-    _close(fd);
+    if (_close(fd) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
   }
 
   return n;
@@ -1136,4 +1154,127 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "popq %r14\n"
                "popq %r15\n" /* callee-saved registers */
                "ret");
+}
+
+uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1]  == 'o' &&
+        eol[-2]  == 's' &&
+        eol[-3]  == '.' &&
+        eol[-4]  == '9' &&
+        eol[-5]  == '2' &&
+        eol[-6]  == '.' &&
+        eol[-7]  == '2' &&
+        eol[-8]  == '-' &&
+        eol[-9]  == 'd' &&
+        eol[-10] == 'l' &&
+        eol[-11] == '/' &&
+        eol[-12] == 'b' &&
+        eol[-13] == 'i' &&
+        eol[-14] == 'l' &&
+        eol[-15] == '/' &&
+        eol[-16] == 'r' &&
+        eol[-17] == 's' &&
+        eol[-18] == 'u' &&
+        eol[-19] == '/') {
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      bool x = *xp == 'x';
+      if (!x)
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+      uint64_t res = _u64ofhexstr(line, dash);
+
+      // offset may be nonzero for dynamic linker
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        unsigned _left = n - (offset - beg);
+        char *offset_end = _memchr(offset, ' ', _left);
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      return res - off;
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *dash = _memchr(line, '-', left);
+      return _u64ofhexstr(line, dash);
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+_CTOR void _jove_install_function_tables(void) {
+  /* we need to get the load addresses for the dynamic linker and VDSO by
+   * parsing /proc/self/maps */
+  uintptr_t dynl_load_bias;
+  uintptr_t vdso_load_bias;
+  {
+    char buff[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+    buff[n] = '\0';
+
+    dynl_load_bias = _parse_dynl_load_bias(buff, n);
+    vdso_load_bias = _parse_vdso_load_bias(buff, n);
+  }
+
+  for (uintptr_t *p = _jove_get_dynl_function_table(); *p; ++p)
+    *p += dynl_load_bias;
+  for (uintptr_t *p = _jove_get_vdso_function_table(); *p; ++p)
+    *p += vdso_load_bias;
+
+  /* __jove_function_tables[1] is the dynamic linker. */
+  __jove_function_tables[1] = _jove_get_dynl_function_table();
+  /* __jove_function_tables[2] is the VDSO. */
+  __jove_function_tables[2] = _jove_get_vdso_function_table();
 }
