@@ -6044,7 +6044,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
           auto nit = std::next(it);
           if (nit == middle_it)
-            B = llvm::BasicBlock::Create(*Context, "else", f.F);
+            B = llvm::BasicBlock::Create(
+                *Context, (fmt("if_%s") % dyn_target_desc(*middle_it)).str(), f.F);
           else
             B = llvm::BasicBlock::Create(
                 *Context, (fmt("if_%s") % dyn_target_desc(*nit)).str(), f.F);
@@ -6062,7 +6063,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
           auto nit = std::next(it);
           if (nit == DynTargetsVec.end())
-            B = llvm::BasicBlock::Create(*Context, "else", f.F);
+            B = llvm::BasicBlock::Create(*Context, "", f.F);
           else
             B = llvm::BasicBlock::Create(
                 *Context, (fmt("if_%s") % dyn_target_desc(*nit)).str(), f.F);
