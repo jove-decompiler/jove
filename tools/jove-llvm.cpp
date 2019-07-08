@@ -5889,6 +5889,29 @@ int TranslateBasicBlock(binary_t &Binary,
                                     IRB.CreateLoad(f.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
+
+      //
+      // if this is an indirect jump, then it's possible this is a goto
+      //
+      if (T.Type == TERMINATOR::INDIRECT_JUMP) {
+        assert(boost::out_degree(bb, ICFG) == 0);
+
+        // TODO call DL.getAllocSize and verify the numbers are the same
+        uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
+
+        llvm::Value *RecoverArgs[] = {
+            IRB.getInt32(BinaryIndex),
+            IRB.getInt32(bb_idx_map[bb]),
+            IRB.getInt64(SectsStartAddr),
+            llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+            llvm::ConstantExpr::getAdd(
+                llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+                IRB.getInt64(SectsGlobalSize)),
+            IRB.CreateLoad(f.PCAlloca)};
+
+        IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
+      }
+
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();
@@ -5974,8 +5997,7 @@ int TranslateBasicBlock(binary_t &Binary,
           *Context, (fmt("%#lx_DoThunk") % ICFG[bb].Addr).str(), f.F);
       llvm::BasicBlock *NoThunkB = llvm::BasicBlock::Create(
           *Context, (fmt("%#lx_NoThunk") % ICFG[bb].Addr).str(), f.F);
-      llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(
-          *Context, (fmt("%#lx_Thru") % ICFG[bb].Addr).str(), f.F);
+      llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", f.F);
 
       // slow-path. we need to compare the function pointer against known
       // targets.
