@@ -3131,9 +3131,21 @@ int CreateFunctionTable(void) {
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
       "__jove_function_table");
 
-  llvm::Function *StoresFnTblPtrF = llvm::Function::Create(
-      llvm::FunctionType::get(VoidType(), false),
-      llvm::GlobalValue::InternalLinkage, "StoresFnTblPtrF", Module.get());
+  llvm::Function *StoresFnTblPtrF;
+  if (binary.IsExecutable) {
+    StoresFnTblPtrF = Module->getFunction("_jove_install_function_table");
+
+    assert(StoresFnTblPtrF);
+  } else {
+    assert(!Module->getFunction("_jove_install_function_table"));
+
+    StoresFnTblPtrF =
+        llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
+                               llvm::GlobalValue::InternalLinkage,
+                               "_jove_install_function_table", Module.get());
+  }
+
+  assert(StoresFnTblPtrF->empty());
 
   llvm::BasicBlock *EntryB =
       llvm::BasicBlock::Create(*Context, "", StoresFnTblPtrF);
@@ -3148,7 +3160,10 @@ int CreateFunctionTable(void) {
     IRB.CreateRetVoid();
   }
 
-  llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
+  if (binary.IsExecutable)
+    StoresFnTblPtrF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  else
+    llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
 
   return 0;
 }
