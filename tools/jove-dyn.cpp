@@ -1910,7 +1910,8 @@ static void harvest_addressof_reloc_targets(pid_t child,
           unwrapOrError(E.getStringTableForSymtab(*SymTab));
       std::string SymName = unwrapOrError(Sym->getName(StrTable));
 
-      llvm::outs() << llvm::formatv("{0} SymName={1}\n", __func__, SymName);
+      if (opts::Verbose)
+        llvm::outs() << llvm::formatv("{0} SymName={1}\n", __func__, SymName);
 
       struct {
         uintptr_t Addr;
