@@ -1973,10 +1973,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       continue;
     if (vm_prop.nm.empty())
       continue;
-    bool isVDSO = false;
     if (vm_prop.nm[0] != '/') {
-      isVDSO = vm_prop.nm.find("[vdso]") != std::string::npos;
-      if (!isVDSO)
+      if (vm_prop.nm.find("[vdso]") == std::string::npos)
         continue;
     }
 
@@ -2017,7 +2015,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         uintptr_t Addr = va_of_rva(entry_rva, binary_idx);
 
         llvm::outs()
-            << "found prog! entry point is "
+            << "entry point is "
             << (fmt("%#lx") % binary.Analysis.ICFG[entry_bb].Addr).str()
             << "\n";
 
@@ -2045,33 +2043,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
         uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
 
-        {
-          auto it = IndBrMap.find(Addr);
-          if (it != IndBrMap.end()) {
-            indirect_branch_t &indbr = (*it).second;
-            binary_t &indbr_binary = decompilation.Binaries[indbr.binary_idx];
-            const auto &indbr_ICFG = indbr_binary.Analysis.ICFG;
-
-            WithColor::error() << "WTF?\n"
-              << "["
-              << (fmt("%#lx") % binary.Analysis.ICFG[bb].Addr).str()
-              << ", "
-              << (fmt("%#lx") % (binary.Analysis.ICFG[bb].Addr +
-                                 binary.Analysis.ICFG[bb].Size)).str()
-              << ") @ "
-              << fs::path(binary.Path).filename().string()
-              << "but IndBr already exists...\n"
-              << "["
-              << (fmt("%#lx") % indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Addr).str()
-              << ", "
-              << (fmt("%#lx") % (indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Addr +
-                                 indbr_ICFG[boost::vertex(indbr.bbidx, indbr_ICFG)].Size)).str()
-              << ") @ "
-              << fs::path(indbr_binary.Path).filename().string();
-          }
-        }
-
         assert(IndBrMap.find(Addr) == IndBrMap.end());
+
         indirect_branch_t &IndBrInfo = IndBrMap[Addr];
         IndBrInfo.binary_idx = binary_idx;
         IndBrInfo.bbidx = bbidx;
