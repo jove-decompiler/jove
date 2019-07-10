@@ -45,26 +45,78 @@ def trace_insns(debugger, command, result, dict):
     except:
         return
     target = debugger.GetSelectedTarget()
-    if target:
-        process = target.GetProcess()
-        if process:
-            thread = process.GetSelectedThread()
-            if thread:
-                while True:
-                    error = lldb.SBError()
-                    thread.StepInstruction(False, error)
-                    if error.Fail():
-                        print(error)
-                        break
+    if not target:
+        print("no target")
+        return
 
-                    reason = thread.GetStopReason();
-                    #print('stop reason is %s' % stop_reason_to_str(reason))
-                    #debugger.HandleCommand("target module lookup -a $pc")
-                    if reason != lldb.eStopReasonPlanComplete:
-                        break
+    launch_info = target.GetLaunchInfo()
+    argv = [launch_info.GetArgumentAtIndex(i) for i in list(range(launch_info.GetNumArguments()))]
+    #print(argv)
 
-                    frame = thread.GetFrameAtIndex(0)
-                    print(frame)
+    err = lldb.SBError()
+    process = target.Launch(debugger.GetListener(), argv, None, None, None, None, None, 0, True, err)
+    if not err.Success():
+        print("Error during launch: " + str(err))
+        return
+
+    #
+    # set the breakpoint that will be after all of the DSOs have been loaded
+    #
+    modules = target.modules
+
+    # the two modules already in memory should be the dynamic linker and the
+    # application
+    modules = list(filter(lambda mod: str(mod.GetFileSpec()).find("[vdso]") == -1 and str(mod.GetFileSpec()).find("/usr/lib/ld-") == -1, modules))
+
+    if len(modules) != 1:
+        print("unable to find application module")
+        return
+
+    app_mod = modules[0]
+
+    # now get the entry
+    app_entry = app_mod.GetObjectFileEntryPointAddress()
+    if not app_entry.IsValid():
+        print("failed to get application module entry point")
+        return
+
+    # and set the breakpoint
+    entry_bp = target.BreakpointCreateBySBAddress(app_entry)
+    if not entry_bp.IsValid():
+        print("Can't set a breakpoint on the module entry point")
+        return
+
+    # go
+    err = process.Continue()
+    if not err.Success():
+        print("failed to continue")
+        return
+
+    #
+    # no longer need entry breakpoint
+    #
+    target.BreakpointDelete(entry_bp.GetID())
+
+    # get the thread
+    thread = process.GetSelectedThread()
+    if not thread:
+        print("no thread")
+        return
+
+    while True:
+        error = lldb.SBError()
+        thread.StepInstruction(False, error)
+        if error.Fail():
+            print(error)
+            break
+
+        reason = thread.GetStopReason();
+        #debugger.HandleCommand("target module lookup -a $pc")
+        if reason != lldb.eStopReasonPlanComplete:
+            print('stop reason is %s' % stop_reason_to_str(reason))
+            break
+
+        print(thread.GetFrameAtIndex(0))
 
 def create_trace_insns_options():
     usage = "usage: %prog"
