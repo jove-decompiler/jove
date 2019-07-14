@@ -953,9 +953,13 @@ int CreateModule(void) {
 
   JoveThunkFunc = Module->getFunction("_jove_thunk");
   assert(JoveThunkFunc);
+  assert(!JoveThunkFunc->empty());
+  JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveFail1Func = Module->getFunction("_jove_fail1");
   assert(JoveFail1Func);
+  assert(!JoveFail1Func->empty());
+  JoveFail1Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_function_tables", true);
