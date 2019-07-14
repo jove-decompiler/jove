@@ -475,6 +475,7 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #define _INL   __attribute__((always_inline))
 #define _NAKED __attribute__((naked))
 #define _CTOR  __attribute__((constructor))
+#define _NORET __attribute__((noreturn))
 
 extern bool _jove_trace_enabled(void);
 extern void _jove_call_entry(void);
@@ -515,6 +516,8 @@ void _jove_trace_init(void);
 _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
+
+_NAKED _NOINL _NORET void _jove_fail1(unsigned long);
 
 _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
                                      uint32_t CallerBBIdx,
@@ -1129,6 +1132,10 @@ void _jove_recover_basic_block(uint32_t IndBrBIdx,
   }
 }
 
+void _jove_fail1(unsigned long x) {
+  asm volatile("int3\n"
+               "hlt");
+}
 
 unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                           unsigned long *args   /* rsi */,

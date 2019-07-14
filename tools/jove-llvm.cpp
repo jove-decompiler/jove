@@ -512,6 +512,7 @@ static llvm::Function *JoveRecoverBasicBlockFunc;
 
 static llvm::Function *JoveTraceInitFunc;
 static llvm::Function *JoveThunkFunc;
+static llvm::Function *JoveFail1Func;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -952,6 +953,9 @@ int CreateModule(void) {
 
   JoveThunkFunc = Module->getFunction("_jove_thunk");
   assert(JoveThunkFunc);
+
+  JoveFail1Func = Module->getFunction("_jove_fail1");
+  assert(JoveFail1Func);
 
   JoveFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_function_tables", true);
@@ -5927,8 +5931,8 @@ int TranslateBasicBlock(binary_t &Binary,
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       }
 
-      IRB.CreateCall(
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
+      IRB.CreateCall(JoveFail1Func, FailArgs);
       IRB.CreateUnreachable();
       return 0;
     }

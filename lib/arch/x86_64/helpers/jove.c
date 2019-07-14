@@ -447,11 +447,14 @@ typedef struct CPUX86State {
 
 #define _NAKED __attribute__((naked))
 #define _NOINL __attribute__((noinline))
+#define _NORET __attribute__((noreturn))
 
 void _jove_trace_init(void);
 _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
+
+_NAKED _NOINL _NORET void _jove_fail1(unsigned long);
 
 _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
                                      uint32_t CallerBBIdx,
@@ -515,4 +518,9 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "popq %r14\n"
                "popq %r15\n" /* callee-saved registers */
                "ret");
+}
+
+void _jove_fail1(unsigned long x) {
+  asm volatile("int3\n"
+               "hlt");
 }
