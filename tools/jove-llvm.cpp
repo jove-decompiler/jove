@@ -5931,8 +5931,14 @@ int TranslateBasicBlock(binary_t &Binary,
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       }
 
-      llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
-      IRB.CreateCall(JoveFail1Func, FailArgs);
+      if (JoveFail1Func) {
+        llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
+        IRB.CreateCall(JoveFail1Func, FailArgs);
+      } else {
+        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
+                                                       llvm::Intrinsic::trap));
+      }
+
       IRB.CreateUnreachable();
       return 0;
     }
