@@ -476,18 +476,17 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #define _NAKED __attribute__((naked))
 #define _CTOR  __attribute__((constructor))
 
-bool _jove_trace_enabled(void);
-void _jove_call_entry(void);
-uintptr_t *_jove_get_dynl_function_table(void);
-uintptr_t *_jove_get_vdso_function_table(void);
-void _jove_init(void);
+extern bool _jove_trace_enabled(void);
+extern void _jove_call_entry(void);
+extern uintptr_t *_jove_get_dynl_function_table(void);
+extern uintptr_t *_jove_get_vdso_function_table(void);
+extern _CTOR void _jove_install_function_table(void);
 
 _NAKED void __jove_start(void);
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
                  target_ulong, target_ulong);
 
-static _CTOR void _jove_install_function_tables(void);
-_CTOR void _jove_install_function_table(void);
+static _CTOR void _jove_install_vdso_and_dynl_function_tables(void);
 
 static _INL int _open(const char *, int, mode_t);
 static _INL ssize_t _read(int, void *, size_t);
@@ -586,7 +585,7 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
     _jove_trace_init();
 
   _jove_install_function_table();
-  _jove_install_function_tables(); /* for VDSO and dynamic linker */
+  _jove_install_vdso_and_dynl_function_tables();
 
   return _jove_call_entry();
 }
@@ -1261,13 +1260,11 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
   __builtin_unreachable();
 }
 
-static bool __jove_installed_function_tables = false;
-
-void _jove_install_function_tables(void) {
-  if (__jove_installed_function_tables)
+void _jove_install_vdso_and_dynl_function_tables(void) {
+  static bool _installed = false;
+  if (_installed)
     return;
-
-  __jove_installed_function_tables = true;
+  _installed = true;
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
