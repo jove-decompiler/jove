@@ -42,6 +42,7 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <asm/unistd.h>
+#include <asm/auxvec.h>
 #include <sys/uio.h>
 #if !defined(__x86_64__) && defined(__i386__)
 #include <asm/ldt.h>
@@ -61,6 +62,8 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
+
+extern "C" unsigned long getauxval(unsigned long type);
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -352,6 +355,21 @@ int ParentProc(pid_t child) {
   // verify that the binaries did not change on-disk
   //
   for (binary_t &binary : decompilation.Binaries) {
+    if (binary.IsVDSO) {
+      const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
+      assert(vdso);
+
+      unsigned n = sysconf(_SC_PAGESIZE);
+
+      if (binary.Data.size() != n ||
+          memcmp(&binary.Data[0], vdso, binary.Data.size())) {
+        WithColor::error() << "[vdso] has changed\n";
+        return 1;
+      }
+
+      continue;
+    }
+
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
         llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
@@ -781,7 +799,7 @@ int ParentProc(pid_t child) {
   if (git) {
     pid_t pid = fork();
     if (!pid) { /* child */
-      std::string msg;
+      std::string msg("[jove-dyn] ");
 
       for (const std::string &env : opts::Envs) {
         msg.append(env);
