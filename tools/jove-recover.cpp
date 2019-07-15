@@ -168,6 +168,11 @@ typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
 #endif
 
+static std::string DescribeFunction(binary_index_t, function_index_t);
+static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
+
+static int await_process_completion(pid_t);
+
 int recover(void) {
   bool git = fs::is_directory(opts::jv);
 
@@ -180,6 +185,8 @@ int recover(void) {
     boost::archive::binary_iarchive ia(ifs);
     ia >> Decompilation;
   }
+
+  std::string msg;
 
   if (opts::DynTarget.size() > 0) {
     struct {
@@ -205,6 +212,11 @@ int recover(void) {
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
     ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.insert(
         {Callee.BIdx, Callee.FIdx});
+
+    msg = (fmt("[jove-recover] (call) %s -> %s") %
+           DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
+           DescribeFunction(Callee.BIdx, Callee.FIdx))
+              .str();
   } else if (opts::BasicBlock.size() > 0) {
     struct {
       binary_index_t BIdx;
@@ -223,11 +235,6 @@ int recover(void) {
     IndBr.bb = boost::vertex(IndBr.BBIdx, ICFG);
 
     assert(ICFG[IndBr.bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-    llvm::outs() << llvm::formatv("ICFG[IndBr.bb].Addr={0:x}\n"
-                                  "Target={1:x}\n",
-                                  ICFG[IndBr.bb].Addr,
-                                  IndBr.Target);
 
     tiny_code_generator_t tcg;
 
@@ -429,11 +436,19 @@ int recover(void) {
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
     bool isNewTarget = boost::add_edge(IndBr.bb, target_bb, ICFG).second;
-    assert(isNewTarget);
+    (void)isNewTarget; // XXX do we want to do anything with this?
+
+    msg = (fmt("[jove-recover] (goto) %s -> %s") %
+           DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
+           DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
+              .str();
   } else {
     WithColor::error() << "no command provided\n";
     return 1;
   }
+
+  assert(!msg.empty());
+  llvm::outs() << msg << '\n';
 
   //
   // write decompilation
@@ -445,7 +460,48 @@ int recover(void) {
     oa << Decompilation;
   }
 
+  //
+  // git commit
+  //
+  if (git) {
+    pid_t pid = fork();
+    if (!pid) { /* child */
+      chdir(opts::jv.c_str());
+
+      const char *argv[] = {"/usr/bin/git", "commit",    ".",
+                            "-m",           msg.c_str(), nullptr};
+
+      return execve(argv[0], const_cast<char **>(argv), ::environ);
+    }
+
+    if (int ret = await_process_completion(pid))
+      return ret;
+  }
+
   return 0;
+}
+
+int await_process_completion(pid_t pid) {
+  int wstatus;
+  do {
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
+      abort();
+
+    if (WIFEXITED(wstatus)) {
+      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      return WEXITSTATUS(wstatus);
+    } else if (WIFSIGNALED(wstatus)) {
+      //printf("killed by signal %d\n", WTERMSIG(wstatus));
+      return 1;
+    } else if (WIFSTOPPED(wstatus)) {
+      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      return 1;
+    } else if (WIFCONTINUED(wstatus)) {
+      //printf("continued\n");
+    }
+  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+
+  abort();
 }
 
 static function_index_t translate_function(binary_index_t binary_idx,
@@ -758,6 +814,27 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   }
   WithColor::error() << Buf << '\n';
   exit(1);
+}
+
+std::string DescribeFunction(binary_index_t BIdx,
+                             function_index_t FIdx) {
+  auto &binary = Decompilation.Binaries.at(BIdx);
+  function_t &f = binary.Analysis.Functions.at(FIdx);
+
+  auto &ICFG = binary.Analysis.ICFG;
+  uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+
+  return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
+}
+
+std::string DescribeBasicBlock(binary_index_t BIdx,
+                               basic_block_index_t BBIdx) {
+  auto &binary = Decompilation.Binaries.at(BIdx);
+
+  auto &ICFG = binary.Analysis.ICFG;
+  uintptr_t Addr = ICFG[boost::vertex(BBIdx, ICFG)].Addr;
+
+  return (fmt("%s+%#lx") % fs::path(binary.Path).filename().string() % Addr).str();
 }
 
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
