@@ -266,6 +266,11 @@ static cl::opt<bool> Graphviz("graphviz",
 
 namespace jove {
 static int llvm(void);
+
+static struct {
+  char **argv;
+} cmdline;
+
 }
 
 int main(int argc, char **argv) {
@@ -278,6 +283,8 @@ int main(int argc, char **argv) {
     llvm::errs() << "decompilation does not exist\n";
     return 1;
   }
+
+  jove::cmdline.argv = argv;
 
   return jove::llvm();
 }
@@ -571,6 +578,10 @@ static std::unordered_set<uintptr_t>
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
+static std::unordered_map<llvm::GlobalIFunc *,
+                          std::pair<binary_index_t, function_index_t>>
+    IFuncTargetMap;
+
 static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
 //
@@ -609,6 +620,7 @@ static int InternalizeSections(void);
 static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RenameFunctionLocals(void);
+static int RecoverControlFlow(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -645,6 +657,7 @@ int llvm(void) {
       || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
       || RenameFunctionLocals()
+      || RecoverControlFlow()
       || WriteModule();
 }
 
@@ -1473,9 +1486,10 @@ int ProcessDynamicSymbols(void) {
 #else
             llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
 
-            llvm::GlobalIFunc::create(
+            llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create(
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
                 f._resolver.IFunc->getResolver(), Module.get());
+            IFuncTargetMap.insert({IFunc, IdxPair});
 #endif
           } else {
             llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
@@ -1564,6 +1578,7 @@ int ProcessDynamicSymbols(void) {
             f._resolver.IFunc = llvm::GlobalIFunc::create(
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
                 Module.get());
+            IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
           }
         }
       }
@@ -3648,14 +3663,19 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R) -> llvm::Constant * {
     llvm::FunctionType *FTy;
 
+    std::pair<binary_index_t, function_index_t> IdxPair(invalid_binary_index,
+                                                        invalid_function_index);
+
     {
       auto &IFuncDynTargets =
           Decompilation.Binaries[BinaryIndex].Analysis.IFuncDynTargets;
       auto it = IFuncDynTargets.find(R.Addend);
-      if (it == IFuncDynTargets.end() || (*it).second.empty())
+      if (it == IFuncDynTargets.end() || (*it).second.empty()) {
         FTy = llvm::FunctionType::get(VoidType(), false);
-      else
+      } else {
         FTy = DetermineFunctionType(*(*it).second.begin());
+        IdxPair = *(*it).second.begin();
+      }
     }
 
 #if 0
@@ -3762,6 +3782,13 @@ int CreateSectionGlobalVariables(void) {
 
       f._resolver.IFunc = llvm::GlobalIFunc::create(
           FTy, 0, llvm::GlobalValue::InternalLinkage, "", CallsF, Module.get());
+
+      if (is_binary_index_valid(IdxPair.first) &&
+          is_function_index_valid(IdxPair.second))
+        IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
+      else
+        WithColor::warning() << llvm::formatv(
+            "no IdxPair for GlobalIFunc {0}\n", *f._resolver.IFunc);
     }
 
     return f._resolver.IFunc;
@@ -5352,6 +5379,138 @@ int RenameFunctionLocals(void) {
   }
 
   return 0;
+}
+
+static int await_process_completion(pid_t pid);
+
+int RecoverControlFlow(void) {
+  JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
+  if (!JoveRecoverDynTargetFunc)
+    return 0;
+
+  bool Changed = false;
+
+  for (llvm::User *U : JoveRecoverDynTargetFunc->users()) {
+    assert(llvm::isa<llvm::CallInst>(U));
+    llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
+
+    llvm::Value *CalleeV = Call->getOperand(2);
+    if (!llvm::isa<llvm::ConstantExpr>(CalleeV))
+      continue;
+
+    llvm::ConstantExpr *CalleeCE = llvm::cast<llvm::ConstantExpr>(CalleeV);
+    if (CalleeCE->getOpcode() != llvm::Instruction::PtrToInt)
+      continue;
+
+    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)))
+      continue;
+
+    llvm::GlobalIFunc *IFunc =
+        llvm::cast<llvm::GlobalIFunc>(CalleeCE->getOperand(0));
+
+    assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
+    assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(1)));
+
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+    } Caller;
+
+    Caller.BIdx  = llvm::cast<llvm::ConstantInt>(Call->getOperand(0))->getZExtValue();
+    Caller.BBIdx = llvm::cast<llvm::ConstantInt>(Call->getOperand(1))->getZExtValue();
+
+#if 0
+    llvm::outs() << llvm::formatv("_jove_recover_dyn_target({0}, {1}, {2})\n",
+                                  Caller.BIdx, Caller.BBIdx, *IFunc);
+#endif
+
+    auto it = IFuncTargetMap.find(IFunc);
+    if (it == IFuncTargetMap.end()) {
+      WithColor::warning() << llvm::formatv("no IdxPair for {0}\n", *IFunc);
+      continue;
+    }
+
+    struct {
+      binary_index_t BIdx;
+      function_index_t FIdx;
+    } Callee;
+
+    std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
+
+    // XXX code duplication. this is in jove-recover
+
+    // Check that Callee is valid
+    (void)Decompilation.Binaries.at(Callee.BIdx)
+        .Analysis.Functions.at(Callee.FIdx);
+
+    auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
+
+    bool isNewTarget = ICFG[boost::vertex(Caller.BBIdx, ICFG)]
+                           .DynTargets.insert({Callee.BIdx, Callee.FIdx})
+                           .second;
+
+    Changed = Changed || isNewTarget;
+  }
+
+  if (!Changed)
+    return 0;
+
+  //
+  // write decompilation
+  //
+  {
+    std::ofstream ofs(fs::is_directory(opts::jv)
+                          ? (opts::jv + "/decompilation.jv")
+                          : opts::jv);
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << Decompilation;
+  }
+
+  //
+  // git commit
+  //
+  std::string msg("[jove-llvm]");
+
+  if (fs::is_directory(opts::jv)) {
+    pid_t pid = fork();
+    if (!pid) { /* child */
+      chdir(opts::jv.c_str());
+
+      const char *argv[] = {"/usr/bin/git", "commit",    ".",
+                            "-m",           msg.c_str(), nullptr};
+
+      return execve(argv[0], const_cast<char **>(argv), ::environ);
+    }
+
+    if (int ret = await_process_completion(pid))
+      return ret;
+  }
+
+  return execve(cmdline.argv[0], cmdline.argv, ::environ);
+}
+
+int await_process_completion(pid_t pid) {
+  int wstatus;
+  do {
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
+      abort();
+
+    if (WIFEXITED(wstatus)) {
+      //printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      return WEXITSTATUS(wstatus);
+    } else if (WIFSIGNALED(wstatus)) {
+      //printf("killed by signal %d\n", WTERMSIG(wstatus));
+      return 1;
+    } else if (WIFSTOPPED(wstatus)) {
+      //printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      return 1;
+    } else if (WIFCONTINUED(wstatus)) {
+      //printf("continued\n");
+    }
+  } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
+
+  abort();
 }
 
 int WriteModule(void) {
