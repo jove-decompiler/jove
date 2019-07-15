@@ -23,6 +23,7 @@ CXXFLAGS := -std=gnu++14 \
 
 LDFLAGS := $(shell pkg-config --libs glib-2.0) \
            $(shell llvm-config --ldflags --libs) \
+           -Wl,--no-undefined \
            -ldl \
            -pthread \
            -lboost_filesystem \
