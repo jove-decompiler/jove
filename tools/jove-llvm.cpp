@@ -5402,11 +5402,9 @@ int RecoverControlFlow(void) {
     if (CalleeCE->getOpcode() != llvm::Instruction::PtrToInt)
       continue;
 
-    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)))
+    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)) &&
+        !llvm::isa<llvm::Function>(CalleeCE->getOperand(0)))
       continue;
-
-    llvm::GlobalIFunc *IFunc =
-        llvm::cast<llvm::GlobalIFunc>(CalleeCE->getOperand(0));
 
     assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
     assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(1)));
@@ -5424,18 +5422,47 @@ int RecoverControlFlow(void) {
                                   Caller.BIdx, Caller.BBIdx, *IFunc);
 #endif
 
-    auto it = IFuncTargetMap.find(IFunc);
-    if (it == IFuncTargetMap.end()) {
-      WithColor::warning() << llvm::formatv("no IdxPair for {0}\n", *IFunc);
-      continue;
-    }
-
     struct {
       binary_index_t BIdx;
       function_index_t FIdx;
     } Callee;
 
-    std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
+    if (llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0))) {
+      llvm::GlobalIFunc *IFunc =
+          llvm::cast<llvm::GlobalIFunc>(CalleeCE->getOperand(0));
+
+      auto it = IFuncTargetMap.find(IFunc);
+      if (it == IFuncTargetMap.end()) {
+        WithColor::warning() << llvm::formatv("no IdxPair for {0}\n", *IFunc);
+        continue;
+      }
+
+      std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
+    } else {
+      assert(llvm::isa<llvm::Function>(CalleeCE->getOperand(0)));
+
+      llvm::Function *Func =
+          llvm::cast<llvm::Function>(CalleeCE->getOperand(0));
+      if (!Func->empty()) {
+        WithColor::warning() << llvm::formatv(
+            "defined function \"{0}\" passed to _jove_recover_dyn_target\n",
+            Func->getName());
+        continue;
+      }
+
+      binary_t &binary = Decompilation.Binaries[BinaryIndex];
+      auto &SymDynTargets = binary.Analysis.SymDynTargets;
+      auto it = SymDynTargets.find(Func->getName());
+      if (it == SymDynTargets.end()) {
+        WithColor::warning()
+            << llvm::formatv("no SymDynTarget for declared function \"{0}\" "
+                             "passed to _jove_recover_dyn_target\n",
+                             Func->getName());
+        continue;
+      }
+
+      std::tie(Callee.BIdx, Callee.FIdx) = *(*it).second.begin();
+    }
 
     // XXX code duplication. this is in jove-recover
 
@@ -5951,14 +5978,16 @@ int TranslateBasicBlock(binary_t &Binary,
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
 
-#if 1
+    if (opts::NoInline || callee.IsABI)
+      Ret->setIsNoInline();
+
+#if 0
     if (!opts::NoInline &&
         callee.BasicBlocks.size() == 1 &&
         ICFG[callee.BasicBlocks.front()].IsSingleInstruction())
       ; /* allow this call to be inlined */
     else
 #endif
-      Ret->setIsNoInline();
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
       std::vector<unsigned> glbv;
