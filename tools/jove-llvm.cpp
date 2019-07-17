@@ -5388,6 +5388,16 @@ int RecoverControlFlow(void) {
   if (!JoveRecoverDynTargetFunc)
     return 0;
 
+  std::unordered_map<llvm::Function *,
+                     std::pair<binary_index_t, function_index_t>>
+      LLVMFnToJoveFnMap;
+
+  {
+    binary_t &b = Decompilation.Binaries[BinaryIndex];
+    for (function_t &f : b.Analysis.Functions)
+      LLVMFnToJoveFnMap.insert({f.F, {f.BIdx, f.FIdx}});
+  }
+
   bool Changed = false;
 
   for (llvm::User *U : JoveRecoverDynTargetFunc->users()) {
@@ -5443,25 +5453,32 @@ int RecoverControlFlow(void) {
 
       llvm::Function *Func =
           llvm::cast<llvm::Function>(CalleeCE->getOperand(0));
+
       if (!Func->empty()) {
-        WithColor::warning() << llvm::formatv(
-            "defined function \"{0}\" passed to _jove_recover_dyn_target\n",
-            Func->getName());
-        continue;
-      }
+        auto it = LLVMFnToJoveFnMap.find(Func);
+        if (it == LLVMFnToJoveFnMap.end()) {
+          WithColor::warning()
+              << llvm::formatv("unknown defined function \"{0}\" passed to "
+                               "_jove_recover_dyn_target\n",
+                               Func->getName());
+          continue;
+        }
 
-      binary_t &binary = Decompilation.Binaries[BinaryIndex];
-      auto &SymDynTargets = binary.Analysis.SymDynTargets;
-      auto it = SymDynTargets.find(Func->getName());
-      if (it == SymDynTargets.end()) {
-        WithColor::warning()
-            << llvm::formatv("no SymDynTarget for declared function \"{0}\" "
-                             "passed to _jove_recover_dyn_target\n",
-                             Func->getName());
-        continue;
-      }
+        std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
+      } else {
+        binary_t &binary = Decompilation.Binaries[BinaryIndex];
+        auto &SymDynTargets = binary.Analysis.SymDynTargets;
+        auto it = SymDynTargets.find(Func->getName());
+        if (it == SymDynTargets.end()) {
+          WithColor::warning()
+              << llvm::formatv("no SymDynTarget for declared function \"{0}\" "
+                               "passed to _jove_recover_dyn_target\n",
+                               Func->getName());
+          continue;
+        }
 
-      std::tie(Callee.BIdx, Callee.FIdx) = *(*it).second.begin();
+        std::tie(Callee.BIdx, Callee.FIdx) = *(*it).second.begin();
+      }
     }
 
     // XXX code duplication. this is in jove-recover
