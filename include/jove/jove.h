@@ -1,4 +1,6 @@
-#pragma once
+#ifndef JOVE_H
+#define JOVE_H
+
 #ifndef JOVE_EXTRA_BB_PROPERTIES
 #define JOVE_EXTRA_BB_PROPERTIES
 #endif
@@ -16,6 +18,9 @@
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/serialization/nvp.hpp>
 #include <numeric>
+#include <limits>
+
+#include "../../../bin/jove/tcgconstants.h" // XXX
 
 namespace jove {
 
@@ -68,6 +73,25 @@ struct basic_block_properties_t {
   std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
   bool DynTargetsComplete; // XXX
 
+  bool Analyzed; // TODO style
+
+  struct {
+    struct {
+      /* let def_B be the set of variables defined (i.e. definitely */
+      /* assigned values) in B prior to any use of that variable in B */
+      tcg_global_set_t def;
+
+      /* let use_B be the set of variables whose values may be used in B */
+      /* prior to any definition of the variable */
+      tcg_global_set_t use;
+    } live;
+
+    struct {
+      /* the set of globals assigned values in B */
+      tcg_global_set_t def;
+    } reach;
+  } Analysis;
+
   JOVE_EXTRA_BB_PROPERTIES;
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
@@ -80,7 +104,11 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term.Type)
        &BOOST_SERIALIZATION_NVP(Term._call.Target)
        &BOOST_SERIALIZATION_NVP(DynTargets)
-       &BOOST_SERIALIZATION_NVP(DynTargetsComplete);
+       &BOOST_SERIALIZATION_NVP(DynTargetsComplete)
+       &BOOST_SERIALIZATION_NVP(Analyzed)
+       &BOOST_SERIALIZATION_NVP(Analysis.live.def)
+       &BOOST_SERIALIZATION_NVP(Analysis.live.use)
+       &BOOST_SERIALIZATION_NVP(Analysis.reach.def);
   }
 };
 
@@ -241,3 +269,5 @@ struct terminator_info_t {
 };
 
 }
+
+#endif // JOVE_H

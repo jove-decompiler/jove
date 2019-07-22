@@ -1,3 +1,68 @@
+#include <cstdint>
+#include <vector>
+#include <numeric>
+#include <limits>
+#include <bitset>
+
+#ifdef JOVE_H // XXX ugly hack
+namespace jove {
+
+enum class TERMINATOR : uint8_t {
+  UNKNOWN,
+  UNCONDITIONAL_JUMP,
+  CONDITIONAL_JUMP,
+  INDIRECT_CALL,
+  INDIRECT_JUMP,
+  CALL,
+  RETURN,
+  UNREACHABLE,
+  NONE
+};
+
+struct terminator_info_t {
+  TERMINATOR Type;
+  uintptr_t Addr;
+
+  union {
+    struct {
+      uintptr_t Target;
+    } _unconditional_jump;
+
+    struct {
+      uintptr_t Target;
+      uintptr_t NextPC;
+    } _conditional_jump;
+
+    struct {
+      uintptr_t Target;
+      uintptr_t NextPC;
+    } _call;
+
+    struct {
+      uintptr_t NextPC;
+    } _indirect_call;
+
+    struct {
+      /* deliberately left empty */
+    } _indirect_jump;
+
+    struct {
+      /* deliberately left empty */
+    } _return;
+
+    struct {
+      /* deliberately left empty */
+    } _unreachable;
+
+    struct {
+      uintptr_t NextPC;
+    } _none;
+  };
+};
+
+}
+#endif
+
 #include "jove/jove.h"
 
 static unsigned long guest_base_addr;

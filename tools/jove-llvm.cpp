@@ -17,28 +17,7 @@ class Binary;
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
-  struct {                                                                     \
-    struct {                                                                   \
-      /* let def_B be the set of variables defined (i.e. definitely */         \
-      /* assigned values) in B prior to any use of that variable in B */       \
-      tcg_global_set_t def;                                                    \
-                                                                               \
-      /* let use_B be the set of variables whose values may be used in B */    \
-      /* prior to any definition of the variable */                            \
-      tcg_global_set_t use;                                                    \
-    } live;                                                                    \
-                                                                               \
-    struct {                                                                   \
-      /* the set of globals assigned values in B */                            \
-      tcg_global_set_t def;                                                    \
-    } reach;                                                                   \
-  } Analysis;                                                                  \
-                                                                               \
   tcg_global_set_t IN, OUT;                                                    \
-                                                                               \
-  bool Analyzed;                                                               \
-                                                                               \
-  basic_block_properties_t() : Analyzed(false) {}                              \
                                                                                \
   void Analyze(binary_index_t);                                                \
                                                                                \
@@ -163,6 +142,7 @@ class Binary;
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/range/adaptor/reversed.hpp>
+#include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -621,6 +601,7 @@ static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RenameFunctionLocals(void);
 static int RecoverControlFlow(void);
+static int WriteDecompilation(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -658,6 +639,7 @@ int llvm(void) {
       || ReplaceAllRemainingUsesOfConstSections()
       || RenameFunctionLocals()
       || RecoverControlFlow()
+      || WriteDecompilation()
       || WriteModule();
 }
 
@@ -5566,6 +5548,16 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
+}
+
+int WriteDecompilation(void) {
+  std::ofstream ofs(
+      fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
+
+  boost::archive::binary_oarchive oa(ofs);
+  oa << Decompilation;
+
+  return 0;
 }
 
 int WriteModule(void) {

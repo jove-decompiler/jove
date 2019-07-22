@@ -59,6 +59,7 @@
 #include <boost/preprocessor/cat.hpp>
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/repetition/repeat_from_to.hpp>
+#include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
@@ -943,7 +944,10 @@ basic_block_index_t translate_basic_block(pid_t child,
         newbbprop.Term.Type = TERMINATOR::NONE;
         newbbprop.Term.Addr = 0; /* XXX? */
         newbbprop.DynTargetsComplete = false;
+        newbbprop.Analyzed = false;
       }
+
+      ICFG[bb].Analyzed = false;
 
       std::swap(ICFG[bb], ICFG[newbb]);
       ICFG[newbb].Addr = Addr;
@@ -1174,6 +1178,7 @@ basic_block_index_t translate_basic_block(pid_t child,
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
+    bbprop.Analyzed = false;
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,

@@ -1,3 +1,5 @@
+#define JOVE_H // XXX
+
 #include "tcgcommon.hpp"
 
 #include <llvm/Support/InitLLVM.h>
