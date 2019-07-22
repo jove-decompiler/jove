@@ -230,6 +230,22 @@ int main(int argc, char **argv) {
   auto fs_base_index = [&](void) -> int {
     return tcg_index_of_named_global("fs_base");
   };
+
+  auto r12_index = [&](void) -> int {
+    return tcg_index_of_named_global("r12");
+  };
+
+  auto r13_index = [&](void) -> int {
+    return tcg_index_of_named_global("r13");
+  };
+
+  auto r14_index = [&](void) -> int {
+    return tcg_index_of_named_global("r14");
+  };
+
+  auto r15_index = [&](void) -> int {
+    return tcg_index_of_named_global("r15");
+  };
 #endif
 
   printf("#pragma once\n"
@@ -258,6 +274,10 @@ int main(int argc, char **argv) {
 
 #if defined(__x86_64__)
   __TCG_CONST(fs_base_index);
+  __TCG_CONST(r12_index);
+  __TCG_CONST(r13_index);
+  __TCG_CONST(r14_index);
+  __TCG_CONST(r15_index);
 #endif
 
 #undef __TCG_CONST
