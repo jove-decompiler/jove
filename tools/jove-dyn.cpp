@@ -942,6 +942,7 @@ basic_block_index_t translate_basic_block(pid_t child,
         newbbprop.Size = off;
         newbbprop.Term.Type = TERMINATOR::NONE;
         newbbprop.Term.Addr = 0; /* XXX? */
+        newbbprop.DynTargetsComplete = false;
       }
 
       std::swap(ICFG[bb], ICFG[newbb]);
@@ -1172,6 +1173,7 @@ basic_block_index_t translate_basic_block(pid_t child,
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
+    bbprop.DynTargetsComplete = false;
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,

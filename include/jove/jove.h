@@ -66,6 +66,7 @@ struct basic_block_properties_t {
   } Term;
 
   std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
+  bool DynTargetsComplete; // XXX
 
   JOVE_EXTRA_BB_PROPERTIES;
 
@@ -78,7 +79,8 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term.Addr)
        &BOOST_SERIALIZATION_NVP(Term.Type)
        &BOOST_SERIALIZATION_NVP(Term._call.Target)
-       &BOOST_SERIALIZATION_NVP(DynTargets);
+       &BOOST_SERIALIZATION_NVP(DynTargets)
+       &BOOST_SERIALIZATION_NVP(DynTargetsComplete);
   }
 };
 

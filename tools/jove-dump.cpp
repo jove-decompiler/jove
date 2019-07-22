@@ -164,6 +164,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
           Writer.printList("DynTargets", descv);
         }
 
+        if (ICFG[bb].DynTargetsComplete)
+          Writer.printBoolean("DynTargetsComplete",
+                              ICFG[bb].DynTargetsComplete);
+
         if (boost::out_degree(bb, ICFG) > 0) {
           auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
 
