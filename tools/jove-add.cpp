@@ -604,6 +604,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
+  auto &ICFG = binary.Analysis.ICFG;
+
   //
   // does this new basic block start in the middle of a previously-created
   // basic block?
@@ -612,7 +614,6 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     auto it = BBMap.find(Addr);
     if (it != BBMap.end()) {
       basic_block_index_t bbidx = (*it).second - 1;
-      auto &ICFG = binary.Analysis.ICFG;
       basic_block_t bb = boost::vertex(bbidx, ICFG);
 
       assert(bbidx < boost::num_vertices(ICFG));
@@ -861,10 +862,10 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
-  basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
-  basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
+  basic_block_index_t bbidx = boost::num_vertices(ICFG);
+  basic_block_t bb = boost::add_vertex(ICFG);
   {
-    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    basic_block_properties_t &bbprop = ICFG[bb];
     bbprop.Addr = Addr;
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
@@ -896,8 +897,6 @@ basic_block_index_t translate_basic_block(binary_t &binary,
       return;
     }
 
-    auto &ICFG = binary.Analysis.ICFG;
-
     basic_block_t _bb;
     {
       auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
@@ -925,7 +924,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     break;
 
   case TERMINATOR::CALL:
-    binary.Analysis.ICFG[bb].Term._call.Target =
+    ICFG[bb].Term._call.Target =
         translate_function(binary, tcg, dis, T._call.Target);
 
     control_flow(T._call.NextPC);

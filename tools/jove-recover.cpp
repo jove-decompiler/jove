@@ -534,12 +534,12 @@ static function_index_t translate_function(binary_index_t binary_idx,
   return res;
 }
 
-
 basic_block_index_t translate_basic_block(binary_index_t binary_idx,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
   binary_t &binary = Decompilation.Binaries.at(binary_idx);
+  auto &ICFG = binary.Analysis.ICFG;
   auto &BBMap = BinStateVec.at(binary_idx).BBMap;
 
   //
@@ -550,7 +550,6 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
     auto it = BBMap.find(Addr);
     if (it != BBMap.end()) {
       basic_block_index_t bbidx = (*it).second - 1;
-      auto &ICFG = binary.Analysis.ICFG;
       basic_block_t bb = boost::vertex(bbidx, ICFG);
 
       assert(bbidx < boost::num_vertices(ICFG));
@@ -734,10 +733,10 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
     T.Type = TERMINATOR::UNREACHABLE;
   }
 
-  basic_block_index_t bbidx = boost::num_vertices(binary.Analysis.ICFG);
-  basic_block_t bb = boost::add_vertex(binary.Analysis.ICFG);
+  basic_block_index_t bbidx = boost::num_vertices(ICFG);
+  basic_block_t bb = boost::add_vertex(ICFG);
   {
-    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    basic_block_properties_t &bbprop = ICFG[bb];
     bbprop.Addr = Addr;
     bbprop.Size = Size;
     bbprop.Term.Type = T.Type;
@@ -764,8 +763,6 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
         translate_basic_block(binary_idx, tcg, dis, Target);
 
     assert(succidx != invalid_basic_block_index);
-
-    auto &ICFG = binary.Analysis.ICFG;
 
     basic_block_t _bb;
     {
@@ -794,7 +791,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
     break;
 
   case TERMINATOR::CALL:
-    binary.Analysis.ICFG[bb].Term._call.Target =
+    ICFG[bb].Term._call.Target =
         translate_function(binary_idx, tcg, dis, T._call.Target);
 
     control_flow(T._call.NextPC);
