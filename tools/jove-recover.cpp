@@ -211,8 +211,13 @@ int recover(void) {
         .Analysis.Functions.at(Callee.FIdx);
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
-    ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.insert(
-        {Callee.BIdx, Callee.FIdx});
+
+    bool isNewTarget = ICFG[boost::vertex(Caller.BBIdx, ICFG)]
+                           .DynTargets.insert({Callee.BIdx, Callee.FIdx})
+                           .second;
+
+    if (isNewTarget)
+      ICFG[boost::vertex(Caller.BBIdx, ICFG)].InvalidateAnalysis();
 
     msg = (fmt("[jove-recover] (call) %s -> %s") %
            DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
