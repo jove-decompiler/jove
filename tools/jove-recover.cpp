@@ -437,7 +437,8 @@ int recover(void) {
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
     bool isNewTarget = boost::add_edge(IndBr.bb, target_bb, ICFG).second;
-    (void)isNewTarget; // XXX do we want to do anything with this?
+    if (isNewTarget)
+      ICFG[IndBr.bb].InvalidateAnalysis();
 
     msg = (fmt("[jove-recover] (goto) %s -> %s") %
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
@@ -523,6 +524,7 @@ static function_index_t translate_function(binary_index_t binary_idx,
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
       translate_basic_block(binary_idx, tcg, dis, Addr);
+  binary.Analysis.Functions[res].AnalyzedOnce = false;
 
   return res;
 }
@@ -580,10 +582,10 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
         newbbprop.Term.Type = TERMINATOR::NONE;
         newbbprop.Term.Addr = 0; /* XXX? */
         newbbprop.DynTargetsComplete = false;
-        newbbprop.Analyzed = false;
+        newbbprop.InvalidateAnalysis();
       }
 
-      ICFG[bb].Analyzed = false;
+      ICFG[bb].InvalidateAnalysis();
 
       std::swap(ICFG[bb], ICFG[newbb]);
       ICFG[newbb].Addr = Addr;
@@ -737,6 +739,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
     bbprop.Analyzed = false;
+    bbprop.InvalidateAnalysis();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
@@ -757,19 +760,22 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
 
     assert(succidx != invalid_basic_block_index);
 
+    auto &ICFG = binary.Analysis.ICFG;
+
     basic_block_t _bb;
     {
       auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
       assert(it != BBMap.end());
 
-      auto &ICFG = binary.Analysis.ICFG;
       basic_block_index_t _bbidx = (*it).second - 1;
       _bb = boost::vertex(_bbidx, ICFG);
       assert(T.Type == ICFG[_bb].Term.Type);
     }
 
-    basic_block_t succ = boost::vertex(succidx, binary.Analysis.ICFG);
-    boost::add_edge(_bb, succ, binary.Analysis.ICFG);
+    basic_block_t succ = boost::vertex(succidx, ICFG);
+    bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
+    if (isNewTarget)
+      ICFG[_bb].InvalidateAnalysis();
   };
 
   switch (T.Type) {

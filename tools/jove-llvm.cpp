@@ -19,6 +19,8 @@ class Binary;
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
   tcg_global_set_t IN, OUT;                                                    \
                                                                                \
+  bool _Analyzed;                                                              \
+                                                                               \
   void Analyze(binary_index_t);                                                \
                                                                                \
   llvm::BasicBlock *B;
@@ -43,10 +45,6 @@ class Binary;
   } DebugInformation;                                                          \
                                                                                \
   bool IsNamed, IsABI;                                                         \
-                                                                               \
-  struct {                                                                     \
-    tcg_global_set_t args, rets;                                               \
-  } Analysis;                                                                  \
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
@@ -733,6 +731,18 @@ int InitStateForBinaries(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &st = BinStateVec[BIdx];
+
+    //
+    // XXX this could probably go somewhere else
+    //
+    {
+      auto it_pair = boost::vertices(ICFG);
+      for (auto it = it_pair.first; it != it_pair.second; ++it) {
+        basic_block_properties_t &bbprop = ICFG[*it];
+
+        bbprop._Analyzed = bbprop.Analyzed;
+      }
+    }
 
     //
     // FuncMap
@@ -1539,8 +1549,16 @@ int ProcessDynamicSymbols(void) {
               if (opts::Trace)
                 IRB.CreateStore(SavedTraceP, TraceGlobal);
 
-              IRB.CreateRet(IRB.CreateIntToPtr(
-                  Call, CallsF->getFunctionType()->getReturnType()));
+              if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+                WithColor::warning()
+                    << llvm::formatv("ifunc resolver {0} returns void\n", *f.F);
+
+                IRB.CreateRet(llvm::Constant::getNullValue(
+                    CallsF->getFunctionType()->getReturnType()));
+              } else {
+                IRB.CreateRet(IRB.CreateIntToPtr(
+                    Call, CallsF->getFunctionType()->getReturnType()));
+              }
             }
 
             // we can't have calls to PLT entries in resolver functions
@@ -2237,7 +2255,8 @@ static bool fn_flow_vert_pair_comp(const function_flow_vertex_pair_t &lhs,
 static basic_block_properties_t empty_bb_prop;
 
 static flow_vertex_t copy_function_cfg(
-    flow_graph_t &G, function_t &f, std::vector<flow_vertex_t> &exitVertices,
+    bool &NeedsUpdate, flow_graph_t &G, function_t &f,
+    std::vector<flow_vertex_t> &exitVertices,
     std::unordered_map<function_t *,
                        std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
         &memoize) {
@@ -2246,8 +2265,11 @@ static flow_vertex_t copy_function_cfg(
   //
   auto &Binary = Decompilation.Binaries[f.BIdx];
   auto &ICFG = Binary.Analysis.ICFG;
-  for (basic_block_t bb : f.BasicBlocks)
+  for (basic_block_t bb : f.BasicBlocks) {
+    NeedsUpdate = NeedsUpdate || !ICFG[bb]._Analyzed;
+
     ICFG[bb].Analyze(f.BIdx);
+  }
 
   //
   // check for back edge
@@ -2324,8 +2346,8 @@ static flow_vertex_t copy_function_cfg(
                      : Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
 
       std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV =
-          copy_function_cfg(G, callee, calleeExitVertices, memoize);
+      flow_vertex_t calleeEntryV = copy_function_cfg(
+          NeedsUpdate, G, callee, calleeExitVertices, memoize);
 
       auto eit_pair = boost::out_edges(bb, ICFG);
       assert(eit_pair.first != eit_pair.second &&
@@ -2369,8 +2391,8 @@ static flow_vertex_t copy_function_cfg(
                                .Analysis.Functions[DynTarget.second];
 
       std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV =
-          copy_function_cfg(G, callee, calleeExitVertices, memoize);
+      flow_vertex_t calleeEntryV = copy_function_cfg(
+          NeedsUpdate, G, callee, calleeExitVertices, memoize);
       flow_vertex_t newExitV = boost::add_vertex(G);
       G[newExitV].bbprop = &empty_bb_prop;
 
@@ -2403,6 +2425,8 @@ void function_t::Analyze(void) {
   if (this->Analyzed)
     return;
 
+  this->Analyzed = true;
+
   {
     flow_graph_t G;
 
@@ -2410,8 +2434,13 @@ void function_t::Analyze(void) {
                        std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
         _unused;
 
+    bool NeedsUpdate = false;
     std::vector<flow_vertex_t> exitVertices;
-    flow_vertex_t entryV = copy_function_cfg(G, *this, exitVertices, _unused);
+    flow_vertex_t entryV =
+        copy_function_cfg(NeedsUpdate, G, *this, exitVertices, _unused);
+
+    if (this->AnalyzedOnce && !NeedsUpdate)
+      return;
 
     //
     // build vector of vertices in DFS order
@@ -2579,7 +2608,7 @@ void function_t::Analyze(void) {
     }
   }
 
-  this->Analyzed = true;
+  this->AnalyzedOnce = true;
 }
 
 const helper_function_t &LookupHelper(TCGOp *op);
@@ -3744,8 +3773,16 @@ int CreateSectionGlobalVariables(void) {
         if (opts::Trace)
           IRB.CreateStore(SavedTraceP, TraceGlobal);
 
-        IRB.CreateRet(IRB.CreateIntToPtr(
-            Call, CallsF->getFunctionType()->getReturnType()));
+        if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+          WithColor::warning()
+              << llvm::formatv("ifunc resolver {0} returns void\n", *f.F);
+
+          IRB.CreateRet(llvm::Constant::getNullValue(
+              CallsF->getFunctionType()->getReturnType()));
+        } else {
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Call, CallsF->getFunctionType()->getReturnType()));
+        }
       }
 
       // we can't have calls to PLT entries in resolver functions
@@ -5471,22 +5508,28 @@ int RecoverControlFlow(void) {
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
 
-    bool isNewTarget = ICFG[boost::vertex(Caller.BBIdx, ICFG)]
-                           .DynTargets.insert({Callee.BIdx, Callee.FIdx})
-                           .second;
+    basic_block_properties_t &bbprop = ICFG[boost::vertex(Caller.BBIdx, ICFG)];
+
+    bool isNewTarget =
+        bbprop.DynTargets.insert({Callee.BIdx, Callee.FIdx}).second;
+
+    Changed = Changed || isNewTarget;
+
+    if (isNewTarget)
+      bbprop.InvalidateAnalysis();
 
     {
-      bool &DynTargetsComplete =
-          ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargetsComplete;
+      bool &DynTargetsComplete = bbprop.DynTargetsComplete;
 
       bool DynTargetsComplete_Changed = !DynTargetsComplete;
 
       DynTargetsComplete = true;
 
       Changed = Changed || DynTargetsComplete_Changed;
-    }
 
-    Changed = Changed || isNewTarget;
+      if (DynTargetsComplete_Changed)
+        bbprop.InvalidateAnalysis();
+    }
   }
 
   if (!Changed)

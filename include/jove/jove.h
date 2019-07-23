@@ -96,6 +96,15 @@ struct basic_block_properties_t {
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
+  void InvalidateAnalysis(void) {
+    this->Analyzed = false;
+
+    this->Analysis.live.def.reset();
+    this->Analysis.live.use.reset();
+
+    this->Analysis.reach.def.reset();
+  }
+
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
     ar &BOOST_SERIALIZATION_NVP(Addr)
@@ -131,11 +140,21 @@ inline basic_block_t NullBasicBlock(void) {
 struct function_t {
   basic_block_index_t Entry;
 
+  struct {
+    tcg_global_set_t args;
+    tcg_global_set_t rets;
+  } Analysis;
+
+  bool AnalyzedOnce;
+
   JOVE_EXTRA_FN_PROPERTIES;
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
-    ar &BOOST_SERIALIZATION_NVP(Entry);
+    ar &BOOST_SERIALIZATION_NVP(Entry)
+       &BOOST_SERIALIZATION_NVP(Analysis.args)
+       &BOOST_SERIALIZATION_NVP(Analysis.rets)
+       &BOOST_SERIALIZATION_NVP(AnalyzedOnce);
   }
 };
 
