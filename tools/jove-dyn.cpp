@@ -783,6 +783,16 @@ int ParentProc(pid_t child) {
     WithColor::note() << llvm::formatv("{0}\n", e.what());
   }
 
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
   //
   // write decompilation
   //

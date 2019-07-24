@@ -105,6 +105,16 @@ int main(int argc, char **argv) {
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Recover\n");
 
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
   if (!fs::exists(opts::jv)) {
     WithColor::error() << "decompilation does not exist\n";
     return 1;

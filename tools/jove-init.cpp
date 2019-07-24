@@ -79,6 +79,16 @@ int main(int argc, char **argv) {
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::ParseCommandLineOptions(argc, argv, "Jove Init\n");
 
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
   return jove::init();
 }
 

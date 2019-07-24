@@ -112,6 +112,10 @@ static void print_command(std::vector<char *> &arg_vec);
 static std::string jove_llvm_path, llc_path, lld_path, opt_path;
 static std::string dyn_linker_path;
 
+static std::atomic<bool> Cancel(false);
+
+static void handle_sigint(int);
+
 int recompile(void) {
   if (!fs::exists(compiler_runtime_afp) ||
       !fs::is_regular_file(compiler_runtime_afp)) {
@@ -216,7 +220,23 @@ int recompile(void) {
     Q.push(BIdx);
   }
 
+  // install signal handler for Ctrl-C to gracefully cancel
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = handle_sigint;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
   spawn_workers();
+
+  if (Cancel) {
+    WithColor::note() << "Canceled.\n";
+    return 1;
+  }
 
   std::vector<fs::path> sofp_vec;
   for (binary_t &b : Decompilation.Binaries) {
@@ -248,6 +268,16 @@ int recompile(void) {
 
   pid_t pid = fork();
   if (!pid) {
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = 0;
+      sa.sa_handler = SIG_IGN;
+
+      sigaction(SIGINT, &sa, nullptr);
+    }
+
     std::vector<char *> arg_vec;
 
     arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
@@ -307,6 +337,8 @@ int recompile(void) {
     arg_vec.push_back(nullptr);
 
     print_command(arg_vec);
+
+    close(STDIN_FILENO);
     execve(arg_vec.front(), arg_vec.data(), ::environ);
     return 0;
   }
@@ -348,6 +380,10 @@ int recompile(void) {
   return 0;
 }
 
+void handle_sigint(int no) {
+  Cancel = true;
+}
+
 static std::mutex mtx;
 
 static void worker(void) {
@@ -364,7 +400,7 @@ static void worker(void) {
   };
 
   unsigned BIdx;
-  while (pop_binary_index(BIdx)) {
+  while (!Cancel && pop_binary_index(BIdx)) {
     pid_t pid;
 
     binary_t &b = Decompilation.Binaries[BIdx];
@@ -384,6 +420,16 @@ static void worker(void) {
 
     pid = fork();
     if (!pid) {
+      {
+        struct sigaction sa;
+
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sa.sa_handler = SIG_IGN;
+
+        sigaction(SIGINT, &sa, nullptr);
+      }
+
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(jove_llvm_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-decompilation"));
@@ -403,6 +449,7 @@ static void worker(void) {
       dup2(stdoutfd, STDOUT_FILENO);
       dup2(stdoutfd, STDERR_FILENO);
 
+      close(STDIN_FILENO);
       execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
@@ -415,6 +462,9 @@ static void worker(void) {
       continue;
     }
 
+    if (Cancel)
+      return;
+
     //
     // optimize bitcode
     //
@@ -426,6 +476,16 @@ static void worker(void) {
 
     pid = fork();
     if (!pid) {
+      {
+        struct sigaction sa;
+
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sa.sa_handler = SIG_IGN;
+
+        sigaction(SIGINT, &sa, nullptr);
+      }
+
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(opt_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-o"));
@@ -436,6 +496,7 @@ static void worker(void) {
 
       print_command(arg_vec);
 
+      close(STDIN_FILENO);
       execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
@@ -448,6 +509,9 @@ static void worker(void) {
       continue;
     }
 
+    if (Cancel)
+      return;
+
 skip_opt:
     //
     // compile bitcode
@@ -456,6 +520,16 @@ skip_opt:
 
     pid = fork();
     if (!pid) {
+      {
+        struct sigaction sa;
+
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sa.sa_handler = SIG_IGN;
+
+        sigaction(SIGINT, &sa, nullptr);
+      }
+
       std::vector<char *> arg_vec;
       arg_vec.push_back(const_cast<char *>(llc_path.c_str()));
       arg_vec.push_back(const_cast<char *>("-o"));
@@ -467,6 +541,8 @@ skip_opt:
       arg_vec.push_back(nullptr);
 
       print_command(arg_vec);
+
+      close(STDIN_FILENO);
       execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
@@ -479,6 +555,9 @@ skip_opt:
       continue;
     }
 
+    if (Cancel)
+      return;
+
     if (b.IsExecutable)
       continue;
 
@@ -489,6 +568,16 @@ skip_opt:
 
     pid = fork();
     if (!pid) {
+      {
+        struct sigaction sa;
+
+        sigemptyset(&sa.sa_mask);
+        sa.sa_flags = 0;
+        sa.sa_handler = SIG_IGN;
+
+        sigaction(SIGINT, &sa, nullptr);
+      }
+
       std::vector<char *> arg_vec;
 
       arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
@@ -529,6 +618,8 @@ skip_opt:
       arg_vec.push_back(nullptr);
 
       print_command(arg_vec);
+
+      close(STDIN_FILENO);
       execve(arg_vec.front(), arg_vec.data(), ::environ);
       return;
     }
@@ -540,6 +631,9 @@ skip_opt:
       WithColor::error() << "ld failed for " << binary_filename << '\n';
       continue;
     }
+
+    if (Cancel)
+      return;
   }
 }
 

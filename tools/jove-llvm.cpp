@@ -5403,6 +5403,16 @@ int RenameFunctionLocals(void) {
 static int await_process_completion(pid_t pid);
 
 int RecoverControlFlow(void) {
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   if (!JoveRecoverDynTargetFunc)
     return 0;

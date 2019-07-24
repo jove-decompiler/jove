@@ -40,6 +40,8 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/format.hpp>
 
+#include <signal.h>
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -293,13 +295,6 @@ int add(void) {
   binary.Path = fs::canonical(opts::Input).string();
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
-
-  auto write_decompilation = [&](void) -> void {
-    std::ofstream ofs(opts::Output);
-
-    boost::archive::binary_oarchive oa(ofs);
-    oa << decompilation;
-  };
 
   const ELFT &E = *O.getELFFile();
 
@@ -568,7 +563,23 @@ int add(void) {
       process_elf_rela(Sec, Rela);
   }
 
-  write_decompilation();
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
+  {
+    std::ofstream ofs(opts::Output);
+
+    boost::archive::binary_oarchive oa(ofs);
+    oa << decompilation;
+  }
+
   return 0;
 }
 
