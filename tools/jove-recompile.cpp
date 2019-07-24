@@ -366,17 +366,6 @@ int recompile(void) {
     break;
   }
 
-#if 0
-  //
-  // copy compiler runtime
-  //
-  {
-    fs::path chrooted_path(opts::Output + compiler_runtime_afp);
-    fs::create_directories(chrooted_path.parent_path());
-    fs::copy(compiler_runtime_afp, chrooted_path);
-  }
-#endif
-
   return 0;
 }
 
