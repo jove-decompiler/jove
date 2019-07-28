@@ -6,7 +6,6 @@
 import optparse
 import lldb
 import shlex
-from binaryornot.check import is_binary
 import os
 import subprocess
 
@@ -39,17 +38,10 @@ def jove_unwind(debugger, command, result, dict):
 
                     path = path[:-len(suffix)]
 
-                    #print('path=%s' % path)
-                    #print('addr=0x%x' % addr)
+                    completedProcess = subprocess.run(["/usr/bin/llvm-symbolizer", "-print-address", "-inlining=0", "-pretty-print", "-print-source-context-lines=10"], input=('%s 0x%x' % (path, addr)), capture_output=True, text=True)
 
-                    #
-                    # exec llvm-symbolizer
-                    #
-                    p = subprocess.Popen(["/usr/bin/llvm-symbolizer", "-print-source-context-lines=10"], stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.PIPE);
-                    (stdoutdata, stderrdata) = p.communicate('%s 0x%x' % (path, addr))
-
-                    print stdoutdata
-                    print stderrdata
+                    print(completedProcess.stdout)
+                    print(completedProcess.stderr)
 
 
 def create_jove_unwind_options():
@@ -64,4 +56,4 @@ def create_jove_unwind_options():
 lldb.debugger.HandleCommand(
     'command script add -f %s.jove_unwind jove-unwind' %
     __name__)
-print 'The "jove-unwind" command has been installed, type "help jove-unwind" for detailed help.'
+print('The "jove-unwind" command has been installed, type "help jove-unwind" for detailed help.')
