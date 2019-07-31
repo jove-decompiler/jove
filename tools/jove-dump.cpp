@@ -62,6 +62,11 @@ static cl::opt<std::string>
 static cl::alias ListFunctionsAlias("f", cl::desc("Alias for -list-functions."),
                                     cl::aliasopt(ListFunctions),
                                     cl::cat(JoveCategory));
+
+static cl::opt<std::string> ListFunctionBBs(
+    "list-fn-bbs", cl::desc("List basic blocks for functions for given binary"),
+    cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -272,6 +277,8 @@ static void dumpInput(const std::string &Path) {
       llvm::outs() << llvm::formatv("Binary: {0}\n", binary.Path);
       llvm::outs() << llvm::formatv("  # of basic blocks: {0}\n",
                                     boost::num_vertices(binary.Analysis.ICFG));
+      llvm::outs() << llvm::formatv("  # of functions: {0}\n",
+                                    binary.Analysis.Functions.size());
     }
   } else if (!opts::ListFunctions.empty()) {
     for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
@@ -287,6 +294,36 @@ static void dumpInput(const std::string &Path) {
         uintptr_t Addr = ICFG[boost::vertex(function.Entry, ICFG)].Addr;
 
         llvm::outs() << llvm::formatv("{0},{1} @ {2:x}\n", BIdx, FIdx, Addr);
+      }
+    }
+  } else if (!opts::ListFunctionBBs.empty()) {
+    llvm::ScopedPrinter Writer(llvm::outs());
+
+    for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+      const binary_t &binary = decompilation.Binaries[BIdx];
+
+      if (fs::path(binary.Path).filename().string() != opts::ListFunctionBBs)
+        continue;
+
+      auto &ICFG = binary.Analysis.ICFG;
+
+      for (const function_t &f : binary.Analysis.Functions) {
+        basic_block_t entry = boost::vertex(f.Entry, ICFG);
+
+        std::vector<basic_block_t> blocks;
+        blocks.reserve(boost::num_vertices(ICFG));
+
+        reached_visitor vis(blocks);
+        boost::breadth_first_search(ICFG, entry, boost::visitor(vis));
+
+        std::vector<uintptr_t> addrs;
+        addrs.resize(blocks.size());
+
+        std::transform(
+            blocks.begin(), blocks.end(), addrs.begin(),
+            [&](basic_block_t bb) -> uintptr_t { return ICFG[bb].Addr; });
+
+        Writer.printHexList("Fn", addrs);
       }
     }
   } else {
