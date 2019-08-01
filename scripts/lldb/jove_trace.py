@@ -164,10 +164,7 @@ def jove_trace(debugger, command, result, dict):
             break
 
         brkpt_id = t.GetStopReasonDataAtIndex(0)
-        print('brkpt_id=%d' % brkpt_id)
-        if brkpt_id > sys.maxint:
-            print('invalid breakpoint id')
-            continue
+        print('brk %d' % brkpt_id)
         brkpt = t.process.target.FindBreakpointByID(brkpt_id)
         name_list = lldb.SBStringList()
         brkpt.GetNames(name_list)
@@ -238,4 +235,4 @@ def create_jove_trace_options():
 lldb.debugger.HandleCommand(
     'command script add -f %s.jove_trace jove-trace' %
     __name__)
-print 'The "jove-trace" command has been installed, type "help jove-trace" for detailed help.' 
+print('The "jove-trace" command has been installed, type "help jove-trace" for detailed help.')
