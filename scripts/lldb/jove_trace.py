@@ -13,7 +13,7 @@ import fcntl
 import sys
 import xml.etree.cElementTree as ET
 
-def jove_trace(debugger, command, result, dict):
+def jove_trace(debugger, command, result, internal_dict):
     """
   TODO explain here what this thing does
     """
@@ -41,10 +41,17 @@ def jove_trace(debugger, command, result, dict):
 
     launch_info = target.GetLaunchInfo()
     argv = [launch_info.GetArgumentAtIndex(i) for i in list(range(launch_info.GetNumArguments()))]
-    #print(argv)
+
+    env = dict(os.environ)
+    env["LD_BIND_NOW"] = "1"
+
+    envp = ['%s=%s' % (key, val) for key, val in env.items()]
+
+    print(argv)
+    print(envp)
 
     err = lldb.SBError()
-    process = target.Launch(debugger.GetListener(), argv, None, None, None, None, None, 0, True, err)
+    process = target.Launch(debugger.GetListener(), argv, envp, None, None, None, None, 0, True, err)
     if not err.Success():
         print("Error during launch: " + str(err))
         return
