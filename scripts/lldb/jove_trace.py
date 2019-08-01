@@ -165,7 +165,12 @@ def jove_trace(debugger, command, result, dict):
 
         brkpt_id = t.GetStopReasonDataAtIndex(0)
         print('brk %d' % brkpt_id)
-        brkpt = t.process.target.FindBreakpointByID(brkpt_id)
+        try:
+            brkpt = t.process.target.FindBreakpointByID(brkpt_id)
+        except OverflowError:
+            print("brkpt_id OverflowError")
+            continue
+
         name_list = lldb.SBStringList()
         brkpt.GetNames(name_list)
         if name_list.GetSize() != 1:
