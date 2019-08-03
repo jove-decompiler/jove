@@ -2439,8 +2439,10 @@ void function_t::Analyze(void) {
     flow_vertex_t entryV =
         copy_function_cfg(NeedsUpdate, G, *this, exitVertices, _unused);
 
+#if 0
     if (this->AnalyzedOnce && !NeedsUpdate)
       return;
+#endif
 
     //
     // build vector of vertices in DFS order
@@ -2485,10 +2487,13 @@ void function_t::Analyze(void) {
         G[V].OUT = std::accumulate(
             eit_pair.first, eit_pair.second, tcg_global_set_t(),
             [&](tcg_global_set_t res, control_flow_t E) {
-              return res | G[E].live.flow(G[boost::target(E, G)].IN);
+              return res | G[boost::target(E, G)].IN;
             });
-        G[V].IN = G[V].bbprop->Analysis.live.use |
-                  (G[V].OUT & ~(G[V].bbprop->Analysis.live.def));
+
+        tcg_global_set_t use = G[V].bbprop->Analysis.live.use;
+        tcg_global_set_t def = G[V].bbprop->Analysis.live.def;
+
+        G[V].IN = use | (G[V].OUT & ~def);
 
         change = change || _IN != G[V].IN;
       }
@@ -2535,6 +2540,8 @@ void function_t::Analyze(void) {
                           [&](tcg_global_set_t res, flow_vertex_t V) {
                             return res & G[V].OUT;
                           });
+
+      this->Analysis.rets.reset(tcg_env_index);
 #if defined(__x86_64__)
       this->Analysis.rets.reset(tcg_fs_base_index);
 #endif
@@ -2568,7 +2575,7 @@ void function_t::Analyze(void) {
       for (unsigned i = 0; i <= idx; ++i)
         this->Analysis.rets.set(CallConvRetArray[i]);
     }
-#else
+#elif 0
     // XXX TODO
     assert(!CallConvRetArray.empty());
     if (this->Analysis.rets[CallConvRetArray.front()]) {
@@ -2587,6 +2594,7 @@ void function_t::Analyze(void) {
   if (this->IsABI) {
     this->Analysis.args &= CallConvArgs;
 
+#if 0
     std::vector<unsigned> glbv;
     explode_tcg_global_set(glbv, this->Analysis.args);
     std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
@@ -2606,6 +2614,7 @@ void function_t::Analyze(void) {
       for (unsigned i = 0; i <= idx; ++i)
         this->Analysis.args.set(CallConvArgArray[i]);
     }
+#endif
   }
 
   this->AnalyzedOnce = true;
