@@ -130,4 +130,4 @@ def create_trace_insns_options():
 lldb.debugger.HandleCommand(
     'command script add -f %s.trace_insns trace-insns' %
     __name__)
-print 'The "trace-insns" command has been installed, type "help trace-insns" for detailed help.' 
+print('The "trace-insns" command has been installed, type "help trace-insns" for detailed help.')

@@ -157,4 +157,4 @@ def create_jove_trace_insns_options():
 lldb.debugger.HandleCommand(
     'command script add -f %s.jove_trace_insns jove-trace-insns' %
     __name__)
-print 'The "jove-trace-insns" command has been installed, type "help jove-trace-insns" for detailed help.' 
+print('The "jove-trace-insns" command has been installed, type "help jove-trace-insns" for detailed help.')
