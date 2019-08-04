@@ -3484,6 +3484,31 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
+    if (R.SymbolIndex < SymbolTable.size()) {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      assert(S.IsUndefined());
+      assert(!S.Size);
+
+      auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
+      if (it == GlobalSymbolDefinedSizeMap.end()) {
+        llvm::outs() << "fucked because we don't have the size for " << S.Name
+                     << '\n';
+        return nullptr;
+      }
+
+      unsigned Size = (*it).second;
+
+      llvm::Type *T;
+      if (is_integral_size(Size)) {
+        T = llvm::Type::getIntNTy(*Context, Size * 8);
+      } else {
+        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+      }
+
+      return llvm::PointerType::get(T, 0);
+    }
+
     auto it = TLSValueToSymbolMap.find(R.Addend);
     if (it == TLSValueToSymbolMap.end()) {
       WithColor::error() << "no sym found for tpoff relocation\n";
@@ -3825,6 +3850,43 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_tpoff_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
+    if (R.SymbolIndex < SymbolTable.size()) {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+
+      assert(S.IsUndefined());
+      assert(!S.Size);
+
+      llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+
+      if (GV)
+        return GV;
+
+      auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
+      if (it == GlobalSymbolDefinedSizeMap.end()) {
+        llvm::outs() << "fucked because we don't have the size for " << S.Name
+                     << '\n';
+        return nullptr;
+      }
+
+      unsigned Size = (*it).second;
+
+      llvm::Type *T;
+      if (is_integral_size(Size)) {
+        T = llvm::Type::getIntNTy(*Context, Size * 8);
+      } else {
+        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
+      }
+
+      GV = new llvm::GlobalVariable(*Module, T, false,
+                                    S.Bind == symbol_t::BINDING::WEAK
+                                        ? llvm::GlobalValue::ExternalWeakLinkage
+                                        : llvm::GlobalValue::ExternalLinkage,
+                                    nullptr, S.Name, nullptr,
+                                    llvm::GlobalValue::GeneralDynamicTLSModel);
+
+      return GV;
+    }
+
     auto it = TLSValueToSymbolMap.find(R.Addend);
     if (it == TLSValueToSymbolMap.end()) {
       WithColor::error() << "no sym found for tpoff relocation\n";
