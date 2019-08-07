@@ -445,11 +445,35 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <errno.h>
+
+#define _CTOR  __attribute__((constructor))
+#define _INL   __attribute__((always_inline))
 #define _NAKED __attribute__((naked))
 #define _NOINL __attribute__((noinline))
 #define _NORET __attribute__((noreturn))
 
+extern uintptr_t *_jove_get_dynl_function_table(void);
+extern uintptr_t *_jove_get_vdso_function_table(void);
+
+static _CTOR void _jove_install_vdso_and_dynl_function_tables(void);
+
+static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
+static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
+static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL void *_memchr(const void *s, int c, size_t n);
+static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
+static _INL int _open(const char *, int, mode_t);
+static _INL int _close(int);
+
 void _jove_trace_init(void);
+
 _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                         unsigned long *,
                                         unsigned long *);
@@ -523,4 +547,298 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
 void _jove_fail1(unsigned long x) {
   asm volatile("int3\n"
                "hlt");
+}
+
+void *_memchr(const void *s, int c, size_t n) {
+  if (n != 0) {
+    const unsigned char *p = s;
+
+    do {
+      if (*p++ == (unsigned char)c)
+        return ((void *)(p - 1));
+    } while (--n != 0);
+  }
+  return (NULL);
+}
+
+/// A utility function that converts a character to a digit.
+unsigned _getHexDigit(char cdigit) {
+  unsigned radix = 0x10;
+
+  unsigned r;
+
+  if (radix == 16 || radix == 36) {
+    r = cdigit - '0';
+    if (r <= 9)
+      return r;
+
+    r = cdigit - 'A';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    r = cdigit - 'a';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    radix = 10;
+  }
+
+  r = cdigit - '0';
+  if (r < radix)
+    return r;
+
+  return -1U;
+}
+
+uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
+  const unsigned radix = 0x10;
+
+  uint64_t res = 0;
+
+  char *p = str_begin;
+  size_t slen = str_end - str_begin;
+
+  // Figure out if we can shift instead of multiply
+  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
+
+  // Enter digit traversal loop
+  for (char *e = str_end; p != e; ++p) {
+    unsigned digit = _getHexDigit(*p);
+
+    if (!(digit < radix))
+      return 0;
+
+    // Shift or multiply the value by the radix
+    if (slen > 1) {
+      if (shift)
+        res <<= shift;
+      else
+        res *= radix;
+    }
+
+    // Add in the digit we just interpreted
+    res += digit;
+  }
+
+  return res;
+}
+
+uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1]  == 'o' &&
+        eol[-2]  == 's' &&
+        eol[-3]  == '.' &&
+        eol[-4]  == '9' &&
+        eol[-5]  == '2' &&
+        eol[-6]  == '.' &&
+        eol[-7]  == '2' &&
+        eol[-8]  == '-' &&
+        eol[-9]  == 'd' &&
+        eol[-10] == 'l' &&
+        eol[-11] == '/' &&
+        eol[-12] == 'b' &&
+        eol[-13] == 'i' &&
+        eol[-14] == 'l' &&
+        eol[-15] == '/' &&
+        eol[-16] == 'r' &&
+        eol[-17] == 's' &&
+        eol[-18] == 'u' &&
+        eol[-19] == '/') {
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      bool x = *xp == 'x';
+      if (!x)
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+      uint64_t res = _u64ofhexstr(line, dash);
+
+      // offset may be nonzero for dynamic linker
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        unsigned _left = n - (offset - beg);
+        char *offset_end = _memchr(offset, ' ', _left);
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      return res - off;
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *dash = _memchr(line, '-', left);
+      return _u64ofhexstr(line, dash);
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+int _open(const char *filename, int flags, mode_t mode) {
+  long resultvar;
+
+  mode_t       __arg3 = mode;
+  int          __arg2 = flags;
+  const char * __arg1 = filename;
+
+  register mode_t       _a3 asm("rdx") = __arg3;
+  register int          _a2 asm("rsi") = __arg2;
+  register const char * _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_open), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+int _close(int fd) {
+  long resultvar;
+
+  int __arg1 = fd;
+
+  register int _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_close), "r"(_a1)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+ssize_t _read(int fd, void *buf, size_t count) {
+  long resultvar;
+
+  size_t __arg3 = count;
+  void * __arg2 = buf;
+  int    __arg1 = fd;
+
+  register size_t _a3 asm("rdx") = __arg3;
+  register void * _a2 asm("rsi") = __arg2;
+  register int    _a1 asm("rdi") = __arg1;
+
+  asm volatile("syscall\n\t"
+               : "=a"(resultvar)
+               : "0"(__NR_read), "r"(_a1), "r"(_a2), "r"(_a3)
+               : "memory", "cc", "r11", "cx");
+
+  return resultvar;
+}
+
+unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
+  unsigned n;
+
+  {
+    int fd = _open(path, O_RDONLY, S_IRWXU);
+    if (fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    // let n denote the number of characters read
+    n = 0;
+
+    for (;;) {
+      ssize_t ret = _read(fd, &out[n], len - n);
+
+      if (ret == 0)
+        break;
+
+      if (ret < 0) {
+        if (ret == -EINTR)
+          continue;
+
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      n += ret;
+    }
+
+    if (_close(fd) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+  }
+
+  return n;
+}
+
+void _jove_install_vdso_and_dynl_function_tables(void) {
+  static bool _installed = false;
+  if (_installed)
+    return;
+  _installed = true;
+
+  /* we need to get the load addresses for the dynamic linker and VDSO by
+   * parsing /proc/self/maps */
+  uintptr_t dynl_load_bias;
+  uintptr_t vdso_load_bias;
+  {
+    char buff[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+    buff[n] = '\0';
+
+    dynl_load_bias = _parse_dynl_load_bias(buff, n);
+    vdso_load_bias = _parse_vdso_load_bias(buff, n);
+  }
+
+  for (uintptr_t *p = _jove_get_dynl_function_table(); *p; ++p)
+    *p += dynl_load_bias;
+  for (uintptr_t *p = _jove_get_vdso_function_table(); *p; ++p)
+    *p += vdso_load_bias;
+
+  /* __jove_function_tables[1] is the dynamic linker. */
+  __jove_function_tables[1] = _jove_get_dynl_function_table();
+  /* __jove_function_tables[2] is the VDSO. */
+  __jove_function_tables[2] = _jove_get_vdso_function_table();
 }

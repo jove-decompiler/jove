@@ -471,10 +471,10 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #include <inttypes.h>
 #include <sys/mman.h>
 
-#define _NOINL __attribute__((noinline))
+#define _CTOR  __attribute__((constructor))
 #define _INL   __attribute__((always_inline))
 #define _NAKED __attribute__((naked))
-#define _CTOR  __attribute__((constructor))
+#define _NOINL __attribute__((noinline))
 #define _NORET __attribute__((noreturn))
 
 extern bool _jove_trace_enabled(void);
@@ -486,8 +486,6 @@ extern _CTOR void _jove_install_function_table(void);
 _NAKED void __jove_start(void);
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
                  target_ulong, target_ulong);
-
-static _CTOR void _jove_install_vdso_and_dynl_function_tables(void);
 
 static _INL int _open(const char *, int, mode_t);
 static _INL ssize_t _read(int, void *, size_t);
@@ -510,6 +508,8 @@ static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
+
+static _CTOR void _jove_install_vdso_and_dynl_function_tables(void);
 
 void _jove_trace_init(void);
 
