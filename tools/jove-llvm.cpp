@@ -380,7 +380,8 @@ struct relocation_t {
     //
     ADDRESSOF,
 
-    TPOFF
+    TPOFF,
+    TPMOD
   } Type;
 
   uintptr_t Addr;
@@ -404,9 +405,12 @@ static const char *string_of_reloc_type(relocation_t::TYPE ty) {
     return "ADDRESSOF";
   case relocation_t::TYPE::TPOFF:
     return "TPOFF";
+  case relocation_t::TYPE::TPMOD:
+    return "TPMOD";
   }
 
-  abort();
+  __builtin_trap();
+  __builtin_unreachable();
 };
 
 static const char *string_of_sym_type(symbol_t::TYPE ty) {
@@ -421,7 +425,8 @@ static const char *string_of_sym_type(symbol_t::TYPE ty) {
     return "TLSDATA";
   }
 
-  abort();
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 static const char *string_of_sym_binding(symbol_t::BINDING b) {
@@ -436,7 +441,8 @@ static const char *string_of_sym_binding(symbol_t::BINDING b) {
     return "GLOBAL";
   }
 
-  abort();
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 typedef boost::keep_all edge_predicate_t;
@@ -506,6 +512,7 @@ static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
 static llvm::GlobalVariable *PCRelGlobal;
+static llvm::GlobalVariable *TLSModGlobal;
 
 #if defined(__x86_64__)
 static llvm::GlobalVariable *FSBaseGlobal;
@@ -583,6 +590,7 @@ static int CreateFunctionTable(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int RenameFunctions(void);
+static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int CreatePCRelGlobal(void);
 #if defined(__x86_64__)
@@ -622,6 +630,7 @@ int llvm(void) {
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
       || RenameFunctions()
+      || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
       || CreatePCRelGlobal()
 #if defined(__x86_64__)
@@ -2407,6 +2416,9 @@ static flow_vertex_t copy_function_cfg(
           NeedsUpdate, G, callee, calleeExitVertices, memoize);
 
       auto eit_pair = boost::out_edges(bb, ICFG);
+      if (eit_pair.first == eit_pair.second)
+        break;
+
       assert(eit_pair.first != eit_pair.second &&
              std::next(eit_pair.first) == eit_pair.second);
 
@@ -3373,6 +3385,13 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   return llvm::cast<llvm::Constant>(res);
 }
 
+int CreateTLSModGlobal(void) {
+  TLSModGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
+                                          llvm::GlobalValue::ExternalLinkage,
+                                          nullptr, "__jove_tpmod");
+  return 0;
+}
+
 int CreateSectionGlobalVariables(void) {
   const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
   const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
@@ -3578,6 +3597,12 @@ int CreateSectionGlobalVariables(void) {
     return GV->getType();
   };
 
+  auto type_of_tpmod_relocation = [&](const relocation_t &R) -> llvm::Type * {
+    assert(TLSModGlobal);
+
+    return TLSModGlobal->getType();
+  };
+
   auto type_of_copy_relocation = [&](const relocation_t &R,
                                      const symbol_t &S) -> llvm::Type * {
     // this relocation indicates that the global variable should be extern
@@ -3618,6 +3643,9 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPOFF:
       return type_of_tpoff_relocation(R);
+
+    case relocation_t::TYPE::TPMOD:
+      return type_of_tpmod_relocation(R);
 
     case relocation_t::TYPE::COPY: {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
@@ -3990,6 +4018,12 @@ int CreateSectionGlobalVariables(void) {
     return GV;
   };
 
+  auto constant_of_tpmod_relocation =
+      [&](const relocation_t &R) -> llvm::Constant * {
+    assert(TLSModGlobal);
+    return TLSModGlobal;
+  };
+
   auto constant_of_copy_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
@@ -4026,6 +4060,9 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPOFF:
       return constant_of_tpoff_relocation(R);
+
+    case relocation_t::TYPE::TPMOD:
+      return constant_of_tpmod_relocation(R);
 
     case relocation_t::TYPE::COPY: {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
@@ -6742,18 +6779,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
   switch (T.Type) {
   case TERMINATOR::CONDITIONAL_JUMP: {
-
     auto eit_pair = boost::out_edges(bb, ICFG);
-
-    if (boost::out_degree(bb, ICFG) != 2) {
-      WithColor::error() << "WTF? conditional jump @ "
-                         << (fmt("%#lx") % ICFG[bb].Addr).str()
-                         << " with size "
-                         << ICFG[bb].Size
-                         << " has out degree of "
-                         << boost::out_degree(bb, ICFG)
-                         << '\n';
-    }
 
     assert(boost::out_degree(bb, ICFG) == 2);
 
@@ -6771,8 +6797,17 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::CALL:
-  case TERMINATOR::UNCONDITIONAL_JUMP:
   case TERMINATOR::INDIRECT_CALL: {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    if (eit_pair.first == eit_pair.second) { /* otherwise fallthrough */
+      IRB.CreateCall(
+          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+      IRB.CreateUnreachable();
+      break;
+    }
+  }
+
+  case TERMINATOR::UNCONDITIONAL_JUMP: {
     auto eit_pair = boost::out_edges(bb, ICFG);
     assert(eit_pair.first != eit_pair.second &&
            std::next(eit_pair.first) == eit_pair.second);
