@@ -6606,6 +6606,18 @@ int TranslateBasicBlock(binary_t &Binary,
                 IRB.CreateLoad(f.PCAlloca),
                 llvm::PointerType::get(DetermineFunctionType(callee), 0)),
             ArgVec);
+
+#if defined(__x86_64__)
+        if (DynTargetNeedsThunkPred(*DynTargets.begin())) {
+          llvm::LoadInst *SPVal =
+              IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
+
+          IRB.CreateStore(
+              IRB.CreateAdd(
+                  SPVal, llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
+              CPUStateGlobalPointer(tcg_stack_pointer_index));
+        }
+#endif
       }
 
       Ret->setCallingConv(llvm::CallingConv::C);
@@ -6754,6 +6766,18 @@ int TranslateBasicBlock(binary_t &Binary,
                     IRB.CreateLoad(f.PCAlloca),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
+
+#if defined(__x86_64__)
+            if (DynTargetNeedsThunkPred(*DynTargets.begin())) {
+              llvm::LoadInst *SPVal =
+                  IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
+
+              IRB.CreateStore(
+                  IRB.CreateAdd(SPVal, llvm::ConstantInt::get(
+                                           WordType(), sizeof(uintptr_t))),
+                  CPUStateGlobalPointer(tcg_stack_pointer_index));
+            }
+#endif
           }
 
           if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
