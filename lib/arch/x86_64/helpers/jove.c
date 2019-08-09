@@ -462,11 +462,12 @@ typedef struct CPUX86State {
 extern uintptr_t *_jove_get_dynl_function_table(void);
 extern uintptr_t *_jove_get_vdso_function_table(void);
 
-static _CTOR void _jove_install_vdso_and_dynl_function_tables(void);
+static _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL unsigned _getHexDigit(char cdigit);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL int _open(const char *, int, mode_t);
@@ -498,6 +499,8 @@ extern /* __thread */ uint64_t *__jove_trace;
 #define _JOVE_MAX_BINARIES 512
 
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
+
+/* static */ uintptr_t *___jove_function_tables[3] = {NULL, NULL, NULL};
 
 struct CPUX86State *jove_state(void) { return &__jove_env; }
 char               *jove_stack(void) { return &__jove_stack[0]; }
@@ -832,13 +835,16 @@ void _jove_install_vdso_and_dynl_function_tables(void) {
     vdso_load_bias = _parse_vdso_load_bias(buff, n);
   }
 
-  for (uintptr_t *p = _jove_get_dynl_function_table(); *p; ++p)
+  uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
+  uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
+
+  for (uintptr_t *p = dynl_fn_tbl; *p; ++p)
     *p += dynl_load_bias;
-  for (uintptr_t *p = _jove_get_vdso_function_table(); *p; ++p)
+  for (uintptr_t *p = vdso_fn_tbl; *p; ++p)
     *p += vdso_load_bias;
 
   /* __jove_function_tables[1] is the dynamic linker. */
-  __jove_function_tables[1] = _jove_get_dynl_function_table();
+  ___jove_function_tables[1] = dynl_fn_tbl;
   /* __jove_function_tables[2] is the VDSO. */
-  __jove_function_tables[2] = _jove_get_vdso_function_table();
+  ___jove_function_tables[2] = vdso_fn_tbl;
 }
