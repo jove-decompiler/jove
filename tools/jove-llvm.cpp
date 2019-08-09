@@ -1513,8 +1513,9 @@ int ProcessDynamicSymbols(void) {
 
         if (IdxPair.first == invalid_binary_index ||
             IdxPair.second == invalid_function_index) {
-          WithColor::warning()
-              << llvm::formatv("failed to process {0} ifunc symbol\n", SymName);
+          if (BIdx == BinaryIndex)
+            WithColor::warning() << llvm::formatv(
+                "failed to process {0} ifunc symbol\n", SymName);
           continue;
         }
 
@@ -1589,6 +1590,13 @@ int ProcessDynamicSymbols(void) {
 
               if (DynTargetNeedsThunkPred(IdxPair)) {
                 llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
+
+                IRB.CreateRet(IRB.CreateIntToPtr(
+                    Res, CallsF->getFunctionType()->getReturnType()));
+              } else if (IdxPair.first == BinaryIndex) {
+                llvm::Value *Res = Decompilation.Binaries[BinaryIndex]
+                                       .Analysis.Functions.at(IdxPair.second)
+                                       .F;
 
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
@@ -3908,6 +3916,13 @@ int CreateSectionGlobalVariables(void) {
 
         if (DynTargetNeedsThunkPred(IdxPair)) {
           llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
+
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Res, CallsF->getFunctionType()->getReturnType()));
+        } else if (IdxPair.first == BinaryIndex) {
+          llvm::Value *Res = Decompilation.Binaries[BinaryIndex]
+                                 .Analysis.Functions.at(IdxPair.second)
+                                 .F;
 
           IRB.CreateRet(IRB.CreateIntToPtr(
               Res, CallsF->getFunctionType()->getReturnType()));
@@ -6567,7 +6582,8 @@ int TranslateBasicBlock(binary_t &Binary,
       }
 
       llvm::CallInst *Ret;
-      if (DynTargetNeedsThunkPred(*DynTargets.begin())) {
+      if (DynTargetNeedsThunkPred(*DynTargets.begin()) &&
+          ArgVec.size() >= CallConvArgArray.size()) {
         llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
             llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
 
@@ -6714,7 +6730,8 @@ int TranslateBasicBlock(binary_t &Binary,
           }
 
           llvm::CallInst *Ret;
-          if (DynTargetNeedsThunkPred(DynTargetsVec[i])) {
+          if (DynTargetNeedsThunkPred(DynTargetsVec[i]) &&
+              ArgVec.size() >= CallConvArgArray.size()) {
             llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
                 llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
 
