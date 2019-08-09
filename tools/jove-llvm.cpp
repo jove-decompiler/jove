@@ -498,6 +498,7 @@ static llvm::Type *CPUStateType;
 static llvm::GlobalVariable *TraceGlobal;
 
 static llvm::GlobalVariable *JoveFunctionTablesGlobal;
+static llvm::GlobalVariable *JoveInternalFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 
@@ -692,6 +693,32 @@ int FindBinary(void) {
   WithColor::error() << "binary " << opts::Binary
                      << " not found in given decompilation\n";
   return 1;
+}
+
+static bool
+DynTargetNeedsThunkPred(std::pair<binary_index_t, function_index_t> DynTarget) {
+  binary_index_t BIdx = DynTarget.first;
+
+  const binary_t &binary = Decompilation.Binaries[BIdx];
+  return binary.IsDynamicLinker || binary.IsVDSO;
+}
+
+static llvm::Value *
+GetDynTargetAddress(llvm::IRBuilderTy &IRB,
+                    std::pair<binary_index_t, function_index_t> IdxPair) {
+  struct {
+    binary_index_t BIdx;
+    function_index_t FIdx;
+  } DynTarget;
+
+  std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
+
+  llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+      DynTargetNeedsThunkPred(IdxPair) ? JoveInternalFunctionTablesGlobal
+                                       : JoveFunctionTablesGlobal,
+      0, DynTarget.BIdx));
+
+  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
 }
 
 template <class T>
@@ -990,6 +1017,12 @@ int CreateModule(void) {
   JoveFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_function_tables", true);
   assert(JoveFunctionTablesGlobal);
+
+  JoveInternalFunctionTablesGlobal =
+      Module->getGlobalVariable("___jove_function_tables", true);
+  assert(JoveInternalFunctionTablesGlobal);
+  JoveInternalFunctionTablesGlobal->setLinkage(
+      llvm::GlobalValue::InternalLinkage);
 
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   assert(JoveRecoverDynTargetFunc);
@@ -1544,81 +1577,87 @@ int ProcessDynamicSymbols(void) {
             llvm::BasicBlock *EntryB =
                 llvm::BasicBlock::Create(*Context, "", CallsF);
 
-            //llvm::Function *ResolverF;
-
-            llvm::CallInst *JoveInstallVDSOAndDynLFunctionTablesCall;
-            llvm::CallInst *Call;
             {
               llvm::IRBuilderTy IRB(EntryB);
+
               IRB.SetCurrentDebugLocation(
                   llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
                                         DebugInfo.Subprogram));
 
-              JoveInstallVDSOAndDynLFunctionTablesCall =
-                  IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables);
+              IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)
+                  ->setIsNoInline();
 
-              llvm::Value *SPPtr =
-                  CPUStateGlobalPointer(tcg_stack_pointer_index);
+              if (DynTargetNeedsThunkPred(IdxPair)) {
+                llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
 
-              llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
-              SavedSP->setName("saved_sp");
+                IRB.CreateRet(IRB.CreateIntToPtr(
+                    Res, CallsF->getFunctionType()->getReturnType()));
+              } else {
+                llvm::Value *SPPtr =
+                    CPUStateGlobalPointer(tcg_stack_pointer_index);
 
-              {
-                constexpr unsigned StackAllocaSize = 0x10000;
-
-                llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
-                    llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
-
-                llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
-                    StackAlloca, 0, StackAllocaSize - 4096);
-
-                IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
-              }
-
-              llvm::Value *SavedTraceP = nullptr;
-              if (opts::Trace) {
-                SavedTraceP = IRB.CreateLoad(TraceGlobal);
-                SavedTraceP->setName("saved_tracep");
+                llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+                SavedSP->setName("saved_sp");
 
                 {
-                  constexpr unsigned TraceAllocaSize = 4096;
+                  constexpr unsigned StackAllocaSize = 0x10000;
 
-                  llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
-                      llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
+                  llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                      llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
 
-                  llvm::Value *NewTraceP =
-                      IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+                  llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                      StackAlloca, 0, StackAllocaSize - 4096);
 
-                  IRB.CreateStore(NewTraceP, TraceGlobal);
+                  IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
                 }
-              }
 
-              std::vector<llvm::Value *> ArgVec;
-              ArgVec.resize(f.F->getFunctionType()->getNumParams());
+                llvm::Value *SavedTraceP = nullptr;
+                if (opts::Trace) {
+                  SavedTraceP = IRB.CreateLoad(TraceGlobal);
+                  SavedTraceP->setName("saved_tracep");
 
-              for (unsigned i = 0; i < ArgVec.size(); ++i)
-                ArgVec[i] = llvm::UndefValue::get(
-                    f.F->getFunctionType()->getParamType(i));
+                  {
+                    constexpr unsigned TraceAllocaSize = 4096;
 
-              //llvm::ValueToValueMapTy Map;
-              //ResolverF = llvm::CloneFunction(f.F, Map);
+                    llvm::AllocaInst *TraceAlloca =
+                        IRB.CreateAlloca(llvm::ArrayType::get(IRB.getInt64Ty(),
+                                                              TraceAllocaSize));
 
-              Call = IRB.CreateCall(f.F, ArgVec);
+                    llvm::Value *NewTraceP =
+                        IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
 
-              IRB.CreateStore(SavedSP, SPPtr);
+                    IRB.CreateStore(NewTraceP, TraceGlobal);
+                  }
+                }
 
-              if (opts::Trace)
-                IRB.CreateStore(SavedTraceP, TraceGlobal);
+                std::vector<llvm::Value *> ArgVec;
+                ArgVec.resize(f.F->getFunctionType()->getNumParams());
 
-              if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
-                WithColor::warning()
-                    << llvm::formatv("ifunc resolver {0} returns void\n", *f.F);
+                for (unsigned i = 0; i < ArgVec.size(); ++i)
+                  ArgVec[i] = llvm::UndefValue::get(
+                      f.F->getFunctionType()->getParamType(i));
 
-                IRB.CreateRet(llvm::Constant::getNullValue(
-                    CallsF->getFunctionType()->getReturnType()));
-              } else {
-                IRB.CreateRet(IRB.CreateIntToPtr(
-                    Call, CallsF->getFunctionType()->getReturnType()));
+                // llvm::ValueToValueMapTy Map;
+                // ResolverF = llvm::CloneFunction(f.F, Map);
+
+                llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
+                CallsToInline.push_back(Call);
+
+                IRB.CreateStore(SavedSP, SPPtr);
+
+                if (opts::Trace)
+                  IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+                if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+                  WithColor::warning() << llvm::formatv(
+                      "ifunc resolver {0} returns void\n", *f.F);
+
+                  IRB.CreateRet(llvm::Constant::getNullValue(
+                      CallsF->getFunctionType()->getReturnType()));
+                } else {
+                  IRB.CreateRet(IRB.CreateIntToPtr(
+                      Call, CallsF->getFunctionType()->getReturnType()));
+                }
               }
             }
 
@@ -1635,10 +1674,6 @@ int ProcessDynamicSymbols(void) {
                   "unable to inline IFunc resolver function ({0})\n",
                   InlRes.message);
 #else
-            if (!Decompilation.Binaries[BinaryIndex].IsExecutable)
-              CallsToInline.push_back(JoveInstallVDSOAndDynLFunctionTablesCall);
-
-            CallsToInline.push_back(Call);
 #endif
 
             f._resolver.IFunc = llvm::GlobalIFunc::create(
@@ -3386,9 +3421,9 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 }
 
 int CreateTLSModGlobal(void) {
-  TLSModGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
-                                          llvm::GlobalValue::ExternalLinkage,
-                                          nullptr, "__jove_tpmod");
+  TLSModGlobal = new llvm::GlobalVariable(
+      *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
+      llvm::ConstantInt::get(WordType(), 0), "__jove_tpmod");
   return 0;
 }
 
@@ -3799,8 +3834,8 @@ int CreateSectionGlobalVariables(void) {
       auto it = IFuncDynTargets.find(R.Addend);
       assert(it != IFuncDynTargets.end());
 
-      FTy = DetermineFunctionType(*(*it).second.begin());
       IdxPair = *(*it).second.begin();
+      FTy = DetermineFunctionType(IdxPair);
     }
 
 #if 0
@@ -3864,77 +3899,82 @@ int CreateSectionGlobalVariables(void) {
 
       //llvm::Function *ResolverF;
 
-      llvm::CallInst *JoveInstallVDSOAndDynLFunctionTablesCall;
-      llvm::CallInst *Call;
       {
         llvm::IRBuilderTy IRB(EntryB);
         IRB.SetCurrentDebugLocation(llvm::DILocation::get(
             *Context, /* Line */ 0, /* Column */ 0, DebugInfo.Subprogram));
 
-        JoveInstallVDSOAndDynLFunctionTablesCall =
-            IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables);
+        IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)->setIsNoInline();
 
-        llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+        if (DynTargetNeedsThunkPred(IdxPair)) {
+          llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
 
-        llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
-        SavedSP->setName("saved_sp");
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Res, CallsF->getFunctionType()->getReturnType()));
+        } else {
+          llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
 
-        {
-          constexpr unsigned StackAllocaSize = 0x10000;
-
-          llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
-              llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
-
-          llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
-              StackAlloca, 0, StackAllocaSize - 4096);
-
-          IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
-        }
-
-        llvm::Value *SavedTraceP = nullptr;
-        if (opts::Trace) {
-          SavedTraceP = IRB.CreateLoad(TraceGlobal);
-          SavedTraceP->setName("saved_tracep");
+          llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+          SavedSP->setName("saved_sp");
 
           {
-            constexpr unsigned TraceAllocaSize = 4096;
+            constexpr unsigned StackAllocaSize = 0x10000;
 
-            llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
-                llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
+            llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
 
-            llvm::Value *NewTraceP =
-                IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+            llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                StackAlloca, 0, StackAllocaSize - 4096);
 
-            IRB.CreateStore(NewTraceP, TraceGlobal);
+            IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
           }
-        }
 
-        std::vector<llvm::Value *> ArgVec;
-        ArgVec.resize(f.F->getFunctionType()->getNumParams());
+          llvm::Value *SavedTraceP = nullptr;
+          if (opts::Trace) {
+            SavedTraceP = IRB.CreateLoad(TraceGlobal);
+            SavedTraceP->setName("saved_tracep");
 
-        for (unsigned i = 0; i < ArgVec.size(); ++i)
-          ArgVec[i] =
-              llvm::UndefValue::get(f.F->getFunctionType()->getParamType(i));
+            {
+              constexpr unsigned TraceAllocaSize = 4096;
 
-        //llvm::ValueToValueMapTy Map;
-        //ResolverF = llvm::CloneFunction(f.F, Map);
+              llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                  llvm::ArrayType::get(IRB.getInt64Ty(), TraceAllocaSize));
 
-        Call = IRB.CreateCall(f.F, ArgVec);
+              llvm::Value *NewTraceP =
+                  IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
 
-        IRB.CreateStore(SavedSP, SPPtr);
+              IRB.CreateStore(NewTraceP, TraceGlobal);
+            }
+          }
 
-        if (opts::Trace)
-          IRB.CreateStore(SavedTraceP, TraceGlobal);
+          std::vector<llvm::Value *> ArgVec;
+          ArgVec.resize(f.F->getFunctionType()->getNumParams());
 
-        if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
-          WithColor::warning()
-              << llvm::formatv("ifunc resolver {0} returns void\n", *f.F);
+          for (unsigned i = 0; i < ArgVec.size(); ++i)
+            ArgVec[i] =
+                llvm::UndefValue::get(f.F->getFunctionType()->getParamType(i));
 
-          IRB.CreateRet(llvm::Constant::getNullValue(
-              CallsF->getFunctionType()->getReturnType()));
-        } else {
-          IRB.CreateRet(IRB.CreateIntToPtr(
-              Call, CallsF->getFunctionType()->getReturnType()));
+          // llvm::ValueToValueMapTy Map;
+          // ResolverF = llvm::CloneFunction(f.F, Map);
+
+          llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
+          CallsToInline.push_back(Call);
+
+          IRB.CreateStore(SavedSP, SPPtr);
+
+          if (opts::Trace)
+            IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+          if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+            WithColor::warning()
+                << llvm::formatv("ifunc resolver {0} returns void\n", *f.F);
+
+            IRB.CreateRet(llvm::Constant::getNullValue(
+                CallsF->getFunctionType()->getReturnType()));
+          } else {
+            IRB.CreateRet(IRB.CreateIntToPtr(
+                Call, CallsF->getFunctionType()->getReturnType()));
+          }
         }
       }
 
@@ -3949,11 +3989,6 @@ int CreateSectionGlobalVariables(void) {
       if (!InlRes)
         WithColor::error() << llvm::formatv(
             "unable to inline IFunc resolver function ({0})\n", InlRes.message);
-#else
-      if (!Decompilation.Binaries[BinaryIndex].IsExecutable)
-        CallsToInline.push_back(JoveInstallVDSOAndDynLFunctionTablesCall);
-
-      CallsToInline.push_back(Call);
 #endif
 
       f._resolver.IFunc = llvm::GlobalIFunc::create(
@@ -6486,19 +6521,14 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
-    auto DynTargetNeedsThunkPred = [](const auto &DynTarget) -> bool {
-      binary_index_t BIdx = DynTarget.first;
-
-      const binary_t &binary = Decompilation.Binaries[BIdx];
-      return binary.IsDynamicLinker || binary.IsVDSO;
-    };
-
     struct {
       bool AnyOf;
       bool AllOf;
-    } NeedsThunk = {std::any_of(DynTargets.cbegin(), DynTargets.cend(),
+    } NeedsThunk = {std::any_of(DynTargets.cbegin(),
+                                DynTargets.cend(),
                                 DynTargetNeedsThunkPred),
-                    std::all_of(DynTargets.cbegin(), DynTargets.cend(),
+                    std::all_of(DynTargets.cbegin(),
+                                DynTargets.cend(),
                                 DynTargetNeedsThunkPred)};
 
     if (NeedsThunk.AnyOf != NeedsThunk.AllOf) {
@@ -6581,20 +6611,6 @@ int TranslateBasicBlock(binary_t &Binary,
         }
       }
     } else {
-      auto GetDynTargetAddress = [&](const auto &IdxPair) -> llvm::Value * {
-        struct {
-          binary_index_t BIdx;
-          function_index_t FIdx;
-        } DynTarget;
-
-        std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
-
-        llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-            JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
-
-        return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
-      };
-
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", f.F);
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
@@ -6627,7 +6643,7 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.SetInsertPoint(B);
           llvm::Value *EQV =
               IRB.CreateICmpEQ(IRB.CreateLoad(f.PCAlloca),
-                               GetDynTargetAddress(DynTargetsVec[i]));
+                               GetDynTargetAddress(IRB, DynTargetsVec[i]));
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
