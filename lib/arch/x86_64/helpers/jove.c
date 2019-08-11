@@ -524,7 +524,8 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq %rdx, %r14\n" /* emuspp in r14 */
                "movq %rsp, %r15\n" /* put old sp in r15 */
 
-               "movq (%rdx), %rsp\n" /* make emusp be the sp */
+               "movq (%rdx), %rsp\n" /* sp=emusp */
+               "movq $0x0, (%rdx)\n" /* emusp=NULL */
 
                "movq %rdi, %r10\n" /* put dstpc in temporary register */
 
