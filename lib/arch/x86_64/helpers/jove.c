@@ -521,11 +521,16 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
   asm volatile("pushq %r15\n" /* callee-saved registers */
                "pushq %r14\n"
 
+               "subq $0x1000,%rsp\n" /* allocate bytes on stack */
+
                "movq %rdx, %r14\n" /* emuspp in r14 */
                "movq %rsp, %r15\n" /* put old sp in r15 */
 
-               "movq (%rdx), %rsp\n" /* sp=emusp */
-               "movq $0x0, (%rdx)\n" /* emusp=NULL */
+               "movq %rsp, %r10\n" /* save sp in r10 */
+               "addq $0x800, %r10\n" /* stack storage in r10 */
+
+               "movq (%rdx), %rsp\n" /* sp=*emusp */
+               "movq %r10, (%rdx)\n" /* *emusp=stack storage */
 
                "movq %rdi, %r10\n" /* put dstpc in temporary register */
 
@@ -543,9 +548,12 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq %rsp, (%r14)\n" /* store modified emusp */
                "movq %r15, %rsp\n" /* restore stack pointer */
 
+               "addq $0x1000,%rsp\n" /* deallocate bytes on stack */
+
                "popq %r14\n"
                "popq %r15\n" /* callee-saved registers */
-               "ret");
+
+               "retq");
 }
 
 void _jove_fail1(unsigned long x) {
