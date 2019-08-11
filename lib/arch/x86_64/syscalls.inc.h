@@ -1,330 +1,330 @@
-___SYSCALL(0, read,
-___SYSCALL(1, write,
-___SYSCALL(2, open,
-___SYSCALL(3, close,
-___SYSCALL(4, newstat,
-___SYSCALL(5, newfstat,
-___SYSCALL(6, newlstat,
-___SYSCALL(7, poll,
-___SYSCALL(8, lseek,
-___SYSCALL(9, mmap,
-___SYSCALL(10, mprotect,
-___SYSCALL(11, munmap,
-___SYSCALL(12, brk,
-___SYSCALL(13, rt_sigaction,
-___SYSCALL(14, rt_sigprocmask,
-___SYSCALL(15, rt_sigreturn,
-___SYSCALL(16, ioctl,
-___SYSCALL(17, pread64,
-___SYSCALL(18, pwrite64,
-___SYSCALL(19, readv,
-___SYSCALL(20, writev,
-___SYSCALL(21, access,
-___SYSCALL(22, pipe,
-___SYSCALL(23, select,
-___SYSCALL(24, sched_yield,
-___SYSCALL(25, mremap,
-___SYSCALL(26, msync,
-___SYSCALL(27, mincore,
-___SYSCALL(28, madvise,
-___SYSCALL(29, shmget,
-___SYSCALL(30, shmat,
-___SYSCALL(31, shmctl,
-___SYSCALL(32, dup,
-___SYSCALL(33, dup2,
-___SYSCALL(34, pause,
-___SYSCALL(35, nanosleep,
-___SYSCALL(36, getitimer,
-___SYSCALL(37, alarm,
-___SYSCALL(38, setitimer,
-___SYSCALL(39, getpid,
-___SYSCALL(40, sendfile64,
-___SYSCALL(41, socket,
-___SYSCALL(42, connect,
-___SYSCALL(43, accept,
-___SYSCALL(44, sendto,
-___SYSCALL(45, recvfrom,
-___SYSCALL(46, sendmsg,
-___SYSCALL(47, recvmsg,
-___SYSCALL(48, shutdown,
-___SYSCALL(49, bind,
-___SYSCALL(50, listen,
-___SYSCALL(51, getsockname,
-___SYSCALL(52, getpeername,
-___SYSCALL(53, socketpair,
-___SYSCALL(54, setsockopt,
-___SYSCALL(55, getsockopt,
-___SYSCALL(56, clone,
-___SYSCALL(57, fork,
-___SYSCALL(58, vfork,
-___SYSCALL(59, execve,
-___SYSCALL(60, exit,
-___SYSCALL(61, wait4,
-___SYSCALL(62, kill,
-___SYSCALL(63, newuname,
-___SYSCALL(64, semget,
-___SYSCALL(65, semop,
-___SYSCALL(66, semctl,
-___SYSCALL(67, shmdt,
-___SYSCALL(68, msgget,
-___SYSCALL(69, msgsnd,
-___SYSCALL(70, msgrcv,
-___SYSCALL(71, msgctl,
-___SYSCALL(72, fcntl,
-___SYSCALL(73, flock,
-___SYSCALL(74, fsync,
-___SYSCALL(75, fdatasync,
-___SYSCALL(76, truncate,
-___SYSCALL(77, ftruncate,
-___SYSCALL(78, getdents,
-___SYSCALL(79, getcwd,
-___SYSCALL(80, chdir,
-___SYSCALL(81, fchdir,
-___SYSCALL(82, rename,
-___SYSCALL(83, mkdir,
-___SYSCALL(84, rmdir,
-___SYSCALL(85, creat,
-___SYSCALL(86, link,
-___SYSCALL(87, unlink,
-___SYSCALL(88, symlink,
-___SYSCALL(89, readlink,
-___SYSCALL(90, chmod,
-___SYSCALL(91, fchmod,
-___SYSCALL(92, chown,
-___SYSCALL(93, fchown,
-___SYSCALL(94, lchown,
-___SYSCALL(95, umask,
-___SYSCALL(96, gettimeofday,
-___SYSCALL(97, getrlimit,
-___SYSCALL(98, getrusage,
-___SYSCALL(99, sysinfo,
-___SYSCALL(100, times,
-___SYSCALL(101, ptrace,
-___SYSCALL(102, getuid,
-___SYSCALL(103, syslog,
-___SYSCALL(104, getgid,
-___SYSCALL(105, setuid,
-___SYSCALL(106, setgid,
-___SYSCALL(107, geteuid,
-___SYSCALL(108, getegid,
-___SYSCALL(109, setpgid,
-___SYSCALL(110, getppid,
-___SYSCALL(111, getpgrp,
-___SYSCALL(112, setsid,
-___SYSCALL(113, setreuid,
-___SYSCALL(114, setregid,
-___SYSCALL(115, getgroups,
-___SYSCALL(116, setgroups,
-___SYSCALL(117, setresuid,
-___SYSCALL(118, getresuid,
-___SYSCALL(119, setresgid,
-___SYSCALL(120, getresgid,
-___SYSCALL(121, getpgid,
-___SYSCALL(122, setfsuid,
-___SYSCALL(123, setfsgid,
-___SYSCALL(124, getsid,
-___SYSCALL(125, capget,
-___SYSCALL(126, capset,
-___SYSCALL(127, rt_sigpending,
-___SYSCALL(128, rt_sigtimedwait,
-___SYSCALL(129, rt_sigqueueinfo,
-___SYSCALL(130, rt_sigsuspend,
-___SYSCALL(131, sigaltstack,
-___SYSCALL(132, utime,
-___SYSCALL(133, mknod,
-___SYSCALL(135, personality,
-___SYSCALL(136, ustat,
-___SYSCALL(137, statfs,
-___SYSCALL(138, fstatfs,
-___SYSCALL(139, sysfs,
-___SYSCALL(140, getpriority,
-___SYSCALL(141, setpriority,
-___SYSCALL(142, sched_setparam,
-___SYSCALL(143, sched_getparam,
-___SYSCALL(144, sched_setscheduler,
-___SYSCALL(145, sched_getscheduler,
-___SYSCALL(146, sched_get_priority_max,
-___SYSCALL(147, sched_get_priority_min,
-___SYSCALL(148, sched_rr_get_interval,
-___SYSCALL(149, mlock,
-___SYSCALL(150, munlock,
-___SYSCALL(151, mlockall,
-___SYSCALL(152, munlockall,
-___SYSCALL(153, vhangup,
-___SYSCALL(154, modify_ldt,
-___SYSCALL(155, pivot_root,
-___SYSCALL(156, sysctl,
-___SYSCALL(157, prctl,
-___SYSCALL(158, arch_prctl,
-___SYSCALL(159, adjtimex,
-___SYSCALL(160, setrlimit,
-___SYSCALL(161, chroot,
-___SYSCALL(162, sync,
-___SYSCALL(163, acct,
-___SYSCALL(164, settimeofday,
-___SYSCALL(165, mount,
-___SYSCALL(166, umount,
-___SYSCALL(167, swapon,
-___SYSCALL(168, swapoff,
-___SYSCALL(169, reboot,
-___SYSCALL(170, sethostname,
-___SYSCALL(171, setdomainname,
-___SYSCALL(172, iopl,
-___SYSCALL(173, ioperm,
-___SYSCALL(175, init_module,
-___SYSCALL(176, delete_module,
-___SYSCALL(179, quotactl,
-___SYSCALL(186, gettid,
-___SYSCALL(187, readahead,
-___SYSCALL(188, setxattr,
-___SYSCALL(189, lsetxattr,
-___SYSCALL(190, fsetxattr,
-___SYSCALL(191, getxattr,
-___SYSCALL(192, lgetxattr,
-___SYSCALL(193, fgetxattr,
-___SYSCALL(194, listxattr,
-___SYSCALL(195, llistxattr,
-___SYSCALL(196, flistxattr,
-___SYSCALL(197, removexattr,
-___SYSCALL(198, lremovexattr,
-___SYSCALL(199, fremovexattr,
-___SYSCALL(200, tkill,
-___SYSCALL(201, time,
-___SYSCALL(202, futex,
-___SYSCALL(203, sched_setaffinity,
-___SYSCALL(204, sched_getaffinity,
-___SYSCALL(206, io_setup,
-___SYSCALL(207, io_destroy,
-___SYSCALL(208, io_getevents,
-___SYSCALL(209, io_submit,
-___SYSCALL(210, io_cancel,
-___SYSCALL(212, lookup_dcookie,
-___SYSCALL(213, epoll_create,
-___SYSCALL(216, remap_file_pages,
-___SYSCALL(217, getdents64,
-___SYSCALL(218, set_tid_address,
-___SYSCALL(219, restart_syscall,
-___SYSCALL(220, semtimedop,
-___SYSCALL(221, fadvise64,
-___SYSCALL(222, timer_create,
-___SYSCALL(223, timer_settime,
-___SYSCALL(224, timer_gettime,
-___SYSCALL(225, timer_getoverrun,
-___SYSCALL(226, timer_delete,
-___SYSCALL(227, clock_settime,
-___SYSCALL(228, clock_gettime,
-___SYSCALL(229, clock_getres,
-___SYSCALL(230, clock_nanosleep,
-___SYSCALL(231, exit_group,
-___SYSCALL(232, epoll_wait,
-___SYSCALL(233, epoll_ctl,
-___SYSCALL(234, tgkill,
-___SYSCALL(235, utimes,
-___SYSCALL(237, mbind,
-___SYSCALL(238, set_mempolicy,
-___SYSCALL(239, get_mempolicy,
-___SYSCALL(240, mq_open,
-___SYSCALL(241, mq_unlink,
-___SYSCALL(242, mq_timedsend,
-___SYSCALL(243, mq_timedreceive,
-___SYSCALL(244, mq_notify,
-___SYSCALL(245, mq_getsetattr,
-___SYSCALL(246, kexec_load,
-___SYSCALL(247, waitid,
-___SYSCALL(248, add_key,
-___SYSCALL(249, request_key,
-___SYSCALL(250, keyctl,
-___SYSCALL(251, ioprio_set,
-___SYSCALL(252, ioprio_get,
-___SYSCALL(253, inotify_init,
-___SYSCALL(254, inotify_add_watch,
-___SYSCALL(255, inotify_rm_watch,
-___SYSCALL(256, migrate_pages,
-___SYSCALL(257, openat,
-___SYSCALL(258, mkdirat,
-___SYSCALL(259, mknodat,
-___SYSCALL(260, fchownat,
-___SYSCALL(261, futimesat,
-___SYSCALL(262, newfstatat,
-___SYSCALL(263, unlinkat,
-___SYSCALL(264, renameat,
-___SYSCALL(265, linkat,
-___SYSCALL(266, symlinkat,
-___SYSCALL(267, readlinkat,
-___SYSCALL(268, fchmodat,
-___SYSCALL(269, faccessat,
-___SYSCALL(270, pselect6,
-___SYSCALL(271, ppoll,
-___SYSCALL(272, unshare,
-___SYSCALL(273, set_robust_list,
-___SYSCALL(274, get_robust_list,
-___SYSCALL(275, splice,
-___SYSCALL(276, tee,
-___SYSCALL(277, sync_file_range,
-___SYSCALL(278, vmsplice,
-___SYSCALL(279, move_pages,
-___SYSCALL(280, utimensat,
-___SYSCALL(281, epoll_pwait,
-___SYSCALL(282, signalfd,
-___SYSCALL(283, timerfd_create,
-___SYSCALL(284, eventfd,
-___SYSCALL(285, fallocate,
-___SYSCALL(286, timerfd_settime,
-___SYSCALL(287, timerfd_gettime,
-___SYSCALL(288, accept4,
-___SYSCALL(289, signalfd4,
-___SYSCALL(290, eventfd2,
-___SYSCALL(291, epoll_create1,
-___SYSCALL(292, dup3,
-___SYSCALL(293, pipe2,
-___SYSCALL(294, inotify_init1,
-___SYSCALL(295, preadv,
-___SYSCALL(296, pwritev,
-___SYSCALL(297, rt_tgsigqueueinfo,
-___SYSCALL(298, perf_event_open,
-___SYSCALL(299, recvmmsg,
-___SYSCALL(300, fanotify_init,
-___SYSCALL(301, fanotify_mark,
-___SYSCALL(302, prlimit64,
-___SYSCALL(303, name_to_handle_at,
-___SYSCALL(304, open_by_handle_at,
-___SYSCALL(305, clock_adjtime,
-___SYSCALL(306, syncfs,
-___SYSCALL(307, sendmmsg,
-___SYSCALL(308, setns,
-___SYSCALL(309, getcpu,
-___SYSCALL(310, process_vm_readv,
-___SYSCALL(311, process_vm_writev,
-___SYSCALL(312, kcmp,
-___SYSCALL(313, finit_module,
-___SYSCALL(314, sched_setattr,
-___SYSCALL(315, sched_getattr,
-___SYSCALL(316, renameat2,
-___SYSCALL(317, seccomp,
-___SYSCALL(318, getrandom,
-___SYSCALL(319, memfd_create,
-___SYSCALL(320, kexec_file_load,
-___SYSCALL(321, bpf,
-___SYSCALL(322, execveat,
-___SYSCALL(323, userfaultfd,
-___SYSCALL(324, membarrier,
-___SYSCALL(325, mlock2,
-___SYSCALL(326, copy_file_range,
-___SYSCALL(327, preadv2,
-___SYSCALL(328, pwritev2,
-___SYSCALL(329, pkey_mprotect,
-___SYSCALL(330, pkey_alloc,
-___SYSCALL(331, pkey_free,
-___SYSCALL(332, statx,
-___SYSCALL(333, io_pgetevents,
-___SYSCALL(334, rseq,
-___SYSCALL(424, pidfd_send_signal,
-___SYSCALL(425, io_uring_setup,
-___SYSCALL(426, io_uring_enter,
-___SYSCALL(427, io_uring_register,
-___SYSCALL(428, open_tree,
-___SYSCALL(429, move_mount,
-___SYSCALL(430, fsopen,
-___SYSCALL(431, fsconfig,
-___SYSCALL(432, fsmount,
-___SYSCALL(433, fspick,
+___SYSCALL3(0, read, unsigned int, fd, char __user *, buf, size_t, count)
+___SYSCALL3(1, write, unsigned int, fd, const char __user *, buf, size_t, count)
+___SYSCALL3(2, open, const char __user *, filename, int, flags, umode_t, mode)
+___SYSCALL1(3, close, unsigned int, fd)
+___SYSCALL2(4, newstat, const char __user *, filename, struct stat __user *, statbuf)
+___SYSCALL2(5, newfstat, unsigned int, fd, struct stat __user *, statbuf)
+___SYSCALL2(6, newlstat, const char __user *, filename, struct stat __user *, statbuf)
+___SYSCALL3(7, poll, struct pollfd __user *, ufds, unsigned int, nfds, int, timeout_msecs)
+___SYSCALL3(8, lseek, unsigned int, fd, off_t, offset, unsigned int, whence)
+___SYSCALL6(9, mmap, unsigned long, addr, unsigned long, len, unsigned long, prot, unsigned long, flags, unsigned long, fd, unsigned long, off)
+___SYSCALL3(10, mprotect, unsigned long, start, size_t, len, unsigned long, prot)
+___SYSCALL2(11, munmap, unsigned long, addr, size_t, len)
+___SYSCALL1(12, brk, unsigned long, brk)
+___SYSCALL4(13, rt_sigaction, int, sig, const struct sigaction __user *, act, struct sigaction __user *, oact, size_t, sigsetsize)
+___SYSCALL4(14, rt_sigprocmask, int, how, sigset_t __user *, nset, sigset_t __user *, oset, size_t, sigsetsize)
+___SYSCALL0(15, rt_sigreturn)
+___SYSCALL3(16, ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
+___SYSCALL4(17, pread64, unsigned int, fd, char __user *, buf, size_t, count, loff_t, pos)
+___SYSCALL4(18, pwrite64, unsigned int, fd, const char __user *, buf, size_t, count, loff_t, pos)
+___SYSCALL3(19, readv, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen)
+___SYSCALL3(20, writev, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen)
+___SYSCALL2(21, access, const char __user *, filename, int, mode)
+___SYSCALL1(22, pipe, int __user *, fildes)
+___SYSCALL5(23, select, int, n, fd_set __user *, inp, fd_set __user *, outp, fd_set __user *, exp, struct timeval __user *, tvp)
+___SYSCALL0(24, sched_yield)
+___SYSCALL5(25, mremap, unsigned long, addr, unsigned long, old_len, unsigned long, new_len, unsigned long, flags, unsigned long, new_addr)
+___SYSCALL3(26, msync, unsigned long, start, size_t, len, int, flags)
+___SYSCALL3(27, mincore, unsigned long, start, size_t, len, unsigned char __user *, vec)
+___SYSCALL3(28, madvise, unsigned long, start, size_t, len_in, int, behavior)
+___SYSCALL3(29, shmget, key_t, key, size_t, size, int, shmflg)
+___SYSCALL3(30, shmat, int, shmid, char __user *, shmaddr, int, shmflg)
+___SYSCALL3(31, shmctl, int, shmid, int, cmd, struct shmid_ds __user *, buf)
+___SYSCALL1(32, dup, unsigned int, fildes)
+___SYSCALL2(33, dup2, unsigned int, oldfd, unsigned int, newfd)
+___SYSCALL0(34, pause)
+___SYSCALL2(35, nanosleep, struct __kernel_timespec __user *, rqtp, struct __kernel_timespec __user *, rmtp)
+___SYSCALL2(36, getitimer, int, which, struct itimerval __user *, value)
+___SYSCALL1(37, alarm, unsigned int, seconds)
+___SYSCALL3(38, setitimer, int, which, struct itimerval __user *, value, struct itimerval __user *, ovalue)
+___SYSCALL0(39, getpid)
+___SYSCALL4(40, sendfile64, int, out_fd, int, in_fd, loff_t __user *, offset, size_t, count)
+___SYSCALL3(41, socket, int, family, int, type, int, protocol)
+___SYSCALL3(42, connect, int, fd, struct sockaddr __user *, uservaddr, int, addrlen)
+___SYSCALL3(43, accept, int, fd, struct sockaddr __user *, upeer_sockaddr, int __user *, upeer_addrlen)
+___SYSCALL6(44, sendto, int, fd, void __user *, buff, size_t, len, unsigned int, flags, struct sockaddr __user *, addr, int, addr_len)
+___SYSCALL6(45, recvfrom, int, fd, void __user *, ubuf, size_t, size, unsigned int, flags, struct sockaddr __user *, addr, int __user *, addr_len)
+___SYSCALL3(46, sendmsg, int, fd, struct user_msghdr __user *, msg, unsigned int, flags)
+___SYSCALL3(47, recvmsg, int, fd, struct user_msghdr __user *, msg, unsigned int, flags)
+___SYSCALL2(48, shutdown, int, fd, int, how)
+___SYSCALL3(49, bind, int, fd, struct sockaddr __user *, umyaddr, int, addrlen)
+___SYSCALL2(50, listen, int, fd, int, backlog)
+___SYSCALL3(51, getsockname, int, fd, struct sockaddr __user *, usockaddr, int __user *, usockaddr_len)
+___SYSCALL3(52, getpeername, int, fd, struct sockaddr __user *, usockaddr, int __user *, usockaddr_len)
+___SYSCALL4(53, socketpair, int, family, int, type, int, protocol, int __user *, usockvec)
+___SYSCALL5(54, setsockopt, int, fd, int, level, int, optname, char __user *, optval, int, optlen)
+___SYSCALL5(55, getsockopt, int, fd, int, level, int, optname, char __user *, optval, int __user *, optlen)
+___SYSCALL5(56, clone, unsigned long, clone_flags, unsigned long, newsp, int __user *, parent_tidptr, int __user *, child_tidptr, unsigned long, tls)
+___SYSCALL0(57, fork)
+___SYSCALL0(58, vfork)
+___SYSCALL3(59, execve, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp)
+___SYSCALL1(60, exit, int, error_code)
+___SYSCALL4(61, wait4, pid_t, upid, int __user *, stat_addr, int, options, struct rusage __user *, ru)
+___SYSCALL2(62, kill, pid_t, pid, int, sig)
+___SYSCALL1(63, newuname, struct new_utsname __user *, name)
+___SYSCALL3(64, semget, key_t, key, int, nsems, int, semflg)
+___SYSCALL3(65, semop, int, semid, struct sembuf __user *, tsops, unsigned, nsops)
+___SYSCALL4(66, semctl, int, semid, int, semnum, int, cmd, unsigned long, arg)
+___SYSCALL1(67, shmdt, char __user *, shmaddr)
+___SYSCALL2(68, msgget, key_t, key, int, msgflg)
+___SYSCALL4(69, msgsnd, int, msqid, struct msgbuf __user *, msgp, size_t, msgsz, int, msgflg)
+___SYSCALL5(70, msgrcv, int, msqid, struct msgbuf __user *, msgp, size_t, msgsz, long, msgtyp, int, msgflg)
+___SYSCALL3(71, msgctl, int, msqid, int, cmd, struct msqid_ds __user *, buf)
+___SYSCALL3(72, fcntl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)
+___SYSCALL2(73, flock, unsigned int, fd, unsigned int, cmd)
+___SYSCALL1(74, fsync, unsigned int, fd)
+___SYSCALL1(75, fdatasync, unsigned int, fd)
+___SYSCALL2(76, truncate, const char __user *, path, long, length)
+___SYSCALL2(77, ftruncate, unsigned int, fd, unsigned long, length)
+___SYSCALL3(78, getdents, unsigned int, fd, struct linux_dirent __user *, dirent, unsigned int, count)
+___SYSCALL2(79, getcwd, char __user *, buf, unsigned long, size)
+___SYSCALL1(80, chdir, const char __user *, filename)
+___SYSCALL1(81, fchdir, unsigned int, fd)
+___SYSCALL2(82, rename, const char __user *, oldname, const char __user *, newname)
+___SYSCALL2(83, mkdir, const char __user *, pathname, umode_t, mode)
+___SYSCALL1(84, rmdir, const char __user *, pathname)
+___SYSCALL2(85, creat, const char __user *, pathname, umode_t, mode)
+___SYSCALL2(86, link, const char __user *, oldname, const char __user *, newname)
+___SYSCALL1(87, unlink, const char __user *, pathname)
+___SYSCALL2(88, symlink, const char __user *, oldname, const char __user *, newname)
+___SYSCALL3(89, readlink, const char __user *, path, char __user *, buf, int, bufsiz)
+___SYSCALL2(90, chmod, const char __user *, filename, umode_t, mode)
+___SYSCALL2(91, fchmod, unsigned int, fd, umode_t, mode)
+___SYSCALL3(92, chown, const char __user *, filename, uid_t, user, gid_t, group)
+___SYSCALL3(93, fchown, unsigned int, fd, uid_t, user, gid_t, group)
+___SYSCALL3(94, lchown, const char __user *, filename, uid_t, user, gid_t, group)
+___SYSCALL1(95, umask, int, mask)
+___SYSCALL2(96, gettimeofday, struct timeval __user *, tv, struct timezone __user *, tz)
+___SYSCALL2(97, getrlimit, unsigned int, resource, struct rlimit __user *, rlim)
+___SYSCALL2(98, getrusage, int, who, struct rusage __user *, ru)
+___SYSCALL1(99, sysinfo, struct sysinfo __user *, info)
+___SYSCALL1(100, times, struct tms __user *, tbuf)
+___SYSCALL4(101, ptrace, long, request, long, pid, unsigned long, addr, unsigned long, data)
+___SYSCALL0(102, getuid)
+___SYSCALL3(103, syslog, int, type, char __user *, buf, int, len)
+___SYSCALL0(104, getgid)
+___SYSCALL1(105, setuid, uid_t, uid)
+___SYSCALL1(106, setgid, gid_t, gid)
+___SYSCALL0(107, geteuid)
+___SYSCALL0(108, getegid)
+___SYSCALL2(109, setpgid, pid_t, pid, pid_t, pgid)
+___SYSCALL0(110, getppid)
+___SYSCALL0(111, getpgrp)
+___SYSCALL0(112, setsid)
+___SYSCALL2(113, setreuid, uid_t, ruid, uid_t, euid)
+___SYSCALL2(114, setregid, gid_t, rgid, gid_t, egid)
+___SYSCALL2(115, getgroups, int, gidsetsize, gid_t __user *, grouplist)
+___SYSCALL2(116, setgroups, int, gidsetsize, gid_t __user *, grouplist)
+___SYSCALL3(117, setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
+___SYSCALL3(118, getresuid, uid_t __user *, ruidp, uid_t __user *, euidp, uid_t __user *, suidp)
+___SYSCALL3(119, setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
+___SYSCALL3(120, getresgid, gid_t __user *, rgidp, gid_t __user *, egidp, gid_t __user *, sgidp)
+___SYSCALL1(121, getpgid, pid_t, pid)
+___SYSCALL1(122, setfsuid, uid_t, uid)
+___SYSCALL1(123, setfsgid, gid_t, gid)
+___SYSCALL1(124, getsid, pid_t, pid)
+___SYSCALL2(125, capget, cap_user_header_t, header, cap_user_data_t, dataptr)
+___SYSCALL2(126, capset, cap_user_header_t, header, const cap_user_data_t, data)
+___SYSCALL2(127, rt_sigpending, sigset_t __user *, uset, size_t, sigsetsize)
+___SYSCALL4(128, rt_sigtimedwait, const sigset_t __user *, uthese, siginfo_t __user *, uinfo, const struct __kernel_timespec __user *, uts, size_t, sigsetsize)
+___SYSCALL3(129, rt_sigqueueinfo, pid_t, pid, int, sig, siginfo_t __user *, uinfo)
+___SYSCALL2(130, rt_sigsuspend, sigset_t __user *, unewset, size_t, sigsetsize)
+___SYSCALL2(131, sigaltstack, const stack_t __user *, uss, stack_t __user *, uoss)
+___SYSCALL2(132, utime, char __user *, filename, struct utimbuf __user *, times)
+___SYSCALL3(133, mknod, const char __user *, filename, umode_t, mode, unsigned, dev)
+___SYSCALL1(135, personality, unsigned int, personality)
+___SYSCALL2(136, ustat, unsigned, dev, struct ustat __user *, ubuf)
+___SYSCALL2(137, statfs, const char __user *, pathname, struct statfs __user *, buf)
+___SYSCALL2(138, fstatfs, unsigned int, fd, struct statfs __user *, buf)
+___SYSCALL3(139, sysfs, int, option, unsigned long, arg1, unsigned long, arg2)
+___SYSCALL2(140, getpriority, int, which, int, who)
+___SYSCALL3(141, setpriority, int, which, int, who, int, niceval)
+___SYSCALL2(142, sched_setparam, pid_t, pid, struct sched_param __user *, param)
+___SYSCALL2(143, sched_getparam, pid_t, pid, struct sched_param __user *, param)
+___SYSCALL3(144, sched_setscheduler, pid_t, pid, int, policy, struct sched_param __user *, param)
+___SYSCALL1(145, sched_getscheduler, pid_t, pid)
+___SYSCALL1(146, sched_get_priority_max, int, policy)
+___SYSCALL1(147, sched_get_priority_min, int, policy)
+___SYSCALL2(148, sched_rr_get_interval, pid_t, pid, struct __kernel_timespec __user *, interval)
+___SYSCALL2(149, mlock, unsigned long, start, size_t, len)
+___SYSCALL2(150, munlock, unsigned long, start, size_t, len)
+___SYSCALL1(151, mlockall, int, flags)
+___SYSCALL0(152, munlockall)
+___SYSCALL0(153, vhangup)
+___SYSCALL3(154, modify_ldt, int, func, void __user *, ptr, unsigned long, bytecount)
+___SYSCALL2(155, pivot_root, const char __user *, new_root, const char __user *, put_old)
+___SYSCALL1(156, sysctl, struct __sysctl_args __user *, args)
+___SYSCALL5(157, prctl, int, option, unsigned long, arg2, unsigned long, arg3, unsigned long, arg4, unsigned long, arg5)
+___SYSCALL2(158, arch_prctl, int, option, unsigned long, arg2)
+___SYSCALL1(159, adjtimex, struct __kernel_timex __user *, txc_p)
+___SYSCALL2(160, setrlimit, unsigned int, resource, struct rlimit __user *, rlim)
+___SYSCALL1(161, chroot, const char __user *, filename)
+___SYSCALL0(162, sync)
+___SYSCALL1(163, acct, const char __user *, name)
+___SYSCALL2(164, settimeofday, struct timeval __user *, tv, struct timezone __user *, tz)
+___SYSCALL5(165, mount, char __user *, dev_name, char __user *, dir_name, char __user *, type, unsigned long, flags, void __user *, data)
+___SYSCALL2(166, umount, char __user *, name, int, flags)
+___SYSCALL2(167, swapon, const char __user *, specialfile, int, swap_flags)
+___SYSCALL1(168, swapoff, const char __user *, specialfile)
+___SYSCALL4(169, reboot, int, magic1, int, magic2, unsigned int, cmd, void __user *, arg)
+___SYSCALL2(170, sethostname, char __user *, name, int, len)
+___SYSCALL2(171, setdomainname, char __user *, name, int, len)
+___SYSCALL1(172, iopl, unsigned int, level)
+___SYSCALL3(173, ioperm, unsigned long, from, unsigned long, num, int, turn_on)
+___SYSCALL3(175, init_module, void __user *, umod, unsigned long, len, const char __user *, uargs)
+___SYSCALL2(176, delete_module, const char __user *, name_user, unsigned int, flags)
+___SYSCALL4(179, quotactl, unsigned int, cmd, const char __user *, special, qid_t, id, void __user *, addr)
+___SYSCALL0(186, gettid)
+___SYSCALL3(187, readahead, int, fd, loff_t, offset, size_t, count)
+___SYSCALL5(188, setxattr, const char __user *, pathname, const char __user *, name, const void __user *, value, size_t, size, int, flags)
+___SYSCALL5(189, lsetxattr, const char __user *, pathname, const char __user *, name, const void __user *, value, size_t, size, int, flags)
+___SYSCALL5(190, fsetxattr, int, fd, const char __user *, name, const void __user *,value, size_t, size, int, flags)
+___SYSCALL4(191, getxattr, const char __user *, pathname, const char __user *, name, void __user *, value, size_t, size)
+___SYSCALL4(192, lgetxattr, const char __user *, pathname, const char __user *, name, void __user *, value, size_t, size)
+___SYSCALL4(193, fgetxattr, int, fd, const char __user *, name, void __user *, value, size_t, size)
+___SYSCALL3(194, listxattr, const char __user *, pathname, char __user *, list, size_t, size)
+___SYSCALL3(195, llistxattr, const char __user *, pathname, char __user *, list, size_t, size)
+___SYSCALL3(196, flistxattr, int, fd, char __user *, list, size_t, size)
+___SYSCALL2(197, removexattr, const char __user *, pathname, const char __user *, name)
+___SYSCALL2(198, lremovexattr, const char __user *, pathname, const char __user *, name)
+___SYSCALL2(199, fremovexattr, int, fd, const char __user *, name)
+___SYSCALL2(200, tkill, pid_t, pid, int, sig)
+___SYSCALL1(201, time, time_t __user *, tloc)
+___SYSCALL6(202, futex, u32 __user *, uaddr, int, op, u32, val, struct __kernel_timespec __user *, utime, u32 __user *, uaddr2, u32, val3)
+___SYSCALL3(203, sched_setaffinity, pid_t, pid, unsigned int, len, unsigned long __user *, user_mask_ptr)
+___SYSCALL3(204, sched_getaffinity, pid_t, pid, unsigned int, len, unsigned long __user *, user_mask_ptr)
+___SYSCALL2(206, io_setup, unsigned, nr_events, aio_context_t __user *, ctxp)
+___SYSCALL1(207, io_destroy, aio_context_t, ctx)
+___SYSCALL5(208, io_getevents, aio_context_t, ctx_id, long, min_nr, long, nr, struct io_event __user *, events, struct __kernel_timespec __user *, timeout)
+___SYSCALL3(209, io_submit, aio_context_t, ctx_id, long, nr, struct iocb __user * __user *, iocbpp)
+___SYSCALL3(210, io_cancel, aio_context_t, ctx_id, struct iocb __user *, iocb, struct io_event __user *, result)
+___SYSCALL3(212, lookup_dcookie, u64, cookie64, char __user *, buf, size_t, len)
+___SYSCALL1(213, epoll_create, int, size)
+___SYSCALL5(216, remap_file_pages, unsigned long, start, unsigned long, size, unsigned long, prot, unsigned long, pgoff, unsigned long, flags)
+___SYSCALL3(217, getdents64, unsigned int, fd, struct linux_dirent64 __user *, dirent, unsigned int, count)
+___SYSCALL1(218, set_tid_address, int __user *, tidptr)
+___SYSCALL0(219, restart_syscall)
+___SYSCALL4(220, semtimedop, int, semid, struct sembuf __user *, tsops, unsigned int, nsops, const struct __kernel_timespec __user *, timeout)
+___SYSCALL4(221, fadvise64, int, fd, loff_t, offset, size_t, len, int, advice)
+___SYSCALL3(222, timer_create, const clockid_t, which_clock, struct sigevent __user *, timer_event_spec, timer_t __user *, created_timer_id)
+___SYSCALL4(223, timer_settime, timer_t, timer_id, int, flags, const struct __kernel_itimerspec __user *, new_setting, struct __kernel_itimerspec __user *, old_setting)
+___SYSCALL2(224, timer_gettime, timer_t, timer_id, struct __kernel_itimerspec __user *, setting)
+___SYSCALL1(225, timer_getoverrun, timer_t, timer_id)
+___SYSCALL1(226, timer_delete, timer_t, timer_id)
+___SYSCALL2(227, clock_settime, const clockid_t, which_clock, const struct __kernel_timespec __user *, tp)
+___SYSCALL2(228, clock_gettime, const clockid_t, which_clock, struct __kernel_timespec __user *, tp)
+___SYSCALL2(229, clock_getres, const clockid_t, which_clock, struct __kernel_timespec __user *, tp)
+___SYSCALL4(230, clock_nanosleep, const clockid_t, which_clock, int, flags, const struct __kernel_timespec __user *, rqtp, struct __kernel_timespec __user *, rmtp)
+___SYSCALL1(231, exit_group, int, error_code)
+___SYSCALL4(232, epoll_wait, int, epfd, struct epoll_event __user *, events, int, maxevents, int, timeout)
+___SYSCALL4(233, epoll_ctl, int, epfd, int, op, int, fd, struct epoll_event __user *, event)
+___SYSCALL3(234, tgkill, pid_t, tgid, pid_t, pid, int, sig)
+___SYSCALL2(235, utimes, char __user *, filename, struct timeval __user *, utimes)
+___SYSCALL6(237, mbind, unsigned long, start, unsigned long, len, unsigned long, mode, const unsigned long __user *, nmask, unsigned long, maxnode, unsigned int, flags)
+___SYSCALL3(238, set_mempolicy, int, mode, const unsigned long __user *, nmask, unsigned long, maxnode)
+___SYSCALL5(239, get_mempolicy, int __user *, policy, unsigned long __user *, nmask, unsigned long, maxnode, unsigned long, addr, unsigned long, flags)
+___SYSCALL4(240, mq_open, const char __user *, u_name, int, oflag, umode_t, mode, struct mq_attr __user *, u_attr)
+___SYSCALL1(241, mq_unlink, const char __user *, u_name)
+___SYSCALL5(242, mq_timedsend, mqd_t, mqdes, const char __user *, u_msg_ptr, size_t, msg_len, unsigned int, msg_prio, const struct __kernel_timespec __user *, u_abs_timeout)
+___SYSCALL5(243, mq_timedreceive, mqd_t, mqdes, char __user *, u_msg_ptr, size_t, msg_len, unsigned int __user *, u_msg_prio, const struct __kernel_timespec __user *, u_abs_timeout)
+___SYSCALL2(244, mq_notify, mqd_t, mqdes, const struct sigevent __user *, u_notification)
+___SYSCALL3(245, mq_getsetattr, mqd_t, mqdes, const struct mq_attr __user *, u_mqstat, struct mq_attr __user *, u_omqstat)
+___SYSCALL4(246, kexec_load, unsigned long, entry, unsigned long, nr_segments, struct kexec_segment __user *, segments, unsigned long, flags)
+___SYSCALL5(247, waitid, int, which, pid_t, upid, struct siginfo __user *, infop, int, options, struct rusage __user *, ru)
+___SYSCALL5(248, add_key, const char __user *, _type, const char __user *, _description, const void __user *, _payload, size_t, plen, key_serial_t, ringid)
+___SYSCALL4(249, request_key, const char __user *, _type, const char __user *, _description, const char __user *, _callout_info, key_serial_t, destringid)
+___SYSCALL5(250, keyctl, int, option, unsigned long, arg2, unsigned long, arg3, unsigned long, arg4, unsigned long, arg5)
+___SYSCALL3(251, ioprio_set, int, which, int, who, int, ioprio)
+___SYSCALL2(252, ioprio_get, int, which, int, who)
+___SYSCALL0(253, inotify_init)
+___SYSCALL3(254, inotify_add_watch, int, fd, const char __user *, pathname, u32, mask)
+___SYSCALL2(255, inotify_rm_watch, int, fd, __s32, wd)
+___SYSCALL4(256, migrate_pages, pid_t, pid, unsigned long, maxnode, const unsigned long __user *, old_nodes, const unsigned long __user *, new_nodes)
+___SYSCALL4(257, openat, int, dfd, const char __user *, filename, int, flags, umode_t, mode)
+___SYSCALL3(258, mkdirat, int, dfd, const char __user *, pathname, umode_t, mode)
+___SYSCALL4(259, mknodat, int, dfd, const char __user *, filename, umode_t, mode, unsigned int, dev)
+___SYSCALL5(260, fchownat, int, dfd, const char __user *, filename, uid_t, user, gid_t, group, int, flag)
+___SYSCALL3(261, futimesat, int, dfd, const char __user *, filename, struct timeval __user *, utimes)
+___SYSCALL4(262, newfstatat, int, dfd, const char __user *, filename, struct stat __user *, statbuf, int, flag)
+___SYSCALL3(263, unlinkat, int, dfd, const char __user *, pathname, int, flag)
+___SYSCALL4(264, renameat, int, olddfd, const char __user *, oldname, int, newdfd, const char __user *, newname)
+___SYSCALL5(265, linkat, int, olddfd, const char __user *, oldname, int, newdfd, const char __user *, newname, int, flags)
+___SYSCALL3(266, symlinkat, const char __user *, oldname, int, newdfd, const char __user *, newname)
+___SYSCALL4(267, readlinkat, int, dfd, const char __user *, pathname, char __user *, buf, int, bufsiz)
+___SYSCALL3(268, fchmodat, int, dfd, const char __user *, filename, umode_t, mode)
+___SYSCALL3(269, faccessat, int, dfd, const char __user *, filename, int, mode)
+___SYSCALL6(270, pselect6, int, n, fd_set __user *, inp, fd_set __user *, outp, fd_set __user *, exp, struct __kernel_timespec __user *, tsp, void __user *, sig)
+___SYSCALL5(271, ppoll, struct pollfd __user *, ufds, unsigned int, nfds, struct __kernel_timespec __user *, tsp, const sigset_t __user *, sigmask, size_t, sigsetsize)
+___SYSCALL1(272, unshare, unsigned long, unshare_flags)
+___SYSCALL2(273, set_robust_list, struct robust_list_head __user *, head, size_t, len)
+___SYSCALL3(274, get_robust_list, int, pid, struct robust_list_head __user * __user *, head_ptr, size_t __user *, len_ptr)
+___SYSCALL6(275, splice, int, fd_in, loff_t __user *, off_in, int, fd_out, loff_t __user *, off_out, size_t, len, unsigned int, flags)
+___SYSCALL4(276, tee, int, fdin, int, fdout, size_t, len, unsigned int, flags)
+___SYSCALL4(277, sync_file_range, int, fd, loff_t, offset, loff_t, nbytes, unsigned int, flags)
+___SYSCALL4(278, vmsplice, int, fd, const struct iovec __user *, uiov, unsigned long, nr_segs, unsigned int, flags)
+___SYSCALL6(279, move_pages, pid_t, pid, unsigned long, nr_pages, const void __user * __user *, pages, const int __user *, nodes, int __user *, status, int, flags)
+___SYSCALL4(280, utimensat, int, dfd, const char __user *, filename, struct __kernel_timespec __user *, utimes, int, flags)
+___SYSCALL6(281, epoll_pwait, int, epfd, struct epoll_event __user *, events, int, maxevents, int, timeout, const sigset_t __user *, sigmask, size_t, sigsetsize)
+___SYSCALL3(282, signalfd, int, ufd, sigset_t __user *, user_mask, size_t, sizemask)
+___SYSCALL2(283, timerfd_create, int, clockid, int, flags)
+___SYSCALL1(284, eventfd, unsigned int, count)
+___SYSCALL4(285, fallocate, int, fd, int, mode, loff_t, offset, loff_t, len)
+___SYSCALL4(286, timerfd_settime, int, ufd, int, flags, const struct __kernel_itimerspec __user *, utmr, struct __kernel_itimerspec __user *, otmr)
+___SYSCALL2(287, timerfd_gettime, int, ufd, struct __kernel_itimerspec __user *, otmr)
+___SYSCALL4(288, accept4, int, fd, struct sockaddr __user *, upeer_sockaddr, int __user *, upeer_addrlen, int, flags)
+___SYSCALL4(289, signalfd4, int, ufd, sigset_t __user *, user_mask, size_t, sizemask, int, flags)
+___SYSCALL2(290, eventfd2, unsigned int, count, int, flags)
+___SYSCALL1(291, epoll_create1, int, flags)
+___SYSCALL3(292, dup3, unsigned int, oldfd, unsigned int, newfd, int, flags)
+___SYSCALL2(293, pipe2, int __user *, fildes, int, flags)
+___SYSCALL1(294, inotify_init1, int, flags)
+___SYSCALL5(295, preadv, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h)
+___SYSCALL5(296, pwritev, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h)
+___SYSCALL4(297, rt_tgsigqueueinfo, pid_t, tgid, pid_t, pid, int, sig, siginfo_t __user *, uinfo)
+___SYSCALL5(298, perf_event_open, struct perf_event_attr __user *, attr_uptr, pid_t, pid, int, cpu, int, group_fd, unsigned long, flags)
+___SYSCALL5(299, recvmmsg, int, fd, struct mmsghdr __user *, mmsg, unsigned int, vlen, unsigned int, flags, struct __kernel_timespec __user *, timeout)
+___SYSCALL2(300, fanotify_init, unsigned int, flags, unsigned int, event_f_flags)
+___SYSCALL5(301, fanotify_mark, int, fanotify_fd, unsigned int, flags, __u64, mask, int, dfd, const char  __user *, pathname)
+___SYSCALL4(302, prlimit64, pid_t, pid, unsigned int, resource, const struct rlimit64 __user *, new_rlim, struct rlimit64 __user *, old_rlim)
+___SYSCALL5(303, name_to_handle_at, int, dfd, const char __user *, name, struct file_handle __user *, handle, int __user *, mnt_id, int, flag)
+___SYSCALL3(304, open_by_handle_at, int, mountdirfd, struct file_handle __user *, handle, int, flags)
+___SYSCALL2(305, clock_adjtime, const clockid_t, which_clock, struct __kernel_timex __user *, utx)
+___SYSCALL1(306, syncfs, int, fd)
+___SYSCALL4(307, sendmmsg, int, fd, struct mmsghdr __user *, mmsg, unsigned int, vlen, unsigned int, flags)
+___SYSCALL2(308, setns, int, fd, int, nstype)
+___SYSCALL3(309, getcpu, unsigned __user *, cpup, unsigned __user *, nodep, struct getcpu_cache __user *, unused)
+___SYSCALL6(310, process_vm_readv, pid_t, pid, const struct iovec __user *, lvec, unsigned long, liovcnt, const struct iovec __user *, rvec, unsigned long, riovcnt, unsigned long, flags)
+___SYSCALL6(311, process_vm_writev, pid_t, pid, const struct iovec __user *, lvec, unsigned long, liovcnt, const struct iovec __user *, rvec, unsigned long, riovcnt,	unsigned long, flags)
+___SYSCALL5(312, kcmp, pid_t, pid1, pid_t, pid2, int, type, unsigned long, idx1, unsigned long, idx2)
+___SYSCALL3(313, finit_module, int, fd, const char __user *, uargs, int, flags)
+___SYSCALL3(314, sched_setattr, pid_t, pid, struct sched_attr __user *, uattr, unsigned int, flags)
+___SYSCALL4(315, sched_getattr, pid_t, pid, struct sched_attr __user *, uattr, unsigned int, size, unsigned int, flags)
+___SYSCALL5(316, renameat2, int, olddfd, const char __user *, oldname, int, newdfd, const char __user *, newname, unsigned int, flags)
+___SYSCALL3(317, seccomp, unsigned int, op, unsigned int, flags, void __user *, uargs)
+___SYSCALL3(318, getrandom, char __user *, buf, size_t, count, unsigned int, flags)
+___SYSCALL2(319, memfd_create, const char __user *, uname, unsigned int, flags)
+___SYSCALL5(320, kexec_file_load, int, kernel_fd, int, initrd_fd, unsigned long, cmdline_len, const char __user *, cmdline_ptr, unsigned long, flags)
+___SYSCALL3(321, bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, size)
+___SYSCALL5(322, execveat, int, fd, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp, int, flags)
+___SYSCALL1(323, userfaultfd, int, flags)
+___SYSCALL2(324, membarrier, int, cmd, int, flags)
+___SYSCALL3(325, mlock2, unsigned long, start, size_t, len, int, flags)
+___SYSCALL6(326, copy_file_range, int, fd_in, loff_t __user *, off_in, int, fd_out, loff_t __user *, off_out, size_t, len, unsigned int, flags)
+___SYSCALL6(327, preadv2, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h, rwf_t, flags)
+___SYSCALL6(328, pwritev2, unsigned long, fd, const struct iovec __user *, vec, unsigned long, vlen, unsigned long, pos_l, unsigned long, pos_h, rwf_t, flags)
+___SYSCALL4(329, pkey_mprotect, unsigned long, start, size_t, len, unsigned long, prot, int, pkey)
+___SYSCALL2(330, pkey_alloc, unsigned long, flags, unsigned long, init_val)
+___SYSCALL1(331, pkey_free, int, pkey)
+___SYSCALL5(332, statx, int, dfd, const char __user *, filename, unsigned, flags, unsigned int, mask, struct statx __user *, buffer)
+___SYSCALL6(333, io_pgetevents, aio_context_t, ctx_id, long, min_nr, long, nr, struct io_event __user *, events, struct __kernel_timespec __user *, timeout, const struct __aio_sigset __user *, usig)
+___SYSCALL4(334, rseq, struct rseq __user *, rseq, u32, rseq_len, int, flags, u32, sig)
+___SYSCALL4(424, pidfd_send_signal, int, pidfd, int, sig, siginfo_t __user *, info, unsigned int, flags)
+___SYSCALL2(425, io_uring_setup, u32, entries, struct io_uring_params __user *, params)
+___SYSCALL6(426, io_uring_enter, unsigned int, fd, u32, to_submit, u32, min_complete, u32, flags, const sigset_t __user *, sig, size_t, sigsz)
+___SYSCALL4(427, io_uring_register, unsigned int, fd, unsigned int, opcode, void __user *, arg, unsigned int, nr_args)
+___SYSCALL3(428, open_tree, int, dfd, const char *, filename, unsigned, flags)
+___SYSCALL5(429, move_mount, int, from_dfd, const char *, from_pathname, int, to_dfd, const char *, to_pathname, unsigned int, flags)
+___SYSCALL2(430, fsopen, const char __user *, _fs_name, unsigned int, flags)
+___SYSCALL5(431, fsconfig, int, fd, unsigned int, cmd, const char __user *, _key, const void __user *, _value, int, aux)
+___SYSCALL3(432, fsmount, int, fs_fd, unsigned int, flags, unsigned int, attr_flags)
+___SYSCALL3(433, fspick, int, dfd, const char __user *, path, unsigned int, flags)
