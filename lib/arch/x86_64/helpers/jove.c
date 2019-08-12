@@ -445,6 +445,22 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
+#include <stddef.h>
+
+extern /* __thread */ struct CPUX86State __jove_env;
+extern /* __thread */ char __jove_stack[0x100000];
+extern /* __thread */ uint64_t *__jove_trace;
+
+#define _JOVE_MAX_BINARIES 512
+
+extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
+
+/* static */ uintptr_t *___jove_function_tables[3] = {NULL, NULL, NULL};
+
+struct CPUX86State *jove_state(void) { return &__jove_env; }
+char               *jove_stack(void) { return &__jove_stack[0]; }
+uint64_t           *jove_trace(void) { return __jove_trace; }
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -491,20 +507,6 @@ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
                                       uintptr_t SectionsBeg,
                                       uintptr_t SectionsEnd,
                                       uintptr_t BBAddr);
-
-extern /* __thread */ struct CPUX86State __jove_env;
-extern /* __thread */ char __jove_stack[0x100000];
-extern /* __thread */ uint64_t *__jove_trace;
-
-#define _JOVE_MAX_BINARIES 512
-
-extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
-
-/* static */ uintptr_t *___jove_function_tables[3] = {NULL, NULL, NULL};
-
-struct CPUX86State *jove_state(void) { return &__jove_env; }
-char               *jove_stack(void) { return &__jove_stack[0]; }
-uint64_t           *jove_trace(void) { return __jove_trace; }
 
 /* this function is never to be called. its only purpose is to prevent
    optimizations from eliminating the declarations above from the bitcode */
