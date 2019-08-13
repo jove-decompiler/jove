@@ -6977,9 +6977,13 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
         } else if (llvm::isa<llvm::StoreInst>(GEPU)) {
           hf.Analysis.OutGlbs.set(glb);
         } else {
-          WithColor::warning() << "unknown global GEP user " << *GEPU << '\n';
+          assert(llvm::isa<llvm::Instruction>(GEPU));
+          if (!llvm::Instruction::isCast(
+                  llvm::cast<llvm::Instruction>(GEPU)->getOpcode())) {
+            WithColor::warning() << "unknown global GEP user " << *GEPU << '\n';
 
-          hf.Analysis.Simple = false;
+            hf.Analysis.Simple = false;
+          }
         }
       }
     } else {
