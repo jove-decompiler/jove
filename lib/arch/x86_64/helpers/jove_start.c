@@ -479,6 +479,10 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #define _NOINL __attribute__((noinline))
 #define _NORET __attribute__((noreturn))
 
+#define JOVE_SYS_ATTR _INL
+
+#include "jove_sys.h"
+
 extern bool _jove_trace_enabled(void);
 extern void _jove_call_entry(void);
 extern uintptr_t *_jove_get_dynl_function_table(void);
