@@ -1,3 +1,5 @@
+#include "syscalls.inc.macros_begin.h"
+
 ___SYSCALL3(0, read, unsigned int, fd, char __user *, buf, size_t, count)
 ___SYSCALL3(1, write, unsigned int, fd, const char __user *, buf, size_t, count)
 ___SYSCALL3(2, open, const char __user *, filename, int, flags, umode_t, mode)
@@ -328,3 +330,5 @@ ___SYSCALL2(430, fsopen, const char __user *, _fs_name, unsigned int, flags)
 ___SYSCALL5(431, fsconfig, int, fd, unsigned int, cmd, const char __user *, _key, const void __user *, _value, int, aux)
 ___SYSCALL3(432, fsmount, int, fs_fd, unsigned int, flags, unsigned int, attr_flags)
 ___SYSCALL3(433, fspick, int, dfd, const char __user *, path, unsigned int, flags)
+
+#include "syscalls.inc.macros_end.h"

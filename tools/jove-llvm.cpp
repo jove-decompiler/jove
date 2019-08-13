@@ -2788,11 +2788,10 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
         if (helper_ptr == helper_syscall) {
           const auto &N = constprop[tcg_syscall_number_index];
-          if (N != std::numeric_limits<TCGArg>::max() &&
-              N < sizeof(sys_call_arg_cnt_table) / sizeof(unsigned)) {
+          if (N < syscalls::NR_END) {
             iglbs.reset();
 
-            unsigned M = sys_call_arg_cnt_table[N];
+            unsigned M = syscalls::nparams_tbl[N];
             assert(M < 7);
             switch (M) {
             case 6:
