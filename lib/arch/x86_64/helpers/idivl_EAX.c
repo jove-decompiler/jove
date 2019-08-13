@@ -449,15 +449,8 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
-                                             int exception_index,
-                                             uintptr_t retaddr) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+__attribute__((always_inline)) void helper_idivl_EAX(CPUX86State *env,
+                                                     target_ulong t0);
 
 void helper_idivl_EAX(CPUX86State *env, target_ulong t0)
 {
@@ -466,14 +459,8 @@ void helper_idivl_EAX(CPUX86State *env, target_ulong t0)
 
     num = ((uint32_t)env->regs[R_EAX]) | ((uint64_t)((uint32_t)env->regs[R_EDX]) << 32);
     den = t0;
-    if (den == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
     q = (num / den);
     r = (num % den);
-    if (q != (int32_t)q) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
     env->regs[R_EAX] = (uint32_t)q;
     env->regs[R_EDX] = (uint32_t)r;
 }
