@@ -82,6 +82,7 @@ $(BINDIR)/jove-extract: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/tcgdump: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-trace2lines: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jv2xml: $(BINDIR)/jove/tcgconstants.h
+$(BINDIR)/jove-trace: $(BINDIR)/jove/tcgconstants.h
 
 $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@mkdir -p $(BINDIR)/jove
@@ -187,8 +188,8 @@ endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
 define build_helper_template
-$(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c
-	clang -o $$@ -c -emit-llvm -fPIC -g -Os -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
+$(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c Makefile
+	clang -o $$@ -c -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
