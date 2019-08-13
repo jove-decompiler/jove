@@ -189,7 +189,7 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(help
 
 define build_helper_template
 $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c Makefile
-	clang -o $$@ -c -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
+	clang -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
