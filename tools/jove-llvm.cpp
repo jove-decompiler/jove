@@ -6436,7 +6436,7 @@ int TranslateBasicBlock(binary_t &Binary,
         basic_block_t succ = succ_bb_vec[i];
 
         IfSuccBlockVec[i] = llvm::BasicBlock::Create(
-            *Context, (fmt("if_%#lx") % ICFG[succ].Addr).str(), f.F);
+            *Context, (fmt("if %#lx") % ICFG[succ].Addr).str(), f.F);
       }
 
       llvm::BasicBlock *ElseBlock =
@@ -6651,7 +6651,7 @@ int TranslateBasicBlock(binary_t &Binary,
                      [&](const auto &IdxPair) -> llvm::BasicBlock * {
                        return llvm::BasicBlock::Create(
                            *Context,
-                           (fmt("call_%s") % dyn_target_desc(IdxPair)).str(),
+                           (fmt("call %s") % dyn_target_desc(IdxPair)).str(),
                            f.F);
                      });
 
@@ -6662,7 +6662,7 @@ int TranslateBasicBlock(binary_t &Binary,
         unsigned i = 0;
 
         llvm::BasicBlock *B = llvm::BasicBlock::Create(
-            *Context, (fmt("if_%s") % dyn_target_desc(DynTargetsVec[i])).str(),
+            *Context, (fmt("if %s") % dyn_target_desc(DynTargetsVec[i])).str(),
             f.F);
         IRB.CreateBr(B);
 
@@ -6678,7 +6678,7 @@ int TranslateBasicBlock(binary_t &Binary,
           else
             B = llvm::BasicBlock::Create(
                 *Context,
-                (fmt("if_%s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
+                (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 f.F);
 
           IRB.CreateCondBr(EQV, DynTargetsDoCallBVec[i], B);
