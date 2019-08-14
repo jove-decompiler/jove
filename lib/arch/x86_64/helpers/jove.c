@@ -490,8 +490,6 @@ static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
-static _INL int _open(const char *, int, mode_t);
-static _INL int _close(int);
 
 void _jove_trace_init(void);
 
@@ -739,64 +737,11 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
   __builtin_unreachable();
 }
 
-int _open(const char *filename, int flags, mode_t mode) {
-  long resultvar;
-
-  mode_t       __arg3 = mode;
-  int          __arg2 = flags;
-  const char * __arg1 = filename;
-
-  register mode_t       _a3 asm("rdx") = __arg3;
-  register int          _a2 asm("rsi") = __arg2;
-  register const char * _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_open), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-int _close(int fd) {
-  long resultvar;
-
-  int __arg1 = fd;
-
-  register int _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_close), "r"(_a1)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-ssize_t _read(int fd, void *buf, size_t count) {
-  long resultvar;
-
-  size_t __arg3 = count;
-  void * __arg2 = buf;
-  int    __arg1 = fd;
-
-  register size_t _a3 asm("rdx") = __arg3;
-  register void * _a2 asm("rsi") = __arg2;
-  register int    _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_read), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
   unsigned n;
 
   {
-    int fd = _open(path, O_RDONLY, S_IRWXU);
+    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
     if (fd < 0) {
       __builtin_trap();
       __builtin_unreachable();
@@ -806,7 +751,7 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
     n = 0;
 
     for (;;) {
-      ssize_t ret = _read(fd, &out[n], len - n);
+      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
 
       if (ret == 0)
         break;
@@ -822,7 +767,7 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
       n += ret;
     }
 
-    if (_close(fd) < 0) {
+    if (_jove_sys_close(fd) < 0) {
       __builtin_trap();
       __builtin_unreachable();
     }

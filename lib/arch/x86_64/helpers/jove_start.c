@@ -493,16 +493,6 @@ _NAKED void __jove_start(void);
 void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
                  target_ulong, target_ulong);
 
-static _INL int _open(const char *, int, mode_t);
-static _INL ssize_t _read(int, void *, size_t);
-static _INL int _close(int);
-static _INL ssize_t _write(int, const void *, size_t);
-static _INL void _exit_group(int status);
-static _INL int _ftruncate(int fd, off_t length);
-static _INL void *_mmap(void *addr, size_t length, int prot, int flags, int fd,
-                        off_t offset);
-static _INL int _execve(char *pathname, char **argv, char **envp);
-
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
@@ -745,99 +735,11 @@ uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
   __builtin_unreachable();
 }
 
-int _open(const char *filename, int flags, mode_t mode) {
-  long resultvar;
-
-  mode_t       __arg3 = mode;
-  int          __arg2 = flags;
-  const char * __arg1 = filename;
-
-  register mode_t       _a3 asm("rdx") = __arg3;
-  register int          _a2 asm("rsi") = __arg2;
-  register const char * _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_open), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-ssize_t _read(int fd, void *buf, size_t count) {
-  long resultvar;
-
-  size_t __arg3 = count;
-  void * __arg2 = buf;
-  int    __arg1 = fd;
-
-  register size_t _a3 asm("rdx") = __arg3;
-  register void * _a2 asm("rsi") = __arg2;
-  register int    _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_read), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-int _close(int fd) {
-  long resultvar;
-
-  int __arg1 = fd;
-
-  register int _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_close), "r"(_a1)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-ssize_t _write(int fd, const void *buf, size_t count) {
-  long resultvar;
-
-  size_t       __arg3 = count;
-  const void * __arg2 = buf;
-  int          __arg1 = fd;
-
-  register size_t       _a3 asm("rdx") = __arg3;
-  register const void * _a2 asm("rsi") = __arg2;
-  register int          _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_write), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-void _exit_group(int status) {
-  long resultvar;
-
-  int __arg1 = status;
-
-  register int _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_exit_group), "r"(_a1)
-               : "memory", "cc", "r11", "cx");
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
   unsigned n;
 
   {
-    int fd = _open(path, O_RDONLY, S_IRWXU);
+    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
     if (fd < 0) {
       __builtin_trap();
       __builtin_unreachable();
@@ -847,7 +749,7 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
     n = 0;
 
     for (;;) {
-      ssize_t ret = _read(fd, &out[n], len - n);
+      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
 
       if (ret == 0)
         break;
@@ -863,7 +765,7 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
       n += ret;
     }
 
-    if (_close(fd) < 0) {
+    if (_jove_sys_close(fd) < 0) {
       __builtin_trap();
       __builtin_unreachable();
     }
@@ -882,54 +784,12 @@ void *_memcpy(void *dest, const void *src, size_t n) {
   return dest;
 }
 
-int _ftruncate(int fd, off_t length) {
-  long resultvar;
-
-  off_t __arg2 = length;
-  int   __arg1 = fd;
-
-  register off_t _a2 asm("rsi") = __arg2;
-  register int   _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_ftruncate), "r"(_a1), "r"(_a2)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
-}
-
-void *_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset) {
-  long resultvar;
-
-  off_t  __arg6 = offset;
-  int    __arg5 = fd;
-  int    __arg4 = flags;
-  int    __arg3 = prot;
-  size_t __arg2 = length;
-  void * __arg1 = addr;
-
-  register off_t  _a6 asm("r9")  = __arg6;
-  register int    _a5 asm("r8")  = __arg5;
-  register int    _a4 asm("r10") = __arg4;
-  register int    _a3 asm("rdx") = __arg3;
-  register size_t _a2 asm("rsi") = __arg2;
-  register void * _a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_mmap), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4),
-                 "r"(_a5), "r"(_a6)
-               : "memory", "cc", "r11", "cx");
-
-  return (void *)resultvar;
-}
-
 void _jove_trace_init(void) {
   if (__jove_trace)
     return;
 
-  int fd = _open("trace.bin", O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
+  int fd =
+      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
   if (fd < 0) {
     __builtin_trap();
 
@@ -937,42 +797,24 @@ void _jove_trace_init(void) {
   }
 
   off_t size = 1UL << 31; /* 2 GiB */
-  if (_ftruncate(fd, size) < 0) {
+  if (_jove_sys_ftruncate(fd, size) < 0) {
     __builtin_trap();
 
-    _close(fd);
+    _jove_sys_close(fd);
     return;
   }
 
-  void *p = _mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  void *p = (void *)_jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE,
+                                   MAP_SHARED, fd, 0);
 
   if (p == MAP_FAILED) {
     __builtin_trap();
 
-    _close(fd);
+    _jove_sys_close(fd);
     return;
   }
 
   __jove_trace = p;
-}
-
-int _execve(char *pathname, char **argv, char **envp) {
-  long resultvar;
-
-  char **__arg3 = envp;
-  char **__arg2 = argv;
-  char  *__arg1 = pathname;
-
-  register char **_a3 asm("rdx") = __arg3;
-  register char **_a2 asm("rsi") = __arg2;
-  register char  *_a1 asm("rdi") = __arg1;
-
-  asm volatile("syscall\n\t"
-               : "=a"(resultvar)
-               : "0"(__NR_execve), "r"(_a1), "r"(_a2), "r"(_a3)
-               : "memory", "cc", "r11", "cx");
-
-  return resultvar;
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
@@ -1076,7 +918,7 @@ found:
 
     char *argv[] = {argv0, argv1, argv2, argv3, NULL};
 
-    _execve(argv0, argv, _jove_startup_info.environ);
+    _jove_sys_execve(argv0, argv, _jove_startup_info.environ);
   }
 }
 
@@ -1134,7 +976,7 @@ void _jove_recover_basic_block(uint32_t IndBrBIdx,
 
     char *argv[] = {argv0, argv1, argv2, argv3, NULL};
 
-    _execve(argv0, argv, _jove_startup_info.environ);
+    _jove_sys_execve(argv0, argv, _jove_startup_info.environ);
   }
 }
 
