@@ -506,7 +506,11 @@ static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
 
-static _INL void *_jove_allocate_stack(void);
+#define JOVE_STACK_SIZE (1024 * 1024)
+#define JOVE_PAGE_SIZE 4096
+
+unsigned long _jove_alloc_stack(void);
+void _jove_free_stack(unsigned long);
 
 static _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
@@ -574,12 +578,14 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   {
     unsigned len = _get_stack_end() - sp_addr;
 
-    char *const env_stack_end_addr = _jove_allocate_stack();
-    char *env_sp_addr = env_stack_end_addr - len;
+    unsigned long env_stack_beg = _jove_alloc_stack();
+    unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
 
-    _memcpy(env_sp_addr, (void *)sp_addr, len);
+    char *env_sp = (char *)(env_stack_end - JOVE_PAGE_SIZE - len);
 
-    __jove_env.regs[R_ESP] = (target_ulong)env_sp_addr;
+    _memcpy(env_sp, (void *)sp_addr, len);
+
+    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
   // trace init (if -trace was passed)
@@ -990,27 +996,29 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                           unsigned long *emuspp /* rdx */) {
   asm volatile("pushq %r15\n" /* callee-saved registers */
                "pushq %r14\n"
+               "pushq %r13\n"
+               "pushq %r12\n"
 
-               "subq $0x1000,%rsp\n" /* allocate bytes on stack */
-
+               "movq %rdi, %r12\n" /* dstpc in r12 */
+               "movq %rsi, %r13\n" /* args in r13 */
                "movq %rdx, %r14\n" /* emuspp in r14 */
-               "movq %rsp, %r15\n" /* put old sp in r15 */
+               "movq %rsp, %r15\n" /* save sp in r15 */
 
-               "movq %rsp, %r10\n" /* save sp in r10 */
-               "addq $0x800, %r10\n" /* stack storage in r10 */
+               "callq _jove_alloc_stack\n"
+               "movq %r12, %r10\n" /* dstpc in r10 */
+               "movq %rax, %r12\n" /* allocated stack in r12 */
+               "addq $0x80000, %rax\n"
 
-               "movq (%rdx), %rsp\n" /* sp=*emusp */
-               "movq %r10, (%rdx)\n" /* *emusp=stack storage */
-
-               "movq %rdi, %r10\n" /* put dstpc in temporary register */
+               "movq (%r14), %rsp\n" /* sp=*emusp */
+               "movq %rax, (%r14)\n" /* *emusp=stack storage */
 
                /* unpack args */
-               "movq 40(%rsi), %r9\n"
-               "movq 32(%rsi), %r8\n"
-               "movq 24(%rsi), %rcx\n"
-               "movq 16(%rsi), %rdx\n"
-               "movq  0(%rsi), %rdi\n"
-               "movq  8(%rsi), %rsi\n"
+               "movq 40(%r13), %r9\n"
+               "movq 32(%r13), %r8\n"
+               "movq 24(%r13), %rcx\n"
+               "movq 16(%r13), %rdx\n"
+               "movq  8(%r13), %rsi\n"
+               "movq  0(%r13), %rdi\n"
 
                "addq $8, %rsp\n" /* replace return address on the stack */
                "callq *%r10\n" /* call dstpc */
@@ -1018,12 +1026,15 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq %rsp, (%r14)\n" /* store modified emusp */
                "movq %r15, %rsp\n" /* restore stack pointer */
 
-               "addq $0x1000,%rsp\n" /* deallocate bytes on stack */
+               "movq %r12, %rdi\n" /* pass allocated stack */
+               "callq _jove_free_stack\n"
 
+               "popq %r12\n"
+               "popq %r13\n"
                "popq %r14\n"
                "popq %r15\n" /* callee-saved registers */
 
-               "retq");
+               "retq\n");
 }
 
 uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
@@ -1157,10 +1168,7 @@ void _jove_install_vdso_and_dynl_function_tables(void) {
   ___jove_function_tables[2] = vdso_fn_tbl;
 }
 
-#define JOVE_STACK_SIZE (1024 * 1024)
-#define JOVE_PAGE_SIZE 4096
-
-void *_jove_allocate_stack(void) {
+unsigned long _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0) {
@@ -1184,5 +1192,12 @@ void *_jove_allocate_stack(void) {
     __builtin_unreachable();
   }
 
-  return (void *)(end - JOVE_PAGE_SIZE - sizeof(unsigned long));
+  return beg;
+}
+
+void _jove_free_stack(unsigned long beg) {
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
 }
