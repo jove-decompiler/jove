@@ -6767,7 +6767,7 @@ int TranslateBasicBlock(binary_t &Binary,
                 ArgVec);
 
 #if defined(__x86_64__)
-            if (DynTargetNeedsThunkPred(*DynTargets.begin())) {
+            if (DynTargetNeedsThunkPred(DynTargetsVec[i])) {
               llvm::LoadInst *SPVal =
                   IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
 
@@ -6778,6 +6778,8 @@ int TranslateBasicBlock(binary_t &Binary,
             }
 #endif
           }
+
+          Ret->setCallingConv(llvm::CallingConv::C);
 
           if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
             std::vector<unsigned> glbv;
