@@ -509,8 +509,8 @@ static _INL uintptr_t _get_stack_end(void);
 #define JOVE_STACK_SIZE (1024 * 1024)
 #define JOVE_PAGE_SIZE 4096
 
-unsigned long _jove_alloc_stack(void);
-void _jove_free_stack(unsigned long);
+static unsigned long _jove_alloc_stack(void);
+static void _jove_free_stack(unsigned long);
 
 static _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
@@ -994,47 +994,53 @@ void _jove_fail1(unsigned long x) {
 unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                           unsigned long *args   /* rsi */,
                           unsigned long *emuspp /* rdx */) {
-  asm volatile("pushq %r15\n" /* callee-saved registers */
-               "pushq %r14\n"
-               "pushq %r13\n"
-               "pushq %r12\n"
+  asm volatile("pushq %%r15\n" /* callee-saved registers */
+               "pushq %%r14\n"
+               "pushq %%r13\n"
+               "pushq %%r12\n"
 
-               "movq %rdi, %r12\n" /* dstpc in r12 */
-               "movq %rsi, %r13\n" /* args in r13 */
-               "movq %rdx, %r14\n" /* emuspp in r14 */
-               "movq %rsp, %r15\n" /* save sp in r15 */
+               "movq %%rdi, %%r12\n" /* dstpc in r12 */
+               "movq %%rsi, %%r13\n" /* args in r13 */
+               "movq %%rdx, %%r14\n" /* emuspp in r14 */
+               "movq %%rsp, %%r15\n" /* save sp in r15 */
 
-               "callq _jove_alloc_stack\n"
-               "movq %r12, %r10\n" /* dstpc in r10 */
-               "movq %rax, %r12\n" /* allocated stack in r12 */
-               "addq $0x80000, %rax\n"
+               "call %P0\n"          /* _jove_alloc_stack */
+               "movq %%r12, %%r10\n" /* dstpc in r10 */
+               "movq %%rax, %%r12\n" /* allocated stack in r12 */
+               "addq $0x80000, %%rax\n"
 
-               "movq (%r14), %rsp\n" /* sp=*emusp */
-               "movq %rax, (%r14)\n" /* *emusp=stack storage */
+               "movq (%%r14), %%rsp\n" /* sp=*emusp */
+               "movq %%rax, (%%r14)\n" /* *emusp=stack storage */
 
                /* unpack args */
-               "movq 40(%r13), %r9\n"
-               "movq 32(%r13), %r8\n"
-               "movq 24(%r13), %rcx\n"
-               "movq 16(%r13), %rdx\n"
-               "movq  8(%r13), %rsi\n"
-               "movq  0(%r13), %rdi\n"
+               "movq 40(%%r13), %%r9\n"
+               "movq 32(%%r13), %%r8\n"
+               "movq 24(%%r13), %%rcx\n"
+               "movq 16(%%r13), %%rdx\n"
+               "movq  8(%%r13), %%rsi\n"
+               "movq  0(%%r13), %%rdi\n"
 
-               "addq $8, %rsp\n" /* replace return address on the stack */
-               "callq *%r10\n" /* call dstpc */
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%r10\n"   /* call dstpc */
 
-               "movq %rsp, (%r14)\n" /* store modified emusp */
-               "movq %r15, %rsp\n" /* restore stack pointer */
+               "movq %%rsp, (%%r14)\n" /* store modified emusp */
+               "movq %%r15, %%rsp\n"   /* restore stack pointer */
 
-               "movq %r12, %rdi\n" /* pass allocated stack */
-               "callq _jove_free_stack\n"
+               "movq %%r12, %%rdi\n" /* pass allocated stack */
+               "call %P1\n"          /* _jove_free_stack */
 
-               "popq %r12\n"
-               "popq %r13\n"
-               "popq %r14\n"
-               "popq %r15\n" /* callee-saved registers */
+               "popq %%r12\n"
+               "popq %%r13\n"
+               "popq %%r14\n"
+               "popq %%r15\n" /* callee-saved registers */
 
-               "retq\n");
+               "retq\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               "i"(_jove_alloc_stack),
+               "i"(_jove_free_stack)
+               : /* Clobbers */);
 }
 
 uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
