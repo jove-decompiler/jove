@@ -469,13 +469,14 @@ uint64_t           *jove_trace(void) { return __jove_trace; }
 #include <sys/syscall.h>
 #include <errno.h>
 
-#define _CTOR  __attribute__((constructor))
-#define _INL   __attribute__((always_inline))
-#define _NAKED __attribute__((naked))
-#define _NOINL __attribute__((noinline))
-#define _NORET __attribute__((noreturn))
+#define _CTOR   __attribute__((constructor))
+#define _INL    __attribute__((always_inline))
+#define _NAKED  __attribute__((naked))
+#define _NOINL  __attribute__((noinline))
+#define _NORET  __attribute__((noreturn))
+#define _UNUSED __attribute__((unused))
 
-#define JOVE_SYS_ATTR _INL
+#define JOVE_SYS_ATTR _INL _UNUSED
 
 #include "jove_sys.h"
 
