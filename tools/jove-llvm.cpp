@@ -1585,10 +1585,10 @@ int ProcessDynamicSymbols(void) {
                   llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
                                         DebugInfo.Subprogram));
 
-              IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)
-                  ->setIsNoInline();
-
               if (DynTargetNeedsThunkPred(IdxPair)) {
+                IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)
+                    ->setIsNoInline();
+
                 llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
 
                 IRB.CreateRet(IRB.CreateIntToPtr(
@@ -3911,9 +3911,9 @@ int CreateSectionGlobalVariables(void) {
         IRB.SetCurrentDebugLocation(llvm::DILocation::get(
             *Context, /* Line */ 0, /* Column */ 0, DebugInfo.Subprogram));
 
-        IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)->setIsNoInline();
-
         if (DynTargetNeedsThunkPred(IdxPair)) {
+          IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)->setIsNoInline();
+
           llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
 
           IRB.CreateRet(IRB.CreateIntToPtr(
