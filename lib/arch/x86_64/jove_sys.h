@@ -55,7 +55,7 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
+    register t1 _a1 asm("rdi") = a1;                                           \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
@@ -71,8 +71,8 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
-    register unsigned long _a2 asm("rsi") = (unsigned long)a2;                 \
+    register t1 _a1 asm("rdi") = a1;                                           \
+    register t2 _a2 asm("rsi") = a2;                                           \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
@@ -88,9 +88,9 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
-    register unsigned long _a2 asm("rsi") = (unsigned long)a2;                 \
-    register unsigned long _a3 asm("rdx") = (unsigned long)a3;                 \
+    register t1 _a1 asm("rdi") = a1;                                           \
+    register t2 _a2 asm("rsi") = a2;                                           \
+    register t3 _a3 asm("rdx") = a3;                                           \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
@@ -107,10 +107,10 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
-    register unsigned long _a2 asm("rsi") = (unsigned long)a2;                 \
-    register unsigned long _a3 asm("rdx") = (unsigned long)a3;                 \
-    register unsigned long _a4 asm("r10") = (unsigned long)a4;                 \
+    register t1 _a1 asm("rdi") = a1;                                           \
+    register t2 _a2 asm("rsi") = a2;                                           \
+    register t3 _a3 asm("rdx") = a3;                                           \
+    register t4 _a4 asm("r10") = a4;                                           \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
@@ -127,11 +127,11 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
-    register unsigned long _a2 asm("rsi") = (unsigned long)a2;                 \
-    register unsigned long _a3 asm("rdx") = (unsigned long)a3;                 \
-    register unsigned long _a4 asm("r10") = (unsigned long)a4;                 \
-    register unsigned long _a5 asm("r8") = (unsigned long)a5;                  \
+    register t1 _a1 asm("rdi") = a1;                                           \
+    register t2 _a2 asm("rsi") = a2;                                           \
+    register t3 _a3 asm("rdx") = a3;                                           \
+    register t4 _a4 asm("r10") = a4;                                           \
+    register t5 _a5 asm("r8") = a5;                                            \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
@@ -148,12 +148,12 @@
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
-    register unsigned long _a1 asm("rdi") = (unsigned long)a1;                 \
-    register unsigned long _a2 asm("rsi") = (unsigned long)a2;                 \
-    register unsigned long _a3 asm("rdx") = (unsigned long)a3;                 \
-    register unsigned long _a4 asm("r10") = (unsigned long)a4;                 \
-    register unsigned long _a5 asm("r8") = (unsigned long)a5;                  \
-    register unsigned long _a6 asm("r9") = (unsigned long)a6;                  \
+    register t1 _a1 asm("rdi") = a1;                                           \
+    register t2 _a2 asm("rsi") = a2;                                           \
+    register t3 _a3 asm("rdx") = a3;                                           \
+    register t4 _a4 asm("r10") = a4;                                           \
+    register t5 _a5 asm("r8") = a5;                                            \
+    register t6 _a6 asm("r9") = a6;                                            \
                                                                                \
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
