@@ -506,6 +506,8 @@ static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
 
+static _INL void *_jove_allocate_stack(void);
+
 static _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
 void _jove_trace_init(void);
@@ -572,7 +574,7 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   {
     unsigned len = _get_stack_end() - sp_addr;
 
-    char *const env_stack_end_addr = &__jove_stack[sizeof(__jove_stack)];
+    char *const env_stack_end_addr = _jove_allocate_stack();
     char *env_sp_addr = env_stack_end_addr - len;
 
     _memcpy(env_sp_addr, (void *)sp_addr, len);
@@ -793,27 +795,24 @@ void _jove_trace_init(void) {
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
   if (fd < 0) {
     __builtin_trap();
-
-    return;
+    __builtin_unreachable();
   }
 
   off_t size = 1UL << 31; /* 2 GiB */
   if (_jove_sys_ftruncate(fd, size) < 0) {
     __builtin_trap();
-
-    _jove_sys_close(fd);
-    return;
+    __builtin_unreachable();
   }
 
-  void *p = (void *)_jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE,
-                                   MAP_SHARED, fd, 0);
+  long ret =
+      _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
-  if (p == MAP_FAILED) {
+  if (ret < 0) {
     __builtin_trap();
-
-    _jove_sys_close(fd);
-    return;
+    __builtin_unreachable();
   }
+
+  void *p = (void *)ret;
 
   __jove_trace = p;
 }
@@ -1156,4 +1155,34 @@ void _jove_install_vdso_and_dynl_function_tables(void) {
   ___jove_function_tables[1] = dynl_fn_tbl;
   /* __jove_function_tables[2] is the VDSO. */
   ___jove_function_tables[2] = vdso_fn_tbl;
+}
+
+#define JOVE_STACK_SIZE (1024 * 1024)
+#define JOVE_PAGE_SIZE 4096
+
+void *_jove_allocate_stack(void) {
+  long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = (unsigned long)ret;
+  unsigned long end = beg + JOVE_STACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  return (void *)(end - JOVE_PAGE_SIZE - sizeof(unsigned long));
 }
