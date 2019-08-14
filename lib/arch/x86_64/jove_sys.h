@@ -36,8 +36,8 @@
 #endif
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(void) {                    \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -50,8 +50,8 @@
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1) {                   \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1) {                            \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -66,8 +66,8 @@
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1, t2 a2) {            \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2) {                     \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -83,8 +83,8 @@
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {     \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {              \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -101,9 +101,8 @@
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1, t2 a2, t3 a3,       \
-                                                    t4 a4) {                   \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {       \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -121,9 +120,9 @@
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1, t2 a2, t3 a3,       \
-                                                    t4 a4, t5 a5) {            \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,         \
+                                           t5 a5) {                            \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
@@ -142,9 +141,9 @@
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR unsigned long _jove_sys_##nm(t1 a1, t2 a2, t3 a3,       \
-                                                    t4 a4, t5 a5, t6 a6) {     \
-    unsigned long _ret;                                                        \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5,  \
+                                           t6 a6) {                            \
+    long _ret;                                                                 \
                                                                                \
     register unsigned long _nr asm("rax") = nr;                                \
                                                                                \
