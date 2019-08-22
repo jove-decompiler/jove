@@ -33,7 +33,7 @@ def stop_reason_to_str(enum):
     else:
         raise Exception("Unknown StopReason enum")
 
-def trace_insns(debugger, command, result, dict):
+def trace_insns(debugger, command, result, internal_dict):
     """
   TODO explain here what this thing does
     """
@@ -49,12 +49,23 @@ def trace_insns(debugger, command, result, dict):
         print("no target")
         return
 
+    # Don't return from lldb function calls until the process stops.
+    debugger.SetAsync(False)
+
     launch_info = target.GetLaunchInfo()
     argv = [launch_info.GetArgumentAtIndex(i) for i in list(range(launch_info.GetNumArguments()))]
     #print(argv)
 
+    env = dict(os.environ)
+    env["LD_BIND_NOW"] = "1"
+
+    envp = ['%s=%s' % (key, val) for key, val in env.items()]
+
+    print(argv)
+    print(envp)
+
     err = lldb.SBError()
-    process = target.Launch(debugger.GetListener(), argv, None, None, None, None, None, 0, True, err)
+    process = target.Launch(debugger.GetListener(), argv, envp, None, None, None, None, 0, True, err)
     if not err.Success():
         print("Error during launch: " + str(err))
         return
@@ -97,6 +108,7 @@ def trace_insns(debugger, command, result, dict):
     #
     target.BreakpointDelete(entry_bp.GetID())
 
+
     # get the thread
     thread = process.GetSelectedThread()
     if not thread:
@@ -110,13 +122,18 @@ def trace_insns(debugger, command, result, dict):
             print(error)
             break
 
-        reason = thread.GetStopReason();
         #debugger.HandleCommand("target module lookup -a $pc")
+
+        reason = thread.GetStopReason();
         if reason != lldb.eStopReasonPlanComplete:
             print('stop reason is %s' % stop_reason_to_str(reason))
             break
 
-        print(thread.GetFrameAtIndex(0))
+        try:
+            print(thread.GetFrameAtIndex(0))
+        except UnicodeDecodeError:
+            print("UnicodeDecodeError")
+            continue
 
 def create_trace_insns_options():
     usage = "usage: %prog"

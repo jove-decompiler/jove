@@ -39,6 +39,9 @@ def jove_trace(debugger, command, result, internal_dict):
         print("no target")
         return
 
+    # Don't return from lldb function calls until the process stops.
+    debugger.SetAsync(False)
+
     launch_info = target.GetLaunchInfo()
     argv = [launch_info.GetArgumentAtIndex(i) for i in list(range(launch_info.GetNumArguments()))]
 
