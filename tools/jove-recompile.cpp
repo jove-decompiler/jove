@@ -107,7 +107,7 @@ static const char *compiler_runtime_afp =
 
 static int await_process_completion(pid_t);
 
-static void print_command(std::vector<char *> &arg_vec);
+static void print_command(const char **argv);
 
 static std::string jove_llvm_path, llc_path, lld_path, opt_path;
 static std::string dyn_linker_path;
@@ -278,45 +278,36 @@ int recompile(void) {
       sigaction(SIGINT, &sa, nullptr);
     }
 
-    std::vector<char *> arg_vec;
+    std::vector<const char *> arg_vec = {
+      lld_path.c_str(),
+      "-o", exe_fp.c_str(),
+      "-m", "elf_" ___JOVE_ARCH_NAME,
+      "-dynamic-linker", dyn_linker_path.c_str(),
+      "-pie",
+      "-e", "__jove_start",
+      "-nostdlib",
+      "-z", "nodefaultlib",
+      "-z", "origin",
 
-    arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
-
-    arg_vec.push_back(const_cast<char *>("-o"));
-    arg_vec.push_back(const_cast<char *>(exe_fp.c_str()));
-
-    arg_vec.push_back(const_cast<char *>("-m"));
-    arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
-
-    arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
-    arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
-
-    arg_vec.push_back(const_cast<char *>("-pie"));
-
-    arg_vec.push_back(const_cast<char *>("-e"));
-    arg_vec.push_back(const_cast<char *>("__jove_start"));
-
-    arg_vec.push_back(const_cast<char *>("-nostdlib"));
-
-    arg_vec.push_back(const_cast<char *>("-z"));
-    arg_vec.push_back(const_cast<char *>("nodefaultlib"));
-
-    arg_vec.push_back(const_cast<char *>("-z"));
-    arg_vec.push_back(const_cast<char *>("origin"));
-
-    arg_vec.push_back(const_cast<char *>(exe_objfp.c_str()));
+      exe_objfp.c_str(),
+      "--push-state",
+      "--as-needed",
+      compiler_runtime_afp,
+      "--pop-state",
+      dyn_linker_path.c_str()
+    };
 
     for (const fs::path &sofp : sofp_vec) {
       // /path/to/libfoo.so -> "-lfoo"
       std::string &Ldir = *new std::string(sofp.parent_path().string());
 
-      arg_vec.push_back(const_cast<char *>("-L"));
-      arg_vec.push_back(const_cast<char *>(Ldir.c_str()));
+      arg_vec.push_back("-L");
+      arg_vec.push_back(Ldir.c_str());
 
       std::string &lStr = *new std::string(':' + sofp.filename().string());
 
-      arg_vec.push_back(const_cast<char *>("-l"));
-      arg_vec.push_back(const_cast<char *>(lStr.c_str()));
+      arg_vec.push_back("-l");
+      arg_vec.push_back(lStr.c_str());
 
       std::string &rpathStr =
           *new std::string(std::string("-rpath=$ORIGIN/") +
@@ -324,22 +315,15 @@ int recompile(void) {
                                .parent_path()
                                .string());
 
-      arg_vec.push_back(const_cast<char *>(rpathStr.c_str()));
+      arg_vec.push_back(rpathStr.c_str());
     }
-
-    arg_vec.push_back(const_cast<char *>("--push-state"));
-    arg_vec.push_back(const_cast<char *>("--as-needed"));
-    arg_vec.push_back(const_cast<char *>(compiler_runtime_afp));
-    arg_vec.push_back(const_cast<char *>("--pop-state"));
-
-    arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
 
     arg_vec.push_back(nullptr);
 
-    print_command(arg_vec);
+    print_command(&arg_vec[0]);
 
     close(STDIN_FILENO);
-    execve(arg_vec.front(), arg_vec.data(), ::environ);
+    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     return 0;
   }
 
@@ -418,26 +402,25 @@ static void worker(void) {
         sigaction(SIGINT, &sa, nullptr);
       }
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>(jove_llvm_path.c_str()));
-      arg_vec.push_back(const_cast<char *>("-decompilation"));
-      arg_vec.push_back(const_cast<char *>(opts::jv.c_str()));
-      arg_vec.push_back(const_cast<char *>("-binary"));
-      arg_vec.push_back(const_cast<char *>(binary_filename.c_str()));
+      std::vector<const char *> arg_vec = {
+        jove_llvm_path.c_str(),
+        "-decompilation", opts::jv.c_str(),
+        "-binary", binary_filename.c_str(),
+        "-output", bcfp.c_str()
+      };
+
       if (opts::Trace)
-        arg_vec.push_back(const_cast<char *>("-trace"));
-      arg_vec.push_back(const_cast<char *>("-output"));
-      arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
+        arg_vec.push_back("-trace");
       arg_vec.push_back(nullptr);
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
 
       std::string stdoutfp = bcfp + ".txt";
       int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       dup2(stdoutfd, STDOUT_FILENO);
 
       close(STDIN_FILENO);
-      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
       return;
     }
 
@@ -473,18 +456,17 @@ static void worker(void) {
         sigaction(SIGINT, &sa, nullptr);
       }
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>(opt_path.c_str()));
-      arg_vec.push_back(const_cast<char *>("-o"));
-      arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
-      arg_vec.push_back(const_cast<char *>("-Os"));
-      arg_vec.push_back(const_cast<char *>(bcfp.c_str()));
-      arg_vec.push_back(nullptr);
+      const char *arg_vec[] = {
+        opt_path.c_str(),
+        "-o", optbcfp.c_str(),
+        "-Os", bcfp.c_str(),
+        nullptr
+      };
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
-      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
       return;
     }
 
@@ -517,20 +499,20 @@ skip_opt:
         sigaction(SIGINT, &sa, nullptr);
       }
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>(llc_path.c_str()));
-      arg_vec.push_back(const_cast<char *>("-o"));
-      arg_vec.push_back(const_cast<char *>(objfp.c_str()));
-      arg_vec.push_back(const_cast<char *>("-filetype=obj"));
-      arg_vec.push_back(const_cast<char *>("-relocation-model=pic"));
-      arg_vec.push_back(const_cast<char *>("-frame-pointer=all"));
-      arg_vec.push_back(const_cast<char *>(optbcfp.c_str()));
-      arg_vec.push_back(nullptr);
+      const char *arg_vec[] = {
+        llc_path.c_str(),
+        "-o", objfp.c_str(),
+        "-filetype=obj",
+        "-relocation-model=pic",
+        "-frame-pointer=all",
+        optbcfp.c_str(),
+        nullptr
+      };
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
-      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
       return;
     }
 
@@ -565,49 +547,28 @@ skip_opt:
         sigaction(SIGINT, &sa, nullptr);
       }
 
-      std::vector<char *> arg_vec;
-
-      arg_vec.push_back(const_cast<char *>(lld_path.c_str()));
-
-      arg_vec.push_back(const_cast<char *>("-o"));
-      arg_vec.push_back(const_cast<char *>(sofp.c_str()));
-
-      arg_vec.push_back(const_cast<char *>("-m"));
-      arg_vec.push_back(const_cast<char *>("elf_" ___JOVE_ARCH_NAME));
-
-      arg_vec.push_back(const_cast<char *>("-dynamic-linker"));
-      arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
-
-#if 0
-      arg_vec.push_back(const_cast<char *>("-e"));
-      arg_vec.push_back(const_cast<char *>("__jove_start"));
-#endif
-
-      arg_vec.push_back(const_cast<char *>("-nostdlib"));
-
-      arg_vec.push_back(const_cast<char *>("-z"));
-      arg_vec.push_back(const_cast<char *>("nodefaultlib"));
-
-      arg_vec.push_back(const_cast<char *>("-z"));
-      arg_vec.push_back(const_cast<char *>("origin"));
-
-      arg_vec.push_back(const_cast<char *>("-shared"));
-
-      arg_vec.push_back(const_cast<char *>(objfp.c_str()));
-
-      arg_vec.push_back(const_cast<char *>("--push-state"));
-      arg_vec.push_back(const_cast<char *>("--as-needed"));
-      arg_vec.push_back(const_cast<char *>(compiler_runtime_afp));
-      arg_vec.push_back(const_cast<char *>("--pop-state"));
-
-      arg_vec.push_back(const_cast<char *>(dyn_linker_path.c_str()));
-
-      arg_vec.push_back(nullptr);
+      const char *arg_vec[] = {
+        lld_path.c_str(),
+        "-o", sofp.c_str(),
+        "-m", "elf_" ___JOVE_ARCH_NAME,
+        "-dynamic-linker", dyn_linker_path.c_str(),
+        "-nostdlib",
+        "-z", "nodefaultlib",
+        "-z", "origin",
+        "-shared",
+        objfp.c_str(),
+        "--push-state",
+        "--as-needed",
+        compiler_runtime_afp,
+        "--pop-state",
+        dyn_linker_path.c_str(),
+        nullptr
+      };
 
       print_command(arg_vec);
 
       close(STDIN_FILENO);
-      execve(arg_vec.front(), arg_vec.data(), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
       return;
     }
 
@@ -671,9 +632,9 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
-void print_command(std::vector<char *> &arg_vec) {
-  for (char *s : arg_vec)
-    llvm::outs() << s << ' ';
+void print_command(const char **argv) {
+  for (const char **s = argv; *s; ++s)
+    llvm::outs() << *s << ' ';
 
   llvm::outs() << '\n';
 }
