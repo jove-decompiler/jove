@@ -134,9 +134,6 @@ int extract(void) {
   }
 
   for (binary_t &b : Decompilation.Binaries) {
-    if (b.IsVDSO)
-      continue;
-
     fs::path out_path = fs::path(opts::OutDir) / fs::path(b.Path).filename();
 
     {
