@@ -39,21 +39,25 @@ BINDIR := bin
 # find tools
 #
 TOOLSRCDIR := tools
-TOOLSRCS  := $(wildcard $(TOOLSRCDIR)/*.cpp)
-TOOLS := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
-TOOLBINS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
-TOOLDEPS  := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
+TOOLSRCS   := $(wildcard $(TOOLSRCDIR)/*.cpp)
+TOOLS      := $(patsubst $(TOOLSRCDIR)/%.cpp,%,$(TOOLSRCS))
+TOOLBINS   := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool))
+TOOLDEPS   := $(foreach tool,$(TOOLS),$(BINDIR)/$(tool).d)
 
 #
 # find utils
 #
 UTILSRCDIR := utils
-UTILSRCS  := $(wildcard $(UTILSRCDIR)/*.cpp)
-UTILS := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
-UTILBINS  := $(foreach util,$(UTILS),$(BINDIR)/$(util))
-UTILDEPS  := $(foreach util,$(UTILS),$(BINDIR)/$(util).d)
+UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.cpp)
+UTILS      := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
+UTILBINS   := $(foreach util,$(UTILS),$(BINDIR)/$(util))
+UTILDEPS   := $(foreach util,$(UTILS),$(BINDIR)/$(util).d)
 
-all: $(UTILBINS) $(TOOLBINS)
+JOVE_RT_SO     := libjove_rt.so
+JOVE_RT_SONAME := $(JOVE_RT_SO).0
+JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
+
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT)
 
 define build_tool_template
 $(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp Makefile
@@ -88,6 +92,11 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@mkdir -p $(BINDIR)/jove
 	@echo GEN $@
 	@$< > $@
+
+$(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
+	@echo CC $<
+	@clang -o $@ -nostdlib -fno-stack-protector -Ofast -fPIC -g -shared $<
+	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
