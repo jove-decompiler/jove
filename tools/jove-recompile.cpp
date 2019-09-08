@@ -665,6 +665,7 @@ skip_opt:
         lld_path.c_str(),
         "-o", sofp.c_str(),
         "-m", "elf_" ___JOVE_ARCH_NAME,
+        "-e", "__jove_start",
 #if 0
         "-nostdlib",
         "-z", "nodefaultlib",

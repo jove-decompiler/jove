@@ -949,7 +949,11 @@ int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
   const char *bootstrap_mod_name =
+#if 0
       Decompilation.Binaries[BinaryIndex].IsExecutable ? "jove_start" : "jove";
+#else
+      "jove";
+#endif
 
   std::string bootstrap_mod_path =
       (boost::dll::program_location().parent_path() /
@@ -3284,10 +3288,13 @@ int CreateFunctionTable(void) {
       "__jove_function_table");
 
   llvm::Function *StoresFnTblPtrF;
+#if 0
   if (binary.IsExecutable) {
+#endif
     StoresFnTblPtrF = Module->getFunction("_jove_install_function_table");
 
     assert(StoresFnTblPtrF);
+#if 0
   } else {
     assert(!Module->getFunction("_jove_install_function_table"));
 
@@ -3296,6 +3303,7 @@ int CreateFunctionTable(void) {
                                llvm::GlobalValue::InternalLinkage,
                                "_jove_install_function_table", Module.get());
   }
+#endif
 
   assert(StoresFnTblPtrF->empty());
 
@@ -3312,10 +3320,16 @@ int CreateFunctionTable(void) {
     IRB.CreateRetVoid();
   }
 
+#if 0
   if (binary.IsExecutable)
+#endif
     StoresFnTblPtrF->setLinkage(llvm::GlobalValue::InternalLinkage);
+#if 0
   else
     llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
+#endif
+
+  llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
 
   return 0;
 }
@@ -4866,7 +4880,7 @@ int CreateFSBaseGlobal(void) {
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-  if (Binary.IsExecutable) {
+  if (true /* Binary.IsExecutable */) {
     llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
     assert(TraceEnabledF);
     assert(TraceEnabledF->empty());
@@ -4882,9 +4896,10 @@ int FixupHelperStubs(void) {
     TraceEnabledF->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
-  if (Binary.IsExecutable) {
+  if (Binary.IsExecutable)
     assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
+  if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
     llvm::Function *CallEntryF = Module->getFunction("_jove_call_entry");
     assert(CallEntryF);
     assert(CallEntryF->empty());
