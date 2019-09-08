@@ -447,9 +447,9 @@ typedef struct CPUX86State {
 
 #include <stddef.h>
 
-/* __thread */ struct CPUX86State __jove_env;
-/* __thread */ char __jove_stack[0x100000];
-/* __thread */ uint64_t *__jove_trace;
+extern /* __thread */ struct CPUX86State __jove_env;
+extern /* __thread */ char __jove_stack[0x100000];
+extern /* __thread */ uint64_t *__jove_trace;
 
 #define _JOVE_MAX_BINARIES 512
 

@@ -13,10 +13,13 @@
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Object/ELF.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 #include <sys/types.h>
@@ -32,8 +35,12 @@
 #include <boost/serialization/set.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 
+#define JOVE_RT_SO "libjove_rt.so"
+#define JOVE_RT_SONAME JOVE_RT_SO ".0"
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+namespace obj = llvm::object;
 
 using llvm::WithColor;
 
@@ -109,12 +116,22 @@ static int await_process_completion(pid_t);
 
 static void print_command(const char **argv);
 
-static std::string jove_llvm_path, llc_path, lld_path, opt_path;
+static std::string jove_llvm_path, jove_bin_path, jove_rt_path, llc_path,
+    lld_path, opt_path;
 static std::string dyn_linker_path;
 
 static std::atomic<bool> Cancel(false);
 
 static void handle_sigint(int);
+
+struct dynamic_linking_info_t {
+  std::string soname;
+  std::vector<std::string> needed_vec;
+  std::string interp;
+};
+
+static bool dynamic_linking_info_of_binary(binary_t &,
+                                           dynamic_linking_info_t &out);
 
 int recompile(void) {
   if (!fs::exists(compiler_runtime_afp) ||
@@ -149,6 +166,16 @@ int recompile(void) {
     return 1;
   }
 
+  jove_bin_path = boost::dll::program_location().parent_path().string();
+
+  jove_rt_path = (boost::dll::program_location().parent_path() /
+                  std::string(JOVE_RT_SONAME))
+                     .string();
+  if (!fs::exists(jove_rt_path)) {
+    WithColor::error() << "could not find JOVE_RT_SONAME\n";
+    return 1;
+  }
+
   llc_path = "/usr/bin/llc";
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
@@ -180,8 +207,10 @@ int recompile(void) {
   fs::path jvpath(opts::jv);
   if (fs::is_directory(jvpath))
     jvpath /= "decompilation.jv";
-  if (!fs::exists(jvpath) || fs::is_directory(jvpath))
+  if (!fs::exists(jvpath) || fs::is_directory(jvpath)) {
+    WithColor::error() << "can't find decompilation.jv\n";
     return 1;
+  }
 
   //
   // parse the existing decompilation file
@@ -252,6 +281,9 @@ int recompile(void) {
 
   std::string exe_fp;
   std::string exe_objfp;
+
+  dynamic_linking_info_t exe;
+
   for (binary_t &b : Decompilation.Binaries) {
     if (!b.IsExecutable)
       continue;
@@ -261,11 +293,20 @@ int recompile(void) {
     fs::path chrooted_path(opts::Output + b.Path);
     exe_objfp = chrooted_path.string() + ".o";
 
+    if (!dynamic_linking_info_of_binary(b, exe)) {
+      WithColor::error() << llvm::formatv(
+          "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
+      return 1;
+    }
+
     break;
   }
   assert(!exe_objfp.empty());
   assert(!exe_fp.empty());
 
+  //
+  // link executable
+  //
   pid_t pid = fork();
   if (!pid) {
     {
@@ -282,21 +323,34 @@ int recompile(void) {
       lld_path.c_str(),
       "-o", exe_fp.c_str(),
       "-m", "elf_" ___JOVE_ARCH_NAME,
-      "-dynamic-linker", dyn_linker_path.c_str(),
       "-pie",
       "-e", "__jove_start",
+#if 0
       "-nostdlib",
       "-z", "nodefaultlib",
       "-z", "origin",
+#endif
 
       exe_objfp.c_str(),
       "--push-state",
       "--as-needed",
       compiler_runtime_afp,
       "--pop-state",
+#if 0
       dyn_linker_path.c_str()
+#endif
+      "-L", "/usr/lib",
+      "-L", jove_bin_path.c_str(), "-ljove_rt"
     };
 
+    std::string exe_interp_canon = fs::canonical(exe.interp).string();
+
+    if (!exe.interp.empty()) {
+      arg_vec.push_back("-dynamic-linker");
+      arg_vec.push_back(exe_interp_canon.c_str());
+    }
+
+#if 0
     for (const fs::path &sofp : sofp_vec) {
       // /path/to/libfoo.so -> "-lfoo"
       std::string &Ldir = *new std::string(sofp.parent_path().string());
@@ -316,6 +370,19 @@ int recompile(void) {
                                .string());
 
       arg_vec.push_back(rpathStr.c_str());
+    }
+#endif
+
+    std::string exe_soname_arg = std::string("-soname=") + exe.soname;
+
+    if (!exe.soname.empty())
+      arg_vec.push_back(exe_soname_arg.c_str());
+
+    for (std::string &needed : exe.needed_vec) {
+      arg_vec.push_back("-l");
+
+      needed.insert(0, 1, ':');
+      arg_vec.push_back(needed.c_str());
     }
 
     arg_vec.push_back(nullptr);
@@ -347,7 +414,55 @@ int recompile(void) {
     fs::path chrooted_path(opts::Output + b.Path);
     fs::create_directories(chrooted_path.parent_path());
     fs::copy(b.Path, chrooted_path);
+
+    {
+      dynamic_linking_info_t rtld;
+      if (!dynamic_linking_info_of_binary(b, rtld)) {
+        WithColor::error() << llvm::formatv(
+            "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
+        return 1;
+      }
+
+      if (!rtld.soname.empty()) {
+        std::string binary_filename = fs::path(b.Path).filename().string();
+
+        fs::create_symlink(binary_filename,
+                           chrooted_path.parent_path() / rtld.soname);
+      }
+    }
+
     break;
+  }
+
+  //
+  // copy jove runtime
+  //
+  {
+    {
+      fs::path chrooted_path(opts::Output + std::string("/usr/lib/" JOVE_RT_SONAME));
+      fs::create_directories(chrooted_path.parent_path());
+
+      fs::copy(jove_rt_path, chrooted_path);
+    }
+
+    {
+      fs::path chrooted_path(opts::Output + std::string("/usr/lib/" JOVE_RT_SO));
+      fs::create_directories(chrooted_path.parent_path());
+
+      fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
+    }
+  }
+
+  //
+  // create basic directories (for chroot)
+  //
+  {
+    std::vector<std::string> sys_dirs = {"proc", "sys", "dev", "run", "tmp"};
+
+    for (const std::string &sys_dir : sys_dirs) {
+      fs::path chrooted_sys_dir = fs::path(opts::Output) / sys_dir;
+      fs::create_directories(chrooted_sys_dir);
+    }
   }
 
   return 0;
@@ -383,7 +498,6 @@ static void worker(void) {
 
     const fs::path chrooted_path(opts::Output + b.Path);
 
-    fs::create_directories(chrooted_path.parent_path());
     fs::create_directories(chrooted_path.parent_path());
 
     std::string bcfp(chrooted_path.string() + ".bc");
@@ -547,25 +661,61 @@ skip_opt:
         sigaction(SIGINT, &sa, nullptr);
       }
 
-      const char *arg_vec[] = {
+      std::vector<const char *> arg_vec = {
         lld_path.c_str(),
         "-o", sofp.c_str(),
         "-m", "elf_" ___JOVE_ARCH_NAME,
-        "-dynamic-linker", dyn_linker_path.c_str(),
+#if 0
         "-nostdlib",
         "-z", "nodefaultlib",
         "-z", "origin",
+#endif
         "-shared",
         objfp.c_str(),
         "--push-state",
         "--as-needed",
         compiler_runtime_afp,
         "--pop-state",
+#if 0
         dyn_linker_path.c_str(),
-        nullptr
+#endif
+        "-L", "/usr/lib",
+        "-L", jove_bin_path.c_str(), "-ljove_rt"
       };
 
-      print_command(arg_vec);
+      dynamic_linking_info_t so;
+      if (!dynamic_linking_info_of_binary(b, so)) {
+        WithColor::error() << llvm::formatv(
+            "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
+        exit(1);
+      }
+
+      std::string so_interp_canon = fs::canonical(so.interp).string();
+
+      if (!so.interp.empty()) {
+        arg_vec.push_back("-dynamic-linker");
+        arg_vec.push_back(so_interp_canon.c_str());
+      }
+
+      std::string soname_arg = std::string("-soname=") + so.soname;
+
+      if (!so.soname.empty()) {
+        arg_vec.push_back(soname_arg.c_str());
+
+        fs::create_symlink(binary_filename,
+                           chrooted_path.parent_path() / so.soname);
+      }
+
+      for (std::string &needed : so.needed_vec) {
+        arg_vec.push_back("-l");
+
+        needed.insert(0, 1, ':');
+        arg_vec.push_back(needed.c_str());
+      }
+
+      arg_vec.push_back(nullptr);
+
+      print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
@@ -637,6 +787,220 @@ void print_command(const char **argv) {
     llvm::outs() << *s << ' ';
 
   llvm::outs() << '\n';
+}
+
+/// Represents a contiguous uniform range in the file. We cannot just create a
+/// range directly because when creating one of these from the .dynamic table
+/// the size, entity size and virtual address are different entries in arbitrary
+/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
+struct DynRegionInfo {
+  DynRegionInfo() = default;
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES) {}
+
+  /// Address in current address space.
+  const void *Addr = nullptr;
+  /// Size in bytes of the region.
+  uint64_t Size = 0;
+  /// Size of each entity in the region.
+  uint64_t EntSize = 0;
+
+  template <typename Type>
+    llvm::ArrayRef<Type> getAsArrayRef() const {
+    const Type *Start = reinterpret_cast<const Type *>(Addr);
+    if (!Start)
+      return {Start, Start};
+    if (EntSize != sizeof(Type) || Size % EntSize)
+      abort();
+    return {Start, Start + (Size / EntSize)};
+  }
+};
+
+template <class T>
+static T unwrapOrError(llvm::Expected<T> EO) {
+  if (EO)
+    return *EO;
+
+  std::string Buf;
+  {
+    llvm::raw_string_ostream OS(Buf);
+    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
+  }
+  WithColor::error() << Buf << '\n';
+  exit(1);
+}
+
+#if defined(__x86_64__) || defined(__aarch64__)
+typedef typename obj::ELF64LEObjectFile ELFO;
+typedef typename obj::ELF64LEFile ELFT;
+#elif defined(__i386__)
+typedef typename obj::ELF32LEObjectFile ELFO;
+typedef typename obj::ELF32LEFile ELFT;
+#endif
+
+static bool verify_arch(const obj::ObjectFile &);
+
+bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
+  //
+  // parse the ELF
+  //
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
+                         b.Data.size());
+  llvm::StringRef Identifier(b.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from" << b.Path << '\n';
+    return false;
+  }
+
+  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+  if (!llvm::isa<ELFO>(Bin.get())) {
+    WithColor::error() << "is not ELF of expected type\n";
+    return false;
+  }
+
+  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+  if (!verify_arch(O)) {
+    WithColor::error() << "architecture mismatch of input\n";
+    return false;
+  }
+
+  const ELFT &E = *O.getELFFile();
+
+  typedef typename ELFT::Elf_Dyn Elf_Dyn;
+  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFT::Elf_Phdr Elf_Phdr;
+  typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
+  typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+  typedef typename ELFT::Elf_Sym Elf_Sym;
+  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFT::Elf_Rela Elf_Rela;
+
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
+
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
+
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
+    }
+  }
+
+  assert(DynamicTable.Addr);
+
+  //
+  // parse dynamic table
+  //
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  llvm::StringRef DynamicStringTable;
+  {
+
+    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        break;
+      case llvm::ELF::DT_STRSZ:
+        StringTableSize = Dyn.getVal();
+        break;
+      case llvm::ELF::DT_NEEDED:
+        break;
+      }
+    };
+
+    if (StringTableBegin)
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  std::vector<uint64_t> needed_offsets;
+  uint64_t SONameOffset = 0;
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_SONAME:
+      SONameOffset = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_NEEDED:
+      needed_offsets.push_back(Dyn.getVal());
+      break;
+    }
+  }
+
+  if (!SONameOffset || SONameOffset > DynamicStringTable.size())
+    ; // no soname
+  else
+    out.soname = DynamicStringTable.data() + SONameOffset;
+
+  for (uint64_t off : needed_offsets) {
+    if (!off || off > DynamicStringTable.size())
+      ; // no soname
+    else
+      out.needed_vec.push_back(DynamicStringTable.data() + off);
+  }
+
+  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+    if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+      out.interp = Buffer.data() + Phdr.p_offset;
+      break;
+    }
+  }
+
+  return true;
+}
+
+bool verify_arch(const obj::ObjectFile &Obj) {
+#if defined(__x86_64__)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
+#elif defined(__i386__)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86;
+#elif defined(__aarch64__)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
+#endif
+  return Obj.getArch() == archty;
 }
 
 }
