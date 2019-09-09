@@ -117,7 +117,7 @@ static int await_process_completion(pid_t);
 static void print_command(const char **argv);
 
 static std::string jove_llvm_path, jove_bin_path, jove_rt_path, llc_path,
-    lld_path, opt_path;
+    ld_path, opt_path;
 static std::string dyn_linker_path;
 
 static std::atomic<bool> Cancel(false);
@@ -182,9 +182,9 @@ int recompile(void) {
     return 1;
   }
 
-  lld_path = "/usr/bin/ld.lld";
-  if (!fs::exists(lld_path)) {
-    WithColor::error() << "could not find /usr/bin/ld.lld\n";
+  ld_path = "/usr/bin/ld";
+  if (!fs::exists(ld_path)) {
+    WithColor::error() << "could not find /usr/bin/ld\n";
     return 1;
   }
 
@@ -320,7 +320,7 @@ int recompile(void) {
     }
 
     std::vector<const char *> arg_vec = {
-      lld_path.c_str(),
+      ld_path.c_str(),
       "-o", exe_fp.c_str(),
       "-m", "elf_" ___JOVE_ARCH_NAME,
       "-pie",
@@ -662,7 +662,7 @@ skip_opt:
       }
 
       std::vector<const char *> arg_vec = {
-        lld_path.c_str(),
+        ld_path.c_str(),
         "-o", sofp.c_str(),
         "-m", "elf_" ___JOVE_ARCH_NAME,
         "-e", "__jove_start",
