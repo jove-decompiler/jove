@@ -6,6 +6,9 @@
 #include <boost/filesystem.hpp>
 #include <sys/wait.h>
 #include <sys/mount.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 namespace fs = boost::filesystem;
 
@@ -140,6 +143,31 @@ int run(void) {
       fprintf(stderr, "mounting /tmp failed : %s\n", strerror(errno));
   }
 
+  {
+    fs::path chrooted_resolv_conf =
+        fs::path(opts::sysroot) / "etc" / "resolv.conf";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_resolv_conf)) {
+      int fd = open(chrooted_resolv_conf.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create /etc/resolv.conf : %s\n",
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path resolv_conf_path = fs::canonical("/etc/resolv.conf");
+
+    if (mount(resolv_conf_path.c_str(), chrooted_resolv_conf.c_str(), "",
+              MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting /etc/resolv.conf failed : %s\n",
+              strerror(errno));
+  }
+
 #if 0
   {
     std::string input;
@@ -161,6 +189,15 @@ int run(void) {
   }
 
   int ret = await_process_completion(pid);
+
+  {
+    fs::path chrooted_resolv_conf =
+        fs::path(opts::sysroot) / "etc" / "resolv.conf";
+
+    if (umount2(chrooted_resolv_conf.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting /etc/resolv.conf failed : %s\n",
+              strerror(errno));
+  }
 
   {
     fs::path subdir(opts::sysroot);
