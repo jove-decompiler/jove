@@ -99,7 +99,7 @@ $(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
-	@clang -o $@ -c -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall $<
+	@clang -o $@ -c -emit-llvm -fPIC -I lib -g -O3 -fno-stack-protector -Wall $<
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
