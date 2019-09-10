@@ -453,4 +453,6 @@ typedef struct CPUX86State {
 
 #define _JOVE_MAX_BINARIES 512
 
-uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
+uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
+    [0 ... _JOVE_MAX_BINARIES - 1] = NULL
+};
