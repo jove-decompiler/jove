@@ -81,8 +81,7 @@ int ParseCommandLineArguments(int argc, char **argv) {
 
 int run(void) {
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "proc";
+    fs::path subdir = fs::path(opts::sysroot) / "proc";
 
     if (mount("proc", subdir.c_str(), "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC,
               nullptr) < 0)
@@ -90,8 +89,7 @@ int run(void) {
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "sys";
+    fs::path subdir = fs::path(opts::sysroot) / "sys";
 
     if (mount("sys", subdir.c_str(), "sysfs",
               MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, nullptr) < 0)
@@ -99,17 +97,14 @@ int run(void) {
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
+    fs::path subdir = fs::path(opts::sysroot) / "dev";
 
     if (mount("udev", subdir.c_str(), "devtmpfs", MS_NOSUID, "mode=0755") < 0)
       fprintf(stderr, "mounting devtmpfs failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
-    subdir /= "pts";
+    fs::path subdir = fs::path(opts::sysroot) / "dev" / "pts";
 
     if (mount("devpts", subdir.c_str(), "devpts", MS_NOSUID | MS_NOEXEC,
               "mode=0620,gid=5") < 0)
@@ -117,9 +112,7 @@ int run(void) {
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
-    subdir /= "shm";
+    fs::path subdir = fs::path(opts::sysroot) / "dev" / "shm";
 
     if (mount("shm", subdir.c_str(), "tmpfs", MS_NOSUID | MS_NODEV,
               "mode=1777") < 0)
@@ -127,16 +120,14 @@ int run(void) {
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "run";
+    fs::path subdir = fs::path(opts::sysroot) / "run";
 
     if (mount("/run", subdir.c_str(), "", MS_BIND, nullptr) < 0)
       fprintf(stderr, "mounting /run failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "tmp";
+    fs::path subdir = fs::path(opts::sysroot) / "tmp";
 
     if (mount("tmp", subdir.c_str(), "tmpfs",
               MS_NOSUID | MS_NODEV | MS_STRICTATIME, "mode=1777") < 0)
@@ -200,58 +191,49 @@ int run(void) {
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "tmp";
+    fs::path subdir = fs::path(opts::sysroot) / "tmp";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting /tmp failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "run";
+    fs::path subdir = fs::path(opts::sysroot) / "run";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting /run failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
-    subdir /= "shm";
+    fs::path subdir = fs::path(opts::sysroot) / "dev" / "shm";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting tmpfs failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
-    subdir /= "pts";
+    fs::path subdir = fs::path(opts::sysroot) / "dev" / "pts";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting devpts failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "dev";
+    fs::path subdir = fs::path(opts::sysroot) / "dev";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting devtmpfs failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "sys";
+    fs::path subdir = fs::path(opts::sysroot) / "sys";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting sysfs failed : %s\n", strerror(errno));
   }
 
   {
-    fs::path subdir(opts::sysroot);
-    subdir /= "proc";
+    fs::path subdir = fs::path(opts::sysroot) / "proc";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting procfs failed : %s\n", strerror(errno));
