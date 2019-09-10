@@ -140,7 +140,7 @@ int run(void) {
       fprintf(stderr, "mounting /tmp failed : %s\n", strerror(errno));
   }
 
-#if 1
+#if 0
   {
     std::string input;
     std::getline(std::cin, input);
