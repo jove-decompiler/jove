@@ -457,7 +457,8 @@ int recompile(void) {
   // create basic directories (for chroot)
   //
   {
-    std::vector<std::string> sys_dirs = {"proc", "sys", "dev", "run", "tmp"};
+    std::vector<std::string> sys_dirs = {"proc", "sys", "dev",
+                                         "run",  "tmp", "etc"};
 
     for (const std::string &sys_dir : sys_dirs) {
       fs::path chrooted_sys_dir = fs::path(opts::Output) / sys_dir;
