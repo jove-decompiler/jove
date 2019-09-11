@@ -155,6 +155,11 @@ int recompile(void) {
   }
 
   //
+  // create symlink back to jv
+  //
+  fs::create_symlink(fs::canonical(opts::jv), fs::path(opts::Output) / ".jv");
+
+  //
   // get paths to stuff
   //
   jove_llvm_path =
@@ -204,10 +209,7 @@ int recompile(void) {
 
   llvm::outs() << "tmpdir: " << tmpdir << '\n';
 
-  fs::path jvpath(opts::jv);
-  if (fs::is_directory(jvpath))
-    jvpath /= "decompilation.jv";
-  if (!fs::exists(jvpath) || fs::is_directory(jvpath)) {
+  if (!fs::exists(opts::jv)) {
     WithColor::error() << "can't find decompilation.jv\n";
     return 1;
   }
@@ -216,7 +218,9 @@ int recompile(void) {
   // parse the existing decompilation file
   //
   {
-    std::ifstream ifs(jvpath.string());
+    std::ifstream ifs(fs::is_directory(opts::jv)
+                          ? (fs::path(opts::jv) / "decompilation.jv").string()
+                          : opts::jv);
 
     boost::archive::binary_iarchive ia(ifs);
     ia >> Decompilation;

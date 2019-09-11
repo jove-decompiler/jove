@@ -3,7 +3,10 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <thread>
+#include <cinttypes>
 #include <boost/filesystem.hpp>
+#include <boost/dll/runtime_symbol_info.hpp>
 #include <sys/wait.h>
 #include <sys/mount.h>
 #include <sys/types.h>
@@ -68,8 +71,8 @@ int ParseCommandLineArguments(int argc, char **argv) {
       return 1;
     }
 
-    if (!fs::is_regular_file(chrooted_path)) {
-      fprintf(stderr, "supplied path to prog is not directory\n");
+    if (!fs::exists(chrooted_path)) {
+      fprintf(stderr, "supplied path to prog does not exist under sysroot\n");
       return 1;
     }
 
@@ -78,6 +81,8 @@ int ParseCommandLineArguments(int argc, char **argv) {
 
   return 0;
 }
+
+static void recover(int fd);
 
 int run(void) {
   {
@@ -166,19 +171,66 @@ int run(void) {
   }
 #endif
 
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    fprintf(stderr, "pipe failed : %s\n", strerror(errno));
+    return 1;
+  }
+
   int pid = fork();
   if (!pid) {
+    close(pipefd[0]);
+
     if (chroot(opts::sysroot) < 0) {
       fprintf(stderr, "chroot failed : %s\n", strerror(errno));
       return 1;
     }
 
-    execve(opts::prog_argv[0], opts::prog_argv, ::environ);
+    //
+    // compute new environment
+    //
+    struct {
+      std::vector<std::string> s_vec;
+      std::vector<const char *> a_vec;
+    } env;
+
+    for (char **p = ::environ; *p; ++p) {
+      const std::string s(*p);
+
+      auto beginswith = [&](const std::string &x) -> bool {
+        return s.compare(0, x.size(), x) == 0;
+      };
+
+      //
+      // filter pre-existing environment entries
+      //
+      if (beginswith("JOVE_RUN_COMMUNICATE_FD="))
+        continue;
+
+      env.s_vec.push_back(s);
+    }
+
+    env.s_vec.push_back(std::string("JOVE_RUN_COMMUNICATE_FD=") +
+                        std::to_string(pipefd[1]));
+
+    for (const std::string &s : env.s_vec)
+      env.a_vec.push_back(s.c_str());
+    env.a_vec.push_back(nullptr);
+
+    execve(opts::prog_argv[0], opts::prog_argv,
+           const_cast<char **>(&env.a_vec[0]));
 
     fprintf(stderr, "execve failed : %s\n", strerror(errno));
     return 1;
+  } else {
+    close(pipefd[1]);
   }
 
+  std::thread pipe_reader(recover, pipefd[0]);
+
+  //
+  // wait for process to exit
+  //
   int ret = await_process_completion(pid);
 
   {
@@ -239,7 +291,130 @@ int run(void) {
       fprintf(stderr, "unmounting procfs failed : %s\n", strerror(errno));
   }
 
+  pipe_reader.join();
+
   return ret;
+}
+
+void recover(int fd) {
+  //
+  // read from pipe
+  //
+  std::vector<uint8_t> bytes;
+  uint8_t byte;
+  while (read(fd, &byte, 1) > 0)
+    bytes.push_back(byte);
+
+  if (close(fd) < 0)
+    fprintf(stderr, "recover: couldn't close fd (%s)\n", strerror(errno));
+
+  if (bytes.empty())
+    return;
+
+  fprintf(stderr, "recover: %c (%zu bytes)\n", bytes[0], bytes.size());
+
+  //
+  // get paths to stuff
+  //
+  fs::path jove_recover_path =
+      boost::dll::program_location().parent_path() / "jove-recover";
+  if (!fs::exists(jove_recover_path)) {
+    fprintf(stderr, "recover: couldn't find jove-recover at %s\n",
+            jove_recover_path.c_str());
+    return;
+  }
+
+  fs::path jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
+  if (!fs::exists(jv_path)) {
+    fprintf(stderr, "recover: no jv found\n");
+    return;
+  }
+
+  switch (bytes[0]) {
+  case 'b': {
+    //
+    // goto
+    //
+    assert(bytes.size() == 1 + 2 * sizeof(uint32_t) + sizeof(uintptr_t));
+
+    struct {
+      uint32_t BIdx;
+      uint32_t BBIdx;
+    } IndBr;
+
+    uintptr_t FileAddr;
+
+    IndBr.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1]);
+    IndBr.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + sizeof(uint32_t)]);
+    FileAddr = *reinterpret_cast<uintptr_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
+
+    int pid = fork();
+    if (!pid) {
+      char buff[256];
+      snprintf(buff, sizeof(buff),
+               "--basic-block=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
+               IndBr.BIdx,
+               IndBr.BBIdx,
+               FileAddr);
+
+      const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                            buff, nullptr};
+      execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+      fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+      exit(1);
+    }
+
+    await_process_completion(pid);
+    break;
+  }
+
+  case 'f': {
+    //
+    // call
+    //
+    assert(bytes.size() == 1 + 4 * sizeof(uint32_t));
+
+    struct {
+      uint32_t BIdx;
+      uint32_t BBIdx;
+    } Caller;
+
+    struct {
+      uint32_t BIdx;
+      uint32_t FIdx;
+    } Callee;
+
+    Caller.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 0 * sizeof(uint32_t)]);
+    Caller.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + 1 * sizeof(uint32_t)]);
+
+    Callee.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
+    Callee.FIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 3 * sizeof(uint32_t)]);
+
+    int pid = fork();
+    if (!pid) {
+      char buff[256];
+      snprintf(buff, sizeof(buff),
+               "--dyn-target=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32,
+               Caller.BIdx,
+               Caller.BBIdx,
+               Callee.BIdx,
+               Callee.FIdx);
+
+      const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                            buff, nullptr};
+      execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+      fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+      exit(1);
+    }
+
+    await_process_completion(pid);
+    break;
+  }
+
+  default:
+    fprintf(stderr, "recover: unknown byte %02x\n", bytes[0]);
+    break;
+  }
 }
 
 void Usage(void) {

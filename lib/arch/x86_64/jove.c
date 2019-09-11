@@ -452,14 +452,9 @@ extern /* __thread */ char __jove_stack[0x100000];
 extern /* __thread */ uint64_t *__jove_trace;
 
 #define _JOVE_MAX_BINARIES 512
-
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
 /* static */ uintptr_t *___jove_function_tables[3] = {NULL, NULL, NULL};
-
-struct CPUX86State *jove_state(void) { return &__jove_env; }
-char               *jove_stack(void) { return &__jove_stack[0]; }
-uint64_t           *jove_trace(void) { return __jove_trace; }
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -496,6 +491,9 @@ static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
+static _INL int _atoi(const char *s);
+static _INL size_t _strlen(const char *s);
+static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL char *__findenv(const char *name, int len, int *offset);
@@ -536,11 +534,9 @@ void __jove_start(void) {
                "jmp _jove_start\n");
 }
 
-static struct {
-  int argc;
-  char **argv;
-  char **environ;
-} _jove_startup_info;
+extern int    _jove_startup_info_argc;
+extern char **_jove_startup_info_argv;
+extern char **_jove_startup_info_environ;
 
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
                  target_ulong rcx, target_ulong r8,
@@ -558,16 +554,16 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   {
     uintptr_t addr = sp_addr;
 
-    _jove_startup_info.argc = *((long *)addr);
+    _jove_startup_info_argc = *((long *)addr);
 
     addr += sizeof(long);
 
-    _jove_startup_info.argv = (char **)addr;
+    _jove_startup_info_argv = (char **)addr;
 
-    addr += _jove_startup_info.argc * sizeof(char *);
+    addr += _jove_startup_info_argc * sizeof(char *);
     addr += sizeof(char *);
 
-    _jove_startup_info.environ = (char **)addr;
+    _jove_startup_info_environ = (char **)addr;
   }
 
   //
@@ -601,14 +597,14 @@ char *__findenv(const char *name, int len, int *offset) {
   const char *np;
   char **p, *cp;
 
-  if (name == NULL || _jove_startup_info.environ == NULL)
+  if (name == NULL || _jove_startup_info_environ == NULL)
     return (NULL);
-  for (p = _jove_startup_info.environ + *offset; (cp = *p) != NULL; ++p) {
+  for (p = _jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
     for (np = name, i = len; i && *cp; i--)
       if (*cp++ != *np++)
         break;
     if (i == 0 && *cp++ == '=') {
-      *offset = p - _jove_startup_info.environ;
+      *offset = p - _jove_startup_info_environ;
       return (cp);
     }
   }
@@ -852,18 +848,74 @@ out:
   return Str;
 }
 
+/// A utility function that converts a character to a digit.
+unsigned _getDigit(char cdigit, uint8_t radix) {
+  unsigned r;
+
+  if (radix == 16 || radix == 36) {
+    r = cdigit - '0';
+    if (r <= 9)
+      return r;
+
+    r = cdigit - 'A';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    r = cdigit - 'a';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    radix = 10;
+  }
+
+  r = cdigit - '0';
+  if (r < radix)
+    return r;
+
+  return -1U;
+}
+
+size_t _strlen(const char *str) {
+  const char *s;
+
+  for (s = str; *s; ++s)
+    ;
+  return (s - str);
+}
+
+int _atoi(const char *s) {
+  unsigned res = 0;
+  const uint8_t radix = 10;
+  // Figure out if we can shift instead of multiply
+  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
+  size_t slen = _strlen(s);
+
+  const char *p = s;
+  for (const char *e = s + slen; p != e; ++p) {
+    unsigned digit = _getDigit(*p, radix);
+
+    // Shift or multiply the value by the radix
+    if (slen > 1) {
+      if (shift)
+        res <<= shift;
+      else
+        res *= radix;
+    }
+
+    // Add in the digit we just interpreted
+    res += digit;
+  }
+
+  return res;
+}
+
 void _jove_recover_dyn_target(uint32_t CallerBIdx,
                               uint32_t CallerBBIdx,
                               uintptr_t CalleeAddr) {
-  if (!_jove_startup_info.environ)
-    return;
+  int fd;
 
-  char *jove_recover_path = _getenv("JOVE_RECOVER_PATH");
-  if (!jove_recover_path)
-    return;
-
-  char *jv_path = _getenv("JOVE_DECOMPILATION_PATH");
-  if (!jv_path)
+  char *fd_s = _getenv("JOVE_RUN_COMMUNICATE_FD");
+  if (!fd_s)
     return;
 
   struct {
@@ -889,41 +941,18 @@ void _jove_recover_dyn_target(uint32_t CallerBIdx,
   return; /* not found */
 
 found:
+  fd = _atoi(fd_s);
+
   {
-    char *argv0 = jove_recover_path;
-    char  argv1[] = "-d";
-    char *argv2 = jv_path;
-    char  argv3[256];
-
-    {
-      char *p = &argv3[0];
-
-      *p++ = '-';
-      *p++ = 'd';
-      *p++ = 'y';
-      *p++ = 'n';
-      *p++ = '-';
-      *p++ = 't';
-      *p++ = 'a';
-      *p++ = 'r';
-      *p++ = 'g';
-      *p++ = 'e';
-      *p++ = 't';
-      *p++ = '=';
-
-      p = ulongtostr(p, CallerBIdx);
-      *p++ = ',';
-      p = ulongtostr(p, CallerBBIdx);
-      *p++ = ',';
-      p = ulongtostr(p, Callee.BIdx);
-      *p++ = ',';
-      p = ulongtostr(p, Callee.FIdx);
-    }
-
-    char *argv[] = {argv0, argv1, argv2, argv3, NULL};
-
-    _jove_sys_execve(argv0, argv, _jove_startup_info.environ);
+    char ch = 'f';
+    _jove_sys_write(fd, &ch, 1);
   }
+  _jove_sys_write(fd, (void *)&CallerBIdx, sizeof(CallerBIdx));
+  _jove_sys_write(fd, (void *)&CallerBBIdx, sizeof(CallerBBIdx));
+  _jove_sys_write(fd, (void *)&Callee.BIdx, sizeof(Callee.BIdx));
+  _jove_sys_write(fd, (void *)&Callee.FIdx, sizeof(Callee.FIdx));
+
+  _jove_sys_exit_group(0);
 }
 
 void _jove_recover_basic_block(uint32_t IndBrBIdx,
@@ -932,56 +961,28 @@ void _jove_recover_basic_block(uint32_t IndBrBIdx,
                                uintptr_t SectionsBeg,
                                uintptr_t SectionsEnd,
                                uintptr_t BBAddr) {
-  if (!_jove_startup_info.environ)
-    return;
-
-  char *jove_recover_path = _getenv("JOVE_RECOVER_PATH");
-  if (!jove_recover_path)
-    return;
-
-  char *jv_path = _getenv("JOVE_DECOMPILATION_PATH");
-  if (!jv_path)
+  int fd;
+  char *fd_s = _getenv("JOVE_RUN_COMMUNICATE_FD");
+  if (!fd_s)
     return;
 
   if (!(BBAddr >= SectionsBeg && BBAddr < SectionsEnd))
-    return;
+    return; /* not found */
 
   uintptr_t FileAddr = (BBAddr - SectionsBeg) + SectsStartAddr;
 
+found:
+  fd = _atoi(fd_s);
+
   {
-    char *argv0 = jove_recover_path;
-    char  argv1[] = "-d";
-    char *argv2 = jv_path;
-    char  argv3[256];
-
-    {
-      char *p = &argv3[0];
-
-      *p++ = '-';
-      *p++ = 'b';
-      *p++ = 'a';
-      *p++ = 's';
-      *p++ = 'i';
-      *p++ = 'c';
-      *p++ = '-';
-      *p++ = 'b';
-      *p++ = 'l';
-      *p++ = 'o';
-      *p++ = 'c';
-      *p++ = 'k';
-      *p++ = '=';
-
-      p = ulongtostr(p, IndBrBIdx);
-      *p++ = ',';
-      p = ulongtostr(p, IndBrBBIdx);
-      *p++ = ',';
-      p = ulongtostr(p, FileAddr);
-    }
-
-    char *argv[] = {argv0, argv1, argv2, argv3, NULL};
-
-    _jove_sys_execve(argv0, argv, _jove_startup_info.environ);
+    char ch = 'b';
+    _jove_sys_write(fd, &ch, 1);
   }
+  _jove_sys_write(fd, (void *)&IndBrBIdx, sizeof(IndBrBIdx));
+  _jove_sys_write(fd, (void *)&IndBrBBIdx, sizeof(IndBrBBIdx));
+  _jove_sys_write(fd, (void *)&FileAddr, sizeof(FileAddr));
+
+  _jove_sys_exit_group(0);
 }
 
 void _jove_fail1(unsigned long x) {
@@ -1205,3 +1206,7 @@ void _jove_free_stack(unsigned long beg) {
     __builtin_unreachable();
   }
 }
+
+struct CPUX86State *jove_state(void) { return &__jove_env; }
+char               *jove_stack(void) { return &__jove_stack[0]; }
+uint64_t           *jove_trace(void) { return __jove_trace; }
