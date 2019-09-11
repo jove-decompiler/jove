@@ -456,3 +456,7 @@ typedef struct CPUX86State {
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
     [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
+
+int    _jove_startup_info_argc = 0;
+char **_jove_startup_info_argv = NULL;
+char **_jove_startup_info_environ = NULL;
