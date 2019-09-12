@@ -912,10 +912,8 @@ int _atoi(const char *s) {
 void _jove_recover_dyn_target(uint32_t CallerBIdx,
                               uint32_t CallerBBIdx,
                               uintptr_t CalleeAddr) {
-  int fd;
-
-  char *fd_s = _getenv("JOVE_RUN_COMMUNICATE_FD");
-  if (!fd_s)
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
     return;
 
   struct {
@@ -941,18 +939,29 @@ void _jove_recover_dyn_target(uint32_t CallerBIdx,
   return; /* not found */
 
 found:
-  fd = _atoi(fd_s);
-
   {
-    char ch = 'f';
-    _jove_sys_write(fd, &ch, 1);
-  }
-  _jove_sys_write(fd, (void *)&CallerBIdx, sizeof(CallerBIdx));
-  _jove_sys_write(fd, (void *)&CallerBBIdx, sizeof(CallerBBIdx));
-  _jove_sys_write(fd, (void *)&Callee.BIdx, sizeof(Callee.BIdx));
-  _jove_sys_write(fd, (void *)&Callee.FIdx, sizeof(Callee.FIdx));
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
-  _jove_sys_exit_group(0);
+    {
+      char ch = 'f';
+      if (_jove_sys_write(recover_fd, &ch, 1) != 1) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+    }
+
+    _jove_sys_write(recover_fd, (void *)&CallerBIdx, sizeof(CallerBIdx));
+    _jove_sys_write(recover_fd, (void *)&CallerBBIdx, sizeof(CallerBBIdx));
+    _jove_sys_write(recover_fd, (void *)&Callee.BIdx, sizeof(Callee.BIdx));
+    _jove_sys_write(recover_fd, (void *)&Callee.FIdx, sizeof(Callee.FIdx));
+
+    _jove_sys_close(recover_fd);
+    _jove_sys_exit_group('f');
+  }
 }
 
 void _jove_recover_basic_block(uint32_t IndBrBIdx,
@@ -961,9 +970,8 @@ void _jove_recover_basic_block(uint32_t IndBrBIdx,
                                uintptr_t SectionsBeg,
                                uintptr_t SectionsEnd,
                                uintptr_t BBAddr) {
-  int fd;
-  char *fd_s = _getenv("JOVE_RUN_COMMUNICATE_FD");
-  if (!fd_s)
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
     return;
 
   if (!(BBAddr >= SectionsBeg && BBAddr < SectionsEnd))
@@ -972,17 +980,28 @@ void _jove_recover_basic_block(uint32_t IndBrBIdx,
   uintptr_t FileAddr = (BBAddr - SectionsBeg) + SectsStartAddr;
 
 found:
-  fd = _atoi(fd_s);
-
   {
-    char ch = 'b';
-    _jove_sys_write(fd, &ch, 1);
-  }
-  _jove_sys_write(fd, (void *)&IndBrBIdx, sizeof(IndBrBIdx));
-  _jove_sys_write(fd, (void *)&IndBrBBIdx, sizeof(IndBrBBIdx));
-  _jove_sys_write(fd, (void *)&FileAddr, sizeof(FileAddr));
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
-  _jove_sys_exit_group(0);
+    {
+      char ch = 'b';
+      if (_jove_sys_write(recover_fd, &ch, 1) != 1) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+    }
+
+    _jove_sys_write(recover_fd, (void *)&IndBrBIdx, sizeof(IndBrBIdx));
+    _jove_sys_write(recover_fd, (void *)&IndBrBBIdx, sizeof(IndBrBBIdx));
+    _jove_sys_write(recover_fd, (void *)&FileAddr, sizeof(FileAddr));
+
+    _jove_sys_close(recover_fd);
+    _jove_sys_exit_group('b');
+  }
 }
 
 void _jove_fail1(unsigned long x) {

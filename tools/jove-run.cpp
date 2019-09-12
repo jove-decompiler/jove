@@ -82,9 +82,13 @@ int ParseCommandLineArguments(int argc, char **argv) {
   return 0;
 }
 
-static void recover(int fd);
+static void recover(const char *fifo_path);
 
 int run(void) {
+  if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
+    fprintf(stderr, "bind mounting %s failed : %s\n", opts::sysroot,
+            strerror(errno));
+
   {
     fs::path subdir = fs::path(opts::sysroot) / "proc";
 
@@ -164,6 +168,99 @@ int run(void) {
               strerror(errno));
   }
 
+  {
+    fs::path chrooted_path =
+        fs::path(opts::sysroot) / "etc" / "passwd";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_path)) {
+      int fd = open(chrooted_path.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path path = fs::canonical("/etc/passwd");
+
+    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "group";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_path)) {
+      int fd = open(chrooted_path.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path path = fs::canonical("/etc/group");
+
+    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "shadow";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_path)) {
+      int fd = open(chrooted_path.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path path = fs::canonical("/etc/shadow");
+
+    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_path)) {
+      int fd = open(chrooted_path.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path path = fs::canonical("/etc/nsswitch.conf");
+
+    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+              strerror(errno));
+  }
+
 #if 0
   {
     std::string input;
@@ -171,17 +268,22 @@ int run(void) {
   }
 #endif
 
-  int pipefd[2];
-  if (pipe(pipefd) < 0) {
+  fs::path recover_fifo_path = fs::path(opts::sysroot) / "jove-recover.fifo";
+  if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
     fprintf(stderr, "pipe failed : %s\n", strerror(errno));
     return 1;
   }
 
   int pid = fork();
   if (!pid) {
-    close(pipefd[0]);
+    fs::path canon_sysroot = fs::canonical(opts::sysroot);
 
-    if (chroot(opts::sysroot) < 0) {
+    if (chdir("/") < 0) {
+      fprintf(stderr, "chdir failed : %s\n", strerror(errno));
+      return 1;
+    }
+
+    if (chroot(canon_sysroot.c_str()) < 0) {
       fprintf(stderr, "chroot failed : %s\n", strerror(errno));
       return 1;
     }
@@ -204,14 +306,13 @@ int run(void) {
       //
       // filter pre-existing environment entries
       //
-      if (beginswith("JOVE_RUN_COMMUNICATE_FD="))
+      if (beginswith("JOVE_RECOVER_FIFO="))
         continue;
 
       env.s_vec.push_back(s);
     }
 
-    env.s_vec.push_back(std::string("JOVE_RUN_COMMUNICATE_FD=") +
-                        std::to_string(pipefd[1]));
+    env.s_vec.push_back("JOVE_RECOVER_FIFO=/jove-recover.fifo");
 
     for (const std::string &s : env.s_vec)
       env.a_vec.push_back(s.c_str());
@@ -222,16 +323,53 @@ int run(void) {
 
     fprintf(stderr, "execve failed : %s\n", strerror(errno));
     return 1;
-  } else {
-    close(pipefd[1]);
   }
 
-  std::thread pipe_reader(recover, pipefd[0]);
+  std::thread pipe_reader(recover, recover_fifo_path.c_str());
 
   //
   // wait for process to exit
   //
   int ret = await_process_completion(pid);
+
+  pipe_reader.join();
+
+  if (unlink(recover_fifo_path.c_str()) < 0) {
+    fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
+    return 1;
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
+
+    if (umount2(chrooted_path.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "shadow";
+
+    if (umount2(chrooted_path.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "group";
+
+    if (umount2(chrooted_path.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
+              strerror(errno));
+  }
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "passwd";
+
+    if (umount2(chrooted_path.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
+              strerror(errno));
+  }
 
   {
     fs::path chrooted_resolv_conf =
@@ -291,22 +429,45 @@ int run(void) {
       fprintf(stderr, "unmounting procfs failed : %s\n", strerror(errno));
   }
 
-  pipe_reader.join();
+  if (umount2(opts::sysroot, 0) < 0)
+    fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
 
   return ret;
 }
 
-void recover(int fd) {
-  //
-  // read from pipe
-  //
+void recover(const char *fifo_path) {
   std::vector<uint8_t> bytes;
-  uint8_t byte;
-  while (read(fd, &byte, 1) > 0)
-    bytes.push_back(byte);
 
-  if (close(fd) < 0)
-    fprintf(stderr, "recover: couldn't close fd (%s)\n", strerror(errno));
+  {
+    int fd = open(fifo_path, O_RDONLY);
+    if (fd < 0) {
+      fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
+              strerror(errno));
+      return;
+    }
+
+    for (;;) {
+      uint8_t byte;
+      ssize_t ret = read(fd, &byte, 1);
+
+      if (ret == 1) {
+        bytes.push_back(byte);
+        continue;
+      }
+
+      if (ret == 0) {
+        fprintf(stderr, "recover: read gave 0\n");
+        break;
+      }
+
+      assert(ret < 0);
+      fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+      break;
+    }
+
+    if (close(fd) < 0)
+      fprintf(stderr, "recover: couldn't close fd (%s)\n", strerror(errno));
+  }
 
   if (bytes.empty())
     return;
