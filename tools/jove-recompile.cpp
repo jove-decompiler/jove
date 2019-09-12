@@ -430,8 +430,9 @@ int recompile(void) {
       if (!rtld.soname.empty()) {
         std::string binary_filename = fs::path(b.Path).filename().string();
 
-        fs::create_symlink(binary_filename,
-                           chrooted_path.parent_path() / rtld.soname);
+        if (binary_filename != rtld.soname)
+          fs::create_symlink(binary_filename,
+                             chrooted_path.parent_path() / rtld.soname);
       }
     }
 
@@ -708,8 +709,9 @@ skip_opt:
       if (!so.soname.empty()) {
         arg_vec.push_back(soname_arg.c_str());
 
-        fs::create_symlink(binary_filename,
-                           chrooted_path.parent_path() / so.soname);
+        if (binary_filename != so.soname)
+          fs::create_symlink(binary_filename,
+                             chrooted_path.parent_path() / so.soname);
       }
 
       for (std::string &needed : so.needed_vec) {
