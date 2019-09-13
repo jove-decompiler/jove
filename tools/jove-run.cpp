@@ -332,6 +332,17 @@ int run(void) {
   //
   int ret = await_process_completion(pid);
 
+  {
+    int fd = open(recover_fifo_path.c_str(), O_WRONLY);
+
+    {
+      char ch = 'z';
+      write(fd, &ch, 1);
+    }
+
+    close(fd);
+  }
+
   pipe_reader.join();
 
   if (unlink(recover_fifo_path.c_str()) < 0) {
@@ -456,7 +467,7 @@ void recover(const char *fifo_path) {
       }
 
       if (ret == 0) {
-        fprintf(stderr, "recover: read gave 0\n");
+        //fprintf(stderr, "recover: read gave 0\n");
         break;
       }
 
@@ -470,6 +481,9 @@ void recover(const char *fifo_path) {
   }
 
   if (bytes.empty())
+    return;
+
+  if (bytes[0] == 'z')
     return;
 
   fprintf(stderr, "recover: %c (%zu bytes)\n", bytes[0], bytes.size());
