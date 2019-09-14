@@ -278,15 +278,13 @@ int run(void) {
 
   int pid = fork();
   if (!pid) {
-    fs::path canon_sysroot = fs::canonical(opts::sysroot);
-
-    if (chdir("/") < 0) {
-      fprintf(stderr, "chdir failed : %s\n", strerror(errno));
+    if (chroot(opts::sysroot) < 0) {
+      fprintf(stderr, "chroot failed : %s\n", strerror(errno));
       return 1;
     }
 
-    if (chroot(canon_sysroot.c_str()) < 0) {
-      fprintf(stderr, "chroot failed : %s\n", strerror(errno));
+    if (chdir("/") < 0) {
+      fprintf(stderr, "chdir failed : %s\n", strerror(errno));
       return 1;
     }
 
