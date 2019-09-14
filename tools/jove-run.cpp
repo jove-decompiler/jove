@@ -451,148 +451,152 @@ int run(void) {
 }
 
 void recover(const char *fifo_path) {
-  std::vector<uint8_t> bytes;
+  for (;;) {
+    std::vector<uint8_t> bytes;
 
-  {
-    int fd = open(fifo_path, O_RDONLY);
-    if (fd < 0) {
-      fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
-              strerror(errno));
-      return;
-    }
-
-    for (;;) {
-      uint8_t byte;
-      ssize_t ret = read(fd, &byte, 1);
-
-      if (ret == 1) {
-        bytes.push_back(byte);
-        continue;
+    {
+      int fd = open(fifo_path, O_RDONLY);
+      if (fd < 0) {
+        fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
+                strerror(errno));
+        return;
       }
 
-      if (ret == 0) {
-        //fprintf(stderr, "recover: read gave 0\n");
+      for (;;) {
+        uint8_t byte;
+        ssize_t ret = read(fd, &byte, 1);
+
+        if (ret == 1) {
+          bytes.push_back(byte);
+          continue;
+        }
+
+        if (ret == 0) {
+          //fprintf(stderr, "recover: read gave 0\n");
+          break;
+        }
+
+        assert(ret < 0);
+        fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
         break;
       }
 
-      assert(ret < 0);
-      fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+      if (close(fd) < 0)
+        fprintf(stderr, "recover: couldn't close fd (%s)\n", strerror(errno));
+    }
+
+    if (bytes.empty()) {
+      fprintf(stderr, "recover: got 0 bytes\n");
+      return;
+    }
+
+    if (bytes[0] == 'z')
+      return;
+
+    fprintf(stderr, "recover: %c (%zu bytes)\n", bytes[0], bytes.size());
+
+    //
+    // get paths to stuff
+    //
+    fs::path jove_recover_path =
+        boost::dll::program_location().parent_path() / "jove-recover";
+    if (!fs::exists(jove_recover_path)) {
+      fprintf(stderr, "recover: couldn't find jove-recover at %s\n",
+              jove_recover_path.c_str());
+      return;
+    }
+
+    fs::path jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
+    if (!fs::exists(jv_path)) {
+      fprintf(stderr, "recover: no jv found\n");
+      return;
+    }
+
+    switch (bytes[0]) {
+    case 'b': {
+      //
+      // goto
+      //
+      assert(bytes.size() == 1 + 2 * sizeof(uint32_t) + sizeof(uintptr_t));
+
+      struct {
+        uint32_t BIdx;
+        uint32_t BBIdx;
+      } IndBr;
+
+      uintptr_t FileAddr;
+
+      IndBr.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1]);
+      IndBr.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + sizeof(uint32_t)]);
+      FileAddr = *reinterpret_cast<uintptr_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
+
+      int pid = fork();
+      if (!pid) {
+        char buff[256];
+        snprintf(buff, sizeof(buff),
+                 "--basic-block=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
+                 IndBr.BIdx,
+                 IndBr.BBIdx,
+                 FileAddr);
+
+        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                              buff, nullptr};
+        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        exit(1);
+      }
+
+      await_process_completion(pid);
       break;
     }
 
-    if (close(fd) < 0)
-      fprintf(stderr, "recover: couldn't close fd (%s)\n", strerror(errno));
-  }
+    case 'f': {
+      //
+      // call
+      //
+      assert(bytes.size() == 1 + 4 * sizeof(uint32_t));
 
-  if (bytes.empty())
-    return;
+      struct {
+        uint32_t BIdx;
+        uint32_t BBIdx;
+      } Caller;
 
-  if (bytes[0] == 'z')
-    return;
+      struct {
+        uint32_t BIdx;
+        uint32_t FIdx;
+      } Callee;
 
-  fprintf(stderr, "recover: %c (%zu bytes)\n", bytes[0], bytes.size());
+      Caller.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 0 * sizeof(uint32_t)]);
+      Caller.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + 1 * sizeof(uint32_t)]);
 
-  //
-  // get paths to stuff
-  //
-  fs::path jove_recover_path =
-      boost::dll::program_location().parent_path() / "jove-recover";
-  if (!fs::exists(jove_recover_path)) {
-    fprintf(stderr, "recover: couldn't find jove-recover at %s\n",
-            jove_recover_path.c_str());
-    return;
-  }
+      Callee.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
+      Callee.FIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 3 * sizeof(uint32_t)]);
 
-  fs::path jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
-  if (!fs::exists(jv_path)) {
-    fprintf(stderr, "recover: no jv found\n");
-    return;
-  }
+      int pid = fork();
+      if (!pid) {
+        char buff[256];
+        snprintf(buff, sizeof(buff),
+                 "--dyn-target=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32,
+                 Caller.BIdx,
+                 Caller.BBIdx,
+                 Callee.BIdx,
+                 Callee.FIdx);
 
-  switch (bytes[0]) {
-  case 'b': {
-    //
-    // goto
-    //
-    assert(bytes.size() == 1 + 2 * sizeof(uint32_t) + sizeof(uintptr_t));
+        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                              buff, nullptr};
+        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        exit(1);
+      }
 
-    struct {
-      uint32_t BIdx;
-      uint32_t BBIdx;
-    } IndBr;
-
-    uintptr_t FileAddr;
-
-    IndBr.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1]);
-    IndBr.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + sizeof(uint32_t)]);
-    FileAddr = *reinterpret_cast<uintptr_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
-
-    int pid = fork();
-    if (!pid) {
-      char buff[256];
-      snprintf(buff, sizeof(buff),
-               "--basic-block=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
-               IndBr.BIdx,
-               IndBr.BBIdx,
-               FileAddr);
-
-      const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                            buff, nullptr};
-      execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-      fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
-      exit(1);
+      await_process_completion(pid);
+      break;
     }
 
-    await_process_completion(pid);
-    break;
-  }
-
-  case 'f': {
-    //
-    // call
-    //
-    assert(bytes.size() == 1 + 4 * sizeof(uint32_t));
-
-    struct {
-      uint32_t BIdx;
-      uint32_t BBIdx;
-    } Caller;
-
-    struct {
-      uint32_t BIdx;
-      uint32_t FIdx;
-    } Callee;
-
-    Caller.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 0 * sizeof(uint32_t)]);
-    Caller.BBIdx = *reinterpret_cast<uint32_t *>(&bytes[1 + 1 * sizeof(uint32_t)]);
-
-    Callee.BIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 2 * sizeof(uint32_t)]);
-    Callee.FIdx  = *reinterpret_cast<uint32_t *>(&bytes[1 + 3 * sizeof(uint32_t)]);
-
-    int pid = fork();
-    if (!pid) {
-      char buff[256];
-      snprintf(buff, sizeof(buff),
-               "--dyn-target=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIu32,
-               Caller.BIdx,
-               Caller.BBIdx,
-               Callee.BIdx,
-               Callee.FIdx);
-
-      const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
-                            buff, nullptr};
-      execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-      fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
-      exit(1);
+    default:
+      fprintf(stderr, "recover: unknown byte %02x\n", bytes[0]);
+      break;
     }
-
-    await_process_completion(pid);
-    break;
-  }
-
-  default:
-    fprintf(stderr, "recover: unknown byte %02x\n", bytes[0]);
-    break;
   }
 }
 
