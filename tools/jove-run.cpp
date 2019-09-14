@@ -85,9 +85,11 @@ int ParseCommandLineArguments(int argc, char **argv) {
 static void recover(const char *fifo_path);
 
 int run(void) {
+#if 0
   if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
     fprintf(stderr, "bind mounting %s failed : %s\n", opts::sysroot,
             strerror(errno));
+#endif
 
   {
     fs::path subdir = fs::path(opts::sysroot) / "proc";
@@ -440,8 +442,10 @@ int run(void) {
       fprintf(stderr, "unmounting procfs failed : %s\n", strerror(errno));
   }
 
+#if 0
   if (umount2(opts::sysroot, 0) < 0)
     fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
+#endif
 
   return ret;
 }
