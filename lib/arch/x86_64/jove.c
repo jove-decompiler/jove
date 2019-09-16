@@ -1044,8 +1044,12 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                "movq %%rsp, (%%r14)\n" /* store modified emusp */
                "movq %%r15, %%rsp\n"   /* restore stack pointer */
 
+               "movq %%rax, %%r15\n" /* save return value */
+
                "movq %%r12, %%rdi\n" /* pass allocated stack */
                "call %P1\n"          /* _jove_free_stack */
+
+               "movq %%r15, %%rax\n" /* restore return value */
 
                "popq %%r12\n"
                "popq %%r13\n"
