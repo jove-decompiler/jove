@@ -465,6 +465,10 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/mman.h>
+#include <sys/uio.h>
+
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)},
 
 #define _CTOR   __attribute__((constructor))
 #define _INL    __attribute__((always_inline))
@@ -474,7 +478,6 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define _UNUSED __attribute__((unused))
 
 #define JOVE_SYS_ATTR _INL _UNUSED
-
 #include "jove_sys.h"
 
 extern bool _jove_trace_enabled(void);
@@ -491,6 +494,7 @@ static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
+static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
 static _INL int _atoi(const char *s);
 static _INL size_t _strlen(const char *s);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
@@ -909,6 +913,13 @@ int _atoi(const char *s) {
   return res;
 }
 
+size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
+  size_t expected = 0;
+  for (unsigned i = 0; i < n; ++i)
+    expected += iov[i].iov_len;
+  return expected;
+}
+
 void _jove_recover_dyn_target(uint32_t CallerBIdx,
                               uint32_t CallerBBIdx,
                               uintptr_t CalleeAddr) {
@@ -948,19 +959,24 @@ found:
 
     {
       char ch = 'f';
-      if (_jove_sys_write(recover_fd, &ch, 1) != 1) {
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch)
+          _IOV_ENTRY(CallerBIdx)
+          _IOV_ENTRY(CallerBBIdx)
+          _IOV_ENTRY(Callee.BIdx)
+          _IOV_ENTRY(Callee.FIdx)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
         __builtin_trap();
         __builtin_unreachable();
       }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
     }
-
-    _jove_sys_write(recover_fd, (void *)&CallerBIdx, sizeof(CallerBIdx));
-    _jove_sys_write(recover_fd, (void *)&CallerBBIdx, sizeof(CallerBBIdx));
-    _jove_sys_write(recover_fd, (void *)&Callee.BIdx, sizeof(Callee.BIdx));
-    _jove_sys_write(recover_fd, (void *)&Callee.FIdx, sizeof(Callee.FIdx));
-
-    _jove_sys_close(recover_fd);
-    _jove_sys_exit_group('f');
   }
 }
 
@@ -989,18 +1005,23 @@ found:
 
     {
       char ch = 'b';
-      if (_jove_sys_write(recover_fd, &ch, 1) != 1) {
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch)
+          _IOV_ENTRY(IndBrBIdx)
+          _IOV_ENTRY(IndBrBBIdx)
+          _IOV_ENTRY(FileAddr)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
         __builtin_trap();
         __builtin_unreachable();
       }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
     }
-
-    _jove_sys_write(recover_fd, (void *)&IndBrBIdx, sizeof(IndBrBIdx));
-    _jove_sys_write(recover_fd, (void *)&IndBrBBIdx, sizeof(IndBrBBIdx));
-    _jove_sys_write(recover_fd, (void *)&FileAddr, sizeof(FileAddr));
-
-    _jove_sys_close(recover_fd);
-    _jove_sys_exit_group('b');
   }
 }
 
