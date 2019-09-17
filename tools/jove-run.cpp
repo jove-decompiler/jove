@@ -334,22 +334,30 @@ int run(void) {
   int ret = await_process_completion(pid);
 
   {
-    int fd = open(recover_fifo_path.c_str(), O_WRONLY);
-
-    {
+    int recover_fd = open(recover_fifo_path.c_str(), O_WRONLY);
+    if (recover_fd < 0) {
+      fprintf(stderr, "failed to open fifo at %s (%s)\n",
+              recover_fifo_path.c_str(), strerror(errno));
+    } else {
       char ch = 'z';
-      write(fd, &ch, 1);
-    }
 
-    close(fd);
+      ssize_t ret = write(recover_fd, &ch, 1);
+      if (ret != 1) {
+        if (ret < 0)
+          fprintf(stderr, "failed to write to fifo at %s (%s)\n",
+                  recover_fifo_path.c_str(), strerror(errno));
+        else
+          fprintf(stderr, "write to fifo gave unexpected value (%zd)\n", ret);
+      }
+
+      close(recover_fd);
+    }
   }
 
   pipe_reader.join();
 
-  if (unlink(recover_fifo_path.c_str()) < 0) {
+  if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
-    return 1;
-  }
 
   {
     fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
@@ -477,14 +485,14 @@ void recover(const char *fifo_path) {
     return;
   }
 
-  for (;;) {
-    int recover_fd = open(fifo_path, O_RDONLY);
-    if (recover_fd < 0) {
-      fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
-              strerror(errno));
-      break;
-    }
+  int recover_fd = open(fifo_path, O_RDONLY);
+  if (recover_fd < 0) {
+    fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
+            strerror(errno));
+    return;
+  }
 
+  for (;;) {
     char ch;
 
     {
@@ -492,9 +500,11 @@ void recover(const char *fifo_path) {
       if (ret != 1) {
         if (ret < 0)
           fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+        else
+          fprintf(stderr, "recover: read gave %zd\n", ret);
 
         close(recover_fd);
-        break;
+        return;
       }
     }
 
@@ -607,9 +617,9 @@ void recover(const char *fifo_path) {
       close(recover_fd);
       return;
     }
-
-    close(recover_fd);
   }
+
+  close(recover_fd);
 }
 
 void Usage(void) {
