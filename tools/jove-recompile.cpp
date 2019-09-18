@@ -74,17 +74,15 @@ static cl::opt<bool>
           cl::cat(JoveCategory));
 
 static cl::opt<bool>
-    NoOpt("no-opt",
-          cl::desc("Don't optimize bitcode any further"),
-          cl::cat(JoveCategory));
-
-static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
 
 static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
+
+static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
+                           cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -559,9 +557,9 @@ static void worker(void) {
     // optimize bitcode
     //
     std::string optbcfp(chrooted_path.string() + ".opt.bc");
-    if (opts::NoOpt) {
+    if (!opts::DFSan) {
       optbcfp = bcfp;
-      goto skip_opt;
+      goto skip_dfsan;
     }
 
     pid = fork();
@@ -578,8 +576,9 @@ static void worker(void) {
 
       const char *arg_vec[] = {
         opt_path.c_str(),
+        "-dfsan",
         "-o", optbcfp.c_str(),
-        "-Os", bcfp.c_str(),
+        bcfp.c_str(),
         nullptr
       };
 
@@ -594,14 +593,15 @@ static void worker(void) {
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
-      WithColor::error() << "llvm failed for " << binary_filename << '\n';
+      WithColor::error() << llvm::formatv("opt -dfsan failed for {0}\n",
+                                          binary_filename);
       continue;
     }
 
     if (Cancel)
       return;
 
-skip_opt:
+skip_dfsan:
     //
     // compile bitcode
     //
