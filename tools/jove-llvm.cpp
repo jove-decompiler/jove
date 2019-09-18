@@ -240,6 +240,15 @@ static cl::opt<bool> NoOpt2("no-opt2", cl::desc("Don't optimize bitcode (2)"),
 static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
+
+static cl::opt<bool> DumpAfterOpt1("dump-after-opt1",
+                                   cl::desc("Dump bitcode after Optimize1()"),
+                                   cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    DumpAfterFSBaseFixup("dump-after-fsbase-fixup",
+                         cl::desc("Dump bitcode after fsbase fixup"),
+                         cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -5315,6 +5324,35 @@ int Optimize1(void) {
   if (int ret = DoOptimize())
     return ret;
 
+  if (opts::DumpAfterOpt1) {
+#if 0
+    std::error_code EC;
+    llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
+    if (EC) {
+      WithColor::error() << EC.message() << '\n';
+      return 1;
+    }
+
+    llvm::WriteBitcodeToFile(*Module, Out.os());
+
+    // Declare success.
+    Out.keep();
+#else
+    std::string s;
+    {
+
+      llvm::raw_string_ostream os(s);
+      os << *Module << '\n';
+    }
+
+    {
+      std::ofstream ofs(opts::Output);
+      ofs << s;
+    }
+#endif
+    exit(0);
+  }
+
   return 0;
 }
 
@@ -5564,6 +5602,20 @@ int FixupFSBaseAddrs(void) {
                               false /* hasSideEffects */);
   }
 
+  llvm::GlobalVariable *ZeroGV =
+      new llvm::GlobalVariable(*Module, WordType(), true,
+                               llvm::GlobalValue::InternalLinkage,
+                               llvm::Constant::getNullValue(WordType()),
+                               "ZeroGV");
+  llvm::GlobalVariable *ZeroPGV =
+      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroGV,
+                               "ZeroPGV");
+  llvm::GlobalVariable *ZeroPPGV =
+      new llvm::GlobalVariable(*Module, PPointerType(), true,
+                               llvm::GlobalValue::InternalLinkage, ZeroPGV,
+                               "ZeroPPGV");
+
   auto handle_load_of_fsbase = [&](llvm::LoadInst *L) -> void {
     for (llvm::User *U : L->users()) {
       assert(llvm::isa<llvm::Instruction>(U));
@@ -5594,49 +5646,85 @@ int FixupFSBaseAddrs(void) {
         break;
       }
 
+      case llvm::Instruction::IntToPtr:
+        // an inttoptr(fs_base) implies something of the sort
+        //
+        // mov r15,QWORD PTR fs:0x0
+        //
+        // which is a load of tcbhead_t::tcb
+        assert(U->getType() == ZeroGV->getType());
+        ToReplace.push_back({Inst, ZeroGV});
+        break;
+
       default:
+        WithColor::warning() << llvm::formatv(
+            "FixupFSBaseAddrs: handle_load_of_fsbase: unknown user {0}\n", *U);
         break;
       }
     }
   };
 
-  llvm::GlobalVariable *ZeroGV =
-      new llvm::GlobalVariable(*Module, WordType(), true,
-                               llvm::GlobalValue::InternalLinkage,
-                               llvm::Constant::getNullValue(WordType()));
-  llvm::GlobalVariable *ZeroPGV =
-      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroGV);
-  llvm::GlobalVariable *ZeroPPGV =
-      new llvm::GlobalVariable(*Module, PPointerType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroPGV);
-
   for (llvm::User *U : FSBaseGlobal->users()) {
-    if (llvm::isa<llvm::LoadInst>(U)) {
-      llvm::LoadInst *L = llvm::cast<llvm::LoadInst>(U);
-      handle_load_of_fsbase(L);
-    } else {
-      if (U->getType() == ZeroGV->getType())
-        ToReplace.push_back({U, ZeroGV});
-      else if (U->getType() == ZeroPGV->getType())
-        ToReplace.push_back({U, ZeroPGV});
-      else if (U->getType() == ZeroPPGV->getType())
-        ToReplace.push_back({U, ZeroPPGV});
-      else
-        abort();
+    if (!llvm::isa<llvm::Instruction>(U)) {
+      for (llvm::User *_U : U->users()) {
+        assert(llvm::isa<llvm::Instruction>(_U));
+        llvm::Instruction *_Inst = llvm::cast<llvm::Instruction>(_U);
+
+        if (_Inst->getType() == ZeroGV->getType()) {
+          WithColor::note() << llvm::formatv(
+              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroGV)\n",
+              _Inst,
+              _Inst->getParent()->getParent()->getName());
+
+          ToReplace.push_back({_Inst, ZeroGV});
+          continue;
+        }
+        if (_Inst->getType() == ZeroPGV->getType()) {
+          WithColor::note() << llvm::formatv(
+              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPGV)\n",
+              _Inst,
+              _Inst->getParent()->getParent()->getName());
+
+          ToReplace.push_back({_Inst, ZeroPGV});
+          continue;
+        }
+        if (_Inst->getType() == ZeroPPGV->getType()) {
+          WithColor::note() << llvm::formatv(
+              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPPGV)\n",
+              _Inst,
+              _Inst->getParent()->getParent()->getName());
+
+          ToReplace.push_back({_Inst, ZeroPPGV});
+          continue;
+        }
+
+        llvm::Function *_Func = _Inst->getParent()->getParent();
+        WithColor::error() << llvm::formatv("FixupFSBaseAddrs: unknown user!\n"
+                                            "U: {0}\n"
+                                            "_Inst: {1}\n"
+                                            "_Func: {2}\n",
+                                            *U, *_Inst, *_Func);
+        return 1;
+      }
+
+      continue;
     }
+
+    assert(llvm::isa<llvm::Instruction>(U));
+    llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
+
+    if (!llvm::isa<llvm::LoadInst>(U)) {
+      WithColor::error() << llvm::formatv(
+          "FixupFSBaseAddrs: unknown user {0} in {1}\n", *U,
+          Inst->getParent()->getParent()->getName());
+      continue;
+    }
+
+    handle_load_of_fsbase(llvm::cast<llvm::LoadInst>(U));
   }
 
-  if (FSBaseGlobal) {
-    if (FSBaseGlobal->getType() == ZeroGV->getType())
-      ToReplace.push_back({FSBaseGlobal, ZeroGV});
-    else if (FSBaseGlobal->getType() == ZeroPGV->getType())
-      ToReplace.push_back({FSBaseGlobal, ZeroPGV});
-    else if (FSBaseGlobal->getType() == ZeroPPGV->getType())
-      ToReplace.push_back({FSBaseGlobal, ZeroPPGV});
-    else
-      abort();
-  }
+  assert(FSBaseGlobal->getType() == ZeroGV->getType());
+  ToReplace.push_back({FSBaseGlobal, ZeroGV});
 
   for (auto &TR : ToReplace) {
     llvm::Value *I;
@@ -5644,6 +5732,22 @@ int FixupFSBaseAddrs(void) {
     std::tie(I, V) = TR;
 
     I->replaceAllUsesWith(V);
+  }
+
+  if (opts::DumpAfterFSBaseFixup) {
+    std::string s;
+    {
+
+      llvm::raw_string_ostream os(s);
+      os << *Module << '\n';
+    }
+
+    {
+      std::ofstream ofs(opts::Output);
+      ofs << s;
+    }
+
+    exit(0);
   }
 
   return 0;
