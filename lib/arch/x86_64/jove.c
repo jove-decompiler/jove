@@ -487,8 +487,8 @@ extern uintptr_t *_jove_get_vdso_function_table(void);
 extern _NOINL void _jove_install_function_table(void);
 
 _NAKED void __jove_start(void);
-void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
-                 target_ulong, target_ulong);
+static void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
+                        target_ulong, target_ulong);
 
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
@@ -534,8 +534,13 @@ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
                                       uintptr_t BBAddr);
 
 void __jove_start(void) {
-  asm volatile("movq %rsp, %r9\n"
-               "jmp _jove_start\n");
+  asm volatile("movq %%rsp, %%r9\n"
+               "jmp %P0\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               "i"(_jove_start)
+               : /* Clobbers */);
 }
 
 extern int    _jove_startup_info_argc;
