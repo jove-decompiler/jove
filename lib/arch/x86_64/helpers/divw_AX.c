@@ -449,33 +449,8 @@ typedef struct CPUX86State {
     TPRAccess tpr_access_type;
 } CPUX86State;
 
-static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
-                                             int exception_index,
-                                             uintptr_t retaddr) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-void helper_divb_AL(CPUX86State *env, target_ulong t0)
-{
-    unsigned int num, den, q, r;
-
-    num = (env->regs[R_EAX] & 0xffff);
-    den = (t0 & 0xff);
-    if (den == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q = (num / den);
-    if (q > 0xff) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q &= 0xff;
-    r = (num % den) & 0xff;
-    env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;
-}
+__attribute__((always_inline)) void helper_divw_AX(CPUX86State *env,
+                                                   target_ulong t0);
 
 void helper_divw_AX(CPUX86State *env, target_ulong t0)
 {
@@ -483,13 +458,17 @@ void helper_divw_AX(CPUX86State *env, target_ulong t0)
 
     num = (env->regs[R_EAX] & 0xffff) | ((env->regs[R_EDX] & 0xffff) << 16);
     den = (t0 & 0xffff);
+#if 0
     if (den == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q = (num / den);
+#if 0
     if (q > 0xffff) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q &= 0xffff;
     r = (num % den) & 0xffff;
     env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | q;
