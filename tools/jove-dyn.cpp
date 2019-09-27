@@ -828,15 +828,13 @@ int ParentProc(pid_t child) {
 
       chdir(opts::jv.c_str());
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("commit"));
-      arg_vec.push_back(const_cast<char *>("."));
-      arg_vec.push_back(const_cast<char *>("-m"));
-      arg_vec.push_back(const_cast<char *>(msg.c_str()));
-      arg_vec.push_back(nullptr);
+      const char *arg_arr[] = {
+        "/usr/bin/git", "commit", ".", "-m", msg.c_str(),
 
-      return execve("/usr/bin/git", arg_vec.data(), ::environ);
+        nullptr
+      };
+
+      return execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
