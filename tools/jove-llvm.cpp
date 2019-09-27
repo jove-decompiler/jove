@@ -249,6 +249,10 @@ static cl::opt<bool>
     DumpAfterFSBaseFixup("dump-after-fsbase-fixup",
                          cl::desc("Dump bitcode after fsbase fixup"),
                          cl::cat(JoveCategory));
+
+static cl::opt<bool> DFSan("dfsan",
+                           cl::desc("Instrument code with DataFlowSanitizer"),
+                           cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -620,8 +624,9 @@ static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
-static int RenameFunctionLocals(void);
 static int RecoverControlFlow(void);
+static int DFSanInstrument(void);
+static int RenameFunctionLocals(void);
 static int WriteDecompilation(void);
 static int WriteModule(void);
 
@@ -660,8 +665,9 @@ int llvm(void) {
       || InternalizeSections()
       || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
-      || RenameFunctionLocals()
       || RecoverControlFlow()
+      || (opts::DFSan ? DFSanInstrument() : 0)
+      || RenameFunctionLocals()
       || WriteDecompilation()
       || WriteModule();
 }
@@ -5269,16 +5275,13 @@ static int DoOptimize(void) {
   llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
 
   // The -disable-simplify-libcalls flag actually disables all builtin optzns.
-  if (false /* DisableSimplifyLibCalls */)
+  if (true /* DisableSimplifyLibCalls */)
     TLII.disableAllFunctions();
   MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
 
   // Add internal analysis passes from the target machine.
-  MPM.add(llvm::createTargetTransformInfoWrapperPass(
-      TM ? TM->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
-
-  FPM.add(llvm::createTargetTransformInfoWrapperPass(
-      TM ? TM->getTargetIRAnalysis() : llvm::TargetIRAnalysis()));
+  MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
 
   llvm::PassManagerBuilder Builder;
   Builder.OptLevel = OptLevel;
@@ -5286,6 +5289,8 @@ static int DoOptimize(void) {
 
   Builder.Inliner =
       llvm::createFunctionInliningPass(OptLevel, SizeLevel, false);
+
+  TM->adjustPassManager(Builder);
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
@@ -5673,7 +5678,7 @@ int FixupFSBaseAddrs(void) {
         if (_Inst->getType() == ZeroGV->getType()) {
           WithColor::note() << llvm::formatv(
               "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroGV)\n",
-              _Inst,
+              *_Inst,
               _Inst->getParent()->getParent()->getName());
 
           ToReplace.push_back({_Inst, ZeroGV});
@@ -5682,7 +5687,7 @@ int FixupFSBaseAddrs(void) {
         if (_Inst->getType() == ZeroPGV->getType()) {
           WithColor::note() << llvm::formatv(
               "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPGV)\n",
-              _Inst,
+              *_Inst,
               _Inst->getParent()->getParent()->getName());
 
           ToReplace.push_back({_Inst, ZeroPGV});
@@ -5691,7 +5696,7 @@ int FixupFSBaseAddrs(void) {
         if (_Inst->getType() == ZeroPPGV->getType()) {
           WithColor::note() << llvm::formatv(
               "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPPGV)\n",
-              _Inst,
+              *_Inst,
               _Inst->getParent()->getParent()->getName());
 
           ToReplace.push_back({_Inst, ZeroPPGV});
@@ -5839,6 +5844,64 @@ int RenameFunctionLocals(void) {
       if (llvm::isa<llvm::LoadInst>(UU))
         UU->setName(nm);
     }
+  }
+
+  return 0;
+}
+
+int DFSanInstrument(void) {
+  assert(opts::DFSan);
+
+  if (llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "DFSanInstrument: [pre] failed to verify module\n";
+    //llvm::errs() << *Module << '\n';
+    return 1;
+  }
+
+#if 1
+  llvm::legacy::PassManager MPM;
+#else
+  llvm::legacy::FunctionPassManager FPM(Module.get());
+#endif
+
+  // Add an appropriate TargetLibraryInfo pass for the module's triple.
+  llvm::Triple ModuleTriple(Module->getTargetTriple());
+#if 1
+  llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
+
+  // The -disable-simplify-libcalls flag actually disables all builtin optzns.
+  if (true /* DisableSimplifyLibCalls */)
+    TLII.disableAllFunctions();
+  MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+
+  // Add internal analysis passes from the target machine.
+  MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+
+  std::vector<std::string> ABIList = {
+      (boost::dll::program_location().parent_path() / "dfsan_abilist.txt")
+          .string()};
+
+  MPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
+
+  MPM.run(*Module);
+#else
+  std::vector<std::string> ABIList;
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+  FPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
+
+  FPM.doInitialization();
+  for (function_t &f : Decompilation.Binaries[BinaryIndex].Analysis.Functions) {
+    assert(f.F);
+
+    FPM.run(*f.F);
+  }
+  FPM.doFinalization();
+#endif
+
+  if (llvm::verifyModule(*Module, &llvm::errs())) {
+    WithColor::error() << "DFSanInstrument: [post] failed to verify module\n";
+    //llvm::errs() << *Module << '\n';
+    return 1;
   }
 
   return 0;

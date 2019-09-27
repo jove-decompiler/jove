@@ -114,8 +114,8 @@ static int await_process_completion(pid_t);
 
 static void print_command(const char **argv);
 
-static std::string jove_llvm_path, jove_bin_path, jove_rt_path, llc_path,
-    ld_path, opt_path;
+static std::string jove_llvm_path, jove_bin_path, jove_rt_path, jove_dfsan_path,
+    llc_path, ld_path, opt_path;
 static std::string dyn_linker_path;
 
 static std::atomic<bool> Cancel(false);
@@ -179,13 +179,32 @@ int recompile(void) {
     return 1;
   }
 
-  llc_path = "/usr/bin/llc";
+  jove_dfsan_path =
+      (boost::dll::program_location().parent_path() / "libjove_dfsan.so")
+          .string();
+  if (!fs::exists(jove_dfsan_path)) {
+    WithColor::error() << llvm::formatv("could not find {0}\n",
+                                        jove_dfsan_path);
+    return 1;
+  }
+
+  llc_path = (boost::dll::program_location().parent_path().parent_path() /
+              "third_party" / "llvm-project" / "install" / "bin" / "llc")
+                 .string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
     return 1;
   }
 
+#if 0
+  ld_path = (boost::dll::program_location().parent_path().parent_path() /
+             "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
+                .string();
+#elif 0
+  ld_path = "/usr/bin/ld.gold";
+#else
   ld_path = "/usr/bin/ld";
+#endif
   if (!fs::exists(ld_path)) {
     WithColor::error() << "could not find /usr/bin/ld\n";
     return 1;
@@ -345,6 +364,9 @@ int recompile(void) {
       "-L", jove_bin_path.c_str(), "-ljove_rt"
     };
 
+    if (opts::DFSan)
+      arg_vec.push_back("-ljove_dfsan");
+
     std::string exe_interp_canon = fs::canonical(exe.interp).string();
 
     if (!exe.interp.empty()) {
@@ -385,6 +407,17 @@ int recompile(void) {
 
       needed.insert(0, 1, ':');
       arg_vec.push_back(needed.c_str());
+    }
+
+    if (opts::DFSan) {
+      arg_vec.push_back("--unresolved-symbols=ignore-in-object-files");
+
+#if 0
+      arg_vec.push_back("--push-state");
+      arg_vec.push_back("--as-needed");
+      arg_vec.push_back("/usr/lib/clang/10.0.0/lib/linux/libclang_rt.dfsan-x86_64.a");
+      arg_vec.push_back("--pop-state");
+#endif
     }
 
     arg_vec.push_back(nullptr);
@@ -454,6 +487,17 @@ int recompile(void) {
 
       fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
     }
+  }
+
+  //
+  // copy jove dfsan runtime
+  //
+  if (opts::DFSan) {
+    fs::path chrooted_path =
+        fs::path(opts::Output) / "usr" / "lib" / "libjove_dfsan.so";
+    fs::create_directories(chrooted_path.parent_path());
+
+    fs::copy(jove_dfsan_path, chrooted_path);
   }
 
   //
@@ -527,8 +571,11 @@ static void worker(void) {
         "-output", bcfp.c_str()
       };
 
+      if (opts::DFSan)
+        arg_vec.push_back("-dfsan");
       if (opts::Trace)
         arg_vec.push_back("-trace");
+
       arg_vec.push_back(nullptr);
 
       print_command(&arg_vec[0]);
@@ -553,6 +600,9 @@ static void worker(void) {
     if (Cancel)
       return;
 
+    std::string optbcfp = bcfp;
+
+#if 0
     //
     // optimize bitcode
     //
@@ -576,6 +626,10 @@ static void worker(void) {
 
       const char *arg_vec[] = {
         opt_path.c_str(),
+#if 0
+        "-dfsan-abilist=dfsan_abilist.txt",
+        "-dfsan-args-abi",
+#endif
         "-dfsan",
         "-o", optbcfp.c_str(),
         bcfp.c_str(),
@@ -602,6 +656,8 @@ static void worker(void) {
       return;
 
 skip_dfsan:
+#endif
+
     //
     // compile bitcode
     //
@@ -689,6 +745,9 @@ skip_dfsan:
         "-L", "/usr/lib",
         "-L", jove_bin_path.c_str(), "-ljove_rt"
       };
+
+      if (opts::DFSan)
+        arg_vec.push_back("-ljove_dfsan");
 
       dynamic_linking_info_t so;
       if (!dynamic_linking_info_of_binary(b, so)) {

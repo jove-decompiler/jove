@@ -1,3 +1,12 @@
+# this just obtains the directory this Makefile resides in
+JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
+
+_LLVM_INSTALL_DIR := $(JOVE_ROOT_DIR)/third_party/llvm-project/install
+
+_LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
+_LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
+_LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
+
 ARCH := $(subst i686,i386,$(shell uname -m))
 
 #
@@ -17,12 +26,14 @@ CXXFLAGS := -std=gnu++14 \
             -I include \
             -I lib \
             -I lib/arch/$(ARCH) \
+            -I $(_LLVM_INSTALL_DIR)/include \
             -D___JOVE_ARCH_NAME=\"$(ARCH)\" \
             -D_GNU_SOURCE \
             -DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 
 LDFLAGS := $(shell pkg-config --libs glib-2.0) \
-           $(shell llvm-config --ldflags --libs) \
+           $(shell $(_LLVM_CONFIG) --ldflags --libs) \
+           $(shell $(_LLVM_CONFIG) --system-libs) \
            -Wl,--no-undefined \
            -ldl \
            -pthread \
@@ -57,19 +68,19 @@ JOVE_RT_SO     := libjove_rt.so
 JOVE_RT_SONAME := $(JOVE_RT_SO).0
 JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/libjove_dfsan.so
 
 define build_tool_template
 $(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp Makefile
 	@echo CXX $(1)
-	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
+	@$(_LLVM_CXX) -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
 define build_util_template
 $(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp Makefile
 	@echo CXX $(1)
-	@clang++ -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
+	@$(_LLVM_CXX) -o $$@ -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
@@ -95,11 +106,16 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 
 $(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
 	@echo CC $<
-	@clang -o $@ -nostdlib -fno-stack-protector -Ofast -fPIC -g -Wl,-soname=$(JOVE_RT_SONAME) -shared $<
+	@$(_LLVM_CC) -o $@ -nostdlib -fno-stack-protector -Ofast -fPIC -g -Wl,-soname=$(JOVE_RT_SONAME) -shared $<
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
 
+$(BINDIR)/libjove_dfsan.so: lib/dfsan.c Makefile
+	@echo CC $<
+	@$(_LLVM_CC) -o $@ -I lib -I lib/arch/$(ARCH) -nostdlib -Wl,--no-undefined -fno-stack-protector -Ofast -fPIC -g -shared -fuse-ld=lld $<
+
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
-	@clang -o $@ -c -emit-llvm -fPIC -I lib -g -O3 -fno-stack-protector -Wall $<
+	@echo CC $<
+	@$(_LLVM_CC) -o $@ -c -emit-llvm -fPIC -I lib -g -O3 -fno-stack-protector -Wall $<
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
@@ -201,7 +217,8 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(help
 
 define build_helper_template
 $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c Makefile
-	clang -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
+	@echo CC $$<
+	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
