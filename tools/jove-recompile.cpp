@@ -1,3 +1,29 @@
+#include <string>
+#include <vector>
+#include <boost/graph/adjacency_list.hpp>
+
+struct dso_properties_t {
+  unsigned BIdx;
+};
+
+typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
+                              boost::vecS,           /* VertexList */
+                              boost::bidirectionalS, /* Directed */
+                              dso_properties_t /* VertexProperties */>
+    dso_graph_t;
+
+typedef dso_graph_t::vertex_descriptor dso_t;
+
+struct dynamic_linking_info_t {
+  std::string soname;
+  std::vector<std::string> needed;
+  std::string interp;
+};
+
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  dynamic_linking_info_t dynl;                                                 \
+  dso_t dso;
+
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
@@ -34,6 +60,8 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/range/adaptor/reversed.hpp>
+#include <boost/graph/topological_sort.hpp>
 
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
@@ -104,7 +132,6 @@ static decompilation_t Decompilation;
 
 static void spawn_workers(void);
 
-static std::queue<unsigned> Q;
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 static const char *compiler_runtime_afp =
@@ -116,20 +143,17 @@ static void print_command(const char **argv);
 
 static std::string jove_llvm_path, jove_bin_path, jove_rt_path, jove_dfsan_path,
     llc_path, ld_path, opt_path;
-static std::string dyn_linker_path;
 
 static std::atomic<bool> Cancel(false);
 
 static void handle_sigint(int);
 
-struct dynamic_linking_info_t {
-  std::string soname;
-  std::vector<std::string> needed_vec;
-  std::string interp;
-};
+static binary_index_t binary_index_of_soname(const char *soname);
 
 static bool dynamic_linking_info_of_binary(binary_t &,
                                            dynamic_linking_info_t &out);
+
+static void IgnoreCtrlC(void);
 
 int recompile(void) {
   if (!fs::exists(compiler_runtime_afp) ||
@@ -232,6 +256,19 @@ int recompile(void) {
   }
 
   //
+  // install signal handler for Ctrl-C to gracefully cancel
+  //
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+    sa.sa_handler = handle_sigint;
+
+    sigaction(SIGINT, &sa, nullptr);
+  }
+
+  //
   // parse the existing decompilation file
   //
   {
@@ -243,202 +280,28 @@ int recompile(void) {
     ia >> Decompilation;
   }
 
-  //
-  // get path to dynamic linker
-  //
-  for (binary_t &b : Decompilation.Binaries) {
-    if (!b.IsDynamicLinker)
-      continue;
-
-    dyn_linker_path = b.Path;
-    break;
-  }
-
-  assert(!dyn_linker_path.empty());
-  assert(fs::exists(dyn_linker_path));
-
-  //
-  // fill queue to process
-  //
-  for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &b = Decompilation.Binaries[BIdx];
-    if (b.IsDynamicLinker)
-      continue;
-    if (b.IsVDSO)
-      continue;
-
-    Q.push(BIdx);
-  }
-
-  // install signal handler for Ctrl-C to gracefully cancel
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = handle_sigint;
-
-    sigaction(SIGINT, &sa, nullptr);
-  }
-
-  spawn_workers();
-
   if (Cancel) {
     WithColor::note() << "Canceled.\n";
     return 1;
   }
 
-  std::vector<fs::path> sofp_vec;
+  //
+  // gather dynamic linking information
+  //
   for (binary_t &b : Decompilation.Binaries) {
-    if (b.IsExecutable)
-      continue;
-    if (b.IsDynamicLinker)
-      continue;
-    if (b.IsVDSO)
-      continue;
-
-    sofp_vec.push_back(opts::Output + b.Path);
-  }
-
-  std::string exe_fp;
-  std::string exe_objfp;
-
-  dynamic_linking_info_t exe;
-
-  for (binary_t &b : Decompilation.Binaries) {
-    if (!b.IsExecutable)
-      continue;
-
-    exe_fp = opts::Output + b.Path;
-
-    fs::path chrooted_path(opts::Output + b.Path);
-    exe_objfp = chrooted_path.string() + ".o";
-
-    if (!dynamic_linking_info_of_binary(b, exe)) {
+    if (!dynamic_linking_info_of_binary(b, b.dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
       return 1;
     }
-
-    break;
-  }
-  assert(!exe_objfp.empty());
-  assert(!exe_fp.empty());
-
-  //
-  // link executable
-  //
-  pid_t pid = fork();
-  if (!pid) {
-    {
-      struct sigaction sa;
-
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = 0;
-      sa.sa_handler = SIG_IGN;
-
-      sigaction(SIGINT, &sa, nullptr);
-    }
-
-    std::vector<const char *> arg_vec = {
-      ld_path.c_str(),
-      "-o", exe_fp.c_str(),
-      "-m", "elf_" ___JOVE_ARCH_NAME,
-      "-pie",
-      "-e", "__jove_start",
-#if 0
-      "-nostdlib",
-      "-z", "nodefaultlib",
-      "-z", "origin",
-#endif
-
-      exe_objfp.c_str(),
-      "--push-state",
-      "--as-needed",
-      compiler_runtime_afp,
-      "--pop-state",
-#if 0
-      dyn_linker_path.c_str()
-#endif
-      "-L", "/usr/lib",
-      "-L", jove_bin_path.c_str(), "-ljove_rt"
-    };
-
-    if (opts::DFSan)
-      arg_vec.push_back("-ljove_dfsan");
-
-    std::string exe_interp_canon = fs::canonical(exe.interp).string();
-
-    if (!exe.interp.empty()) {
-      arg_vec.push_back("-dynamic-linker");
-      arg_vec.push_back(exe_interp_canon.c_str());
-    }
-
-#if 0
-    for (const fs::path &sofp : sofp_vec) {
-      // /path/to/libfoo.so -> "-lfoo"
-      std::string &Ldir = *new std::string(sofp.parent_path().string());
-
-      arg_vec.push_back("-L");
-      arg_vec.push_back(Ldir.c_str());
-
-      std::string &lStr = *new std::string(':' + sofp.filename().string());
-
-      arg_vec.push_back("-l");
-      arg_vec.push_back(lStr.c_str());
-
-      std::string &rpathStr =
-          *new std::string(std::string("-rpath=$ORIGIN/") +
-                           fs::relative(sofp, fs::path(exe_fp).parent_path())
-                               .parent_path()
-                               .string());
-
-      arg_vec.push_back(rpathStr.c_str());
-    }
-#endif
-
-    std::string exe_soname_arg = std::string("-soname=") + exe.soname;
-
-    if (!exe.soname.empty())
-      arg_vec.push_back(exe_soname_arg.c_str());
-
-    for (std::string &needed : exe.needed_vec) {
-      arg_vec.push_back("-l");
-
-      needed.insert(0, 1, ':');
-      arg_vec.push_back(needed.c_str());
-    }
-
-    if (opts::DFSan) {
-      arg_vec.push_back("--unresolved-symbols=ignore-in-object-files");
-
-#if 0
-      arg_vec.push_back("--push-state");
-      arg_vec.push_back("--as-needed");
-      arg_vec.push_back("/usr/lib/clang/10.0.0/lib/linux/libclang_rt.dfsan-x86_64.a");
-      arg_vec.push_back("--pop-state");
-#endif
-    }
-
-    arg_vec.push_back(nullptr);
-
-    print_command(&arg_vec[0]);
-
-    close(STDIN_FILENO);
-    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-    return 0;
   }
 
   //
-  // check exit code
+  // setup sysroot
   //
-  if (int ret = await_process_completion(pid)) {
-    WithColor::error() << "failed to link executable\n";
-    return 1;
-  }
 
   //
-  // copy dynamic linker
+  // (1) copy dynamic linker
   //
   for (binary_t &b : Decompilation.Binaries) {
     if (!b.IsDynamicLinker)
@@ -450,28 +313,19 @@ int recompile(void) {
     fs::create_directories(chrooted_path.parent_path());
     fs::copy(b.Path, chrooted_path);
 
-    {
-      dynamic_linking_info_t rtld;
-      if (!dynamic_linking_info_of_binary(b, rtld)) {
-        WithColor::error() << llvm::formatv(
-            "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
-        return 1;
-      }
+    if (!b.dynl.soname.empty()) {
+      std::string binary_filename = fs::path(b.Path).filename().string();
 
-      if (!rtld.soname.empty()) {
-        std::string binary_filename = fs::path(b.Path).filename().string();
-
-        if (binary_filename != rtld.soname)
-          fs::create_symlink(binary_filename,
-                             chrooted_path.parent_path() / rtld.soname);
-      }
+      if (binary_filename != b.dynl.soname)
+        fs::create_symlink(binary_filename,
+                           chrooted_path.parent_path() / b.dynl.soname);
     }
 
     break;
   }
 
   //
-  // copy jove runtime
+  // (2) copy jove runtime
   //
   {
     {
@@ -492,7 +346,7 @@ int recompile(void) {
   }
 
   //
-  // copy jove dfsan runtime
+  // (3) copy jove dfsan runtime
   //
   if (opts::DFSan) {
     fs::path chrooted_path =
@@ -503,7 +357,7 @@ int recompile(void) {
   }
 
   //
-  // create basic directories (for chroot)
+  // (4) create basic directories (for chroot)
   //
   {
     std::vector<std::string> sys_dirs = {"proc", "sys", "dev",
@@ -515,56 +369,108 @@ int recompile(void) {
     }
   }
 
-  return 0;
-}
-
-void handle_sigint(int no) {
-  Cancel = true;
-}
-
-static std::mutex mtx;
-
-static void worker(void) {
-  auto pop_binary_index = [](unsigned &out) -> bool {
-    std::lock_guard<std::mutex> lck(mtx);
-
-    if (Q.empty()) {
-      return false;
-    } else {
-      out = Q.front();
-      Q.pop();
-      return true;
-    }
-  };
-
-  unsigned BIdx;
-  while (!Cancel && pop_binary_index(BIdx)) {
-    pid_t pid;
-
+  //
+  // build dynamic linking graph
+  //
+  dso_graph_t dso_graph;
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     binary_t &b = Decompilation.Binaries[BIdx];
+
+    b.dso = boost::add_vertex(dso_graph);
+    dso_graph[b.dso].BIdx = BIdx;
+  }
+
+  //
+  // topological sort of dynamic linking graph
+  //
+  std::unordered_map<std::string, binary_index_t> soname_map;
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    binary_t &b = Decompilation.Binaries[BIdx];
+
+    if (b.dynl.soname.empty())
+      continue;
+
+    if (soname_map.find(b.dynl.soname) != soname_map.end()) {
+      WithColor::error() << llvm::formatv(
+          "same soname {0} occurs more than once\n", b.dynl.soname);
+      continue;
+    }
+
+    soname_map.insert({b.dynl.soname, BIdx});
+  }
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    binary_t &b = Decompilation.Binaries[BIdx];
+
+    for (const std::string &sonm : b.dynl.needed) {
+      auto it = soname_map.find(sonm);
+      if (it == soname_map.end()) {
+        WithColor::warning() << llvm::formatv(
+            "unknown soname {0} needed by {1}\n", sonm, b.Path);
+        continue;
+      }
+
+      boost::add_edge(b.dso, Decompilation.Binaries[(*it).second].dso,
+                      dso_graph);
+    }
+  }
+
+  std::vector<dso_t> top_sorted;
+
+  try {
+    std::map<dso_t, boost::default_color_type> clr_map;
+
+    boost::topological_sort(
+        dso_graph, std::back_inserter(top_sorted),
+        boost::color_map(boost::associative_property_map<
+                         std::map<dso_t, boost::default_color_type>>(clr_map)));
+  } catch (const boost::not_a_dag &) {
+    WithColor::error() << "dynamic linking graph is not a DAG.\n";
+    return 1;
+  }
+
+  for (dso_t dso : top_sorted) {
+    WithColor::note() << llvm::formatv(
+        "{0}\n", Decompilation.Binaries.at(dso_graph[dso].BIdx).Path);
+  }
+
+  //
+  // process each binary in the appropriate order
+  //
+  for (dso_t dso : top_sorted) {
+    binary_index_t BIdx = dso_graph[dso].BIdx;
+
+    binary_t &b = Decompilation.Binaries.at(BIdx);
+
+    if (b.IsDynamicLinker)
+      continue;
+    if (b.IsVDSO)
+      continue;
+
+    pid_t pid;
 
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
     const fs::path chrooted_path(opts::Output + b.Path);
-
     fs::create_directories(chrooted_path.parent_path());
-
-    std::string bcfp(chrooted_path.string() + ".bc");
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
+    //
+    // run jove-llvm
+    //
+    if (Cancel) {
+      WithColor::note() << "Canceled.\n";
+      return 1;
+    }
+
+    std::string bcfp(chrooted_path.string() + ".bc");
+
     pid = fork();
     if (!pid) {
-      {
-        struct sigaction sa;
-
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        sa.sa_handler = SIG_IGN;
-
-        sigaction(SIGINT, &sa, nullptr);
-      }
+      IgnoreCtrlC();
 
       std::vector<const char *> arg_vec = {
         jove_llvm_path.c_str(),
@@ -588,7 +494,11 @@ static void worker(void) {
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-      return;
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
     }
 
     //
@@ -596,18 +506,20 @@ static void worker(void) {
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
-      continue;
+      return 1;
     }
-
-    if (Cancel)
-      return;
 
     std::string optbcfp = bcfp;
 
 #if 0
     //
-    // optimize bitcode
+    // run opt
     //
+    if (Cancel) {
+      WithColor::note() << "Canceled.\n";
+      return 1;
+    }
+
     std::string optbcfp(chrooted_path.string() + ".opt.bc");
     if (!opts::DFSan) {
       optbcfp = bcfp;
@@ -616,15 +528,7 @@ static void worker(void) {
 
     pid = fork();
     if (!pid) {
-      {
-        struct sigaction sa;
-
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        sa.sa_handler = SIG_IGN;
-
-        sigaction(SIGINT, &sa, nullptr);
-      }
+      IgnoreCtrlC();
 
       const char *arg_vec[] = {
         opt_path.c_str(),
@@ -660,22 +564,19 @@ static void worker(void) {
 skip_dfsan:
 #endif
 
+    if (Cancel) {
+      WithColor::note() << "Canceled.\n";
+      return 1;
+    }
+
     //
-    // compile bitcode
+    // run llc
     //
     std::string objfp(chrooted_path.string() + ".o");
 
     pid = fork();
     if (!pid) {
-      {
-        struct sigaction sa;
-
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        sa.sa_handler = SIG_IGN;
-
-        sigaction(SIGINT, &sa, nullptr);
-      }
+      IgnoreCtrlC();
 
       const char *arg_vec[] = {
         llc_path.c_str(),
@@ -691,7 +592,11 @@ skip_dfsan:
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-      return;
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
     }
 
     //
@@ -699,53 +604,42 @@ skip_dfsan:
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "llc failed for " << binary_filename << '\n';
-      continue;
+      return 1;
     }
 
-    if (Cancel)
-      return;
-
-    if (b.IsExecutable)
-      continue;
+    if (Cancel) {
+      WithColor::note() << "Canceled.\n";
+      return 1;
+    }
 
     //
-    // link object file to create shared library
+    // run ld
     //
-    std::string sofp(chrooted_path.string());
-
     pid = fork();
     if (!pid) {
-      {
-        struct sigaction sa;
-
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-        sa.sa_handler = SIG_IGN;
-
-        sigaction(SIGINT, &sa, nullptr);
-      }
+      IgnoreCtrlC();
 
       std::vector<const char *> arg_vec = {
         ld_path.c_str(),
-        "-o", sofp.c_str(),
+        "-o", chrooted_path.c_str(),
         "-m", "elf_" ___JOVE_ARCH_NAME,
+        b.IsExecutable ? "-pie" : "-shared",
         "-e", "__jove_start",
 #if 0
         "-nostdlib",
         "-z", "nodefaultlib",
         "-z", "origin",
 #endif
-        "-shared",
         objfp.c_str(),
+
         "--push-state",
         "--as-needed",
         compiler_runtime_afp,
         "--pop-state",
-#if 0
-        dyn_linker_path.c_str(),
-#endif
+
+        "-L", jove_bin_path.c_str(), "-ljove_rt",
+
         "-L", "/usr/lib",
-        "-L", jove_bin_path.c_str(), "-ljove_rt"
       };
 
       if (opts::DFSan)
@@ -775,7 +669,7 @@ skip_dfsan:
                              chrooted_path.parent_path() / so.soname);
       }
 
-      for (std::string &needed : so.needed_vec) {
+      for (std::string &needed : so.needed) {
         arg_vec.push_back("-l");
 
         needed.insert(0, 1, ':');
@@ -788,7 +682,11 @@ skip_dfsan:
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-      return;
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
     }
 
     //
@@ -796,25 +694,15 @@ skip_dfsan:
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "ld failed for " << binary_filename << '\n';
-      continue;
+      return 1;
     }
-
-    if (Cancel)
-      return;
   }
+
+  return 0;
 }
 
-void spawn_workers(void) {
-  std::vector<std::thread> workers;
-
-  unsigned N = opts::Threads;
-
-  workers.reserve(N);
-  for (unsigned i = 0; i < N; ++i)
-    workers.push_back(std::thread(worker));
-
-  for (std::thread &t : workers)
-    t.join();
+void handle_sigint(int no) {
+  Cancel = true;
 }
 
 int await_process_completion(pid_t pid) {
@@ -838,17 +726,6 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
-}
-
-unsigned num_cpus(void) {
-  cpu_set_t cpu_mask;
-  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
-                       << '\n';
-    abort();
-  }
-
-  return CPU_COUNT(&cpu_mask);
 }
 
 void print_command(const char **argv) {
@@ -1048,7 +925,7 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
     if (!off || off > DynamicStringTable.size())
       ; // no soname
     else
-      out.needed_vec.push_back(DynamicStringTable.data() + off);
+      out.needed.push_back(DynamicStringTable.data() + off);
   }
 
   for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
@@ -1070,6 +947,16 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
 #endif
   return Obj.getArch() == archty;
+}
+
+void IgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_IGN;
+
+  sigaction(SIGINT, &sa, nullptr);
 }
 
 }
