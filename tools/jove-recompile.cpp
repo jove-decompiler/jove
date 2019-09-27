@@ -475,16 +475,18 @@ int recompile(void) {
   //
   {
     {
-      fs::path chrooted_path(opts::Output + std::string("/usr/lib/" JOVE_RT_SONAME));
-      fs::create_directories(chrooted_path.parent_path());
+      fs::path chrooted_path =
+          fs::path(opts::Output) / "usr" / "lib" / JOVE_RT_SONAME;
 
+      fs::create_directories(chrooted_path.parent_path());
       fs::copy(jove_rt_path, chrooted_path);
     }
 
     {
-      fs::path chrooted_path(opts::Output + std::string("/usr/lib/" JOVE_RT_SO));
-      fs::create_directories(chrooted_path.parent_path());
+      fs::path chrooted_path =
+          fs::path(opts::Output) / "usr" / "lib" / JOVE_RT_SO;
 
+      fs::create_directories(chrooted_path.parent_path());
       fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
     }
   }
