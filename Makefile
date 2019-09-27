@@ -1,7 +1,8 @@
 # this just obtains the directory this Makefile resides in
 JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
-_LLVM_INSTALL_DIR := $(JOVE_ROOT_DIR)/third_party/llvm-project/install
+_LLVM_DIR         := $(JOVE_ROOT_DIR)/third_party/llvm-project
+_LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
 
 _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
@@ -242,3 +243,7 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call check_helper_template,$(helper
 #
 # ./configure --target-list=x86_64-linux-user --cc=clang --host-cc=clang --cxx=clang++ --objcc=clang --disable-tcg-interpreter --disable-sdl --disable-gtk --disable-xen --disable-bluez --disable-kvm --disable-guest-agent --disable-vnc --disable-libssh2 --disable-jemalloc --disable-tcmalloc --disable-vhost-user --disable-opengl --disable-glusterfs --disable-gnutls --disable-nettle --disable-gcrypt --disable-curses --disable-libnfs --disable-libusb --disable-lzo --disable-bzip2 --disable-vhost-vsock --disable-smartcard --disable-usb-redir --disable-spice --disable-vhost-net --disable-snappy --disable-seccomp --disable-vhost-scsi --disable-virglrenderer --disable-vde --disable-rbd --disable-live-block-migration --disable-tools --disable-tpm --disable-numa --disable-cap-ng --disable-replication --disable-vte --disable-qom-cast-debug --disable-tpm --disable-xfsctl --disable-linux-aio --disable-attr --disable-coroutine-pool --disable-hax --enable-trace-backends=nop --disable-libxml2 --disable-vhost-crypto --disable-capstone --extra-cflags="-Xclang -load -Xclang $HOME/clang-extricate/collect/bin/carbon-collect.so -Xclang -add-plugin -Xclang carbon-collect -Xclang -plugin-arg-carbon-collect -Xclang $(pwd) -Xclang -plugin-arg-carbon-collect -Xclang $(pwd)"
 #
+
+.PHONY: prepare
+prepare:
+	cd $(_LLVM_DIR) && cmake llvm -G Ninja -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR) -D PYTHON_EXECUTABLE=/usr/bin/python -D LLVM_ENABLE_PROJECTS=llvm;clang;lld;compiler-rt -D LLVM_ENABLE_RTTI=ON -D LLVM_BUILD_TESTS=OFF -D LLVM_INCLUDE_TESTS=OFF -D LLVM_INCLUDE_EXAMPLES=OFF -D LLVM_BUILD_DOCS=OFF -D LLVM_BINUTILS_INCDIR=/usr/include -D LLVM_ENABLE_BINDINGS=OFF -D LLVM_ENABLE_Z3_SOLVER=OFF -D LLVM_INCLUDE_BENCHMARKS=OFF -D LLVM_TARGETS_TO_BUILD=X86 && ninja install
