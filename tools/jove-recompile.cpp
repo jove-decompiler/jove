@@ -261,7 +261,7 @@ int recompile(void) {
     struct sigaction sa;
 
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
+    sa.sa_flags = SA_RESTART;
     sa.sa_handler = handle_sigint;
 
     if (sigaction(SIGINT, &sa, nullptr) < 0) {
