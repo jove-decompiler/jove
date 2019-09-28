@@ -36,6 +36,7 @@ struct dynamic_linking_info_t {
 #include <queue>
 #include <sstream>
 #include <fstream>
+#include <unordered_set>
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/ADT/StringRef.h>
@@ -148,8 +149,6 @@ static std::atomic<bool> Cancel(false);
 
 static void handle_sigint(int);
 
-static binary_index_t binary_index_of_soname(const char *soname);
-
 static bool dynamic_linking_info_of_binary(binary_t &,
                                            dynamic_linking_info_t &out);
 
@@ -220,7 +219,7 @@ int recompile(void) {
     return 1;
   }
 
-#if 0
+#if 1
   ld_path = (boost::dll::program_location().parent_path().parent_path() /
              "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
                 .string();
@@ -303,6 +302,8 @@ int recompile(void) {
   //
   // (1) copy dynamic linker
   //
+  std::string rtld_soname;
+
   for (binary_t &b : Decompilation.Binaries) {
     if (!b.IsDynamicLinker)
       continue;
@@ -314,6 +315,8 @@ int recompile(void) {
     fs::copy(b.Path, chrooted_path);
 
     if (!b.dynl.soname.empty()) {
+      rtld_soname = b.dynl.soname;
+
       std::string binary_filename = fs::path(b.Path).filename().string();
 
       if (binary_filename != b.dynl.soname)
@@ -351,8 +354,8 @@ int recompile(void) {
   if (opts::DFSan) {
     fs::path chrooted_path =
         fs::path(opts::Output) / "usr" / "lib" / "libjove_dfsan.so";
-    fs::create_directories(chrooted_path.parent_path());
 
+    fs::create_directories(chrooted_path.parent_path());
     fs::copy(jove_dfsan_path, chrooted_path);
   }
 
@@ -474,9 +477,11 @@ int recompile(void) {
 
       std::vector<const char *> arg_vec = {
         jove_llvm_path.c_str(),
-        "-decompilation", opts::jv.c_str(),
-        "-binary", binary_filename.c_str(),
-        "-output", bcfp.c_str()
+
+        "-o", bcfp.c_str(),
+        "-b", binary_filename.c_str(),
+
+        "-d", opts::jv.c_str(),
       };
 
       if (opts::DFSan)
@@ -580,11 +585,14 @@ skip_dfsan:
 
       const char *arg_vec[] = {
         llc_path.c_str(),
+
         "-o", objfp.c_str(),
+        optbcfp.c_str(),
+
         "-filetype=obj",
         "-relocation-model=pic",
         "-frame-pointer=all",
-        optbcfp.c_str(),
+
         nullptr
       };
 
@@ -620,56 +628,82 @@ skip_dfsan:
       IgnoreCtrlC();
 
       std::vector<const char *> arg_vec = {
-        ld_path.c_str(),
-        "-o", chrooted_path.c_str(),
-        "-m", "elf_" ___JOVE_ARCH_NAME,
-        b.IsExecutable ? "-pie" : "-shared",
-        "-e", "__jove_start",
-#if 0
-        "-nostdlib",
-        "-z", "nodefaultlib",
-        "-z", "origin",
-#endif
-        objfp.c_str(),
+          ld_path.c_str(),
 
-        "--push-state",
-        "--as-needed",
-        compiler_runtime_afp,
-        "--pop-state",
+          "-o", chrooted_path.c_str(),
+          objfp.c_str(),
 
-        "-L", jove_bin_path.c_str(), "-ljove_rt",
+          "-m", "elf_" ___JOVE_ARCH_NAME,
 
-        "-L", "/usr/lib",
+          b.IsExecutable ?
+            "-pie" :
+            "-shared",
+
+          "-nostdlib",
+
+          "--push-state", "--as-needed", compiler_runtime_afp,
+          "--pop-state",
+
+          "--no-undefined",
       };
 
+      if (is_function_index_valid(b.Analysis.EntryFunction)) {
+        arg_vec.push_back("-e");
+        arg_vec.push_back("__jove_start");
+      }
+
+      // include lib directories
+      std::unordered_set<std::string> lib_dirs({opts::Output + "/usr/lib"});
+
+      for (std::string &needed : b.dynl.needed) {
+        auto it = soname_map.find(needed);
+        if (it == soname_map.end()) {
+          WithColor::warning()
+              << llvm::formatv("no entry in soname_map for {0}\n", needed);
+          continue;
+        }
+
+        binary_t &needed_b = Decompilation.Binaries.at((*it).second);
+        const fs::path needed_chrooted_path(opts::Output + needed_b.Path);
+        lib_dirs.insert(needed_chrooted_path.parent_path().string());
+      }
+
+      for (const std::string &lib_dir : lib_dirs) {
+        arg_vec.push_back("-L");
+        arg_vec.push_back(lib_dir.c_str());
+      }
+
+      arg_vec.push_back("-ljove_rt");
       if (opts::DFSan)
         arg_vec.push_back("-ljove_dfsan");
 
-      dynamic_linking_info_t so;
-      if (!dynamic_linking_info_of_binary(b, so)) {
-        WithColor::error() << llvm::formatv(
-            "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
-        exit(1);
-      }
+      std::string so_interp_canon = fs::canonical(b.dynl.interp).string();
 
-      std::string so_interp_canon = fs::canonical(so.interp).string();
-
-      if (!so.interp.empty()) {
+      if (!b.dynl.interp.empty()) {
         arg_vec.push_back("-dynamic-linker");
         arg_vec.push_back(so_interp_canon.c_str());
       }
 
-      std::string soname_arg = std::string("-soname=") + so.soname;
+      std::string soname_arg = std::string("-soname=") + b.dynl.soname;
 
-      if (!so.soname.empty()) {
+      if (!b.dynl.soname.empty()) {
         arg_vec.push_back(soname_arg.c_str());
 
-        if (binary_filename != so.soname)
+        if (binary_filename != b.dynl.soname)
           fs::create_symlink(binary_filename,
-                             chrooted_path.parent_path() / so.soname);
+                             chrooted_path.parent_path() / b.dynl.soname);
       }
 
-      for (std::string &needed : so.needed) {
+      std::string rtld_soname_arg = ":" + rtld_soname;
+      if (!rtld_soname.empty()) {
+        arg_vec.push_back("-l");
+        arg_vec.push_back(rtld_soname_arg.c_str());
+      }
+
+      for (std::string &needed : b.dynl.needed) {
+        if (needed == rtld_soname)
+          continue;
+
         arg_vec.push_back("-l");
 
         needed.insert(0, 1, ':');

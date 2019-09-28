@@ -164,6 +164,9 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
 
+static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
+                         cl::aliasopt(jv), cl::cat(JoveCategory));
+
 static cl::opt<std::string> Binary("binary", cl::desc("Binary to decompile"),
                                    cl::Required, cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
@@ -4914,7 +4917,7 @@ int FixupHelperStubs(void) {
   if (Binary.IsExecutable)
     assert(is_function_index_valid(Binary.Analysis.EntryFunction));
 
-  if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
+  {
     llvm::Function *CallEntryF = Module->getFunction("_jove_call_entry");
     assert(CallEntryF);
     assert(CallEntryF->empty());
@@ -4923,29 +4926,32 @@ int FixupHelperStubs(void) {
     {
       llvm::IRBuilderTy IRB(BB);
 
-      function_t &f = Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
+      if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
+        function_t &f =
+            Binary.Analysis.Functions[Binary.Analysis.EntryFunction];
 
-      std::vector<llvm::Value *> ArgVec;
-      {
-        std::vector<unsigned> glbv;
-        ExplodeFunctionArgs(f, glbv);
+        std::vector<llvm::Value *> ArgVec;
+        {
+          std::vector<unsigned> glbv;
+          ExplodeFunctionArgs(f, glbv);
 
-        ArgVec.resize(glbv.size());
-        std::transform(
-            glbv.begin(), glbv.end(), ArgVec.begin(),
-            [&](unsigned glb) -> llvm::Value * {
-              llvm::SmallVector<llvm::Value *, 4> Indices;
-              llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
-                  IRB, DL, CPUStateGlobal,
-                  llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
-                  IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
-                  Indices, ""));
-              res->setName(TCG->_ctx.temps[glb].name);
-              return res;
-            });
+          ArgVec.resize(glbv.size());
+          std::transform(
+              glbv.begin(), glbv.end(), ArgVec.begin(),
+              [&](unsigned glb) -> llvm::Value * {
+                llvm::SmallVector<llvm::Value *, 4> Indices;
+                llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
+                    IRB, DL, CPUStateGlobal,
+                    llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
+                    IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+                    Indices, ""));
+                res->setName(TCG->_ctx.temps[glb].name);
+                return res;
+              });
+        }
+
+        IRB.CreateCall(f.F, ArgVec)->setIsNoInline();
       }
-
-      IRB.CreateCall(f.F, ArgVec)->setIsNoInline();
 
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
@@ -4957,6 +4963,7 @@ int FixupHelperStubs(void) {
 
   {
     binary_t &dynl_binary = Decompilation.Binaries.at(1);
+    assert(dynl_binary.IsDynamicLinker);
     auto &ICFG = dynl_binary.Analysis.ICFG;
 
     std::vector<llvm::Constant *> constantTable;
