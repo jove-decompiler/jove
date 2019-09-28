@@ -264,7 +264,11 @@ int recompile(void) {
     sa.sa_flags = 0;
     sa.sa_handler = handle_sigint;
 
-    sigaction(SIGINT, &sa, nullptr);
+    if (sigaction(SIGINT, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
   }
 
   //
@@ -700,14 +704,18 @@ skip_dfsan:
         arg_vec.push_back(rtld_soname_arg.c_str());
       }
 
-      for (std::string &needed : b.dynl.needed) {
+      std::vector<std::string> needed_arg_vec;
+
+      for (const std::string &needed : b.dynl.needed) {
         if (needed == rtld_soname)
           continue;
 
-        arg_vec.push_back("-l");
+        needed_arg_vec.push_back(std::string(":") + needed);
+      }
 
-        needed.insert(0, 1, ':');
-        arg_vec.push_back(needed.c_str());
+      for (const std::string &needed_arg : needed_arg_vec) {
+        arg_vec.push_back("-l");
+        arg_vec.push_back(needed_arg.c_str());
       }
 
       arg_vec.push_back(nullptr);
@@ -990,7 +998,11 @@ void IgnoreCtrlC(void) {
   sa.sa_flags = 0;
   sa.sa_handler = SIG_IGN;
 
-  sigaction(SIGINT, &sa, nullptr);
+  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
+  }
 }
 
 }
