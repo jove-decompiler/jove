@@ -513,7 +513,6 @@ static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<uintptr_t> RelocationsAt;
 
 static llvm::GlobalVariable *CPUStateGlobal;
-static llvm::GlobalVariable *TLSStackGlobal;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *TraceGlobal;
@@ -1011,17 +1010,7 @@ int CreateModule(void) {
   CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
   assert(CPUStateGlobal);
 
-  {
-    llvm::Function *joveF = Module->getFunction("jove_state");
-    assert(joveF);
-    llvm::FunctionType *joveFTy = joveF->getFunctionType();
-    llvm::Type *joveFRetTy = joveFTy->getReturnType();
-    assert(joveFRetTy->isPointerTy());
-    CPUStateType = llvm::cast<llvm::PointerType>(joveFRetTy)->getElementType();
-  }
-
-  TLSStackGlobal = Module->getGlobalVariable("__jove_stack", true);
-  assert(TLSStackGlobal);
+  CPUStateType = CPUStateGlobal->getType()->getElementType();
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);

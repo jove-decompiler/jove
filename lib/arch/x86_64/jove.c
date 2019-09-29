@@ -448,13 +448,12 @@ typedef struct CPUX86State {
 #include <stddef.h>
 
 extern /* __thread */ struct CPUX86State __jove_env;
-extern /* __thread */ char __jove_stack[0x100000];
 extern /* __thread */ uint64_t *__jove_trace;
 
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
-/* static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
+/* -> static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -512,26 +511,26 @@ static _INL uintptr_t _get_stack_end(void);
 static unsigned long _jove_alloc_stack(void);
 static void _jove_free_stack(unsigned long);
 
-/* static */ _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
+/* -> static */ _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
 void _jove_trace_init(void);
 
-/* static */ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
-                                                     unsigned long *,
-                                                     unsigned long *);
+/* -> static */ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
+                                                        unsigned long *,
+                                                        unsigned long *);
 
-/* static */ _NAKED _NOINL _NORET void _jove_fail1(unsigned long);
+/* -> static */ _NAKED _NOINL _NORET void _jove_fail1(unsigned long);
 
-/* static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
-                                                  uint32_t CallerBBIdx,
-                                                  uintptr_t CalleeAddr);
+/* -> static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
+                                                     uint32_t CallerBBIdx,
+                                                     uintptr_t CalleeAddr);
 
-/* static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
-                                                   uint32_t IndBrBBIdx,
-                                                   uintptr_t SectsStartAddr,
-                                                   uintptr_t SectionsBeg,
-                                                   uintptr_t SectionsEnd,
-                                                   uintptr_t BBAddr);
+/* -> static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
+                                                      uint32_t IndBrBBIdx,
+                                                      uintptr_t SectsStartAddr,
+                                                      uintptr_t SectionsBeg,
+                                                      uintptr_t SectionsEnd,
+                                                      uintptr_t BBAddr);
 
 void __jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
@@ -650,7 +649,6 @@ void *_memchr(const void *s, int c, size_t n) {
   return (NULL);
 }
 
-/// A utility function that converts a character to a digit.
 unsigned _getHexDigit(char cdigit) {
   unsigned radix = 0x10;
 
@@ -1255,7 +1253,3 @@ void _jove_free_stack(unsigned long beg) {
     __builtin_unreachable();
   }
 }
-
-struct CPUX86State *jove_state(void) { return &__jove_env; }
-char               *jove_stack(void) { return &__jove_stack[0]; }
-uint64_t           *jove_trace(void) { return __jove_trace; }
