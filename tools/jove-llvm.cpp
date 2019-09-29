@@ -519,7 +519,7 @@ static llvm::Type *CPUStateType;
 static llvm::GlobalVariable *TraceGlobal;
 
 static llvm::GlobalVariable *JoveFunctionTablesGlobal;
-static llvm::GlobalVariable *JoveInternalFunctionTablesGlobal;
+static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 
@@ -737,7 +737,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      DynTargetNeedsThunkPred(IdxPair) ? JoveInternalFunctionTablesGlobal
+      DynTargetNeedsThunkPred(IdxPair) ? JoveForeignFunctionTablesGlobal
                                        : JoveFunctionTablesGlobal,
       0, DynTarget.BIdx));
 
@@ -1028,6 +1028,7 @@ int CreateModule(void) {
 
   JoveTraceInitFunc = Module->getFunction("_jove_trace_init");
   assert(JoveTraceInitFunc);
+  JoveTraceInitFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveInstallVDSOAndDynLFunctionTables =
       Module->getFunction("_jove_install_vdso_and_dynl_function_tables");
@@ -1041,25 +1042,26 @@ int CreateModule(void) {
   JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveFail1Func = Module->getFunction("_jove_fail1");
-  assert(JoveFail1Func);
-  assert(!JoveFail1Func->empty());
+  assert(JoveFail1Func && !JoveFail1Func->empty());
   JoveFail1Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_function_tables", true);
   assert(JoveFunctionTablesGlobal);
 
-  JoveInternalFunctionTablesGlobal =
+  JoveForeignFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_foreign_function_tables", true);
-  assert(JoveInternalFunctionTablesGlobal);
-  JoveInternalFunctionTablesGlobal->setLinkage(
+  assert(JoveForeignFunctionTablesGlobal);
+  JoveForeignFunctionTablesGlobal->setLinkage(
       llvm::GlobalValue::InternalLinkage);
 
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
-  assert(JoveRecoverDynTargetFunc);
+  assert(JoveRecoverDynTargetFunc && !JoveRecoverDynTargetFunc->empty());
+  JoveRecoverDynTargetFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
-  assert(JoveRecoverBasicBlockFunc);
+  assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
+  JoveRecoverBasicBlockFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   return 0;
 }
@@ -3610,49 +3612,28 @@ int CreateFunctionTable(void) {
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
       "__jove_function_table");
 
-  llvm::Function *StoresFnTblPtrF;
-#if 0
-  if (binary.IsExecutable) {
-#endif
-    StoresFnTblPtrF = Module->getFunction("_jove_install_function_table");
-
-    assert(StoresFnTblPtrF);
-#if 0
-  } else {
-    assert(!Module->getFunction("_jove_install_function_table"));
-
-    StoresFnTblPtrF =
-        llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
-                               llvm::GlobalValue::InternalLinkage,
-                               "_jove_install_function_table", Module.get());
-  }
-#endif
-
-  assert(StoresFnTblPtrF->empty());
-
-  llvm::BasicBlock *EntryB =
-      llvm::BasicBlock::Create(*Context, "", StoresFnTblPtrF);
-
   {
-    llvm::IRBuilderTy IRB(EntryB);
+    llvm::Function *StoresFnTblPtrF =
+        Module->getFunction("_jove_install_function_table");
+    assert(StoresFnTblPtrF && StoresFnTblPtrF->empty());
 
-    IRB.CreateStore(IRB.CreateConstInBoundsGEP2_64(FuncTableGV, 0, 0),
-                    IRB.CreateConstInBoundsGEP2_64(JoveFunctionTablesGlobal, 0,
-                                                   BinaryIndex));
+    llvm::BasicBlock *EntryB =
+        llvm::BasicBlock::Create(*Context, "", StoresFnTblPtrF);
 
-    IRB.CreateRetVoid();
-  }
+    {
+      llvm::IRBuilderTy IRB(EntryB);
 
-#if 0
-  if (binary.IsExecutable)
-#endif
+      IRB.CreateStore(IRB.CreateConstInBoundsGEP2_64(FuncTableGV, 0, 0),
+                      IRB.CreateConstInBoundsGEP2_64(JoveFunctionTablesGlobal,
+                                                     0, BinaryIndex));
+
+      IRB.CreateRetVoid();
+    }
+
     StoresFnTblPtrF->setLinkage(llvm::GlobalValue::InternalLinkage);
-#if 0
-  else
-    llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
-#endif
 
-  llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
+    llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
+  }
 
   return 0;
 }
@@ -5203,10 +5184,9 @@ int CreateFSBaseGlobal(void) {
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-  if (true /* Binary.IsExecutable */) {
+  {
     llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
-    assert(TraceEnabledF);
-    assert(TraceEnabledF->empty());
+    assert(TraceEnabledF && TraceEnabledF->empty());
 
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", TraceEnabledF);
@@ -5224,8 +5204,7 @@ int FixupHelperStubs(void) {
 
   {
     llvm::Function *CallEntryF = Module->getFunction("_jove_call_entry");
-    assert(CallEntryF);
-    assert(CallEntryF->empty());
+    assert(CallEntryF && CallEntryF->empty());
 
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", CallEntryF);
     {
@@ -5292,8 +5271,7 @@ int FixupHelperStubs(void) {
 
     llvm::Function *GetDynlFunctionTableF =
         Module->getFunction("_jove_get_dynl_function_table");
-    assert(GetDynlFunctionTableF);
-    assert(GetDynlFunctionTableF->empty());
+    assert(GetDynlFunctionTableF && GetDynlFunctionTableF->empty());
 
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", GetDynlFunctionTableF);
@@ -5332,8 +5310,7 @@ int FixupHelperStubs(void) {
 
     llvm::Function *GetVDSOFunctionTableF =
         Module->getFunction("_jove_get_vdso_function_table");
-    assert(GetVDSOFunctionTableF);
-    assert(GetVDSOFunctionTableF->empty());
+    assert(GetVDSOFunctionTableF && GetVDSOFunctionTableF->empty());
 
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", GetVDSOFunctionTableF);

@@ -480,11 +480,11 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
-extern bool _jove_trace_enabled(void);
-extern void _jove_call_entry(void);
-extern uintptr_t *_jove_get_dynl_function_table(void);
-extern uintptr_t *_jove_get_vdso_function_table(void);
-extern _NOINL void _jove_install_function_table(void);
+extern /* -> static */ bool _jove_trace_enabled(void);
+extern /* -> static */ void _jove_call_entry(void);
+extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
+extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
+extern /* -> static */ /* -> _CTOR */ void _jove_install_function_table(void);
 
 _NAKED void __jove_start(void);
 static void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
@@ -500,7 +500,7 @@ static _INL size_t _strlen(const char *s);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
-static _INL char *__findenv(const char *name, int len, int *offset);
+static _INL char *_findenv(const char *name, int len, int *offset);
 static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
@@ -512,26 +512,26 @@ static _INL uintptr_t _get_stack_end(void);
 static unsigned long _jove_alloc_stack(void);
 static void _jove_free_stack(unsigned long);
 
-static _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
+/* static */ _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
 
 void _jove_trace_init(void);
 
-_NAKED _NOINL unsigned long _jove_thunk(unsigned long,
-                                        unsigned long *,
-                                        unsigned long *);
+/* static */ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
+                                                     unsigned long *,
+                                                     unsigned long *);
 
-_NAKED _NOINL _NORET void _jove_fail1(unsigned long);
+/* static */ _NAKED _NOINL _NORET void _jove_fail1(unsigned long);
 
-_NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
-                                     uint32_t CallerBBIdx,
-                                     uintptr_t CalleeAddr);
+/* static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
+                                                  uint32_t CallerBBIdx,
+                                                  uintptr_t CalleeAddr);
 
-_NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
-                                      uint32_t IndBrBBIdx,
-                                      uintptr_t SectsStartAddr,
-                                      uintptr_t SectionsBeg,
-                                      uintptr_t SectionsEnd,
-                                      uintptr_t BBAddr);
+/* static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
+                                                   uint32_t IndBrBBIdx,
+                                                   uintptr_t SectsStartAddr,
+                                                   uintptr_t SectionsBeg,
+                                                   uintptr_t SectionsEnd,
+                                                   uintptr_t BBAddr);
 
 void __jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
@@ -543,9 +543,9 @@ void __jove_start(void) {
                : /* Clobbers */);
 }
 
-extern int    _jove_startup_info_argc;
-extern char **_jove_startup_info_argv;
-extern char **_jove_startup_info_environ;
+extern int    __jove_startup_info_argc;
+extern char **__jove_startup_info_argv;
+extern char **__jove_startup_info_environ;
 
 void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
                  target_ulong rcx, target_ulong r8,
@@ -563,16 +563,16 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   {
     uintptr_t addr = sp_addr;
 
-    _jove_startup_info_argc = *((long *)addr);
+    __jove_startup_info_argc = *((long *)addr);
 
     addr += sizeof(long);
 
-    _jove_startup_info_argv = (char **)addr;
+    __jove_startup_info_argv = (char **)addr;
 
-    addr += _jove_startup_info_argc * sizeof(char *);
+    addr += __jove_startup_info_argc * sizeof(char *);
     addr += sizeof(char *);
 
-    _jove_startup_info_environ = (char **)addr;
+    __jove_startup_info_environ = (char **)addr;
   }
 
   //
@@ -601,19 +601,19 @@ void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
   return _jove_call_entry();
 }
 
-char *__findenv(const char *name, int len, int *offset) {
+char *_findenv(const char *name, int len, int *offset) {
   int i;
   const char *np;
   char **p, *cp;
 
-  if (name == NULL || _jove_startup_info_environ == NULL)
+  if (name == NULL || __jove_startup_info_environ == NULL)
     return (NULL);
-  for (p = _jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
+  for (p = __jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
     for (np = name, i = len; i && *cp; i--)
       if (*cp++ != *np++)
         break;
     if (i == 0 && *cp++ == '=') {
-      *offset = p - _jove_startup_info_environ;
+      *offset = p - __jove_startup_info_environ;
       return (cp);
     }
   }
@@ -626,7 +626,7 @@ char *_getenv(const char *name) {
 
   for (np = name; *np && *np != '='; ++np)
     ;
-  return (__findenv(name, (int)(np - name), &offset));
+  return (_findenv(name, (int)(np - name), &offset));
 }
 
 uintptr_t _get_stack_end(void) {
