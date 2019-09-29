@@ -454,7 +454,7 @@ extern /* __thread */ uint64_t *__jove_trace;
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
-/* static */ uintptr_t *___jove_function_tables[3] = {NULL, NULL, NULL};
+/* static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -1217,9 +1217,9 @@ void _jove_install_vdso_and_dynl_function_tables(void) {
     *p += vdso_load_bias;
 
   /* __jove_function_tables[1] is the dynamic linker. */
-  ___jove_function_tables[1] = dynl_fn_tbl;
+  __jove_foreign_function_tables[1] = dynl_fn_tbl;
   /* __jove_function_tables[2] is the VDSO. */
-  ___jove_function_tables[2] = vdso_fn_tbl;
+  __jove_foreign_function_tables[2] = vdso_fn_tbl;
 }
 
 unsigned long _jove_alloc_stack(void) {

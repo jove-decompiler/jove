@@ -1050,7 +1050,7 @@ int CreateModule(void) {
   assert(JoveFunctionTablesGlobal);
 
   JoveInternalFunctionTablesGlobal =
-      Module->getGlobalVariable("___jove_function_tables", true);
+      Module->getGlobalVariable("__jove_foreign_function_tables", true);
   assert(JoveInternalFunctionTablesGlobal);
   JoveInternalFunctionTablesGlobal->setLinkage(
       llvm::GlobalValue::InternalLinkage);
