@@ -485,9 +485,13 @@ extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ /* -> _CTOR */ void _jove_install_function_table(void);
 
-_NAKED void __jove_start(void);
-static void _jove_start(target_ulong, target_ulong, target_ulong, target_ulong,
-                        target_ulong, target_ulong);
+_NAKED void _jove_start(void);
+static void _jove_begin(target_ulong rdi,
+                        target_ulong rsi,
+                        target_ulong rdx,
+                        target_ulong rcx,
+                        target_ulong r8,
+                        target_ulong sp_addr /* formerly r9 */);
 
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
@@ -532,13 +536,13 @@ void _jove_trace_init(void);
                                                       uintptr_t SectionsEnd,
                                                       uintptr_t BBAddr);
 
-void __jove_start(void) {
+void _jove_start(void) {
   asm volatile("movq %%rsp, %%r9\n"
                "jmp %P0\n"
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i"(_jove_start)
+               "i"(_jove_begin)
                : /* Clobbers */);
 }
 
@@ -546,8 +550,11 @@ extern int    __jove_startup_info_argc;
 extern char **__jove_startup_info_argv;
 extern char **__jove_startup_info_environ;
 
-void _jove_start(target_ulong rdi, target_ulong rsi, target_ulong rdx,
-                 target_ulong rcx, target_ulong r8,
+void _jove_begin(target_ulong rdi,
+                 target_ulong rsi,
+                 target_ulong rdx,
+                 target_ulong rcx,
+                 target_ulong r8,
                  target_ulong sp_addr /* formerly r9 */) {
   __jove_env.regs[R_EDI] = rdi;
   __jove_env.regs[R_ESI] = rsi;
