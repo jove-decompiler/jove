@@ -7029,6 +7029,7 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
+#if 0
     struct {
       bool AnyOf;
       bool AllOf;
@@ -7040,9 +7041,10 @@ int TranslateBasicBlock(binary_t &Binary,
                                 DynTargetNeedsThunkPred)};
 
     if (NeedsThunk.AnyOf != NeedsThunk.AllOf) {
-      WithColor::warning() << llvm::formatv("ambiguous NeedsThunk for {0:x}\n",
-                                            ICFG[bb].Term.Addr);
+      WithColor::note() << llvm::formatv("ambiguous NeedsThunk for {0:x}\n",
+                                         ICFG[bb].Term.Addr);
     }
+#endif
 
     if (DynTargetsComplete) {
       if (DynTargets.size() > 1)
