@@ -653,7 +653,7 @@ skip_dfsan:
 
       if (is_function_index_valid(b.Analysis.EntryFunction)) {
         arg_vec.push_back("-e");
-        arg_vec.push_back("__jove_start");
+        arg_vec.push_back("_jove_start");
       }
 
       // include lib directories
