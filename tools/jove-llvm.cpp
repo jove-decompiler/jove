@@ -334,6 +334,7 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
 //
 struct symbol_t {
   llvm::StringRef Name;
+  llvm::StringRef Vers;
   uintptr_t Addr;
 
   enum class TYPE {
@@ -351,6 +352,10 @@ struct symbol_t {
     WEAK,
     GLOBAL
   } Bind;
+
+  struct {
+    bool IsDefault;
+  } Visibility;
 
   bool IsUndefined() const { return Addr == 0; }
   bool IsDefined() const { return !IsUndefined(); }
@@ -783,6 +788,10 @@ typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
 typedef typename ELFT::Elf_Sym Elf_Sym;
 typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
 typedef typename ELFT::Elf_Word Elf_Word;
+typedef typename ELFT::Elf_Versym Elf_Versym;
+typedef typename ELFT::Elf_Verdef Elf_Verdef;
+typedef typename ELFT::Elf_Vernaux Elf_Vernaux;
+typedef typename ELFT::Elf_Verneed Elf_Verneed;
 
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
@@ -1799,6 +1808,27 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
+class VersionMapEntry : public llvm::PointerIntPair<const void *, 1> {
+public:
+  // If the integer is 0, this is an Elf_Verdef*.
+  // If the integer is 1, this is an Elf_Vernaux*.
+  VersionMapEntry() : PointerIntPair<const void *, 1>(nullptr, 0) {}
+  VersionMapEntry(const Elf_Verdef *verdef)
+      : PointerIntPair<const void *, 1>(verdef, 0) {}
+  VersionMapEntry(const Elf_Vernaux *vernaux)
+      : PointerIntPair<const void *, 1>(vernaux, 1) {}
+
+  bool isNull() const { return getPointer() == nullptr; }
+  bool isVerdef() const { return !isNull() && getInt() == 0; }
+  bool isVernaux() const { return !isNull() && getInt() == 1; }
+  const Elf_Verdef *getVerdef() const {
+    return isVerdef() ? (const Elf_Verdef *)getPointer() : nullptr;
+  }
+  const Elf_Vernaux *getVernaux() const {
+    return isVernaux() ? (const Elf_Vernaux *)getPointer() : nullptr;
+  }
+};
+
 int ProcessBinaryRelocations(void) {
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
@@ -1809,6 +1839,195 @@ int ProcessBinaryRelocations(void) {
   Features = O.getFeatures();
 
   const ELFT &E = *O.getELFFile();
+
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
+
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
+
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
+    }
+  }
+
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion;
+  llvm::StringRef DynSymtabName;
+  llvm::StringRef DynamicStringTable;
+
+  const Elf_Shdr *SymbolVersionSection = nullptr;   // .gnu.version
+  const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+  const Elf_Shdr *SymbolVersionDefSection = nullptr; // .gnu.version_d
+
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+
+      case llvm::ELF::SHT_GNU_versym:
+        if (!SymbolVersionSection)
+          SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        if (!SymbolVersionDefSection)
+          SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        if (!SymbolVersionNeedSection)
+          SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+  }
+
+  //
+  // parse dynamic table
+  //
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+    const Elf_Phdr *const *I =
+        std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                         [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                           return VAddr < Phdr->p_vaddr;
+                         });
+    if (I == LoadSegments.begin())
+      abort();
+    --I;
+    const Elf_Phdr &Phdr = **I;
+    uint64_t Delta = VAddr - Phdr.p_vaddr;
+    if (Delta >= Phdr.p_filesz)
+      abort();
+    return E.base() + Phdr.p_offset + Delta;
+  };
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_SYMTAB:
+      DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
+      DynSymRegion.EntSize = sizeof(Elf_Sym);
+      break;
+    }
+  }
+
+  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+
+  auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+    unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+    unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+    const uint8_t *VerdefStart =
+        reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+    const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+    // The first Verdef entry is at the start of the section.
+    const uint8_t *VerdefBuf = VerdefStart;
+    for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries; ++VerdefIndex) {
+      if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+      report_fatal_error("Section ended unexpectedly while scanning "
+                         "version definitions.");
+#else
+        abort();
+#endif
+      }
+
+      const Elf_Verdef *Verdef =
+          reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+      if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+      report_fatal_error("Unexpected verdef version");
+#else
+        abort();
+#endif
+      }
+
+      size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+      if (Index >= VersionMap.size())
+        VersionMap.resize(Index + 1);
+      VersionMap[Index] = VersionMapEntry(Verdef);
+      VerdefBuf += Verdef->vd_next;
+    }
+  };
+
+  auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+    unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+    unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+    const uint8_t *VerneedStart =
+        reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+    const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+    // The first Verneed entry is at the start of the section.
+    const uint8_t *VerneedBuf = VerneedStart;
+    for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+         ++VerneedIndex) {
+      if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+        abort();
+#endif
+      }
+      const Elf_Verneed *Verneed =
+          reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+      if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+        abort();
+#endif
+      }
+      // Iterate through the Vernaux entries
+      const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+      for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+           ++VernauxIndex) {
+        if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Vernaux *Vernaux =
+            reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+        size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Vernaux);
+        VernauxBuf += Vernaux->vna_next;
+      }
+      VerneedBuf += Verneed->vn_next;
+    }
+  };
 
   auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
     symbol_t res;
@@ -1854,6 +2073,92 @@ int ProcessBinaryRelocations(void) {
     };
 
     res.Name = unwrapOrError(Sym.getName(StrTable));
+
+    //
+    // symbol versioning
+    //
+    if (!SymbolVersionSection) {
+      res.Visibility.IsDefault = false;
+    } else {
+      // Determine the position in the symbol table of this entry.
+      size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                           reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                          sizeof(Elf_Sym);
+
+      // Get the corresponding version index entry.
+      const Elf_Versym *Versym = unwrapOrError(
+          E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+
+      auto getSymbolVersionByIndex = [&](llvm::StringRef StrTab,
+                                         uint32_t SymbolVersionIndex,
+                                         bool &IsDefault) -> llvm::StringRef {
+        size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+        // Special markers for unversioned symbols.
+        if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+            VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+          IsDefault = false;
+          return "";
+        }
+
+        auto LoadVersionMap = [&](void) -> void {
+          // If there is no dynamic symtab or version table, there is nothing to
+          // do.
+          if (!DynSymRegion.Addr || !SymbolVersionSection)
+            return;
+
+          // Has the VersionMap already been loaded?
+          if (!VersionMap.empty())
+            return;
+
+          // The first two version indexes are reserved.
+          // Index 0 is LOCAL, index 1 is GLOBAL.
+          VersionMap.push_back(VersionMapEntry());
+          VersionMap.push_back(VersionMapEntry());
+
+          if (SymbolVersionDefSection)
+            LoadVersionDefs(SymbolVersionDefSection);
+
+          if (SymbolVersionNeedSection)
+            LoadVersionNeeds(SymbolVersionNeedSection);
+        };
+
+        // Lookup this symbol in the version table.
+        LoadVersionMap();
+        if (VersionIndex >= VersionMap.size() ||
+            VersionMap[VersionIndex].isNull()) {
+          WithColor::error() << "Invalid version entry\n";
+          exit(1);
+        }
+
+        const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+        // Get the version name string.
+        size_t NameOffset;
+        if (Entry.isVerdef()) {
+          // The first Verdaux entry holds the name.
+          NameOffset = Entry.getVerdef()->getAux()->vda_name;
+          IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+        } else {
+          NameOffset = Entry.getVernaux()->vna_name;
+          IsDefault = false;
+        }
+
+        if (NameOffset >= StrTab.size()) {
+          WithColor::error() << "Invalid string offset\n";
+          return "";
+        }
+
+        return StrTab.data() + NameOffset;
+      };
+
+      res.Vers = getSymbolVersionByIndex(DynamicStringTable, Versym->vs_index,
+                                         res.Visibility.IsDefault);
+    }
+
+    llvm::errs() << llvm::formatv("Name={0} Vers={1} IsDefault={2}\n", res.Name,
+                                  res.Vers, res.Visibility.IsDefault);
+
     res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
     res.Type = elf_symbol_type_mapping[Sym.getType()];
     res.Size = Sym.st_size;
