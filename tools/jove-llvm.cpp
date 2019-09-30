@@ -2147,8 +2147,10 @@ int ProcessBinaryRelocations(void) {
                                          res.Visibility.IsDefault);
     }
 
+#if 0
     llvm::errs() << llvm::formatv("Name={0} Vers={1} IsDefault={2}\n", res.Name,
                                   res.Vers, res.Visibility.IsDefault);
+#endif
 
     res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
     res.Type = elf_symbol_type_mapping[Sym.getType()];
@@ -3736,8 +3738,8 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 
 int CreateTLSModGlobal(void) {
   TLSModGlobal = new llvm::GlobalVariable(
-      *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
-      llvm::ConstantInt::get(WordType(), 0), "__jove_tpmod");
+      *Module, WordType(), true, llvm::GlobalValue::InternalLinkage,
+      llvm::ConstantInt::get(WordType(), 0x12345678), "__jove_tpmod");
   return 0;
 }
 
@@ -3947,8 +3949,6 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto type_of_tpmod_relocation = [&](const relocation_t &R) -> llvm::Type * {
-    assert(TLSModGlobal);
-
     return TLSModGlobal->getType();
   };
 
@@ -4376,7 +4376,6 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_tpmod_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    assert(TLSModGlobal);
     return TLSModGlobal;
   };
 
