@@ -509,8 +509,8 @@ static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
 
-#define JOVE_STACK_SIZE (1024 * 1024)
 #define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
 static unsigned long _jove_alloc_stack(void);
 static void _jove_free_stack(unsigned long);
