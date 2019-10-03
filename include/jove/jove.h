@@ -15,6 +15,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <map>
 #include <boost/graph/adjacency_list.hpp>
 #include <boost/serialization/nvp.hpp>
 #include <numeric>
@@ -168,6 +169,9 @@ struct binary_t {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
+
+    std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
+        RelocDynTargets;
     std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
         IFuncDynTargets;
     std::map<std::string, std::set<std::pair<binary_index_t, function_index_t>>>
@@ -186,6 +190,7 @@ struct binary_t {
        &BOOST_SERIALIZATION_NVP(Analysis.EntryFunction)
        &BOOST_SERIALIZATION_NVP(Analysis.Functions)
        &BOOST_SERIALIZATION_NVP(Analysis.ICFG)
+       &BOOST_SERIALIZATION_NVP(Analysis.RelocDynTargets)
        &BOOST_SERIALIZATION_NVP(Analysis.IFuncDynTargets)
        &BOOST_SERIALIZATION_NVP(Analysis.SymDynTargets);
   }

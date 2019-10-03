@@ -190,6 +190,39 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       }
     }
 
+    if (!B.Analysis.RelocDynTargets.empty()) {
+      llvm::ListScope _(Writer);
+
+      for (const auto &pair : B.Analysis.RelocDynTargets) {
+        llvm::DictScope _(Writer);
+
+        Writer.printHex("Relocation Address", pair.first);
+        if (!pair.second.empty()) {
+          std::vector<std::string> descv;
+          descv.resize(pair.second.size());
+
+          std::transform(pair.second.begin(), pair.second.end(), descv.begin(),
+                         [&](const auto &pair) -> std::string {
+                           binary_index_t BIdx;
+                           function_index_t FIdx;
+                           std::tie(BIdx, FIdx) = pair;
+
+                           auto &b = decompilation.Binaries[BIdx];
+                           const auto &_ICFG = b.Analysis.ICFG;
+                           auto &callee = b.Analysis.Functions[FIdx];
+                           uintptr_t target_addr =
+                               _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
+
+                           return (fmt("%#lx @ %s") % target_addr %
+                                   fs::path(b.Path).filename().string())
+                               .str();
+                         });
+
+          Writer.printList("Relocation DynTargets", descv);
+        }
+      }
+    }
+
     if (!B.Analysis.IFuncDynTargets.empty()) {
       llvm::ListScope _(Writer);
 
@@ -218,7 +251,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                                .str();
                          });
 
-          Writer.printList("DynTargets", descv);
+          Writer.printList("IFunc DynTargets", descv);
         }
       }
     }
@@ -251,7 +284,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                                .str();
                          });
 
-          Writer.printList("DynTargets", descv);
+          Writer.printList("Symbol DynTargets", descv);
         }
       }
     }

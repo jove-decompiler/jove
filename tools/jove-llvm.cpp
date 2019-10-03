@@ -2157,12 +2157,14 @@ int ProcessBinaryRelocations(void) {
     res.Size = Sym.st_size;
     res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
 
+#if 0
     if (res.Type == symbol_t::TYPE::NONE &&
         res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
       WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
                                             res.Name);
       res.Type = symbol_t::TYPE::FUNCTION;
     }
+#endif
 
     SymbolTable.push_back(res);
   };
@@ -3801,32 +3803,19 @@ int CreateSectionGlobalVariables(void) {
     assert(S.IsUndefined());
     llvm::FunctionType *FTy;
 
-    auto it = ExportedFunctions.find(S.Name);
-    if (it == ExportedFunctions.end()) {
-      if (S.Bind != symbol_t::BINDING::WEAK)
-        WithColor::warning() << llvm::formatv(
-            "no exported function found by the name {0}\n", S.Name);
+    {
+      auto &RelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
 
-      FTy = llvm::FunctionType::get(VoidType(), false);
-    } else {
-      std::pair<binary_index_t, function_index_t> resolved;
-
-      {
-        std::vector<std::pair<binary_index_t, function_index_t>> intersect;
-        std::set_intersection((*it).second.begin(),
-                              (*it).second.end(),
-                              BinaryDynamicTargets.begin(),
-                              BinaryDynamicTargets.end(),
-                              std::back_inserter(intersect));
-
-        if (intersect.empty()) {
-          resolved = *(*it).second.begin();
-        } else {
-          resolved = intersect.front();
-        }
+      auto it = RelocDynTargets.find(R.Addr);
+      if (it == RelocDynTargets.end() || (*it).second.empty()) {
+        WithColor::error() << llvm::formatv(
+            "{0}:{1} have you run jove-dyn? (symbol: {2})\n", __FILE__,
+            __LINE__, S.Name);
+        exit(1);
       }
 
-      FTy = DetermineFunctionType(resolved);
+      FTy = DetermineFunctionType(*(*it).second.begin());
     }
 
     return llvm::PointerType::get(FTy, 0);
@@ -3848,21 +3837,23 @@ int CreateSectionGlobalVariables(void) {
     assert(S.IsUndefined());
     assert(!S.Size);
 
+    unsigned Size;
+
     auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
     if (it == GlobalSymbolDefinedSizeMap.end()) {
-      llvm::outs() << "fucked because we don't have the size for " << S.Name
-                   << '\n';
-      return nullptr;
+      WithColor::error() << llvm::formatv(
+          "{0}: unknown size for {1}\n",
+          "type_of_addressof_undefined_data_relocation", S.Name);
+      Size = sizeof(target_ulong);
+    } else {
+      Size = (*it).second;
     }
-
-    unsigned Size = (*it).second;
 
     llvm::Type *T;
-    if (is_integral_size(Size)) {
+    if (is_integral_size(Size))
       T = llvm::Type::getIntNTy(*Context, Size * 8);
-    } else {
+    else
       T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-    }
 
     return llvm::PointerType::get(T, 0);
   };
@@ -3897,13 +3888,19 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R) -> llvm::Type * {
     llvm::FunctionType *FTy;
 
-    auto &IFuncDynTargets =
-        Decompilation.Binaries[BinaryIndex].Analysis.IFuncDynTargets;
-    auto it = IFuncDynTargets.find(R.Addend);
-    if (it == IFuncDynTargets.end() || (*it).second.empty())
-      FTy = llvm::FunctionType::get(VoidType(), false);
-    else
+    {
+      auto &RelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
+
+      auto it = RelocDynTargets.find(R.Addr);
+      if (it == RelocDynTargets.end() || (*it).second.empty()) {
+        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
+                                            __FILE__, __LINE__);
+        exit(1);
+      }
+
       FTy = DetermineFunctionType(*(*it).second.begin());
+    }
 
     return llvm::PointerType::get(FTy, 0);
   };
@@ -3976,6 +3973,12 @@ int CreateSectionGlobalVariables(void) {
           return type_of_addressof_undefined_function_relocation(R, S);
         else
           return type_of_addressof_defined_function_relocation(R, S);
+
+      default:
+        WithColor::warning() << llvm::formatv(
+            "addressof {0} has unknown symbol type; treating as data\n",
+            S.Name);
+
       case symbol_t::TYPE::DATA:
         if (S.IsUndefined())
           return type_of_addressof_undefined_data_relocation(R, S);
@@ -4003,8 +4006,9 @@ int CreateSectionGlobalVariables(void) {
     }
 
     default:
-      WithColor::error() << "type_of_relocation: unhandled relocation type "
-                         << string_of_reloc_type(R.Type) << '\n';
+      WithColor::error() << llvm::formatv(
+          "type_of_relocation: unhandled relocation type {0}\n",
+          string_of_reloc_type(R.Type));
       abort();
     }
   };
@@ -4027,36 +4031,20 @@ int CreateSectionGlobalVariables(void) {
 
     llvm::Function *F = Module->getFunction(S.Name);
 
-    if (F)
-      return F;
+    if (!F) {
+      auto &RelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
 
-    auto it = ExportedFunctions.find(S.Name);
-    if (it == ExportedFunctions.end()) {
-      if (S.Bind == symbol_t::BINDING::WEAK)
-        F = llvm::Function::Create(llvm::FunctionType::get(VoidType(), false),
-                                   llvm::GlobalValue::ExternalWeakLinkage,
-                                   S.Name, Module.get());
-      else
-        WithColor::warning() << llvm::formatv(
-            "no exported function found by the name {0}\n", S.Name);
-    } else {
-      std::pair<binary_index_t, function_index_t> resolved;
-
-      {
-        std::vector<std::pair<binary_index_t, function_index_t>> intersect;
-        std::set_intersection((*it).second.begin(),
-                              (*it).second.end(),
-                              BinaryDynamicTargets.begin(),
-                              BinaryDynamicTargets.end(),
-                              std::back_inserter(intersect));
-
-        if (intersect.empty())
-          resolved = *(*it).second.begin();
-        else
-          resolved = intersect.front();
+      auto it = RelocDynTargets.find(R.Addr);
+      if (it == RelocDynTargets.end() || (*it).second.empty()) {
+        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
+                                            __FILE__, __LINE__);
+        exit(1);
       }
 
-      F = llvm::Function::Create(DetermineFunctionType(resolved),
+      llvm::FunctionType *FTy = DetermineFunctionType(*(*it).second.begin());
+
+      F = llvm::Function::Create(FTy,
                                  S.Bind == symbol_t::BINDING::WEAK
                                      ? llvm::GlobalValue::ExternalWeakLinkage
                                      : llvm::GlobalValue::ExternalLinkage,
@@ -4088,14 +4076,18 @@ int CreateSectionGlobalVariables(void) {
     if (GV)
       return GV;
 
+    unsigned Size;
+
     auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
     if (it == GlobalSymbolDefinedSizeMap.end()) {
-      llvm::outs() << "fucked because we don't have the size for " << S.Name
-                   << '\n';
-      return nullptr;
-    }
+      WithColor::error() << llvm::formatv(
+          "{0}: unknown size for {1}\n",
+          "type_of_addressof_undefined_data_relocation", S.Name);
 
-    unsigned Size = (*it).second;
+      Size = sizeof(target_ulong);
+    } else {
+      Size = (*it).second;
+    }
 
     llvm::Type *T;
     if (is_integral_size(Size)) {
@@ -4138,43 +4130,30 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    llvm::FunctionType *FTy;
-
     std::pair<binary_index_t, function_index_t> IdxPair;
 
     {
-      auto &IFuncDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.IFuncDynTargets;
-      auto it = IFuncDynTargets.find(R.Addend);
-      assert(it != IFuncDynTargets.end());
+      auto &RelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
+
+      auto it = RelocDynTargets.find(R.Addr);
+      if (it == RelocDynTargets.end() || (*it).second.empty()) {
+        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
+                                            __FILE__, __LINE__);
+        exit(1);
+      }
 
       IdxPair = *(*it).second.begin();
-      FTy = DetermineFunctionType(IdxPair);
     }
 
-#if 0
-    {
-      auto &IFuncRelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.IFuncRelocDynTargets;
-      auto it = IFuncRelocDynTargets.find(R.Addr);
-      if (it == IFuncRelocDynTargets.end() || (*it).second.empty()) {
-        return llvm::Constant::getNullValue(llvm::PointerType::get(
-            llvm::FunctionType::get(VoidType(), false), 0));
-      } else {
-        binary_index_t BIdx;
-        function_index_t FIdx;
-        std::tie(BIdx, FIdx) = *(*it).second.begin();
-
-        return Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx).F;
-      }
-    }
-#else
     auto it = FuncMap.find(R.Addend);
     assert(it != FuncMap.end());
 
     function_t &f =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
     if (!f._resolver.IFunc) {
+      llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
+
       // TODO refactor this
       llvm::Function *CallsF = llvm::Function::Create(
           llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
@@ -4318,7 +4297,6 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return f._resolver.IFunc;
-#endif
   };
 
   auto constant_of_tpoff_relocation =
@@ -4399,6 +4377,12 @@ int CreateSectionGlobalVariables(void) {
           return constant_of_addressof_undefined_function_relocation(R, S);
         else
           return constant_of_addressof_defined_function_relocation(R, S);
+
+      default:
+        WithColor::warning() << llvm::formatv(
+            "addressof {0} has unknown symbol type; treating as data\n",
+            S.Name);
+
       case symbol_t::TYPE::DATA:
         if (S.IsUndefined())
           return constant_of_addressof_undefined_data_relocation(R, S);
@@ -4656,18 +4640,24 @@ int CreateSectionGlobalVariables(void) {
         case 1:
           X = *reinterpret_cast<const int8_t *>(p);
           break;
+
         case 2:
           X = *reinterpret_cast<const int16_t *>(p);
           break;
+
         case 4:
           X = *reinterpret_cast<const int32_t *>(p);
           break;
+
         case 8:
           X = *reinterpret_cast<const int64_t *>(p);
           break;
+
         default:
+          __builtin_trap();
           __builtin_unreachable();
         }
+
         Initializer = llvm::ConstantInt::get(T, X);
       } else {
         Initializer = llvm::ConstantInt::get(T, 0);
@@ -5171,6 +5161,67 @@ int CreateFSBaseGlobal(void) {
 
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_sections_start_file_addr");
+    assert(F && F->empty());
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(llvm::ConstantInt::get(WordType(), SectsStartAddr));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_sections_global_beg_addr");
+    assert(F && F->empty());
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_sections_global_end_addr");
+    assert(F && F->empty());
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      // TODO call DL.getAllocSize and verify the numbers are the same
+      uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
+
+      IRB.CreateRet(llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), SectsGlobalSize)));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_binary_index");
+    assert(F && F->empty());
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(IRB.getInt32(BinaryIndex));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
 
   {
     llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
@@ -6201,6 +6252,9 @@ int RecoverControlFlow(void) {
   if (!JoveRecoverDynTargetFunc)
     return 0;
 
+  // sanity check.
+  assert(JoveRecoverDynTargetFunc->arg_size() == 2);
+
   std::unordered_map<llvm::Function *,
                      std::pair<binary_index_t, function_index_t>>
       LLVMFnToJoveFnMap;
@@ -6217,7 +6271,7 @@ int RecoverControlFlow(void) {
     assert(llvm::isa<llvm::CallInst>(U));
     llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
 
-    llvm::Value *CalleeV = Call->getOperand(2);
+    llvm::Value *CalleeV = Call->getOperand(1);
     if (!llvm::isa<llvm::ConstantExpr>(CalleeV))
       continue;
 
@@ -6230,15 +6284,14 @@ int RecoverControlFlow(void) {
       continue;
 
     assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
-    assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(1)));
 
     struct {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
     } Caller;
 
-    Caller.BIdx  = llvm::cast<llvm::ConstantInt>(Call->getOperand(0))->getZExtValue();
-    Caller.BBIdx = llvm::cast<llvm::ConstantInt>(Call->getOperand(1))->getZExtValue();
+    Caller.BIdx  = BinaryIndex;
+    Caller.BBIdx = llvm::cast<llvm::ConstantInt>(Call->getOperand(0))->getZExtValue();
 
 #if 0
     llvm::outs() << llvm::formatv("_jove_recover_dyn_target({0}, {1}, {2})\n",
@@ -6923,15 +6976,8 @@ int TranslateBasicBlock(binary_t &Binary,
       // TODO call DL.getAllocSize and verify the numbers are the same
       uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
 
-      llvm::Value *RecoverArgs[] = {
-          IRB.getInt32(BinaryIndex),
-          IRB.getInt32(bb_idx_map[bb]),
-          IRB.getInt64(SectsStartAddr),
-          llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-          llvm::ConstantExpr::getAdd(
-              llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-              IRB.getInt64(SectsGlobalSize)),
-          IRB.CreateLoad(f.PCAlloca)};
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
+                                    IRB.CreateLoad(f.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       IRB.CreateCall(
@@ -6954,8 +7000,7 @@ int TranslateBasicBlock(binary_t &Binary,
                           boost::vertex_index_t>::type bb_idx_map =
           boost::get(boost::vertex_index, ICFG);
 
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(BinaryIndex),
-                                    IRB.getInt32(bb_idx_map[bb]),
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                     IRB.CreateLoad(f.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
@@ -6966,18 +7011,10 @@ int TranslateBasicBlock(binary_t &Binary,
       if (T.Type == TERMINATOR::INDIRECT_JUMP) {
         assert(boost::out_degree(bb, ICFG) == 0);
 
-        // TODO call DL.getAllocSize and verify the numbers are the same
         uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
 
-        llvm::Value *RecoverArgs[] = {
-            IRB.getInt32(BinaryIndex),
-            IRB.getInt32(bb_idx_map[bb]),
-            IRB.getInt64(SectsStartAddr),
-            llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-            llvm::ConstantExpr::getAdd(
-                llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-                IRB.getInt64(SectsGlobalSize)),
-            IRB.CreateLoad(f.PCAlloca)};
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
+                                      IRB.CreateLoad(f.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       }
@@ -7157,8 +7194,7 @@ int TranslateBasicBlock(binary_t &Binary,
                             boost::vertex_index_t>::type bb_idx_map =
             boost::get(boost::vertex_index, ICFG);
 
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(BinaryIndex),
-                                      IRB.getInt32(bb_idx_map[bb]),
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                       IRB.CreateLoad(f.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);

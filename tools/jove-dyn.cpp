@@ -1806,20 +1806,21 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
                                 const Elf_Rela &R) -> void {
-      constexpr unsigned long desired_reloc_ty =
+      constexpr unsigned long irelative_reloc_ty =
 #if defined(__x86_64__)
           llvm::ELF::R_X86_64_IRELATIVE
 #elif defined(__i386__)
           llvm::ELF::R_386_IRELATIVE
 #elif defined(__aarch64__)
-          llvm::ELF::R_AARCH64_IRELATIVE;
+          llvm::ELF::R_AARCH64_IRELATIVE
 #else
           0
 #error
 #endif
           ;
 
-      if (R.getType(E.isMips64EL()) != desired_reloc_ty)
+      unsigned reloc_ty = R.getType(E.isMips64EL());
+      if (reloc_ty != irelative_reloc_ty)
         return;
 
       struct {
@@ -1850,9 +1851,13 @@ static void harvest_irelative_reloc_targets(pid_t child,
           child, Resolved.BIdx, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
-      if (is_function_index_valid(Resolved.FIdx))
+      if (is_function_index_valid(Resolved.FIdx)) {
         Binary.Analysis.IFuncDynTargets[R.r_addend].insert(
             {Resolved.BIdx, Resolved.FIdx});
+
+        Binary.Analysis.RelocDynTargets[R.r_offset].insert(
+            {Resolved.BIdx, Resolved.FIdx});
+      }
     };
 
     for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
@@ -1930,9 +1935,24 @@ static void harvest_addressof_reloc_targets(pid_t child,
 #endif
           ;
 
+      constexpr unsigned long abs_reloc_ty =
+#if defined(__x86_64__)
+          llvm::ELF::R_X86_64_64
+#elif defined(__i386__)
+          llvm::ELF::R_386_32
+#elif defined(__aarch64__)
+          llvm::ELF::R_AARCH64_ABS64
+#else
+          0
+#error
+#endif
+          ;
+
+
       unsigned reloc_ty = R.getType(E.isMips64EL());
       if (reloc_ty != jump_slot_reloc_ty &&
-          reloc_ty != glob_dat_reloc_ty)
+          reloc_ty != glob_dat_reloc_ty &&
+          reloc_ty != abs_reloc_ty)
         return;
 
       const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
@@ -1974,9 +1994,13 @@ static void harvest_addressof_reloc_targets(pid_t child,
           child, Resolved.BIdx, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
-      if (is_function_index_valid(Resolved.FIdx))
+      if (is_function_index_valid(Resolved.FIdx)) {
         Binary.Analysis.SymDynTargets[SymName].insert(
             {Resolved.BIdx, Resolved.FIdx});
+
+        Binary.Analysis.RelocDynTargets[R.r_offset].insert(
+            {Resolved.BIdx, Resolved.FIdx});
+      }
     };
 
     for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {

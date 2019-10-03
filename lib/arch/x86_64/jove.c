@@ -479,6 +479,11 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
+
+extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);
+extern /* -> static */ uintptr_t _jove_sections_global_beg_addr(void);
+extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
+extern /* -> static */ uint32_t _jove_binary_index(void);
 extern /* -> static */ bool _jove_trace_enabled(void);
 extern /* -> static */ void _jove_call_entry(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
@@ -525,15 +530,10 @@ void _jove_trace_init(void);
 
 /* -> static */ _NAKED _NOINL _NORET void _jove_fail1(unsigned long);
 
-/* -> static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBIdx,
-                                                     uint32_t CallerBBIdx,
+/* -> static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                                      uintptr_t CalleeAddr);
 
-/* -> static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBIdx,
-                                                      uint32_t IndBrBBIdx,
-                                                      uintptr_t SectsStartAddr,
-                                                      uintptr_t SectionsBeg,
-                                                      uintptr_t SectionsEnd,
+/* -> static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                                       uintptr_t BBAddr);
 
 void _jove_start(void) {
@@ -930,12 +930,12 @@ size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   return expected;
 }
 
-void _jove_recover_dyn_target(uint32_t CallerBIdx,
-                              uint32_t CallerBBIdx,
-                              uintptr_t CalleeAddr) {
+void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
+
+  uint32_t CallerBIdx = _jove_binary_index();
 
   struct {
     uint32_t BIdx;
@@ -990,20 +990,35 @@ found:
   }
 }
 
-void _jove_recover_basic_block(uint32_t IndBrBIdx,
-                               uint32_t IndBrBBIdx,
-                               uintptr_t SectsStartAddr,
-                               uintptr_t SectionsBeg,
-                               uintptr_t SectionsEnd,
+void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                uintptr_t BBAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
 
-  if (!(BBAddr >= SectionsBeg && BBAddr < SectionsEnd))
+  struct {
+    uint32_t BIdx;
+    uint32_t BBIdx;
+  } IndBr;
+
+  struct {
+    uintptr_t Beg;
+    uintptr_t End;
+  } SectionsGlobal;
+
+  uintptr_t SectsStartFileAddr;
+
+  IndBr.BIdx = _jove_binary_index();
+  IndBr.BBIdx = IndBrBBIdx;
+
+  SectionsGlobal.Beg = _jove_sections_global_beg_addr();
+  SectionsGlobal.End = _jove_sections_global_end_addr();
+  SectsStartFileAddr = _jove_sections_start_file_addr();
+
+  if (!(BBAddr >= SectionsGlobal.Beg && BBAddr < SectionsGlobal.End))
     return; /* not found */
 
-  uintptr_t FileAddr = (BBAddr - SectionsBeg) + SectsStartAddr;
+  uintptr_t FileAddr = (BBAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
 
 found:
   {
@@ -1018,8 +1033,8 @@ found:
 
       struct iovec iov_arr[] = {
           _IOV_ENTRY(ch)
-          _IOV_ENTRY(IndBrBIdx)
-          _IOV_ENTRY(IndBrBBIdx)
+          _IOV_ENTRY(IndBr.BIdx)
+          _IOV_ENTRY(IndBr.BBIdx)
           _IOV_ENTRY(FileAddr)
       };
 

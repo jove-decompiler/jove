@@ -219,7 +219,7 @@ int recompile(void) {
     return 1;
   }
 
-#if 1
+#if 0
   ld_path = (boost::dll::program_location().parent_path().parent_path() /
              "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
                 .string();
@@ -515,7 +515,7 @@ int recompile(void) {
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
-      return 1;
+      return ret;
     }
 
     std::string optbcfp = bcfp;
@@ -616,7 +616,7 @@ skip_dfsan:
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "llc failed for " << binary_filename << '\n';
-      return 1;
+      return ret;
     }
 
     if (Cancel) {
@@ -648,7 +648,9 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp,
           "--pop-state",
 
+#if 0
           "--no-undefined",
+#endif
       };
 
       if (is_function_index_valid(b.Analysis.EntryFunction)) {
@@ -657,7 +659,11 @@ skip_dfsan:
       }
 
       // include lib directories
+#if 0
       std::unordered_set<std::string> lib_dirs({opts::Output + "/usr/lib"});
+#else
+      std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
+#endif
 
       for (std::string &needed : b.dynl.needed) {
         auto it = soname_map.find(needed);
@@ -668,8 +674,13 @@ skip_dfsan:
         }
 
         binary_t &needed_b = Decompilation.Binaries.at((*it).second);
+#if 0
         const fs::path needed_chrooted_path(opts::Output + needed_b.Path);
         lib_dirs.insert(needed_chrooted_path.parent_path().string());
+#else
+        const fs::path needed_path(needed_b.Path);
+        lib_dirs.insert(needed_path.parent_path().string());
+#endif
       }
 
       for (const std::string &lib_dir : lib_dirs) {
@@ -736,7 +747,7 @@ skip_dfsan:
     //
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "ld failed for " << binary_filename << '\n';
-      return 1;
+      return ret;
     }
   }
 
