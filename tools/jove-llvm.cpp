@@ -2157,7 +2157,7 @@ int ProcessBinaryRelocations(void) {
     res.Size = Sym.st_size;
     res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
 
-#if 0
+#if 1
     if (res.Type == symbol_t::TYPE::NONE &&
         res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
       WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
@@ -3812,10 +3812,11 @@ int CreateSectionGlobalVariables(void) {
         WithColor::error() << llvm::formatv(
             "{0}:{1} have you run jove-dyn? (symbol: {2})\n", __FILE__,
             __LINE__, S.Name);
-        exit(1);
-      }
 
-      FTy = DetermineFunctionType(*(*it).second.begin());
+        FTy = llvm::FunctionType::get(VoidType(), false);
+      } else {
+        FTy = DetermineFunctionType(*(*it).second.begin());
+      }
     }
 
     return llvm::PointerType::get(FTy, 0);
@@ -3974,10 +3975,12 @@ int CreateSectionGlobalVariables(void) {
         else
           return type_of_addressof_defined_function_relocation(R, S);
 
+#if 1
       default:
         WithColor::warning() << llvm::formatv(
             "addressof {0} has unknown symbol type; treating as data\n",
             S.Name);
+#endif
 
       case symbol_t::TYPE::DATA:
         if (S.IsUndefined())
@@ -4032,17 +4035,22 @@ int CreateSectionGlobalVariables(void) {
     llvm::Function *F = Module->getFunction(S.Name);
 
     if (!F) {
-      auto &RelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
+      llvm::FunctionType *FTy;
+      {
+        auto &RelocDynTargets =
+            Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
 
-      auto it = RelocDynTargets.find(R.Addr);
-      if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
-                                            __FILE__, __LINE__);
-        exit(1);
+        auto it = RelocDynTargets.find(R.Addr);
+        if (it == RelocDynTargets.end() || (*it).second.empty()) {
+          WithColor::error()
+              << llvm::formatv("{0}:{1} have you run jove-dyn? (symbol: {2})\n",
+                               __FILE__, __LINE__, S.Name);
+
+          FTy = llvm::FunctionType::get(VoidType(), false);
+        } else {
+          FTy = DetermineFunctionType(*(*it).second.begin());
+        }
       }
-
-      llvm::FunctionType *FTy = DetermineFunctionType(*(*it).second.begin());
 
       F = llvm::Function::Create(FTy,
                                  S.Bind == symbol_t::BINDING::WEAK
@@ -4378,10 +4386,12 @@ int CreateSectionGlobalVariables(void) {
         else
           return constant_of_addressof_defined_function_relocation(R, S);
 
+#if 1
       default:
         WithColor::warning() << llvm::formatv(
             "addressof {0} has unknown symbol type; treating as data\n",
             S.Name);
+#endif
 
       case symbol_t::TYPE::DATA:
         if (S.IsUndefined())

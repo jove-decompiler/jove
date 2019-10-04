@@ -648,7 +648,7 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp,
           "--pop-state",
 
-#if 0
+#if 1
           "--no-undefined",
 #endif
       };
@@ -659,7 +659,7 @@ skip_dfsan:
       }
 
       // include lib directories
-#if 0
+#if 1
       std::unordered_set<std::string> lib_dirs({opts::Output + "/usr/lib"});
 #else
       std::unordered_set<std::string> lib_dirs({jove_bin_path, "/usr/lib"});
@@ -674,7 +674,7 @@ skip_dfsan:
         }
 
         binary_t &needed_b = Decompilation.Binaries.at((*it).second);
-#if 0
+#if 1
         const fs::path needed_chrooted_path(opts::Output + needed_b.Path);
         lib_dirs.insert(needed_chrooted_path.parent_path().string());
 #else
