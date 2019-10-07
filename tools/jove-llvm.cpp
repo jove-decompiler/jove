@@ -1,4 +1,5 @@
 #include "jove/tcgconstants.h"
+#include <llvm/ADT/StringRef.h>
 
 //
 // forward decls
@@ -14,6 +15,45 @@ class GlobalIFunc;
 namespace object {
 class Binary;
 }
+}
+
+namespace jove {
+
+//
+// a symbol is basically a name and a value. in a program compiled from C, the
+// value of a symbol is roughly the address of a global. Each defined symbol has
+// an address, and the dynamic linker will resolve each undefined symbol by
+// finding a defined symbol with the same name.
+//
+struct symbol_t {
+  llvm::StringRef Name;
+  llvm::StringRef Vers;
+  uintptr_t Addr;
+
+  enum class TYPE {
+    NONE,
+    DATA,
+    FUNCTION,
+    TLSDATA,
+  } Type;
+
+  unsigned Size;
+
+  enum class BINDING {
+    NONE,
+    LOCAL,
+    WEAK,
+    GLOBAL
+  } Bind;
+
+  struct {
+    bool IsDefault;
+  } Visibility;
+
+  bool IsUndefined() const { return Addr == 0; }
+  bool IsDefined() const { return !IsUndefined(); }
+};
+
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -47,6 +87,8 @@ class Binary;
   bool IsNamed, IsABI;                                                         \
                                                                                \
   bool Analyzed;                                                               \
+                                                                               \
+  std::unique_ptr<symbol_t> Sym;                                               \
                                                                                \
   function_t()                                                                 \
       : _resolver({.IFunc = nullptr}), IsNamed(false), IsABI(false),           \
@@ -180,6 +222,10 @@ static cl::opt<std::string> Output("output", cl::desc("Output bitcode"),
 
 static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
                              cl::aliasopt(Output), cl::cat(JoveCategory));
+
+static cl::opt<std::string> VersionScript(
+    "version-script", cl::desc("Output version script file for use with ld"),
+    cl::Required, cl::value_desc("filename"), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     Trace("trace",
@@ -325,41 +371,6 @@ struct binary_state_t {
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
-
-//
-// a symbol is basically a name and a value. in a program compiled from C, the
-// value of a symbol is roughly the address of a global. Each defined symbol has
-// an address, and the dynamic linker will resolve each undefined symbol by
-// finding a defined symbol with the same name.
-//
-struct symbol_t {
-  llvm::StringRef Name;
-  llvm::StringRef Vers;
-  uintptr_t Addr;
-
-  enum class TYPE {
-    NONE,
-    DATA,
-    FUNCTION,
-    TLSDATA,
-  } Type;
-
-  unsigned Size;
-
-  enum class BINDING {
-    NONE,
-    LOCAL,
-    WEAK,
-    GLOBAL
-  } Bind;
-
-  struct {
-    bool IsDefault;
-  } Visibility;
-
-  bool IsUndefined() const { return Addr == 0; }
-  bool IsDefined() const { return !IsUndefined(); }
-};
 
 //
 // a relocation is a computation to perform on the contents; it is defined by a
@@ -594,6 +605,8 @@ static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
 static std::vector<llvm::CallInst *> CallsToInline;
 
+static std::unordered_set<std::string> VersionNodeSet;
+
 //
 // Stages
 //
@@ -610,7 +623,6 @@ static int CreateFunctions(void);
 static int CreateFunctionTable(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
-static int RenameFunctions(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int CreatePCRelGlobal(void);
@@ -635,6 +647,7 @@ static int RecoverControlFlow(void);
 static int DFSanInstrument(void);
 static int RenameFunctionLocals(void);
 static int WriteDecompilation(void);
+static int WriteVersionScript(void);
 static int WriteModule(void);
 
 int llvm(void) {
@@ -651,7 +664,6 @@ int llvm(void) {
       || CreateFunctionTable()
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
-      || RenameFunctions()
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
       || CreatePCRelGlobal()
@@ -675,7 +687,10 @@ int llvm(void) {
       || RecoverControlFlow()
       || (opts::DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
+
       || WriteDecompilation()
+
+      || (!opts::VersionScript.empty() ? WriteVersionScript() : 0)
       || WriteModule();
 }
 
@@ -1171,6 +1186,27 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
 static llvm::FunctionType *DetermineFunctionType(
     const std::pair<binary_index_t, function_index_t> &FuncIdxPair);
 
+class VersionMapEntry : public llvm::PointerIntPair<const void *, 1> {
+public:
+  // If the integer is 0, this is an Elf_Verdef*.
+  // If the integer is 1, this is an Elf_Vernaux*.
+  VersionMapEntry() : PointerIntPair<const void *, 1>(nullptr, 0) {}
+  VersionMapEntry(const Elf_Verdef *verdef)
+      : PointerIntPair<const void *, 1>(verdef, 0) {}
+  VersionMapEntry(const Elf_Vernaux *vernaux)
+      : PointerIntPair<const void *, 1>(vernaux, 1) {}
+
+  bool isNull() const { return getPointer() == nullptr; }
+  bool isVerdef() const { return !isNull() && getInt() == 0; }
+  bool isVernaux() const { return !isNull() && getInt() == 1; }
+  const Elf_Verdef *getVerdef() const {
+    return isVerdef() ? (const Elf_Verdef *)getPointer() : nullptr;
+  }
+  const Elf_Vernaux *getVernaux() const {
+    return isVernaux() ? (const Elf_Vernaux *)getPointer() : nullptr;
+  }
+};
+
 int ProcessExportedFunctions(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -1196,13 +1232,11 @@ int ProcessExportedFunctions(void) {
       };
 
       for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
           DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-          continue;
-        }
-        if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
-          continue;
-        LoadSegments.push_back(&Phdr);
+
+        if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
+          LoadSegments.push_back(&Phdr);
       }
     }
 
@@ -1231,29 +1265,30 @@ int ProcessExportedFunctions(void) {
     //
     // parse dynamic table
     //
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    auto toMappedAddr = [&E, &LoadSegments](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
     {
-      auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-        return DynamicTable.getAsArrayRef<Elf_Dyn>();
-      };
-
-      auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
-        const Elf_Phdr *const *I =
-            std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
-                             [](uint64_t VAddr, const Elf_Phdr *Phdr) {
-                               return VAddr < Phdr->p_vaddr;
-                             });
-        if (I == LoadSegments.begin())
-          abort();
-        --I;
-        const Elf_Phdr &Phdr = **I;
-        uint64_t Delta = VAddr - Phdr.p_vaddr;
-        if (Delta >= Phdr.p_filesz)
-          abort();
-        return E.base() + Phdr.p_offset + Delta;
-      };
-
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
+
       for (const Elf_Dyn &Dyn : dynamic_table()) {
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
@@ -1262,8 +1297,12 @@ int ProcessExportedFunctions(void) {
         case llvm::ELF::DT_STRSZ:
           StringTableSize = Dyn.getVal();
           break;
+        case llvm::ELF::DT_SYMTAB:
+          DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+          break;
         }
-      };
+      }
 
       if (StringTableBegin)
         DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
@@ -1273,30 +1312,271 @@ int ProcessExportedFunctions(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
+    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
+    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_GNU_versym:
+        if (!SymbolVersionSection)
+          SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        if (!SymbolVersionDefSection)
+          SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        if (!SymbolVersionNeedSection)
+          SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+
+    auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+      const uint8_t *VerdefStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+      // The first Verdef entry is at the start of the section.
+      const uint8_t *VerdefBuf = VerdefStart;
+      for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries;
+           ++VerdefIndex) {
+        if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+      report_fatal_error("Section ended unexpectedly while scanning "
+                         "version definitions.");
+#else
+          abort();
+#endif
+        }
+
+        const Elf_Verdef *Verdef =
+            reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+        if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+      report_fatal_error("Unexpected verdef version");
+#else
+          abort();
+#endif
+        }
+
+        size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Verdef);
+        VerdefBuf += Verdef->vd_next;
+      }
+    };
+
+    auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+      const uint8_t *VerneedStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+      // The first Verneed entry is at the start of the section.
+      const uint8_t *VerneedBuf = VerneedStart;
+      for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+           ++VerneedIndex) {
+        if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Verneed *Verneed =
+            reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+        if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+          abort();
+#endif
+        }
+        // Iterate through the Vernaux entries
+        const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+        for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+             ++VernauxIndex) {
+          if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+            abort();
+#endif
+          }
+          const Elf_Vernaux *Vernaux =
+              reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+          size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+          if (Index >= VersionMap.size())
+            VersionMap.resize(Index + 1);
+          VersionMap[Index] = VersionMapEntry(Vernaux);
+          VernauxBuf += Vernaux->vna_next;
+        }
+        VerneedBuf += Verneed->vn_next;
+      }
+    };
+
     for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.isUndefined()) /* defined */
+      if (Sym.isUndefined() || Sym.getType() != llvm::ELF::STT_FUNC)
         continue;
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
 
-      if (Sym.getType() == llvm::ELF::STT_FUNC) {
-        function_index_t FuncIdx;
-        {
-          auto it = st.FuncMap.find(Sym.st_value);
-          if (it == st.FuncMap.end()) {
-            WithColor::warning()
-                << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
-                                 SymName, Sym.st_value);
-            continue;
-          }
-
-          FuncIdx = (*it).second;
+      function_index_t FuncIdx;
+      {
+        auto it = st.FuncMap.find(Sym.st_value);
+        if (it == st.FuncMap.end()) {
+          WithColor::warning() << llvm::formatv(
+              "no function for {0} exists at 0x{1:x}\n", SymName, Sym.st_value);
+          continue;
         }
 
-        function_t &f = binary.Analysis.Functions[FuncIdx];
-        assert(!f.Analyzed);
-        f.IsABI = true;
+        FuncIdx = (*it).second;
       }
+
+      function_t &f = binary.Analysis.Functions[FuncIdx];
+      assert(!f.Analyzed);
+      f.IsABI = true;
+
+      f.Sym.reset(new symbol_t);
+      symbol_t &res = *f.Sym;
+
+      res.Name = SymName;
+
+      //
+      // symbol versioning
+      //
+      if (!SymbolVersionSection) {
+        res.Visibility.IsDefault = false;
+      } else {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                            sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        const Elf_Versym *Versym = unwrapOrError(
+            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+
+        auto getSymbolVersionByIndex = [&](llvm::StringRef StrTab,
+                                           uint32_t SymbolVersionIndex,
+                                           bool &IsDefault) -> llvm::StringRef {
+          size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+          // Special markers for unversioned symbols.
+          if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+              VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+            IsDefault = false;
+            return "";
+          }
+
+          auto LoadVersionMap = [&](void) -> void {
+            // If there is no dynamic symtab or version table, there is nothing to
+            // do.
+            if (!DynSymRegion.Addr || !SymbolVersionSection)
+              return;
+
+            // Has the VersionMap already been loaded?
+            if (!VersionMap.empty())
+              return;
+
+            // The first two version indexes are reserved.
+            // Index 0 is LOCAL, index 1 is GLOBAL.
+            VersionMap.push_back(VersionMapEntry());
+            VersionMap.push_back(VersionMapEntry());
+
+            if (SymbolVersionDefSection)
+              LoadVersionDefs(SymbolVersionDefSection);
+
+            if (SymbolVersionNeedSection)
+              LoadVersionNeeds(SymbolVersionNeedSection);
+          };
+
+          // Lookup this symbol in the version table.
+          LoadVersionMap();
+          if (VersionIndex >= VersionMap.size() ||
+              VersionMap[VersionIndex].isNull()) {
+            WithColor::error() << "Invalid version entry\n";
+            exit(1);
+          }
+
+          const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+          // Get the version name string.
+          size_t NameOffset;
+          if (Entry.isVerdef()) {
+            // The first Verdaux entry holds the name.
+            NameOffset = Entry.getVerdef()->getAux()->vda_name;
+            IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+          } else {
+            NameOffset = Entry.getVernaux()->vna_name;
+            IsDefault = false;
+          }
+
+          if (NameOffset >= StrTab.size()) {
+            WithColor::error() << "Invalid string offset\n";
+            return "";
+          }
+
+          return StrTab.data() + NameOffset;
+        };
+
+        res.Vers = getSymbolVersionByIndex(DynamicStringTable, Versym->vs_index,
+                                           res.Visibility.IsDefault);
+      }
+
+      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
+          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
+          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
+          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
+          symbol_t::TYPE::DATA,     // STT_FILE                = 4
+          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
+          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
+          symbol_t::TYPE::NONE,     // N/A                     = 7
+          symbol_t::TYPE::NONE,     // N/A                     = 8
+          symbol_t::TYPE::NONE,     // N/A                     = 9
+          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
+          symbol_t::TYPE::NONE,     // N/A                     = 11
+          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
+          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
+          symbol_t::TYPE::NONE,     // N/A                     = 14
+          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
+      };
+
+      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
+          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
+          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
+          symbol_t::BINDING::NONE,      // N/A            = 3
+          symbol_t::BINDING::NONE,      // N/A            = 4
+          symbol_t::BINDING::NONE,      // N/A            = 5
+          symbol_t::BINDING::NONE,      // N/A            = 6
+          symbol_t::BINDING::NONE,      // N/A            = 7
+          symbol_t::BINDING::NONE,      // N/A            = 8
+          symbol_t::BINDING::NONE,      // N/A            = 9
+          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
+          symbol_t::BINDING::NONE,      // N/A            = 11
+          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
+          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
+          symbol_t::BINDING::NONE,      // N/A            = 14
+          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
+      };
+
+      res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
+      res.Type = elf_symbol_type_mapping[Sym.getType()];
+      res.Size = Sym.st_size;
+      res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
     }
   }
 
@@ -1334,13 +1614,11 @@ int ProcessDynamicSymbols(void) {
       };
 
       for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
           DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-          continue;
-        }
-        if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
-          continue;
-        LoadSegments.push_back(&Phdr);
+
+        if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
+          LoadSegments.push_back(&Phdr);
       }
     }
 
@@ -1799,27 +2077,6 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
-class VersionMapEntry : public llvm::PointerIntPair<const void *, 1> {
-public:
-  // If the integer is 0, this is an Elf_Verdef*.
-  // If the integer is 1, this is an Elf_Vernaux*.
-  VersionMapEntry() : PointerIntPair<const void *, 1>(nullptr, 0) {}
-  VersionMapEntry(const Elf_Verdef *verdef)
-      : PointerIntPair<const void *, 1>(verdef, 0) {}
-  VersionMapEntry(const Elf_Vernaux *vernaux)
-      : PointerIntPair<const void *, 1>(vernaux, 1) {}
-
-  bool isNull() const { return getPointer() == nullptr; }
-  bool isVerdef() const { return !isNull() && getInt() == 0; }
-  bool isVernaux() const { return !isNull() && getInt() == 1; }
-  const Elf_Verdef *getVerdef() const {
-    return isVerdef() ? (const Elf_Verdef *)getPointer() : nullptr;
-  }
-  const Elf_Vernaux *getVernaux() const {
-    return isVernaux() ? (const Elf_Vernaux *)getPointer() : nullptr;
-  }
-};
-
 int ProcessBinaryRelocations(void) {
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
@@ -1847,13 +2104,11 @@ int ProcessBinaryRelocations(void) {
     };
 
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
-      }
-      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
-        continue;
-      LoadSegments.push_back(&Phdr);
+
+      if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
+        LoadSegments.push_back(&Phdr);
     }
   }
 
@@ -1863,9 +2118,9 @@ int ProcessBinaryRelocations(void) {
   llvm::StringRef DynSymtabName;
   llvm::StringRef DynamicStringTable;
 
-  const Elf_Shdr *SymbolVersionSection = nullptr;   // .gnu.version
+  const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
   const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
-  const Elf_Shdr *SymbolVersionDefSection = nullptr; // .gnu.version_d
+  const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
 
   {
     auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
@@ -3562,15 +3817,30 @@ int CreateFunctions(void) {
        ++FuncIdx) {
     function_t &f = Binary.Analysis.Functions[FuncIdx];
 
-    std::string name;
-    name.push_back(f.IsABI ? 'J' : 'j');
+    std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') %
+                             ICFG[boost::vertex(f.Entry, ICFG)].Addr)
+                                .str();
 
-    name.append((fmt("%lx") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
+    f.F = llvm::Function::Create(
+        DetermineFunctionType(f), llvm::GlobalValue::ExternalLinkage,
+        f.Sym && f.Sym->Vers.empty() ? f.Sym->Name.str() : jove_name, Module.get());
 
-    f.F = llvm::Function::Create(DetermineFunctionType(f),
-                                 llvm::GlobalValue::ExternalLinkage, name,
-                                 Module.get());
+    if (f.Sym) {
+      if (f.Sym->Vers.empty()) {
+        llvm::GlobalAlias::create(jove_name, f.F);
+      } else {
+        VersionNodeSet.insert(f.Sym->Vers.str());
 
+        Module->appendModuleInlineAsm(
+            (llvm::Twine(".symver ") + jove_name + "," + f.Sym->Name +
+             (f.Sym->Visibility.IsDefault ? "@@" : "@") + f.Sym->Vers)
+                .str());
+      }
+    }
+
+    //
+    // assign names to the arguments, the registers they represent
+    //
     std::vector<unsigned> glbv;
     ExplodeFunctionArgs(f, glbv);
 
@@ -3631,6 +3901,7 @@ int CreateFunctionTable(void) {
   return 0;
 }
 
+#if 0
 int RenameFunctions(void) {
   for (const auto &pair : ExportedFunctions) {
     assert(!pair.second.empty());
@@ -3661,6 +3932,7 @@ int RenameFunctions(void) {
 
   return 0;
 }
+#endif
 
 } // namespace jove
 
@@ -4032,31 +4304,38 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
 
-    llvm::Function *F = Module->getFunction(S.Name);
+    if (llvm::Function *F = Module->getFunction(S.Name))
+      return F;
 
-    if (!F) {
-      llvm::FunctionType *FTy;
-      {
-        auto &RelocDynTargets =
-            Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
+    llvm::FunctionType *FTy;
+    {
+      auto &RelocDynTargets =
+          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
 
-        auto it = RelocDynTargets.find(R.Addr);
-        if (it == RelocDynTargets.end() || (*it).second.empty()) {
-          WithColor::error()
-              << llvm::formatv("{0}:{1} have you run jove-dyn? (symbol: {2})\n",
-                               __FILE__, __LINE__, S.Name);
+      auto it = RelocDynTargets.find(R.Addr);
+      if (it == RelocDynTargets.end() || (*it).second.empty()) {
+        WithColor::error() << llvm::formatv(
+            "{0}:{1} have you run jove-dyn? (symbol: {2})\n", __FILE__,
+            __LINE__, S.Name);
 
-          FTy = llvm::FunctionType::get(VoidType(), false);
-        } else {
-          FTy = DetermineFunctionType(*(*it).second.begin());
-        }
+        FTy = llvm::FunctionType::get(VoidType(), false);
+      } else {
+        FTy = DetermineFunctionType(*(*it).second.begin());
       }
+    }
 
-      F = llvm::Function::Create(FTy,
-                                 S.Bind == symbol_t::BINDING::WEAK
-                                     ? llvm::GlobalValue::ExternalWeakLinkage
-                                     : llvm::GlobalValue::ExternalLinkage,
-                                 S.Name, Module.get());
+    llvm::Function *F =
+        llvm::Function::Create(FTy,
+                               S.Bind == symbol_t::BINDING::WEAK
+                                   ? llvm::GlobalValue::ExternalWeakLinkage
+                                   : llvm::GlobalValue::ExternalLinkage,
+                               S.Name, Module.get());
+
+    if (!S.Vers.empty()) {
+      Module->appendModuleInlineAsm(
+          (llvm::Twine(".symver ") + S.Name + "," + S.Name +
+           (S.Visibility.IsDefault ? "@@" : "@") + S.Vers)
+              .str());
     }
 
     return F;
@@ -6457,6 +6736,16 @@ int WriteDecompilation(void) {
   boost::archive::binary_oarchive oa(ofs);
   oa << Decompilation;
 
+  return 0;
+}
+
+int WriteVersionScript(void) {
+  std::ofstream ofs(opts::VersionScript);
+
+  for (const std::string &VersionNode : VersionNodeSet) {
+    ofs << VersionNode << " {\n};\n";
+  }
+ 
   return 0;
 }
 

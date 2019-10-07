@@ -474,6 +474,7 @@ int recompile(void) {
     }
 
     std::string bcfp(chrooted_path.string() + ".bc");
+    std::string mapfp(chrooted_path.string() + ".map");
 
     pid = fork();
     if (!pid) {
@@ -483,6 +484,8 @@ int recompile(void) {
         jove_llvm_path.c_str(),
 
         "-o", bcfp.c_str(),
+        "--version-script", mapfp.c_str(),
+
         "-b", binary_filename.c_str(),
 
         "-d", opts::jv.c_str(),
@@ -648,6 +651,7 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp,
           "--pop-state",
 
+          "--version-script", mapfp.c_str(),
 #if 1
           "--no-undefined",
 #endif
