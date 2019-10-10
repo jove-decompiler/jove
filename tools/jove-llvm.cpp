@@ -529,7 +529,7 @@ static llvm::DataLayout DL("");
 
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
-static std::unordered_set<uintptr_t> RelocationsAt;
+static std::unordered_set<uintptr_t> ConstantRelocationLocs;
 
 static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
@@ -2852,8 +2852,19 @@ int ProcessBinaryRelocations(void) {
     llvm::outs() << '\n';
   }
 
-  for (const relocation_t &R : RelocationTable)
-    RelocationsAt.insert(R.Addr);
+  for (const relocation_t &R : RelocationTable) {
+    switch (R.Type) {
+    case relocation_t::TYPE::RELATIVE:
+    case relocation_t::TYPE::IRELATIVE:
+    case relocation_t::TYPE::ABSOLUTE:
+    case relocation_t::TYPE::ADDRESSOF:
+      ConstantRelocationLocs.insert(R.Addr);
+      break;
+
+    default:
+      break;
+    }
+  }
 
   return 0;
 }
@@ -4331,8 +4342,9 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 
 #if 1
   llvm::GlobalVariable *SectsGV =
-      RelocationsAt.find(Addr) != RelocationsAt.end() ? ConstSectsGlobal
-                                                      : SectsGlobal;
+      ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
+          ? ConstSectsGlobal
+          : SectsGlobal;
 #else
   llvm::GlobalVariable *SectsGV = SectsGlobal;
 #endif
