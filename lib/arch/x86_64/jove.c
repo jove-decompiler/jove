@@ -475,6 +475,7 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define _NOINL  __attribute__((noinline))
 #define _NORET  __attribute__((noreturn))
 #define _UNUSED __attribute__((unused))
+#define _HIDDEN __attribute__((visibility("hidden")))
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
@@ -490,6 +491,7 @@ extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ /* -> _CTOR */ void _jove_install_function_table(void);
 
+_HIDDEN
 _NAKED void _jove_start(void);
 static void _jove_begin(target_ulong rdi,
                         target_ulong rsi,
