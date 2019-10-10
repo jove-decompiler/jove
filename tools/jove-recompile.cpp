@@ -651,11 +651,16 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp,
           "--pop-state",
 
-          "--version-script", mapfp.c_str(),
 #if 1
           "--no-undefined",
 #endif
       };
+
+      if (fs::exists(mapfp) && fs::is_regular_file(mapfp) &&
+          fs::file_size(mapfp) > 0) {
+        arg_vec.push_back("--version-script");
+        arg_vec.push_back(mapfp.c_str());
+      }
 
       if (is_function_index_valid(b.Analysis.EntryFunction)) {
         arg_vec.push_back("-e");

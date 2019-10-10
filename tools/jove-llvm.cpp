@@ -88,7 +88,7 @@ struct symbol_t {
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
-  std::unique_ptr<symbol_t> Sym;                                               \
+  std::vector<symbol_t> Syms;                                                  \
                                                                                \
   function_t()                                                                 \
       : _resolver({.IFunc = nullptr}), IsNamed(false), IsABI(false),           \
@@ -110,6 +110,7 @@ struct symbol_t {
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
+#include <llvm/ADT/Statistic.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>
@@ -282,6 +283,13 @@ static cl::opt<bool>
     NoFixupPcrel("no-fixup-pcrel",
                  cl::desc("Don't fixup pc-relative references"),
                  cl::cat(JoveCategory));
+
+#if defined(LLVM_ENABLE_STATS) && LLVM_ENABLE_STATS
+static cl::opt<bool>
+    OptStats("opt-stats",
+             cl::desc("Print statistics during bitcode optimization"),
+             cl::cat(JoveCategory));
+#endif
 
 static cl::opt<bool> NoOpt2("no-opt2", cl::desc("Don't optimize bitcode (2)"),
                             cl::cat(JoveCategory));
@@ -605,7 +613,9 @@ static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
 static std::vector<llvm::CallInst *> CallsToInline;
 
-static std::unordered_set<std::string> VersionNodeSet;
+static struct {
+  std::unordered_map<std::string, std::unordered_set<std::string>> Table;
+} VersionScript;
 
 //
 // Stages
@@ -1448,8 +1458,8 @@ int ProcessExportedFunctions(void) {
       assert(!f.Analyzed);
       f.IsABI = true;
 
-      f.Sym.reset(new symbol_t);
-      symbol_t &res = *f.Sym;
+      f.Syms.resize(f.Syms.size() + 1);
+      symbol_t &res = f.Syms.back();
 
       res.Name = SymName;
 
@@ -1590,6 +1600,8 @@ static llvm::Type *WordType(void) {
 }
 
 int ProcessDynamicSymbols(void) {
+  std::unordered_set<uintptr_t> gdefs;
+
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &st = BinStateVec[BIdx];
@@ -1689,11 +1701,263 @@ int ProcessDynamicSymbols(void) {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
+    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
+    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_GNU_versym:
+        if (!SymbolVersionSection)
+          SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        if (!SymbolVersionDefSection)
+          SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        if (!SymbolVersionNeedSection)
+          SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+
+    auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+      const uint8_t *VerdefStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+      // The first Verdef entry is at the start of the section.
+      const uint8_t *VerdefBuf = VerdefStart;
+      for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries;
+           ++VerdefIndex) {
+        if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+      report_fatal_error("Section ended unexpectedly while scanning "
+                         "version definitions.");
+#else
+          abort();
+#endif
+        }
+
+        const Elf_Verdef *Verdef =
+            reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+        if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+      report_fatal_error("Unexpected verdef version");
+#else
+          abort();
+#endif
+        }
+
+        size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Verdef);
+        VerdefBuf += Verdef->vd_next;
+      }
+    };
+
+    auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+      const uint8_t *VerneedStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+      // The first Verneed entry is at the start of the section.
+      const uint8_t *VerneedBuf = VerneedStart;
+      for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+           ++VerneedIndex) {
+        if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Verneed *Verneed =
+            reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+        if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+          abort();
+#endif
+        }
+        // Iterate through the Vernaux entries
+        const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+        for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+             ++VernauxIndex) {
+          if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+            abort();
+#endif
+          }
+          const Elf_Vernaux *Vernaux =
+              reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+          size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+          if (Index >= VersionMap.size())
+            VersionMap.resize(Index + 1);
+          VersionMap[Index] = VersionMapEntry(Vernaux);
+          VernauxBuf += Vernaux->vna_next;
+        }
+        VerneedBuf += Verneed->vn_next;
+      }
+    };
+
+
     for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined()) /* defined */
         continue;
 
       llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+
+      symbol_t sym;
+
+      sym.Name = SymName;
+
+      //
+      // symbol versioning
+      //
+      if (!SymbolVersionSection) {
+        sym.Visibility.IsDefault = false;
+      } else {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                            sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        const Elf_Versym *Versym = unwrapOrError(
+            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+
+        auto getSymbolVersionByIndex = [&](llvm::StringRef StrTab,
+                                           uint32_t SymbolVersionIndex,
+                                           bool &IsDefault) -> llvm::StringRef {
+          size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+          // Special markers for unversioned symbols.
+          if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+              VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+            IsDefault = false;
+            return "";
+          }
+
+          auto LoadVersionMap = [&](void) -> void {
+            // If there is no dynamic symtab or version table, there is nothing to
+            // do.
+            if (!DynSymRegion.Addr || !SymbolVersionSection)
+              return;
+
+            // Has the VersionMap already been loaded?
+            if (!VersionMap.empty())
+              return;
+
+            // The first two version indexes are reserved.
+            // Index 0 is LOCAL, index 1 is GLOBAL.
+            VersionMap.push_back(VersionMapEntry());
+            VersionMap.push_back(VersionMapEntry());
+
+            if (SymbolVersionDefSection)
+              LoadVersionDefs(SymbolVersionDefSection);
+
+            if (SymbolVersionNeedSection)
+              LoadVersionNeeds(SymbolVersionNeedSection);
+          };
+
+          // Lookup this symbol in the version table.
+          LoadVersionMap();
+          if (VersionIndex >= VersionMap.size() ||
+              VersionMap[VersionIndex].isNull()) {
+            WithColor::error() << "Invalid version entry\n";
+            exit(1);
+          }
+
+          const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+          // Get the version name string.
+          size_t NameOffset;
+          if (Entry.isVerdef()) {
+            // The first Verdaux entry holds the name.
+            NameOffset = Entry.getVerdef()->getAux()->vda_name;
+            IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+          } else {
+            NameOffset = Entry.getVernaux()->vna_name;
+            IsDefault = false;
+          }
+
+          if (NameOffset >= StrTab.size()) {
+            WithColor::error() << "Invalid string offset\n";
+            return "";
+          }
+
+          return StrTab.data() + NameOffset;
+        };
+
+        sym.Vers = getSymbolVersionByIndex(DynamicStringTable, Versym->vs_index,
+                                           sym.Visibility.IsDefault);
+      }
+
+      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
+          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
+          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
+          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
+          symbol_t::TYPE::DATA,     // STT_FILE                = 4
+          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
+          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
+          symbol_t::TYPE::NONE,     // N/A                     = 7
+          symbol_t::TYPE::NONE,     // N/A                     = 8
+          symbol_t::TYPE::NONE,     // N/A                     = 9
+          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
+          symbol_t::TYPE::NONE,     // N/A                     = 11
+          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
+          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
+          symbol_t::TYPE::NONE,     // N/A                     = 14
+          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
+      };
+
+      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
+          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
+          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
+          symbol_t::BINDING::NONE,      // N/A            = 3
+          symbol_t::BINDING::NONE,      // N/A            = 4
+          symbol_t::BINDING::NONE,      // N/A            = 5
+          symbol_t::BINDING::NONE,      // N/A            = 6
+          symbol_t::BINDING::NONE,      // N/A            = 7
+          symbol_t::BINDING::NONE,      // N/A            = 8
+          symbol_t::BINDING::NONE,      // N/A            = 9
+          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
+          symbol_t::BINDING::NONE,      // N/A            = 11
+          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
+          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
+          symbol_t::BINDING::NONE,      // N/A            = 14
+          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
+      };
+
+      sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
+      sym.Type = elf_symbol_type_mapping[Sym.getType()];
+      sym.Size = Sym.st_size;
+      sym.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
 
       if (Sym.getType() == llvm::ELF::STT_OBJECT ||
           Sym.getType() == llvm::ELF::STT_TLS) {
@@ -1740,6 +2004,7 @@ int ProcessDynamicSymbols(void) {
               }
             }
           } else {
+#if 0
             AddrToSymbolMap[Sym.st_value].insert(SymName);
 
             {
@@ -1773,6 +2038,42 @@ int ProcessDynamicSymbols(void) {
             }
 
             AddressSpaceObjects.insert({intervl});
+#else
+            unsigned off = Sym.st_value - SectsStartAddr;
+
+            if (sym.Vers.empty()) {
+              Module->appendModuleInlineAsm(
+                  (fmt(".globl %s\n"
+                       ".type  %s,@object\n"
+                       ".set   %s, __jove_sections + %u")
+                   % sym.Name.str()
+                   % sym.Name.str()
+                   % sym.Name.str()
+                   % off).str());
+            } else {
+              if (gdefs.find(Sym.st_value) == gdefs.end())
+                Module->appendModuleInlineAsm(
+                    (fmt(".hidden g%lx\n"
+                         ".globl  g%lx\n"
+                         ".type   g%lx,@object\n"
+                         ".set    g%lx, __jove_sections + %u")
+                     % Sym.st_value
+                     % Sym.st_value
+                     % Sym.st_value
+                     % Sym.st_value
+                     % off).str());
+
+              Module->appendModuleInlineAsm(
+                  (fmt(".symver g%lx, %s%s%s")
+                   % Sym.st_value
+                   % sym.Name.str()
+                   % (sym.Visibility.IsDefault ? "@@" : "@")
+                   % sym.Vers.str()).str());
+
+              // make sure version node is defined
+              VersionScript.Table[sym.Vers.str()];
+            }
+#endif
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
@@ -1788,6 +2089,9 @@ int ProcessDynamicSymbols(void) {
 
           FuncIdx = (*it).second;
         }
+
+        Decompilation.Binaries[BIdx].Analysis.Functions[FuncIdx].Syms.push_back(
+            sym);
 
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
       } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
@@ -1827,6 +2131,8 @@ int ProcessDynamicSymbols(void) {
 
           function_t &f = binary.Analysis.Functions.at((*it).second);
 
+          f.Syms.push_back(sym);
+
           if (f._resolver.IFunc) {
 #if 0
             llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
@@ -1837,6 +2143,22 @@ int ProcessDynamicSymbols(void) {
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
                 f._resolver.IFunc->getResolver(), Module.get());
             IFuncTargetMap.insert({IFunc, IdxPair});
+
+            if (!sym.Vers.empty()) {
+#if 0
+              Module->appendModuleInlineAsm(
+                  (llvm::Twine(".symver ") + SymName + "," + SymName +
+                   (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
+                      .str());
+#endif
+
+              VersionScript.Table[sym.Vers].insert(SymName);
+
+#if 0
+              Module->appendModuleInlineAsm(
+                  (llvm::Twine(".type ") + SymName + " STT_GNU_IFUNC").str());
+#endif
+            }
 #endif
           } else {
             llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
@@ -1987,6 +2309,23 @@ int ProcessDynamicSymbols(void) {
             f._resolver.IFunc = llvm::GlobalIFunc::create(
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
                 Module.get());
+
+            if (!sym.Vers.empty()) {
+#if 0
+              Module->appendModuleInlineAsm(
+                  (llvm::Twine(".symver ") + SymName + "," + SymName +
+                   (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
+                      .str());
+#endif
+
+              VersionScript.Table[sym.Vers].insert(SymName);
+
+#if 0
+              Module->appendModuleInlineAsm(
+                  (llvm::Twine(".type ") + SymName + " STT_GNU_IFUNC").str());
+#endif
+            }
+
             IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
           }
         }
@@ -3817,26 +4156,36 @@ int CreateFunctions(void) {
        ++FuncIdx) {
     function_t &f = Binary.Analysis.Functions[FuncIdx];
 
+    if (!f.IsABI && !f.Syms.empty()) {
+      WithColor::error() << llvm::formatv(
+          "!f.IsABI && !f.Syms.empty() where f.Syms[0] is {0} {1}\n",
+          f.Syms.front().Name, f.Syms.front().Vers);
+      return 1;
+    }
+
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') %
                              ICFG[boost::vertex(f.Entry, ICFG)].Addr)
                                 .str();
 
-    f.F = llvm::Function::Create(
-        DetermineFunctionType(f), llvm::GlobalValue::ExternalLinkage,
-        f.Sym && f.Sym->Vers.empty() ? f.Sym->Name.str() : jove_name, Module.get());
+    f.F = llvm::Function::Create(DetermineFunctionType(f),
+                                 llvm::GlobalValue::ExternalLinkage, jove_name,
+                                 Module.get());
 
-    if (f.Sym) {
-      if (f.Sym->Vers.empty()) {
-        llvm::GlobalAlias::create(jove_name, f.F);
+    for (const symbol_t &sym : f.Syms) {
+      if (sym.Vers.empty()) {
+        llvm::GlobalAlias::create(sym.Name, f.F);
       } else {
-        VersionNodeSet.insert(f.Sym->Vers.str());
+         // make sure version node is defined
+        VersionScript.Table[sym.Vers.str()];
 
         Module->appendModuleInlineAsm(
-            (llvm::Twine(".symver ") + jove_name + "," + f.Sym->Name +
-             (f.Sym->Visibility.IsDefault ? "@@" : "@") + f.Sym->Vers)
+            (llvm::Twine(".symver ") + jove_name + "," + sym.Name +
+             (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
                 .str());
       }
     }
+
+    f.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
     //
     // assign names to the arguments, the registers they represent
@@ -4135,11 +4484,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    llvm::GlobalValue *GV = Module->getNamedValue(S.Name);
-    if (!GV)
-      return nullptr;
-
-    return GV->getType();
+    return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
   };
 
   auto type_of_relative_relocation =
@@ -4358,7 +4703,7 @@ int CreateSectionGlobalVariables(void) {
     assert(S.IsUndefined());
     assert(!S.Size);
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, false);
 
     if (GV)
       return GV;
@@ -4369,7 +4714,7 @@ int CreateSectionGlobalVariables(void) {
     if (it == GlobalSymbolDefinedSizeMap.end()) {
       WithColor::error() << llvm::formatv(
           "{0}: unknown size for {1}\n",
-          "type_of_addressof_undefined_data_relocation", S.Name);
+          "constant_of_addressof_undefined_data_relocation", S.Name);
 
       Size = sizeof(target_ulong);
     } else {
@@ -4389,6 +4734,13 @@ int CreateSectionGlobalVariables(void) {
                                       : llvm::GlobalValue::ExternalLinkage,
                                   nullptr, S.Name);
 
+    if (!S.Vers.empty()) {
+      Module->appendModuleInlineAsm(
+          (llvm::Twine(".symver ") + S.Name + "," + S.Name +
+           (S.Visibility.IsDefault ? "@@" : "@") + S.Vers)
+              .str());
+    }
+
     return GV;
   };
 
@@ -4396,7 +4748,11 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    return Module->getNamedValue(S.Name);
+    //return Module->getNamedValue(S.Name);
+
+    return llvm::ConstantExpr::getBitCast(
+        SectionPointer(S.Addr),
+        llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
   };
 
   auto constant_of_relative_relocation =
@@ -4623,16 +4979,14 @@ int CreateSectionGlobalVariables(void) {
       Old.ConstSectsGlobal->setName("");
     }
 
-    SectsGlobal =
-      new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                               llvm::GlobalValue::ExternalLinkage,
-                               nullptr, "sections");
+    SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
+                                           llvm::GlobalValue::ExternalLinkage,
+                                           nullptr, "__jove_sections");
     SectsGlobal->setAlignment(4096);
 
-    ConstSectsGlobal =
-      new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
-                               llvm::GlobalValue::ExternalLinkage,
-                               nullptr, "const_sections");
+    ConstSectsGlobal = new llvm::GlobalVariable(
+        *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
+        nullptr, "__jove_sections_const");
     ConstSectsGlobal->setAlignment(4096);
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
@@ -4902,7 +5256,21 @@ int CreateSectionGlobalVariables(void) {
         llvm::outs() << "!type_of_relocation(R): " <<
           (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
                                        % R.Addr
-                                       % R.Addend).str() << '\n';
+                                       % R.Addend).str();
+
+        if (R.SymbolIndex < SymbolTable.size()) {
+          symbol_t &sym = SymbolTable[R.SymbolIndex];
+
+          llvm::outs() <<
+            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
+             % sym.Name.str()
+             % string_of_sym_type(sym.Type)
+             % string_of_sym_binding(sym.Bind)
+             % sym.Addr
+             % sym.Size).str();
+        }
+
+        llvm::outs() << '\n';
       }
     }
 
@@ -4918,7 +5286,21 @@ int CreateSectionGlobalVariables(void) {
         llvm::outs() << "!constant_of_relocation(R): " <<
           (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
                                        % R.Addr
-                                       % R.Addend).str() << '\n';
+                                       % R.Addend).str();
+
+        if (R.SymbolIndex < SymbolTable.size()) {
+          symbol_t &sym = SymbolTable[R.SymbolIndex];
+
+          llvm::outs() <<
+            (fmt("%-30s *%-10s *%-8s @ %x {%d}")
+             % sym.Name.str()
+             % string_of_sym_type(sym.Type)
+             % string_of_sym_binding(sym.Bind)
+             % sym.Addr
+             % sym.Size).str();
+        }
+
+        llvm::outs() << '\n';
       }
     }
 
@@ -5043,8 +5425,10 @@ int CreateSectionGlobalVariables(void) {
 
           // TODO refactor this
           llvm::Function *CallsF = llvm::Function::Create(
-              FTy, llvm::GlobalValue::InternalLinkage,
+              FTy, llvm::GlobalValue::ExternalLinkage,
               std::string(F->getName()) + "_ctor", Module.get());
+
+          CallsF->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
           llvm::DIBuilder &DIB = *DIBuilder;
           llvm::DISubprogram::DISPFlags SubProgFlags =
@@ -5148,7 +5532,14 @@ int CreateSectionGlobalVariables(void) {
 
         llvm::Function *CallsF = (*it).second;
 
-        llvm::appendToGlobalCtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
+        // casting to a llvm::Function* is a complete hack here. hoping the
+        // following gets merged:
+        // https://reviews.llvm.org/D64962
+        llvm::appendToGlobalCtors(
+            *Module,
+            (llvm::Function *)llvm::ConstantExpr::getBitCast(
+                CallsF, VoidFunctionPointer()),
+            0);
       }
     }
   }
@@ -5174,8 +5565,10 @@ int CreateSectionGlobalVariables(void) {
 
         // TODO refactor this
         llvm::Function *CallsF = llvm::Function::Create(
-            FTy, llvm::GlobalValue::InternalLinkage,
+            FTy, llvm::GlobalValue::ExternalLinkage,
             std::string(F->getName()) + "_ctor", Module.get());
+
+        CallsF->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
         llvm::DIBuilder &DIB = *DIBuilder;
         llvm::DISubprogram::DISPFlags SubProgFlags =
@@ -5279,12 +5672,25 @@ int CreateSectionGlobalVariables(void) {
 
       llvm::Function *CallsF = (*it).second;
 
+      // casting to a llvm::Function* is a complete hack here. hoping the
+      // following gets merged:
+      // https://reviews.llvm.org/D64962
       if (Sect.initArray)
-        llvm::appendToGlobalCtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
+        llvm::appendToGlobalCtors(
+            *Module,
+            (llvm::Function *)llvm::ConstantExpr::getBitCast(
+                CallsF, VoidFunctionPointer()),
+            0);
       else
-        llvm::appendToGlobalDtors(*Module, (llvm::Function *)llvm::ConstantExpr::getBitCast(CallsF, VoidFunctionPointer()), 0);
+        llvm::appendToGlobalDtors(
+            *Module,
+            (llvm::Function *)llvm::ConstantExpr::getBitCast(
+                CallsF, VoidFunctionPointer()),
+            0);
     }
   }
+
+  SectsGlobal->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
   return 0;
 }
@@ -5785,13 +6191,13 @@ static int DoOptimize(void) {
   //
   // reload global variables which might have been optimized away
   //
-  PCRelGlobal = Module->getGlobalVariable("__jove_pcrel", true);
+  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",          true);
 #if defined(__x86_64__)
-  FSBaseGlobal = Module->getGlobalVariable("__jove_fs_base", true);
+  FSBaseGlobal     = Module->getGlobalVariable("__jove_fs_base",        true);
 #endif
-  CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
-  SectsGlobal = Module->getGlobalVariable("sections", true);
-  ConstSectsGlobal = Module->getGlobalVariable("const_sections", true);
+  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",            true);
+  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
+  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
 
   return 0;
 }
@@ -6234,6 +6640,8 @@ int FixupFSBaseAddrs(void) {
 #endif
 
 int InternalizeStaticFunctions(void) {
+  return 0;
+
   binary_t &b = Decompilation.Binaries[BinaryIndex];
 
   for (function_t &f : b.Analysis.Functions) {
@@ -6599,8 +7007,18 @@ int WriteDecompilation(void) {
 int WriteVersionScript(void) {
   std::ofstream ofs(opts::VersionScript);
 
-  for (const std::string &VersionNode : VersionNodeSet) {
-    ofs << VersionNode << " {\n};\n";
+  for (const auto &entry : VersionScript.Table) {
+    const std::string &VersionNode = entry.first;
+
+    ofs << VersionNode << " {\n";
+
+    if (!entry.second.empty())
+      ofs << "global:\n";
+
+    for (const std::string &VersionedSymbol : entry.second)
+      ofs << VersionedSymbol << ";\n";
+
+    ofs << "};\n";
   }
  
   return 0;
