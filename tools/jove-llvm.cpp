@@ -427,6 +427,9 @@ struct relocation_t {
   uintptr_t Addr;
   unsigned SymbolIndex;
   uintptr_t Addend;
+
+  llvm::Type *T; /* XXX */
+  llvm::Constant *C; /* XXX */
 };
 
 static const char *string_of_reloc_type(relocation_t::TYPE ty) {
@@ -2045,23 +2048,25 @@ int ProcessDynamicSymbols(void) {
               Module->appendModuleInlineAsm(
                   (fmt(".globl %s\n"
                        ".type  %s,@object\n"
+                       ".size  %s, %u\n" 
                        ".set   %s, __jove_sections + %u")
                    % sym.Name.str()
                    % sym.Name.str()
-                   % sym.Name.str()
-                   % off).str());
+                   % sym.Name.str() % Sym.st_size
+                   % sym.Name.str() % off).str());
             } else {
               if (gdefs.find(Sym.st_value) == gdefs.end())
                 Module->appendModuleInlineAsm(
                     (fmt(".hidden g%lx\n"
                          ".globl  g%lx\n"
                          ".type   g%lx,@object\n"
+                         ".size   g%lx, %u\n" 
                          ".set    g%lx, __jove_sections + %u")
                      % Sym.st_value
                      % Sym.st_value
                      % Sym.st_value
-                     % Sym.st_value
-                     % off).str());
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % off).str());
 
               Module->appendModuleInlineAsm(
                   (fmt(".symver g%lx, %s%s%s")
@@ -2858,6 +2863,8 @@ int ProcessBinaryRelocations(void) {
     case relocation_t::TYPE::IRELATIVE:
     case relocation_t::TYPE::ABSOLUTE:
     case relocation_t::TYPE::ADDRESSOF:
+    case relocation_t::TYPE::TPOFF:
+    case relocation_t::TYPE::TPMOD:
       ConstantRelocationLocs.insert(R.Addr);
       break;
 
@@ -4581,15 +4588,18 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_copy_relocation = [&](const relocation_t &R,
                                      const symbol_t &S) -> llvm::Type * {
+    if (!S.Size) {
+      WithColor::error() << llvm::formatv(
+          "copy relocation @ 0x{0:x} specifies symbol {1} with size 0\n",
+          R.Addr, S.Name);
+      abort();
+    }
+
     // this relocation indicates that the global variable should be extern
     assert(R.Addr == S.Addr);
     ExternGlobalAddrs.insert(R.Addr);
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
-    if (!GV)
-      return nullptr;
-
-    return GV->getType();
+    return VoidType();
   };
 
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -4869,15 +4879,6 @@ int CreateSectionGlobalVariables(void) {
     return TLSModGlobal;
   };
 
-  auto constant_of_copy_relocation =
-      [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
-    if (!GV)
-      return nullptr;
-
-    return GV;
-  };
-
   auto constant_of_relocation = [&](const relocation_t &R) -> llvm::Constant * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
@@ -4916,12 +4917,6 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPMOD:
       return constant_of_tpmod_relocation(R);
-
-    case relocation_t::TYPE::COPY: {
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      return constant_of_copy_relocation(R, S);
-    }
 
     default:
       WithColor::error() << "constant_of_relocation: unhandled relocation type "
@@ -5258,11 +5253,14 @@ int CreateSectionGlobalVariables(void) {
 
     clear_section_stuff();
 
-    for (const relocation_t &R : RelocationTable) {
-      llvm::Type *T = type_of_relocation(R);
-      type_at_address(R.Addr, T);
+    for (relocation_t &R : RelocationTable) {
+      R.T = type_of_relocation(R);
+      if (R.T && R.T->isVoidTy())
+        continue;
 
-      if (!T) {
+      type_at_address(R.Addr, R.T); /* note: R.T can be nullptr */
+
+      if (!R.T) {
         done = false;
 
         llvm::outs() << "!type_of_relocation(R): " <<
@@ -5288,11 +5286,14 @@ int CreateSectionGlobalVariables(void) {
 
     declare_sections();
 
-    for (const relocation_t &R : RelocationTable) {
-      llvm::Constant *C = constant_of_relocation(R);
-      constant_at_address(R.Addr, C);
+    for (relocation_t &R : RelocationTable) {
+      if (R.T && R.T->isVoidTy())
+        continue;
+      R.C = constant_of_relocation(R);
 
-      if (!C) {
+      constant_at_address(R.Addr, R.C); /* note: R.C can be nullptr */
+
+      if (!R.C) {
         done = false;
 
         llvm::outs() << "!constant_of_relocation(R): " <<
