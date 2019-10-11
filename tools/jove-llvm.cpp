@@ -2044,6 +2044,20 @@ int ProcessDynamicSymbols(void) {
 #else
             unsigned off = Sym.st_value - SectsStartAddr;
 
+            Module->appendModuleInlineAsm(
+                (fmt(".globl %s\n"
+                     ".type  %s,@object\n"
+                     ".size  %s, %u\n" 
+                     ".set   %s, __jove_sections + %u")
+                 % sym.Name.str()
+                 % sym.Name.str()
+                 % sym.Name.str() % Sym.st_size
+                 % sym.Name.str() % off).str());
+
+            if (!sym.Vers.empty())
+              VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+
+#if 0
             if (sym.Vers.empty()) {
               Module->appendModuleInlineAsm(
                   (fmt(".globl %s\n"
@@ -2078,6 +2092,7 @@ int ProcessDynamicSymbols(void) {
               // make sure version node is defined
               VersionScript.Table[sym.Vers.str()];
             }
+#endif
 #endif
           }
         }
@@ -4588,6 +4603,8 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_copy_relocation = [&](const relocation_t &R,
                                      const symbol_t &S) -> llvm::Type * {
+    assert(R.Addr == S.Addr);
+
     if (!S.Size) {
       WithColor::error() << llvm::formatv(
           "copy relocation @ 0x{0:x} specifies symbol {1} with size 0\n",
@@ -4595,9 +4612,19 @@ int CreateSectionGlobalVariables(void) {
       abort();
     }
 
-    // this relocation indicates that the global variable should be extern
-    assert(R.Addr == S.Addr);
-    ExternGlobalAddrs.insert(R.Addr);
+    unsigned off = R.Addr - SectsStartAddr;
+
+#if 0
+    Module->appendModuleInlineAsm(
+        (fmt(".reloc __jove_sections+%u, R_X86_64_COPY, %s")
+         % off
+         % S.Name.str()).str());
+#else
+    Module->appendModuleInlineAsm(
+        (fmt(".reloc %s, R_X86_64_COPY, %s")
+         % S.Name.str()
+         % S.Name.str()).str());
+#endif
 
     return VoidType();
   };
