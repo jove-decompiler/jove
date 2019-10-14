@@ -102,7 +102,7 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
-static void print_command(std::vector<char *> &arg_vec);
+static void print_command(std::vector<const char *> &arg_vec);
 
 static std::string jove_add_path;
 
@@ -148,18 +148,18 @@ int init(void) {
       exit(1);
     }
 
-    std::vector<char *> arg_vec;
-    arg_vec.push_back(const_cast<char *>(opts::Input.c_str()));
-    arg_vec.push_back(nullptr);
+    std::vector<const char *> arg_vec = {opts::Input.c_str(), nullptr};
 
-    std::vector<char *> env_vec;
+    std::vector<const char *> env_vec;
     for (char **env = ::environ; *env; ++env)
       env_vec.push_back(*env);
-    env_vec.push_back(const_cast<char *>("LD_TRACE_LOADED_OBJECTS=1"));
+
+    env_vec.push_back("LD_TRACE_LOADED_OBJECTS=1");
     env_vec.push_back(nullptr);
 
-    print_command(arg_vec);
-    return execve(arg_vec.front(), arg_vec.data(), env_vec.data());
+    return execve(arg_vec[0],
+                  const_cast<char **>(&arg_vec[0]),
+                  const_cast<char **>(&env_vec[0]));
   }
 
   close(pipefd[1]); /* close unused write end */
@@ -357,13 +357,10 @@ int init(void) {
     if (!pid) {
       chdir(opts::Output.c_str());
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("init"));
-      arg_vec.push_back(nullptr);
+      std::vector<const char *> arg_vec = {"/usr/bin/git", "init", nullptr};
 
       print_command(arg_vec);
-      return execve(arg_vec.front(), arg_vec.data(), ::environ);
+      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -395,14 +392,11 @@ int init(void) {
     if (!pid) {
       chdir(opts::Output.c_str());
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("add"));
-      arg_vec.push_back(const_cast<char *>("decompilation.jv"));
-      arg_vec.push_back(nullptr);
+      std::vector<const char *> arg_vec = {"/usr/bin/git", "add",
+                                           "decompilation.jv", nullptr};
 
       print_command(arg_vec);
-      return execve(arg_vec.front(), arg_vec.data(), ::environ);
+      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -415,16 +409,17 @@ int init(void) {
     if (!pid) {
       chdir(opts::Output.c_str());
 
-      std::vector<char *> arg_vec;
-      arg_vec.push_back(const_cast<char *>("/usr/bin/git"));
-      arg_vec.push_back(const_cast<char *>("commit"));
-      arg_vec.push_back(const_cast<char *>("."));
-      arg_vec.push_back(const_cast<char *>("-m"));
-      arg_vec.push_back(const_cast<char *>("initial commit"));
-      arg_vec.push_back(nullptr);
+      std::vector<const char *> arg_vec = {
+        "/usr/bin/git",
+        "commit",
+        ".",
+        "-m",
+        "initial commit",
+        nullptr
+      };
 
       print_command(arg_vec);
-      return execve(arg_vec.front(), arg_vec.data(), ::environ);
+      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
     if (int ret = await_process_completion(pid))
@@ -458,14 +453,27 @@ static void worker(void) {
 
     pid_t pid = fork();
     if (!pid) {
-      const char *argv[] = {jove_add_path.c_str(), "-o",   jvfp.c_str(), "-i",
-                            path.c_str(),          nullptr};
+      std::vector<const char *> argv = {
+        jove_add_path.c_str(),
+        "-o", jvfp.c_str(),
+        "-i", path.c_str(),
+        nullptr
+      };
 
-      dup2(null_fd, STDOUT_FILENO);
-      dup2(null_fd, STDERR_FILENO);
+      print_command(argv);
 
-      execve(argv[0], const_cast<char **>(argv), ::environ);
-      return;
+      std::string stdoutfp = tmpdir + path + ".txt";
+      int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+      dup2(outfd, STDOUT_FILENO);
+      dup2(outfd, STDERR_FILENO);
+
+      close(STDIN_FILENO);
+      execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      exit(1);
     }
 
     if (int ret = await_process_completion(pid))
@@ -521,8 +529,8 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
-void print_command(std::vector<char *> &arg_vec) {
-  for (char *s : arg_vec) {
+void print_command(std::vector<const char *> &arg_vec) {
+  for (const char *s : arg_vec) {
     if (!s)
       continue;
 
