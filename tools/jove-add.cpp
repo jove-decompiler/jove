@@ -321,26 +321,42 @@ int add(void) {
     if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
       continue;
 
-    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-        E.getSectionContents(&Sec);
-
-    if (!contents)
-      continue;
-
-    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-    if (!name)
-      continue;
-
-    if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
-      continue;
-
     if (!Sec.sh_size)
       continue;
 
     section_properties_t sectprop;
-    sectprop.name = *name;
-    sectprop.contents = *contents;
+
+    {
+      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+      if (!name)
+        continue;
+
+      sectprop.name = *name;
+    }
+
+    if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+        sectprop.name == std::string(".tbss"))
+      continue;
+
+    {
+      llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+          E.getSectionContents(&Sec);
+
+      if (!contents) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+        }
+
+        WithColor::note() << llvm::formatv(
+            "could not get section {0} contents ({1})\n", sectprop.name, Buf);
+        continue;
+      }
+
+      sectprop.contents = *contents;
+    }
 
     boost::icl::interval<std::uintptr_t>::type intervl =
         boost::icl::interval<std::uintptr_t>::right_open(
