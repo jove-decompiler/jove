@@ -467,7 +467,7 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/uio.h>
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)},
+#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
 #define _CTOR   __attribute__((constructor))
 #define _INL    __attribute__((always_inline))
@@ -505,6 +505,7 @@ static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
 static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
+static _INL bool _isDigit(char);
 static _INL int _atoi(const char *s);
 static _INL size_t _strlen(const char *s);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
@@ -973,10 +974,10 @@ found:
       char ch = 'f';
 
       struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch)
-          _IOV_ENTRY(CallerBIdx)
-          _IOV_ENTRY(CallerBBIdx)
-          _IOV_ENTRY(Callee.BIdx)
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(CallerBIdx),
+          _IOV_ENTRY(CallerBBIdx),
+          _IOV_ENTRY(Callee.BIdx),
           _IOV_ENTRY(Callee.FIdx)
       };
 
@@ -1034,9 +1035,9 @@ found:
       char ch = 'b';
 
       struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch)
-          _IOV_ENTRY(IndBr.BIdx)
-          _IOV_ENTRY(IndBr.BBIdx)
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(IndBr.BIdx),
+          _IOV_ENTRY(IndBr.BBIdx),
           _IOV_ENTRY(FileAddr)
       };
 
@@ -1113,6 +1114,8 @@ unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
                : /* Clobbers */);
 }
 
+bool _isDigit(char C) { return C >= '0' && C <= '9'; }
+
 uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
@@ -1129,25 +1132,25 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
     //
     // second hex address
     //
-    if (eol[-1]  == 'o' &&
-        eol[-2]  == 's' &&
-        eol[-3]  == '.' &&
-        eol[-4]  == '9' &&
-        eol[-5]  == '2' &&
-        eol[-6]  == '.' &&
-        eol[-7]  == '2' &&
-        eol[-8]  == '-' &&
-        eol[-9]  == 'd' &&
-        eol[-10] == 'l' &&
-        eol[-11] == '/' &&
-        eol[-12] == 'b' &&
-        eol[-13] == 'i' &&
-        eol[-14] == 'l' &&
-        eol[-15] == '/' &&
-        eol[-16] == 'r' &&
-        eol[-17] == 's' &&
-        eol[-18] == 'u' &&
-        eol[-19] == '/') {
+    if (eol[-1]  == 'o'
+     && eol[-2]  == 's'
+     && eol[-3]  == '.'
+     && _isDigit(eol[-4])
+     && _isDigit(eol[-5])
+     && eol[-6]  == '.'
+     && _isDigit(eol[-7])
+     && eol[-8]  == '-'
+     && eol[-9]  == 'd'
+     && eol[-10] == 'l'
+     && eol[-11] == '/'
+     && eol[-12] == 'b'
+     && eol[-13] == 'i'
+     && eol[-14] == 'l'
+     && eol[-15] == '/'
+     && eol[-16] == 'r'
+     && eol[-17] == 's'
+     && eol[-18] == 'u'
+     && eol[-19] == '/') {
       char *space = _memchr(line, ' ', left);
 
       char *rp = space + 1;
@@ -1211,11 +1214,12 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
   __builtin_unreachable();
 }
 
+static bool __jove_installed_vdso_and_dynl_function_tables = false;
+
 void _jove_install_vdso_and_dynl_function_tables(void) {
-  static bool _installed = false;
-  if (_installed)
+  if (__jove_installed_vdso_and_dynl_function_tables)
     return;
-  _installed = true;
+  __jove_installed_vdso_and_dynl_function_tables = true;
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
