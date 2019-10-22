@@ -261,10 +261,6 @@ static cl::opt<bool>
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
 
-static cl::opt<bool> DumpModule("dump-mod",
-                                cl::desc("dump the module to stderr"),
-                                cl::cat(JoveCategory));
-
 static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
 
@@ -298,9 +294,13 @@ static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
 
-static cl::opt<bool> DumpAfterOpt1("dump-after-opt1",
-                                   cl::desc("Dump bitcode after Optimize1()"),
-                                   cl::cat(JoveCategory));
+static cl::opt<bool> DumpPostOpt1("dump-post-opt1",
+                                  cl::desc("Dump bitcode after Optimize1()"),
+                                  cl::cat(JoveCategory));
+
+static cl::opt<bool> DumpPreOpt2("dump-pre-opt2",
+                                 cl::desc("Dump bitcode before Optimize2()"),
+                                 cl::cat(JoveCategory));
 
 static cl::opt<bool>
     DumpAfterFSBaseFixup("dump-after-fsbase-fixup",
@@ -663,6 +663,8 @@ static int WriteDecompilation(void);
 static int WriteVersionScript(void);
 static int WriteModule(void);
 
+static void DumpModule(const char *);
+
 int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
@@ -689,12 +691,14 @@ int llvm(void) {
       || InlineCalls()
       || PrepareToOptimize()
       || Optimize1()
+      || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
       || FixupPCRelativeAddrs()
 #if defined(__x86_64__)
       || FixupFSBaseAddrs()
 #endif
       || InternalizeStaticFunctions()
       || InternalizeSections()
+      || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
       || Optimize2()
       || ReplaceAllRemainingUsesOfConstSections()
       || RecoverControlFlow()
@@ -705,6 +709,25 @@ int llvm(void) {
 
       || (!opts::VersionScript.empty() ? WriteVersionScript() : 0)
       || WriteModule();
+}
+
+static void DumpModule(const char *suffix) {
+  std::string s;
+  {
+    llvm::raw_string_ostream os(s);
+    os << *Module << '\n';
+  }
+
+  {
+    fs::path dumpOutputPath =
+        fs::path(opts::Output).replace_extension(std::string(suffix) + ".ll");
+
+    WithColor::note() << llvm::formatv("dumping module to {0} ({1})\n",
+                                       dumpOutputPath.c_str(), suffix);
+
+    std::ofstream ofs(dumpOutputPath.c_str());
+    ofs << s;
+  }
 }
 
 void _qemu_log(const char *cstr) {
@@ -6287,7 +6310,7 @@ int Optimize1(void) {
   if (int ret = DoOptimize())
     return ret;
 
-  if (opts::DumpAfterOpt1) {
+  if (opts::DumpPostOpt1) {
 #if 0
     std::error_code EC;
     llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
@@ -7115,9 +7138,6 @@ int WriteModule(void) {
     //llvm::errs() << *Module << '\n';
     return 1;
   }
-
-  if (opts::DumpModule)
-    llvm::outs() << *Module << '\n';
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
