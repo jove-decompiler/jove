@@ -135,15 +135,13 @@ static void spawn_workers(void);
 
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
-static const char *compiler_runtime_afp =
-    "/usr/lib/clang/10.0.0/lib/linux/libclang_rt.builtins-x86_64.a";
 
 static int await_process_completion(pid_t);
 
 static void print_command(const char **argv);
 
-static std::string jove_llvm_path, jove_bin_path, jove_rt_path, jove_dfsan_path,
-    llc_path, ld_path, opt_path;
+static std::string compiler_runtime_afp, jove_llvm_path, jove_bin_path,
+    jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path;
 
 static std::atomic<bool> Cancel(false);
 
@@ -155,6 +153,12 @@ static bool dynamic_linking_info_of_binary(binary_t &,
 static void IgnoreCtrlC(void);
 
 int recompile(void) {
+  compiler_runtime_afp =
+      (boost::dll::program_location().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "9.0.1" /
+       "lib" / "linux" / "libclang_rt.builtins-x86_64.a")
+          .string();
+
   if (!fs::exists(compiler_runtime_afp) ||
       !fs::is_regular_file(compiler_runtime_afp)) {
     WithColor::error() << "compiler runtime does not exist at path '"
@@ -648,7 +652,7 @@ skip_dfsan:
 
           "-nostdlib",
 
-          "--push-state", "--as-needed", compiler_runtime_afp,
+          "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
 
 #if 1
