@@ -84,6 +84,7 @@ int ParseCommandLineArguments(int argc, char **argv) {
 }
 
 static void recover(const char *fifo_path);
+static void IgnoreCtrlC(void);
 
 int run(void) {
 #if 0
@@ -326,6 +327,8 @@ int run(void) {
     return 1;
   }
 
+  IgnoreCtrlC();
+
   std::thread pipe_reader(recover, recover_fifo_path.c_str());
 
   //
@@ -458,7 +461,7 @@ int run(void) {
 }
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)},
+#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
 static size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   size_t expected = 0;
@@ -522,9 +525,9 @@ void recover(const char *fifo_path) {
 
       {
         struct iovec iov_arr[] = {
-            _IOV_ENTRY(Caller.BIdx)
-            _IOV_ENTRY(Caller.BBIdx)
-            _IOV_ENTRY(Callee.BIdx)
+            _IOV_ENTRY(Caller.BIdx),
+            _IOV_ENTRY(Caller.BBIdx),
+            _IOV_ENTRY(Callee.BIdx),
             _IOV_ENTRY(Callee.FIdx)
         };
 
@@ -571,8 +574,8 @@ void recover(const char *fifo_path) {
 
       {
         struct iovec iov_arr[] = {
-            _IOV_ENTRY(IndBr.BIdx)
-            _IOV_ENTRY(IndBr.BBIdx)
+            _IOV_ENTRY(IndBr.BIdx),
+            _IOV_ENTRY(IndBr.BBIdx),
             _IOV_ENTRY(FileAddr)
         };
 
@@ -647,6 +650,16 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
+}
+
+void IgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_IGN;
+
+  sigaction(SIGINT, &sa, nullptr);
 }
 
 }
