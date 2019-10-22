@@ -329,8 +329,17 @@ int add(void) {
     {
       llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
 
-      if (!name)
+      if (!name) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+        }
+
+        WithColor::note() << llvm::formatv("could not get section name ({0})\n",
+                                           Buf);
         continue;
+      }
 
       sectprop.name = *name;
     }
