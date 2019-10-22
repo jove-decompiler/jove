@@ -2901,7 +2901,9 @@ int ProcessBinaryRelocations(void) {
 
   for (const relocation_t &R : RelocationTable) {
     switch (R.Type) {
+#if 0
     case relocation_t::TYPE::RELATIVE:
+#endif
     case relocation_t::TYPE::IRELATIVE:
     case relocation_t::TYPE::ABSOLUTE:
     case relocation_t::TYPE::ADDRESSOF:
@@ -4406,35 +4408,36 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 
   unsigned off = Addr - SectsStartAddr;
 
-#if 1
   llvm::GlobalVariable *SectsGV =
       ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
           ? ConstSectsGlobal
           : SectsGlobal;
-#else
-  llvm::GlobalVariable *SectsGV = SectsGlobal;
-#endif
 
   assert(SectsGV);
 
-  if (Addr == SectsEndAddr) {
-    return llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
-        llvm::ConstantInt::get(WordType(), off));
+  // special case the end
+  if (Addr == SectsEndAddr)
+    return llvm::ConstantExpr::getIntToPtr(
+        llvm::ConstantExpr::getAdd(
+            llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
+            llvm::ConstantInt::get(WordType(), off)),
+        llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
+
+  {
+    llvm::IRBuilderTy IRB(*Context);
+    llvm::SmallVector<llvm::Value *, 4> Indices;
+    llvm::Value *res = llvm::getNaturalGEPWithOffset(
+        IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
+
+    if (res && llvm::isa<llvm::Constant>(res))
+      return llvm::cast<llvm::Constant>(res);
   }
 
-  llvm::IRBuilderTy IRB(*Context);
-  llvm::SmallVector<llvm::Value *, 4> Indices;
-  llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
-
-  if (!res)
-    res = llvm::ConstantExpr::getAdd(
-        llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
-        llvm::ConstantInt::get(WordType(), off));
-
-  assert(llvm::isa<llvm::Constant>(res));
-  return llvm::cast<llvm::Constant>(res);
+  return llvm::ConstantExpr::getIntToPtr(
+      llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
+          llvm::ConstantInt::get(WordType(), off)),
+      llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
 }
 
 int CreateTLSModGlobal(void) {
