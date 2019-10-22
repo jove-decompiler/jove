@@ -487,9 +487,13 @@ extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
 extern /* -> static */ uint32_t _jove_binary_index(void);
 extern /* -> static */ bool _jove_trace_enabled(void);
 extern /* -> static */ void _jove_call_entry(void);
+extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
-extern /* -> static */ /* -> _CTOR */ void _jove_install_function_table(void);
+
+_CTOR static void _jove_install_function_table(void) {
+  __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
+}
 
 _HIDDEN
 _NAKED void _jove_start(void);

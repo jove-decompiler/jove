@@ -1603,7 +1603,7 @@ static llvm::Type *WordType(void) {
 }
 
 int ProcessDynamicSymbols(void) {
-  std::unordered_set<uintptr_t> gdefs;
+  std::set<std::pair<uintptr_t, unsigned>> gdefs;
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -2041,7 +2041,7 @@ int ProcessDynamicSymbols(void) {
             }
 
             AddressSpaceObjects.insert({intervl});
-#else
+#elif 0
             unsigned off = Sym.st_value - SectsStartAddr;
 
             Module->appendModuleInlineAsm(
@@ -2057,7 +2057,9 @@ int ProcessDynamicSymbols(void) {
             if (!sym.Vers.empty())
               VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
 
-#if 0
+#elif 1
+            unsigned off = Sym.st_value - SectsStartAddr;
+
             if (sym.Vers.empty()) {
               Module->appendModuleInlineAsm(
                   (fmt(".globl %s\n"
@@ -2069,22 +2071,25 @@ int ProcessDynamicSymbols(void) {
                    % sym.Name.str() % Sym.st_size
                    % sym.Name.str() % off).str());
             } else {
-              if (gdefs.find(Sym.st_value) == gdefs.end())
+              if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
-                    (fmt(".hidden g%lx\n"
-                         ".globl  g%lx\n"
-                         ".type   g%lx,@object\n"
-                         ".size   g%lx, %u\n" 
-                         ".set    g%lx, __jove_sections + %u")
-                     % Sym.st_value
-                     % Sym.st_value
-                     % Sym.st_value
+                    (fmt(".hidden g%lx_%u\n"
+                         ".globl  g%lx_%u\n"
+                         ".type   g%lx_%u,@object\n"
+                         ".size   g%lx_%u, %u\n" 
+                         ".set    g%lx_%u, __jove_sections + %u")
                      % Sym.st_value % Sym.st_size
-                     % Sym.st_value % off).str());
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % Sym.st_size % Sym.st_size
+                     % Sym.st_value % Sym.st_size % off).str());
+
+                gdefs.insert({Sym.st_value, Sym.st_size});
+              }
 
               Module->appendModuleInlineAsm(
-                  (fmt(".symver g%lx, %s%s%s")
-                   % Sym.st_value
+                  (fmt(".symver g%lx_%u, %s%s%s")
+                   % Sym.st_value % Sym.st_size
                    % sym.Name.str()
                    % (sym.Visibility.IsDefault ? "@@" : "@")
                    % sym.Vers.str()).str());
@@ -2092,7 +2097,6 @@ int ProcessDynamicSymbols(void) {
               // make sure version node is defined
               VersionScript.Table[sym.Vers.str()];
             }
-#endif
 #endif
           }
         }
@@ -4253,10 +4257,11 @@ int CreateFunctionTable(void) {
   llvm::ArrayType *T =
       llvm::ArrayType::get(WordType(), binary.Analysis.Functions.size() + 1);
   llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
-  llvm::GlobalVariable *FuncTableGV = new llvm::GlobalVariable(
+  llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
       "__jove_function_table");
 
+#if 0
   {
     llvm::Function *StoresFnTblPtrF =
         Module->getFunction("_jove_install_function_table");
@@ -4279,6 +4284,22 @@ int CreateFunctionTable(void) {
 
     llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
   }
+#else
+  llvm::Function *GetFunctionTableF =
+      Module->getFunction("_jove_get_function_table");
+  assert(GetFunctionTableF && GetFunctionTableF->empty());
+
+  llvm::BasicBlock *BB =
+      llvm::BasicBlock::Create(*Context, "", GetFunctionTableF);
+
+  {
+    llvm::IRBuilderTy IRB(BB);
+
+    IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+  }
+
+  GetFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
+#endif
 
   return 0;
 }
@@ -4612,17 +4633,29 @@ int CreateSectionGlobalVariables(void) {
       abort();
     }
 
-    unsigned off = R.Addr - SectsStartAddr;
+    WithColor::error() << llvm::formatv(
+        "copy relocation @ 0x{0:x} specifies symbol {1} with size {2}\n"
+        "was prog compiled as a position-independant executable?\n",
+        R.Addr, S.Name, S.Size);
+    abort();
 
 #if 0
+    unsigned off = R.Addr - SectsStartAddr;
+
     Module->appendModuleInlineAsm(
         (fmt(".reloc __jove_sections+%u, R_X86_64_COPY, %s")
          % off
          % S.Name.str()).str());
-#else
+#elif 1
     Module->appendModuleInlineAsm(
-        (fmt(".reloc %s, R_X86_64_COPY, %s")
-         % S.Name.str()
+        (fmt(".reloc __jove_sections, R_X86_64_COPY, %s") % S.Name.str()).str());
+#elif 0
+    unsigned off = R.Addr - SectsStartAddr;
+
+    Module->appendModuleInlineAsm(
+        (fmt("lbl%u:\n.8byte 0\n.reloc lbl%u, R_X86_64_COPY, %s")
+         % off
+         % off
          % S.Name.str()).str());
 #endif
 
@@ -6177,6 +6210,16 @@ int PrepareToOptimize(void) {
   return 0;
 }
 
+static void ReloadGlobalVariables(void) {
+  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",          true);
+#if defined(__x86_64__)
+  FSBaseGlobal     = Module->getGlobalVariable("__jove_fs_base",        true);
+#endif
+  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",            true);
+  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
+  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
+}
+
 static int DoOptimize(void) {
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
@@ -6229,15 +6272,10 @@ static int DoOptimize(void) {
   }
 
   //
-  // reload global variables which might have been optimized away
+  // if any gv was optimized away, we'd like to make sure our pointer to it
+  // becomes null.
   //
-  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",          true);
-#if defined(__x86_64__)
-  FSBaseGlobal     = Module->getGlobalVariable("__jove_fs_base",        true);
-#endif
-  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",            true);
-  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
-  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
+  ReloadGlobalVariables();
 
   return 0;
 }
@@ -6291,6 +6329,7 @@ ConstantForAddress(uintptr_t Addr) {
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
+#if 0
   {
     auto it = AddressSpaceObjects.find(Addr);
     if (it != AddressSpaceObjects.end()) {
@@ -6322,6 +6361,7 @@ ConstantForAddress(uintptr_t Addr) {
       return res;
     }
   }
+#endif
 
   llvm::Constant *res;
 
@@ -6346,7 +6386,12 @@ ConstantForAddress(uintptr_t Addr) {
     }
   }
 
-  return llvm::ConstantExpr::getPtrToInt(res, WordType());
+  if (res->getType()->isPtrOrPtrVectorTy())
+    res = llvm::ConstantExpr::getPtrToInt(res, WordType());
+  else
+    assert(res->getType()->isIntegerTy(WordBits()));
+
+  return res;
 }
 
 int FixupPCRelativeAddrs(void) {
