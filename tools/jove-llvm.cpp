@@ -7562,9 +7562,7 @@ int TranslateBasicBlock(binary_t &Binary,
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
-                       llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-                       assert(Ptr);
-                       return IRB.CreateLoad(Ptr);
+                       return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
                      });
     }
 
@@ -7592,15 +7590,13 @@ int TranslateBasicBlock(binary_t &Binary,
         for (unsigned i = 0; i < glbv.size(); ++i) {
           unsigned glb = glbv[i];
 
-          llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-          assert(Ptr);
-          llvm::Value *Val =
-              IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-          Val->setName((fmt("%s_returned_from_%s")
-                       % TCG->_ctx.temps[i].name
-                       % callee.F->getName().str()).str());
+          llvm::Value *Val = IRB.CreateExtractValue(
+              Ret, llvm::ArrayRef<unsigned>(i),
+              (fmt("_%s_returned_from_%s_")
+               % TCG->_ctx.temps[glb].name
+               % callee.F->getName().str()).str());
 
-          IRB.CreateStore(Val, Ptr);
+          IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
         }
       }
     }
@@ -7757,9 +7753,7 @@ int TranslateBasicBlock(binary_t &Binary,
         ArgVec.resize(glbv.size());
         std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                        [&](unsigned glb) -> llvm::Value * {
-                         llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-                         assert(Ptr);
-                         return IRB.CreateLoad(Ptr);
+                         return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
                        });
       }
 
@@ -7812,11 +7806,13 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
         } else {
           for (unsigned i = 0; i < glbv.size(); ++i) {
-            llvm::Value *Val =
-                IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
-            llvm::Value *Ptr = f.GlobalAllocaVec[glbv[i]];
+            unsigned glb = glbv[i];
 
-            IRB.CreateStore(Val, Ptr);
+            llvm::Value *Val = IRB.CreateExtractValue(
+                Ret, llvm::ArrayRef<unsigned>(i),
+                (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+
+            IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
           }
         }
       }
