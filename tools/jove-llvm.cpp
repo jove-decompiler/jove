@@ -7596,6 +7596,9 @@ int TranslateBasicBlock(binary_t &Binary,
           assert(Ptr);
           llvm::Value *Val =
               IRB.CreateExtractValue(Ret, llvm::ArrayRef<unsigned>(i));
+          Val->setName((fmt("%s_returned_from_%s")
+                       % TCG->_ctx.temps[i].name
+                       % callee.F->getName().str()).str());
 
           IRB.CreateStore(Val, Ptr);
         }
