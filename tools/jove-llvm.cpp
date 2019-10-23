@@ -545,7 +545,7 @@ static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 
 static llvm::Function *JoveTraceInitFunc;
-static llvm::Function *JoveInstallVDSOAndDynLFunctionTables;
+static llvm::Function *JoveInstallForeignFunctionTables;
 
 static llvm::Function *JoveThunkFunc;
 static llvm::Function *JoveFail1Func;
@@ -1070,11 +1070,9 @@ int CreateModule(void) {
   assert(JoveTraceInitFunc);
   JoveTraceInitFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-  JoveInstallVDSOAndDynLFunctionTables =
-      Module->getFunction("_jove_install_vdso_and_dynl_function_tables");
-  assert(JoveInstallVDSOAndDynLFunctionTables);
-  JoveInstallVDSOAndDynLFunctionTables->setLinkage(
-      llvm::GlobalValue::InternalLinkage);
+  JoveInstallForeignFunctionTables =
+      Module->getFunction("_jove_install_foreign_function_tables");
+  assert(JoveInstallForeignFunctionTables);
 
   JoveThunkFunc = Module->getFunction("_jove_thunk");
   assert(JoveThunkFunc);
@@ -2255,7 +2253,7 @@ int ProcessDynamicSymbols(void) {
                                         DebugInfo.Subprogram));
 
               if (DynTargetNeedsThunkPred(IdxPair)) {
-                IRB.CreateCall(JoveInstallVDSOAndDynLFunctionTables)
+                IRB.CreateCall(JoveInstallForeignFunctionTables)
                     ->setIsNoInline();
 
                 llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
