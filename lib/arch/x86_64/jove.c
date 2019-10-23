@@ -450,6 +450,10 @@ typedef struct CPUX86State {
 extern /* __thread */ struct CPUX86State __jove_env;
 extern /* __thread */ uint64_t *__jove_trace;
 
+extern int    __jove_startup_info_argc;
+extern char **__jove_startup_info_argv;
+extern char **__jove_startup_info_environ;
+
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
@@ -480,7 +484,6 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
-
 extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);
 extern /* -> static */ uintptr_t _jove_sections_global_beg_addr(void);
 extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
@@ -494,6 +497,8 @@ extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 _CTOR static void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
 }
+
+_CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
@@ -527,10 +532,6 @@ static _INL uintptr_t _get_stack_end(void);
 static unsigned long _jove_alloc_stack(void);
 static void _jove_free_stack(unsigned long);
 
-/* -> static */ _CTOR _NOINL void _jove_install_vdso_and_dynl_function_tables(void);
-
-void _jove_trace_init(void);
-
 /* -> static */ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
                                                         unsigned long *,
                                                         unsigned long *);
@@ -553,9 +554,7 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-extern int    __jove_startup_info_argc;
-extern char **__jove_startup_info_argv;
-extern char **__jove_startup_info_environ;
+static void _jove_trace_init(void);
 
 void _jove_begin(target_ulong rdi,
                  target_ulong rsi,
@@ -609,7 +608,7 @@ void _jove_begin(target_ulong rdi,
     _jove_trace_init();
 
   _jove_install_function_table();
-  _jove_install_vdso_and_dynl_function_tables();
+  _jove_install_foreign_function_tables();
 
   return _jove_call_entry();
 }
@@ -1218,12 +1217,12 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
   __builtin_unreachable();
 }
 
-static bool __jove_installed_vdso_and_dynl_function_tables = false;
+static bool __jove_installed_foreign_function_tables = false;
 
-void _jove_install_vdso_and_dynl_function_tables(void) {
-  if (__jove_installed_vdso_and_dynl_function_tables)
+void _jove_install_foreign_function_tables(void) {
+  if (__jove_installed_foreign_function_tables)
     return;
-  __jove_installed_vdso_and_dynl_function_tables = true;
+  __jove_installed_foreign_function_tables = true;
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
@@ -1246,9 +1245,7 @@ void _jove_install_vdso_and_dynl_function_tables(void) {
   for (uintptr_t *p = vdso_fn_tbl; *p; ++p)
     *p += vdso_load_bias;
 
-  /* __jove_function_tables[1] is the dynamic linker. */
   __jove_foreign_function_tables[1] = dynl_fn_tbl;
-  /* __jove_function_tables[2] is the VDSO. */
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
 }
 
