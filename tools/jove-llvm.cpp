@@ -544,7 +544,6 @@ static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 
-static llvm::Function *JoveTraceInitFunc;
 static llvm::Function *JoveInstallForeignFunctionTables;
 
 static llvm::Function *JoveThunkFunc;
@@ -1065,10 +1064,6 @@ int CreateModule(void) {
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);
-
-  JoveTraceInitFunc = Module->getFunction("_jove_trace_init");
-  assert(JoveTraceInitFunc);
-  JoveTraceInitFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveInstallForeignFunctionTables =
       Module->getFunction("_jove_install_foreign_function_tables");
