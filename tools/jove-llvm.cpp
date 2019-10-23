@@ -549,6 +549,9 @@ static llvm::Function *JoveInstallForeignFunctionTables;
 static llvm::Function *JoveThunkFunc;
 static llvm::Function *JoveFail1Func;
 
+static llvm::Function *JoveAllocStackFunc;
+static llvm::Function *JoveFreeStackFunc;
+
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
@@ -1095,6 +1098,12 @@ int CreateModule(void) {
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
   assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
   JoveRecoverBasicBlockFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
+  assert(JoveAllocStackFunc);
+
+  JoveFreeStackFunc = Module->getFunction("_jove_free_stack");
+  assert(JoveFreeStackFunc);
 
   return 0;
 }
@@ -5564,6 +5573,7 @@ int CreateSectionGlobalVariables(void) {
             llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
             SavedSP->setName("saved_sp");
 
+#if 0
             {
               constexpr unsigned StackAllocaSize = 0x10000;
 
@@ -5575,6 +5585,18 @@ int CreateSectionGlobalVariables(void) {
 
               IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
             }
+#else
+            llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
+            IRB.CreateStore(IRB.CreateAdd(TemporaryStack,
+                                          llvm::ConstantInt::get(
+                                              WordType(), JOVE_STACK_SIZE -
+                                                              JOVE_PAGE_SIZE)),
+                            SPPtr);
+#endif
 
             llvm::Value *SavedTraceP = nullptr;
             if (opts::Trace) {
@@ -5603,8 +5625,16 @@ int CreateSectionGlobalVariables(void) {
               ArgVec[i] = &CallsF->arg_begin()[i];
 
             Call = IRB.CreateCall(F, ArgVec);
+            Call->setIsNoInline();
 
             IRB.CreateStore(SavedSP, SPPtr);
+
+#if 1
+            {
+              std::vector<llvm::Value *> _ArgVec = {TemporaryStack};
+              IRB.CreateCall(JoveFreeStackFunc, _ArgVec);
+            }
+#endif
 
             if (opts::Trace)
               IRB.CreateStore(SavedTraceP, TraceGlobal);
@@ -5617,7 +5647,7 @@ int CreateSectionGlobalVariables(void) {
 
           DIB.finalizeSubprogram(DebugInfo.Subprogram);
 
-          CallsToInline.push_back(Call);
+          //CallsToInline.push_back(Call);
 
           it = CtorStubMap.insert({F, CallsF}).first;
         }
@@ -5704,6 +5734,7 @@ int CreateSectionGlobalVariables(void) {
           llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
           SavedSP->setName("saved_sp");
 
+#if 0
           {
             constexpr unsigned StackAllocaSize = 0x10000;
 
@@ -5715,6 +5746,18 @@ int CreateSectionGlobalVariables(void) {
 
             IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
           }
+#else
+          llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
+          IRB.CreateStore(
+              IRB.CreateAdd(TemporaryStack,
+                            llvm::ConstantInt::get(
+                                WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE)),
+              SPPtr);
+#endif
 
           llvm::Value *SavedTraceP = nullptr;
           if (opts::Trace) {
@@ -5743,8 +5786,16 @@ int CreateSectionGlobalVariables(void) {
             ArgVec[i] = &CallsF->arg_begin()[i];
 
           Call = IRB.CreateCall(F, ArgVec);
+          Call->setIsNoInline();
 
           IRB.CreateStore(SavedSP, SPPtr);
+
+#if 1
+          {
+            std::vector<llvm::Value *> _ArgVec = {TemporaryStack};
+            IRB.CreateCall(JoveFreeStackFunc, _ArgVec);
+          }
+#endif
 
           if (opts::Trace)
             IRB.CreateStore(SavedTraceP, TraceGlobal);
@@ -5757,7 +5808,7 @@ int CreateSectionGlobalVariables(void) {
 
         DIB.finalizeSubprogram(DebugInfo.Subprogram);
 
-        CallsToInline.push_back(Call);
+        //CallsToInline.push_back(Call);
 
         it = CtorStubMap.insert({F, CallsF}).first;
       }
