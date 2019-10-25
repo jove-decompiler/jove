@@ -8061,10 +8061,28 @@ int TranslateBasicBlock(binary_t &Binary,
   case TERMINATOR::CONDITIONAL_JUMP: {
     auto eit_pair = boost::out_edges(bb, ICFG);
 
-    assert(boost::out_degree(bb, ICFG) == 2);
+#if 0
+    if (boost::out_degree(bb, ICFG) != 2) {
+      WithColor::error() << llvm::formatv(
+          "conditional jump @ {0:x} goes to {1} places\n", ICFG[bb].Addr,
+          boost::out_degree(bb, ICFG));
+
+      for (auto eit = eit_pair.first; eit != eit_pair.second; ++eit) {
+        control_flow_t cf = *eit;
+        basic_block_t succ = boost::target(cf, ICFG);
+
+        WithColor::note() << llvm::formatv("  -> {0:x} \n", ICFG[succ].Addr);
+      }
+    }
+#endif
+
+    assert(boost::out_degree(bb, ICFG) == 2 ||
+           boost::out_degree(bb, ICFG) == 1);
+
+    bool is1 = boost::out_degree(bb, ICFG) == 1;
 
     control_flow_t cf1 = *eit_pair.first;
-    control_flow_t cf2 = *std::next(eit_pair.first);
+    control_flow_t cf2 = is1 ? cf1 : *std::next(eit_pair.first);
 
     basic_block_t succ1 = boost::target(cf1, ICFG);
     basic_block_t succ2 = boost::target(cf2, ICFG);
