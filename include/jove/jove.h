@@ -146,6 +146,8 @@ struct function_t {
     tcg_global_set_t rets;
   } Analysis;
 
+  bool IsABI;
+
   bool AnalyzedOnce;
 
   JOVE_EXTRA_FN_PROPERTIES;
@@ -155,6 +157,7 @@ struct function_t {
     ar &BOOST_SERIALIZATION_NVP(Entry)
        &BOOST_SERIALIZATION_NVP(Analysis.args)
        &BOOST_SERIALIZATION_NVP(Analysis.rets)
+       &BOOST_SERIALIZATION_NVP(IsABI)
        &BOOST_SERIALIZATION_NVP(AnalyzedOnce);
   }
 };

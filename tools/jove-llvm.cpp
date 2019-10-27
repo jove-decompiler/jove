@@ -84,15 +84,14 @@ struct symbol_t {
     llvm::DISubprogram *Subprogram;                                            \
   } DebugInformation;                                                          \
                                                                                \
-  bool IsNamed, IsABI;                                                         \
+  bool IsNamed;                                                                \
                                                                                \
   bool Analyzed;                                                               \
                                                                                \
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
   function_t()                                                                 \
-      : _resolver({.IFunc = nullptr}), IsNamed(false), IsABI(false),           \
-        Analyzed(false) {}                                                     \
+      : _resolver({.IFunc = nullptr}), IsNamed(false), Analyzed(false) {}      \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -566,6 +565,8 @@ static llvm::GlobalVariable *FSBaseGlobal;
 static llvm::MDNode *AliasScopeMetadata;
 
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
+
+static bool ABIChanged = false;
 
 static struct {
   struct {
@@ -6437,7 +6438,15 @@ ConstantForAddress(uintptr_t Addr) {
 
   auto it = st.FuncMap.find(Addr);
   if (it != st.FuncMap.end()) {
-    res = Binary.Analysis.Functions[(*it).second].F;
+    function_t &f = Binary.Analysis.Functions[(*it).second];
+    res = f.F;
+
+    if (!f.IsABI) {
+      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
+      f.IsABI = true;
+
+      ABIChanged = true;
+    }
   } else {
     res = SectionPointer(Addr);
     if (!res) {
@@ -7088,7 +7097,7 @@ int RecoverControlFlow(void) {
     }
   }
 
-  if (!Changed)
+  if (!Changed && !ABIChanged)
     return 0;
 
   //

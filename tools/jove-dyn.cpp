@@ -920,6 +920,7 @@ static function_index_t translate_function(pid_t child,
   binary.Analysis.Functions[res].Entry =
       translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
   binary.Analysis.Functions[res].AnalyzedOnce = false;
+  binary.Analysis.Functions[res].IsABI = false;
 
   return res;
 }
