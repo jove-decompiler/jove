@@ -1019,6 +1019,21 @@ int InitStateForBinaries(void) {
            % pair.first.upper()).str()
           << '\n';
       }
+
+      //
+      // compute SectsStartAddr, SectsEndAddr
+      //
+      {
+        uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+        unsigned i = 0;
+        for (const auto &pair : st.SectMap) {
+          minAddr = std::min(minAddr, pair.first.lower());
+          maxAddr = std::max(maxAddr, pair.first.upper());
+        }
+
+        SectsStartAddr = minAddr;
+        SectsEndAddr = maxAddr;
+      }
     }
   }
 
