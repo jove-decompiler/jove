@@ -7431,11 +7431,11 @@ int TranslateBasicBlock(binary_t &Binary,
     uint64_t comb =
         (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
 
-    llvm::Value *Ptr = IRB.CreateLoad(TraceGlobal);
+    llvm::Value *Ptr = IRB.CreateLoad(TraceGlobal, true /* Volatile */);
     llvm::Value *PtrInc = IRB.CreateConstGEP1_64(Ptr, 1);
 
-    IRB.CreateStore(IRB.getInt64(comb), Ptr, true /* Volatile */);
-    IRB.CreateStore(PtrInc, TraceGlobal);
+    IRB.CreateStore(IRB.getInt64(comb), Ptr,         true /* Volatile */);
+    IRB.CreateStore(PtrInc,             TraceGlobal, true /* Volatile */);
   }
 
   binary_state_t &st = BinStateVec[BinaryIndex];
