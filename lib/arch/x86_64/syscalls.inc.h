@@ -13,7 +13,7 @@ ___SYSCALL6(9, mmap, unsigned long, addr, unsigned long, len, unsigned long, pro
 ___SYSCALL3(10, mprotect, unsigned long, start, size_t, len, unsigned long, prot)
 ___SYSCALL2(11, munmap, unsigned long, addr, size_t, len)
 ___SYSCALL1(12, brk, unsigned long, brk)
-___SYSCALL4(13, rt_sigaction, int, sig, const struct sigaction __user *, act, struct sigaction __user *, oact, size_t, sigsetsize)
+___SYSCALL4(13, rt_sigaction, int, sig, const struct kernel_sigaction __user *, act, struct kernel_sigaction __user *, oact, size_t, sigsetsize)
 ___SYSCALL4(14, rt_sigprocmask, int, how, sigset_t __user *, nset, sigset_t __user *, oset, size_t, sigsetsize)
 ___SYSCALL0(15, rt_sigreturn)
 ___SYSCALL3(16, ioctl, unsigned int, fd, unsigned int, cmd, unsigned long, arg)

@@ -448,7 +448,9 @@ typedef struct CPUX86State {
 #include <stddef.h>
 
 extern /* __thread */ struct CPUX86State __jove_env;
+
 extern /* __thread */ uint64_t *__jove_trace;
+extern /* __thread */ uint64_t *__jove_trace_begin;
 
 extern int    __jove_startup_info_argc;
 extern char **__jove_startup_info_argv;
@@ -469,6 +471,16 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <inttypes.h>
 #include <sys/mman.h>
 #include <sys/uio.h>
+#include <signal.h>
+
+typedef unsigned long kernel_sigset_t;
+
+struct kernel_sigaction {
+  void *          _sa_handler;
+  unsigned long   _sa_flags;
+  void *          _sa_restorer;
+  kernel_sigset_t _sa_mask;
+};
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
@@ -520,6 +532,7 @@ static _INL size_t _strlen(const char *s);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL void *_memset(void *dst, int c, size_t n);
 static _INL char *_findenv(const char *name, int len, int *offset);
 static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
@@ -807,12 +820,25 @@ void *_memcpy(void *dest, const void *src, size_t n) {
   return dest;
 }
 
+void *_memset(void *dst, int c, size_t n) {
+  if (n != 0) {
+    unsigned char *d = dst;
+
+    do
+      *d++ = (unsigned char)c;
+    while (--n != 0);
+  }
+  return (dst);
+}
+
+static void _jove_sigsegv_handler(void);
+
 void _jove_trace_init(void) {
   if (__jove_trace)
     return;
 
   int fd =
-      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC | O_SYNC, 0666);
+      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
   if (fd < 0) {
     __builtin_trap();
     __builtin_unreachable();
@@ -824,17 +850,64 @@ void _jove_trace_init(void) {
     __builtin_unreachable();
   }
 
-  long ret =
-      _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  {
+    long ret =
+        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
-  if (ret < 0) {
+    if (ret < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    void *ptr = (void *)ret;
+
+    __jove_trace_begin = __jove_trace = ptr;
+  }
+
+  if (_jove_sys_close(fd) < 0) {
     __builtin_trap();
     __builtin_unreachable();
   }
 
-  void *p = (void *)ret;
+  //
+  // install SIGSEGV handler
+  //
+  struct kernel_sigaction sa;
+  _memset(&sa, 0, sizeof(sa));
+  sa._sa_handler = (void *)_jove_sigsegv_handler;
 
-  __jove_trace = p;
+  {
+    long ret =
+        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
+    if (ret < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+  }
+}
+
+static void _jove_flush_trace(void);
+
+void _jove_sigsegv_handler(void) {
+  _jove_flush_trace();
+
+  _jove_sys_exit_group(22);
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+void _jove_flush_trace(void) {
+  if (!__jove_trace || !__jove_trace_begin)
+    return;
+
+  size_t len = __jove_trace - __jove_trace_begin;
+  len *= sizeof(uint64_t);
+
+  long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
+  if (ret < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
