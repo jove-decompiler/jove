@@ -655,7 +655,7 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
 
-#if 1
+#if 0 /* __tls_get_addr... */
           "--no-undefined",
 #endif
       };
@@ -722,17 +722,21 @@ skip_dfsan:
                              chrooted_path.parent_path() / b.dynl.soname);
       }
 
+#if 0
       std::string rtld_soname_arg = ":" + rtld_soname;
       if (!rtld_soname.empty()) {
         arg_vec.push_back("-l");
         arg_vec.push_back(rtld_soname_arg.c_str());
       }
+#endif
 
       std::vector<std::string> needed_arg_vec;
 
       for (const std::string &needed : b.dynl.needed) {
+#if 0
         if (needed == rtld_soname)
           continue;
+#endif
 
         needed_arg_vec.push_back(std::string(":") + needed);
       }
