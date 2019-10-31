@@ -558,7 +558,11 @@ static void _jove_free_stack(unsigned long);
                                                       uintptr_t BBAddr);
 
 void _jove_start(void) {
-  asm volatile("movq %%rsp, %%r9\n"
+  asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
+                  mark the outermost frame obviously.  */
+               "xorq %%rbp, %%rbp\n"
+
+               "movq %%rsp, %%r9\n"
                "jmp %P0\n"
 
                : /* OutputOperands */
