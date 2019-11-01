@@ -310,12 +310,13 @@ void dfsan_flush() {
 
 static void *MmapFixedNoAccess(uptr fixed_addr, uptr size, const char *name);
 
-static void dfsan_init(int argc, char **argv, char **envp) {
+_CTOR static void dfsan_init(int argc, char **argv, char **envp) {
   if (!MmapFixedNoReserve(ShadowAddr(), UnusedAddr() - ShadowAddr(), NULL)) {
     __builtin_trap();
     __builtin_unreachable();
   }
 
+#if 0
   // Protect the region of memory we don't use, to preserve the one-to-one
   // mapping from application to shadow memory. But if ASLR is disabled, Linux
   // will load our executable in the middle of our unused region. This mostly
@@ -324,6 +325,7 @@ static void dfsan_init(int argc, char **argv, char **envp) {
   uptr init_addr = (uptr)&dfsan_init;
   if (!(init_addr >= UnusedAddr() && init_addr < AppAddr()))
     MmapFixedNoAccess(UnusedAddr(), AppAddr() - UnusedAddr(), NULL);
+#endif
 
 #if 0
   InitializeInterceptors();
@@ -336,11 +338,6 @@ static void dfsan_init(int argc, char **argv, char **envp) {
 
   __dfsan_label_info[kInitializingLabel].desc = "<init label>";
 }
-
-#if 1 /* SANITIZER_CAN_USE_PREINIT_ARRAY */
-__attribute__((section(".preinit_array"), used))
-static void (*dfsan_init_ptr)(int, char **, char **) = dfsan_init;
-#endif
 
 static uptr RoundUpTo(uptr Size, uptr Boundary) {
   return (Size + Boundary - 1) & ~(Boundary - 1);
