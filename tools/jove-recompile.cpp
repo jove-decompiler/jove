@@ -594,7 +594,7 @@ skip_dfsan:
     if (!pid) {
       IgnoreCtrlC();
 
-      const char *arg_vec[] = {
+      std::vector<const char *> arg_vec = {
         llc_path.c_str(),
 
         "-o", objfp.c_str(),
@@ -602,10 +602,15 @@ skip_dfsan:
 
         "-filetype=obj",
         "-relocation-model=pic",
-        "-frame-pointer=all",
-
-        nullptr
+        "-frame-pointer=all"
       };
+
+      if (opts::DFSan) {
+        arg_vec.push_back("--stack-alignment=16");
+        arg_vec.push_back("--stackrealign");
+      }
+
+      arg_vec.push_back(nullptr);
 
       print_command(&arg_vec[0]);
 
