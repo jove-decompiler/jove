@@ -1027,8 +1027,16 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
     uintptr_t *fns = __jove_function_tables[BIdx];
-    if (!fns)
-      continue;
+    if (!fns) {
+      /* XXX */
+      if (BIdx == 1 || BIdx == 2) {
+        fns = __jove_foreign_function_tables[BIdx];
+        if (!fns)
+          continue;
+      } else {
+        continue;
+      }
+    }
 
     for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
       if (CalleeAddr == fns[FIdx]) {
