@@ -515,7 +515,9 @@ int ParentProc(pid_t child) {
           sectprop.name == std::string(".tbss"))
         continue;
 
-      {
+      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
         llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
             E.getSectionContents(&Sec);
 
