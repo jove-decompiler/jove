@@ -521,6 +521,27 @@ static void _jove_begin(target_ulong rdi,
                         target_ulong r8,
                         target_ulong sp_addr /* formerly r9 */);
 
+_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
+                                       target_ulong *args,
+                                       target_ulong *emuspp);
+
+_NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
+                                     target_ulong CalleeAddr);
+
+_NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
+                                      target_ulong BBAddr);
+
+_NAKED _NOINL _NORET void _jove_fail1(target_ulong Addr);
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
+static target_ulong _jove_alloc_stack(void);
+static void _jove_free_stack(target_ulong);
+
+//
+// utility functions
+//
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
@@ -539,23 +560,9 @@ static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
 
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
-
-static unsigned long _jove_alloc_stack(void);
-static void _jove_free_stack(unsigned long);
-
-/* -> static */ _NAKED _NOINL unsigned long _jove_thunk(unsigned long,
-                                                        unsigned long *,
-                                                        unsigned long *);
-
-/* -> static */ _NAKED _NOINL _NORET void _jove_fail1(unsigned long);
-
-/* -> static */ _NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
-                                                     uintptr_t CalleeAddr);
-
-/* -> static */ _NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                                                      uintptr_t BBAddr);
+//
+// definitions
+//
 
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
@@ -1013,7 +1020,8 @@ size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   return expected;
 }
 
-void _jove_recover_dyn_target(uint32_t CallerBBIdx, uintptr_t CalleeAddr) {
+void _jove_recover_dyn_target(uint32_t CallerBBIdx,
+                              target_ulong CalleeAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
@@ -1082,7 +1090,7 @@ found:
 }
 
 void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                               uintptr_t BBAddr) {
+                               target_ulong BBAddr) {
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
@@ -1141,14 +1149,14 @@ found:
   }
 }
 
-void _jove_fail1(unsigned long x) {
+void _jove_fail1(target_ulong Addr) {
   asm volatile("int3\n"
                "hlt");
 }
 
-unsigned long _jove_thunk(unsigned long dstpc   /* rdi */,
-                          unsigned long *args   /* rsi */,
-                          unsigned long *emuspp /* rdx */) {
+target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
+                         target_ulong *args   /* rsi */,
+                         target_ulong *emuspp /* rdx */) {
   asm volatile("pushq %%r15\n" /* callee-saved registers */
                "pushq %%r14\n"
                "pushq %%r13\n"
@@ -1334,7 +1342,7 @@ void _jove_install_foreign_function_tables(void) {
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
 }
 
-unsigned long _jove_alloc_stack(void) {
+target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0) {
@@ -1361,7 +1369,7 @@ unsigned long _jove_alloc_stack(void) {
   return beg;
 }
 
-void _jove_free_stack(unsigned long beg) {
+void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
