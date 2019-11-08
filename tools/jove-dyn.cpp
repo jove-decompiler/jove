@@ -300,7 +300,11 @@ typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
 #endif
 
+static void IgnoreCtrlC(void);
+
 int ParentProc(pid_t child) {
+  IgnoreCtrlC();
+
   //
   // observe the (initial) signal-delivery-stop
   //
@@ -869,6 +873,20 @@ int ParentProc(pid_t child) {
   }
 
   return 0;
+}
+
+void IgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_IGN;
+
+  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
+  }
 }
 
 int await_process_completion(pid_t pid) {
