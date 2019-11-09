@@ -607,9 +607,11 @@ skip_dfsan:
         "-o", objfp.c_str(),
         optbcfp.c_str(),
 
-        "-filetype=obj",
-        "-relocation-model=pic",
-        "-frame-pointer=all"
+        "--filetype=obj",
+        "--relocation-model=pic",
+        "--frame-pointer=all",
+
+        "--disable-simplify-libcalls"
       };
 
       if (opts::DFSan) {
