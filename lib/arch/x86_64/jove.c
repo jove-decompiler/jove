@@ -485,6 +485,9 @@ struct kernel_sigaction {
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 #define _CTOR   __attribute__((constructor))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
@@ -532,6 +535,9 @@ _NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                       target_ulong BBAddr);
 
 _NAKED _NOINL _NORET void _jove_fail1(target_ulong Addr);
+
+_NOINL void _jove_check_return_address(target_ulong RetAddr,
+                                       target_ulong NativeRetAddr);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -1373,5 +1379,48 @@ void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
+  }
+}
+
+static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
+
+void _jove_check_return_address(target_ulong RetAddr,
+                                target_ulong NativeRetAddr) {
+  if (unlikely(RetAddr != Cookie)) {
+    //
+    // inspect the native stack return address to see if foreign code called us
+    //
+
+    // XXX for now, just check if the return address points to readable memory
+    pid_t pid;
+    {
+      long ret = _jove_sys_getpid();
+      if (unlikely(ret < 0)) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+      pid = ret;
+    }
+
+    struct iovec lvec[1];
+    struct iovec rvec[1];
+
+    uint8_t byte;
+
+    lvec[0].iov_base = &byte;
+    lvec[0].iov_len = sizeof(byte);
+
+    rvec[0].iov_base = (void *)NativeRetAddr;
+    rvec[0].iov_len = sizeof(byte);
+
+    long ret = _jove_sys_process_vm_readv(pid,
+                                          lvec, ARRAY_SIZE(lvec),
+                                          rvec, ARRAY_SIZE(rvec),
+                                          0);
+
+    if (unlikely(ret != sizeof(byte))) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
   }
 }

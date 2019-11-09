@@ -309,6 +309,12 @@ static cl::opt<bool>
 static cl::opt<bool> DFSan("dfsan",
                            cl::desc("Instrument code with DataFlowSanitizer"),
                            cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
+                                    cl::desc("Check for stack overrun"),
+                                    cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -550,6 +556,8 @@ static llvm::Function *JoveFail1Func;
 
 static llvm::Function *JoveAllocStackFunc;
 static llvm::Function *JoveFreeStackFunc;
+
+static llvm::Function *JoveCheckReturnAddrFunc;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -1120,6 +1128,10 @@ int CreateModule(void) {
 
   JoveFreeStackFunc = Module->getFunction("_jove_free_stack");
   assert(JoveFreeStackFunc);
+
+  JoveCheckReturnAddrFunc = Module->getFunction("_jove_check_return_address");
+  JoveCheckReturnAddrFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+  assert(JoveCheckReturnAddrFunc);
 
   return 0;
 }
@@ -5609,8 +5621,9 @@ int CreateSectionGlobalVariables(void) {
 
             IRB.CreateStore(IRB.CreateAdd(TemporaryStack,
                                           llvm::ConstantInt::get(
-                                              WordType(), JOVE_STACK_SIZE -
-                                                              JOVE_PAGE_SIZE)),
+                                              WordType(), JOVE_STACK_SIZE
+                                                          - JOVE_PAGE_SIZE
+                                                          - JOVE_PAGE_SIZE)),
                             SPPtr);
 #endif
 
@@ -5771,7 +5784,9 @@ int CreateSectionGlobalVariables(void) {
           IRB.CreateStore(
               IRB.CreateAdd(TemporaryStack,
                             llvm::ConstantInt::get(
-                                WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE)),
+                                WordType(), JOVE_STACK_SIZE
+                                            - JOVE_PAGE_SIZE
+                                            - JOVE_PAGE_SIZE)),
               SPPtr);
 #endif
 
@@ -8079,6 +8094,20 @@ int TranslateBasicBlock(binary_t &Binary,
 
   default:
     break;
+  }
+
+  if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
+#if defined(__x86_64__)
+    llvm::Value *Args[] = {
+        IRB.CreateLoad(f.PCAlloca),
+        IRB.CreatePtrToInt(
+            IRB.CreateCall(llvm::Intrinsic::getDeclaration(
+                               Module.get(), llvm::Intrinsic::returnaddress),
+                           IRB.getInt32(0)),
+            WordType())};
+
+    IRB.CreateCall(JoveCheckReturnAddrFunc, Args);
+#endif
   }
 
   switch (T.Type) {

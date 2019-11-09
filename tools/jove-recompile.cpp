@@ -112,6 +112,11 @@ static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
 
 static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                            cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
+                                    cl::desc("Check for stack overrun"),
+                                    cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -497,6 +502,8 @@ int recompile(void) {
 
       if (opts::DFSan)
         arg_vec.push_back("-dfsan");
+      if (opts::CheckEmulatedStackReturnAddress)
+        arg_vec.push_back("--check-emulated-stack-return-address");
       if (opts::Trace)
         arg_vec.push_back("-trace");
 

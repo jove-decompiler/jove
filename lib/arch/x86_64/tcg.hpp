@@ -1233,8 +1233,8 @@ typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
 
-constexpr target_ulong JOVE_PCREL_MAGIC =
-  std::numeric_limits<target_ulong>::max();
+constexpr target_ulong JOVE_RETADDR_COOKIE = 0xbd47c92caa6cbcb4;
+constexpr target_ulong JOVE_PCREL_MAGIC = std::numeric_limits<target_ulong>::max();
 
 static target_ulong __jove_end_pc = 0;
 
@@ -22333,8 +22333,12 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(cpu_T0, cpu_T0);
             }
             next_eip = s->pc - s->cs_base;
+#if 0
             tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_T1, next_eip);
+#else
+            tcg_gen_movi_tl(cpu_T1, JOVE_RETADDR_COOKIE);
+#endif
             gen_push_v(s, cpu_T1);
             gen_op_jmp_v(cpu_T0);
             gen_bnd_jmp(s);
@@ -23847,8 +23851,12 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             } else if (!CODE64(s)) {
                 tval &= 0xffffffff;
             }
+#if 0
             tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_T0, next_eip);
+#else
+            tcg_gen_movi_tl(cpu_T0, JOVE_RETADDR_COOKIE);
+#endif
             gen_push_v(s, cpu_T0);
             gen_bnd_jmp(s);
             gen_jmp(s, tval);
