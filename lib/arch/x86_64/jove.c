@@ -534,7 +534,8 @@ _NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 _NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                       target_ulong BBAddr);
 
-_NAKED _NOINL _NORET void _jove_fail1(target_ulong Addr);
+_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
+_NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
 _NOINL void _jove_check_return_address(target_ulong RetAddr,
                                        target_ulong NativeRetAddr);
@@ -1155,9 +1156,13 @@ found:
   }
 }
 
-void _jove_fail1(target_ulong Addr) {
-  asm volatile("int3\n"
-               "hlt");
+void _jove_fail1(target_ulong rdi) {
+  asm volatile("hlt");
+}
+
+void _jove_fail2(target_ulong rdi,
+                 target_ulong rsi) {
+  asm volatile("hlt");
 }
 
 target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
@@ -1382,45 +1387,14 @@ void _jove_free_stack(target_ulong beg) {
   }
 }
 
-static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
-
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
+  static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
   if (unlikely(RetAddr != Cookie)) {
     //
-    // inspect the native stack return address to see if foreign code called us
+    // TODO inspect the native stack return address to see if foreign code
+    // called us
     //
-
-    // XXX for now, just check if the return address points to readable memory
-    pid_t pid;
-    {
-      long ret = _jove_sys_getpid();
-      if (unlikely(ret < 0)) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-      pid = ret;
-    }
-
-    struct iovec lvec[1];
-    struct iovec rvec[1];
-
-    uint8_t byte;
-
-    lvec[0].iov_base = &byte;
-    lvec[0].iov_len = sizeof(byte);
-
-    rvec[0].iov_base = (void *)NativeRetAddr;
-    rvec[0].iov_len = sizeof(byte);
-
-    long ret = _jove_sys_process_vm_readv(pid,
-                                          lvec, ARRAY_SIZE(lvec),
-                                          rvec, ARRAY_SIZE(rvec),
-                                          0);
-
-    if (unlikely(ret != sizeof(byte))) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    _jove_fail2(RetAddr, NativeRetAddr);
   }
 }
