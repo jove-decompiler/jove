@@ -5619,12 +5619,20 @@ int CreateSectionGlobalVariables(void) {
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
-            IRB.CreateStore(IRB.CreateAdd(TemporaryStack,
-                                          llvm::ConstantInt::get(
-                                              WordType(), JOVE_STACK_SIZE
-                                                          - JOVE_PAGE_SIZE
-                                                          - JOVE_PAGE_SIZE)),
-                            SPPtr);
+            {
+              llvm::Value *NewSP = IRB.CreateAdd(
+                  TemporaryStack,
+                  llvm::ConstantInt::get(WordType(), JOVE_STACK_SIZE -
+                                                         JOVE_PAGE_SIZE -
+                                                         sizeof(target_ulong)));
+
+              constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
+              IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
+                              IRB.CreateIntToPtr(NewSP, llvm::PointerType::get(
+                                                            WordType(), 0)));
+
+              IRB.CreateStore(NewSP, SPPtr);
+            }
 #endif
 
             llvm::Value *SavedTraceP = nullptr;
@@ -5781,13 +5789,20 @@ int CreateSectionGlobalVariables(void) {
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
-          IRB.CreateStore(
-              IRB.CreateAdd(TemporaryStack,
-                            llvm::ConstantInt::get(
-                                WordType(), JOVE_STACK_SIZE
-                                            - JOVE_PAGE_SIZE
-                                            - JOVE_PAGE_SIZE)),
-              SPPtr);
+          {
+            llvm::Value *NewSP =
+                IRB.CreateAdd(TemporaryStack,
+                              llvm::ConstantInt::get(
+                                  WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE -
+                                                  sizeof(target_ulong)));
+
+            constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
+            IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
+                            IRB.CreateIntToPtr(
+                                NewSP, llvm::PointerType::get(WordType(), 0)));
+
+            IRB.CreateStore(NewSP, SPPtr);
+          }
 #endif
 
           llvm::Value *SavedTraceP = nullptr;
@@ -6336,6 +6351,7 @@ static int DoOptimize(void) {
 
   // Add an appropriate TargetLibraryInfo pass for the module's triple.
   llvm::Triple ModuleTriple(Module->getTargetTriple());
+
   llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
 
   // The -disable-simplify-libcalls flag actually disables all builtin optzns.
