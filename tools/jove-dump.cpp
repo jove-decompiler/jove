@@ -1,3 +1,9 @@
+#include "tcgcommon.hpp"
+
+namespace jove {
+void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
+} // namespace jove
+
 #include "jove/jove.h"
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
@@ -84,7 +90,26 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
+static void explode_tcg_global_set(std::vector<unsigned> &out,
+                                   tcg_global_set_t glbs) {
+  if (glbs.none())
+    return;
+
+  out.reserve(glbs.size());
+
+  unsigned long long x = glbs.to_ullong();
+  int idx = 0;
+  do {
+    int pos = ffsll(x);
+    x >>= pos;
+    idx += pos;
+    out.push_back(idx - 1);
+  } while (x);
+}
+
 static void dumpDecompilation(const decompilation_t& decompilation) {
+  tiny_code_generator_t tcg;
+
   llvm::ScopedPrinter Writer(llvm::outs());
   llvm::ListScope _(Writer, (fmt("Binaries (%u)") % decompilation.Binaries.size()).str());
 
@@ -197,6 +222,41 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
 
         //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+
+        {
+          llvm::DictScope _____(Writer, "Analysis");
+
+          {
+            std::vector<unsigned> glbv;
+            explode_tcg_global_set(glbv, f.Analysis.args);
+
+            std::vector<std::string> descv;
+            descv.resize(glbv.size());
+
+            std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                           [&](unsigned glb) -> std::string {
+                             return tcg._ctx.temps[glb].name;
+                           });
+
+            Writer.printList("Args", descv);
+          }
+
+          {
+            std::vector<unsigned> glbv;
+            explode_tcg_global_set(glbv, f.Analysis.rets);
+
+            std::vector<std::string> descv;
+            descv.resize(glbv.size());
+
+            std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                           [&](unsigned glb) -> std::string {
+                             return tcg._ctx.temps[glb].name;
+                           });
+
+            Writer.printList("Rets", descv);
+          }
+        }
+
         Writer.printBoolean("IsABI", f.IsABI);
       }
     }
