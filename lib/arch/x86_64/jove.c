@@ -1178,7 +1178,7 @@ target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                "movq %%rdx, %%r14\n" /* emuspp in r14 */
                "movq %%rsp, %%r15\n" /* save sp in r15 */
 
-               "call %P0\n"          /* _jove_alloc_stack */
+               "call %P[jove_alloc_stack]\n"
                "movq %%r12, %%r10\n" /* dstpc in r10 */
                "movq %%rax, %%r12\n" /* allocated stack in r12 */
                "addq $0x80000, %%rax\n"
@@ -1203,7 +1203,7 @@ target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                "movq %%rax, %%r15\n" /* save return value */
 
                "movq %%r12, %%rdi\n" /* pass allocated stack */
-               "call %P1\n"          /* _jove_free_stack */
+               "call %P[jove_free_stack]\n"
 
                "movq %%r15, %%rax\n" /* restore return value */
 
@@ -1216,8 +1216,8 @@ target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i"(_jove_alloc_stack),
-               "i"(_jove_free_stack)
+               [jove_alloc_stack] "i"(_jove_alloc_stack),
+               [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
 
@@ -1447,6 +1447,7 @@ bool _jove_is_foreign_code(target_ulong Addr) {
   return res;
 }
 
+// precondition: Addr must point to valid virtual memory area
 bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
@@ -1506,7 +1507,6 @@ bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
     }
   }
 
-  /* bug */
   __builtin_trap();
   __builtin_unreachable();
 }
