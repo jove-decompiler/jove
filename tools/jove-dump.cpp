@@ -114,7 +114,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       llvm::ListScope _(Writer, "Basic Blocks");
 
       for (basic_block_t bb : blocks) {
-        llvm::DictScope _(Writer, "Basic Block");
+        llvm::DictScope _(Writer, (fmt("BB @ %#lx") % ICFG[bb].Addr).str());
 
         {
           auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
@@ -133,13 +133,13 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         Writer.getOStream() << '\n';
 
-        Writer.printHex("Address", ICFG[bb].Addr);
+        //Writer.printHex("Address", ICFG[bb].Addr);
         Writer.printNumber("Size", ICFG[bb].Size);
 
         {
-          llvm::DictScope _(Writer, "Terminator");
+          llvm::DictScope _(Writer, (fmt("Term @ %#lx") % ICFG[bb].Term.Addr).str());
 
-          Writer.printHex("Address", ICFG[bb].Term.Addr);
+          //Writer.printHex("Address", ICFG[bb].Term.Addr);
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
         }
 
@@ -173,7 +173,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
           Writer.printBoolean("DynTargetsComplete",
                               ICFG[bb].DynTargetsComplete);
 
-        if (boost::out_degree(bb, ICFG) > 0) {
+        {
           auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
 
           std::vector<uintptr_t> succs;
@@ -193,9 +193,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       llvm::ListScope _(Writer, "Functions");
 
       for (const function_t &f : B.Analysis.Functions) {
-        llvm::DictScope _(Writer, "Function");
+        llvm::DictScope _(Writer, (fmt("Func @ %#lx") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
 
-        Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+        //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
         Writer.printBoolean("IsABI", f.IsABI);
       }
     }
