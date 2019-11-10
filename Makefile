@@ -107,16 +107,16 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 
 $(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
 	@echo CC $<
-	@$(_LLVM_CC) -o $@ -nostdlib -fno-stack-protector -Ofast -fPIC -g -Wl,-soname=$(JOVE_RT_SONAME) -shared $<
+	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
 
 $(BINDIR)/libjove_dfsan.so: lib/dfsan.c Makefile
 	@echo CC $<
-	@$(_LLVM_CC) -o $@ -I lib -I lib/arch/$(ARCH) -nostdlib -Wl,--no-undefined -fno-stack-protector -Ofast -fPIC -g -shared -fuse-ld=lld $<
+	@$(_LLVM_CC) -o $@ -shared -Wl,--no-undefined -I lib -I lib/arch/$(ARCH) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 
-$(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
+$(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c Makefile
 	@echo CC $<
-	@$(_LLVM_CC) -o $@ -c -emit-llvm -fPIC -I lib -g -O3 -fno-stack-protector -Wall $<
+	@$(_LLVM_CC) -o $@ -c -emit-llvm -I lib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
