@@ -86,10 +86,11 @@ struct reached_visitor : public boost::default_bfs_visitor {
 
 static void dumpDecompilation(const decompilation_t& decompilation) {
   llvm::ScopedPrinter Writer(llvm::outs());
-  llvm::ListScope _(Writer, "Binaries");
+  llvm::ListScope _(Writer, (fmt("Binaries (%u)") % decompilation.Binaries.size()).str());
 
   for (const auto &B : decompilation.Binaries) {
-    Writer.printString("Path", B.Path);
+    llvm::DictScope __(Writer, B.Path.c_str());
+
     Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
     Writer.printBoolean("IsExecutable", B.IsExecutable);
     Writer.printBoolean("IsVDSO", B.IsVDSO);
@@ -111,10 +112,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                    [](basic_block_t bb) -> basic_block_t { return bb; });
 
     {
-      llvm::ListScope _(Writer, "Basic Blocks");
+      llvm::ListScope ___(Writer, (fmt("Basic Blocks (%u)") % blocks.size()).str());
 
       for (basic_block_t bb : blocks) {
-        llvm::DictScope _(Writer, (fmt("BB @ %#lx") % ICFG[bb].Addr).str());
+        llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
 
         {
           auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
@@ -137,7 +138,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         Writer.printNumber("Size", ICFG[bb].Size);
 
         {
-          llvm::DictScope _(Writer, (fmt("Term @ %#lx") % ICFG[bb].Term.Addr).str());
+          llvm::DictScope _(Writer, (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str());
 
           //Writer.printHex("Address", ICFG[bb].Term.Addr);
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
@@ -161,7 +162,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            uintptr_t target_addr =
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
-                           return (fmt("%#lx @ %s") % target_addr %
+                           return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.Path).filename().string())
                                .str();
                          });
@@ -190,10 +191,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     }
 
     {
-      llvm::ListScope _(Writer, "Functions");
+      llvm::ListScope ___(Writer, (fmt("Functions (%u)") % B.Analysis.Functions.size()).str());
 
       for (const function_t &f : B.Analysis.Functions) {
-        llvm::DictScope _(Writer, (fmt("Func @ %#lx") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
+        llvm::DictScope ____(Writer, (fmt("Func @ 0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
 
         //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
         Writer.printBoolean("IsABI", f.IsABI);
@@ -201,10 +202,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     }
 
     if (!B.Analysis.RelocDynTargets.empty()) {
-      llvm::ListScope _(Writer, "Relocation Dynamic Targets");
+      llvm::ListScope ___(Writer, "Relocation Dynamic Targets");
 
       for (const auto &pair : B.Analysis.RelocDynTargets) {
-        llvm::DictScope _(Writer);
+        llvm::DictScope ____(Writer);
 
         Writer.printHex("Relocation Address", pair.first);
         if (!pair.second.empty()) {
@@ -223,7 +224,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            uintptr_t target_addr =
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
-                           return (fmt("%#lx @ %s") % target_addr %
+                           return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.Path).filename().string())
                                .str();
                          });
@@ -234,10 +235,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     }
 
     if (!B.Analysis.IFuncDynTargets.empty()) {
-      llvm::ListScope _(Writer, "IFunc Dynamic Targets");
+      llvm::ListScope ___(Writer, "IFunc Dynamic Targets");
 
       for (const auto &pair : B.Analysis.IFuncDynTargets) {
-        llvm::DictScope _(Writer);
+        llvm::DictScope ____(Writer);
 
         Writer.printHex("Resolver Address", pair.first);
         if (!pair.second.empty()) {
@@ -256,7 +257,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            uintptr_t target_addr =
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
-                           return (fmt("%#lx @ %s") % target_addr %
+                           return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.Path).filename().string())
                                .str();
                          });
@@ -267,10 +268,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     }
 
     if (!B.Analysis.SymDynTargets.empty()) {
-      llvm::ListScope _(Writer, "Symbol Dynamic Targets");
+      llvm::ListScope ___(Writer, "Symbol Dynamic Targets");
 
       for (const auto &pair : B.Analysis.SymDynTargets) {
-        llvm::DictScope _(Writer);
+        llvm::DictScope ____(Writer);
 
         Writer.printString("Name", pair.first);
         if (!pair.second.empty()) {
@@ -289,7 +290,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                            uintptr_t target_addr =
                                _ICFG[boost::vertex(callee.Entry, _ICFG)].Addr;
 
-                           return (fmt("%#lx @ %s") % target_addr %
+                           return (fmt("0x%lX @ %s") % target_addr %
                                    fs::path(b.Path).filename().string())
                                .str();
                          });
