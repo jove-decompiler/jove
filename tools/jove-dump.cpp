@@ -86,10 +86,10 @@ struct reached_visitor : public boost::default_bfs_visitor {
 
 static void dumpDecompilation(const decompilation_t& decompilation) {
   llvm::ScopedPrinter Writer(llvm::outs());
+  llvm::ListScope _(Writer, "Binaries");
 
   for (const auto &B : decompilation.Binaries) {
-    Writer.printString("Binary", B.Path);
-    llvm::ListScope _(Writer);
+    Writer.printString("Path", B.Path);
     Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
     Writer.printBoolean("IsExecutable", B.IsExecutable);
     Writer.printBoolean("IsVDSO", B.IsVDSO);
@@ -111,10 +111,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                    [](basic_block_t bb) -> basic_block_t { return bb; });
 
     {
-      llvm::ListScope _(Writer);
+      llvm::ListScope _(Writer, "Basic Blocks");
 
       for (basic_block_t bb : blocks) {
-        llvm::DictScope _(Writer);
+        llvm::DictScope _(Writer, "Basic Block");
 
         {
           auto inv_adj_it_pair = boost::inv_adjacent_vertices(bb, ICFG);
@@ -133,15 +133,14 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         Writer.getOStream() << '\n';
 
-        Writer.printHex("Addr", ICFG[bb].Addr);
+        Writer.printHex("Address", ICFG[bb].Addr);
         Writer.printNumber("Size", ICFG[bb].Size);
 
         {
-          llvm::DictScope _(Writer);
+          llvm::DictScope _(Writer, "Terminator");
 
-          Writer.printHex("Addr", ICFG[bb].Term.Addr);
-          Writer.printString("Type",
-                             description_of_terminator(ICFG[bb].Term.Type));
+          Writer.printHex("Address", ICFG[bb].Term.Addr);
+          Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
         }
 
         Writer.getOStream() << '\n';
@@ -190,8 +189,19 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       }
     }
 
+    {
+      llvm::ListScope _(Writer, "Functions");
+
+      for (const function_t &f : B.Analysis.Functions) {
+        llvm::DictScope _(Writer, "Function");
+
+        Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+        Writer.printBoolean("IsABI", f.IsABI);
+      }
+    }
+
     if (!B.Analysis.RelocDynTargets.empty()) {
-      llvm::ListScope _(Writer);
+      llvm::ListScope _(Writer, "Relocation Dynamic Targets");
 
       for (const auto &pair : B.Analysis.RelocDynTargets) {
         llvm::DictScope _(Writer);
@@ -224,12 +234,12 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     }
 
     if (!B.Analysis.IFuncDynTargets.empty()) {
-      llvm::ListScope _(Writer);
+      llvm::ListScope _(Writer, "IFunc Dynamic Targets");
 
       for (const auto &pair : B.Analysis.IFuncDynTargets) {
         llvm::DictScope _(Writer);
 
-        Writer.printHex("IFunc Resolver Address", pair.first);
+        Writer.printHex("Resolver Address", pair.first);
         if (!pair.second.empty()) {
           std::vector<std::string> descv;
           descv.resize(pair.second.size());
@@ -251,18 +261,18 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                                .str();
                          });
 
-          Writer.printList("IFunc DynTargets", descv);
+          Writer.printList("DynTargets", descv);
         }
       }
     }
 
     if (!B.Analysis.SymDynTargets.empty()) {
-      llvm::ListScope _(Writer);
+      llvm::ListScope _(Writer, "Symbol Dynamic Targets");
 
       for (const auto &pair : B.Analysis.SymDynTargets) {
         llvm::DictScope _(Writer);
 
-        Writer.printString("Symbol Name", pair.first);
+        Writer.printString("Name", pair.first);
         if (!pair.second.empty()) {
           std::vector<std::string> descv;
           descv.resize(pair.second.size());
@@ -284,7 +294,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
                                .str();
                          });
 
-          Writer.printList("Symbol DynTargets", descv);
+          Writer.printList("DynTargets", descv);
         }
       }
     }
