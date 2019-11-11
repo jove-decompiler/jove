@@ -173,7 +173,7 @@ int main(int argc, char **argv) {
         arg_vec.s.resize(arg_vec.s.size() + 1);
 
         arg_vec.s.back().resize(strlen(argv[i]) + 1);
-        strncpy(&arg_vec.s.back()[0], argv[i], arg_vec.s.back().size());
+        strcpy(&arg_vec.s.back()[0], argv[i]);
       }
 
       arg_vec.a.resize(arg_vec.s.size());
