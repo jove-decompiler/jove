@@ -1,7 +1,8 @@
 # Getting started
 ## Tested environments
-- Archlinux (x86_64)
-- ArchlinuxARM (arm64)
+- Arch Linux (x86_64)
+- Arch Linux 32 (i386)
+- Arch Linux ARM (arm64)
 ## Prerequisites
 - `gcc`,`g++`
 - `ninja`
