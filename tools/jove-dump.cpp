@@ -231,8 +231,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             }
           }
 
+#if 0
           if (ICFG[bb].Analysis.Stale)
             Writer.printBoolean("Stale", true);
+#endif
         }
 
         Writer.getOStream() << '\n';
@@ -326,8 +328,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             Writer.printList("Rets", descv);
           }
 
+#if 0
           if (f.Analysis.Stale)
             Writer.printBoolean("Stale", true);
+#endif
         }
 
         Writer.printBoolean("IsABI", f.IsABI);
