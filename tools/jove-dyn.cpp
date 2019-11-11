@@ -150,10 +150,53 @@ static int ParentProc(pid_t child);
 }
 
 int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+  int _argc = argc;
+  char **_argv = argv;
+
+  struct {
+    std::vector<std::vector<char>> s;
+    std::vector<char *> a;
+  } arg_vec;
+
+  {
+    int prog_args_idx = -1;
+
+    for (int i = 0; i < argc; ++i) {
+      if (strcmp(argv[i], "--") == 0) {
+        prog_args_idx = i;
+        break;
+      }
+    }
+
+    if (prog_args_idx != -1) {
+      for (int i = 0; i < prog_args_idx; ++i) {
+        arg_vec.s.resize(arg_vec.s.size() + 1);
+
+        arg_vec.s.back().resize(strlen(argv[i]) + 1);
+        strncpy(&arg_vec.s.back()[0], argv[i], arg_vec.s.back().size());
+      }
+
+      arg_vec.a.resize(arg_vec.s.size());
+      for (unsigned j = 0; j < arg_vec.a.size(); ++j)
+        arg_vec.a[j] = &arg_vec.s[j][0];
+
+      arg_vec.a.push_back(nullptr);
+
+      _argc = prog_args_idx;
+      _argv = &arg_vec.a[0];
+
+      for (int i = prog_args_idx + 1; i < argc; ++i) {
+        llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
+
+        opts::Args.push_back(argv[i]);
+      }
+    }
+  }
+
+  llvm::InitLLVM X(_argc, _argv);
 
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
-  cl::ParseCommandLineOptions(argc, argv, "Jove Dynamic Analysis\n");
+  cl::ParseCommandLineOptions(_argc, _argv, "Jove Dynamic Analysis\n");
 
   if (!fs::exists(opts::Prog)) {
     WithColor::error() << "program does not exist\n";
