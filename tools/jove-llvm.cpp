@@ -59,8 +59,6 @@ struct symbol_t {
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
   tcg_global_set_t IN, OUT;                                                    \
                                                                                \
-  bool _Analyzed;                                                              \
-                                                                               \
   void Analyze(binary_index_t);                                                \
                                                                                \
   llvm::BasicBlock *B;
@@ -854,6 +852,7 @@ typedef typename ELFT::Elf_Verdef Elf_Verdef;
 typedef typename ELFT::Elf_Vernaux Elf_Vernaux;
 typedef typename ELFT::Elf_Verneed Elf_Verneed;
 
+// TODO this whole function needs to be obliterated
 int InitStateForBinaries(void) {
   BinStateVec.resize(Decompilation.Binaries.size());
 
@@ -861,18 +860,6 @@ int InitStateForBinaries(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &st = BinStateVec[BIdx];
-
-    //
-    // XXX this could probably go somewhere else
-    //
-    {
-      auto it_pair = boost::vertices(ICFG);
-      for (auto it = it_pair.first; it != it_pair.second; ++it) {
-        basic_block_properties_t &bbprop = ICFG[*it];
-
-        bbprop._Analyzed = bbprop.Analyzed;
-      }
-    }
 
     //
     // FuncMap
@@ -3383,7 +3370,7 @@ static flow_vertex_t copy_function_cfg(
   auto &Binary = Decompilation.Binaries[f.BIdx];
   auto &ICFG = Binary.Analysis.ICFG;
   for (basic_block_t bb : f.BasicBlocks) {
-    NeedsUpdate = NeedsUpdate || !ICFG[bb]._Analyzed;
+    NeedsUpdate = NeedsUpdate || ICFG[bb].Analysis.Stale;
 
     ICFG[bb].Analyze(f.BIdx);
   }
@@ -3542,10 +3529,9 @@ static flow_vertex_t copy_function_cfg(
 }
 
 void function_t::Analyze(void) {
-  if (this->Analyzed)
+  if (!this->Analysis.Stale)
     return;
-
-  this->Analyzed = true;
+  this->Analysis.Stale = false;
 
   {
     flow_graph_t G;
@@ -3558,11 +3544,6 @@ void function_t::Analyze(void) {
     std::vector<flow_vertex_t> exitVertices;
     flow_vertex_t entryV =
         copy_function_cfg(NeedsUpdate, G, *this, exitVertices, _unused);
-
-#if 0
-    if (this->AnalyzedOnce && !NeedsUpdate)
-      return;
-#endif
 
     //
     // build vector of vertices in DFS order
@@ -3734,8 +3715,6 @@ void function_t::Analyze(void) {
         this->Analysis.args.set(CallConvArgArray[i]);
     }
   }
-
-  this->AnalyzedOnce = true;
 }
 
 const helper_function_t &LookupHelper(TCGOp *op);
@@ -3744,10 +3723,10 @@ static tcg_global_set_t DetermineFunctionArgs(function_t &);
 static tcg_global_set_t DetermineFunctionRets(function_t &);
 
 void basic_block_properties_t::Analyze(binary_index_t BIdx) {
-  if (this->Analyzed)
+  if (!this->Analysis.Stale)
     return;
 
-  this->Analyzed = true;
+  this->Analysis.Stale = false;
 
   auto &SectMap = BinStateVec[BIdx].SectMap;
 
@@ -7001,6 +6980,12 @@ int DFSanInstrument(void) {
 
 static int await_process_completion(pid_t pid);
 
+static void InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : Decompilation.Binaries)
+    for (function_t &f : binary.Analysis.Functions)
+      f.InvalidateAnalysis();
+}
+
 int RecoverControlFlow(void) {
   {
     struct sigaction sa;
@@ -7115,7 +7100,7 @@ int RecoverControlFlow(void) {
 
     // Check that Callee is valid
     (void)Decompilation.Binaries.at(Callee.BIdx)
-        .Analysis.Functions.at(Callee.FIdx);
+             .Analysis.Functions.at(Callee.FIdx);
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
 
@@ -7126,8 +7111,9 @@ int RecoverControlFlow(void) {
 
     Changed = Changed || isNewTarget;
 
+    // TODO only invalidate those functions which contains ...
     if (isNewTarget)
-      bbprop.InvalidateAnalysis();
+      InvalidateAllFunctionAnalyses();
 
     {
       bool &DynTargetsComplete = bbprop.DynTargetsComplete;
@@ -7139,46 +7125,17 @@ int RecoverControlFlow(void) {
       Changed = Changed || DynTargetsComplete_Changed;
 
       if (DynTargetsComplete_Changed)
-        bbprop.InvalidateAnalysis();
+        ; //InvalidateAllFunctionAnalyses();
     }
   }
 
   if (!Changed && !ABIChanged)
     return 0;
 
-  //
-  // write decompilation
-  //
-  {
-    std::ofstream ofs(fs::is_directory(opts::jv)
-                          ? (opts::jv + "/decompilation.jv")
-                          : opts::jv);
+  WriteDecompilation();
 
-    boost::archive::binary_oarchive oa(ofs);
-    oa << Decompilation;
-  }
-
-  //
-  // git commit
-  //
-  std::string msg("[jove-llvm]");
-
-  if (fs::is_directory(opts::jv)) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(opts::jv.c_str());
-
-      const char *argv[] = {"/usr/bin/git", "commit",    ".",
-                            "-m",           msg.c_str(), nullptr};
-
-      return execve(argv[0], const_cast<char **>(argv), ::environ);
-    }
-
-    if (int ret = await_process_completion(pid))
-      return ret;
-  }
-
-  return execve(cmdline.argv[0], cmdline.argv, ::environ);
+  execve(cmdline.argv[0], cmdline.argv, ::environ);
+  abort();
 }
 
 int await_process_completion(pid_t pid) {
@@ -7205,11 +7162,40 @@ int await_process_completion(pid_t pid) {
 }
 
 int WriteDecompilation(void) {
-  std::ofstream ofs(
-      fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
+  {
+    std::ofstream ofs(fs::is_directory(opts::jv)
+                          ? (opts::jv + "/decompilation.jv")
+                          : opts::jv);
 
-  boost::archive::binary_oarchive oa(ofs);
-  oa << Decompilation;
+    boost::archive::binary_oarchive oa(ofs);
+    oa << Decompilation;
+  }
+
+  //
+  // git commit
+  //
+  std::string msg("[jove-llvm]");
+  for (char **argp = cmdline.argv; *argp ; ++argp) {
+    msg.push_back(' ');
+    msg.append(*argp);
+  }
+
+  // TODO check that there are no uncommitted changes
+
+  if (fs::is_directory(opts::jv)) {
+    pid_t pid = fork();
+    if (!pid) { /* child */
+      chdir(opts::jv.c_str());
+
+      const char *argv[] = {"/usr/bin/git", "commit",    ".",
+                            "-m",           msg.c_str(), nullptr};
+
+      execve(argv[0], const_cast<char **>(argv), ::environ);
+      abort();
+    }
+
+    await_process_completion(pid);
+  }
 
   return 0;
 }

@@ -103,6 +103,8 @@ typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
 
+static decompilation_t decompilation;
+
 struct section_properties_t {
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
@@ -277,7 +279,6 @@ int add(void) {
   // initialize the decompilation of the given binary by exploring every defined
   // exported function
   //
-  decompilation_t decompilation;
   if (fs::exists(opts::Output)) {
     std::ifstream ifs(opts::Output);
 
@@ -610,6 +611,12 @@ int add(void) {
   return 0;
 }
 
+static void InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : decompilation.Binaries)
+    for (function_t &f : binary.Analysis.Functions)
+      f.InvalidateAnalysis();
+}
+
 static basic_block_index_t translate_basic_block(binary_t &,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
@@ -633,7 +640,8 @@ static function_index_t translate_function(binary_t &binary,
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
       translate_basic_block(binary, tcg, dis, Addr);
-  binary.Analysis.Functions[res].AnalyzedOnce = false;
+  binary.Analysis.Functions[res].Analysis.Stale = true;
+  binary.Analysis.Functions[res].IsABI = false;
 
   return res;
 }
@@ -910,6 +918,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
     bbprop.InvalidateAnalysis();
+    InvalidateAllFunctionAnalyses();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
@@ -947,8 +956,10 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
     basic_block_t succ = boost::vertex(succidx, ICFG);
     bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
+
+    // TODO only invalidate...
     if (isNewTarget)
-      ICFG[_bb].InvalidateAnalysis();
+      InvalidateAllFunctionAnalyses();
   };
 
   switch (T.Type) {

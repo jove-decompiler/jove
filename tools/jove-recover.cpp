@@ -139,6 +139,12 @@ typedef boost::format fmt;
 
 static decompilation_t Decompilation;
 
+static void InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : Decompilation.Binaries)
+    for (function_t &f : binary.Analysis.Functions)
+      f.InvalidateAnalysis();
+}
+
 struct section_properties_t {
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
@@ -218,7 +224,7 @@ int recover(void) {
 
     // Check that Callee is valid
     (void)Decompilation.Binaries.at(Callee.BIdx)
-        .Analysis.Functions.at(Callee.FIdx);
+             .Analysis.Functions.at(Callee.FIdx);
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
 
@@ -226,8 +232,9 @@ int recover(void) {
                            .DynTargets.insert({Callee.BIdx, Callee.FIdx})
                            .second;
 
+    // TODO only invalidate the functions which contain...
     if (isNewTarget)
-      ICFG[boost::vertex(Caller.BBIdx, ICFG)].InvalidateAnalysis();
+      InvalidateAllFunctionAnalyses();
 
     msg = (fmt("[jove-recover] (call) %s -> %s") %
            DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
@@ -479,8 +486,10 @@ int recover(void) {
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
     bool isNewTarget = boost::add_edge(IndBr.bb, target_bb, ICFG).second;
+
+    // TODO invalidate only the functions who are affected...
     if (isNewTarget)
-      ICFG[IndBr.bb].InvalidateAnalysis();
+      InvalidateAllFunctionAnalyses();
 
     msg = (fmt("[jove-recover] (goto) %s -> %s") %
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
@@ -566,7 +575,7 @@ static function_index_t translate_function(binary_index_t binary_idx,
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
       translate_basic_block(binary_idx, tcg, dis, Addr);
-  binary.Analysis.Functions[res].AnalyzedOnce = false;
+  binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
 
   return res;
@@ -780,8 +789,8 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
-    bbprop.Analyzed = false;
     bbprop.InvalidateAnalysis();
+    InvalidateAllFunctionAnalyses();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
@@ -814,8 +823,10 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
 
     basic_block_t succ = boost::vertex(succidx, ICFG);
     bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
+
+    // TODO invalidate all the function analyses which contain this bb
     if (isNewTarget)
-      ICFG[_bb].InvalidateAnalysis();
+      InvalidateAllFunctionAnalyses();
   };
 
   switch (T.Type) {

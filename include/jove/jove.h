@@ -74,8 +74,6 @@ struct basic_block_properties_t {
   std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
   bool DynTargetsComplete; // XXX
 
-  bool Analyzed; // TODO style
-
   struct {
     struct {
       /* let def_B be the set of variables defined (i.e. definitely */
@@ -91,6 +89,8 @@ struct basic_block_properties_t {
       /* the set of globals assigned values in B */
       tcg_global_set_t def;
     } reach;
+
+    bool Stale;
   } Analysis;
 
   JOVE_EXTRA_BB_PROPERTIES;
@@ -98,12 +98,7 @@ struct basic_block_properties_t {
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
   void InvalidateAnalysis(void) {
-    this->Analyzed = false;
-
-    this->Analysis.live.def.reset();
-    this->Analysis.live.use.reset();
-
-    this->Analysis.reach.def.reset();
+    this->Analysis.Stale = true;
   }
 
   template <class Archive>
@@ -115,10 +110,10 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term._call.Target)
        &BOOST_SERIALIZATION_NVP(DynTargets)
        &BOOST_SERIALIZATION_NVP(DynTargetsComplete)
-       &BOOST_SERIALIZATION_NVP(Analyzed)
        &BOOST_SERIALIZATION_NVP(Analysis.live.def)
        &BOOST_SERIALIZATION_NVP(Analysis.live.use)
-       &BOOST_SERIALIZATION_NVP(Analysis.reach.def);
+       &BOOST_SERIALIZATION_NVP(Analysis.reach.def)
+       &BOOST_SERIALIZATION_NVP(Analysis.Stale);
   }
 };
 
@@ -144,11 +139,15 @@ struct function_t {
   struct {
     tcg_global_set_t args;
     tcg_global_set_t rets;
+
+    bool Stale;
   } Analysis;
 
   bool IsABI;
 
-  bool AnalyzedOnce;
+  void InvalidateAnalysis(void) {
+    this->Analysis.Stale = true;
+  }
 
   JOVE_EXTRA_FN_PROPERTIES;
 
@@ -157,8 +156,8 @@ struct function_t {
     ar &BOOST_SERIALIZATION_NVP(Entry)
        &BOOST_SERIALIZATION_NVP(Analysis.args)
        &BOOST_SERIALIZATION_NVP(Analysis.rets)
-       &BOOST_SERIALIZATION_NVP(IsABI)
-       &BOOST_SERIALIZATION_NVP(AnalyzedOnce);
+       &BOOST_SERIALIZATION_NVP(Analysis.Stale)
+       &BOOST_SERIALIZATION_NVP(IsABI);
   }
 };
 

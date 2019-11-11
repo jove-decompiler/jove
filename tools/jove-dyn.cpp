@@ -912,6 +912,12 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
+static void InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : decompilation.Binaries)
+    for (function_t &f : binary.Analysis.Functions)
+      f.InvalidateAnalysis();
+}
+
 static basic_block_index_t translate_basic_block(pid_t,
                                                  binary_index_t binary_idx,
                                                  tiny_code_generator_t &,
@@ -939,7 +945,7 @@ static function_index_t translate_function(pid_t child,
   binary.Analysis.Functions.resize(res + 1);
   binary.Analysis.Functions[res].Entry =
       translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
-  binary.Analysis.Functions[res].AnalyzedOnce = false;
+  binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
 
   return res;
@@ -1234,6 +1240,7 @@ basic_block_index_t translate_basic_block(pid_t child,
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
     bbprop.InvalidateAnalysis();
+    InvalidateAllFunctionAnalyses();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,

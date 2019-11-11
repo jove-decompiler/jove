@@ -163,10 +163,76 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         Writer.printNumber("Size", ICFG[bb].Size);
 
         {
-          llvm::DictScope _(Writer, (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str());
+          llvm::DictScope _____(Writer, (fmt("Term @ 0x%lX") % ICFG[bb].Term.Addr).str());
 
           //Writer.printHex("Address", ICFG[bb].Term.Addr);
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
+        }
+
+#if 0
+        if (!(ICFG[bb].Analysis.Stale &&
+              ICFG[bb].Analysis.live.def.none() &&
+              ICFG[bb].Analysis.live.use.none() &&
+              ICFG[bb].Analysis.reach.def.none()))
+#endif
+        {
+          llvm::DictScope _____(Writer, "Analysis");
+
+          {
+            llvm::DictScope ______(Writer, "live");
+
+            {
+              std::vector<unsigned> glbv;
+              explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.def);
+
+              std::vector<std::string> descv;
+              descv.resize(glbv.size());
+
+              std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                             [&](unsigned glb) -> std::string {
+                               return tcg._ctx.temps[glb].name;
+                             });
+
+              Writer.printList("def", descv);
+            }
+
+            {
+              std::vector<unsigned> glbv;
+              explode_tcg_global_set(glbv, ICFG[bb].Analysis.live.use);
+
+              std::vector<std::string> descv;
+              descv.resize(glbv.size());
+
+              std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                             [&](unsigned glb) -> std::string {
+                               return tcg._ctx.temps[glb].name;
+                             });
+
+              Writer.printList("use", descv);
+            }
+          }
+
+          {
+            llvm::DictScope ______(Writer, "reach");
+
+            {
+              std::vector<unsigned> glbv;
+              explode_tcg_global_set(glbv, ICFG[bb].Analysis.reach.def);
+
+              std::vector<std::string> descv;
+              descv.resize(glbv.size());
+
+              std::transform(glbv.begin(), glbv.end(), descv.begin(),
+                             [&](unsigned glb) -> std::string {
+                               return tcg._ctx.temps[glb].name;
+                             });
+
+              Writer.printList("def", descv);
+            }
+          }
+
+          if (ICFG[bb].Analysis.Stale)
+            Writer.printBoolean("Stale", true);
         }
 
         Writer.getOStream() << '\n';
@@ -196,8 +262,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         }
 
         if (ICFG[bb].DynTargetsComplete)
-          Writer.printBoolean("DynTargetsComplete",
-                              ICFG[bb].DynTargetsComplete);
+          Writer.printBoolean("DynTargetsComplete", true);
 
         {
           auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
@@ -223,6 +288,11 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
 
+#if 0
+        if (!(f.Analysis.Stale &&
+              f.Analysis.args.none() &&
+              f.Analysis.rets.none()))
+#endif
         {
           llvm::DictScope _____(Writer, "Analysis");
 
@@ -255,6 +325,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
             Writer.printList("Rets", descv);
           }
+
+          if (f.Analysis.Stale)
+            Writer.printBoolean("Stale", true);
         }
 
         Writer.printBoolean("IsABI", f.IsABI);
