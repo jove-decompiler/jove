@@ -9,7 +9,7 @@ struct dso_properties_t {
 typedef boost::adjacency_list<boost::setS,           /* OutEdgeList */
                               boost::vecS,           /* VertexList */
                               boost::bidirectionalS, /* Directed */
-                              dso_properties_t /* VertexProperties */>
+                              dso_properties_t       /* VertexProperties */>
     dso_graph_t;
 
 typedef dso_graph_t::vertex_descriptor dso_t;
@@ -212,7 +212,9 @@ int recompile(void) {
   }
 
   jove_dfsan_path =
-      (boost::dll::program_location().parent_path() / "libjove_dfsan.so")
+      (boost::dll::program_location().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "9.0.1" /
+       "lib" / "linux" / "libclang_rt.dfsan-x86_64.so")
           .string();
   if (!fs::exists(jove_dfsan_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n",
@@ -366,7 +368,7 @@ int recompile(void) {
   //
   if (opts::DFSan) {
     fs::path chrooted_path =
-        fs::path(opts::Output) / "usr" / "lib" / "libjove_dfsan.so";
+        fs::path(opts::Output) / "usr" / "lib" / "libclang_rt.dfsan-x86_64.so";
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy(jove_dfsan_path, chrooted_path);
@@ -376,13 +378,14 @@ int recompile(void) {
   // (4) create basic directories (for chroot)
   //
   {
-    std::vector<std::string> sys_dirs = {"proc", "sys", "dev",
-                                         "run",  "tmp", "etc"};
-
-    for (const std::string &sys_dir : sys_dirs) {
-      fs::path chrooted_sys_dir = fs::path(opts::Output) / sys_dir;
-      fs::create_directories(chrooted_sys_dir);
-    }
+    fs::create_directories(fs::path(opts::Output) / "proc");
+    fs::create_directories(fs::path(opts::Output) / "sys");
+    fs::create_directories(fs::path(opts::Output) / "dev");
+    fs::create_directories(fs::path(opts::Output) / "run");
+    fs::create_directories(fs::path(opts::Output) / "tmp");
+    fs::create_directories(fs::path(opts::Output) / "etc");
+    fs::create_directories(fs::path(opts::Output) / "usr" / "bin");
+    fs::create_directories(fs::path(opts::Output) / "usr" / "lib");
   }
 
   //
@@ -717,7 +720,7 @@ skip_dfsan:
 
       arg_vec.push_back("-ljove_rt");
       if (opts::DFSan)
-        arg_vec.push_back("-ljove_dfsan");
+        arg_vec.push_back("-lclang_rt.dfsan-x86_64");
 
       std::string so_interp_canon = fs::canonical(b.dynl.interp).string();
 

@@ -126,6 +126,7 @@ struct symbol_t {
 #include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/Verifier.h>
+#include <llvm/IR/IntrinsicInst.h>
 #include <llvm/InitializePasses.h>
 #include <llvm/LinkAllPasses.h>
 #include <llvm/Linker/Linker.h>
@@ -159,6 +160,7 @@ struct symbol_t {
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/Transforms/Utils/Cloning.h>
+#include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -3927,6 +3929,70 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   }
 }
 
+static bool shouldExpandOperationWithSize(llvm::Value *Size) {
+#if 0
+  ConstantInt *CI = dyn_cast<ConstantInt>(Size);
+  return !CI || (CI->getZExtValue() > MaxStaticSize);
+#else
+  return true;
+#endif
+}
+
+// from AMDGPULowerIntrinsics.cpp
+static bool expandMemIntrinsicUses(llvm::Function &F) {
+  llvm::Intrinsic::ID ID = F.getIntrinsicID();
+  bool Changed = false;
+
+  for (auto I = F.user_begin(), E = F.user_end(); I != E;) {
+    llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(*I);
+    ++I;
+
+    switch (ID) {
+    case llvm::Intrinsic::memcpy: {
+      auto *Memcpy = llvm::cast<llvm::MemCpyInst>(Inst);
+      if (shouldExpandOperationWithSize(Memcpy->getLength())) {
+#if 0
+        llvm::Function *ParentFunc = Memcpy->getParent()->getParent();
+        const TargetTransformInfo &TTI =
+            getAnalysis<llvm::TargetTransformInfoWrapperPass>().getTTI(*ParentFunc);
+#else
+        llvm::TargetTransformInfo TTI(DL);
+#endif
+        expandMemCpyAsLoop(Memcpy, TTI);
+        Changed = true;
+        Memcpy->eraseFromParent();
+      }
+
+      break;
+    }
+    case llvm::Intrinsic::memmove: {
+      auto *Memmove = llvm::cast<llvm::MemMoveInst>(Inst);
+      if (shouldExpandOperationWithSize(Memmove->getLength())) {
+        llvm::expandMemMoveAsLoop(Memmove);
+        Changed = true;
+        Memmove->eraseFromParent();
+      }
+
+      break;
+    }
+    case llvm::Intrinsic::memset: {
+      auto *Memset = llvm::cast<llvm::MemSetInst>(Inst);
+      if (shouldExpandOperationWithSize(Memset->getLength())) {
+        llvm::expandMemSetAsLoop(Memset);
+        Changed = true;
+        Memset->eraseFromParent();
+      }
+
+      break;
+    }
+    default:
+      break;
+    }
+  }
+
+  return Changed;
+}
+
 const helper_function_t &LookupHelper(TCGOp *op) {
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
@@ -3963,9 +4029,15 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 
     std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
+    //
+    // process helper bitcode
+    //
     {
       llvm::Module &helperM = *helperModule;
 
+      //
+      // internalize all functions except the desired helper
+      //
       for (llvm::Function &F : helperM.functions()) {
         if (F.isIntrinsic())
           continue;
@@ -3981,11 +4053,34 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         F.setLinkage(llvm::GlobalValue::InternalLinkage);
       }
 
+      //
+      // internalize global variables
+      //
       for (llvm::GlobalVariable &GV : helperM.globals()) {
         if (!GV.hasInitializer())
           continue;
 
         GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+      }
+
+      //
+      // lower memory intrinsics (memcpy, memset, memmove)
+      //
+      for (llvm::Function &F : helperM.functions()) {
+        if (!F.isDeclaration())
+          continue;
+
+        switch (F.getIntrinsicID()) {
+        case llvm::Intrinsic::memcpy:
+        case llvm::Intrinsic::memmove:
+        case llvm::Intrinsic::memset:
+          if (!expandMemIntrinsicUses(F))
+            WithColor::warning() << "couldn't expand llvm.mem intrinsic\n";
+          break;
+
+        default:
+          break;
+        }
       }
     }
 

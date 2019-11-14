@@ -69,7 +69,7 @@ JOVE_RT_SO     := libjove_rt.so
 JOVE_RT_SONAME := $(JOVE_RT_SO).0
 JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/libjove_dfsan.so
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc
 
 define build_tool_template
 $(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp Makefile
@@ -109,10 +109,6 @@ $(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
-
-$(BINDIR)/libjove_dfsan.so: lib/dfsan.c Makefile
-	@echo CC $<
-	@$(_LLVM_CC) -o $@ -shared -Wl,--no-undefined -I lib -I lib/arch/$(ARCH) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c Makefile
 	@echo CC $<
