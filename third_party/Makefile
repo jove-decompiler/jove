@@ -4,10 +4,20 @@ THIRD_PARTY_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKE
 _LLVM_DIR         := $(THIRD_PARTY_ROOT_DIR)/llvm-project
 _LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
 
-_LLVM_TARGET := $(subst aarch64,AArch64,$(subst x86_64,X86,$(subst i686,X86,$(subst i386,X86,$(shell uname -m)))))
+GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9a-z-')
+
+ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := AArch64
+else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
+_LLVM_TARGETS_TO_BUILD := ARM
+else
+$(error "Unknown GCC target $(GCC_TARGET)")
+endif
 
 all: build-llvm
 
 .PHONY: build-llvm
 build-llvm:
-	cd $(_LLVM_DIR) && cmake llvm -G Ninja -D CMAKE_BUILD_TYPE=Release -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" -D PYTHON_EXECUTABLE=/usr/bin/python -D "LLVM_ENABLE_PROJECTS=llvm;clang;lld;libunwind;compiler-rt" -D LLVM_ENABLE_RTTI=ON -D LLVM_BUILD_TESTS=OFF -D LLVM_INCLUDE_TESTS=OFF -D LLVM_INCLUDE_EXAMPLES=OFF -D LLVM_BUILD_DOCS=OFF -D LLVM_BINUTILS_INCDIR=/usr/include -D LLVM_ENABLE_BINDINGS=OFF -D LLVM_ENABLE_Z3_SOLVER=OFF -D LLVM_INCLUDE_BENCHMARKS=OFF -D LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGET) -D LLVM_USE_LINKER=gold -D LLVM_ENABLE_LTO=OFF && ninja install
+	cd $(_LLVM_DIR) && cmake llvm -G Ninja -D CMAKE_BUILD_TYPE=Release -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" -D PYTHON_EXECUTABLE=/usr/bin/python -D "LLVM_ENABLE_PROJECTS=llvm;clang;lld;libunwind;compiler-rt" -D LLVM_ENABLE_RTTI=ON -D LLVM_BUILD_TESTS=OFF -D LLVM_INCLUDE_TESTS=OFF -D LLVM_INCLUDE_EXAMPLES=OFF -D LLVM_BUILD_DOCS=OFF -D LLVM_BINUTILS_INCDIR=/usr/include -D LLVM_ENABLE_BINDINGS=OFF -D LLVM_ENABLE_Z3_SOLVER=OFF -D LLVM_INCLUDE_BENCHMARKS=OFF -D "LLVM_HOST_TRIPLE=$(GCC_TARGET)" -D "LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET)" -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" -D LLVM_USE_LINKER=gold -D LLVM_ENABLE_LTO=OFF && ninja install
