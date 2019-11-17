@@ -1063,7 +1063,7 @@ extern unsigned long guest_base;
 
 #define HELPER(name) glue(helper_, name)
 
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
+static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
