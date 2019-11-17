@@ -1033,7 +1033,7 @@ extern unsigned long guest_base;
 
 #define HELPER(name) glue(helper_, name)
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
 
 void HELPER(dc_zva)(CPUARMState *env, uint64_t vaddr_in)
 {
