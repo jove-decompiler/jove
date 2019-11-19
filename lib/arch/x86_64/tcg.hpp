@@ -1236,8 +1236,6 @@ typedef uint64_t target_ulong;
 constexpr target_ulong JOVE_RETADDR_COOKIE = 0xbd47c92caa6cbcb4;
 constexpr target_ulong JOVE_PCREL_MAGIC = std::numeric_limits<target_ulong>::max();
 
-static target_ulong __jove_end_pc = 0;
-
 enum {
     R_EAX = 0,
     R_ECX = 1,

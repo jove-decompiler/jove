@@ -68,6 +68,8 @@ struct terminator_info_t {
 static unsigned long guest_base_addr;
 #define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
 
+static unsigned long __jove_end_pc = 0;
+
 #include "tcg.hpp"
 #include "stubs.hpp"
 

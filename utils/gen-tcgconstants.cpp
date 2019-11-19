@@ -43,7 +43,8 @@ int main(int argc, char **argv) {
     const std::array<const char *, 1> ret_regs{"eax"};
 #elif defined(__aarch64__)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-    const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
+    //const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
+    const std::array<const char *, 1> ret_regs = {"x0"};
 #endif
 
     {

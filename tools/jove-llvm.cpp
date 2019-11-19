@@ -3607,6 +3607,8 @@ void function_t::Analyze(void) {
 #if defined(__x86_64__)
     this->Analysis.args.reset(tcg_fs_base_index);
 #endif
+    if (tcg_program_counter_index >= 0)
+      this->Analysis.args.reset(tcg_program_counter_index);
 
     //
     // reaching definitions
@@ -3648,6 +3650,8 @@ void function_t::Analyze(void) {
 #if defined(__x86_64__)
       this->Analysis.rets.reset(tcg_fs_base_index);
 #endif
+      if (tcg_program_counter_index >= 0)
+        this->Analysis.rets.reset(tcg_program_counter_index);
     }
   }
 
@@ -3996,6 +4000,15 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
 const helper_function_t &LookupHelper(TCGOp *op) {
   int nb_oargs = TCGOP_CALLO(op);
   int nb_iargs = TCGOP_CALLI(op);
+  int nb_cargs;
+
+  {
+    const TCGOpcode opc = op->opc;
+    const TCGOpDef &def = tcg_op_defs[opc];
+
+    nb_cargs = def.nb_cargs;
+  }
+
   uintptr_t addr = op->args[nb_oargs + nb_iargs];
 
   auto it = HelperFuncMap.find(addr);
@@ -4254,7 +4267,15 @@ static unsigned bitsOfTCGType(TCGType ty) {
     return 32;
   case TCG_TYPE_I64:
     return 64;
+
+  case TCG_TYPE_V64:
+  case TCG_TYPE_V128:
+  case TCG_TYPE_V256:
+    WithColor::error() << "vector TCGType\n";
+    abort();
+
   default:
+    WithColor::error() << "unknown TCGType\n";
     abort();
   }
 }
@@ -8350,7 +8371,7 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
         continue;
       }
 
-      llvm::APInt Off(DL.getPointerTypeSizeInBits(EnvGEP->getType()), 0);
+      llvm::APInt Off(DL.getIndexSizeInBits(EnvGEP->getPointerAddressSpace()), 0);
       llvm::cast<llvm::GEPOperator>(EnvGEP)->accumulateConstantOffset(DL, Off);
       unsigned off = Off.getZExtValue();
 
@@ -8539,6 +8560,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     nb_iargs = TCGOP_CALLI(op);
     uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
     void *helper_ptr = reinterpret_cast<void *>(helper_addr);
+    const char *helper_nm = tcg_find_helper(&TCG->_ctx, helper_addr);
 
     //
     // some helper functions are special-cased
@@ -9233,11 +9255,172 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     break;
   }
 
-#if defined(__x86_64__)
+  case INDEX_op_mulsh_i64: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src1 = arg_temp(op->args[1]);
+    TCGTemp *src2 = arg_temp(op->args[2]);
+
+    assert(dst->type == TCG_TYPE_I64);
+    assert(src1->type == TCG_TYPE_I64);
+    assert(src2->type == TCG_TYPE_I64);
+
+    llvm::Value *x =
+        IRB.CreateMul(IRB.CreateSExt(get(src1), IRB.getInt128Ty()),
+                      IRB.CreateSExt(get(src2), IRB.getInt128Ty()));
+
+    llvm::Value *y = IRB.CreateTrunc(IRB.CreateLShr(x, IRB.getIntN(128, 64)),
+                                     IRB.getInt64Ty());
+
+    set(y, dst);
+    break;
+  }
+
+#define __ADD2(opc_name, bits)                                                 \
+  case opc_name: {                                                             \
+    assert(nb_oargs == 2);                                                     \
+                                                                               \
+    TCGTemp *t0_low = arg_temp(op->args[0]);                                   \
+    TCGTemp *t0_high = arg_temp(op->args[1]);                                  \
+                                                                               \
+    TCGTemp *t1_low = arg_temp(op->args[nb_oargs + 0]);                        \
+    TCGTemp *t1_high = arg_temp(op->args[nb_oargs + 1]);                       \
+                                                                               \
+    TCGTemp *t2_low = arg_temp(op->args[nb_oargs + 2]);                        \
+    TCGTemp *t2_high = arg_temp(op->args[nb_oargs + 3]);                       \
+                                                                               \
+    assert(t0_low->type == TCG_TYPE_I##bits);                                  \
+    assert(t0_high->type == TCG_TYPE_I##bits);                                 \
+                                                                               \
+    assert(t1_low->type == TCG_TYPE_I##bits);                                  \
+    assert(t1_low->type == TCG_TYPE_I##bits);                                  \
+                                                                               \
+    assert(t2_low->type == TCG_TYPE_I##bits);                                  \
+    assert(t2_high->type == TCG_TYPE_I##bits);                                 \
+                                                                               \
+    llvm::Value *t1_low_v = get(t1_low);                                       \
+    llvm::Value *t1_high_v = get(t1_high);                                     \
+                                                                               \
+    llvm::Value *t2_low_v = get(t2_low);                                       \
+    llvm::Value *t2_high_v = get(t2_high);                                     \
+                                                                               \
+    llvm::Value *t1 = IRB.CreateOr(                                            \
+        IRB.CreateZExt(t1_low_v, IRB.getIntNTy(2 * bits)),                     \
+        IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getIntNTy(2 * bits)),      \
+                      llvm::APInt(2 * bits, bits)));                           \
+                                                                               \
+    llvm::Value *t2 = IRB.CreateOr(                                            \
+        IRB.CreateZExt(t2_low_v, IRB.getIntNTy(2 * bits)),                     \
+        IRB.CreateShl(IRB.CreateZExt(t2_high_v, IRB.getIntNTy(2 * bits)),      \
+                      llvm::APInt(2 * bits, bits)));                           \
+                                                                               \
+    llvm::Value *t0 = IRB.CreateAdd(t1, t2);                                   \
+                                                                               \
+    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));          \
+    llvm::Value *t0_high_v = IRB.CreateTrunc(                                  \
+        IRB.CreateLShr(t0, llvm::APInt(2 * bits, bits)), IRB.getIntNTy(bits)); \
+                                                                               \
+    set(t0_low_v, t0_low);                                                     \
+    set(t0_high_v, t0_high);                                                   \
+                                                                               \
+    break;                                                                     \
+  }
+
+    __ADD2(INDEX_op_add2_i32, 32)
+    __ADD2(INDEX_op_add2_i64, 64)
+
+#undef __ADD2
+
+#define __ORC_OP(opc_name, bits)                                               \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *notv2 =                                                       \
+        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
+                                 : IRB.getInt64(0xffffffffffffffff),           \
+                      v2);                                                     \
+                                                                               \
+    set(IRB.CreateOr(v1, notv2), arg_temp(op->args[0]));                       \
+  } break;
+
+    __ORC_OP(INDEX_op_orc_i32, 32)
+    __ORC_OP(INDEX_op_orc_i64, 64)
+
+#undef __ORC_OP
+
+#define __EQV_OP(opc_name, bits)                                               \
+  case opc_name: {                                                             \
+    llvm::Value *v1 = get(arg_temp(op->args[1]));                              \
+    llvm::Value *v2 = get(arg_temp(op->args[2]));                              \
+                                                                               \
+    llvm::Value *notv2 =                                                       \
+        IRB.CreateXor(bits == 32 ? IRB.getInt32(0xffffffff)                    \
+                                 : IRB.getInt64(0xffffffffffffffff),           \
+                      v2);                                                     \
+                                                                               \
+    set(IRB.CreateXor(v1, notv2), arg_temp(op->args[0]));                      \
+  } break;
+
+    __EQV_OP(INDEX_op_eqv_i32, 32)
+    __EQV_OP(INDEX_op_eqv_i64, 64)
+
+#undef __EQV_OP
+
+#if 0
+  case INDEX_op_add2_i32: {
+    assert(nb_oargs == 2);
+
+    TCGTemp *t0_low = arg_temp(op->args[0]);
+    TCGTemp *t0_high = arg_temp(op->args[1]);
+
+    TCGTemp *t1_low = arg_temp(op->args[nb_oargs + 0]);
+    TCGTemp *t1_high = arg_temp(op->args[nb_oargs + 1]);
+
+    TCGTemp *t2_low = arg_temp(op->args[nb_oargs + 2]);
+    TCGTemp *t2_high = arg_temp(op->args[nb_oargs + 3]);
+
+    assert(t0_low->type == TCG_TYPE_I32);
+    assert(t0_high->type == TCG_TYPE_I32);
+
+    assert(t1_low->type == TCG_TYPE_I32);
+    assert(t1_low->type == TCG_TYPE_I32);
+
+    assert(t2_low->type == TCG_TYPE_I32);
+    assert(t2_high->type == TCG_TYPE_I32);
+
+    llvm::Value *t1_low_v = get(t1_low);
+    llvm::Value *t1_high_v = get(t1_high);
+
+    llvm::Value *t2_low_v = get(t2_low);
+    llvm::Value *t2_high_v = get(t2_high);
+
+    llvm::Value *t1 =
+        IRB.CreateOr(IRB.CreateZExt(t1_low_v, IRB.getInt64Ty()),
+                     IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getInt64Ty()),
+                                   llvm::APInt(64, 32)));
+
+    llvm::Value *t2 =
+        IRB.CreateOr(IRB.CreateZExt(t1_low_v, IRB.getInt64Ty()),
+                     IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getInt64Ty()),
+                                   llvm::APInt(64, 32)));
+
+    llvm::Value *t0 = IRB.CreateAdd(t1, t2);
+
+    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getInt32Ty());
+    llvm::Value *t0_high_v = IRB.CreateTrunc(
+        IRB.CreateLShr(t0, llvm::APInt(64, 32)), IRB.getInt32Ty());
+
+    set(t0_low_v, t0_low);
+    set(t0_high_v, t0_high);
+    break;
+  }
+#endif
+
   case INDEX_op_mb: {
     // TODO relaxed version
     // see smp_mb() in tcg/tci.c
 
+#if defined(__x86_64__)
     std::vector<llvm::Type *> AsmArgTypes;
     std::vector<llvm::Value *> AsmArgs;
 
@@ -9250,9 +9433,12 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                                                true /* hasSideEffects */);
     IRB.CreateCall(IA);
+#else
+    WithColor::warning() << "TODO INDEX_op_mb\n";
+#endif
+
     break;
   }
-#endif
 
   default:
     WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";

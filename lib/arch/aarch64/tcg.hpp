@@ -1039,9 +1039,9 @@ typedef struct ARMCPU ARMCPU;
 
 #define TCG_TARGET_HAS_deposit_i32      1
 
-#define TCG_TARGET_HAS_extract_i32      1
+#define TCG_TARGET_HAS_extract_i32      0
 
-#define TCG_TARGET_HAS_sextract_i32     1
+#define TCG_TARGET_HAS_sextract_i32     0
 
 #define TCG_TARGET_HAS_movcond_i32      1
 
@@ -1109,9 +1109,9 @@ typedef struct ARMCPU ARMCPU;
 
 #define TCG_TARGET_HAS_deposit_i64      1
 
-#define TCG_TARGET_HAS_extract_i64      1
+#define TCG_TARGET_HAS_extract_i64      0
 
-#define TCG_TARGET_HAS_sextract_i64     1
+#define TCG_TARGET_HAS_sextract_i64     0
 
 #define TCG_TARGET_HAS_movcond_i64      1
 
@@ -1119,9 +1119,9 @@ typedef struct ARMCPU ARMCPU;
 
 #define TCG_TARGET_HAS_sub2_i64         1
 
-#define TCG_TARGET_HAS_mulu2_i64        0
+#define TCG_TARGET_HAS_mulu2_i64        1
 
-#define TCG_TARGET_HAS_muls2_i64        0
+#define TCG_TARGET_HAS_muls2_i64        1
 
 #define TCG_TARGET_HAS_muluh_i64        1
 
@@ -1129,9 +1129,9 @@ typedef struct ARMCPU ARMCPU;
 
 #define TCG_TARGET_HAS_direct_jump      1
 
-#define TCG_TARGET_HAS_v64              1
+#define TCG_TARGET_HAS_v64              0
 
-#define TCG_TARGET_HAS_v128             1
+#define TCG_TARGET_HAS_v128             0
 
 #define TCG_TARGET_HAS_v256             0
 
@@ -25585,6 +25585,9 @@ static void process_op_defs(TCGContext *s)
         }
 
         tdefs = tcg_target_op_def(op);
+	if (!tdefs) /* JOVE: necessary since we changed TCG_TARGET_HAS_... */
+	  continue;
+
         /* Missing TCGTargetOpDef entry. */
         tcg_debug_assert(tdefs != NULL);
 
@@ -46513,6 +46516,15 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
                 tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
+        }
+
+        if (__jove_end_pc) {
+          if (db->pc_next >= __jove_end_pc) {
+            tb->jove.T.Type = jove::TERMINATOR::NONE;
+            tb->jove.T.Addr = 0; /* XXX */
+            tb->jove.T._none.NextPC = __jove_end_pc;
+            break;
+          }
         }
 
         tb->jove.T.Addr = db->pc_next;
