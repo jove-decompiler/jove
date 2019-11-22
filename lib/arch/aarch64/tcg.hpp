@@ -1,3 +1,7 @@
+#include <type_traits>
+
+#define NEED_CPU_H
+
 #define CONFIG_ATOMIC64 1
 
 #define TARGET_AARCH64 1
@@ -25,9 +29,9 @@
         int:(x) ? -1 : 1; \
     }
 
-#define QEMU_BUILD_BUG_MSG(x, msg) _Static_assert(!(x), msg)
+#define QEMU_BUILD_BUG_MSG(x, msg) static_assert(!(x), msg)
 
-#define QEMU_BUILD_BUG_ON(x) QEMU_BUILD_BUG_MSG(x, "not expecting: " #x)
+#define QEMU_BUILD_BUG_ON(x)
 
 #define QEMU_BUILD_BUG_ON_ZERO(x) (sizeof(QEMU_BUILD_BUG_ON_STRUCT(x)) - \
                                    sizeof(QEMU_BUILD_BUG_ON_STRUCT(x)))
@@ -100,7 +104,7 @@ static inline void qemu_flockfile(FILE *f)
 
 #define G_LIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR(expr), 1))
 
-#define _GLIB_EXTERN extern
+#define _GLIB_EXTERN extern "C"
 
 #define G_MAXULONG	ULONG_MAX
 
@@ -288,8 +292,7 @@ typedef struct IRQState *qemu_irq;
 #define QEMU_IS_ARRAY(x) (!__builtin_types_compatible_p(typeof(x), \
                                                         typeof(&(x)[0])))
 
-#define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
-                       QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 extern int qemu_icache_linesize;
 
@@ -497,6 +500,7 @@ static inline uint64_t pow2ceil(uint64_t value)
 
 #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
 
+#if 0
 #define typeof_strip_qual(expr)                                                    \
   typeof(                                                                          \
     __builtin_choose_expr(                                                         \
@@ -530,6 +534,9 @@ static inline uint64_t pow2ceil(uint64_t value)
         __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
         (unsigned short)1,                                                         \
       (expr)+0))))))
+#else
+#define typeof_strip_qual(expr) std::remove_reference<std::remove_cv<decltype(expr)>::type>::type
+#endif
 
 #define smp_mb()                     ({ barrier(); __atomic_thread_fence(__ATOMIC_SEQ_CST); })
 
@@ -1169,9 +1176,9 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
+    ::vaddr vaddr;
+    ::vaddr len;
+    ::vaddr hitaddr;
     MemTxAttrs hitattrs;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUWatchpoint) entry;
@@ -1516,7 +1523,7 @@ typedef struct ARMCPU ARMCPU;
 
 #define TCG_TARGET_HAS_MEMORY_BSWAP     1
 
-typedef enum {
+enum {
     TCG_REG_X0, TCG_REG_X1, TCG_REG_X2, TCG_REG_X3,
     TCG_REG_X4, TCG_REG_X5, TCG_REG_X6, TCG_REG_X7,
     TCG_REG_X8, TCG_REG_X9, TCG_REG_X10, TCG_REG_X11,
@@ -1543,7 +1550,9 @@ typedef enum {
     TCG_REG_FP = TCG_REG_X29,
     TCG_REG_LR = TCG_REG_X30,
     TCG_AREG0  = TCG_REG_X19,
-} TCGReg;
+};
+
+typedef long TCGReg;
 
 static inline void flush_icache_range(uintptr_t start, uintptr_t stop)
 {
@@ -2858,7 +2867,7 @@ static inline bool cp_access_ok(int current_el,
 
 #define ARM_MMU_IDX_COREIDX_MASK 0x7
 
-typedef enum ARMMMUIdx {
+enum {
     ARMMMUIdx_S12NSE0 = 0 | ARM_MMU_IDX_A,
     ARMMMUIdx_S12NSE1 = 1 | ARM_MMU_IDX_A,
     ARMMMUIdx_S1E2 = 2 | ARM_MMU_IDX_A,
@@ -2879,7 +2888,9 @@ typedef enum ARMMMUIdx {
      */
     ARMMMUIdx_S1NSE0 = 0 | ARM_MMU_IDX_NOTLB,
     ARMMMUIdx_S1NSE1 = 1 | ARM_MMU_IDX_NOTLB,
-} ARMMMUIdx;
+};
+
+typedef int ARMMMUIdx;
 
 static inline int arm_to_core_mmu_idx(ARMMMUIdx mmu_idx)
 {
@@ -3432,7 +3443,7 @@ static inline void trace_guest_mem_before_trans(CPUState * __cpu, uint16_t info)
     }
 }
 
-typedef enum MemOp {
+enum {
     MO_8     = 0,
     MO_16    = 1,
     MO_32    = 2,
@@ -3525,9 +3536,11 @@ typedef enum MemOp {
 #endif
 
     MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
+};
 
-typedef enum {
+typedef int MemOp;
+
+enum {
     /* Used to indicate the type of accesses on which ordering
        is to be ensured.  Modeled after SPARC barriers.
 
@@ -3545,7 +3558,9 @@ typedef enum {
     TCG_BAR_LDAQ  = 0x10,  /* Following ops will not come forward */
     TCG_BAR_STRL  = 0x20,  /* Previous ops will not be delayed */
     TCG_BAR_SC    = 0x30,  /* No ops cross barrier; OR of the above */
-} TCGBar;
+};
+
+typedef int TCGBar;
 
 #define MAX_OPC_PARAM_PER_ARG 1
 
@@ -3927,7 +3942,7 @@ typedef struct TCGPool {
     uint8_t data[0] __attribute__ ((aligned));
 } TCGPool;
 
-typedef enum TCGType {
+enum {
     TCG_TYPE_I32,
     TCG_TYPE_I64,
 
@@ -3957,7 +3972,9 @@ typedef enum TCGType {
 #else
     TCG_TYPE_TL = TCG_TYPE_I32,
 #endif
-} TCGType;
+};
+
+typedef int TCGType;
 
 static inline unsigned get_alignment_bits(MemOp memop)
 {
@@ -4014,7 +4031,7 @@ typedef struct TCGv_vec_d *TCGv_vec;
 
 typedef TCGv_ptr TCGv_env;
 
-typedef enum {
+enum {
     /* non-signed */
     TCG_COND_NEVER  = 0 | 0 | 0 | 0,
     TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
@@ -4030,7 +4047,9 @@ typedef enum {
     TCG_COND_GEU    = 0 | 4 | 0 | 1,
     TCG_COND_LEU    = 8 | 4 | 0 | 0,
     TCG_COND_GTU    = 8 | 4 | 0 | 1,
-} TCGCond;
+};
+
+typedef int TCGCond;
 
 static inline TCGCond tcg_invert_cond(TCGCond c)
 {
@@ -4241,7 +4260,7 @@ static inline TCGTemp *arg_temp(TCGArg a)
 static inline TCGTemp *tcgv_i32_temp(TCGv_i32 v)
 {
     uintptr_t o = (uintptr_t)v;
-    TCGTemp *t = (void *)tcg_ctx + o;
+    TCGTemp *t = (TCGTemp *)((char *)tcg_ctx + o);
     tcg_debug_assert(offsetof(TCGContext, temps[temp_idx(t)]) == o);
     return t;
 }
@@ -4284,7 +4303,7 @@ static inline TCGArg tcgv_vec_arg(TCGv_vec v)
 static inline TCGv_i32 temp_tcgv_i32(TCGTemp *t)
 {
     (void)temp_idx(t); /* trigger embedded assert */
-    return (TCGv_i32)((void *)t - (void *)tcg_ctx);
+    return (TCGv_i32)((char *)t - (char *)tcg_ctx);
 }
 
 static inline TCGv_i64 temp_tcgv_i64(TCGTemp *t)
@@ -4546,7 +4565,7 @@ static inline TCGLabel *arg_label(TCGArg i)
 
 static inline ptrdiff_t tcg_ptr_byte_diff(void *a, void *b)
 {
-    return a - b;
+    return (char *)a - (char *)b;
 }
 
 static inline ptrdiff_t tcg_pcrel_diff(TCGContext *s, void *target)
@@ -4585,6 +4604,8 @@ int tcg_can_emit_vec_op(TCGOpcode, TCGType, unsigned);
 
 void tcg_expand_vec_op(TCGOpcode, TCGType, unsigned, TCGArg, ...);
 
+uint64_t dup_const(unsigned vece, uint64_t c);
+
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \
      ? (  (VECE) == MO_8  ? 0x0101010101010101ull * (uint8_t)(C)   \
@@ -4592,8 +4613,6 @@ void tcg_expand_vec_op(TCGOpcode, TCGType, unsigned, TCGArg, ...);
         : (VECE) == MO_32 ? 0x0000000100000001ull * (uint32_t)(C)  \
         : dup_const(VECE, C))                                      \
      : dup_const(VECE, C))
-
-uint64_t dup_const(unsigned vece, uint64_t c);
 
 static inline void tcg_assert_listed_vecop(TCGOpcode op) { }
 
@@ -8908,7 +8927,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1))                                                 \
 {                                                                       \
   TCGTemp *args[1] = { dh_arg(t1, 1) };                                 \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 1, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 1, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2)                    \
@@ -8916,7 +8935,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2))                             \
 {                                                                       \
   TCGTemp *args[2] = { dh_arg(t1, 1), dh_arg(t2, 2) };                  \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 2, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 2, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_3(name, flags, ret, t1, t2, t3)                \
@@ -8924,7 +8943,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2), dh_arg_decl(t3, 3))         \
 {                                                                       \
   TCGTemp *args[3] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3) };   \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 3, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 3, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_4(name, flags, ret, t1, t2, t3, t4)            \
@@ -8934,7 +8953,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[4] = { dh_arg(t1, 1), dh_arg(t2, 2),                    \
                      dh_arg(t3, 3), dh_arg(t4, 4) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 4, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 4, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_5(name, flags, ret, t1, t2, t3, t4, t5)        \
@@ -8944,7 +8963,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[5] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3),     \
                      dh_arg(t4, 4), dh_arg(t5, 5) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 5, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 5, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_6(name, flags, ret, t1, t2, t3, t4, t5, t6)    \
@@ -8954,7 +8973,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[6] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3),     \
                      dh_arg(t4, 4), dh_arg(t5, 5), dh_arg(t6, 6) };     \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 6, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 6, args);                 \
 }
 
 DEF_HELPER_FLAGS_1(sxtb16, TCG_CALL_NO_RWG_SE, i32, i32)
@@ -14721,12 +14740,14 @@ static const char *regnames64[] = {
     "x24", "x25", "x26", "x27", "x28", "x29", "lr", "sp"
 };
 
-enum a64_shift_type {
+enum {
     A64_SHIFT_TYPE_LSL = 0,
     A64_SHIFT_TYPE_LSR = 1,
     A64_SHIFT_TYPE_ASR = 2,
     A64_SHIFT_TYPE_ROR = 3
 };
+
+typedef unsigned int a64_shift_type;
 
 typedef void AArch64DecodeFn(DisasContext *s, uint32_t insn);
 
@@ -18275,7 +18296,7 @@ static void disas_data_proc_imm(DisasContext *s, uint32_t insn)
 }
 
 static void shift_reg(TCGv_i64 dst, TCGv_i64 src, int sf,
-                      enum a64_shift_type shift_type, TCGv_i64 shift_amount)
+                      a64_shift_type shift_type, TCGv_i64 shift_amount)
 {
     switch (shift_type) {
     case A64_SHIFT_TYPE_LSL:
@@ -18316,7 +18337,7 @@ static void shift_reg(TCGv_i64 dst, TCGv_i64 src, int sf,
 }
 
 static void shift_reg_imm(TCGv_i64 dst, TCGv_i64 src, int sf,
-                          enum a64_shift_type shift_type, unsigned int shift_i)
+                          a64_shift_type shift_type, unsigned int shift_i)
 {
     assert(shift_i < (sf ? 64 : 32));
 
@@ -19183,7 +19204,7 @@ static void handle_div(DisasContext *s, bool is_signed, unsigned int sf,
 }
 
 static void handle_shift_reg(DisasContext *s,
-                             enum a64_shift_type shift_type, unsigned int sf,
+                             a64_shift_type shift_type, unsigned int sf,
                              unsigned int rm, unsigned int rn, unsigned int rd)
 {
     TCGv_i64 tcg_shift = tcg_temp_new_i64();
@@ -27834,7 +27855,7 @@ static void aarch64_tr_init_disas_context(DisasContextBase *dcbase,
                                           CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUARMState *env = cpu->env_ptr;
+    CPUARMState *env = (CPUARMState *)cpu->env_ptr;
     ARMCPU *arm_cpu = env_archcpu(env);
     uint32_t tb_flags = dc->base.tb->flags;
     int bound, core_mmu_idx;
@@ -27943,7 +27964,7 @@ static bool aarch64_tr_breakpoint_check(DisasContextBase *dcbase, CPUState *cpu,
 static void aarch64_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUARMState *env = cpu->env_ptr;
+    CPUARMState *env = (CPUARMState *)cpu->env_ptr;
 
     if (dc->ss_active && !dc->pstate_ss) {
         /* Singlestep state is Active-pending.
@@ -28129,7 +28150,7 @@ static __attribute__((unused)) inline void tcg_out32(TCGContext *s, uint32_t v)
 static void tcg_out_reloc(TCGContext *s, tcg_insn_unit *code_ptr, int type,
                           TCGLabel *l, intptr_t addend)
 {
-    TCGRelocation *r = tcg_malloc(sizeof(TCGRelocation));
+    TCGRelocation *r = (TCGRelocation *)tcg_malloc(sizeof(TCGRelocation));
 
     r->type = type;
     r->ptr = code_ptr;
@@ -28147,7 +28168,7 @@ static void tcg_out_label(TCGContext *s, TCGLabel *l, tcg_insn_unit *ptr)
 TCGLabel *gen_new_label(void)
 {
     TCGContext *s = tcg_ctx;
-    TCGLabel *l = tcg_malloc(sizeof(TCGLabel));
+    TCGLabel *l = (TCGLabel *)tcg_malloc(sizeof(TCGLabel));
 
     memset(l, 0, sizeof(TCGLabel));
     l->id = s->nb_labels++;
@@ -28195,7 +28216,7 @@ typedef struct TCGLabelPoolData {
 static TCGLabelPoolData *new_pool_alloc(TCGContext *s, int nlong, int rtype,
                                         tcg_insn_unit *label, intptr_t addend)
 {
-    TCGLabelPoolData *n = tcg_malloc(sizeof(TCGLabelPoolData)
+    TCGLabelPoolData *n = (TCGLabelPoolData *)tcg_malloc(sizeof(TCGLabelPoolData)
                                      + sizeof(tcg_target_ulong) * nlong);
 
     n->label = label;
@@ -28270,7 +28291,7 @@ static int tcg_out_pool_finalize(TCGContext *s)
                 return -1;
             }
             memcpy(a, p->data, size);
-            a += size;
+            a = (char *)a + size;
             l = p;
         }
         if (!patch_reloc(p->label, p->rtype, (intptr_t)a - size, p->addend)) {
@@ -28278,7 +28299,7 @@ static int tcg_out_pool_finalize(TCGContext *s)
         }
     }
 
-    s->code_ptr = a;
+    s->code_ptr = (tcg_insn_unit *)a;
     return 0;
 }
 
@@ -29871,7 +29892,7 @@ static void tcg_out_op(TCGContext *s, TCGOpcode opc,
     case INDEX_op_exit_tb:
         /* Reuse the zeroing that exists for goto_ptr.  */
         if (a0 == 0) {
-            tcg_out_goto_long(s, s->code_gen_epilogue);
+            tcg_out_goto_long(s, (tcg_insn_unit *)s->code_gen_epilogue);
         } else {
             tcg_out_movi(s, TCG_TYPE_I64, TCG_REG_X0, a0);
             tcg_out_goto_long(s, tb_ret_addr);
@@ -30804,7 +30825,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
     if (p < region.start_aligned) {
         region_idx = 0;
     } else {
-        ptrdiff_t offset = p - region.start_aligned;
+        ptrdiff_t offset = (char *)p - (char *)region.start_aligned;
 
         if (offset > region.stride * (region.n - 1)) {
             region_idx = region.n - 1;
@@ -30812,7 +30833,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
             region_idx = offset / region.stride;
         }
     }
-    return region_trees + region_idx * tree_size;
+    return (struct tcg_region_tree *)((char *)region_trees + region_idx * tree_size);
 }
 
 void tcg_tb_insert(TranslationBlock *tb)
@@ -30829,7 +30850,7 @@ static void tcg_region_tree_lock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         qemu_mutex_lock(&rt->lock);
     }
@@ -30840,7 +30861,7 @@ static void tcg_region_tree_unlock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         qemu_mutex_unlock(&rt->lock);
     }
@@ -30852,7 +30873,7 @@ void tcg_tb_foreach(GTraverseFunc func, gpointer user_data)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         g_tree_foreach(rt->tree, func, user_data);
     }
@@ -30866,7 +30887,7 @@ size_t tcg_nb_tbs(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         nb_tbs += g_tree_nnodes(rt->tree);
     }
@@ -30880,7 +30901,7 @@ static void tcg_region_tree_reset_all(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         /* Increment the refcount first so that destroy acts as a reset */
         g_tree_ref(rt->tree);
@@ -30893,8 +30914,8 @@ static void tcg_region_bounds(size_t curr_region, void **pstart, void **pend)
 {
     void *start, *end;
 
-    start = region.start_aligned + curr_region * region.stride;
-    end = start + region.size;
+    start = (char *)region.start_aligned + curr_region * region.stride;
+    end = (char *)start + region.size;
 
     if (curr_region == 0) {
         start = region.start;
@@ -30915,8 +30936,8 @@ static void tcg_region_assign(TCGContext *s, size_t curr_region)
 
     s->code_gen_buffer = start;
     s->code_gen_ptr = start;
-    s->code_gen_buffer_size = end - start;
-    s->code_gen_highwater = end - TCG_HIGHWATER;
+    s->code_gen_buffer_size = (char *)end - (char *)start;
+    s->code_gen_highwater = (char *)end - TCG_HIGHWATER;
 }
 
 static bool tcg_region_alloc__locked(TCGContext *s)
@@ -30990,7 +31011,7 @@ size_t tcg_code_size(void)
         const TCGContext *s = atomic_read(&tcg_ctxs[i]);
         size_t size;
 
-        size = atomic_read(&s->code_gen_ptr) - s->code_gen_buffer;
+        size = (char *)atomic_read(&s->code_gen_ptr) - (char *)s->code_gen_buffer;
         g_assert(size <= s->code_gen_buffer_size);
         total += size;
     }
@@ -31005,7 +31026,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
     
     if (size > TCG_POOL_CHUNK_SIZE) {
         /* big malloc: insert a new pool (XXX: could optimize) */
-        p = g_malloc(sizeof(TCGPool) + size);
+        p = (TCGPool *)g_malloc(sizeof(TCGPool) + size);
         p->size = size;
         p->next = s->pool_first_large;
         s->pool_first_large = p;
@@ -31020,7 +31041,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
             if (!p->next) {
             new_pool:
                 pool_size = TCG_POOL_CHUNK_SIZE;
-                p = g_malloc(sizeof(TCGPool) + pool_size);
+                p = (TCGPool *)g_malloc(sizeof(TCGPool) + pool_size);
                 p->size = pool_size;
                 p->next = NULL;
                 if (s->pool_current) 
@@ -31229,37 +31250,37 @@ static const TCGHelperInfo all_helpers[] = {
     .sizemask = dh_sizemask(ret, 0) },
 
 #define DEF_HELPER_FLAGS_1(NAME, FLAGS, ret, t1) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) },
 
 #define DEF_HELPER_FLAGS_2(NAME, FLAGS, ret, t1, t2) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) },
 
 #define DEF_HELPER_FLAGS_3(NAME, FLAGS, ret, t1, t2, t3) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) },
 
 #define DEF_HELPER_FLAGS_4(NAME, FLAGS, ret, t1, t2, t3, t4) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) },
 
 #define DEF_HELPER_FLAGS_5(NAME, FLAGS, ret, t1, t2, t3, t4, t5) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
     | dh_sizemask(t5, 5) },
 
 #define DEF_HELPER_FLAGS_6(NAME, FLAGS, ret, t1, t2, t3, t4, t5, t6) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void*)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
@@ -34000,8 +34021,8 @@ void tcg_context_init(TCGContext *s)
         total_args += n;
     }
 
-    args_ct = g_malloc(sizeof(TCGArgConstraint) * total_args);
-    sorted_args = g_malloc(sizeof(int) * total_args);
+    args_ct = (TCGArgConstraint *)g_malloc(sizeof(TCGArgConstraint) * total_args);
+    sorted_args = (int *)g_malloc(sizeof(int) * total_args);
 
     for(op = 0; op < NB_OPS; op++) {
         def = &tcg_op_defs[op];
@@ -34069,7 +34090,7 @@ TranslationBlock *tcg_tb_alloc(TCGContext *s)
     void *next;
 
  retry:
-    tb = (void *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
+    tb = (TranslationBlock *)(void *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
     next = (void *)ROUND_UP((uintptr_t)(tb + 1), align);
 
     if (unlikely(next > s->code_gen_highwater)) {
@@ -34108,7 +34129,7 @@ static inline TCGTemp *tcg_temp_alloc(TCGContext *s)
 {
     int n = s->nb_temps++;
     tcg_debug_assert(n < TCG_MAX_TEMPS);
-    return memset(&s->temps[n], 0, sizeof(TCGTemp));
+    return (TCGTemp *)memset(&s->temps[n], 0, sizeof(TCGTemp));
 }
 
 static inline TCGTemp *tcg_global_alloc(TCGContext *s)
@@ -34612,7 +34633,7 @@ void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
     TCGHelperInfo *info;
     TCGOp *op;
 
-    info = g_hash_table_lookup(helper_table, (gpointer)func);
+    info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)func);
     flags = info->flags;
     sizemask = info->sizemask;
 
@@ -34825,7 +34846,7 @@ static inline const char *tcg_find_helper(TCGContext *s, uintptr_t val)
 {
     const char *ret = NULL;
     if (helper_table) {
-        TCGHelperInfo *info = g_hash_table_lookup(helper_table, (gpointer)val);
+        TCGHelperInfo *info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)val);
         if (info) {
             ret = info->name;
         }
@@ -35136,7 +35157,7 @@ static void process_op_defs(TCGContext *s)
 {
     TCGOpcode op;
 
-    for (op = 0; op < NB_OPS; op++) {
+    for (op = (TCGOpcode)0; op < NB_OPS; op = (TCGOpcode)(op + 1)) {
         TCGOpDef *def = &tcg_op_defs[op];
         const TCGTargetOpDef *tdefs;
         TCGType type;
@@ -35244,7 +35265,7 @@ static TCGOp *tcg_op_alloc(TCGOpcode opc)
     TCGOp *op;
 
     if (likely(QTAILQ_EMPTY(&s->free_ops))) {
-        op = tcg_malloc(sizeof(TCGOp));
+        op = (TCGOp *)tcg_malloc(sizeof(TCGOp));
     } else {
         op = QTAILQ_FIRST(&s->free_ops);
         QTAILQ_REMOVE(&s->free_ops, op, link);
@@ -35361,7 +35382,7 @@ static void reachable_code_pass(TCGContext *s)
 
 static inline TCGRegSet *la_temp_pref(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (TCGRegSet *)ts->state_ptr;
 }
 
 static inline void la_reset_pref(TCGTemp *ts)
@@ -35453,7 +35474,7 @@ static void liveness_pass_1(TCGContext *s)
     TCGRegSet *prefs;
     int i;
 
-    prefs = tcg_malloc(sizeof(TCGRegSet) * nb_temps);
+    prefs = (TCGRegSet *)tcg_malloc(sizeof(TCGRegSet) * nb_temps);
     for (i = 0; i < nb_temps; ++i) {
         s->temps[i].state_ptr = prefs + i;
     }
@@ -35813,7 +35834,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts && arg_ts->state == TS_DEAD) {
                     TCGOpcode lopc = (arg_ts->type == TCG_TYPE_I32
                                       ? INDEX_op_ld_i32
@@ -35836,7 +35857,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts) {
                     op->args[i] = temp_arg(dir_ts);
                     changes = true;
@@ -35872,7 +35893,7 @@ static bool liveness_pass_2(TCGContext *s)
         /* Outputs become available.  */
         for (i = 0; i < nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
-            dir_ts = arg_ts->state_ptr;
+            dir_ts = (TCGTemp *)arg_ts->state_ptr;
             if (!dir_ts) {
                 continue;
             }
@@ -36794,8 +36815,8 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 
     tcg_reg_alloc_start(s);
 
-    s->code_buf = tb->tc.ptr;
-    s->code_ptr = tb->tc.ptr;
+    s->code_buf = (tcg_insn_unit *)tb->tc.ptr;
+    s->code_ptr = (tcg_insn_unit *)tb->tc.ptr;
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);
@@ -38268,7 +38289,7 @@ void tcg_gen_vec_add16_i64(TCGv_i64 d, TCGv_i64 a, TCGv_i64 b)
     tcg_temp_free_i64(m);
 }
 
-static const TCGOpcode vecop_list_add[] = { INDEX_op_add_vec, 0 };
+static const TCGOpcode vecop_list_add[] = { INDEX_op_add_vec, (TCGOpcode)0 };
 
 void tcg_gen_gvec_add(unsigned vece, uint32_t dofs, uint32_t aofs,
                       uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
@@ -38340,7 +38361,7 @@ void tcg_gen_gvec_addi(unsigned vece, uint32_t dofs, uint32_t aofs,
     tcg_temp_free_i64(tmp);
 }
 
-static const TCGOpcode vecop_list_sub[] = { INDEX_op_sub_vec, 0 };
+static const TCGOpcode vecop_list_sub[] = { INDEX_op_sub_vec, (TCGOpcode)0 };
 
 void tcg_gen_gvec_subs(unsigned vece, uint32_t dofs, uint32_t aofs,
                        TCGv_i64 c, uint32_t oprsz, uint32_t maxsz)
@@ -38436,7 +38457,7 @@ void tcg_gen_gvec_sub(unsigned vece, uint32_t dofs, uint32_t aofs,
     tcg_gen_gvec_3(dofs, aofs, bofs, oprsz, maxsz, &g[vece]);
 }
 
-static const TCGOpcode vecop_list_mul[] = { INDEX_op_mul_vec, 0 };
+static const TCGOpcode vecop_list_mul[] = { INDEX_op_mul_vec, (TCGOpcode)0 };
 
 void tcg_gen_gvec_mul(unsigned vece, uint32_t dofs, uint32_t aofs,
                       uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
@@ -38507,7 +38528,7 @@ void tcg_gen_gvec_muli(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_ssadd(unsigned vece, uint32_t dofs, uint32_t aofs,
                         uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_ssadd_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_ssadd_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_ssadd_vec,
           .fno = gen_helper_gvec_ssadd8,
@@ -38533,7 +38554,7 @@ void tcg_gen_gvec_ssadd(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_sssub(unsigned vece, uint32_t dofs, uint32_t aofs,
                         uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_sssub_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_sssub_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_sssub_vec,
           .fno = gen_helper_gvec_sssub8,
@@ -38575,7 +38596,7 @@ static void tcg_gen_usadd_i64(TCGv_i64 d, TCGv_i64 a, TCGv_i64 b)
 void tcg_gen_gvec_usadd(unsigned vece, uint32_t dofs, uint32_t aofs,
                         uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_usadd_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_usadd_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_usadd_vec,
           .fno = gen_helper_gvec_usadd8,
@@ -38619,7 +38640,7 @@ static void tcg_gen_ussub_i64(TCGv_i64 d, TCGv_i64 a, TCGv_i64 b)
 void tcg_gen_gvec_ussub(unsigned vece, uint32_t dofs, uint32_t aofs,
                         uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_ussub_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_ussub_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_ussub_vec,
           .fno = gen_helper_gvec_ussub8,
@@ -38647,7 +38668,7 @@ void tcg_gen_gvec_ussub(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_smin(unsigned vece, uint32_t dofs, uint32_t aofs,
                        uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_smin_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_smin_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_smin_vec,
           .fno = gen_helper_gvec_smin8,
@@ -38675,7 +38696,7 @@ void tcg_gen_gvec_smin(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_umin(unsigned vece, uint32_t dofs, uint32_t aofs,
                        uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_umin_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_umin_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_umin_vec,
           .fno = gen_helper_gvec_umin8,
@@ -38703,7 +38724,7 @@ void tcg_gen_gvec_umin(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_smax(unsigned vece, uint32_t dofs, uint32_t aofs,
                        uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_smax_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_smax_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_smax_vec,
           .fno = gen_helper_gvec_smax8,
@@ -38731,7 +38752,7 @@ void tcg_gen_gvec_smax(unsigned vece, uint32_t dofs, uint32_t aofs,
 void tcg_gen_gvec_umax(unsigned vece, uint32_t dofs, uint32_t aofs,
                        uint32_t bofs, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_umax_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_umax_vec, (TCGOpcode)0 };
     static const GVecGen3 g[4] = {
         { .fniv = tcg_gen_umax_vec,
           .fno = gen_helper_gvec_umax8,
@@ -38787,7 +38808,7 @@ void tcg_gen_vec_neg16_i64(TCGv_i64 d, TCGv_i64 b)
 void tcg_gen_gvec_neg(unsigned vece, uint32_t dofs, uint32_t aofs,
                       uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_neg_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_neg_vec, (TCGOpcode)0 };
     static const GVecGen2 g[4] = {
         { .fni8 = tcg_gen_vec_neg8_i64,
           .fniv = tcg_gen_neg_vec,
@@ -38850,7 +38871,7 @@ static void tcg_gen_vec_abs16_i64(TCGv_i64 d, TCGv_i64 b)
 void tcg_gen_gvec_abs(unsigned vece, uint32_t dofs, uint32_t aofs,
                       uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_abs_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_abs_vec, (TCGOpcode)0 };
     static const GVecGen2 g[4] = {
         { .fni8 = tcg_gen_vec_abs8_i64,
           .fniv = tcg_gen_abs_vec,
@@ -39029,7 +39050,7 @@ void tcg_gen_vec_shl16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t c)
 void tcg_gen_gvec_shli(unsigned vece, uint32_t dofs, uint32_t aofs,
                        int64_t shift, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_shli_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_shli_vec, (TCGOpcode)0 };
     static const GVecGen2i g[4] = {
         { .fni8 = tcg_gen_vec_shl8i_i64,
           .fniv = tcg_gen_shli_vec,
@@ -39080,7 +39101,7 @@ void tcg_gen_vec_shr16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t c)
 void tcg_gen_gvec_shri(unsigned vece, uint32_t dofs, uint32_t aofs,
                        int64_t shift, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_shri_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_shri_vec, (TCGOpcode)0 };
     static const GVecGen2i g[4] = {
         { .fni8 = tcg_gen_vec_shr8i_i64,
           .fniv = tcg_gen_shri_vec,
@@ -39145,7 +39166,7 @@ void tcg_gen_vec_sar16i_i64(TCGv_i64 d, TCGv_i64 a, int64_t c)
 void tcg_gen_gvec_sari(unsigned vece, uint32_t dofs, uint32_t aofs,
                        int64_t shift, uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_sari_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_sari_vec, (TCGOpcode)0 };
     static const GVecGen2i g[4] = {
         { .fni8 = tcg_gen_vec_sar8i_i64,
           .fniv = tcg_gen_sari_vec,
@@ -39237,7 +39258,7 @@ void tcg_gen_gvec_cmp(TCGCond cond, unsigned vece, uint32_t dofs,
                       uint32_t aofs, uint32_t bofs,
                       uint32_t oprsz, uint32_t maxsz)
 {
-    static const TCGOpcode cmp_list[] = { INDEX_op_cmp_vec, 0 };
+    static const TCGOpcode cmp_list[] = { INDEX_op_cmp_vec, (TCGOpcode)0 };
     static gen_helper_gvec_3 * const eq_fn[4] = {
         gen_helper_gvec_eq8, gen_helper_gvec_eq16,
         gen_helper_gvec_eq32, gen_helper_gvec_eq64
@@ -39387,7 +39408,7 @@ struct tcg_temp_info {
 
 static inline struct tcg_temp_info *ts_info(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (struct tcg_temp_info *)ts->state_ptr;
 }
 
 static inline struct tcg_temp_info *arg_info(TCGArg arg)
@@ -39945,7 +39966,7 @@ void tcg_optimize(TCGContext *s)
     nb_temps = s->nb_temps;
     nb_globals = s->nb_globals;
     bitmap_zero(temps_used.l, nb_temps);
-    infos = tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
+    infos = (struct tcg_temp_info *)tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
 
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
         tcg_target_ulong mask, partmask, affected;
@@ -43362,13 +43383,13 @@ typedef void (*gen_atomic_op_i32)(TCGv_i32, TCGv_env, TCGv, TCGv_i32);
 typedef void (*gen_atomic_op_i64)(TCGv_i64, TCGv_env, TCGv, TCGv_i64);
 
 static void * const table_cmpxchg[16] = {
-    [MO_8] = gen_helper_atomic_cmpxchgb,
-    [MO_16 | MO_LE] = gen_helper_atomic_cmpxchgw_le,
-    [MO_16 | MO_BE] = gen_helper_atomic_cmpxchgw_be,
-    [MO_32 | MO_LE] = gen_helper_atomic_cmpxchgl_le,
-    [MO_32 | MO_BE] = gen_helper_atomic_cmpxchgl_be,
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_cmpxchgq_le)
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_cmpxchgq_be)
+    [MO_8] = (void *)gen_helper_atomic_cmpxchgb,
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_cmpxchgw_le,
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_cmpxchgw_be,
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_cmpxchgl_le,
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_cmpxchgl_be,
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_cmpxchgq_le)
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_cmpxchgq_be)
 };
 
 void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
@@ -43396,7 +43417,7 @@ void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
     } else {
         gen_atomic_cx_i32 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i32)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -43441,7 +43462,7 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_cx_i64 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i64)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -43504,7 +43525,7 @@ static void do_atomic_op_i32(TCGv_i32 ret, TCGv addr, TCGv_i32 val,
 
     memop = tcg_canonicalize_memop(memop, 0, 0);
 
-    gen = table[memop & (MO_SIZE | MO_BSWAP)];
+    gen = (gen_atomic_op_i32)table[memop & (MO_SIZE | MO_BSWAP)];
     tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -43542,13 +43563,13 @@ static void do_nonatomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 
 #define GEN_ATOMIC_HELPER(NAME, OP, NEW)                                \
 static void * const table_##NAME[16] = {                                \
-    [MO_8] = gen_helper_atomic_##NAME##b,                               \
-    [MO_16 | MO_LE] = gen_helper_atomic_##NAME##w_le,                   \
-    [MO_16 | MO_BE] = gen_helper_atomic_##NAME##w_be,                   \
-    [MO_32 | MO_LE] = gen_helper_atomic_##NAME##l_le,                   \
-    [MO_32 | MO_BE] = gen_helper_atomic_##NAME##l_be,                   \
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_##NAME##q_le)     \
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_##NAME##q_be)     \
+    [MO_8] = (void *)gen_helper_atomic_##NAME##b,                               \
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_##NAME##w_le,                   \
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_##NAME##w_be,                   \
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_##NAME##l_le,                   \
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_##NAME##l_be,                   \
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_##NAME##q_le)     \
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_##NAME##q_be)     \
 };                                                                      \
 void tcg_gen_atomic_##NAME##_i32                                        \
     (TCGv_i32 ret, TCGv addr, TCGv_i32 val, TCGArg idx, MemOp memop)    \
@@ -43580,7 +43601,7 @@ static void do_atomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_op_i64 gen;
 
-        gen = table[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_op_i64)table[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -44333,14 +44354,16 @@ void arm_translate_init(void)
     a64_translate_init();
 }
 
-typedef enum ISSInfo {
+enum {
     ISSNone = 0,
     ISSRegMask = 0x1f,
     ISSInvalid = (1 << 5),
     ISSIsAcqRel = (1 << 6),
     ISSIsWrite = (1 << 7),
     ISSIs16Bit = (1 << 8),
-} ISSInfo;
+};
+
+typedef unsigned ISSInfo;
 
 static void disas_set_da_iss(DisasContext *s, MemOp memop, ISSInfo issinfo)
 {
@@ -52478,7 +52501,7 @@ static void gen_ssra_vec(unsigned vece, TCGv_vec d, TCGv_vec a, int64_t sh)
 }
 
 static const TCGOpcode vecop_list_ssra[] = {
-    INDEX_op_sari_vec, INDEX_op_add_vec, 0
+    INDEX_op_sari_vec, INDEX_op_add_vec, (TCGOpcode)0
 };
 
 const GVecGen2i ssra_op[4] = {
@@ -52536,7 +52559,7 @@ static void gen_usra_vec(unsigned vece, TCGv_vec d, TCGv_vec a, int64_t sh)
 }
 
 static const TCGOpcode vecop_list_usra[] = {
-    INDEX_op_shri_vec, INDEX_op_add_vec, 0
+    INDEX_op_shri_vec, INDEX_op_add_vec, (TCGOpcode)0
 };
 
 const GVecGen2i usra_op[4] = {
@@ -52617,7 +52640,7 @@ static void gen_shr_ins_vec(unsigned vece, TCGv_vec d, TCGv_vec a, int64_t sh)
     }
 }
 
-static const TCGOpcode vecop_list_sri[] = { INDEX_op_shri_vec, 0 };
+static const TCGOpcode vecop_list_sri[] = { INDEX_op_shri_vec, (TCGOpcode)0 };
 
 const GVecGen2i sri_op[4] = {
     { .fni8 = gen_shr8_ins_i64,
@@ -52695,7 +52718,7 @@ static void gen_shl_ins_vec(unsigned vece, TCGv_vec d, TCGv_vec a, int64_t sh)
     }
 }
 
-static const TCGOpcode vecop_list_sli[] = { INDEX_op_shli_vec, 0 };
+static const TCGOpcode vecop_list_sli[] = { INDEX_op_shli_vec, (TCGOpcode)0 };
 
 const GVecGen2i sli_op[4] = {
     { .fni8 = gen_shl8_ins_i64,
@@ -52782,11 +52805,11 @@ static void gen_mls_vec(unsigned vece, TCGv_vec d, TCGv_vec a, TCGv_vec b)
 }
 
 static const TCGOpcode vecop_list_mla[] = {
-    INDEX_op_mul_vec, INDEX_op_add_vec, 0
+    INDEX_op_mul_vec, INDEX_op_add_vec, (TCGOpcode)0
 };
 
 static const TCGOpcode vecop_list_mls[] = {
-    INDEX_op_mul_vec, INDEX_op_sub_vec, 0
+    INDEX_op_mul_vec, INDEX_op_sub_vec, (TCGOpcode)0
 };
 
 const GVecGen3 mla_op[4] = {
@@ -52858,7 +52881,7 @@ static void gen_cmtst_vec(unsigned vece, TCGv_vec d, TCGv_vec a, TCGv_vec b)
     tcg_gen_cmp_vec(TCG_COND_NE, vece, d, d, a);
 }
 
-static const TCGOpcode vecop_list_cmtst[] = { INDEX_op_cmp_vec, 0 };
+static const TCGOpcode vecop_list_cmtst[] = { INDEX_op_cmp_vec, (TCGOpcode)0 };
 
 const GVecGen3 cmtst_op[4] = {
     { .fni4 = gen_helper_neon_tst_u8,
@@ -52892,7 +52915,7 @@ static void gen_uqadd_vec(unsigned vece, TCGv_vec t, TCGv_vec sat,
 }
 
 static const TCGOpcode vecop_list_uqadd[] = {
-    INDEX_op_usadd_vec, INDEX_op_cmp_vec, INDEX_op_add_vec, 0
+    INDEX_op_usadd_vec, INDEX_op_cmp_vec, INDEX_op_add_vec, (TCGOpcode)0
 };
 
 const GVecGen4 uqadd_op[4] = {
@@ -52930,7 +52953,7 @@ static void gen_sqadd_vec(unsigned vece, TCGv_vec t, TCGv_vec sat,
 }
 
 static const TCGOpcode vecop_list_sqadd[] = {
-    INDEX_op_ssadd_vec, INDEX_op_cmp_vec, INDEX_op_add_vec, 0
+    INDEX_op_ssadd_vec, INDEX_op_cmp_vec, INDEX_op_add_vec, (TCGOpcode)0
 };
 
 const GVecGen4 sqadd_op[4] = {
@@ -52968,7 +52991,7 @@ static void gen_uqsub_vec(unsigned vece, TCGv_vec t, TCGv_vec sat,
 }
 
 static const TCGOpcode vecop_list_uqsub[] = {
-    INDEX_op_ussub_vec, INDEX_op_cmp_vec, INDEX_op_sub_vec, 0
+    INDEX_op_ussub_vec, INDEX_op_cmp_vec, INDEX_op_sub_vec, (TCGOpcode)0
 };
 
 const GVecGen4 uqsub_op[4] = {
@@ -53006,7 +53029,7 @@ static void gen_sqsub_vec(unsigned vece, TCGv_vec t, TCGv_vec sat,
 }
 
 static const TCGOpcode vecop_list_sqsub[] = {
-    INDEX_op_sssub_vec, INDEX_op_cmp_vec, INDEX_op_sub_vec, 0
+    INDEX_op_sssub_vec, INDEX_op_cmp_vec, INDEX_op_sub_vec, (TCGOpcode)0
 };
 
 const GVecGen4 sqsub_op[4] = {
@@ -68036,7 +68059,7 @@ static bool insn_crosses_page(CPUARMState *env, DisasContext *s)
 static void arm_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUARMState *env = cs->env_ptr;
+    CPUARMState *env = (CPUARMState *)cs->env_ptr;
     ARMCPU *cpu = env_archcpu(env);
     uint32_t tb_flags = dc->base.tb->flags;
     uint32_t condexec, core_mmu_idx;
@@ -68251,7 +68274,7 @@ static void arm_post_translate_insn(DisasContext *dc)
 static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUARMState *env = cpu->env_ptr;
+    CPUARMState *env = (CPUARMState *)cpu->env_ptr;
     unsigned int insn;
 
     if (arm_pre_translate_insn(dc)) {
@@ -68319,7 +68342,7 @@ static bool thumb_insn_is_unconditional(DisasContext *s, uint32_t insn)
 static void thumb_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUARMState *env = cpu->env_ptr;
+    CPUARMState *env = (CPUARMState *)cpu->env_ptr;
     uint32_t insn;
     bool is_16bit;
 
@@ -69004,7 +69027,7 @@ static uint8_t *encode_sleb128(uint8_t *p, target_long val)
 
 static int encode_search(TranslationBlock *tb, uint8_t *block)
 {
-    uint8_t *highwater = tcg_ctx->code_gen_highwater;
+    uint8_t *highwater = (uint8_t *)tcg_ctx->code_gen_highwater;
     uint8_t *p = block;
     int i, j, n;
 
@@ -69045,7 +69068,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
 
     /* Level 2..N-1.  */
     for (i = v_l2_levels; i > 0; i--) {
-        void **p = atomic_rcu_read(lp);
+        void **p = (void **)atomic_rcu_read(lp);
 
         if (p == NULL) {
             void *existing;
@@ -69057,14 +69080,14 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
             existing = atomic_cmpxchg(lp, NULL, p);
             if (unlikely(existing)) {
                 g_free(p);
-                p = existing;
+                p = (void **)existing;
             }
         }
 
         lp = p + ((index >> (i * V_L2_BITS)) & (V_L2_SIZE - 1));
     }
 
-    pd = atomic_rcu_read(lp);
+    pd = (PageDesc *)atomic_rcu_read(lp);
     if (pd == NULL) {
         void *existing;
 
@@ -69084,7 +69107,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
         existing = atomic_cmpxchg(lp, NULL, pd);
         if (unlikely(existing)) {
             g_free(pd);
-            pd = existing;
+            pd = (PageDesc *)existing;
         }
     }
 
@@ -69162,7 +69185,7 @@ static void page_flush_tb_1(int level, void **lp)
         return;
     }
     if (level == 0) {
-        PageDesc *pd = *lp;
+        PageDesc *pd = (PageDesc *)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_lock(&pd[i]);
@@ -69171,7 +69194,7 @@ static void page_flush_tb_1(int level, void **lp)
             page_unlock(&pd[i]);
         }
     } else {
-        void **pp = *lp;
+        void **pp = (void **)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_flush_tb_1(level - 1, pp + i);
@@ -69190,8 +69213,8 @@ static void page_flush_tb(void)
 
 static gboolean tb_host_size_iter(gpointer key, gpointer value, gpointer data)
 {
-    const TranslationBlock *tb = value;
-    size_t *size = data;
+    const TranslationBlock *tb = (const TranslationBlock *)value;
+    size_t *size = (size_t *)data;
 
     *size += tb->tc.size;
     return false;
@@ -69244,17 +69267,17 @@ void tb_flush(CPUState *cpu)
         unsigned tb_flush_count = atomic_mb_read(&tb_ctx.tb_flush_count);
 
         if (cpu_in_exclusive_context(cpu)) {
-            do_tb_flush(cpu, RUN_ON_CPU_HOST_INT(tb_flush_count));
+            do_tb_flush(cpu, RUN_ON_CPU_HOST_INT((int)tb_flush_count));
         } else {
             async_safe_run_on_cpu(cpu, do_tb_flush,
-                                  RUN_ON_CPU_HOST_INT(tb_flush_count));
+                                  RUN_ON_CPU_HOST_INT((int)tb_flush_count));
         }
     }
 }
 
 static void do_tb_page_check(void *p, uint32_t hash, void *userp)
 {
-    TranslationBlock *tb = p;
+    TranslationBlock *tb = (TranslationBlock *)p;
     int flags1, flags2;
 
     flags1 = page_get_flags(tb->pc);
@@ -69290,7 +69313,7 @@ static inline void tb_page_remove(PageDesc *pd, TranslationBlock *tb)
 
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
 {
-    uintptr_t addr = (uintptr_t)(tb->tc.ptr + tb->jmp_reset_offset[n]);
+    uintptr_t addr = (uintptr_t)((char *)tb->tc.ptr + tb->jmp_reset_offset[n]);
     tb_set_jmp_target(tb, n, addr);
 }
 
@@ -69400,7 +69423,7 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
                 tb_page_remove(p2, tb);
                 invalidate_page_bitmap(p2);
             }
-            tb = existing_tb;
+            tb = (TranslationBlock *)existing_tb;
         }
     }
 
@@ -69421,7 +69444,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
                               uint32_t flags, int cflags)
 {
-    CPUArchState *env = cpu->env_ptr;
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb, *existing_tb;
     tb_page_addr_t phys_pc, phys_page2;
     target_ulong virt_page2;
@@ -69467,7 +69490,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         cpu_loop_exit(cpu);
     }
 
-    gen_code_buf = tcg_ctx->code_gen_ptr;
+    gen_code_buf = (tcg_insn_unit *)tcg_ctx->code_gen_ptr;
     tb->tc.ptr = gen_code_buf;
     tb->pc = pc;
     tb->cs_base = cs_base;
@@ -69490,7 +69513,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     gen_intermediate_code(cpu, tb, max_insns);
     tcg_ctx->cpu = NULL;
 
-    trace_translate_block(tb, tb->pc, tb->tc.ptr);
+    trace_translate_block(tb, tb->pc, (uint8_t *)tb->tc.ptr);
 
     /* generate machine code */
     tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;
@@ -69544,7 +69567,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
             g_assert_not_reached();
         }
     }
-    search_size = encode_search(tb, (void *)gen_code_buf + gen_code_size);
+    search_size = encode_search(tb, (uint8_t *)gen_code_buf + gen_code_size);
     if (unlikely(search_size < 0)) {
         goto buffer_overflow;
     }
@@ -69563,7 +69586,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         qemu_log_lock();
         qemu_log("OUT: [size=%d]\n", gen_code_size);
         if (tcg_ctx->data_gen_ptr) {
-            size_t code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;
+            size_t code_size = (uint8_t *)tcg_ctx->data_gen_ptr - (uint8_t *)tb->tc.ptr;
             size_t data_size = gen_code_size - code_size;
             size_t i;
 
@@ -69573,11 +69596,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                 if (sizeof(tcg_target_ulong) == 8) {
                     qemu_log("0x%08" PRIxPTR ":  .quad  0x%016" PRIx64 "\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint64_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint64_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 } else {
                     qemu_log("0x%08" PRIxPTR ":  .long  0x%08x\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint32_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint32_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 }
             }
         } else {
@@ -78504,7 +78527,7 @@ static bool trans_SUB_zzi(DisasContext *s, arg_rri_esz *a)
 
 static bool trans_SUBR_zzi(DisasContext *s, arg_rri_esz *a)
 {
-    static const TCGOpcode vecop_list[] = { INDEX_op_sub_vec, 0 };
+    static const TCGOpcode vecop_list[] = { INDEX_op_sub_vec, (TCGOpcode)0 };
     static const GVecGen2s op[4] = {
         { .fni8 = tcg_gen_vec_sub8_i64,
           .fniv = tcg_gen_sub_vec,
