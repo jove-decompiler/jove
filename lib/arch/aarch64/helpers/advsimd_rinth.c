@@ -28,6 +28,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -45,7 +46,7 @@ static inline int get_float_exception_flags(float_status *status)
 
 float16 float16_round_to_int(float16, float_status *status);
 
-float16 HELPER(advsimd_rinth)(float16 x, void *fp_status)
+uint32_t HELPER(advsimd_rinth)(uint32_t x, void *fp_status)
 {
     int old_flags = get_float_exception_flags(fp_status), new_flags;
     float16 ret;

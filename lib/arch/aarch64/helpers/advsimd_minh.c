@@ -18,6 +18,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -28,7 +29,7 @@ float16 float16_min(float16, float16, float_status *status);
 #define ADVSIMD_HELPER(name, suffix) HELPER(glue(glue(advsimd_, name), suffix))
 
 #define ADVSIMD_HALFOP(name) \
-float16 ADVSIMD_HELPER(name, h)(float16 a, float16 b, void *fpstp) \
+uint32_t ADVSIMD_HELPER(name, h)(uint32_t a, uint32_t b, void *fpstp) \
 { \
     float_status *fpst = fpstp; \
     return float16_ ## name(a, b, fpst);    \

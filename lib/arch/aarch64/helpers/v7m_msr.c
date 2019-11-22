@@ -2,128 +2,17 @@
 
 #define CONFIG_USER_ONLY 1
 
-#define QEMU_NORETURN __attribute__ ((__noreturn__))
-
 #define QEMU_ALIGNED(X) __attribute__((aligned(X)))
 
 #define xglue(x, y) x ## y
 
 #define glue(x, y) xglue(x, y)
 
-#define container_of(ptr, type, member) ({                      \
-        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
-        (type *) ((char *) __mptr - offsetof(type, member));})
-
-#  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
-
-#include <stddef.h>
-
-#include <stdbool.h>
-
 #include <stdint.h>
 
-#include <sys/types.h>
-
-#include <limits.h>
-
-#include <setjmp.h>
-
-typedef void* gpointer;
-
-typedef struct _GHashTable  GHashTable;
-
-typedef struct _GSList GSList;
-
-struct _GSList
-{
-  gpointer data;
-  GSList *next;
-};
-
-typedef struct AddressSpace AddressSpace;
-
-typedef struct BusState BusState;
-
-typedef struct CPUAddressSpace CPUAddressSpace;
-
-typedef struct CPUState CPUState;
-
-typedef struct DeviceState DeviceState;
-
-typedef struct MemoryRegion MemoryRegion;
-
-typedef struct QemuMutex QemuMutex;
-
-typedef struct QemuOpts QemuOpts;
-
-typedef struct QEMUTimer QEMUTimer;
+#include <assert.h>
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
-}
-
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
-
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
-
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct ObjectClass ObjectClass;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *klass;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
 
 typedef uint8_t flag;
 
@@ -137,44 +26,26 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
-#define BITS_PER_BYTE           CHAR_BIT
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
 
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
 
-#define DECLARE_BITMAP(name,bits)                  \
-        unsigned long name[BITS_TO_LONGS(bits)]
-
-typedef struct IRQState *qemu_irq;
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -191,34 +62,21 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-struct QemuMutex {
-    pthread_mutex_t lock;
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-#define CPU(obj) ((CPUState *)(obj))
-
 typedef uint64_t vaddr;
-
-typedef struct CPUWatchpoint CPUWatchpoint;
-
-struct TranslationBlock;
-
-typedef struct icount_decr_u16 {
-    uint16_t low;
-    uint16_t high;
-} icount_decr_u16;
 
 typedef struct CPUBreakpoint {
     vaddr pc;
@@ -227,7 +85,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -235,138 +93,7 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(breakpoints_head, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(watchpoints_head, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-    vaddr mem_io_vaddr;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    /* Note that this is accessed at the start of every TB via a negative
-       offset from AREG0.  Leave this field at the end so as to make the
-       (absolute value) offset as small as possible.  This reduces code
-       size, especially for hosts without large memory offsets.  */
-    union {
-        uint32_t u32;
-        icount_decr_u16 u16;
-    } icount_decr;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    /* The pending_tlb_flush flag is set and cleared atomically to
-     * avoid potential races. The aim of the flag is to avoid
-     * unnecessary flushes.
-     */
-    uint16_t pending_tlb_flush;
-
-    int hvf_fd;
-};
-
-void QEMU_NORETURN cpu_abort(CPUState *cpu, const char *fmt, ...)
-    GCC_FMT_ATTR(2, 3);
-
 struct arm_boot_info;
-
-typedef struct ARMCPU ARMCPU;
-
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
 
 enum {
     M_REG_NS = 0,
@@ -394,8 +121,12 @@ typedef struct ARMVectorReg {
 } ARMVectorReg;
 
 typedef struct ARMPredicateReg {
-    uint64_t p[2 * ARM_MAX_VQ / 8] QEMU_ALIGNED(16);
+    uint64_t p[DIV_ROUND_UP(2 * ARM_MAX_VQ, 8)] QEMU_ALIGNED(16);
 } ARMPredicateReg;
+
+typedef struct ARMPACKey {
+    uint64_t lo, hi;
+} ARMPACKey;
 
 typedef struct CPUARMState {
     /* Regs for current mode.  */
@@ -417,10 +148,14 @@ typedef struct CPUARMState {
      *    semantics as for AArch32, as described in the comments on each field)
      *  nRW (also known as M[4]) is kept, inverted, in env->aarch64
      *  DAIF (exception masks) are kept in env->daif
+     *  BTYPE is kept in env->btype
      *  all other bits are stored in their correct places in env->pstate
      */
     uint32_t pstate;
     uint32_t aarch64; /* 1 if CPU is in aarch64 state; inverse of PSTATE.nRW */
+
+    /* Cached TBFLAGS state.  See below for which bits are included.  */
+    uint32_t hflags;
 
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
@@ -446,6 +181,7 @@ typedef struct CPUARMState {
     uint32_t GE; /* cpsr[19:16] */
     uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
+    uint32_t btype;  /* BTI branch type.  spsr[11:10].  */
     uint64_t daif; /* exception masks, in the bits they are in PSTATE */
 
     uint64_t elr_el[4]; /* AArch64 exception link regs  */
@@ -656,10 +392,23 @@ typedef struct CPUARMState {
         uint64_t oslsr_el1; /* OS Lock Status */
         uint64_t mdcr_el2;
         uint64_t mdcr_el3;
-        /* If the counter is enabled, this stores the last time the counter
-         * was reset. Otherwise it stores the counter value
+        /* Stores the architectural value of the counter *the last time it was
+         * updated* by pmccntr_op_start. Accesses should always be surrounded
+         * by pmccntr_op_start/pmccntr_op_finish to guarantee the latest
+         * architecturally-correct value is being read/set.
          */
         uint64_t c15_ccnt;
+        /* Stores the delta between the architectural value and the underlying
+         * cycle count during normal operation. It is used to update c15_ccnt
+         * to be the correct architectural value before accesses. During
+         * accesses, c15_ccnt_delta contains the underlying count being used
+         * for the access, after which it reverts to the delta value in
+         * pmccntr_op_finish.
+         */
+        uint64_t c15_ccnt_delta;
+        uint64_t c14_pmevcntr[31];
+        uint64_t c14_pmevcntr_delta[31];
+        uint64_t c14_pmevtyper[31];
         uint64_t pmccfiltr_el0; /* Performance Monitor Filter Register */
         uint64_t vpidr_el2; /* Virtualization Processor ID Register */
         uint64_t vmpidr_el2; /* Virtualization Multiprocessor ID Register */
@@ -701,6 +450,11 @@ typedef struct CPUARMState {
         uint32_t scr[M_REG_NUM_BANKS];
         uint32_t msplim[M_REG_NUM_BANKS];
         uint32_t psplim[M_REG_NUM_BANKS];
+        uint32_t fpcar[M_REG_NUM_BANKS];
+        uint32_t fpccr[M_REG_NUM_BANKS];
+        uint32_t fpdscr[M_REG_NUM_BANKS];
+        uint32_t cpacr[M_REG_NUM_BANKS];
+        uint32_t nsacr;
     } v7m;
 
     /* Information associated with an exception about to be taken:
@@ -719,6 +473,16 @@ typedef struct CPUARMState {
          */
     } exception;
 
+    /* Information associated with an SError */
+    struct {
+        uint8_t pending;
+        uint8_t has_esr;
+        uint64_t esr;
+    } serror;
+
+    /* State of our input IRQ/FIQ/VIRQ/VFIQ lines */
+    uint32_t irq_line_state;
+
     /* Thumb-2 EE state.  */
     uint32_t teecr;
     uint32_t teehbr;
@@ -729,15 +493,20 @@ typedef struct CPUARMState {
 
 #ifdef TARGET_AARCH64
         /* Store FFR as pregs[16] to make it easier to treat as any other.  */
+#define FFR_PRED_NUM 16
         ARMPredicateReg pregs[17];
+        /* Scratch space for aa64 sve predicate temporary.  */
+        ARMPredicateReg preg_tmp;
 #endif
 
-        uint32_t xregs[16];
         /* We store these fpcsr fields separately for convenience.  */
+        uint32_t qc[4] QEMU_ALIGNED(16);
         int vec_len;
         int vec_stride;
 
-        /* scratch space when Tn are not sufficient.  */
+        uint32_t xregs[16];
+
+        /* Scratch space for aa32 neon expansion.  */
         uint32_t scratch[8];
 
         /* There are a number of distinct float control structures:
@@ -780,6 +549,16 @@ typedef struct CPUARMState {
         uint32_t cregs[16];
     } iwmmxt;
 
+#ifdef TARGET_AARCH64
+    struct {
+        ARMPACKey apia;
+        ARMPACKey apib;
+        ARMPACKey apda;
+        ARMPACKey apdb;
+        ARMPACKey apga;
+    } keys;
+#endif
+
 #if defined(CONFIG_USER_ONLY)
     /* For usermode syscall translation.  */
     int eabi;
@@ -791,9 +570,7 @@ typedef struct CPUARMState {
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* Internal CPU feature flags.  */
     uint64_t features;
@@ -833,213 +610,145 @@ typedef struct CPUARMState {
     void *gicv3state;
 } CPUARMState;
 
-typedef void ARMELChangeHookFn(ARMCPU *cpu, void *opaque);
+#define CPSR_GE (0xfU << 16)
 
-struct ARMELChangeHook {
-    ARMELChangeHookFn *hook;
-    void *opaque;
-    QLIST_ENTRY(ARMELChangeHook) node;
-};
+#define CPSR_Q (1U << 27)
 
-typedef enum ARMPSCIState {
-    PSCI_ON = 0,
-    PSCI_OFF = 1,
-    PSCI_ON_PENDING = 2
-} ARMPSCIState;
+#define CPSR_V (1U << 28)
 
-struct ARMCPU {
-    /*< private >*/
-    CPUState parent_obj;
-    /*< public >*/
+#define CPSR_C (1U << 29)
 
-    CPUARMState env;
+#define CPSR_Z (1U << 30)
 
-    /* Coprocessor information */
-    GHashTable *cp_regs;
-    /* For marshalling (mostly coprocessor) register state between the
-     * kernel and QEMU (for KVM) and between two QEMUs (for migration),
-     * we use these arrays.
-     */
-    /* List of register indexes managed via these arrays; (full KVM style
-     * 64 bit indexes, not CPRegInfo 32 bit indexes)
-     */
-    uint64_t *cpreg_indexes;
-    /* Values of the registers (cpreg_indexes[i]'s value is cpreg_values[i]) */
-    uint64_t *cpreg_values;
-    /* Length of the indexes, values, reset_values arrays */
-    int32_t cpreg_array_len;
-    /* These are used only for migration: incoming data arrives in
-     * these fields and is sanity checked in post_load before copying
-     * to the working data structures above.
-     */
-    uint64_t *cpreg_vmstate_indexes;
-    uint64_t *cpreg_vmstate_values;
-    int32_t cpreg_vmstate_array_len;
+#define CPSR_N (1U << 31)
 
-    /* Timers used by the generic (architected) timer */
-    QEMUTimer *gt_timer[NUM_GTIMERS];
-    /* GPIO outputs for generic timer */
-    qemu_irq gt_timer_outputs[NUM_GTIMERS];
-    /* GPIO output for GICv3 maintenance interrupt signal */
-    qemu_irq gicv3_maintenance_interrupt;
-    /* GPIO output for the PMU interrupt */
-    qemu_irq pmu_interrupt;
+#define CPSR_NZCV (CPSR_N | CPSR_Z | CPSR_C | CPSR_V)
 
-    /* MemoryRegion to use for secure physical accesses */
-    MemoryRegion *secure_memory;
+#define XPSR_GE CPSR_GE
 
-    /* For v8M, pointer to the IDAU interface provided by board/SoC */
-    Object *idau;
+#define XPSR_Q CPSR_Q
 
-    /* 'compatible' string for this CPU for Linux device trees */
-    const char *dtb_compatible;
+#define XPSR_Z CPSR_Z
 
-    /* PSCI version for this CPU
-     * Bits[31:16] = Major Version
-     * Bits[15:0] = Minor Version
-     */
-    uint32_t psci_version;
+#define XPSR_NZCV CPSR_NZCV
 
-    /* Should CPU start in PSCI powered-off state? */
-    bool start_powered_off;
-
-    /* Current power state, access guarded by BQL */
-    ARMPSCIState power_state;
-
-    /* CPU has virtualization extension */
-    bool has_el2;
-    /* CPU has security extension */
-    bool has_el3;
-    /* CPU has PMU (Performance Monitor Unit) */
-    bool has_pmu;
-
-    /* CPU has memory protection unit */
-    bool has_mpu;
-    /* PMSAv7 MPU number of supported regions */
-    uint32_t pmsav7_dregion;
-    /* v8M SAU number of supported regions */
-    uint32_t sau_sregion;
-
-    /* PSCI conduit used to invoke PSCI methods
-     * 0 - disabled, 1 - smc, 2 - hvc
-     */
-    uint32_t psci_conduit;
-
-    /* For v8M, initial value of the Secure VTOR */
-    uint32_t init_svtor;
-
-    /* [QEMU_]KVM_ARM_TARGET_* constant for this CPU, or
-     * QEMU_KVM_ARM_TARGET_NONE if the kernel doesn't support this CPU type.
-     */
-    uint32_t kvm_target;
-
-    /* KVM init features for this CPU */
-    uint32_t kvm_init_features[7];
-
-    /* Uniprocessor system with MP extensions */
-    bool mp_is_up;
-
-    /* True if we tried kvm_arm_host_cpu_features() during CPU instance_init
-     * and the probe failed (so we need to report the error in realize)
-     */
-    bool host_cpu_probe_failed;
-
-    /* Specify the number of cores in this CPU cluster. Used for the L2CTLR
-     * register.
-     */
-    int32_t core_count;
-
-    /* The instance init functions for implementation-specific subclasses
-     * set these fields to specify the implementation-dependent values of
-     * various constant registers and reset values of non-constant
-     * registers.
-     * Some of these might become QOM properties eventually.
-     * Field names match the official register names as defined in the
-     * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
-     * is used for reset values of non-constant registers; no reset_
-     * prefix means a constant register.
-     */
-    uint32_t midr;
-    uint32_t revidr;
-    uint32_t reset_fpsid;
-    uint32_t mvfr0;
-    uint32_t mvfr1;
-    uint32_t mvfr2;
-    uint32_t ctr;
-    uint32_t reset_sctlr;
-    uint32_t id_pfr0;
-    uint32_t id_pfr1;
-    uint32_t id_dfr0;
-    uint32_t pmceid0;
-    uint32_t pmceid1;
-    uint32_t id_afr0;
-    uint32_t id_mmfr0;
-    uint32_t id_mmfr1;
-    uint32_t id_mmfr2;
-    uint32_t id_mmfr3;
-    uint32_t id_mmfr4;
-    uint32_t id_isar0;
-    uint32_t id_isar1;
-    uint32_t id_isar2;
-    uint32_t id_isar3;
-    uint32_t id_isar4;
-    uint32_t id_isar5;
-    uint64_t id_aa64pfr0;
-    uint64_t id_aa64pfr1;
-    uint64_t id_aa64dfr0;
-    uint64_t id_aa64dfr1;
-    uint64_t id_aa64afr0;
-    uint64_t id_aa64afr1;
-    uint64_t id_aa64isar0;
-    uint64_t id_aa64isar1;
-    uint64_t id_aa64mmfr0;
-    uint64_t id_aa64mmfr1;
-    uint32_t dbgdidr;
-    uint32_t clidr;
-    uint64_t mp_affinity; /* MP ID without feature bits */
-    /* The elements of this array are the CCSIDR values for each cache,
-     * in the order L1DCache, L1ICache, L2DCache, L2ICache, etc.
-     */
-    uint32_t ccsidr[16];
-    uint64_t reset_cbar;
-    uint32_t reset_auxcr;
-    bool reset_hivecs;
-    /* DCZ blocksize, in log_2(words), ie low 4 bits of DCZID_EL0 */
-    uint32_t dcz_blocksize;
-    uint64_t rvbar;
-
-    /* Configurable aspects of GIC cpu interface (which is part of the CPU) */
-    int gic_num_lrs; /* number of list registers */
-    int gic_vpribits; /* number of virtual priority bits */
-    int gic_vprebits; /* number of virtual preemption bits */
-
-    /* Whether the cfgend input is high (i.e. this CPU should reset into
-     * big-endian mode).  This setting isn't used directly: instead it modifies
-     * the reset_sctlr value to have SCTLR_B or SCTLR_EE set, depending on the
-     * architecture version.
-     */
-    bool cfgend;
-
-    QLIST_HEAD(, ARMELChangeHook) pre_el_change_hooks;
-    QLIST_HEAD(, ARMELChangeHook) el_change_hooks;
-
-    int32_t node_id; /* NUMA node this CPU belongs to */
-
-    /* Used to synchronize KVM and QEMU in-kernel device levels */
-    uint8_t device_irq_level;
-};
-
-static inline ARMCPU *arm_env_get_cpu(CPUARMState *env)
+static inline void xpsr_write(CPUARMState *env, uint32_t val, uint32_t mask)
 {
-    return container_of(env, ARMCPU, env);
+    if (mask & XPSR_NZCV) {
+        env->ZF = (~val) & XPSR_Z;
+        env->NF = val;
+        env->CF = (val >> 29) & 1;
+        env->VF = (val << 3) & 0x80000000;
+    }
+    if (mask & XPSR_Q) {
+        env->QF = ((val & XPSR_Q) != 0);
+    }
+    if (mask & XPSR_GE) {
+        env->GE = (val & XPSR_GE) >> 16;
+    }
+#ifndef CONFIG_USER_ONLY
+    if (mask & XPSR_T) {
+        env->thumb = ((val & XPSR_T) != 0);
+    }
+    if (mask & XPSR_IT_0_1) {
+        env->condexec_bits &= ~3;
+        env->condexec_bits |= (val >> 25) & 3;
+    }
+    if (mask & XPSR_IT_2_7) {
+        env->condexec_bits &= 3;
+        env->condexec_bits |= (val >> 8) & 0xfc;
+    }
+    if (mask & XPSR_EXCP) {
+        /* Note that this only happens on exception exit */
+        write_v7m_exception(env, val & XPSR_EXCP);
+    }
+#endif
+}
+
+enum arm_features {
+    ARM_FEATURE_VFP,
+    ARM_FEATURE_AUXCR,  /* ARM1026 Auxiliary control register.  */
+    ARM_FEATURE_XSCALE, /* Intel XScale extensions.  */
+    ARM_FEATURE_IWMMXT, /* Intel iwMMXt extension.  */
+    ARM_FEATURE_V6,
+    ARM_FEATURE_V6K,
+    ARM_FEATURE_V7,
+    ARM_FEATURE_THUMB2,
+    ARM_FEATURE_PMSA,   /* no MMU; may have Memory Protection Unit */
+    ARM_FEATURE_VFP3,
+    ARM_FEATURE_NEON,
+    ARM_FEATURE_M, /* Microcontroller profile.  */
+    ARM_FEATURE_OMAPCP, /* OMAP specific CP15 ops handling.  */
+    ARM_FEATURE_THUMB2EE,
+    ARM_FEATURE_V7MP,    /* v7 Multiprocessing Extensions */
+    ARM_FEATURE_V7VE, /* v7 Virtualization Extensions (non-EL2 parts) */
+    ARM_FEATURE_V4T,
+    ARM_FEATURE_V5,
+    ARM_FEATURE_STRONGARM,
+    ARM_FEATURE_VAPA, /* cp15 VA to PA lookups */
+    ARM_FEATURE_VFP4, /* VFPv4 (implies that NEON is v2) */
+    ARM_FEATURE_GENERIC_TIMER,
+    ARM_FEATURE_MVFR, /* Media and VFP Feature Registers 0 and 1 */
+    ARM_FEATURE_DUMMY_C15_REGS, /* RAZ/WI all of cp15 crn=15 */
+    ARM_FEATURE_CACHE_TEST_CLEAN, /* 926/1026 style test-and-clean ops */
+    ARM_FEATURE_CACHE_DIRTY_REG, /* 1136/1176 cache dirty status register */
+    ARM_FEATURE_CACHE_BLOCK_OPS, /* v6 optional cache block operations */
+    ARM_FEATURE_MPIDR, /* has cp15 MPIDR */
+    ARM_FEATURE_PXN, /* has Privileged Execute Never bit */
+    ARM_FEATURE_LPAE, /* has Large Physical Address Extension */
+    ARM_FEATURE_V8,
+    ARM_FEATURE_AARCH64, /* supports 64 bit mode */
+    ARM_FEATURE_CBAR, /* has cp15 CBAR */
+    ARM_FEATURE_CRC, /* ARMv8 CRC instructions */
+    ARM_FEATURE_CBAR_RO, /* has cp15 CBAR and it is read-only */
+    ARM_FEATURE_EL2, /* has EL2 Virtualization support */
+    ARM_FEATURE_EL3, /* has EL3 Secure monitor support */
+    ARM_FEATURE_THUMB_DSP, /* DSP insns supported in the Thumb encodings */
+    ARM_FEATURE_PMU, /* has PMU support */
+    ARM_FEATURE_VBAR, /* has cp15 VBAR */
+    ARM_FEATURE_M_SECURITY, /* M profile Security Extension */
+    ARM_FEATURE_M_MAIN, /* M profile Main Extension */
+};
+
+static inline int arm_feature(CPUARMState *env, int feature)
+{
+    return (env->features & (1ULL << feature)) != 0;
 }
 
 #define HELPER(name) glue(helper_, name)
 
-void HELPER(v7m_msr)(CPUARMState *env, uint32_t reg, uint32_t val)
+static void v7m_msr_xpsr(CPUARMState *env, uint32_t mask,
+                         uint32_t reg, uint32_t val)
 {
-    ARMCPU *cpu = arm_env_get_cpu(env);
+    /* Only APSR is actually writable */
+    if (!(reg & 4)) {
+        uint32_t apsrmask = 0;
 
-    cpu_abort(CPU(cpu), "v7m_msr %d\n", reg);
+        if (mask & 8) {
+            apsrmask |= XPSR_NZCV | XPSR_Q;
+        }
+        if ((mask & 4) && arm_feature(env, ARM_FEATURE_THUMB_DSP)) {
+            apsrmask |= XPSR_GE;
+        }
+        xpsr_write(env, val, apsrmask);
+    }
+}
+
+void HELPER(v7m_msr)(CPUARMState *env, uint32_t maskreg, uint32_t val)
+{
+    uint32_t mask = extract32(maskreg, 8, 4);
+    uint32_t reg = extract32(maskreg, 0, 8);
+
+    switch (reg) {
+    case 0 ... 7: /* xPSR sub-fields */
+        v7m_msr_xpsr(env, mask, reg, val);
+        break;
+    case 20: /* CONTROL */
+        /* There are no sub-fields that are actually writable from EL0. */
+        break;
+    default:
+        /* Unprivileged writes to other registers are ignored */
+        break;
+    }
 }
 

@@ -30,7 +30,19 @@
 
 #include <setjmp.h>
 
+typedef char   gchar;
+
+typedef unsigned int    guint;
+
 typedef void* gpointer;
+
+typedef struct _GArray		GArray;
+
+struct _GArray
+{
+  gchar *data;
+  guint len;
+};
 
 typedef struct _GHashTable  GHashTable;
 
@@ -54,11 +66,15 @@ typedef struct DeviceState DeviceState;
 
 typedef struct MemoryRegion MemoryRegion;
 
+typedef struct ObjectClass ObjectClass;
+
 typedef struct QemuMutex QemuMutex;
 
 typedef struct QemuOpts QemuOpts;
 
 typedef struct QEMUTimer QEMUTimer;
+
+typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
@@ -74,6 +90,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -111,9 +128,11 @@ typedef struct float_status {
         (unsigned short)1,                                                         \
       (expr)+0))))))
 
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+
 #define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
     typeof_strip_qual(*ptr) _old = (old);                               \
-    __atomic_compare_exchange_n(ptr, &_old, new, false,                 \
+    (void)__atomic_compare_exchange_n(ptr, &_old, new, false,           \
                               __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
     _old;                                                               \
 })
@@ -122,9 +141,16 @@ typedef struct float_status {
 
 #define BITS_PER_BYTE           CHAR_BIT
 
+#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
+
+#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
+
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
-#define CPUArchState struct CPUARMState
+static inline int test_bit(long nr, const unsigned long *addr)
+{
+    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
+}
 
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
@@ -137,30 +163,29 @@ struct {                                                                \
         struct type **le_prev;  /* address of previous next element */  \
 }
 
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
 }
 
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
-
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
 }
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
 
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
+
 struct TypeImpl;
 
 typedef struct TypeImpl *Type;
-
-typedef struct ObjectClass ObjectClass;
 
 typedef struct Object Object;
 
@@ -194,8 +219,6 @@ struct Object
     Object *parent;
 };
 
-typedef struct IRQState *qemu_irq;
-
 struct NamedGPIOList {
     char *name;
     qemu_irq *in;
@@ -215,6 +238,7 @@ struct DeviceState {
     bool pending_deleted_event;
     QemuOpts *opts;
     int hotplugged;
+    bool allow_unplug_during_migration;
     BusState *parent_bus;
     QLIST_HEAD(, NamedGPIOList) gpios;
     QLIST_HEAD(, BusState) child_bus;
@@ -238,10 +262,26 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
 struct QemuMutex {
     pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
     bool initialized;
 };
 
@@ -254,7 +294,22 @@ struct QemuThread {
     pthread_t thread;
 };
 
-#define CPU(obj) ((CPUState *)(obj))
+enum qemu_plugin_event {
+    QEMU_PLUGIN_EV_VCPU_INIT,
+    QEMU_PLUGIN_EV_VCPU_EXIT,
+    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
+    QEMU_PLUGIN_EV_VCPU_IDLE,
+    QEMU_PLUGIN_EV_VCPU_RESUME,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
+    QEMU_PLUGIN_EV_FLUSH,
+    QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
+};
+
+static inline void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
+                                           uint32_t meminfo)
+{ }
 
 typedef uint64_t vaddr;
 
@@ -262,10 +317,18 @@ typedef struct CPUWatchpoint CPUWatchpoint;
 
 struct TranslationBlock;
 
-typedef struct icount_decr_u16 {
-    uint16_t low;
-    uint16_t high;
-} icount_decr_u16;
+typedef union IcountDecr {
+    uint32_t u32;
+    struct {
+#ifdef HOST_WORDS_BIGENDIAN
+        uint16_t high;
+        uint16_t low;
+#else
+        uint16_t low;
+        uint16_t high;
+#endif
+    } u16;
+} IcountDecr;
 
 typedef struct CPUBreakpoint {
     vaddr pc;
@@ -274,7 +337,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -318,12 +381,14 @@ struct CPUState {
     bool unplug;
     bool crash_occurred;
     bool exit_request;
+    bool in_exclusive_context;
     uint32_t cflags_next_tb;
     /* updates protected by BQL */
     uint32_t interrupt_request;
     int singlestep_enabled;
     int64_t icount_budget;
     int64_t icount_extra;
+    uint64_t random_seed;
     sigjmp_buf jmp_env;
 
     QemuMutex work_mutex;
@@ -335,6 +400,7 @@ struct CPUState {
     MemoryRegion *memory;
 
     void *env_ptr; /* CPUArchState */
+    IcountDecr *icount_decr_ptr;
 
     /* Accessed in parallel; all accesses must be atomic */
     struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
@@ -345,9 +411,9 @@ struct CPUState {
     QTAILQ_ENTRY(CPUState) node;
 
     /* ice debug support */
-    QTAILQ_HEAD(breakpoints_head, CPUBreakpoint) breakpoints;
+    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
 
-    QTAILQ_HEAD(watchpoints_head, CPUWatchpoint) watchpoints;
+    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
     CPUWatchpoint *watchpoint_hit;
 
     void *opaque;
@@ -356,7 +422,6 @@ struct CPUState {
      * we store some rarely used information in the CPU context.
      */
     uintptr_t mem_io_pc;
-    vaddr mem_io_vaddr;
 
     int kvm_fd;
     struct KVMState *kvm_state;
@@ -366,8 +431,13 @@ struct CPUState {
     DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
     DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
 
+    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
+
+    GArray *plugin_mem_cbs;
+
     /* TODO Move common fields from CPUArchState here. */
     int cpu_index;
+    int cluster_index;
     uint32_t halted;
     uint32_t can_do_io;
     int32_t exception_index;
@@ -382,43 +452,38 @@ struct CPUState {
 
     bool ignore_memory_transaction_failures;
 
-    /* Note that this is accessed at the start of every TB via a negative
-       offset from AREG0.  Leave this field at the end so as to make the
-       (absolute value) offset as small as possible.  This reduces code
-       size, especially for hosts without large memory offsets.  */
-    union {
-        uint32_t u32;
-        icount_decr_u16 u16;
-    } icount_decr;
-
     struct hax_vcpu_state *hax_vcpu;
 
-    /* The pending_tlb_flush flag is set and cleared atomically to
-     * avoid potential races. The aim of the flag is to avoid
-     * unnecessary flushes.
-     */
-    uint16_t pending_tlb_flush;
-
     int hvf_fd;
+
+    /* track IOMMUs whose translations we've cached in the TCG TLB */
+    GArray *iommu_notifiers;
 };
 
 struct arm_boot_info;
 
 typedef struct ARMCPU ARMCPU;
 
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
-
 typedef uint64_t target_ulong;
+
+typedef struct CPUTLB { } CPUTLB;
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
 
 enum {
     M_REG_NS = 0,
     M_REG_S = 1,
     M_REG_NUM_BANKS = 2,
 };
+
+typedef struct DynamicGDBXMLInfo {
+    char *desc;
+    int num_cpregs;
+    uint32_t *cpregs_keys;
+} DynamicGDBXMLInfo;
 
 #define NUM_GTIMERS 4
 
@@ -440,8 +505,12 @@ typedef struct ARMVectorReg {
 } ARMVectorReg;
 
 typedef struct ARMPredicateReg {
-    uint64_t p[2 * ARM_MAX_VQ / 8] QEMU_ALIGNED(16);
+    uint64_t p[DIV_ROUND_UP(2 * ARM_MAX_VQ, 8)] QEMU_ALIGNED(16);
 } ARMPredicateReg;
+
+typedef struct ARMPACKey {
+    uint64_t lo, hi;
+} ARMPACKey;
 
 typedef struct CPUARMState {
     /* Regs for current mode.  */
@@ -463,10 +532,14 @@ typedef struct CPUARMState {
      *    semantics as for AArch32, as described in the comments on each field)
      *  nRW (also known as M[4]) is kept, inverted, in env->aarch64
      *  DAIF (exception masks) are kept in env->daif
+     *  BTYPE is kept in env->btype
      *  all other bits are stored in their correct places in env->pstate
      */
     uint32_t pstate;
     uint32_t aarch64; /* 1 if CPU is in aarch64 state; inverse of PSTATE.nRW */
+
+    /* Cached TBFLAGS state.  See below for which bits are included.  */
+    uint32_t hflags;
 
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
@@ -492,6 +565,7 @@ typedef struct CPUARMState {
     uint32_t GE; /* cpsr[19:16] */
     uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
+    uint32_t btype;  /* BTI branch type.  spsr[11:10].  */
     uint64_t daif; /* exception masks, in the bits they are in PSTATE */
 
     uint64_t elr_el[4]; /* AArch64 exception link regs  */
@@ -702,10 +776,23 @@ typedef struct CPUARMState {
         uint64_t oslsr_el1; /* OS Lock Status */
         uint64_t mdcr_el2;
         uint64_t mdcr_el3;
-        /* If the counter is enabled, this stores the last time the counter
-         * was reset. Otherwise it stores the counter value
+        /* Stores the architectural value of the counter *the last time it was
+         * updated* by pmccntr_op_start. Accesses should always be surrounded
+         * by pmccntr_op_start/pmccntr_op_finish to guarantee the latest
+         * architecturally-correct value is being read/set.
          */
         uint64_t c15_ccnt;
+        /* Stores the delta between the architectural value and the underlying
+         * cycle count during normal operation. It is used to update c15_ccnt
+         * to be the correct architectural value before accesses. During
+         * accesses, c15_ccnt_delta contains the underlying count being used
+         * for the access, after which it reverts to the delta value in
+         * pmccntr_op_finish.
+         */
+        uint64_t c15_ccnt_delta;
+        uint64_t c14_pmevcntr[31];
+        uint64_t c14_pmevcntr_delta[31];
+        uint64_t c14_pmevtyper[31];
         uint64_t pmccfiltr_el0; /* Performance Monitor Filter Register */
         uint64_t vpidr_el2; /* Virtualization Processor ID Register */
         uint64_t vmpidr_el2; /* Virtualization Multiprocessor ID Register */
@@ -747,6 +834,11 @@ typedef struct CPUARMState {
         uint32_t scr[M_REG_NUM_BANKS];
         uint32_t msplim[M_REG_NUM_BANKS];
         uint32_t psplim[M_REG_NUM_BANKS];
+        uint32_t fpcar[M_REG_NUM_BANKS];
+        uint32_t fpccr[M_REG_NUM_BANKS];
+        uint32_t fpdscr[M_REG_NUM_BANKS];
+        uint32_t cpacr[M_REG_NUM_BANKS];
+        uint32_t nsacr;
     } v7m;
 
     /* Information associated with an exception about to be taken:
@@ -765,6 +857,16 @@ typedef struct CPUARMState {
          */
     } exception;
 
+    /* Information associated with an SError */
+    struct {
+        uint8_t pending;
+        uint8_t has_esr;
+        uint64_t esr;
+    } serror;
+
+    /* State of our input IRQ/FIQ/VIRQ/VFIQ lines */
+    uint32_t irq_line_state;
+
     /* Thumb-2 EE state.  */
     uint32_t teecr;
     uint32_t teehbr;
@@ -775,15 +877,20 @@ typedef struct CPUARMState {
 
 #ifdef TARGET_AARCH64
         /* Store FFR as pregs[16] to make it easier to treat as any other.  */
+#define FFR_PRED_NUM 16
         ARMPredicateReg pregs[17];
+        /* Scratch space for aa64 sve predicate temporary.  */
+        ARMPredicateReg preg_tmp;
 #endif
 
-        uint32_t xregs[16];
         /* We store these fpcsr fields separately for convenience.  */
+        uint32_t qc[4] QEMU_ALIGNED(16);
         int vec_len;
         int vec_stride;
 
-        /* scratch space when Tn are not sufficient.  */
+        uint32_t xregs[16];
+
+        /* Scratch space for aa32 neon expansion.  */
         uint32_t scratch[8];
 
         /* There are a number of distinct float control structures:
@@ -826,6 +933,16 @@ typedef struct CPUARMState {
         uint32_t cregs[16];
     } iwmmxt;
 
+#ifdef TARGET_AARCH64
+    struct {
+        ARMPACKey apia;
+        ARMPACKey apib;
+        ARMPACKey apda;
+        ARMPACKey apdb;
+        ARMPACKey apga;
+    } keys;
+#endif
+
 #if defined(CONFIG_USER_ONLY)
     /* For usermode syscall translation.  */
     int eabi;
@@ -837,9 +954,7 @@ typedef struct CPUARMState {
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* Internal CPU feature flags.  */
     uint64_t features;
@@ -893,11 +1008,31 @@ typedef enum ARMPSCIState {
     PSCI_ON_PENDING = 2
 } ARMPSCIState;
 
+struct ARMISARegisters {
+    uint32_t id_isar0;
+    uint32_t id_isar1;
+    uint32_t id_isar2;
+    uint32_t id_isar3;
+    uint32_t id_isar4;
+    uint32_t id_isar5;
+    uint32_t id_isar6;
+    uint32_t mvfr0;
+    uint32_t mvfr1;
+    uint32_t mvfr2;
+    uint64_t id_aa64isar0;
+    uint64_t id_aa64isar1;
+    uint64_t id_aa64pfr0;
+    uint64_t id_aa64pfr1;
+    uint64_t id_aa64mmfr0;
+    uint64_t id_aa64mmfr1;
+};
+
 struct ARMCPU {
     /*< private >*/
     CPUState parent_obj;
     /*< public >*/
 
+    CPUNegativeOffsetState neg;
     CPUARMState env;
 
     /* Coprocessor information */
@@ -922,8 +1057,15 @@ struct ARMCPU {
     uint64_t *cpreg_vmstate_values;
     int32_t cpreg_vmstate_array_len;
 
+    DynamicGDBXMLInfo dyn_xml;
+
     /* Timers used by the generic (architected) timer */
     QEMUTimer *gt_timer[NUM_GTIMERS];
+    /*
+     * Timer used by the PMU. Its state is restored after migration by
+     * pmu_op_finish() - it does not need other handling during migration
+     */
+    QEMUTimer *pmu_timer;
     /* GPIO outputs for generic timer */
     qemu_irq gt_timer_outputs[NUM_GTIMERS];
     /* GPIO output for GICv3 maintenance interrupt signal */
@@ -958,6 +1100,12 @@ struct ARMCPU {
     bool has_el3;
     /* CPU has PMU (Performance Monitor Unit) */
     bool has_pmu;
+    /* CPU has VFP */
+    bool has_vfp;
+    /* CPU has Neon */
+    bool has_neon;
+    /* CPU has M-profile DSP extension */
+    bool has_dsp;
 
     /* CPU has memory protection unit */
     bool has_mpu;
@@ -1004,42 +1152,30 @@ struct ARMCPU {
      * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
      * is used for reset values of non-constant registers; no reset_
      * prefix means a constant register.
+     * Some of these registers are split out into a substructure that
+     * is shared with the translators to control the ISA.
      */
+    struct ARMISARegisters isar;
     uint32_t midr;
     uint32_t revidr;
     uint32_t reset_fpsid;
-    uint32_t mvfr0;
-    uint32_t mvfr1;
-    uint32_t mvfr2;
     uint32_t ctr;
     uint32_t reset_sctlr;
     uint32_t id_pfr0;
     uint32_t id_pfr1;
     uint32_t id_dfr0;
-    uint32_t pmceid0;
-    uint32_t pmceid1;
+    uint64_t pmceid0;
+    uint64_t pmceid1;
     uint32_t id_afr0;
     uint32_t id_mmfr0;
     uint32_t id_mmfr1;
     uint32_t id_mmfr2;
     uint32_t id_mmfr3;
     uint32_t id_mmfr4;
-    uint32_t id_isar0;
-    uint32_t id_isar1;
-    uint32_t id_isar2;
-    uint32_t id_isar3;
-    uint32_t id_isar4;
-    uint32_t id_isar5;
-    uint64_t id_aa64pfr0;
-    uint64_t id_aa64pfr1;
     uint64_t id_aa64dfr0;
     uint64_t id_aa64dfr1;
     uint64_t id_aa64afr0;
     uint64_t id_aa64afr1;
-    uint64_t id_aa64isar0;
-    uint64_t id_aa64isar1;
-    uint64_t id_aa64mmfr0;
-    uint64_t id_aa64mmfr1;
     uint32_t dbgdidr;
     uint32_t clidr;
     uint64_t mp_affinity; /* MP ID without feature bits */
@@ -1073,37 +1209,297 @@ struct ARMCPU {
 
     /* Used to synchronize KVM and QEMU in-kernel device levels */
     uint8_t device_irq_level;
+
+    /* Used to set the maximum vector length the cpu will support.  */
+    uint32_t sve_max_vq;
+
+    /*
+     * In sve_vq_map each set bit is a supported vector length of
+     * (bit-number + 1) * 16 bytes, i.e. each bit number + 1 is the vector
+     * length in quadwords.
+     *
+     * While processing properties during initialization, corresponding
+     * sve_vq_init bits are set for bits in sve_vq_map that have been
+     * set by properties.
+     */
+    DECLARE_BITMAP(sve_vq_map, ARM_MAX_VQ);
+    DECLARE_BITMAP(sve_vq_init, ARM_MAX_VQ);
 };
 
-static inline ARMCPU *arm_env_get_cpu(CPUARMState *env)
-{
-    return container_of(env, ARMCPU, env);
-}
+#define MMU_USER_IDX 0
 
-#define ENV_GET_CPU(e) CPU(arm_env_get_cpu(e))
+typedef CPUARMState CPUArchState;
+
+typedef ARMCPU ArchCPU;
 
 extern unsigned long guest_base;
 
-static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
+static inline ArchCPU *env_archcpu(CPUArchState *env)
+{
+    return container_of(env, ArchCPU, env);
+}
+
+static inline CPUState *env_cpu(CPUArchState *env)
+{
+    return &env_archcpu(env)->parent_obj;
+}
+
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+
+typedef uint64_t abi_ptr;
+
+extern __thread uintptr_t helper_retaddr;
+
+static inline void set_helper_retaddr(uintptr_t ra)
+{
+    helper_retaddr = ra;
+    /*
+     * Ensure that this write is visible to the SIGSEGV handler that
+     * may be invoked due to a subsequent invalid memory operation.
+     */
+    signal_barrier();
+}
+
+static inline void clear_helper_retaddr(void)
+{
+    /*
+     * Ensure that previous memory operations have succeeded before
+     * removing the data visible to the signal handler.
+     */
+    signal_barrier();
+    helper_retaddr = 0;
+}
+
+typedef struct TraceEvent {
+    uint32_t id;
+    uint32_t vcpu_id;
+    const char * name;
+    const bool sstate;
+    uint16_t *dstate;
+} TraceEvent;
+
+extern int trace_events_enabled_count;
+
+#define trace_event_get_vcpu_state(vcpu, id)                            \
+    ((id ##_ENABLED) &&                                                 \
+     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
+         vcpu, _ ## id ## _EVENT.vcpu_id))
+
+static inline bool
+trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
+                                              uint32_t vcpu_id)
+{
+    /* it's on fast path, avoid consistency checks (asserts) */
+    if (unlikely(trace_events_enabled_count)) {
+        return test_bit(vcpu_id, vcpu->trace_dstate);
+    } else {
+        return false;
+    }
+}
+
+extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
+
+#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
+
+static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
+{
+}
+
+static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
+{
+    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
+        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
+    }
+}
+
+typedef enum MemOp {
+    MO_8     = 0,
+    MO_16    = 1,
+    MO_32    = 2,
+    MO_64    = 3,
+    MO_SIZE  = 3,   /* Mask for the above.  */
+
+    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
+
+    MO_BSWAP = 8,   /* Host reverse endian.  */
+#ifdef HOST_WORDS_BIGENDIAN
+    MO_LE    = MO_BSWAP,
+    MO_BE    = 0,
+#else
+    MO_LE    = 0,
+    MO_BE    = MO_BSWAP,
+#endif
+#ifdef NEED_CPU_H
+#ifdef TARGET_WORDS_BIGENDIAN
+    MO_TE    = MO_BE,
+#else
+    MO_TE    = MO_LE,
+#endif
+#endif
+
+    /*
+     * MO_UNALN accesses are never checked for alignment.
+     * MO_ALIGN accesses will result in a call to the CPU's
+     * do_unaligned_access hook if the guest address is not aligned.
+     * The default depends on whether the target CPU defines
+     * TARGET_ALIGNED_ONLY.
+     *
+     * Some architectures (e.g. ARMv8) need the address which is aligned
+     * to a size more than the size of the memory access.
+     * Some architectures (e.g. SPARCv9) need an address which is aligned,
+     * but less strictly than the natural alignment.
+     *
+     * MO_ALIGN supposes the alignment size is the size of a memory access.
+     *
+     * There are three options:
+     * - unaligned access permitted (MO_UNALN).
+     * - an alignment to the size of an access (MO_ALIGN);
+     * - an alignment to a specified size, which may be more or less than
+     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
+     */
+    MO_ASHIFT = 4,
+    MO_AMASK = 7 << MO_ASHIFT,
+#ifdef NEED_CPU_H
+#ifdef TARGET_ALIGNED_ONLY
+    MO_ALIGN = 0,
+    MO_UNALN = MO_AMASK,
+#else
+    MO_ALIGN = MO_AMASK,
+    MO_UNALN = 0,
+#endif
+#endif
+    MO_ALIGN_2  = 1 << MO_ASHIFT,
+    MO_ALIGN_4  = 2 << MO_ASHIFT,
+    MO_ALIGN_8  = 3 << MO_ASHIFT,
+    MO_ALIGN_16 = 4 << MO_ASHIFT,
+    MO_ALIGN_32 = 5 << MO_ASHIFT,
+    MO_ALIGN_64 = 6 << MO_ASHIFT,
+
+    /* Combinations of the above, for ease of use.  */
+    MO_UB    = MO_8,
+    MO_UW    = MO_16,
+    MO_UL    = MO_32,
+    MO_SB    = MO_SIGN | MO_8,
+    MO_SW    = MO_SIGN | MO_16,
+    MO_SL    = MO_SIGN | MO_32,
+    MO_Q     = MO_64,
+
+    MO_LEUW  = MO_LE | MO_UW,
+    MO_LEUL  = MO_LE | MO_UL,
+    MO_LESW  = MO_LE | MO_SW,
+    MO_LESL  = MO_LE | MO_SL,
+    MO_LEQ   = MO_LE | MO_Q,
+
+    MO_BEUW  = MO_BE | MO_UW,
+    MO_BEUL  = MO_BE | MO_UL,
+    MO_BESW  = MO_BE | MO_SW,
+    MO_BESL  = MO_BE | MO_SL,
+    MO_BEQ   = MO_BE | MO_Q,
+
+#ifdef NEED_CPU_H
+    MO_TEUW  = MO_TE | MO_UW,
+    MO_TEUL  = MO_TE | MO_UL,
+    MO_TESW  = MO_TE | MO_SW,
+    MO_TESL  = MO_TE | MO_SL,
+    MO_TEQ   = MO_TE | MO_Q,
+#endif
+
+    MO_SSIZE = MO_SIZE | MO_SIGN,
+} MemOp;
+
+typedef uint32_t TCGMemOpIdx;
+
+static inline unsigned get_mmuidx(TCGMemOpIdx oi)
+{
+    return oi & 15;
+}
+
+#define TRACE_MEM_SZ_SHIFT_MASK 0xf
+
+#define TRACE_MEM_SE (1ULL << 4)
+
+#define TRACE_MEM_BE (1ULL << 5)
+
+#define TRACE_MEM_ST (1ULL << 6)
+
+static inline uint16_t trace_mem_build_info(
+    int size_shift, bool sign_extend, MemOp endianness,
+    bool store, unsigned int mmu_idx)
+{
+    uint16_t res;
+
+    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;
+    if (sign_extend) {
+        res |= TRACE_MEM_SE;
+    }
+    if (endianness == MO_BE) {
+        res |= TRACE_MEM_BE;
+    }
+    if (store) {
+        res |= TRACE_MEM_ST;
+    }
+#ifdef CONFIG_SOFTMMU
+    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;
+#endif
+    return res;
+}
+
+static inline
+uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
+                                       TCGMemOpIdx oi)
+{
+    return trace_mem_build_info(size_shift, false, MO_BE, store,
+                                get_mmuidx(oi));
+}
+
+void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
-
 #define HELPER(name) glue(helper_, name)
 
-static uintptr_t helper_retaddr;
+__thread uintptr_t helper_retaddr;
 
 #define ATOMIC_MMU_DECLS do {} while (0)
 
 #define ATOMIC_MMU_LOOKUP  atomic_mmu_lookup(env, addr, DATA_SIZE, GETPC())
 
-#define ATOMIC_MMU_CLEANUP do { helper_retaddr = 0; } while (0)
+#define ATOMIC_MMU_CLEANUP do { clear_helper_retaddr(); } while (0)
+
+#define ATOMIC_MMU_IDX MMU_USER_IDX
 
 #define ATOMIC_NAME(X)   HELPER(glue(glue(atomic_ ## X, SUFFIX), END))
 
 #define EXTRA_ARGS
+
+static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
+                               int size, uintptr_t retaddr)
+{
+    /* Enforce qemu required alignment.  */
+    if (unlikely(addr & (size - 1))) {
+        cpu_loop_exit_atomic(env_cpu(env), retaddr);
+    }
+    void *ret = g2h(addr);
+    set_helper_retaddr(retaddr);
+    return ret;
+}
+
+static inline
+void atomic_trace_rmw_pre(CPUArchState *env, target_ulong addr, uint16_t info)
+{
+    CPUState *cpu = env_cpu(env);
+
+    trace_guest_mem_before_exec(cpu, addr, info);
+    trace_guest_mem_before_exec(cpu, addr, info | TRACE_MEM_ST);
+}
+
+static inline void
+atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
+{
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info);
+    qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info | TRACE_MEM_ST);
+}
 
 #define DATA_SIZE 1
 
@@ -1111,39 +1507,49 @@ static uintptr_t helper_retaddr;
 
 # define DATA_TYPE  uint8_t
 
+# define SHIFT      0
+
 # define ABI_TYPE  uint32_t
 
 # define END
 
-static void *atomic_mmu_lookup(CPUArchState *env, target_ulong addr,
-                               int size, uintptr_t retaddr)
-{
-    /* Enforce qemu required alignment.  */
-    if (unlikely(addr & (size - 1))) {
-        cpu_loop_exit_atomic(ENV_GET_CPU(env), retaddr);
-    }
-    helper_retaddr = retaddr;
-    return g2h(addr);
-}
+# define MEND _be
 
 ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
                               ABI_TYPE cmpv, ABI_TYPE newv EXTRA_ARGS)
 {
     ATOMIC_MMU_DECLS;
     DATA_TYPE *haddr = ATOMIC_MMU_LOOKUP;
-    DATA_TYPE ret = atomic_cmpxchg__nocheck(haddr, cmpv, newv);
+    DATA_TYPE ret;
+    uint16_t info = glue(trace_mem_build_info_no_se, MEND)(SHIFT, false,
+                                                           ATOMIC_MMU_IDX);
+
+    atomic_trace_rmw_pre(env, addr, info);
+#if DATA_SIZE == 16
+    ret = atomic16_cmpxchg(haddr, cmpv, newv);
+#else
+    ret = atomic_cmpxchg__nocheck(haddr, cmpv, newv);
+#endif
     ATOMIC_MMU_CLEANUP;
+    atomic_trace_rmw_post(env, addr, info);
     return ret;
 }
 
 #define GEN_ATOMIC_HELPER(X)                                        \
 ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
-                 ABI_TYPE val EXTRA_ARGS)                           \
+                        ABI_TYPE val EXTRA_ARGS)                    \
 {                                                                   \
     ATOMIC_MMU_DECLS;                                               \
     DATA_TYPE *haddr = ATOMIC_MMU_LOOKUP;                           \
-    DATA_TYPE ret = atomic_##X(haddr, val);                         \
+    DATA_TYPE ret;                                                  \
+    uint16_t info = glue(trace_mem_build_info_no_se, MEND)(SHIFT,   \
+                                                           false,   \
+                                                           ATOMIC_MMU_IDX); \
+                                                                    \
+    atomic_trace_rmw_pre(env, addr, info);                          \
+    ret = atomic_##X(haddr, val);                                   \
     ATOMIC_MMU_CLEANUP;                                             \
+    atomic_trace_rmw_post(env, addr, info);                         \
     return ret;                                                     \
 }
 

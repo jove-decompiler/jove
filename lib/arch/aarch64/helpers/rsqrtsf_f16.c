@@ -22,6 +22,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -60,7 +61,7 @@ static inline float16 float16_chs(float16 a)
 
 #define float16_one_point_five make_float16(0x3e00)
 
-float16 HELPER(rsqrtsf_f16)(float16 a, float16 b, void *fpstp)
+uint32_t HELPER(rsqrtsf_f16)(uint32_t a, uint32_t b, void *fpstp)
 {
     float_status *fpst = fpstp;
 

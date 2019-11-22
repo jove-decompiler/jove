@@ -6,11 +6,11 @@
 
 #define HELPER(name) glue(helper_, name)
 
-#define SIMD64_SET(v, n)	((v != 0) << (32 + (n)))
+#define SIMD64_SET(v, n)        ((v != 0) << (32 + (n)))
 
-#define SIMD_NBIT	-1
+#define SIMD_NBIT       -1
 
-#define SIMD_ZBIT	-2
+#define SIMD_ZBIT       -2
 
 uint32_t HELPER(iwmmxt_setpsr_nz)(uint64_t x)
 {

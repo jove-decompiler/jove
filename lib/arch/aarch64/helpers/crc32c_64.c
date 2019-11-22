@@ -2,17 +2,20 @@
 
 #define glue(x, y) xglue(x, y)
 
-#include <stddef.h>
-
 #include <stdint.h>
-
-#include <string.h>
 
 #define le_bswap(v, size) (v)
 
+static inline int lduw_he_p(const void *ptr)
+{
+    uint16_t r;
+    __builtin_memcpy(&r, ptr, sizeof(r));
+    return r;
+}
+
 static inline void stq_he_p(void *ptr, uint64_t v)
 {
-    memcpy(ptr, &v, sizeof(v));
+    __builtin_memcpy(ptr, &v, sizeof(v));
 }
 
 static inline void stq_le_p(void *ptr, uint64_t v)

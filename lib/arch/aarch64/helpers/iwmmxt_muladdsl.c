@@ -6,7 +6,7 @@
 
 #define HELPER(name) glue(helper_, name)
 
-#define EXTEND32(a)	((uint64_t) (int32_t) (a))
+#define EXTEND32(a)     ((uint64_t) (int32_t) (a))
 
 uint64_t HELPER(iwmmxt_muladdsl)(uint64_t c, uint32_t a, uint32_t b)
 {

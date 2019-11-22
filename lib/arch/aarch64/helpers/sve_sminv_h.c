@@ -1,0 +1,49 @@
+#define xglue(x, y) x ## y
+
+#define glue(x, y) xglue(x, y)
+
+#include <stdint.h>
+
+#include <assert.h>
+
+static inline uint32_t extract32(uint32_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 32 - start);
+    return (value >> start) & (~0U >> (32 - length));
+}
+
+#define HELPER(name) glue(helper_, name)
+
+#define SIMD_OPRSZ_SHIFT   0
+
+#define SIMD_OPRSZ_BITS    5
+
+static inline intptr_t simd_oprsz(uint32_t desc)
+{
+    return (extract32(desc, SIMD_OPRSZ_SHIFT, SIMD_OPRSZ_BITS) + 1) * 8;
+}
+
+#define H1_2(x) (x)
+
+#define DO_MIN(N, M)  ((N) >= (M) ? (M) : (N))
+
+#define DO_VPZ(NAME, TYPEELT, TYPERED, TYPERET, H, INIT, OP) \
+uint64_t HELPER(NAME)(void *vn, void *vg, uint32_t desc)   \
+{                                                          \
+    intptr_t i, opr_sz = simd_oprsz(desc);                 \
+    TYPERED ret = INIT;                                    \
+    for (i = 0; i < opr_sz; ) {                            \
+        uint16_t pg = *(uint16_t *)(vg + H1_2(i >> 3));    \
+        do {                                               \
+            if (pg & 1) {                                  \
+                TYPEELT nn = *(TYPEELT *)(vn + H(i));      \
+                ret = OP(ret, nn);                         \
+            }                                              \
+            i += sizeof(TYPEELT), pg >>= sizeof(TYPEELT);  \
+        } while (i & 15);                                  \
+    }                                                      \
+    return (TYPERET)ret;                                   \
+}
+
+DO_VPZ(sve_sminv_h, int16_t, int16_t, uint16_t, H1_2, INT16_MAX, DO_MIN)
+

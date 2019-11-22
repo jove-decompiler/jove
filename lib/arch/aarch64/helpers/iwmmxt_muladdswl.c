@@ -6,9 +6,9 @@
 
 #define HELPER(name) glue(helper_, name)
 
-#define EXTEND16S(a)	((int32_t) (int16_t) (a))
+#define EXTEND16S(a)    ((int32_t) (int16_t) (a))
 
-#define EXTEND32(a)	((uint64_t) (int32_t) (a))
+#define EXTEND32(a)     ((uint64_t) (int32_t) (a))
 
 uint64_t HELPER(iwmmxt_muladdswl)(uint64_t c, uint32_t a, uint32_t b)
 {

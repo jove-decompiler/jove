@@ -36,6 +36,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -68,7 +69,7 @@ float16 float16_squash_input_denormal(float16 a, float_status *status);
 
 int float16_is_signaling_nan(float16, float_status *status);
 
-float16 float16_maybe_silence_nan(float16, float_status *status);
+float16 float16_silence_nan(float16, float_status *status);
 
 static inline int float16_is_any_nan(float16 a)
 {
@@ -148,7 +149,7 @@ static uint64_t recip_sqrt_estimate(int *exp , int exp_off, uint64_t frac)
     return extract64(estimate, 0, 8) << 44;
 }
 
-float16 HELPER(rsqrte_f16)(float16 input, void *fpstp)
+uint32_t HELPER(rsqrte_f16)(uint32_t input, void *fpstp)
 {
     float_status *s = fpstp;
     float16 f16 = float16_squash_input_denormal(input, s);
@@ -162,7 +163,7 @@ float16 HELPER(rsqrte_f16)(float16 input, void *fpstp)
         float16 nan = f16;
         if (float16_is_signaling_nan(f16, s)) {
             float_raise(float_flag_invalid, s);
-            nan = float16_maybe_silence_nan(f16, s);
+            nan = float16_silence_nan(f16, s);
         }
         if (s->default_nan_mode) {
             nan =  float16_default_nan(s);

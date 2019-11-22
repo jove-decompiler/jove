@@ -34,6 +34,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -47,9 +48,11 @@ static inline uint64_t extract64(uint64_t value, int start, int length)
 
 void float_raise(uint8_t flags, float_status *status);
 
+float64 float64_squash_input_denormal(float64 a, float_status *status);
+
 int float64_is_signaling_nan(float64, float_status *status);
 
-float64 float64_maybe_silence_nan(float64, float_status *status);
+float64 float64_silence_nan(float64, float_status *status);
 
 static inline int float64_is_any_nan(float64 a)
 {
@@ -68,13 +71,15 @@ float64 HELPER(frecpx_f64)(float64 a, void *fpstp)
         float64 nan = a;
         if (float64_is_signaling_nan(a, fpst)) {
             float_raise(float_flag_invalid, fpst);
-            nan = float64_maybe_silence_nan(a, fpst);
+            nan = float64_silence_nan(a, fpst);
         }
         if (fpst->default_nan_mode) {
             nan = float64_default_nan(fpst);
         }
         return nan;
     }
+
+    a = float64_squash_input_denormal(a, fpst);
 
     val64 = float64_val(a);
     sbit = 0x8000000000000000ULL & val64;

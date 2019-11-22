@@ -18,6 +18,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -34,7 +35,7 @@ int float16_compare(float16, float16, float_status *status);
 
 #define ADVSIMD_CMPRES(test) (test) ? 0xffff : 0
 
-uint32_t HELPER(advsimd_cgt_f16)(float16 a, float16 b, void *fpstp)
+uint32_t HELPER(advsimd_cgt_f16)(uint32_t a, uint32_t b, void *fpstp)
 {
     float_status *fpst = fpstp;
     int compare = float16_compare(a, b, fpst);

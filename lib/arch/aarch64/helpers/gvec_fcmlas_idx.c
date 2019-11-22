@@ -20,6 +20,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -75,23 +76,29 @@ void HELPER(gvec_fcmlas_idx)(void *vd, void *vn, void *vm,
     float_status *fpst = vfpst;
     intptr_t flip = extract32(desc, SIMD_DATA_SHIFT, 1);
     uint32_t neg_imag = extract32(desc, SIMD_DATA_SHIFT + 1, 1);
+    intptr_t index = extract32(desc, SIMD_DATA_SHIFT + 2, 2);
     uint32_t neg_real = flip ^ neg_imag;
-    uintptr_t i;
-    float32 e1 = m[H4(flip)];
-    float32 e3 = m[H4(1 - flip)];
+    intptr_t elements = opr_sz / sizeof(float32);
+    intptr_t eltspersegment = 16 / sizeof(float32);
+    intptr_t i, j;
 
     /* Shift boolean to the sign bit so we can xor to negate.  */
     neg_real <<= 31;
     neg_imag <<= 31;
-    e1 ^= neg_real;
-    e3 ^= neg_imag;
 
-    for (i = 0; i < opr_sz / 4; i += 2) {
-        float32 e2 = n[H4(i + flip)];
-        float32 e4 = e2;
+    for (i = 0; i < elements; i += eltspersegment) {
+        float32 mr = m[H4(i + 2 * index + 0)];
+        float32 mi = m[H4(i + 2 * index + 1)];
+        float32 e1 = neg_real ^ (flip ? mi : mr);
+        float32 e3 = neg_imag ^ (flip ? mr : mi);
 
-        d[H4(i)] = float32_muladd(e2, e1, d[H4(i)], 0, fpst);
-        d[H4(i + 1)] = float32_muladd(e4, e3, d[H4(i + 1)], 0, fpst);
+        for (j = i; j < i + eltspersegment; j += 2) {
+            float32 e2 = n[H4(j + flip)];
+            float32 e4 = e2;
+
+            d[H4(j)] = float32_muladd(e2, e1, d[H4(j)], 0, fpst);
+            d[H4(j + 1)] = float32_muladd(e4, e3, d[H4(j + 1)], 0, fpst);
+        }
     }
     clear_tail(d, opr_sz, simd_maxsz(desc));
 }

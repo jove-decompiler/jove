@@ -30,6 +30,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -37,39 +38,39 @@ typedef struct float_status {
 
 void float_raise(uint8_t flags, float_status *status);
 
+float16 uint32_to_float16(uint32_t a, float_status *status);
+
 uint32_t float16_to_uint32(float16 a, float_status *status);
 
 uint32_t float16_to_uint32_round_to_zero(float16 a, float_status *status);
-
-float16 uint32_to_float16(uint32_t a, float_status *status);
 
 static inline int float16_is_any_nan(float16 a)
 {
     return ((float16_val(a) & ~0x8000) > 0x7c00);
 }
 
-#define CONV_ITOF(name, fsz, sign) \
-    float##fsz HELPER(name)(uint32_t x, void *fpstp) \
-{ \
-    float_status *fpst = fpstp; \
-    return sign##int32_to_##float##fsz((sign##int32_t)x, fpst); \
+#define CONV_ITOF(name, ftype, fsz, sign)                           \
+ftype HELPER(name)(uint32_t x, void *fpstp)                         \
+{                                                                   \
+    float_status *fpst = fpstp;                                     \
+    return sign##int32_to_##float##fsz((sign##int32_t)x, fpst);     \
 }
 
-#define CONV_FTOI(name, fsz, sign, round) \
-uint32_t HELPER(name)(float##fsz x, void *fpstp) \
-{ \
-    float_status *fpst = fpstp; \
-    if (float##fsz##_is_any_nan(x)) { \
-        float_raise(float_flag_invalid, fpst); \
-        return 0; \
-    } \
-    return float##fsz##_to_##sign##int32##round(x, fpst); \
+#define CONV_FTOI(name, ftype, fsz, sign, round)                \
+sign##int32_t HELPER(name)(ftype x, void *fpstp)                \
+{                                                               \
+    float_status *fpst = fpstp;                                 \
+    if (float##fsz##_is_any_nan(x)) {                           \
+        float_raise(float_flag_invalid, fpst);                  \
+        return 0;                                               \
+    }                                                           \
+    return float##fsz##_to_##sign##int32##round(x, fpst);       \
 }
 
-#define FLOAT_CONVS(name, p, fsz, sign) \
-CONV_ITOF(vfp_##name##to##p, fsz, sign) \
-CONV_FTOI(vfp_to##name##p, fsz, sign, ) \
-CONV_FTOI(vfp_to##name##z##p, fsz, sign, _round_to_zero)
+#define FLOAT_CONVS(name, p, ftype, fsz, sign)            \
+    CONV_ITOF(vfp_##name##to##p, ftype, fsz, sign)        \
+    CONV_FTOI(vfp_to##name##p, ftype, fsz, sign, )        \
+    CONV_FTOI(vfp_to##name##z##p, ftype, fsz, sign, _round_to_zero)
 
-FLOAT_CONVS(ui, h, 16, u)
+FLOAT_CONVS(ui, h, uint32_t, 16, u)
 

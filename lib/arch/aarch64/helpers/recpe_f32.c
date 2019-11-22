@@ -74,6 +74,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -115,7 +116,7 @@ float32 float32_squash_input_denormal(float32 a, float_status *status);
 
 int float32_is_signaling_nan(float32, float_status *status);
 
-float32 float32_maybe_silence_nan(float32, float_status *status);
+float32 float32_silence_nan(float32, float_status *status);
 
 static inline float32 float32_abs(float32 a)
 {
@@ -233,7 +234,7 @@ float32 HELPER(recpe_f32)(float32 input, void *fpstp)
         float32 nan = f32;
         if (float32_is_signaling_nan(f32, fpst)) {
             float_raise(float_flag_invalid, fpst);
-            nan = float32_maybe_silence_nan(f32, fpst);
+            nan = float32_silence_nan(f32, fpst);
         }
         if (fpst->default_nan_mode) {
             nan =  float32_default_nan(fpst);
