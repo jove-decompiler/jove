@@ -9425,8 +9425,21 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                                                true /* hasSideEffects */);
     IRB.CreateCall(IA);
+#elif defined(__aarch64__)
+    std::vector<llvm::Type *> AsmArgTypes;
+    std::vector<llvm::Value *> AsmArgs;
+
+    llvm::FunctionType *AsmFTy =
+        llvm::FunctionType::get(VoidType(), AsmArgTypes, false);
+
+    llvm::StringRef AsmText("dmb ish");
+    llvm::StringRef Constraints("~{memory}");
+
+    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
+                                               true /* hasSideEffects */);
+    IRB.CreateCall(IA);
 #else
-    WithColor::warning() << "TODO INDEX_op_mb\n";
+#error
 #endif
 
     break;
