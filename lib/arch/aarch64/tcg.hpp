@@ -2990,8 +2990,7 @@ extern unsigned long guest_base;
 
 #define TARGET_PAGE_SIZE   (1 << TARGET_PAGE_BITS)
 
-//#define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
-#define TARGET_PAGE_MASK ~(TARGET_PAGE_SIZE - 1)
+#define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
 
 extern uintptr_t qemu_host_page_size;
 

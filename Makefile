@@ -21,6 +21,7 @@ CXXFLAGS := -std=gnu++14 \
             -fno-omit-frame-pointer \
             -fvisibility=hidden \
             -fexceptions \
+            -fwrapv \
             -Ofast \
             -g \
             -I bin \
