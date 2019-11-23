@@ -661,8 +661,15 @@ skip_dfsan:
           "-o", chrooted_path.c_str(),
           objfp.c_str(),
 
-          "-m", "elf_" ___JOVE_ARCH_NAME,
+          "-m",
 
+#if defined(__x86_64__)
+          "elf_" ___JOVE_ARCH_NAME,
+#elif defined(__aarch64__)
+          "aarch64linux",
+#else
+#error
+#endif
           b.IsExecutable ?
             "-pie" :
             "-shared",
