@@ -1022,7 +1022,6 @@ int InitStateForBinaries(void) {
       //
       {
         uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
-        unsigned i = 0;
         for (const auto &pair : st.SectMap) {
           minAddr = std::min(minAddr, pair.first.lower());
           maxAddr = std::max(maxAddr, pair.first.upper());
@@ -1155,7 +1154,6 @@ struct DynRegionInfo {
 int ProcessBinaryTLSSymbols(void) {
   binary_index_t BIdx = BinaryIndex;
   auto &binary = Decompilation.Binaries[BIdx];
-  auto &st = BinStateVec[BIdx];
 
   assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -7544,7 +7542,6 @@ int TranslateBasicBlock(binary_t &Binary,
                         basic_block_t bb,
                         llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
-  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
 
   const uintptr_t Addr = ICFG[bb].Addr;
   const unsigned Size = ICFG[bb].Size;
@@ -7558,8 +7555,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
     basic_block_index_t BBIdx = bb_idx_map[bb];
 
-    static_assert(sizeof(BIdx) == sizeof(uint32_t));
-    static_assert(sizeof(BBIdx) == sizeof(uint32_t));
+    static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
+    static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
 
     uint64_t comb =
         (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
@@ -7855,9 +7852,6 @@ int TranslateBasicBlock(binary_t &Binary,
                           boost::vertex_index_t>::type bb_idx_map =
           boost::get(boost::vertex_index, ICFG);
 
-      // TODO call DL.getAllocSize and verify the numbers are the same
-      uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
-
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                     IRB.CreateLoad(f.PCAlloca)};
 
@@ -7892,8 +7886,6 @@ int TranslateBasicBlock(binary_t &Binary,
       //
       if (T.Type == TERMINATOR::INDIRECT_JUMP) {
         assert(boost::out_degree(bb, ICFG) == 0);
-
-        uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
 
         llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                       IRB.CreateLoad(f.PCAlloca)};
@@ -8409,7 +8401,7 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
 
 static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
 
-static unsigned bits_of_memop(TCGMemOp op) {
+static unsigned bits_of_memop(MemOp op) {
   return bits_of_memop_lookup_table[op & MO_SIZE];
 }
 
@@ -8560,7 +8552,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     nb_iargs = TCGOP_CALLI(op);
     uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
     void *helper_ptr = reinterpret_cast<void *>(helper_addr);
-    const char *helper_nm = tcg_find_helper(&TCG->_ctx, helper_addr);
+    //const char *helper_nm = tcg_find_helper(&TCG->_ctx, helper_addr);
 
     //
     // some helper functions are special-cased
@@ -8739,7 +8731,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 #define __OP_QEMU_LD(opc_name, bits)                                           \
   case opc_name: {                                                             \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
-    TCGMemOp mop = get_memop(moidx);                                           \
+    MemOp mop = get_memop(moidx);                                              \
                                                                                \
     llvm::Value *Addr = get(arg_temp(op->args[nb_oargs]));                     \
     Addr = IRB.CreateZExt(Addr, WordType());                                   \
@@ -8779,7 +8771,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 #define __OP_QEMU_ST(opc_name, bits)                                           \
   case opc_name: {                                                             \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
-    TCGMemOp mop = get_memop(moidx);                                           \
+    MemOp mop = get_memop(moidx);                                              \
                                                                                \
     llvm::Value *Addr = get(arg_temp(op->args[1]));                            \
     Addr = IRB.CreateZExt(Addr, WordType());                                   \

@@ -294,7 +294,7 @@ typedef struct IRQState *qemu_irq;
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern int qemu_icache_linesize;
+static int qemu_icache_linesize;
 
 #define CP_REG_ARM_COPROC_SHIFT        16
 
@@ -1003,11 +1003,11 @@ struct QemuThread {
     pthread_t thread;
 };
 
-void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line);
+void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line) {}
 
 typedef void (*QemuMutexLockFunc)(QemuMutex *m, const char *f, int l);
 
-extern QemuMutexLockFunc qemu_mutex_lock_func;
+static QemuMutexLockFunc qemu_mutex_lock_func = [](QemuMutex *m, const char *f, int l) -> void {};
 
 #define qemu_mutex_lock(m) ({                                           \
             QemuMutexLockFunc _f = atomic_read(&qemu_mutex_lock_func);  \
@@ -1314,7 +1314,7 @@ typedef QTAILQ_HEAD(CPUTailQ, CPUState) CPUTailQ;
 
 #define CPU_FOREACH(cpu) QTAILQ_FOREACH_RCU(cpu, &cpus, node)
 
-extern CPUTailQ cpus;
+static CPUTailQ cpus;
 
 static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
 {
@@ -1325,7 +1325,7 @@ static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
     }
 }
 
-void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data);
+static void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data) {}
 
 static inline bool cpu_in_exclusive_context(const CPUState *cpu)
 {
@@ -1570,6 +1570,9 @@ typedef int64_t target_long;
 #define TARGET_FMT_lx "%016" PRIx64
 
 typedef uint64_t target_ulong;
+
+constexpr target_ulong JOVE_RETADDR_COOKIE = 0xbd47c92caa6cbcb4;
+constexpr target_ulong JOVE_PCREL_MAGIC = std::numeric_limits<target_ulong>::max();
 
 typedef struct CPUTLB { } CPUTLB;
 
@@ -2847,7 +2850,14 @@ struct ARMCPRegInfo {
     CPResetFn *resetfn;
 };
 
-const ARMCPRegInfo *get_arm_cp_reginfo(GHashTable *cpregs, uint32_t encoded_cp);
+const ARMCPRegInfo *get_arm_cp_reginfo(GHashTable *cpregs, uint32_t encoded_cp)
+{
+#if 0
+    return (const ARMCPRegInfo *)g_hash_table_lookup(cpregs, &encoded_cp);
+#else
+    return nullptr;
+#endif
+}
 
 static inline bool cp_access_ok(int current_el,
                                 const ARMCPRegInfo *ri, int isread)
@@ -2980,7 +2990,8 @@ extern unsigned long guest_base;
 
 #define TARGET_PAGE_SIZE   (1 << TARGET_PAGE_BITS)
 
-#define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
+//#define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
+#define TARGET_PAGE_MASK ~(TARGET_PAGE_SIZE - 1)
 
 extern uintptr_t qemu_host_page_size;
 
@@ -2992,7 +3003,7 @@ extern uintptr_t qemu_host_page_size;
 
 #define PAGE_BITS      (PAGE_READ | PAGE_WRITE | PAGE_EXEC)
 
-extern intptr_t qemu_host_page_mask;
+static intptr_t qemu_host_page_mask;
 
 int page_get_flags(target_ulong address);
 
@@ -3349,9 +3360,9 @@ struct qht {
 
 typedef void (*qht_iter_func_t)(void *p, uint32_t h, void *up);
 
-bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing);
+static bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing) { return false; }
 
-bool qht_reset_size(struct qht *ht, size_t n_elems);
+static bool qht_reset_size(struct qht *ht, size_t n_elems) { return false; }
 
 void qht_iter(struct qht *ht, qht_iter_func_t func, void *userp);
 
@@ -3371,11 +3382,14 @@ struct TBContext {
     unsigned tb_flush_count;
 };
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#ifndef g2h
+#error
+#endif
+//#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint64_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -4722,7 +4736,10 @@ void qemu_log_flush(void);
 
 void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb, int max_insns);
 
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
+static void QEMU_NORETURN cpu_loop_exit(CPUState *cpu) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 #define CODE_GEN_ALIGN           16
 
@@ -4798,6 +4815,10 @@ struct TranslationBlock {
     uintptr_t jmp_list_head;
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_dest[2];
+
+    struct {
+      jove::terminator_info_t T;
+    } jove;
 };
 
 static inline uint32_t tb_cflags(const TranslationBlock *tb)
@@ -4805,13 +4826,13 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
     return atomic_read(&tb->cflags);
 }
 
-void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
+static void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr) {}
 
-void mmap_lock(void);
+static void mmap_lock(void) {}
 
-void mmap_unlock(void);
+static void mmap_unlock(void) {}
 
-bool have_mmap_lock(void);
+static bool have_mmap_lock(void) { return true; }
 
 static inline tb_page_addr_t get_page_addr_code(CPUArchState *env,
                                                 target_ulong addr)
@@ -14050,7 +14071,7 @@ enum arm_fprounding {
     FPROUNDING_ODD
 };
 
-int arm_rmode_to_sf(int rmode);
+static int arm_rmode_to_sf(int rmode);
 
 #define ARM_EL_EC_SHIFT 26
 
@@ -14553,6 +14574,7 @@ static inline void gen_io_end(void)
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
+#if 0
     TCGv_i32 count, imm;
 
     tcg_ctx->exitreq_label = gen_new_label();
@@ -14588,10 +14610,12 @@ static inline void gen_tb_start(TranslationBlock *tb)
     }
 
     tcg_temp_free_i32(count);
+#endif
 }
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+#if 0
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */
@@ -14600,6 +14624,7 @@ static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 
     gen_set_label(tcg_ctx->exitreq_label);
     tcg_gen_exit_tb(tb, TB_EXIT_REQUESTED);
+#endif
 }
 
 void disas(FILE *out, void *code, unsigned long size);
@@ -15787,6 +15812,13 @@ static void disas_uncond_b_imm(DisasContext *s, uint32_t insn)
     if (insn & (1U << 31)) {
         /* BL Branch with link */
         tcg_gen_movi_i64(cpu_reg(s, 30), s->base.pc_next);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+        s->base.tb->jove.T._call.Target = addr;
+        s->base.tb->jove.T._call.NextPC = s->base.pc_next;
+    } else {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = addr;
     }
 
     /* B Branch / BL Branch with link */
@@ -15813,6 +15845,12 @@ static void disas_comp_b_imm(DisasContext *s, uint32_t insn)
     tcg_gen_brcondi_i64(op ? TCG_COND_NE : TCG_COND_EQ,
                         tcg_cmp, 0, label_match);
 
+    {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = addr;
+        s->base.tb->jove.T._conditional_jump.NextPC = s->base.pc_next;
+    }
+
     gen_goto_tb64(s, 0, s->base.pc_next);
     gen_set_label(label_match);
     gen_goto_tb64(s, 1, addr);
@@ -15838,6 +15876,11 @@ static void disas_test_b_imm(DisasContext *s, uint32_t insn)
     tcg_gen_brcondi_i64(op ? TCG_COND_NE : TCG_COND_EQ,
                         tcg_cmp, 0, label_match);
     tcg_temp_free_i64(tcg_cmp);
+    {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = addr;
+        s->base.tb->jove.T._conditional_jump.NextPC = s->base.pc_next;
+    }
     gen_goto_tb64(s, 0, s->base.pc_next);
     gen_set_label(label_match);
     gen_goto_tb64(s, 1, addr);
@@ -15860,10 +15903,18 @@ static void disas_cond_b_imm(DisasContext *s, uint32_t insn)
         /* genuinely conditional branches */
         TCGLabel *label_match = gen_new_label();
         arm_gen_test_cc(cond, label_match);
+        {
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            s->base.tb->jove.T._conditional_jump.Target = addr;
+            s->base.tb->jove.T._conditional_jump.NextPC = s->base.pc_next;
+        }
         gen_goto_tb64(s, 0, s->base.pc_next);
         gen_set_label(label_match);
         gen_goto_tb64(s, 1, addr);
     } else {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = addr;
+
         /* 0xe and 0xf are both "always" conditions */
         gen_goto_tb64(s, 0, addr);
     }
@@ -16382,6 +16433,8 @@ static void disas_exc(DisasContext *s, uint32_t insn)
             gen_ss_advance(s);
             gen_exception_insn64(s, s->base.pc_next, EXCP_SWI,
                                syn_aa64_svc(imm16), default_exception_el(s));
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         case 2:                                                     /* HVC */
             if (s->current_el == 0) {
@@ -16479,6 +16532,15 @@ static void disas_uncond_b_reg(DisasContext *s, uint32_t insn)
 
     if (op2 != 0x1f) {
         goto do_unallocated;
+    }
+
+    if (opc == 0) {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
+    } else if (opc == 1) {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+        s->base.tb->jove.T._indirect_call.NextPC = s->base.pc_next;
+    } else if (opc == 2) {
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
     }
 
     switch (opc) {
@@ -17902,6 +17964,7 @@ static void disas_pc_rel_adr(DisasContext *s, uint32_t insn)
         offset <<= 12;
     }
 
+    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
     tcg_gen_movi_i64(cpu_reg(s, rd), base + offset);
 }
 
@@ -44455,6 +44518,7 @@ static uint32_t read_pc(DisasContext *s)
 static void load_reg_var(DisasContext *s, TCGv_i32 var, int reg)
 {
     if (reg == 15) {
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         tcg_gen_movi_i32(var, read_pc(s));
     } else {
         tcg_gen_mov_i32(var, cpu_R[reg]);
@@ -44473,6 +44537,7 @@ static TCGv_i32 add_reg_for_lit(DisasContext *s, int reg, int ofs)
     TCGv_i32 tmp = tcg_temp_new_i32();
 
     if (reg == 15) {
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         tcg_gen_movi_i32(tmp, (read_pc(s) & ~3) + ofs);
     } else {
         tcg_gen_addi_i32(tmp, cpu_R[reg], ofs);
@@ -68951,7 +69016,7 @@ uint32_t tb_hash_func(tb_page_addr_t phys_pc, target_ulong pc, uint32_t flags,
     return qemu_xxhash7(phys_pc, pc, flags, cf_mask, trace_vcpu_dstate);
 }
 
-extern bool tcg_allowed;
+static const bool tcg_allowed = true;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -70258,25 +70323,27 @@ typedef arg_rprr_esz arg_LSL_zpzw;
 
 static bool trans_LSL_zpzw(DisasContext *ctx, arg_LSL_zpzw *a);
 
+namespace __sve {
 typedef arg_rpr_esz arg_CLS;
-
 static bool trans_CLS(DisasContext *ctx, arg_CLS *a);
-
 typedef arg_rpr_esz arg_CLZ;
-
 static bool trans_CLZ(DisasContext *ctx, arg_CLZ *a);
-
 typedef arg_rpr_esz arg_CNT_zpz;
-
 static bool trans_CNT_zpz(DisasContext *ctx, arg_CNT_zpz *a);
-
 typedef arg_rpr_esz arg_CNOT;
-
 static bool trans_CNOT(DisasContext *ctx, arg_CNOT *a);
-
 typedef arg_rpr_esz arg_NOT_zpz;
-
 static bool trans_NOT_zpz(DisasContext *ctx, arg_NOT_zpz *a);
+typedef arg_rpr_esz arg_ABS;
+static bool trans_ABS(DisasContext *ctx, arg_ABS *a);
+typedef arg_rpr_esz arg_NEG;
+static bool trans_NEG(DisasContext *ctx, arg_NEG *a);
+
+typedef arg_rprrr_esz arg_MLA;
+static bool trans_MLA(DisasContext *ctx, arg_MLA *a);
+typedef arg_rprrr_esz arg_MLS;
+static bool trans_MLS(DisasContext *ctx, arg_MLS *a);
+}
 
 typedef arg_rpr_esz arg_FABS;
 
@@ -70285,14 +70352,6 @@ static bool trans_FABS(DisasContext *ctx, arg_FABS *a);
 typedef arg_rpr_esz arg_FNEG;
 
 static bool trans_FNEG(DisasContext *ctx, arg_FNEG *a);
-
-typedef arg_rpr_esz arg_ABS;
-
-static bool trans_ABS(DisasContext *ctx, arg_ABS *a);
-
-typedef arg_rpr_esz arg_NEG;
-
-static bool trans_NEG(DisasContext *ctx, arg_NEG *a);
 
 typedef arg_rpr_esz arg_SXTB;
 
@@ -70345,14 +70404,6 @@ static bool trans_FACGE_ppzz(DisasContext *ctx, arg_FACGE_ppzz *a);
 typedef arg_rprr_esz arg_FACGT_ppzz;
 
 static bool trans_FACGT_ppzz(DisasContext *ctx, arg_FACGT_ppzz *a);
-
-typedef arg_rprrr_esz arg_MLA;
-
-static bool trans_MLA(DisasContext *ctx, arg_MLA *a);
-
-typedef arg_rprrr_esz arg_MLS;
-
-static bool trans_MLS(DisasContext *ctx, arg_MLS *a);
 
 typedef arg_rrr_esz arg_ADD_zzz;
 
@@ -70682,9 +70733,11 @@ typedef arg_rpr_esz arg_REVW;
 
 static bool trans_REVW(DisasContext *ctx, arg_REVW *a);
 
+namespace __sve {
 typedef arg_rpr_esz arg_RBIT;
 
 static bool trans_RBIT(DisasContext *ctx, arg_RBIT *a);
+}
 
 typedef arg_rprr_esz arg_SPLICE;
 
@@ -72455,13 +72508,13 @@ bool disas_sve(DisasContext *ctx, uint32_t insn)
                 /* 00000100 ..0..... 010..... ........ */
                 /* /home/aeden/qemu/target/arm/sve.decode:352 */
                 disas_sve_extract_rda_pg_rn_rm(ctx, &u.f_rprrr_esz, insn);
-                if (trans_MLA(ctx, &u.f_rprrr_esz)) return true;
+                if (__sve::trans_MLA(ctx, &u.f_rprrr_esz)) return true;
                 return false;
             case 0x3:
                 /* 00000100 ..0..... 011..... ........ */
                 /* /home/aeden/qemu/target/arm/sve.decode:353 */
                 disas_sve_extract_rda_pg_rn_rm(ctx, &u.f_rprrr_esz, insn);
-                if (trans_MLS(ctx, &u.f_rprrr_esz)) return true;
+                if (__sve::trans_MLS(ctx, &u.f_rprrr_esz)) return true;
                 return false;
             case 0x4:
                 /* 00000100 ..0..... 100..... ........ */
@@ -72587,32 +72640,32 @@ bool disas_sve(DisasContext *ctx, uint32_t insn)
                 case 0x16:
                     /* 00000100 ..010110 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:329 */
-                    if (trans_ABS(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_ABS(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x17:
                     /* 00000100 ..010111 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:330 */
-                    if (trans_NEG(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_NEG(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x18:
                     /* 00000100 ..011000 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:319 */
-                    if (trans_CLS(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_CLS(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x19:
                     /* 00000100 ..011001 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:320 */
-                    if (trans_CLZ(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_CLZ(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x1a:
                     /* 00000100 ..011010 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:321 */
-                    if (trans_CNT_zpz(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_CNT_zpz(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x1b:
                     /* 00000100 ..011011 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:322 */
-                    if (trans_CNOT(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_CNOT(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x1c:
                     /* 00000100 ..011100 101..... ........ */
@@ -72627,7 +72680,7 @@ bool disas_sve(DisasContext *ctx, uint32_t insn)
                 case 0x1e:
                     /* 00000100 ..011110 101..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:323 */
-                    if (trans_NOT_zpz(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_NOT_zpz(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 }
                 return false;
@@ -72635,13 +72688,13 @@ bool disas_sve(DisasContext *ctx, uint32_t insn)
                 /* 00000100 ..0..... 110..... ........ */
                 /* /home/aeden/qemu/target/arm/sve.decode:356 */
                 disas_sve_extract_rdn_pg_ra_rm(ctx, &u.f_rprrr_esz, insn);
-                if (trans_MLA(ctx, &u.f_rprrr_esz)) return true;
+                if (__sve::trans_MLA(ctx, &u.f_rprrr_esz)) return true;
                 return false;
             case 0x7:
                 /* 00000100 ..0..... 111..... ........ */
                 /* /home/aeden/qemu/target/arm/sve.decode:357 */
                 disas_sve_extract_rdn_pg_ra_rm(ctx, &u.f_rprrr_esz, insn);
-                if (trans_MLS(ctx, &u.f_rprrr_esz)) return true;
+                if (__sve::trans_MLS(ctx, &u.f_rprrr_esz)) return true;
                 return false;
             }
             return false;
@@ -73304,7 +73357,7 @@ bool disas_sve(DisasContext *ctx, uint32_t insn)
                     /* 00000101 ..100111 100..... ........ */
                     /* /home/aeden/qemu/target/arm/sve.decode:570 */
                     disas_sve_extract_rd_pg_rn(ctx, &u.f_rpr_esz, insn);
-                    if (trans_RBIT(ctx, &u.f_rpr_esz)) return true;
+                    if (__sve::trans_RBIT(ctx, &u.f_rpr_esz)) return true;
                     return false;
                 case 0x00080000:
                     /* 00000101 ..101000 100..... ........ */
@@ -75789,19 +75842,17 @@ static bool do_zpz_ool(DisasContext *s, arg_rpr_esz *a, gen_helper_gvec_3 *fn)
     return true;
 }
 
+namespace __sve {
+
 DO_ZPZ(CLS, cls)
-
 DO_ZPZ(CLZ, clz)
-
 DO_ZPZ(CNT_zpz, cnt_zpz)
-
 DO_ZPZ(CNOT, cnot)
-
 DO_ZPZ(NOT_zpz, not_zpz)
-
 DO_ZPZ(ABS, abs)
-
 DO_ZPZ(NEG, neg)
+
+}
 
 static bool trans_FABS(DisasContext *s, arg_rpr_esz *a)
 {
@@ -76174,9 +76225,12 @@ static bool do_zpzzz_ool(DisasContext *s, arg_rprrr_esz *a,
     return true;
 }
 
-DO_ZPZZZ(MLA, mla)
+namespace __sve {
 
+DO_ZPZZZ(MLA, mla)
 DO_ZPZZZ(MLS, mls)
+
+}
 
 static void do_index(DisasContext *s, int esz, int rd,
                      TCGv_i64 start, TCGv_i64 incr)
@@ -77959,6 +78013,7 @@ static bool trans_REVW(DisasContext *s, arg_rpr_esz *a)
     return do_zpz_ool(s, a, a->esz == 3 ? gen_helper_sve_revw_d : NULL);
 }
 
+namespace __sve {
 static bool trans_RBIT(DisasContext *s, arg_rpr_esz *a)
 {
     static gen_helper_gvec_3 * const fns[4] = {
@@ -77968,6 +78023,7 @@ static bool trans_RBIT(DisasContext *s, arg_rpr_esz *a)
         gen_helper_sve_rbit_d,
     };
     return do_zpz_ool(s, a, fns[a->esz]);
+}
 }
 
 static bool trans_SPLICE(DisasContext *s, arg_rprr_esz *a)
@@ -80719,6 +80775,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
@@ -80734,8 +80792,21 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= db->max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
+
+        if (__jove_end_pc) {
+          if (db->pc_next >= __jove_end_pc) {
+            tb->jove.T.Type = jove::TERMINATOR::NONE;
+            tb->jove.T.Addr = 0; /* XXX */
+            tb->jove.T._none.NextPC = __jove_end_pc;
+            break;
+          }
+        }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
@@ -80788,3 +80859,35 @@ char *pstrcat(char *buf, int buf_size, const char *s)
     return buf;
 }
 
+/* Convert ARM rounding mode to softfloat */
+int arm_rmode_to_sf(int rmode)
+{
+    switch (rmode) {
+    case FPROUNDING_TIEAWAY:
+        rmode = float_round_ties_away;
+        break;
+    case FPROUNDING_ODD:
+        /* FIXME: add support for TIEAWAY and ODD */
+        qemu_log_mask(LOG_UNIMP, "arm: unimplemented rounding mode: %d\n",
+                      rmode);
+        /* fall through for now */
+    case FPROUNDING_TIEEVEN:
+    default:
+        rmode = float_round_nearest_even;
+        break;
+    case FPROUNDING_POSINF:
+        rmode = float_round_up;
+        break;
+    case FPROUNDING_NEGINF:
+        rmode = float_round_down;
+        break;
+    case FPROUNDING_ZERO:
+        rmode = float_round_to_zero;
+        break;
+    }
+    return rmode;
+}
+
+#undef R_AARCH64_CONDBR19
+#undef R_AARCH64_JUMP26
+#undef R_AARCH64_CALL26
