@@ -76,7 +76,7 @@ static inline void stq_be_p(void *ptr, uint64_t v)
     stq_he_p(ptr, be_bswap(v, 64));
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
