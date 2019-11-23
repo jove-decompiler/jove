@@ -69,17 +69,17 @@ JOVE_RT_SO     := libjove_rt.so
 JOVE_RT_SONAME := $(JOVE_RT_SO).0
 JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 
 define build_tool_template
-$(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp Makefile
+$(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp
 	@echo CXX $(1)
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
 define build_util_template
-$(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp Makefile
+$(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp
 	@echo CXX $(1)
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endef
@@ -105,12 +105,12 @@ $(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@echo GEN $@
 	@$< > $@
 
-$(JOVE_RT): lib/arch/$(ARCH)/rt.c Makefile
+$(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
 
-$(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c Makefile
+$(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -c -emit-llvm -I lib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 
@@ -220,11 +220,6 @@ $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c Makefile
 	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
-
-#
-# jove-llvm depends on the helper bitcodes
-#
-$(BINDIR)/jove-llvm: $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 
 .PHONY: check-helpers
 check-helpers: $(foreach helper,$($(ARCH)_HELPERS),check-$(helper))
