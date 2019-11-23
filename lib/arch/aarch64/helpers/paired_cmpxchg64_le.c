@@ -889,7 +889,7 @@ static inline int exception_target_el(CPUARMState *env)
     return target_el;
 }
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint64_t abi_ptr;
 

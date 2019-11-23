@@ -1189,7 +1189,7 @@ static inline ArchCPU *env_archcpu(CPUArchState *env)
 
 #define HELPER(name) glue(helper_, name)
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint64_t abi_ptr;
 
