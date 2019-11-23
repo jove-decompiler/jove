@@ -187,21 +187,6 @@ struct qemu_plugin_insn {
     bool mem_helper;
 };
 
-static inline struct qemu_plugin_insn *qemu_plugin_insn_alloc(void)
-{
-    int i, j;
-    struct qemu_plugin_insn *insn = g_new0(struct qemu_plugin_insn, 1);
-    insn->data = g_byte_array_sized_new(4);
-
-    for (i = 0; i < PLUGIN_N_CB_TYPES; i++) {
-        for (j = 0; j < PLUGIN_N_CB_SUBTYPES; j++) {
-            insn->cbs[i][j] = g_array_new(false, false,
-                                          sizeof(struct qemu_plugin_dyn_cb));
-        }
-    }
-    return insn;
-}
-
 typedef enum MemOp {
     MO_8     = 0,
     MO_16    = 1,
@@ -297,6 +282,8 @@ typedef enum MemOp {
     MO_SSIZE = MO_SIZE | MO_SIGN,
 } MemOp;
 
+uint64_t dup_const(unsigned vece, uint64_t c);
+
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \
      ? (  (VECE) == MO_8  ? 0x0101010101010101ull * (uint8_t)(C)   \
@@ -304,8 +291,6 @@ typedef enum MemOp {
         : (VECE) == MO_32 ? 0x0000000100000001ull * (uint32_t)(C)  \
         : dup_const(VECE, C))                                      \
      : dup_const(VECE, C))
-
-uint64_t dup_const(unsigned vece, uint64_t c);
 
 #define HELPER(name) glue(helper_, name)
 

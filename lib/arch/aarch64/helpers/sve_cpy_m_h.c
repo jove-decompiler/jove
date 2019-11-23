@@ -297,6 +297,8 @@ typedef enum MemOp {
     MO_SSIZE = MO_SIZE | MO_SIGN,
 } MemOp;
 
+uint64_t dup_const(unsigned vece, uint64_t c);
+
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \
      ? (  (VECE) == MO_8  ? 0x0101010101010101ull * (uint8_t)(C)   \
@@ -304,8 +306,6 @@ typedef enum MemOp {
         : (VECE) == MO_32 ? 0x0000000100000001ull * (uint32_t)(C)  \
         : dup_const(VECE, C))                                      \
      : dup_const(VECE, C))
-
-uint64_t dup_const(unsigned vece, uint64_t c);
 
 #define HELPER(name) glue(helper_, name)
 
