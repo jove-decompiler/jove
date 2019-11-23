@@ -10,13 +10,7 @@
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
 typedef uint8_t flag;
 
@@ -30,8 +24,20 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -48,6 +54,18 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
 typedef uint64_t vaddr;
@@ -59,7 +77,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -68,12 +86,6 @@ struct CPUWatchpoint {
 };
 
 struct arm_boot_info;
-
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
 
 enum {
     M_REG_NS = 0,
@@ -101,8 +113,12 @@ typedef struct ARMVectorReg {
 } ARMVectorReg;
 
 typedef struct ARMPredicateReg {
-    uint64_t p[2 * ARM_MAX_VQ / 8] QEMU_ALIGNED(16);
+    uint64_t p[DIV_ROUND_UP(2 * ARM_MAX_VQ, 8)] QEMU_ALIGNED(16);
 } ARMPredicateReg;
+
+typedef struct ARMPACKey {
+    uint64_t lo, hi;
+} ARMPACKey;
 
 typedef struct CPUARMState {
     /* Regs for current mode.  */
@@ -124,10 +140,14 @@ typedef struct CPUARMState {
      *    semantics as for AArch32, as described in the comments on each field)
      *  nRW (also known as M[4]) is kept, inverted, in env->aarch64
      *  DAIF (exception masks) are kept in env->daif
+     *  BTYPE is kept in env->btype
      *  all other bits are stored in their correct places in env->pstate
      */
     uint32_t pstate;
     uint32_t aarch64; /* 1 if CPU is in aarch64 state; inverse of PSTATE.nRW */
+
+    /* Cached TBFLAGS state.  See below for which bits are included.  */
+    uint32_t hflags;
 
     /* Frequently accessed CPSR bits are stored separately for efficiency.
        This contains all the other bits.  Use cpsr_{read,write} to access
@@ -153,6 +173,7 @@ typedef struct CPUARMState {
     uint32_t GE; /* cpsr[19:16] */
     uint32_t thumb; /* cpsr[5]. 0 = arm mode, 1 = thumb mode. */
     uint32_t condexec_bits; /* IT bits.  cpsr[15:10,26:25].  */
+    uint32_t btype;  /* BTI branch type.  spsr[11:10].  */
     uint64_t daif; /* exception masks, in the bits they are in PSTATE */
 
     uint64_t elr_el[4]; /* AArch64 exception link regs  */
@@ -363,10 +384,23 @@ typedef struct CPUARMState {
         uint64_t oslsr_el1; /* OS Lock Status */
         uint64_t mdcr_el2;
         uint64_t mdcr_el3;
-        /* If the counter is enabled, this stores the last time the counter
-         * was reset. Otherwise it stores the counter value
+        /* Stores the architectural value of the counter *the last time it was
+         * updated* by pmccntr_op_start. Accesses should always be surrounded
+         * by pmccntr_op_start/pmccntr_op_finish to guarantee the latest
+         * architecturally-correct value is being read/set.
          */
         uint64_t c15_ccnt;
+        /* Stores the delta between the architectural value and the underlying
+         * cycle count during normal operation. It is used to update c15_ccnt
+         * to be the correct architectural value before accesses. During
+         * accesses, c15_ccnt_delta contains the underlying count being used
+         * for the access, after which it reverts to the delta value in
+         * pmccntr_op_finish.
+         */
+        uint64_t c15_ccnt_delta;
+        uint64_t c14_pmevcntr[31];
+        uint64_t c14_pmevcntr_delta[31];
+        uint64_t c14_pmevtyper[31];
         uint64_t pmccfiltr_el0; /* Performance Monitor Filter Register */
         uint64_t vpidr_el2; /* Virtualization Processor ID Register */
         uint64_t vmpidr_el2; /* Virtualization Multiprocessor ID Register */
@@ -408,6 +442,11 @@ typedef struct CPUARMState {
         uint32_t scr[M_REG_NUM_BANKS];
         uint32_t msplim[M_REG_NUM_BANKS];
         uint32_t psplim[M_REG_NUM_BANKS];
+        uint32_t fpcar[M_REG_NUM_BANKS];
+        uint32_t fpccr[M_REG_NUM_BANKS];
+        uint32_t fpdscr[M_REG_NUM_BANKS];
+        uint32_t cpacr[M_REG_NUM_BANKS];
+        uint32_t nsacr;
     } v7m;
 
     /* Information associated with an exception about to be taken:
@@ -426,6 +465,16 @@ typedef struct CPUARMState {
          */
     } exception;
 
+    /* Information associated with an SError */
+    struct {
+        uint8_t pending;
+        uint8_t has_esr;
+        uint64_t esr;
+    } serror;
+
+    /* State of our input IRQ/FIQ/VIRQ/VFIQ lines */
+    uint32_t irq_line_state;
+
     /* Thumb-2 EE state.  */
     uint32_t teecr;
     uint32_t teehbr;
@@ -436,15 +485,20 @@ typedef struct CPUARMState {
 
 #ifdef TARGET_AARCH64
         /* Store FFR as pregs[16] to make it easier to treat as any other.  */
+#define FFR_PRED_NUM 16
         ARMPredicateReg pregs[17];
+        /* Scratch space for aa64 sve predicate temporary.  */
+        ARMPredicateReg preg_tmp;
 #endif
 
-        uint32_t xregs[16];
         /* We store these fpcsr fields separately for convenience.  */
+        uint32_t qc[4] QEMU_ALIGNED(16);
         int vec_len;
         int vec_stride;
 
-        /* scratch space when Tn are not sufficient.  */
+        uint32_t xregs[16];
+
+        /* Scratch space for aa32 neon expansion.  */
         uint32_t scratch[8];
 
         /* There are a number of distinct float control structures:
@@ -487,6 +541,16 @@ typedef struct CPUARMState {
         uint32_t cregs[16];
     } iwmmxt;
 
+#ifdef TARGET_AARCH64
+    struct {
+        ARMPACKey apia;
+        ARMPACKey apib;
+        ARMPACKey apda;
+        ARMPACKey apdb;
+        ARMPACKey apga;
+    } keys;
+#endif
+
 #if defined(CONFIG_USER_ONLY)
     /* For usermode syscall translation.  */
     int eabi;
@@ -498,9 +562,7 @@ typedef struct CPUARMState {
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* Internal CPU feature flags.  */
     uint64_t features;
@@ -614,14 +676,14 @@ _CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong x0,
-                        target_ulong x1,
-                        target_ulong x2,
-                        target_ulong x3,
-                        target_ulong x4,
-                        target_ulong x5,
-                        target_ulong x6,
-                        target_ulong sp_addr /* formerly x7 */);
+_HIDDEN void _jove_begin(target_ulong x0,
+                         target_ulong x1,
+                         target_ulong x2,
+                         target_ulong x3,
+                         target_ulong x4,
+                         target_ulong x5,
+                         target_ulong x6,
+                         target_ulong sp_addr /* formerly x7 */);
 
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
@@ -633,8 +695,8 @@ _NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 _NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                       target_ulong BBAddr);
 
-_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
-_NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
+_HIDDEN _NOINL _NORET void _jove_fail1(target_ulong);
+_HIDDEN _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
 _NOINL void _jove_check_return_address(target_ulong RetAddr,
                                        target_ulong NativeRetAddr);
@@ -642,8 +704,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
-static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_HIDDEN target_ulong _jove_alloc_stack(void);
+_HIDDEN void _jove_free_stack(target_ulong);
 
 //
 // utility functions
@@ -675,13 +737,8 @@ void _jove_start(void) {
                "mov x29, #0\n"
                "mov x30, #0\n"
 
-               "movq %%sp, %%x7\n"
-               "jmp %P0\n"
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               "i"(_jove_begin)
-               : /* Clobbers */);
+               "mov x7, sp\n"
+               "b _jove_begin\n");
 }
 
 static void _jove_trace_init(void);
@@ -1259,67 +1316,72 @@ found:
 }
 
 void _jove_fail1(target_ulong rdi) {
-  asm volatile("hlt");
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 void _jove_fail2(target_ulong rdi,
                  target_ulong rsi) {
-  asm volatile("hlt");
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
-                         target_ulong *args   /* rsi */,
-                         target_ulong *emuspp /* rdx */) {
-  asm volatile("pushq %%r15\n" /* callee-saved registers */
-               "pushq %%r14\n"
-               "pushq %%r13\n"
-               "pushq %%r12\n"
+target_ulong _jove_thunk(target_ulong dstpc   /* x0 */,
+                         target_ulong *args   /* x1 */,
+                         target_ulong *emuspp /* x2 */) {
+  asm volatile("stp x29, x30, [sp, #-48]!\n" /* push frame */
 
-               "movq %%rdi, %%r12\n" /* dstpc in r12 */
-               "movq %%rsi, %%r13\n" /* args in r13 */
-               "movq %%rdx, %%r14\n" /* emuspp in r14 */
-               "movq %%rsp, %%r15\n" /* save sp in r15 */
+               "stp x19, x20, [sp, #16]\n" /* callee-saved registers */
+               "stp x21, x22, [sp, #32]\n"
 
-               "call %P[jove_alloc_stack]\n"
-               "movq %%r12, %%r10\n" /* dstpc in r10 */
-               "movq %%rax, %%r12\n" /* allocated stack in r12 */
-               "addq $0x80000, %%rax\n"
+               "mov x19, x0\n" /* dstpc in x19 */
+               "mov x20, x1\n" /* args in x20 */
+               "mov x21, x2\n" /* emuspp in x21 */
+               "mov x22, sp\n" /* save sp in x22 */
 
-               "movq (%%r14), %%rsp\n" /* sp=*emusp */
-               "movq %%rax, (%%r14)\n" /* *emusp=stack storage */
+               "bl _jove_alloc_stack\n"
+               "mov x10, x19\n" /* put dstpc in temporary register */
+               "mov x19, x0\n"  /* allocated stack in callee-saved register */
+               "add x0, x0, #0x80000\n"
+
+               "ldr x9, [x21]\n" /* sp=*emusp */
+               "mov sp, x9\n"
+
+               "str x0, [x21]\n" /* *emusp=stack storage */
 
                /* unpack args */
-               "movq 40(%%r13), %%r9\n"
-               "movq 32(%%r13), %%r8\n"
-               "movq 24(%%r13), %%rcx\n"
-               "movq 16(%%r13), %%rdx\n"
-               "movq  8(%%r13), %%rsi\n"
-               "movq  0(%%r13), %%rdi\n"
+               "ldr x7, [x20, #56]\n"
+               "ldr x6, [x20, #48]\n"
+               "ldr x5, [x20, #40]\n"
+               "ldr x4, [x20, #32]\n"
+               "ldr x3, [x20, #24]\n"
+               "ldr x2, [x20, #16]\n"
+               "ldr x1, [x20, #8]\n"
+               "ldr x0, [x20, #0]\n"
 
-               "addq $8, %%rsp\n" /* replace return address on the stack */
-               "callq *%%r10\n"   /* call dstpc */
+               "blr x10\n" /* call dstpc */
 
-               "movq %%rsp, (%%r14)\n" /* store modified emusp */
-               "movq %%r15, %%rsp\n"   /* restore stack pointer */
+               "mov x9, sp\n" /* store modified emusp */
+               "str x9, [x21]\n"
 
-               "movq %%rax, %%r15\n" /* save return value */
+               "mov sp, x22\n"   /* restore stack pointer */
 
-               "movq %%r12, %%rdi\n" /* pass allocated stack */
-               "call %P[jove_free_stack]\n"
+               "mov x22, x0\n"  /* save return value */
 
-               "movq %%r15, %%rax\n" /* restore return value */
+               "mov x0, x19\n" /* pass allocated stack */
+               "bl _jove_free_stack\n"
 
-               "popq %%r12\n"
-               "popq %%r13\n"
-               "popq %%r14\n"
-               "popq %%r15\n" /* callee-saved registers */
+               "mov x0, x22\n" /* restore return value */
 
-               "retq\n"
+               "ldp x19, x20, [sp, #16]\n"
+               "ldp x21, x22, [sp, #32]\n" /* callee-saved registers */
+
+               "ldp x29, x30, [sp], #48\n" /* restore frame */
+
+               "ret\n"
 
                : /* OutputOperands */
                : /* InputOperands */
-               [jove_alloc_stack] "i"(_jove_alloc_stack),
-               [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
 
