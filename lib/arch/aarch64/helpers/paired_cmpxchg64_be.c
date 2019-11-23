@@ -902,7 +902,7 @@ static inline int exception_target_el(CPUARMState *env)
 
 typedef uint64_t abi_ptr;
 
-extern uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
