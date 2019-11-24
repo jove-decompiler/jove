@@ -1554,12 +1554,16 @@ static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
     return cs;
 }
 
+#if 0
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {
     CPUState *cs = do_raise_exception(env, excp, syndrome, target_el);
     cpu_loop_exit(cs);
 }
+
+#endif
 
 static void msr_mrs_banked_exc_checks(CPUARMState *env, uint32_t tgtmode,
                                       uint32_t regno)
@@ -1621,6 +1625,7 @@ undef:
 
 uint32_t HELPER(mrs_banked)(CPUARMState *env, uint32_t tgtmode, uint32_t regno)
 {
+#if 0
     msr_mrs_banked_exc_checks(env, tgtmode, regno);
 
     switch (regno) {
@@ -1644,5 +1649,9 @@ uint32_t HELPER(mrs_banked)(CPUARMState *env, uint32_t tgtmode, uint32_t regno)
     default:
         g_assert_not_reached();
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

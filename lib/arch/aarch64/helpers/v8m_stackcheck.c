@@ -1354,6 +1354,8 @@ static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
     return cs;
 }
 
+#if 0
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {
@@ -1361,8 +1363,11 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+#endif
+
 void HELPER(v8m_stackcheck)(CPUARMState *env, uint32_t newvalue)
 {
+#if 0
     /*
      * Perform the v8M stack limit check for SP updates from translated code,
      * raising an exception if the limit is breached.
@@ -1378,5 +1383,9 @@ void HELPER(v8m_stackcheck)(CPUARMState *env, uint32_t newvalue)
         cpu_restore_state(cs, GETPC(), true);
         raise_exception(env, EXCP_STKOF, 0, 1);
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

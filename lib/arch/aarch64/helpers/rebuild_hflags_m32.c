@@ -1103,6 +1103,8 @@ int fp_exception_el(CPUARMState *env, int cur_el)
     return 0;
 }
 
+#if 0
+
 ARMMMUIdx arm_mmu_idx_el(CPUARMState *env, int el)
 {
     if (arm_feature(env, ARM_FEATURE_M)) {
@@ -1115,6 +1117,8 @@ ARMMMUIdx arm_mmu_idx_el(CPUARMState *env, int el)
         return ARMMMUIdx_S12NSE0 + el;
     }
 }
+
+#endif
 
 static uint32_t rebuild_hflags_common(CPUARMState *env, int fp_el,
                                       ARMMMUIdx mmu_idx, uint32_t flags)
@@ -1173,9 +1177,14 @@ static uint32_t rebuild_hflags_m32(CPUARMState *env, int fp_el,
 
 void HELPER(rebuild_hflags_m32)(CPUARMState *env, int el)
 {
+#if 0
     int fp_el = fp_exception_el(env, el);
     ARMMMUIdx mmu_idx = arm_mmu_idx_el(env, el);
 
     env->hflags = rebuild_hflags_m32(env, fp_el, mmu_idx);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

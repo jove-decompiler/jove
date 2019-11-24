@@ -1656,6 +1656,8 @@ static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
     return cs;
 }
 
+#if 0
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {
@@ -1663,9 +1665,12 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+#endif
+
 void HELPER(access_check_cp_reg)(CPUARMState *env, void *rip, uint32_t syndrome,
                                  uint32_t isread)
 {
+#if 0
     const ARMCPRegInfo *ri = rip;
     int target_el;
 
@@ -1724,5 +1729,9 @@ void HELPER(access_check_cp_reg)(CPUARMState *env, void *rip, uint32_t syndrome,
     }
 
     raise_exception(env, EXCP_UDEF, syndrome, target_el);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

@@ -618,8 +618,13 @@ void arm_rebuild_hflags(CPUARMState *env);
 
 void HELPER(cpsr_write)(CPUARMState *env, uint32_t val, uint32_t mask)
 {
+#if 0
     cpsr_write(env, val, mask, CPSRWriteByInstr);
     /* TODO: Not all cpsr bits are relevant to hflags.  */
     arm_rebuild_hflags(env);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

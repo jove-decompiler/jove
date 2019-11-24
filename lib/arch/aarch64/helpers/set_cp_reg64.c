@@ -760,6 +760,7 @@ struct ARMCPRegInfo {
 
 void HELPER(set_cp_reg64)(CPUARMState *env, void *rip, uint64_t value)
 {
+#if 0
     const ARMCPRegInfo *ri = rip;
 
     if (ri->type & ARM_CP_IO) {
@@ -769,5 +770,9 @@ void HELPER(set_cp_reg64)(CPUARMState *env, void *rip, uint64_t value)
     } else {
         ri->writefn(env, ri, value);
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

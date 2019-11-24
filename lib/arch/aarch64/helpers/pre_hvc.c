@@ -1494,6 +1494,8 @@ static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
     return cs;
 }
 
+#if 0
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {
@@ -1501,8 +1503,11 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+#endif
+
 void HELPER(pre_hvc)(CPUARMState *env)
 {
+#if 0
     ARMCPU *cpu = env_archcpu(env);
     int cur_el = arm_current_el(env);
     /* FIXME: Use actual secure state.  */
@@ -1539,5 +1544,9 @@ void HELPER(pre_hvc)(CPUARMState *env)
         raise_exception(env, EXCP_UDEF, syn_uncategorized(),
                         exception_target_el(env));
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

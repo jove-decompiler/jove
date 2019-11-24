@@ -634,7 +634,12 @@ typedef struct CPUARMState {
 
 void HELPER(v7m_blxns)(CPUARMState *env, uint32_t dest)
 {
+#if 0
     /* translate.c should never generate calls here in user-only mode */
     g_assert_not_reached();
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

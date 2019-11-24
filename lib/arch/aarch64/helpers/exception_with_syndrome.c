@@ -1212,6 +1212,8 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define HELPER(name) glue(helper_, name)
 
+#if 0
+
 static inline bool excp_is_internal(int excp)
 {
     /* Return true if this exception number represents a QEMU-internal
@@ -1318,9 +1320,16 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+#endif
+
 void HELPER(exception_with_syndrome)(CPUARMState *env, uint32_t excp,
                                      uint32_t syndrome, uint32_t target_el)
 {
+#if 0
     raise_exception(env, excp, syndrome, target_el);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

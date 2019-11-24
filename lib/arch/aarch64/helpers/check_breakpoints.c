@@ -1497,7 +1497,9 @@ static inline ArchCPU *env_archcpu(CPUArchState *env)
 #define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2) \
 dh_ctype(ret) HELPER(name) (dh_ctype(t1), dh_ctype(t2));
 
+#if 0
 DEF_HELPER_2(exception_internal, void, env, i32)
+#endif
 
 static bool linked_bp_matches(ARMCPU *cpu, int lbn)
 {
@@ -1679,10 +1681,15 @@ static bool check_breakpoints(ARMCPU *cpu)
 
 void HELPER(check_breakpoints)(CPUARMState *env)
 {
+#if 0
     ARMCPU *cpu = env_archcpu(env);
 
     if (check_breakpoints(cpu)) {
         HELPER(exception_internal(env, EXCP_DEBUG));
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

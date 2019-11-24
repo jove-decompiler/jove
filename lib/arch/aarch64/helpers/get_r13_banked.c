@@ -1549,6 +1549,8 @@ static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
     return cs;
 }
 
+#if 0
+
 void raise_exception(CPUARMState *env, uint32_t excp,
                      uint32_t syndrome, uint32_t target_el)
 {
@@ -1556,8 +1558,11 @@ void raise_exception(CPUARMState *env, uint32_t excp,
     cpu_loop_exit(cs);
 }
 
+#endif
+
 uint32_t HELPER(get_r13_banked)(CPUARMState *env, uint32_t mode)
 {
+#if 0
     if ((env->uncached_cpsr & CPSR_M) == ARM_CPU_MODE_SYS) {
         /* SRS instruction is UNPREDICTABLE from System mode; we UNDEF.
          * Other UNPREDICTABLE and UNDEF cases were caught at translate time.
@@ -1571,5 +1576,9 @@ uint32_t HELPER(get_r13_banked)(CPUARMState *env, uint32_t mode)
     } else {
         return env->banked_r13[bank_number(mode)];
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

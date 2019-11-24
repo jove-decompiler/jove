@@ -683,7 +683,12 @@ static inline int bank_number(int mode)
     case ARM_CPU_MODE_MON:
         return BANK_MON;
     }
+#if 0
     g_assert_not_reached();
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
 void HELPER(set_r13_banked)(CPUARMState *env, uint32_t mode, uint32_t val)

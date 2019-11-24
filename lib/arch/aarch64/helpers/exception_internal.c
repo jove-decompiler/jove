@@ -1196,40 +1196,11 @@ typedef ARMCPU ArchCPU;
 
 #define EXCP_HALTED     0x10003
 
-static inline ArchCPU *env_archcpu(CPUArchState *env)
-{
-    return container_of(env, ArchCPU, env);
-}
-
-static inline CPUState *env_cpu(CPUArchState *env)
-{
-    return &env_archcpu(env)->parent_obj;
-}
-
 #define HELPER(name) glue(helper_, name)
-
-static inline bool excp_is_internal(int excp)
-{
-    /* Return true if this exception number represents a QEMU-internal
-     * exception that will not be passed to the guest.
-     */
-    return excp == EXCP_INTERRUPT
-        || excp == EXCP_HLT
-        || excp == EXCP_DEBUG
-        || excp == EXCP_HALTED
-        || excp == EXCP_EXCEPTION_EXIT
-        || excp == EXCP_KERNEL_TRAP
-        || excp == EXCP_SEMIHOST;
-}
-
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 
 void HELPER(exception_internal)(CPUARMState *env, uint32_t excp)
 {
-    CPUState *cs = env_cpu(env);
-
-    assert(excp_is_internal(excp));
-    cs->exception_index = excp;
-    cpu_loop_exit(cs);
+    __builtin_trap();
+    __builtin_unreachable();
 }
 

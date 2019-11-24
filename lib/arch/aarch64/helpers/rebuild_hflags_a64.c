@@ -1745,7 +1745,7 @@ static uint32_t sve_zcr_get_valid_len(ARMCPU *cpu, uint32_t start_len)
     return end_len;
 }
 
-uint32_t sve_zcr_len_for_el(CPUARMState *env, int el)
+static uint32_t sve_zcr_len_for_el(CPUARMState *env, int el)
 {
     ARMCPU *cpu = env_archcpu(env);
     uint32_t zcr_len = cpu->sve_max_vq - 1;
@@ -1806,7 +1806,7 @@ static inline ARMMMUIdx stage_1_mmu_idx(ARMMMUIdx mmu_idx)
     return mmu_idx;
 }
 
-ARMVAParameters aa64_va_parameters_both(CPUARMState *env, uint64_t va,
+static ARMVAParameters aa64_va_parameters_both(CPUARMState *env, uint64_t va,
                                         ARMMMUIdx mmu_idx)
 {
     uint64_t tcr = regime_tcr(env, mmu_idx)->raw_tcr;
@@ -1865,6 +1865,8 @@ ARMVAParameters aa64_va_parameters_both(CPUARMState *env, uint64_t va,
         .using64k = using64k,
     };
 }
+
+#if 0
 
 int fp_exception_el(CPUARMState *env, int cur_el)
 {
@@ -1970,6 +1972,8 @@ ARMMMUIdx arm_mmu_idx_el(CPUARMState *env, int el)
     }
 }
 
+#endif
+
 static uint32_t rebuild_hflags_common(CPUARMState *env, int fp_el,
                                       ARMMMUIdx mmu_idx, uint32_t flags)
 {
@@ -2063,9 +2067,14 @@ static uint32_t rebuild_hflags_a64(CPUARMState *env, int el, int fp_el,
 
 void HELPER(rebuild_hflags_a64)(CPUARMState *env, int el)
 {
+#if 0
     int fp_el = fp_exception_el(env, el);
     ARMMMUIdx mmu_idx = arm_mmu_idx_el(env, el);
 
     env->hflags = rebuild_hflags_a64(env, el, fp_el, mmu_idx);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

@@ -1006,6 +1006,8 @@ FIELD(TBFLAG_A32, SCTLR_B, 16, 1)
 
 #define HELPER(name) glue(helper_, name)
 
+#if 0
+
 int fp_exception_el(CPUARMState *env, int cur_el)
 {
 #ifndef CONFIG_USER_ONLY
@@ -1110,6 +1112,8 @@ ARMMMUIdx arm_mmu_idx_el(CPUARMState *env, int el)
     }
 }
 
+#endif
+
 static uint32_t rebuild_hflags_common(CPUARMState *env, int fp_el,
                                       ARMMMUIdx mmu_idx, uint32_t flags)
 {
@@ -1161,9 +1165,14 @@ static uint32_t rebuild_hflags_a32(CPUARMState *env, int fp_el,
 
 void HELPER(rebuild_hflags_a32)(CPUARMState *env, int el)
 {
+#if 0
     int fp_el = fp_exception_el(env, el);
     ARMMMUIdx mmu_idx = arm_mmu_idx_el(env, el);
 
     env->hflags = rebuild_hflags_a32(env, fp_el, mmu_idx);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

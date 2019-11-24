@@ -624,6 +624,11 @@ uint32_t cpsr_read(CPUARMState *env);
 
 uint32_t HELPER(cpsr_read)(CPUARMState *env)
 {
+#if 0
     return cpsr_read(env) & ~(CPSR_EXEC | CPSR_RESERVED);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

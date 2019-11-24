@@ -1224,6 +1224,7 @@ void HELPER(wfe)(CPUARMState *env)
 
 void HELPER(yield)(CPUARMState *env)
 {
+#if 0
     CPUState *cs = env_cpu(env);
 
     /* This is a non-trappable hint instruction that generally indicates
@@ -1232,5 +1233,6 @@ void HELPER(yield)(CPUARMState *env)
      */
     cs->exception_index = EXCP_YIELD;
     cpu_loop_exit(cs);
+#endif
 }
 

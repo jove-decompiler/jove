@@ -760,6 +760,7 @@ struct ARMCPRegInfo {
 
 uint64_t HELPER(get_cp_reg64)(CPUARMState *env, void *rip)
 {
+#if 0
     const ARMCPRegInfo *ri = rip;
     uint64_t res;
 
@@ -772,5 +773,9 @@ uint64_t HELPER(get_cp_reg64)(CPUARMState *env, void *rip)
     }
 
     return res;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

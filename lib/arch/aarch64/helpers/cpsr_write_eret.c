@@ -1233,6 +1233,7 @@ static inline void arm_call_el_change_hook(ARMCPU *cpu)
 
 void HELPER(cpsr_write_eret)(CPUARMState *env, uint32_t val)
 {
+#if 0
     qemu_mutex_lock_iothread();
     arm_call_pre_el_change_hook(env_archcpu(env));
     qemu_mutex_unlock_iothread();
@@ -1250,5 +1251,9 @@ void HELPER(cpsr_write_eret)(CPUARMState *env, uint32_t val)
     qemu_mutex_lock_iothread();
     arm_call_el_change_hook(env_archcpu(env));
     qemu_mutex_unlock_iothread();
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
