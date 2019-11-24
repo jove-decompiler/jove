@@ -239,6 +239,7 @@ aarch64-vfp_minnums_EXTRICATE_ARGS := float32_minnum
 aarch64-vfp_minnumd_EXTRICATE_ARGS := float64_minnum
 
 aarch64-vfp_sqrts_EXTRICATE_ARGS := float32_sqrt
+aarch64-vfp_sqrtd_EXTRICATE_ARGS := float64_sqrt
 
 #
 # TCG helpers
