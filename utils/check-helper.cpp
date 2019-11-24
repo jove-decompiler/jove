@@ -52,6 +52,8 @@ static void checkHelper(const std::string &helper_nm) {
 
   std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
+  bool fail = false;
+
   {
     llvm::Module &helperM = *helperModule;
 
@@ -65,7 +67,7 @@ static void checkHelper(const std::string &helper_nm) {
 
         WithColor::error() << "undefined function " << F.getName()
                            << " in helper module " << helper_nm << '\n';
-        exit(1);
+        fail = true;
       }
 
       if (F.getName() == std::string("helper_") + helper_nm)
@@ -74,6 +76,9 @@ static void checkHelper(const std::string &helper_nm) {
       F.setLinkage(llvm::GlobalValue::InternalLinkage);
     }
   }
+
+  if (fail)
+    exit(1);
 }
 
 }
