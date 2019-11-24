@@ -232,6 +232,14 @@ aarch64-vfp_maxd_EXTRICATE_ARGS := $(_SL_FLOAT32MAX)
 aarch64-vfp_mins_EXTRICATE_ARGS := $(_SL_FLOAT32MIN)
 aarch64-vfp_mind_EXTRICATE_ARGS := $(_SL_FLOAT32MIN)
 
+aarch64-vfp_maxnums_EXTRICATE_ARGS := float32_maxnum
+aarch64-vfp_maxnumd_EXTRICATE_ARGS := float64_maxnum
+
+aarch64-vfp_minnums_EXTRICATE_ARGS := float32_minnum
+aarch64-vfp_minnumd_EXTRICATE_ARGS := float64_minnum
+
+aarch64-vfp_sqrts_EXTRICATE_ARGS := float32_sqrt
+
 #
 # TCG helpers
 #
