@@ -219,7 +219,7 @@ endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
 define build_helper_template
-$(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c Makefile
+$(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c
 	@echo CC $$<
 	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
 endef
