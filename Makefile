@@ -241,6 +241,12 @@ aarch64-vfp_minnumd_EXTRICATE_ARGS := float64_minnum
 aarch64-vfp_sqrts_EXTRICATE_ARGS := float32_sqrt
 aarch64-vfp_sqrtd_EXTRICATE_ARGS := float64_sqrt
 
+aarch64-vfp_cmps_EXTRICATE_ARGS := float32_compare float32_compare_quiet
+aarch64-vfp_cmpd_EXTRICATE_ARGS := float64_compare float64_compare_quiet
+
+aarch64-vfp_cmpes_EXTRICATE_ARGS := float32_compare float32_compare_quiet
+aarch64-vfp_cmped_EXTRICATE_ARGS := float64_compare float64_compare_quiet
+
 #
 # TCG helpers
 #
