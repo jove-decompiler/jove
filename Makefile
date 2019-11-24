@@ -211,6 +211,8 @@ aarch64-setend_EXTRICATE_ARGS += target/arm/m_helper.c:2717l
 aarch64-setend_EXTRICATE_ARGS += util/bitops.c:131l
 
 _SL_FLOAT32ADD := fpu/softfloat.c:1168l
+_SL_FLOAT32MAX := fpu/softfloat.c:2890l
+_SL_FLOAT32MIN := fpu/softfloat.c:2887l
 
 aarch64-vfp_adds_EXTRICATE_ARGS := $(_SL_FLOAT32ADD)
 aarch64-vfp_addd_EXTRICATE_ARGS := $(_SL_FLOAT32ADD)
@@ -223,6 +225,12 @@ aarch64-vfp_divd_EXTRICATE_ARGS := $(_SL_FLOAT32ADD)
 
 aarch64-vfp_muls_EXTRICATE_ARGS := $(_SL_FLOAT32ADD)
 aarch64-vfp_muld_EXTRICATE_ARGS := $(_SL_FLOAT32ADD)
+
+aarch64-vfp_maxs_EXTRICATE_ARGS := $(_SL_FLOAT32MAX)
+aarch64-vfp_maxd_EXTRICATE_ARGS := $(_SL_FLOAT32MAX)
+
+aarch64-vfp_mins_EXTRICATE_ARGS := $(_SL_FLOAT32MIN)
+aarch64-vfp_mind_EXTRICATE_ARGS := $(_SL_FLOAT32MIN)
 
 #
 # TCG helpers
