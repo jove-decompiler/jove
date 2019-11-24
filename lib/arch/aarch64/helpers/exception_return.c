@@ -1536,9 +1536,9 @@ static inline ArchCPU *env_archcpu(CPUArchState *env)
 #define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2) \
 dh_ctype(ret) HELPER(name) (dh_ctype(t1), dh_ctype(t2));
 
-DEF_HELPER_FLAGS_2(rebuild_hflags_a32, TCG_CALL_NO_RWG, void, env, int)
+static DEF_HELPER_FLAGS_2(rebuild_hflags_a32, TCG_CALL_NO_RWG, void, env, int)
 
-DEF_HELPER_FLAGS_2(rebuild_hflags_a64, TCG_CALL_NO_RWG, void, env, int)
+static DEF_HELPER_FLAGS_2(rebuild_hflags_a64, TCG_CALL_NO_RWG, void, env, int)
 
 extern int qemu_loglevel;
 
@@ -1663,6 +1663,7 @@ static int el_from_spsr(uint32_t spsr)
 
 void HELPER(exception_return)(CPUARMState *env, uint64_t new_pc)
 {
+#if 0
     int cur_el = arm_current_el(env);
     unsigned int spsr_idx = aarch64_banked_spsr_index(cur_el);
     uint32_t spsr = env->banked_spsr[spsr_idx];
@@ -1779,5 +1780,9 @@ illegal_return:
     }
     qemu_log_mask(LOG_GUEST_ERROR, "Illegal exception return at EL%d: "
                   "resuming execution at 0x%" PRIx64 "\n", cur_el, env->pc);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
