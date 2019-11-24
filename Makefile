@@ -205,6 +205,13 @@ aarch64_SOURCE_LOCATIONS := $(_SL_AARCH64_TCG_CONTEXT_INIT) \
 extract-tcg-code:
 	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) $(COMMON_SOURCE_LOCATIONS) $($(ARCH)_SOURCE_LOCATIONS) > lib/arch/$(ARCH)/tcg.hpp
 
+
+aarch64-setend_EXTRICATE_ARGS := target/arm/helper.c:11245l
+aarch64-setend_EXTRICATE_ARGS += target/arm/m_helper.c:2717l
+aarch64-setend_EXTRICATE_ARGS += util/bitops.c:131l
+
+aarch64-vfp_adds_EXTRICATE_ARGS := fpu/softfloat.c:1150l
+
 #
 # TCG helpers
 #
@@ -214,14 +221,14 @@ extract-helpers: $(foreach helper,$($(ARCH)_HELPERS),extract-$(helper))
 define extract_helper_template
 .PHONY: extract-$(1)
 extract-$(1):
-	-$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) > lib/arch/$(ARCH)/helpers/$(1).c
+	-$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(ARCH)/helpers/$(1).c
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
 define build_helper_template
 $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c
-	@echo CC $$<
-	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv $($(ARCH)_HELPER_CFLAGS) $$<
+	@echo BC $$<
+	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNDEBUG $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
@@ -231,7 +238,7 @@ check-helpers: $(foreach helper,$($(ARCH)_HELPERS),check-$(helper))
 define check_helper_template
 .PHONY: check-$(1)
 check-$(1): $(BINDIR)/$(1).bc $(BINDIR)/check-helper
-	-$(BINDIR)/check-helper $(1)
+	@$(BINDIR)/check-helper $(1)
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call check_helper_template,$(helper))))
 
