@@ -1955,7 +1955,7 @@ static inline uint32_t regime_el(CPUARMState *env, ARMMMUIdx mmu_idx)
         return 1;
     default:
 #if 0
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
 #else
 	__builtin_trap();
 	__builtin_unreachable();

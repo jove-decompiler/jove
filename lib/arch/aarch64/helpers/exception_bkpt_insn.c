@@ -1599,7 +1599,7 @@ static inline uint32_t arm_fi_to_sfsc(ARMMMUFaultInfo *fi)
         /* Other faults can't occur in a context that requires a
          * short-format status code.
          */
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     fsc |= (fi->domain << 4);
@@ -1662,7 +1662,7 @@ static inline uint32_t arm_fi_to_lfsc(ARMMMUFaultInfo *fi)
         /* Other faults can't occur in a context that requires a
          * long-format status code.
          */
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     fsc |= 1 << 9;

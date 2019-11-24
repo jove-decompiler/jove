@@ -1446,7 +1446,7 @@ static inline int bank_number(int mode)
     case ARM_CPU_MODE_MON:
         return BANK_MON;
     }
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 }
 
 static inline int r14_bank_number(int mode)
@@ -1651,11 +1651,11 @@ void HELPER(msr_banked)(CPUARMState *env, uint32_t value, uint32_t tgtmode,
             env->fiq_regs[regno - 8] = value;
             break;
         default:
-            g_assert_not_reached();
+            __builtin_trap();__builtin_unreachable();
         }
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 #else
     __builtin_trap();

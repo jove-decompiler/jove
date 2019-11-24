@@ -1786,7 +1786,7 @@ static inline uint32_t regime_el(CPUARMState *env, ARMMMUIdx mmu_idx)
     case ARMMMUIdx_MSUser:
         return 1;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 }
 

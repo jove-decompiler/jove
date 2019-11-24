@@ -217,7 +217,7 @@ static bool round_to_inf(float_status *fpst, bool sign_bit)
         return false;
     }
 
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 }
 
 uint32_t HELPER(recpe_f16)(uint32_t input, void *fpstp)

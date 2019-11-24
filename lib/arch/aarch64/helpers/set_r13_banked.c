@@ -684,7 +684,7 @@ static inline int bank_number(int mode)
         return BANK_MON;
     }
 #if 0
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 #else
     __builtin_trap();
     __builtin_unreachable();

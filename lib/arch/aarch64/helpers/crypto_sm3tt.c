@@ -92,7 +92,7 @@ void HELPER(crypto_sm3tt)(void *vd, void *vn, void *vm, uint32_t imm2,
         /* SM3TT2B */
         t = cho(CR_ST_WORD(d, 3), CR_ST_WORD(d, 2), CR_ST_WORD(d, 1));
     } else {
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     t += CR_ST_WORD(d, 0) + CR_ST_WORD(m, imm2);

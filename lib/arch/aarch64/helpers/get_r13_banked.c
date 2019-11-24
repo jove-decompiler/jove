@@ -1446,7 +1446,7 @@ static inline int bank_number(int mode)
     case ARM_CPU_MODE_MON:
         return BANK_MON;
     }
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 }
 
 #define ARM_EL_EC_SHIFT 26

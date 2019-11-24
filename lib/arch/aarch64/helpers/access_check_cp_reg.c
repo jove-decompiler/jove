@@ -1725,7 +1725,7 @@ void HELPER(access_check_cp_reg)(CPUARMState *env, void *rip, uint32_t syndrome,
         syndrome = syn_fp_access_trap(1, 0xe, false);
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     raise_exception(env, EXCP_UDEF, syndrome, target_el);

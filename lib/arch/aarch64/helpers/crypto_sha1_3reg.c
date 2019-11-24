@@ -96,7 +96,7 @@ void HELPER(crypto_sha1_3reg)(void *vd, void *vn, void *vm, uint32_t op)
                 t = maj(CR_ST_WORD(d, 1), CR_ST_WORD(d, 2), CR_ST_WORD(d, 3));
                 break;
             default:
-                g_assert_not_reached();
+                __builtin_trap();__builtin_unreachable();
             }
             t += rol32(CR_ST_WORD(d, 0), 5) + CR_ST_WORD(n, 0)
                  + CR_ST_WORD(m, i);

@@ -1437,7 +1437,7 @@ void HELPER(msr_i_pstate)(CPUARMState *env, uint32_t op, uint32_t imm)
         env->daif &= ~((imm << 6) & PSTATE_DAIF);
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 }
 

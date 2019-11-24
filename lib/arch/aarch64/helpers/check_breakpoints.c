@@ -1644,7 +1644,7 @@ static bool bp_wp_matches(ARMCPU *cpu, int n, bool is_wp)
         }
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     wt = extract64(cr, 20, 1);

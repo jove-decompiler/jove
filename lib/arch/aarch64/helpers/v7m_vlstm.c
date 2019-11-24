@@ -636,7 +636,7 @@ void HELPER(v7m_vlstm)(CPUARMState *env, uint32_t fptr)
 {
 #if 0
     /* translate.c should never generate calls here in user-only mode */
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 #else
     __builtin_trap();
     __builtin_unreachable();

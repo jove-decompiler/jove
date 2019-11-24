@@ -689,7 +689,7 @@ static void softfloat_to_vfp_compare(CPUARMState *env, int cmp)
         flags = 0x3;
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
     env->vfp.xregs[ARM_VFP_FPSCR] =
         deposit32(env->vfp.xregs[ARM_VFP_FPSCR], 28, 4, flags);
