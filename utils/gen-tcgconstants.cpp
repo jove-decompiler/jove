@@ -175,6 +175,16 @@ int main(int argc, char **argv) {
 #endif
   };
 
+  auto syscall_return_index = [&](void) -> int {
+#if defined(__x86_64__)
+    return tcg_index_of_named_global("rax");
+#elif defined(__i386__)
+    return tcg_index_of_named_global("eax");
+#elif defined(__aarch64__)
+    return tcg_index_of_named_global("x0");
+#endif
+  };
+
   auto syscall_arg1_index = [&](void) -> int {
 #if defined(__x86_64__)
     return tcg_index_of_named_global("rdi");
@@ -269,6 +279,7 @@ int main(int argc, char **argv) {
   __TCG_CONST(stack_pointer_index);
   __TCG_CONST(program_counter_env_offset);
   __TCG_CONST(syscall_number_index);
+  __TCG_CONST(syscall_return_index);
   __TCG_CONST(syscall_arg1_index);
   __TCG_CONST(syscall_arg2_index);
   __TCG_CONST(syscall_arg3_index);
