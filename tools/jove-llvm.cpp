@@ -3774,13 +3774,20 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
 
-#if defined(__x86_64__)
         void *helper_ptr =
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
+#if defined(__x86_64__)
         if (helper_ptr == helper_syscall) {
+#elif defined(__aarch64__)
+        if (helper_ptr == helper_exception_with_syndrome &&
+	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
+#else
+#error
+#endif
           const auto &N = constprop[tcg_syscall_number_index];
           if (N < syscalls::NR_END) {
             iglbs.reset();
+            oglbs.reset();
 
             unsigned M = syscalls::nparams_tbl[N];
             assert(M < 7);
@@ -3800,9 +3807,10 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             case 0:
               break;
             }
+
+	    oglbs.set(tcg_syscall_return_index);
           }
         }
-#endif
       } else {
         const TCGOpDef &opdef = tcg_op_defs[opc];
 
@@ -3810,14 +3818,16 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
         nb_oargs = opdef.nb_oargs;
       }
 
-      if (opc == INDEX_op_movi_i64) {
+      if (opc == INDEX_op_movi_i64 ||
+          opc == INDEX_op_movi_i32) {
         TCGTemp *ts = arg_temp(op->args[0]);
         unsigned glb_idx = temp_idx(ts);
 
         constprop[glb_idx] = op->args[1];
       }
 
-      if (opc == INDEX_op_mov_i64) {
+      if (opc == INDEX_op_mov_i64 ||
+          opc == INDEX_op_mov_i32) {
         TCGTemp *dst = arg_temp(op->args[0]);
         TCGTemp *src = arg_temp(op->args[1]);
 
@@ -4134,6 +4144,21 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     hf.EnvArgNo = EnvArgNo;
 
     AnalyzeTCGHelper(hf);
+
+#if defined(__x86_64__)
+    if (reinterpret_cast<void *>(addr) ==
+        reinterpret_cast<void *>(helper_syscall))
+#elif defined(__aarch64__)
+    if (reinterpret_cast<void *>(addr) ==
+        reinterpret_cast<void *>(helper_exception_with_syndrome))
+#else
+    if (false)
+#endif
+    {
+      WithColor::note() << llvm::formatv(
+          "forcing Analysis.Simple = true for {0}\n", helper_nm);
+      hf.Analysis.Simple = true; /* XXX */
+    }
 
     it = HelperFuncMap.insert({addr, hf}).first;
   }
