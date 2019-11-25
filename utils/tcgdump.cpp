@@ -27,12 +27,20 @@ namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 namespace opts {
-  static cl::opt<std::string> Binary(cl::Positional,
-    cl::desc("<binary>"),
-    cl::Required);
+  static cl::OptionCategory JoveCategory("Specific Options");
+
+  static cl::opt<std::string> Binary(cl::Positional, cl::desc("<binary>"),
+                                     cl::Required, cl::cat(JoveCategory));
 
   static cl::opt<bool> DoTCGOpt("do-tcg-opt",
-    cl::desc("Run QEMU TCG optimizations"));
+                                cl::desc("Run QEMU TCG optimizations"),
+                                cl::cat(JoveCategory));
+
+  static cl::opt<std::string> BreakOnAddr(
+      "break-on-addr",
+      cl::desc("Allow user to set a debugger breakpoint on TCGDumpBreakPoint, "
+               "and triggered when basic block address matches given address"),
+      cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -48,6 +56,14 @@ int main(int argc, char **argv) {
     jove::do_tcg_optimization = true;
 
   return jove::tcgdump();
+}
+
+extern "C" {
+void __attribute__((noinline))
+     __attribute__((visibility("default")))
+TCGDumpUserBreakPoint(void) {
+  puts(__func__);
+}
 }
 
 namespace jove {
@@ -85,6 +101,16 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 }
 
 int tcgdump(void) {
+  struct {
+    uintptr_t Addr;
+    bool Active;
+  } BreakOn = { .Active = false };
+
+  if (!opts::BreakOnAddr.empty()) {
+    BreakOn.Active = true;
+    BreakOn.Addr = std::stoi(opts::BreakOnAddr.c_str(), 0, 16);
+  }
+
   if (!fs::exists(opts::Binary)) {
     llvm::errs() << "given binary " << opts::Binary << " does not exist\n";
     return 1;
@@ -285,6 +311,13 @@ int tcgdump(void) {
     unsigned BBSize;
     for (uintptr_t A = Addr; A < Addr + Sym.st_size; A += BBSize) {
       jove::terminator_info_t T;
+
+      if (BreakOn.Active) {
+	if (A == BreakOn.Addr) {
+          ::TCGDumpUserBreakPoint();
+	}
+      }
+
       std::tie(BBSize, T) = tcg.translate(A);
 
       //
