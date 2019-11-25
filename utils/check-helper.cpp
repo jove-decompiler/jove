@@ -6,6 +6,9 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <unordered_set>
+#include <string>
 
 namespace cl = llvm::cl;
 
@@ -52,7 +55,7 @@ static void checkHelper(const std::string &helper_nm) {
 
   std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
 
-  bool fail = false;
+  std::unordered_set<std::string> syms;
 
   {
     llvm::Module &helperM = *helperModule;
@@ -65,20 +68,35 @@ static void checkHelper(const std::string &helper_nm) {
         if (opts::Verbose)
           llvm::errs() << helperM << '\n';
 
+#if 0
+        if (F.getName() == "memcpy")
+          continue;
+        if (F.getName() == "memset")
+          continue;
+        if (F.getName() == "memmove")
+          continue;
+#endif
+
+        syms.insert(F.getName());
+
         WithColor::error() << "undefined function " << F.getName()
                            << " in helper module " << helper_nm << '\n';
-        fail = true;
       }
-
-      if (F.getName() == std::string("helper_") + helper_nm)
-        continue;
-
-      F.setLinkage(llvm::GlobalValue::InternalLinkage);
     }
   }
 
-  if (fail)
-    exit(1);
+  if (syms.empty())
+    return;
+
+  llvm::outs() << llvm::formatv(___JOVE_ARCH_NAME "-{0}_EXTRICATE_ARGS :=",
+                                helper_nm);
+
+  for (const std::string &sym : syms)
+    llvm::outs() << ' ' << sym;
+
+  llvm::outs() << '\n';
+
+  exit(1);
 }
 
 }
