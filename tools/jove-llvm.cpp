@@ -4061,7 +4061,12 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         if (F.getName() == std::string("helper_") + helper_nm)
           continue;
 
+#if 0
         F.setLinkage(llvm::GlobalValue::InternalLinkage);
+#else
+        F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
+        F.setVisibility(llvm::GlobalValue::HiddenVisibility);
+#endif
       }
 
       //
@@ -4071,7 +4076,11 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         if (!GV.hasInitializer())
           continue;
 
+#if 1
         GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+#else
+        GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
+#endif
       }
 
       //
@@ -5689,6 +5698,15 @@ int CreateSectionGlobalVariables(void) {
             IRB.SetCurrentDebugLocation(llvm::DILocation::get(
                 *Context, /* Line */ 0, /* Column */ 0, DebugInfo.Subprogram));
 
+            IRB.CreateCall(JoveInstallForeignFunctionTables)->setIsNoInline();
+
+            {
+              llvm::Function *StoresFnTblPtrF =
+                  Module->getFunction("_jove_install_function_table");
+              assert(StoresFnTblPtrF && !StoresFnTblPtrF->empty());
+              IRB.CreateCall(StoresFnTblPtrF);
+            }
+
             llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
 
             llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
@@ -5716,8 +5734,7 @@ int CreateSectionGlobalVariables(void) {
               llvm::Value *NewSP = IRB.CreateAdd(
                   TemporaryStack,
                   llvm::ConstantInt::get(WordType(), JOVE_STACK_SIZE -
-                                                         JOVE_PAGE_SIZE -
-                                                         sizeof(target_ulong)));
+                                                         JOVE_PAGE_SIZE - 16));
 
               constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
               IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
@@ -5859,6 +5876,15 @@ int CreateSectionGlobalVariables(void) {
           IRB.SetCurrentDebugLocation(llvm::DILocation::get(
               *Context, /* Line */ 0, /* Column */ 0, DebugInfo.Subprogram));
 
+          IRB.CreateCall(JoveInstallForeignFunctionTables)->setIsNoInline();
+
+          {
+            llvm::Function *StoresFnTblPtrF =
+                Module->getFunction("_jove_install_function_table");
+            assert(StoresFnTblPtrF && !StoresFnTblPtrF->empty());
+            IRB.CreateCall(StoresFnTblPtrF);
+          }
+
           llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
 
           llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
@@ -5883,11 +5909,10 @@ int CreateSectionGlobalVariables(void) {
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
           {
-            llvm::Value *NewSP =
-                IRB.CreateAdd(TemporaryStack,
-                              llvm::ConstantInt::get(
-                                  WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE -
-                                                  sizeof(target_ulong)));
+            llvm::Value *NewSP = IRB.CreateAdd(
+                TemporaryStack,
+                llvm::ConstantInt::get(WordType(),
+                                       JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16));
 
             constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
             IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
