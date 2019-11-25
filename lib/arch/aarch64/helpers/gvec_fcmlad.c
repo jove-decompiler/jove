@@ -1128,6 +1128,8 @@ soft_f64_muladd(float64 a, float64 b, float64 c, int flags,
 
 static bool force_soft_fma;
 
+static double internal_fma(double x, double y, double z);
+
 float64 QEMU_FLATTEN
 float64_muladd(float64 xa, float64 xb, float64 xc, int flags, float_status *s)
 {
@@ -1180,7 +1182,7 @@ float64_muladd(float64 xa, float64 xb, float64 xc, int flags, float_status *s)
             uc.h = -uc.h;
         }
 
-        ur.h = fma(ua.h, ub.h, uc.h);
+        ur.h = internal_fma(ua.h, ub.h, uc.h);
 
         if (unlikely(f64_is_inf(ur))) {
             s->float_exception_flags |= float_flag_overflow;
@@ -1260,3 +1262,7 @@ void HELPER(gvec_fcmlad)(void *vd, void *vn, void *vm,
     clear_tail(d, opr_sz, simd_maxsz(desc));
 }
 
+double internal_fma(double x, double y, double z) {
+  asm volatile("fmadd %d0, %d1, %d2, %d3" : "=w"(x) : "w"(x), "w"(y), "w"(z));
+  return x;
+}

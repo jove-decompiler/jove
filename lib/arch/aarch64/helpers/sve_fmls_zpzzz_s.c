@@ -1098,6 +1098,8 @@ soft_f32_muladd(float32 a, float32 b, float32 c, int flags,
 
 static bool force_soft_fma;
 
+static float internal_fmaf(float x, float y, float z);
+
 float32 QEMU_FLATTEN
 float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
 {
@@ -1150,7 +1152,7 @@ float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
             uc.h = -uc.h;
         }
 
-        ur.h = fmaf(ua.h, ub.h, uc.h);
+        ur.h = internal_fmaf(ua.h, ub.h, uc.h);
 
         if (unlikely(f32_is_inf(ur))) {
             s->float_exception_flags |= float_flag_overflow;
@@ -1798,3 +1800,7 @@ void HELPER(sve_fmls_zpzzz_s)(CPUARMState *env, void *vg, uint32_t desc)
     do_fmla_zpzzz_s(env, vg, desc, 0x80000000, 0);
 }
 
+float internal_fmaf(float x, float y, float z) {
+  __asm__("fmadd %s0, %s1, %s2, %s3" : "=w"(x) : "w"(x), "w"(y), "w"(z));
+  return x;
+}

@@ -1090,6 +1090,8 @@ soft_f32_muladd(float32 a, float32 b, float32 c, int flags,
 
 static bool force_soft_fma;
 
+static float internal_fmaf(float x, float y, float z);
+
 float32 QEMU_FLATTEN
 float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
 {
@@ -1224,3 +1226,7 @@ void HELPER(gvec_fcmlas)(void *vd, void *vn, void *vm,
     clear_tail(d, opr_sz, simd_maxsz(desc));
 }
 
+float internal_fmaf(float x, float y, float z) {
+  __asm__("fmadd %s0, %s1, %s2, %s3" : "=w"(x) : "w"(x), "w"(y), "w"(z));
+  return x;
+}
