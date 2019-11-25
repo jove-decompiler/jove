@@ -1322,14 +1322,81 @@ void raise_exception(CPUARMState *env, uint32_t excp,
 
 #endif
 
-void HELPER(exception_with_syndrome)(CPUARMState *env, uint32_t excp,
+#define JOVE_SYS_ATTR __attribute__((noinline))
+
+#include "jove_sys.h"
+
+#define EXCP_SWI             2   /* software interrupt */
+
+__attribute__((alwaysinline)) void HELPER(exception_with_syndrome)(CPUARMState *env, uint32_t excp,
                                      uint32_t syndrome, uint32_t target_el)
 {
-#if 0
-    raise_exception(env, excp, syndrome, target_el);
-#else
+  if (excp != EXCP_SWI) {
     __builtin_trap();
     __builtin_unreachable();
-#endif
+  }
+
+  unsigned long sysnum = env->xregs[8];
+
+  unsigned long sysret;
+  switch (sysnum) {
+#define ___SYSCALL0(nr, nm)                                                    \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm();                                                 \
+    break;
+
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0]);                                \
+    break;
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0],                                 \
+                            (t2)env->xregs[1]);                                \
+    break;
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0],                                 \
+                            (t2)env->xregs[1],                                 \
+                            (t3)env->xregs[2]);                                \
+    break;
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0],                                 \
+                            (t2)env->xregs[1],                                 \
+                            (t3)env->xregs[2],                                 \
+                            (t4)env->xregs[3]);                                \
+    break;
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0],                                 \
+                            (t2)env->xregs[1],                                 \
+                            (t3)env->xregs[2],                                 \
+                            (t4)env->xregs[3],                                 \
+                            (t5)env->xregs[4]);                                \
+    break;
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  case nr:                                                                     \
+    sysret = _jove_sys_##nm((t1)env->xregs[0],                                 \
+                            (t2)env->xregs[1],                                 \
+                            (t3)env->xregs[2],                                 \
+                            (t4)env->xregs[3],                                 \
+                            (t5)env->xregs[4],                                 \
+                            (t6)env->xregs[5]);                                \
+    break;
+
+#include "syscalls.inc.h"
+
+  default:
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  env->xregs[0] = sysret;
 }
 
