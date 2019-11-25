@@ -12,17 +12,147 @@
 
 #define unlikely(x)   __builtin_expect(!!(x), 0)
 
+#define container_of(ptr, type, member) ({                      \
+        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
+        (type *) ((char *) __mptr - offsetof(type, member));})
+
 #include <stddef.h>
 
 #include <stdbool.h>
 
 #include <stdint.h>
 
+#include <sys/types.h>
+
 #include <stdio.h>
+
+#include <limits.h>
 
 #include <assert.h>
 
+#include <setjmp.h>
+
+#define G_GNUC_NORETURN                         \
+  __attribute__((__noreturn__))
+
+#define G_STRFUNC     ((const char*) (__func__))
+
+#define MAX(a, b)  (((a) > (b)) ? (a) : (b))
+
+#define MIN(a, b)  (((a) < (b)) ? (a) : (b))
+
+#define G_STMT_START  do
+
+#define G_STMT_END    while (0)
+
+#define _GLIB_EXTERN extern
+
+#define GLIB_AVAILABLE_IN_ALL                   _GLIB_EXTERN
+
+typedef char   gchar;
+
+typedef unsigned int    guint;
+
+typedef void* gpointer;
+
+typedef struct _GArray		GArray;
+
+struct _GArray
+{
+  gchar *data;
+  guint len;
+};
+
+typedef struct _GHashTable  GHashTable;
+
+typedef struct _GSList GSList;
+
+struct _GSList
+{
+  gpointer data;
+  GSList *next;
+};
+
+#define G_LOG_DOMAIN    ((gchar*) 0)
+
+#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr) G_GNUC_NORETURN;
+
+typedef struct AddressSpace AddressSpace;
+
+typedef struct BusState BusState;
+
+typedef struct CPUAddressSpace CPUAddressSpace;
+
+typedef struct CPUState CPUState;
+
+typedef struct DeviceState DeviceState;
+
+typedef struct MemoryRegion MemoryRegion;
+
+typedef struct ObjectClass ObjectClass;
+
+typedef struct QemuMutex QemuMutex;
+
+typedef struct QemuOpts QemuOpts;
+
+typedef struct QEMUTimer QEMUTimer;
+
+typedef struct IRQState *qemu_irq;
+
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
+
+struct QemuMutex {
+    pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
+    bool initialized;
+};
+
+struct QemuCond {
+    pthread_cond_t cond;
+    bool initialized;
+};
+
+struct QemuThread {
+    pthread_t thread;
+};
 
 typedef uint8_t flag;
 
@@ -39,6 +169,10 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+#define BITS_PER_BYTE           CHAR_BIT
+
+#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
 #define MAKE_64BIT_MASK(shift, length) \
     (((~0ULL) >> (64 - (length))) << (shift))
@@ -73,16 +207,124 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
     return (value & ~mask) | ((fieldval << start) & mask);
 }
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
+typedef struct QEMUTimerList QEMUTimerList;
 
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
+typedef void QEMUTimerCB(void *opaque);
+
+struct QEMUTimer {
+    int64_t expire_time;        /* in nanoseconds */
+    QEMUTimerList *timer_list;
+    QEMUTimerCB *cb;
+    void *opaque;
+    QEMUTimer *next;
+    int attributes;
+    int scale;
+};
+
+#define DECLARE_BITMAP(name,bits)                  \
+        unsigned long name[BITS_TO_LONGS(bits)]
+
+typedef struct Object Object;
+
+typedef void (ObjectFree)(void *obj);
+
+struct TypeImpl;
+
+typedef struct TypeImpl *Type;
+
+typedef void (ObjectUnparent)(Object *obj);
+
+#define OBJECT_CLASS_CAST_CACHE 4
+
+struct ObjectClass
+{
+    /*< private >*/
+    Type type;
+    GSList *interfaces;
+
+    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
+    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
+
+    ObjectUnparent *unparent;
+
+    GHashTable *properties;
+};
+
+struct Object
+{
+    /*< private >*/
+    ObjectClass *klass;
+    ObjectFree *free;
+    GHashTable *properties;
+    uint32_t ref;
+    Object *parent;
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    const char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    QemuOpts *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+};
+
+enum qemu_plugin_event {
+    QEMU_PLUGIN_EV_VCPU_INIT,
+    QEMU_PLUGIN_EV_VCPU_EXIT,
+    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
+    QEMU_PLUGIN_EV_VCPU_IDLE,
+    QEMU_PLUGIN_EV_VCPU_RESUME,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
+    QEMU_PLUGIN_EV_FLUSH,
+    QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
+};
+
+typedef struct CPUWatchpoint CPUWatchpoint;
+
+struct TranslationBlock;
+
+typedef union IcountDecr {
+    uint32_t u32;
+    struct {
+#ifdef HOST_WORDS_BIGENDIAN
+        uint16_t high;
+        uint16_t low;
+#else
+        uint16_t low;
+        uint16_t high;
+#endif
+    } u16;
+} IcountDecr;
+
+typedef uint64_t vaddr;
+
+typedef struct CPUBreakpoint {
+    vaddr pc;
+    int flags; /* BP_* */
+    QTAILQ_ENTRY(CPUBreakpoint) entry;
+} CPUBreakpoint;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -113,14 +355,6 @@ typedef struct MemTxAttrs {
     unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-typedef uint64_t vaddr;
-
-typedef struct CPUBreakpoint {
-    vaddr pc;
-    int flags; /* BP_* */
-    QTAILQ_ENTRY(CPUBreakpoint) entry;
-} CPUBreakpoint;
-
 struct CPUWatchpoint {
     vaddr vaddr;
     vaddr len;
@@ -130,15 +364,151 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
+struct KVMState;
+
+struct kvm_run;
+
+#define TB_JMP_CACHE_BITS 12
+
+#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+
+struct hax_vcpu_state;
+
+#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+
+struct qemu_work_item;
+
+struct CPUState {
+    /*< private >*/
+    DeviceState parent_obj;
+    /*< public >*/
+
+    int nr_cores;
+    int nr_threads;
+
+    struct QemuThread *thread;
+#ifdef _WIN32
+    HANDLE hThread;
+#endif
+    int thread_id;
+    bool running, has_waiter;
+    struct QemuCond *halt_cond;
+    bool thread_kicked;
+    bool created;
+    bool stop;
+    bool stopped;
+    bool unplug;
+    bool crash_occurred;
+    bool exit_request;
+    bool in_exclusive_context;
+    uint32_t cflags_next_tb;
+    /* updates protected by BQL */
+    uint32_t interrupt_request;
+    int singlestep_enabled;
+    int64_t icount_budget;
+    int64_t icount_extra;
+    uint64_t random_seed;
+    sigjmp_buf jmp_env;
+
+    QemuMutex work_mutex;
+    struct qemu_work_item *queued_work_first, *queued_work_last;
+
+    CPUAddressSpace *cpu_ases;
+    int num_ases;
+    AddressSpace *as;
+    MemoryRegion *memory;
+
+    void *env_ptr; /* CPUArchState */
+    IcountDecr *icount_decr_ptr;
+
+    /* Accessed in parallel; all accesses must be atomic */
+    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+
+    struct GDBRegisterState *gdb_regs;
+    int gdb_num_regs;
+    int gdb_num_g_regs;
+    QTAILQ_ENTRY(CPUState) node;
+
+    /* ice debug support */
+    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
+
+    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
+    CPUWatchpoint *watchpoint_hit;
+
+    void *opaque;
+
+    /* In order to avoid passing too many arguments to the MMIO helpers,
+     * we store some rarely used information in the CPU context.
+     */
+    uintptr_t mem_io_pc;
+
+    int kvm_fd;
+    struct KVMState *kvm_state;
+    struct kvm_run *kvm_run;
+
+    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
+    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
+    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+
+    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
+
+    GArray *plugin_mem_cbs;
+
+    /* TODO Move common fields from CPUArchState here. */
+    int cpu_index;
+    int cluster_index;
+    uint32_t halted;
+    uint32_t can_do_io;
+    int32_t exception_index;
+
+    /* shared by kvm, hax and hvf */
+    bool vcpu_dirty;
+
+    /* Used to keep track of an outstanding cpu throttle thread for migration
+     * autoconverge
+     */
+    bool throttle_thread_scheduled;
+
+    bool ignore_memory_transaction_failures;
+
+    struct hax_vcpu_state *hax_vcpu;
+
+    int hvf_fd;
+
+    /* track IOMMUs whose translations we've cached in the TCG TLB */
+    GArray *iommu_notifiers;
+};
+
 struct arm_boot_info;
 
+typedef struct ARMCPU ARMCPU;
+
+typedef struct CPUTLB { } CPUTLB;
+
 #define EXCP_UDEF            1
+
+#define EXCP_EXCEPTION_EXIT  8
+
+#define EXCP_KERNEL_TRAP     9
+
+#define EXCP_SEMIHOST       16
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
 
 enum {
     M_REG_NS = 0,
     M_REG_S = 1,
     M_REG_NUM_BANKS = 2,
 };
+
+typedef struct DynamicGDBXMLInfo {
+    char *desc;
+    int num_cpregs;
+    uint32_t *cpregs_keys;
+} DynamicGDBXMLInfo;
 
 #define NUM_GTIMERS 4
 
@@ -649,6 +1019,238 @@ typedef struct CPUARMState {
     void *gicv3state;
 } CPUARMState;
 
+typedef void ARMELChangeHookFn(ARMCPU *cpu, void *opaque);
+
+struct ARMELChangeHook {
+    ARMELChangeHookFn *hook;
+    void *opaque;
+    QLIST_ENTRY(ARMELChangeHook) node;
+};
+
+typedef enum ARMPSCIState {
+    PSCI_ON = 0,
+    PSCI_OFF = 1,
+    PSCI_ON_PENDING = 2
+} ARMPSCIState;
+
+struct ARMISARegisters {
+    uint32_t id_isar0;
+    uint32_t id_isar1;
+    uint32_t id_isar2;
+    uint32_t id_isar3;
+    uint32_t id_isar4;
+    uint32_t id_isar5;
+    uint32_t id_isar6;
+    uint32_t mvfr0;
+    uint32_t mvfr1;
+    uint32_t mvfr2;
+    uint64_t id_aa64isar0;
+    uint64_t id_aa64isar1;
+    uint64_t id_aa64pfr0;
+    uint64_t id_aa64pfr1;
+    uint64_t id_aa64mmfr0;
+    uint64_t id_aa64mmfr1;
+};
+
+struct ARMCPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUNegativeOffsetState neg;
+    CPUARMState env;
+
+    /* Coprocessor information */
+    GHashTable *cp_regs;
+    /* For marshalling (mostly coprocessor) register state between the
+     * kernel and QEMU (for KVM) and between two QEMUs (for migration),
+     * we use these arrays.
+     */
+    /* List of register indexes managed via these arrays; (full KVM style
+     * 64 bit indexes, not CPRegInfo 32 bit indexes)
+     */
+    uint64_t *cpreg_indexes;
+    /* Values of the registers (cpreg_indexes[i]'s value is cpreg_values[i]) */
+    uint64_t *cpreg_values;
+    /* Length of the indexes, values, reset_values arrays */
+    int32_t cpreg_array_len;
+    /* These are used only for migration: incoming data arrives in
+     * these fields and is sanity checked in post_load before copying
+     * to the working data structures above.
+     */
+    uint64_t *cpreg_vmstate_indexes;
+    uint64_t *cpreg_vmstate_values;
+    int32_t cpreg_vmstate_array_len;
+
+    DynamicGDBXMLInfo dyn_xml;
+
+    /* Timers used by the generic (architected) timer */
+    QEMUTimer *gt_timer[NUM_GTIMERS];
+    /*
+     * Timer used by the PMU. Its state is restored after migration by
+     * pmu_op_finish() - it does not need other handling during migration
+     */
+    QEMUTimer *pmu_timer;
+    /* GPIO outputs for generic timer */
+    qemu_irq gt_timer_outputs[NUM_GTIMERS];
+    /* GPIO output for GICv3 maintenance interrupt signal */
+    qemu_irq gicv3_maintenance_interrupt;
+    /* GPIO output for the PMU interrupt */
+    qemu_irq pmu_interrupt;
+
+    /* MemoryRegion to use for secure physical accesses */
+    MemoryRegion *secure_memory;
+
+    /* For v8M, pointer to the IDAU interface provided by board/SoC */
+    Object *idau;
+
+    /* 'compatible' string for this CPU for Linux device trees */
+    const char *dtb_compatible;
+
+    /* PSCI version for this CPU
+     * Bits[31:16] = Major Version
+     * Bits[15:0] = Minor Version
+     */
+    uint32_t psci_version;
+
+    /* Should CPU start in PSCI powered-off state? */
+    bool start_powered_off;
+
+    /* Current power state, access guarded by BQL */
+    ARMPSCIState power_state;
+
+    /* CPU has virtualization extension */
+    bool has_el2;
+    /* CPU has security extension */
+    bool has_el3;
+    /* CPU has PMU (Performance Monitor Unit) */
+    bool has_pmu;
+    /* CPU has VFP */
+    bool has_vfp;
+    /* CPU has Neon */
+    bool has_neon;
+    /* CPU has M-profile DSP extension */
+    bool has_dsp;
+
+    /* CPU has memory protection unit */
+    bool has_mpu;
+    /* PMSAv7 MPU number of supported regions */
+    uint32_t pmsav7_dregion;
+    /* v8M SAU number of supported regions */
+    uint32_t sau_sregion;
+
+    /* PSCI conduit used to invoke PSCI methods
+     * 0 - disabled, 1 - smc, 2 - hvc
+     */
+    uint32_t psci_conduit;
+
+    /* For v8M, initial value of the Secure VTOR */
+    uint32_t init_svtor;
+
+    /* [QEMU_]KVM_ARM_TARGET_* constant for this CPU, or
+     * QEMU_KVM_ARM_TARGET_NONE if the kernel doesn't support this CPU type.
+     */
+    uint32_t kvm_target;
+
+    /* KVM init features for this CPU */
+    uint32_t kvm_init_features[7];
+
+    /* Uniprocessor system with MP extensions */
+    bool mp_is_up;
+
+    /* True if we tried kvm_arm_host_cpu_features() during CPU instance_init
+     * and the probe failed (so we need to report the error in realize)
+     */
+    bool host_cpu_probe_failed;
+
+    /* Specify the number of cores in this CPU cluster. Used for the L2CTLR
+     * register.
+     */
+    int32_t core_count;
+
+    /* The instance init functions for implementation-specific subclasses
+     * set these fields to specify the implementation-dependent values of
+     * various constant registers and reset values of non-constant
+     * registers.
+     * Some of these might become QOM properties eventually.
+     * Field names match the official register names as defined in the
+     * ARMv7AR ARM Architecture Reference Manual. A reset_ prefix
+     * is used for reset values of non-constant registers; no reset_
+     * prefix means a constant register.
+     * Some of these registers are split out into a substructure that
+     * is shared with the translators to control the ISA.
+     */
+    struct ARMISARegisters isar;
+    uint32_t midr;
+    uint32_t revidr;
+    uint32_t reset_fpsid;
+    uint32_t ctr;
+    uint32_t reset_sctlr;
+    uint32_t id_pfr0;
+    uint32_t id_pfr1;
+    uint32_t id_dfr0;
+    uint64_t pmceid0;
+    uint64_t pmceid1;
+    uint32_t id_afr0;
+    uint32_t id_mmfr0;
+    uint32_t id_mmfr1;
+    uint32_t id_mmfr2;
+    uint32_t id_mmfr3;
+    uint32_t id_mmfr4;
+    uint64_t id_aa64dfr0;
+    uint64_t id_aa64dfr1;
+    uint64_t id_aa64afr0;
+    uint64_t id_aa64afr1;
+    uint32_t dbgdidr;
+    uint32_t clidr;
+    uint64_t mp_affinity; /* MP ID without feature bits */
+    /* The elements of this array are the CCSIDR values for each cache,
+     * in the order L1DCache, L1ICache, L2DCache, L2ICache, etc.
+     */
+    uint32_t ccsidr[16];
+    uint64_t reset_cbar;
+    uint32_t reset_auxcr;
+    bool reset_hivecs;
+    /* DCZ blocksize, in log_2(words), ie low 4 bits of DCZID_EL0 */
+    uint32_t dcz_blocksize;
+    uint64_t rvbar;
+
+    /* Configurable aspects of GIC cpu interface (which is part of the CPU) */
+    int gic_num_lrs; /* number of list registers */
+    int gic_vpribits; /* number of virtual priority bits */
+    int gic_vprebits; /* number of virtual preemption bits */
+
+    /* Whether the cfgend input is high (i.e. this CPU should reset into
+     * big-endian mode).  This setting isn't used directly: instead it modifies
+     * the reset_sctlr value to have SCTLR_B or SCTLR_EE set, depending on the
+     * architecture version.
+     */
+    bool cfgend;
+
+    QLIST_HEAD(, ARMELChangeHook) pre_el_change_hooks;
+    QLIST_HEAD(, ARMELChangeHook) el_change_hooks;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+
+    /* Used to synchronize KVM and QEMU in-kernel device levels */
+    uint8_t device_irq_level;
+
+    /* Used to set the maximum vector length the cpu will support.  */
+    uint32_t sve_max_vq;
+
+    /*
+     * In sve_vq_map each set bit is a supported vector length of
+     * (bit-number + 1) * 16 bytes, i.e. each bit number + 1 is the vector
+     * length in quadwords.
+     *
+     * While processing properties during initialization, corresponding
+     * sve_vq_init bits are set for bits in sve_vq_map that have been
+     * set by properties.
+     */
+    DECLARE_BITMAP(sve_vq_map, ARM_MAX_VQ);
+    DECLARE_BITMAP(sve_vq_init, ARM_MAX_VQ);
+};
+
 static inline bool is_a64(CPUARMState *env)
 {
     return env->aarch64;
@@ -658,7 +1260,75 @@ static inline bool is_a64(CPUARMState *env)
 
 #define SCTLR_EnIA    (1U << 31)
 
+#define HCR_VM        (1ULL << 0)
+
+#define HCR_SWIO      (1ULL << 1)
+
+#define HCR_PTW       (1ULL << 2)
+
+#define HCR_FMO       (1ULL << 3)
+
+#define HCR_IMO       (1ULL << 4)
+
+#define HCR_AMO       (1ULL << 5)
+
+#define HCR_VF        (1ULL << 6)
+
+#define HCR_VI        (1ULL << 7)
+
+#define HCR_VSE       (1ULL << 8)
+
+#define HCR_FB        (1ULL << 9)
+
+#define HCR_BSU_MASK  (3ULL << 10)
+
+#define HCR_DC        (1ULL << 12)
+
+#define HCR_TWI       (1ULL << 13)
+
+#define HCR_TWE       (1ULL << 14)
+
+#define HCR_TID0      (1ULL << 15)
+
+#define HCR_TID1      (1ULL << 16)
+
+#define HCR_TID2      (1ULL << 17)
+
+#define HCR_TID3      (1ULL << 18)
+
+#define HCR_TSC       (1ULL << 19)
+
+#define HCR_TACR      (1ULL << 21)
+
+#define HCR_TSW       (1ULL << 22)
+
+#define HCR_TPCP      (1ULL << 23)
+
+#define HCR_TPU       (1ULL << 24)
+
+#define HCR_TTLB      (1ULL << 25)
+
+#define HCR_TVM       (1ULL << 26)
+
+#define HCR_TGE       (1ULL << 27)
+
+#define HCR_TDZ       (1ULL << 28)
+
+#define HCR_HCD       (1ULL << 29)
+
+#define HCR_TRVM      (1ULL << 30)
+
 #define HCR_RW        (1ULL << 31)
+
+#define HCR_CD        (1ULL << 32)
+
+#define HCR_ID        (1ULL << 33)
+
+#define HCR_E2H       (1ULL << 34)
+
+#define HCR_TLOR      (1ULL << 35)
+
+#define HCR_MIOCNCE   (1ULL << 38)
 
 #define HCR_API       (1ULL << 41)
 
@@ -835,11 +1505,53 @@ typedef enum ARMMMUIdx {
     ARMMMUIdx_S1NSE1 = 1 | ARM_MMU_IDX_NOTLB,
 } ARMMMUIdx;
 
+typedef CPUARMState CPUArchState;
+
+typedef ARMCPU ArchCPU;
+
+#define EXCP_INTERRUPT 	0x10000
+
+#define EXCP_HLT        0x10001
+
+#define EXCP_DEBUG      0x10002
+
+#define EXCP_HALTED     0x10003
+
+static inline ArchCPU *env_archcpu(CPUArchState *env)
+{
+    return container_of(env, ArchCPU, env);
+}
+
+static inline CPUState *env_cpu(CPUArchState *env)
+{
+    return &env_archcpu(env)->parent_obj;
+}
+
+#define HELPER(name) glue(helper_, name)
+
+static inline bool excp_is_internal(int excp)
+{
+    /* Return true if this exception number represents a QEMU-internal
+     * exception that will not be passed to the guest.
+     */
+    return excp == EXCP_INTERRUPT
+        || excp == EXCP_HLT
+        || excp == EXCP_DEBUG
+        || excp == EXCP_HALTED
+        || excp == EXCP_EXCEPTION_EXIT
+        || excp == EXCP_KERNEL_TRAP
+        || excp == EXCP_SEMIHOST;
+}
+
 void QEMU_NORETURN raise_exception_ra(CPUARMState *env, uint32_t excp,
                                       uint32_t syndrome, uint32_t target_el,
                                       uintptr_t ra);
 
 #define ARM_EL_EC_SHIFT 26
+
+#define ARM_EL_IL_SHIFT 25
+
+#define ARM_EL_IL (1 << ARM_EL_IL_SHIFT)
 
 enum arm_exception_class {
     EC_UNCATEGORIZED          = 0x00,
@@ -882,6 +1594,16 @@ enum arm_exception_class {
     EC_AA64_BKPT              = 0x3c,
 };
 
+static inline uint32_t syn_get_ec(uint32_t syn)
+{
+    return syn >> ARM_EL_EC_SHIFT;
+}
+
+static inline uint32_t syn_uncategorized(void)
+{
+    return (EC_UNCATEGORIZED << ARM_EL_EC_SHIFT) | ARM_EL_IL;
+}
+
 static inline uint32_t syn_pactrap(void)
 {
     return EC_PACTRAP << ARM_EL_EC_SHIFT;
@@ -906,10 +1628,43 @@ typedef struct ARMVAParameters {
 ARMVAParameters aa64_va_parameters(CPUARMState *env, uint64_t va,
                                    ARMMMUIdx mmu_idx, bool data);
 
+void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
+
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define HELPER(name) glue(helper_, name)
+static CPUState *do_raise_exception(CPUARMState *env, uint32_t excp,
+                                    uint32_t syndrome, uint32_t target_el)
+{
+    CPUState *cs = env_cpu(env);
+
+    if (target_el == 1 && (arm_hcr_el2_eff(env) & HCR_TGE)) {
+        /*
+         * Redirect NS EL1 exceptions to NS EL2. These are reported with
+         * their original syndrome register value, with the exception of
+         * SIMD/FP access traps, which are reported as uncategorized
+         * (see DDI0478C.a D1.10.4)
+         */
+        target_el = 2;
+        if (syn_get_ec(syndrome) == EC_ADVSIMDFPACCESSTRAP) {
+            syndrome = syn_uncategorized();
+        }
+    }
+
+    assert(!excp_is_internal(excp));
+    cs->exception_index = excp;
+    env->exception.syndrome = syndrome;
+    env->exception.target_el = target_el;
+
+    return cs;
+}
+
+void raise_exception_ra(CPUARMState *env, uint32_t excp, uint32_t syndrome,
+                        uint32_t target_el, uintptr_t ra)
+{
+    CPUState *cs = do_raise_exception(env, excp, syndrome, target_el);
+    cpu_loop_exit_restore(cs, ra);
+}
 
 static uint64_t pac_cell_shuffle(uint64_t i)
 {
@@ -1291,5 +2046,150 @@ uint64_t HELPER(autib)(CPUARMState *env, uint64_t x, uint64_t y)
     }
     pauth_check_trap(env, el, GETPC());
     return pauth_auth(env, x, y, &env->keys.apib, false, 1);
+}
+
+uint64_t arm_hcr_el2_eff(CPUARMState *env)
+{
+    uint64_t ret = env->cp15.hcr_el2;
+
+    if (arm_is_secure_below_el3(env)) {
+        /*
+         * "This register has no effect if EL2 is not enabled in the
+         * current Security state".  This is ARMv8.4-SecEL2 speak for
+         * !(SCR_EL3.NS==1 || SCR_EL3.EEL2==1).
+         *
+         * Prior to that, the language was "In an implementation that
+         * includes EL3, when the value of SCR_EL3.NS is 0 the PE behaves
+         * as if this field is 0 for all purposes other than a direct
+         * read or write access of HCR_EL2".  With lots of enumeration
+         * on a per-field basis.  In current QEMU, this is condition
+         * is arm_is_secure_below_el3.
+         *
+         * Since the v8.4 language applies to the entire register, and
+         * appears to be backward compatible, use that.
+         */
+        ret = 0;
+    } else if (ret & HCR_TGE) {
+        /* These bits are up-to-date as of ARMv8.4.  */
+        if (ret & HCR_E2H) {
+            ret &= ~(HCR_VM | HCR_FMO | HCR_IMO | HCR_AMO |
+                     HCR_BSU_MASK | HCR_DC | HCR_TWI | HCR_TWE |
+                     HCR_TID0 | HCR_TID2 | HCR_TPCP | HCR_TPU |
+                     HCR_TDZ | HCR_CD | HCR_ID | HCR_MIOCNCE);
+        } else {
+            ret |= HCR_FMO | HCR_IMO | HCR_AMO;
+        }
+        ret &= ~(HCR_SWIO | HCR_PTW | HCR_VF | HCR_VI | HCR_VSE |
+                 HCR_FB | HCR_TID1 | HCR_TID3 | HCR_TSC | HCR_TACR |
+                 HCR_TSW | HCR_TTLB | HCR_TVM | HCR_HCD | HCR_TRVM |
+                 HCR_TLOR);
+    }
+
+    return ret;
+}
+
+static inline uint32_t regime_el(CPUARMState *env, ARMMMUIdx mmu_idx)
+{
+    switch (mmu_idx) {
+    case ARMMMUIdx_S2NS:
+    case ARMMMUIdx_S1E2:
+        return 2;
+    case ARMMMUIdx_S1E3:
+        return 3;
+    case ARMMMUIdx_S1SE0:
+        return arm_el_is_aa64(env, 3) ? 1 : 3;
+    case ARMMMUIdx_S1SE1:
+    case ARMMMUIdx_S1NSE0:
+    case ARMMMUIdx_S1NSE1:
+    case ARMMMUIdx_MPrivNegPri:
+    case ARMMMUIdx_MUserNegPri:
+    case ARMMMUIdx_MPriv:
+    case ARMMMUIdx_MUser:
+    case ARMMMUIdx_MSPrivNegPri:
+    case ARMMMUIdx_MSUserNegPri:
+    case ARMMMUIdx_MSPriv:
+    case ARMMMUIdx_MSUser:
+        return 1;
+    default:
+        __builtin_trap();__builtin_unreachable();
+    }
+}
+
+static inline TCR *regime_tcr(CPUARMState *env, ARMMMUIdx mmu_idx)
+{
+    if (mmu_idx == ARMMMUIdx_S2NS) {
+        return &env->cp15.vtcr_el2;
+    }
+    return &env->cp15.tcr_el[regime_el(env, mmu_idx)];
+}
+
+ARMVAParameters aa64_va_parameters_both(CPUARMState *env, uint64_t va,
+                                        ARMMMUIdx mmu_idx)
+{
+    uint64_t tcr = regime_tcr(env, mmu_idx)->raw_tcr;
+    uint32_t el = regime_el(env, mmu_idx);
+    bool tbi, tbid, epd, hpd, using16k, using64k;
+    int select, tsz;
+
+    /*
+     * Bit 55 is always between the two regions, and is canonical for
+     * determining if address tagging is enabled.
+     */
+    select = extract64(va, 55, 1);
+
+    if (el > 1) {
+        tsz = extract32(tcr, 0, 6);
+        using64k = extract32(tcr, 14, 1);
+        using16k = extract32(tcr, 15, 1);
+        if (mmu_idx == ARMMMUIdx_S2NS) {
+            /* VTCR_EL2 */
+            tbi = tbid = hpd = false;
+        } else {
+            tbi = extract32(tcr, 20, 1);
+            hpd = extract32(tcr, 24, 1);
+            tbid = extract32(tcr, 29, 1);
+        }
+        epd = false;
+    } else if (!select) {
+        tsz = extract32(tcr, 0, 6);
+        epd = extract32(tcr, 7, 1);
+        using64k = extract32(tcr, 14, 1);
+        using16k = extract32(tcr, 15, 1);
+        tbi = extract64(tcr, 37, 1);
+        hpd = extract64(tcr, 41, 1);
+        tbid = extract64(tcr, 51, 1);
+    } else {
+        int tg = extract32(tcr, 30, 2);
+        using16k = tg == 1;
+        using64k = tg == 3;
+        tsz = extract32(tcr, 16, 6);
+        epd = extract32(tcr, 23, 1);
+        tbi = extract64(tcr, 38, 1);
+        hpd = extract64(tcr, 42, 1);
+        tbid = extract64(tcr, 52, 1);
+    }
+    tsz = MIN(tsz, 39);  /* TODO: ARMv8.4-TTST */
+    tsz = MAX(tsz, 16);  /* TODO: ARMv8.2-LVA  */
+
+    return (ARMVAParameters) {
+        .tsz = tsz,
+        .select = select,
+        .tbi = tbi,
+        .tbid = tbid,
+        .epd = epd,
+        .hpd = hpd,
+        .using16k = using16k,
+        .using64k = using64k,
+    };
+}
+
+ARMVAParameters aa64_va_parameters(CPUARMState *env, uint64_t va,
+                                   ARMMMUIdx mmu_idx, bool data)
+{
+    ARMVAParameters ret = aa64_va_parameters_both(env, va, mmu_idx);
+
+    /* Present TBI as a composite with TBID.  */
+    ret.tbi &= (data || !ret.tbid);
+    return ret;
 }
 

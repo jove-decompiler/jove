@@ -12,6 +12,36 @@
 
 #include <assert.h>
 
+typedef uint8_t flag;
+
+typedef uint16_t float16;
+
+#define float16_val(x) (x)
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
+
+typedef struct float_status {
+    signed char float_detect_tininess;
+    signed char float_rounding_mode;
+    uint8_t     float_exception_flags;
+    signed char floatx80_rounding_precision;
+    /* should denormalised results go to zero and set the inexact flag? */
+    flag flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    flag flush_inputs_to_zero;
+    flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
+    flag snan_bit_is_one;
+} float_status;
+
 static inline uint32_t extract32(uint32_t value, int start, int length)
 {
     assert(start >= 0 && length > 0 && length <= 32 - start);
@@ -35,6 +65,44 @@ static inline uint32_t extract32(uint32_t value, int start, int length)
 dh_ctype(ret) HELPER(name) (dh_ctype(t1), dh_ctype(t2));
 
 DEF_HELPER_2(vfp_tosizh, s32, f16, ptr)
+
+void float_raise(uint8_t flags, float_status *status);
+
+float16 int32_to_float16(int32_t a, float_status *status);
+
+int32_t float16_to_int32(float16, float_status *status);
+
+int32_t float16_to_int32_round_to_zero(float16, float_status *status);
+
+static inline int float16_is_any_nan(float16 a)
+{
+    return ((float16_val(a) & ~0x8000) > 0x7c00);
+}
+
+#define CONV_ITOF(name, ftype, fsz, sign)                           \
+ftype HELPER(name)(uint32_t x, void *fpstp)                         \
+{                                                                   \
+    float_status *fpst = fpstp;                                     \
+    return sign##int32_to_##float##fsz((sign##int32_t)x, fpst);     \
+}
+
+#define CONV_FTOI(name, ftype, fsz, sign, round)                \
+sign##int32_t HELPER(name)(ftype x, void *fpstp)                \
+{                                                               \
+    float_status *fpst = fpstp;                                 \
+    if (float##fsz##_is_any_nan(x)) {                           \
+        float_raise(float_flag_invalid, fpst);                  \
+        return 0;                                               \
+    }                                                           \
+    return float##fsz##_to_##sign##int32##round(x, fpst);       \
+}
+
+#define FLOAT_CONVS(name, p, ftype, fsz, sign)            \
+    CONV_ITOF(vfp_##name##to##p, ftype, fsz, sign)        \
+    CONV_FTOI(vfp_to##name##p, ftype, fsz, sign, )        \
+    CONV_FTOI(vfp_to##name##z##p, ftype, fsz, sign, _round_to_zero)
+
+FLOAT_CONVS(si, h, uint32_t, 16, )
 
 #define SIMD_OPRSZ_SHIFT   0
 

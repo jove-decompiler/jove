@@ -49,9 +49,14 @@ static inline uint64_t deposit64(uint64_t value, int start, int length,
     return (value & ~mask) | ((fieldval << start) & mask);
 }
 
-#define HELPER(name) glue(helper_, name)
-
 void float_raise(uint8_t flags, float_status *status);
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+#define HELPER(name) glue(helper_, name)
 
 uint64_t HELPER(fjcvtzs)(float64 value, void *vstatus)
 {
