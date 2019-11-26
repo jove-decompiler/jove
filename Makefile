@@ -190,6 +190,8 @@ _SL_AARCH64_TRANSLATE_INIT        := target/arm/translate.c:85l
 _SL_AARCH64_TCG_GEN_GVEC_NOT      := tcg/tcg-op-gvec.c:1542l
 _SL_AARCH64_TCG_GEN_LD_VEC        := tcg/tcg-op-vec.c:338l
 _SL_AARCH64_TCG_DISAS_SVE         := target/arm/translate-sve.c:1913l
+_SL_AARCH64_REGISTER_CP_REGS_FOR_FEATURES := target/arm/helper.c:5979l
+_SL_AARCH64_INIT_CPREG_LIST := target/arm/helper.c:376l
 
 aarch64_SOURCE_LOCATIONS := $(_SL_AARCH64_TCG_CONTEXT_INIT) \
                             $(_SL_AARCH64_TCG_FUNC_START) \
@@ -199,7 +201,9 @@ aarch64_SOURCE_LOCATIONS := $(_SL_AARCH64_TCG_CONTEXT_INIT) \
                             $(_SL_AARCH64_TRANSLATE_INIT) \
                             $(_SL_AARCH64_TCG_GEN_GVEC_NOT) \
                             $(_SL_AARCH64_TCG_GEN_LD_VEC) \
-                            $(_SL_AARCH64_TCG_DISAS_SVE)
+                            $(_SL_AARCH64_TCG_DISAS_SVE) \
+                            $(_SL_AARCH64_REGISTER_CP_REGS_FOR_FEATURES) \
+                            $(_SL_AARCH64_INIT_CPREG_LIST)
 
 .PHONY: extract-tcg-code
 extract-tcg-code:

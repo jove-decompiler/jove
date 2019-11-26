@@ -183,8 +183,80 @@ struct tiny_code_generator_t {
     _cpu.env.features[1] = 2147483649;
     _cpu.env.user_features[0] = 2;
 #elif defined(__aarch64__)
-    _cpu.env.aarch64 = 1;
+    _cpu.cp_regs = g_hash_table_new_full(g_int_hash, g_int_equal, g_free,
+                                         cpreg_hashtable_data_destroy);
+
+#if 0
     _cpu.env.features = 192517101788915;
+    _cpu.env.aarch64 = 1;
+#else
+    //
+    // from aarch64_a57_initfn() in qemu/target/arm/cpu64.c
+    //
+
+    _cpu.dtb_compatible = "arm,cortex-a57";
+
+    _cpu.env.features = 0;
+
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V8;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_VFP4;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_NEON;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_GENERIC_TIMER;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_AARCH64;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_CBAR_RO;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_EL2;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_EL3;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_PMU;
+
+    _cpu.midr = 0x411fd070;
+    _cpu.revidr = 0x00000000;
+    _cpu.reset_fpsid = 0x41034070;
+    _cpu.isar.mvfr0 = 0x10110222;
+    _cpu.isar.mvfr1 = 0x12111111;
+    _cpu.isar.mvfr2 = 0x00000043;
+    _cpu.ctr = 0x8444c004;
+    _cpu.reset_sctlr = 0x00c50838;
+    _cpu.id_pfr0 = 0x00000131;
+    _cpu.id_pfr1 = 0x00011011;
+    _cpu.id_dfr0 = 0x03010066;
+    _cpu.id_afr0 = 0x00000000;
+    _cpu.id_mmfr0 = 0x10101105;
+    _cpu.id_mmfr1 = 0x40000000;
+    _cpu.id_mmfr2 = 0x01260000;
+    _cpu.id_mmfr3 = 0x02102211;
+    _cpu.isar.id_isar0 = 0x02101110;
+    _cpu.isar.id_isar1 = 0x13112111;
+    _cpu.isar.id_isar2 = 0x21232042;
+    _cpu.isar.id_isar3 = 0x01112131;
+    _cpu.isar.id_isar4 = 0x00011142;
+    _cpu.isar.id_isar5 = 0x00011121;
+    _cpu.isar.id_isar6 = 0;
+    _cpu.isar.id_aa64pfr0 = 0x00002222;
+    _cpu.id_aa64dfr0 = 0x10305106;
+    _cpu.isar.id_aa64isar0 = 0x00011120;
+    _cpu.isar.id_aa64mmfr0 = 0x00001124;
+    _cpu.dbgdidr = 0x3516d000;
+    _cpu.clidr = 0x0a200023;
+    _cpu.ccsidr[0] = 0x701fe00a; /* 32KB L1 dcache */
+    _cpu.ccsidr[1] = 0x201fe012; /* 48KB L1 icache */
+    _cpu.ccsidr[2] = 0x70ffe07a; /* 2048KB L2 cache */
+    _cpu.dcz_blocksize = 4; /* 64 bytes */
+    _cpu.gic_num_lrs = 4;
+    _cpu.gic_vpribits = 5;
+    _cpu.gic_vprebits = 5;
+
+    define_arm_cp_regs(&_cpu, cortex_a72_a57_a53_cp_reginfo);
+
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V7;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_VAPA;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_THUMB2;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_MPIDR;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V6K;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V6;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V5;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_V4T;
+    _cpu.env.features |= 1ULL << ARM_FEATURE_VBAR;
+#endif
 #endif
 
     // zero-initialize TCG
@@ -197,6 +269,9 @@ struct tiny_code_generator_t {
     tcg_x86_init();
 #elif defined(__aarch64__)
     arm_translate_init();
+
+    register_cp_regs_for_features(&_cpu);
+    init_cpreg_list(&_cpu);
 #endif
   }
 
