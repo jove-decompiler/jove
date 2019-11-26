@@ -1328,7 +1328,7 @@ void raise_exception(CPUARMState *env, uint32_t excp,
 
 #define EXCP_SWI             2   /* software interrupt */
 
-__attribute__((alwaysinline)) void HELPER(exception_with_syndrome)(CPUARMState *env, uint32_t excp,
+__attribute__((always_inline)) void HELPER(exception_with_syndrome)(CPUARMState *env, uint32_t excp,
                                      uint32_t syndrome, uint32_t target_el)
 {
   if (excp != EXCP_SWI) {
