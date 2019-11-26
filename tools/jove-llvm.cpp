@@ -72,7 +72,7 @@ struct symbol_t {
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
   llvm::AllocaInst *PCAlloca;                                                  \
   llvm::LoadInst *PCRelVal;                                                    \
-  llvm::LoadInst *FSBaseVal;                                                   \
+  llvm::LoadInst *TPBaseVal;                                                   \
                                                                                \
   struct {                                                                     \
     llvm::GlobalIFunc *IFunc;                                                  \
@@ -566,9 +566,7 @@ static uintptr_t SectsStartAddr, SectsEndAddr;
 static llvm::GlobalVariable *PCRelGlobal;
 static llvm::GlobalVariable *TLSModGlobal;
 
-#if defined(__x86_64__)
-static llvm::GlobalVariable *FSBaseGlobal;
-#endif
+static llvm::GlobalVariable *TPBaseGlobal;
 
 static llvm::MDNode *AliasScopeMetadata;
 
@@ -650,9 +648,7 @@ static int ProcessDynamicSymbols(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int CreatePCRelGlobal(void);
-#if defined(__x86_64__)
-static int CreateFSBaseGlobal(void);
-#endif
+static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
 static int TranslateFunctions(void);
@@ -660,9 +656,7 @@ static int InlineCalls(void);
 static int PrepareToOptimize(void);
 static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
-#if defined(__x86_64__)
-static int FixupFSBaseAddrs(void);
-#endif
+static int FixupTPBaseAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
@@ -693,9 +687,7 @@ int llvm(void) {
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
       || CreatePCRelGlobal()
-#if defined(__x86_64__)
-      || CreateFSBaseGlobal()
-#endif
+      || CreateTPBaseGlobal()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || TranslateFunctions()
@@ -704,9 +696,7 @@ int llvm(void) {
       || Optimize1()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
       || FixupPCRelativeAddrs()
-#if defined(__x86_64__)
-      || FixupFSBaseAddrs()
-#endif
+      || FixupTPBaseAddrs()
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
@@ -6035,14 +6025,12 @@ int CreatePCRelGlobal(void) {
   return 0;
 }
 
-#if defined(__x86_64__)
-int CreateFSBaseGlobal(void) {
-  FSBaseGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
-                                          llvm::GlobalValue::ExternalLinkage,
-                                          nullptr, "__jove_fs_base");
+int CreateTPBaseGlobal(void) {
+  TPBaseGlobal = new llvm::GlobalVariable(
+      *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage, nullptr,
+      "__jove_thread_pointer_base");
   return 0;
 }
-#endif
 
 int FixupHelperStubs(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
@@ -6348,10 +6336,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
                      : f.GlobalAllocaVec[tcg_program_counter_index];
 
     f.PCRelVal = IRB.CreateLoad(PCRelGlobal, "pcrel");
-
-#if defined(__x86_64__)
-    f.FSBaseVal = IRB.CreateLoad(FSBaseGlobal, "fs_base");
-#endif
+    f.TPBaseVal = IRB.CreateLoad(TPBaseGlobal, "tpbase");
 
     //
     // initialize the globals which are passed as parameters
@@ -6472,9 +6457,7 @@ int PrepareToOptimize(void) {
 
 static void ReloadGlobalVariables(void) {
   PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",          true);
-#if defined(__x86_64__)
-  FSBaseGlobal     = Module->getGlobalVariable("__jove_fs_base",        true);
-#endif
+  TPBaseGlobal     = Module->getGlobalVariable("__jove_thread_pointer_base", true);
   CPUStateGlobal   = Module->getGlobalVariable("__jove_env",            true);
   SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
   ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
@@ -6816,12 +6799,11 @@ int FixupPCRelativeAddrs(void) {
   return 0;
 }
 
-#if defined(__x86_64__)
-int FixupFSBaseAddrs(void) {
+int FixupTPBaseAddrs(void) {
   if (opts::NoFixupFSBase)
     return 0;
 
-  if (!FSBaseGlobal)
+  if (!TPBaseGlobal)
     return 0;
 
   std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
@@ -6834,8 +6816,15 @@ int FixupFSBaseAddrs(void) {
     llvm::FunctionType *AsmFTy =
         llvm::FunctionType::get(WordType(), AsmArgTypes, false);
 
+#if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
     llvm::StringRef Constraints("=r,~{dirflag},~{fpsr},~{flags}");
+#elif defined(__aarch64__)
+    llvm::StringRef AsmText("mrs $0, tpidr_el0");
+    llvm::StringRef Constraints("=r");
+#else
+#error
+#endif
 
     IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                               false /* hasSideEffects */);
@@ -6897,13 +6886,13 @@ int FixupFSBaseAddrs(void) {
 
       default:
         WithColor::warning() << llvm::formatv(
-            "FixupFSBaseAddrs: handle_load_of_fsbase: unknown user {0}\n", *U);
+            "FixupTPBaseAddrs: handle_load_of_fsbase: unknown user {0}\n", *U);
         break;
       }
     }
   };
 
-  for (llvm::User *U : FSBaseGlobal->users()) {
+  for (llvm::User *U : TPBaseGlobal->users()) {
     if (!llvm::isa<llvm::Instruction>(U)) {
       for (llvm::User *_U : U->users()) {
         assert(llvm::isa<llvm::Instruction>(_U));
@@ -6911,7 +6900,7 @@ int FixupFSBaseAddrs(void) {
 
         if (_Inst->getType() == ZeroGV->getType()) {
           WithColor::note() << llvm::formatv(
-              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroGV)\n",
+              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroGV)\n",
               *_Inst,
               _Inst->getParent()->getParent()->getName());
 
@@ -6920,7 +6909,7 @@ int FixupFSBaseAddrs(void) {
         }
         if (_Inst->getType() == ZeroPGV->getType()) {
           WithColor::note() << llvm::formatv(
-              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPGV)\n",
+              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPGV)\n",
               *_Inst,
               _Inst->getParent()->getParent()->getName());
 
@@ -6929,7 +6918,7 @@ int FixupFSBaseAddrs(void) {
         }
         if (_Inst->getType() == ZeroPPGV->getType()) {
           WithColor::note() << llvm::formatv(
-              "FixupFSBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPPGV)\n",
+              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPPGV)\n",
               *_Inst,
               _Inst->getParent()->getParent()->getName());
 
@@ -6938,7 +6927,7 @@ int FixupFSBaseAddrs(void) {
         }
 
         llvm::Function *_Func = _Inst->getParent()->getParent();
-        WithColor::error() << llvm::formatv("FixupFSBaseAddrs: unknown user!\n"
+        WithColor::error() << llvm::formatv("FixupTPBaseAddrs: unknown user!\n"
                                             "U: {0}\n"
                                             "_Inst: {1}\n"
                                             "_Func: {2}\n",
@@ -6954,7 +6943,7 @@ int FixupFSBaseAddrs(void) {
 
     if (!llvm::isa<llvm::LoadInst>(U)) {
       WithColor::error() << llvm::formatv(
-          "FixupFSBaseAddrs: unknown user {0} in {1}\n", *U,
+          "FixupTPBaseAddrs: unknown user {0} in {1}\n", *U,
           Inst->getParent()->getParent()->getName());
       continue;
     }
@@ -6962,8 +6951,8 @@ int FixupFSBaseAddrs(void) {
     handle_load_of_fsbase(llvm::cast<llvm::LoadInst>(U));
   }
 
-  assert(FSBaseGlobal->getType() == ZeroGV->getType());
-  ToReplace.push_back({FSBaseGlobal, ZeroGV});
+  assert(TPBaseGlobal->getType() == ZeroGV->getType());
+  ToReplace.push_back({TPBaseGlobal, ZeroGV});
 
   for (auto &TR : ToReplace) {
     llvm::Value *I;
@@ -6991,7 +6980,6 @@ int FixupFSBaseAddrs(void) {
 
   return 0;
 }
-#endif
 
 int InternalizeStaticFunctions(void) {
   return 0;
@@ -8493,7 +8481,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(__x86_64__)
       case tcg_fs_base_index:
-        return f.FSBaseVal;
+        return f.TPBaseVal;
 #endif
       }
     }
@@ -8929,12 +8917,28 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 //
 // load from host memory
 //
+#if defined(__aarch64__)
+#define __ARCH_LD_OP(off)                                                      \
+  {                                                                            \
+    if (off == tcg_tpidr_el0_env_offset) {                                     \
+      TCGTemp *dst = arg_temp(op->args[0]);                                    \
+      assert(dst->type == TCG_TYPE_I64);                                       \
+      set(f.TPBaseVal, dst);                                                   \
+      break;                                                                   \
+    }                                                                          \
+  }
+#else
+#define __ARCH_LD_OP
+#endif
+
 #define __LD_OP(opc_name, memBits, regBits, signE)                             \
   case opc_name: {                                                             \
     unsigned baseidx = temp_idx(arg_temp(op->args[1]));                        \
     assert(baseidx == tcg_env_index);                                          \
                                                                                \
     TCGArg off = op->args[2];                                                  \
+                                                                               \
+    __ARCH_LD_OP(off)                                                          \
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
