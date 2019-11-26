@@ -262,6 +262,12 @@ int main(int argc, char **argv) {
   };
 #endif
 
+#if defined(__aarch64__)
+  auto tpidr_el0_env_offset = [&](void) -> int {
+    return offsetof(CPUARMState, cp15.tpidr_el[0]);
+  };
+#endif
+
   printf("#pragma once\n"
          "#include <bitset>\n"
          "#include <array>\n"
@@ -293,6 +299,10 @@ int main(int argc, char **argv) {
   __TCG_CONST(r13_index);
   __TCG_CONST(r14_index);
   __TCG_CONST(r15_index);
+#endif
+
+#if defined(__aarch64__)
+  __TCG_CONST(tpidr_el0_env_offset);
 #endif
 
 #undef __TCG_CONST
