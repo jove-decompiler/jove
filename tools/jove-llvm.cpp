@@ -3809,6 +3809,7 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             }
 
 	    oglbs.set(tcg_syscall_return_index);
+	    iglbs.set(tcg_syscall_number_index);
           }
         }
       } else {
