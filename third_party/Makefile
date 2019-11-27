@@ -8,6 +8,8 @@ GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " |
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
 else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := AArch64
 else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
@@ -16,7 +18,12 @@ else
 $(error "Unknown GCC target $(GCC_TARGET)")
 endif
 
-all: build-llvm
+$(info GCC TARGET  $(GCC_TARGET))
+$(info LLVM_TARGET $(_LLVM_TARGETS_TO_BUILD))
+
+.PHONY: nothing
+nothing:
+	@echo .
 
 .PHONY: build-llvm
 build-llvm:

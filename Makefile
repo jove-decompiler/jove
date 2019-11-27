@@ -8,7 +8,22 @@ _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
 _LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
 
-ARCH := $(subst i686,i386,$(shell uname -m))
+GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9a-z-')
+
+ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
+ARCH := x86_64
+else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
+ARCH := i386
+else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
+ARCH := aarch64
+else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
+ARCH := arm
+else
+$(error "Unknown GCC target $(GCC_TARGET)")
+endif
+
+$(info GCC TARGET $(GCC_TARGET))
+$(info ARCH       $(ARCH))
 
 #
 # build flags
