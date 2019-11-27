@@ -9468,36 +9468,25 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     // TODO relaxed version
     // see smp_mb() in tcg/tci.c
 
-#if defined(__x86_64__)
     std::vector<llvm::Type *> AsmArgTypes;
     std::vector<llvm::Value *> AsmArgs;
 
     llvm::FunctionType *AsmFTy =
         llvm::FunctionType::get(VoidType(), AsmArgTypes, false);
 
+#if defined(__x86_64__)
     llvm::StringRef AsmText("mfence");
     llvm::StringRef Constraints("~{memory},~{dirflag},~{fpsr},~{flags}");
-
-    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
-                                               true /* hasSideEffects */);
-    IRB.CreateCall(IA);
 #elif defined(__aarch64__)
-    std::vector<llvm::Type *> AsmArgTypes;
-    std::vector<llvm::Value *> AsmArgs;
-
-    llvm::FunctionType *AsmFTy =
-        llvm::FunctionType::get(VoidType(), AsmArgTypes, false);
-
     llvm::StringRef AsmText("dmb ish");
     llvm::StringRef Constraints("~{memory}");
-
-    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
-                                               true /* hasSideEffects */);
-    IRB.CreateCall(IA);
 #else
 #error
 #endif
 
+    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
+                                               true /* hasSideEffects */);
+    IRB.CreateCall(IA);
     break;
   }
 
