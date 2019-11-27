@@ -8928,7 +8928,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     }                                                                          \
   }
 #else
-#define __ARCH_LD_OP
+#define __ARCH_LD_OP(off)                                                      \
+  { ; }
 #endif
 
 #define __LD_OP(opc_name, memBits, regBits, signE)                             \
