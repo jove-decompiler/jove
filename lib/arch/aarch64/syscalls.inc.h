@@ -291,5 +291,4 @@ ___SYSCALL3(433, fspick, int, dfd, const char __user *, path, unsigned int, flag
 ___SYSCALL2(434, pidfd_open, pid_t, pid, unsigned int, flags)
 ___SYSCALL2(435, clone3, struct clone_args __user *, uargs, size_t, size)
 
-
 #include "syscalls.inc.macros_end.h"
