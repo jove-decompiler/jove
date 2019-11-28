@@ -1,3 +1,5 @@
+typedef TCGMemOp MemOp;
+
 #undef R_386_PC32 /* XXX */
 #undef R_386_PC8  /* XXX */
 #undef R_386_32   /* XXX */

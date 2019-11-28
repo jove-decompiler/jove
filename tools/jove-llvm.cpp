@@ -629,6 +629,17 @@ static struct {
   std::unordered_map<std::string, std::unordered_set<std::string>> Table;
 } VersionScript;
 
+#if defined(__x86_64__) || defined(__aarch64__)
+constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
+#elif defined(__i386__)
+constexpr target_ulong Cookie = 0xd27b9f5a;
+#else
+#error
+#endif
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
 //
 // Stages
 //
@@ -3768,6 +3779,8 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
 #if defined(__x86_64__)
         if (helper_ptr == helper_syscall) {
+#elif defined(__i386__)
+        if (helper_ptr && false /* TODO */) {
 #elif defined(__aarch64__)
         if (helper_ptr == helper_exception_with_syndrome &&
 	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
@@ -5743,16 +5756,12 @@ int CreateSectionGlobalVariables(void) {
 #else
             llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
-
             {
               llvm::Value *NewSP = IRB.CreateAdd(
                   TemporaryStack,
                   llvm::ConstantInt::get(WordType(), JOVE_STACK_SIZE -
                                                          JOVE_PAGE_SIZE - 16));
 
-              constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
               IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
                               IRB.CreateIntToPtr(NewSP, llvm::PointerType::get(
                                                             WordType(), 0)));
@@ -5921,16 +5930,12 @@ int CreateSectionGlobalVariables(void) {
 #else
           llvm::Value *TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
 
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
-
           {
             llvm::Value *NewSP = IRB.CreateAdd(
                 TemporaryStack,
                 llvm::ConstantInt::get(WordType(),
                                        JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16));
 
-            constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
             IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
                             IRB.CreateIntToPtr(
                                 NewSP, llvm::PointerType::get(WordType(), 0)));
@@ -6818,13 +6823,15 @@ int FixupTPBaseAddrs(void) {
 
 #if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
-    llvm::StringRef Constraints("=r,~{dirflag},~{fpsr},~{flags}");
+#elif defined(__i386__)
+    llvm::StringRef AsmText("movq \%gs:0x0,$0");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
-    llvm::StringRef Constraints("=r");
 #else
 #error
 #endif
+
+    llvm::StringRef Constraints("=r");
 
     IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                               false /* hasSideEffects */);
@@ -9476,7 +9483,10 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #if defined(__x86_64__)
     llvm::StringRef AsmText("mfence");
-    llvm::StringRef Constraints("~{memory},~{dirflag},~{fpsr},~{flags}");
+    llvm::StringRef Constraints("~{memory}");
+#elif defined(__i386__)
+    llvm::StringRef AsmText("lock; addl $$0,0(%esp)");
+    llvm::StringRef Constraints("~{memory},~{cc},~{dirflag},~{fpsr},~{flags}");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("dmb ish");
     llvm::StringRef Constraints("~{memory}");

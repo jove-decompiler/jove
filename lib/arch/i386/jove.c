@@ -526,12 +526,7 @@ _CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong rdi,
-                        target_ulong rsi,
-                        target_ulong rdx,
-                        target_ulong rcx,
-                        target_ulong r8,
-                        target_ulong sp_addr /* formerly r9 */);
+static void _jove_begin(target_ulong sp_addr);
 
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
@@ -583,10 +578,9 @@ static _INL uintptr_t _get_stack_end(void);
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
-               "xorq %%rbp, %%rbp\n"
-
-               "movq %%rsp, %%r9\n"
-               "jmp %P0\n"
+               "xor %%ebp, %%ebp\n"
+               "push %%esp\n"
+               "call %P0\n"
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -596,7 +590,7 @@ void _jove_start(void) {
 
 static void _jove_trace_init(void);
 
-void _jove_begin(sp_addr /* formerly r9 */) {
+void _jove_begin(target_ulong sp_addr) {
   __jove_env.df = 1;
 
   //
@@ -868,8 +862,8 @@ void _jove_trace_init(void) {
   }
 
   {
-    long ret =
-        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    long ret = _jove_sys_mmap_pgoff(0x0, size, PROT_READ | PROT_WRITE,
+                                    MAP_SHARED, fd, 0);
 
     if (ret < 0) {
       __builtin_trap();
@@ -1156,12 +1150,12 @@ found:
 }
 
 void _jove_fail1(target_ulong rdi) {
-  asm volatile("hlt");
+  asm volatile("int3");
 }
 
 void _jove_fail2(target_ulong rdi,
                  target_ulong rsi) {
-  asm volatile("hlt");
+  asm volatile("int3");
 }
 
 target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
@@ -1353,8 +1347,8 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 target_ulong _jove_alloc_stack(void) {
-  long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  long ret = _jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0) {
     __builtin_trap();
     __builtin_unreachable();
@@ -1391,7 +1385,7 @@ static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
+  static const target_ulong Cookie = 0xd27b9f5a;
   if (likely(RetAddr == Cookie))
     return;
 
