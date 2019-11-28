@@ -230,15 +230,13 @@ int init(void) {
   //
   // vdso
   //
-  bool haveVDSO = dynlink_stdout.find("linux-vdso.so.1") != std::string::npos;
+  const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
+  bool haveVDSO = vdso != nullptr;
   if (haveVDSO) {
-    const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
-    assert(vdso);
-
     unsigned n = sysconf(_SC_PAGESIZE);
 
     char path[0x100];
-    snprintf(path, sizeof(path), "%s/linux-vdso.so.1", tmpdir);
+    snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir);
 
     int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     assert(write(fd, vdso, n) == n);
