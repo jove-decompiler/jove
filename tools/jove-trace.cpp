@@ -339,7 +339,7 @@ int trace(void) {
 
         char buff[0x100];
         snprintf(buff, sizeof(buff),
-                 "p:jove/JV_%u_%u %s:0x%lx\n",
+                 "p:jove/JV_%u_%u %s:0x%" PRIxPTR "\n",
                  BIdx,
                  BBIdx,
                  chrooted.c_str(),

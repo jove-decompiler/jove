@@ -268,7 +268,7 @@ int trace2lines(void) {
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
     char buff[0x100];
-    snprintf(buff, sizeof(buff), "%s 0x%lx\n",
+    snprintf(buff, sizeof(buff), "%s 0x%" PRIxPTR "\n",
 	     binary.Path.c_str(),
              ICFG[bb].Addr);
 

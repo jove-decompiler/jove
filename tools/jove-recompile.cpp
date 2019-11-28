@@ -663,7 +663,7 @@ skip_dfsan:
 
           "-m",
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
           "elf_" ___JOVE_ARCH_NAME,
 #elif defined(__aarch64__)
           "aarch64linux",
