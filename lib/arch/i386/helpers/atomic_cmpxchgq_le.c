@@ -1274,7 +1274,7 @@ uint16_t trace_mem_build_info_no_se_le(int size_shift, bool store,
                                 get_mmuidx(oi));
 }
 
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
+static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
