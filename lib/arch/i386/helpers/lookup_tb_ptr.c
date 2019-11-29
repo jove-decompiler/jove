@@ -1164,6 +1164,8 @@ struct X86CPU {
 
 typedef CPUX86State CPUArchState;
 
+#if 0
+
 typedef X86CPU ArchCPU;
 
 #define TARGET_ABI_BITS TARGET_LONG_BITS
@@ -1191,7 +1193,11 @@ static inline void cpu_get_tb_cpu_state(CPUX86State *env, target_ulong *pc,
         (env->eflags & (IOPL_MASK | TF_MASK | RF_MASK | VM_MASK | AC_MASK));
 }
 
+#endif
+
 #define HELPER(name) glue(helper_, name)
+
+#if 0
 
 typedef struct TranslationBlock TranslationBlock;
 
@@ -1605,8 +1611,11 @@ tb_lookup__cpu_state(CPUState *cpu, target_ulong *pc, target_ulong *cs_base,
 
 const char *lookup_symbol(target_ulong orig_addr);
 
+#endif
+
 void *HELPER(lookup_tb_ptr)(CPUArchState *env)
 {
+#if 0
     CPUState *cpu = env_cpu(env);
     TranslationBlock *tb;
     target_ulong cs_base, pc;
@@ -1622,5 +1631,9 @@ void *HELPER(lookup_tb_ptr)(CPUArchState *env)
                            cpu->cpu_index, tb->tc.ptr, cs_base, pc, flags,
                            lookup_symbol(pc));
     return tb->tc.ptr;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
