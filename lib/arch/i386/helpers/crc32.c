@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#define TARGET_LONG_BITS 32
+# define TARGET_LONG_BITS             32
 
 typedef uint32_t target_ulong;
 
