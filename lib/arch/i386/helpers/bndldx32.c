@@ -146,7 +146,7 @@ static inline int ldl_le_p(const void *ptr)
     return le_bswap(ldl_he_p(ptr), 32);
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
