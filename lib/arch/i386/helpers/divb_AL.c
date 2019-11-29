@@ -567,13 +567,17 @@ void helper_divb_AL(CPUX86State *env, target_ulong t0)
 
     num = (env->regs[R_EAX] & 0xffff);
     den = (t0 & 0xff);
+#if 0
     if (den == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q = (num / den);
+#if 0
     if (q > 0xff) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q &= 0xff;
     r = (num % den) & 0xff;
     env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;

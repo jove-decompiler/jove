@@ -561,7 +561,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_divb_AL(CPUX86State *env, target_ulong t0)
+static void helper_divb_AL(CPUX86State *env, target_ulong t0)
 {
     unsigned int num, den, q, r;
 
@@ -585,13 +585,17 @@ void helper_idivb_AL(CPUX86State *env, target_ulong t0)
 
     num = (int16_t)env->regs[R_EAX];
     den = (int8_t)t0;
+#if 0
     if (den == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q = (num / den);
+#if 0
     if (q != (int8_t)q) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q &= 0xff;
     r = (num % den) & 0xff;
     env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;
