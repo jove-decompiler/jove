@@ -1213,8 +1213,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
+                                      uintptr_t retaddr) {
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 void update_fp_status(CPUX86State *env);
 
@@ -1816,7 +1819,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
             do_xrstor_fpu(env, ptr, ra);
         } else {
             helper_fninit(env);
-            memset(env->fpregs, 0, sizeof(env->fpregs));
+            __builtin_memset(env->fpregs, 0, sizeof(env->fpregs));
         }
     }
     if (rfbm & XSTATE_SSE_MASK) {
@@ -1828,7 +1831,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
         } else {
             /* ??? When AVX is implemented, we may have to be more
                selective in the clearing.  */
-            memset(env->xmm_regs, 0, sizeof(env->xmm_regs));
+            __builtin_memset(env->xmm_regs, 0, sizeof(env->xmm_regs));
         }
     }
     if (rfbm & XSTATE_BNDREGS_MASK) {
@@ -1836,7 +1839,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
             do_xrstor_bndregs(env, ptr + XO(bndreg_state), ra);
             env->hflags |= HF_MPX_IU_MASK;
         } else {
-            memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
+            __builtin_memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
             env->hflags &= ~HF_MPX_IU_MASK;
         }
     }
@@ -1844,7 +1847,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
         if (xstate_bv & XSTATE_BNDCSR_MASK) {
             do_xrstor_bndcsr(env, ptr + XO(bndcsr_state), ra);
         } else {
-            memset(&env->bndcs_regs, 0, sizeof(env->bndcs_regs));
+            __builtin_memset(&env->bndcs_regs, 0, sizeof(env->bndcs_regs));
         }
         cpu_sync_bndcs_hflags(env);
     }
