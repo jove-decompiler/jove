@@ -1905,7 +1905,7 @@ void host_cpuid(uint32_t function, uint32_t count,
                  : : "a"(function), "c"(count), "S"(vec)
                  : "memory", "cc");
 #else
-    abort();
+    __builtin_trap();__builtin_unreachable();
 #endif
 
     if (eax)

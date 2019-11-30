@@ -257,7 +257,7 @@ static int64_t roundAndPackInt64(flag zSign, uint64_t absZ0, uint64_t absZ1,
         increment = !(absZ0 & 1) && absZ1;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     if ( increment ) {
         ++absZ0;
