@@ -503,7 +503,7 @@ int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 
@@ -519,6 +519,7 @@ void helper_cpuid(CPUX86State *env)
 
 void helper_rdpmc(CPUX86State *env)
 {
+#if 0
     if ((env->cr[4] & CR4_PCE_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
@@ -527,5 +528,14 @@ void helper_rdpmc(CPUX86State *env)
     /* currently unimplemented */
     qemu_log_mask(LOG_UNIMP, "x86: unimplemented rdpmc\n");
     raise_exception_err(env, EXCP06_ILLOP, 0);
+#else
+    unsigned int counter = env->regs[R_ECX];
+
+    unsigned int low, high;
+    asm volatile("rdpmc" : "=a" (low), "=d" (high) : "c" (counter));
+
+    env->regs[R_EAX] = low;
+    env->regs[R_EDX] = high;
+#endif
 }
 

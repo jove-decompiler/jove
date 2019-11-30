@@ -580,7 +580,7 @@ void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 
@@ -596,6 +596,7 @@ void helper_cpuid(CPUX86State *env)
 
 void helper_rdtsc(CPUX86State *env)
 {
+#if 0
     uint64_t val;
 
     if ((env->cr[4] & CR4_TSD_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
@@ -606,5 +607,12 @@ void helper_rdtsc(CPUX86State *env)
     val = cpu_get_tsc(env) + env->tsc_offset;
     env->regs[R_EAX] = (uint32_t)(val);
     env->regs[R_EDX] = (uint32_t)(val >> 32);
+#else
+    unsigned int tickl, tickh;
+    asm volatile("rdtsc" : "=a"(tickl), "=d"(tickh));
+
+    env->regs[R_EAX] = tickl;
+    env->regs[R_EDX] = tickh;
+#endif
 }
 

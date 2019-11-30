@@ -569,7 +569,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_divb_AL(CPUX86State *env, target_ulong t0)
+static void helper_divb_AL(CPUX86State *env, target_ulong t0)
 {
     unsigned int num, den, q, r;
 
@@ -590,7 +590,12 @@ void helper_divb_AL(CPUX86State *env, target_ulong t0)
 void helper_cr4_testbit(CPUX86State *env, uint32_t bit)
 {
     if (unlikely((env->cr[4] & bit) == 0)) {
+#if 0
         raise_exception_ra(env, EXCP06_ILLOP, GETPC());
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 }
 

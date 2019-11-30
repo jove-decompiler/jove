@@ -1524,7 +1524,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
         sp += 4;                                                        \
     }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1580,6 +1580,7 @@ void helper_lldt(CPUX86State *env, int selector)
 
 void helper_iret_real(CPUX86State *env, int shift)
 {
+#if 0
     uint32_t sp, new_cs, new_eip, new_eflags, sp_mask;
     target_ulong ssp;
     int eflags_mask;
@@ -1615,5 +1616,9 @@ void helper_iret_real(CPUX86State *env, int shift)
     }
     cpu_load_eflags(env, new_eflags, eflags_mask);
     env->hflags2 &= ~HF2_NMI_MASK;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

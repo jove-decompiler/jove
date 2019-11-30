@@ -1109,7 +1109,7 @@ void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 
@@ -1145,6 +1145,7 @@ static void do_hlt(X86CPU *cpu)
 
 void helper_mwait(CPUX86State *env, int next_eip_addend)
 {
+#if 0
     CPUState *cs = env_cpu(env);
     X86CPU *cpu = env_archcpu(env);
 
@@ -1160,5 +1161,9 @@ void helper_mwait(CPUX86State *env, int next_eip_addend)
     } else {
         do_hlt(cpu);
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

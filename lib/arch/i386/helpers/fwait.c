@@ -1365,7 +1365,12 @@ void helper_fldt_ST0(CPUX86State *env, target_ulong ptr)
 void helper_fwait(CPUX86State *env)
 {
     if (env->fpus & FPUS_SE) {
+#if 0
         fpu_raise_exception(env, GETPC());
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 }
 

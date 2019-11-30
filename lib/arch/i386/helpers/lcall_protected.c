@@ -2244,7 +2244,7 @@ static inline unsigned int get_sp_mask(unsigned int e2)
         cpu_stl_kernel_ra(env, SEG_ADDL(ssp, sp, sp_mask), (uint32_t)(val), ra); \
     }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -2301,6 +2301,7 @@ void helper_lldt(CPUX86State *env, int selector)
 void helper_lcall_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
                             int shift, target_ulong next_eip)
 {
+#if 0
     int new_stack, i;
     uint32_t e1, e2, cpl, dpl, rpl, selector, param_count;
     uint32_t ss = 0, ss_e1 = 0, ss_e2 = 0, type, ss_dpl, sp_mask;
@@ -2592,5 +2593,9 @@ void helper_lcall_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
         SET_ESP(sp, sp_mask);
         env->eip = offset;
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

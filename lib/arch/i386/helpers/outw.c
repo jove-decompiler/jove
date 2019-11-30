@@ -532,7 +532,11 @@ typedef struct CPUX86State {
 void helper_outw(CPUX86State *env, uint32_t port, uint32_t data)
 {
 #ifdef CONFIG_USER_ONLY
+#if 0
     fprintf(stderr, "outw: port=0x%04x, data=%04x\n", port, data);
+#else
+    __builtin_trap();
+#endif
 #else
     address_space_stw(&address_space_io, port, data,
                       cpu_get_mem_attrs(env), NULL);

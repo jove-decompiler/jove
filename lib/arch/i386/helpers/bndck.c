@@ -543,7 +543,12 @@ void helper_bndck(CPUX86State *env, uint32_t fail)
 {
     if (unlikely(fail)) {
         env->bndcs_regs.sts = 1;
+#if 0
         raise_exception_ra(env, EXCP05_BOUND, GETPC());
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 }
 

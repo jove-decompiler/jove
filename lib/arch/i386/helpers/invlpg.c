@@ -1031,7 +1031,7 @@ static inline void tlb_flush_page(CPUState *cpu, target_ulong addr)
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 
@@ -1047,9 +1047,14 @@ void helper_cpuid(CPUX86State *env)
 
 void helper_invlpg(CPUX86State *env, target_ulong addr)
 {
+#if 0
     X86CPU *cpu = env_archcpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_INVLPG, 0, GETPC());
     tlb_flush_page(CPU(cpu), addr);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

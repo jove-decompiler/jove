@@ -996,9 +996,13 @@ void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 
 void helper_debug(CPUX86State *env)
 {
+#if 0
     CPUState *cs = env_cpu(env);
 
     cs->exception_index = EXCP_DEBUG;
     cpu_loop_exit(cs);
+#else
+    __builtin_trap();
+#endif
 }
 

@@ -532,7 +532,11 @@ typedef struct CPUX86State {
 target_ulong helper_inb(CPUX86State *env, uint32_t port)
 {
 #ifdef CONFIG_USER_ONLY
+#if 0
     fprintf(stderr, "inb: port=0x%04x\n", port);
+#else
+    __builtin_trap();
+#endif
     return 0;
 #else
     return address_space_ldub(&address_space_io, port,

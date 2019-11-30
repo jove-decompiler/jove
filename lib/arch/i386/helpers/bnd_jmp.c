@@ -538,7 +538,7 @@ typedef struct CPUX86State {
 void helper_bnd_jmp(CPUX86State *env)
 {
     if (!(env->hflags2 & HF2_MPX_PR_MASK)) {
-        memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
+        __builtin_memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
         env->hflags &= ~HF_MPX_IU_MASK;
     }
 }

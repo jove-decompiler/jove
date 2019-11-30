@@ -1463,7 +1463,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
     sc->flags = e2;
 }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1519,6 +1519,7 @@ void helper_lldt(CPUX86State *env, int selector)
 
 void helper_sysenter(CPUX86State *env)
 {
+#if 0
     if (env->sysenter_cs == 0) {
         raise_exception_err_ra(env, EXCP0D_GPF, 0, GETPC());
     }
@@ -1548,5 +1549,9 @@ void helper_sysenter(CPUX86State *env)
                            DESC_W_MASK | DESC_A_MASK);
     env->regs[R_ESP] = env->sysenter_esp;
     env->eip = env->sysenter_eip;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

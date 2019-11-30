@@ -1356,7 +1356,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
     sc->flags = e2;
 }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1439,6 +1439,11 @@ static inline void check_io(CPUX86State *env, int addr, int size,
 
 void helper_check_iol(CPUX86State *env, uint32_t t0)
 {
+#if 0
     check_io(env, t0, 4, GETPC());
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

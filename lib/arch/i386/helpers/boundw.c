@@ -1406,7 +1406,7 @@ glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cmpxchg8b_unlocked(CPUX86State *env, target_ulong a0)
+static void helper_cmpxchg8b_unlocked(CPUX86State *env, target_ulong a0)
 {
     uintptr_t ra = GETPC();
     uint64_t oldv, cmpv, newv;
@@ -1443,7 +1443,12 @@ void helper_boundw(CPUX86State *env, target_ulong a0, int v)
         if (env->hflags & HF_MPX_EN_MASK) {
             env->bndcs_regs.sts = 0;
         }
+#if 0
         raise_exception_ra(env, EXCP05_BOUND, GETPC());
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 }
 

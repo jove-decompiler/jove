@@ -1459,7 +1459,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
     sc->flags = e2;
 }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1515,6 +1515,7 @@ void helper_lldt(CPUX86State *env, int selector)
 
 void helper_sysexit(CPUX86State *env, int dflag)
 {
+#if 0
     int cpl;
 
     cpl = env->hflags & HF_CPL_MASK;
@@ -1550,5 +1551,9 @@ void helper_sysexit(CPUX86State *env, int dflag)
     }
     env->regs[R_ESP] = env->regs[R_ECX];
     env->eip = env->regs[R_EDX];
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

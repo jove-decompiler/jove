@@ -572,7 +572,7 @@ void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 
@@ -588,10 +588,15 @@ void helper_cpuid(CPUX86State *env)
 
 void helper_monitor(CPUX86State *env, target_ulong ptr)
 {
+#if 0
     if ((uint32_t)env->regs[R_ECX] != 0) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
     /* XXX: store address? */
     cpu_svm_check_intercept_param(env, SVM_EXIT_MONITOR, 0, GETPC());
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

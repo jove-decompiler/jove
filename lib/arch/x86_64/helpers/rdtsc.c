@@ -457,10 +457,10 @@ typedef struct CPUX86State {
 
 void helper_rdtsc(CPUX86State *env)
 {
-  unsigned int tickl, tickh;
-  asm volatile("rdtsc" : "=a"(tickl), "=d"(tickh));
+    unsigned int tickl, tickh;
+    asm volatile("rdtsc" : "=a"(tickl), "=d"(tickh));
 
-  env->regs[R_EAX] = tickl;
-  env->regs[R_EDX] = tickh;
+    env->regs[R_EAX] = tickl;
+    env->regs[R_EDX] = tickh;
 }
 

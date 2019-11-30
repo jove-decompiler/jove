@@ -1686,7 +1686,7 @@ static inline unsigned int get_sp_mask(unsigned int e2)
         sp += 4;                                                        \
     }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1985,6 +1985,11 @@ static inline void helper_ret_protected(CPUX86State *env, int shift,
 
 void helper_lret_protected(CPUX86State *env, int shift, int addend)
 {
+#if 0
     helper_ret_protected(env, shift, 0, addend, GETPC());
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

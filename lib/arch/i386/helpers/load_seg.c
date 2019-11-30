@@ -1475,7 +1475,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
     sc->flags = e2;
 }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
@@ -1531,6 +1531,7 @@ void helper_lldt(CPUX86State *env, int selector)
 
 void helper_load_seg(CPUX86State *env, int seg_reg, int selector)
 {
+#if 0
     uint32_t e1, e2;
     int cpl, dpl, rpl;
     SegmentCache *dt;
@@ -1614,5 +1615,9 @@ void helper_load_seg(CPUX86State *env, int seg_reg, int selector)
                 selector, (unsigned long)sc->base, sc->limit, sc->flags);
 #endif
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 

@@ -1288,7 +1288,7 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void helper_bndck(CPUX86State *env, uint32_t fail)
+static void helper_bndck(CPUX86State *env, uint32_t fail)
 {
     if (unlikely(fail)) {
         env->bndcs_regs.sts = 1;
@@ -1310,7 +1310,12 @@ static uint64_t lookup_bte64(CPUX86State *env, uint64_t base, uintptr_t ra)
     bt = cpu_ldq_data_ra(env, bde, ra);
     if ((bt & 1) == 0) {
         env->bndcs_regs.sts = bde | 2;
+#if 0
         raise_exception_ra(env, EXCP05_BOUND, ra);
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 
     return (extract64(base, 3, 17) << 5) + (bt & ~7);
