@@ -2,16 +2,9 @@
 
 #include <stdint.h>
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
+#include <stdlib.h>
 
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
+#include <assert.h>
 
 typedef uint8_t flag;
 
@@ -23,6 +16,26 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -37,6 +50,356 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+floatx80 floatx80_round_to_int(floatx80, float_status *status);
+
+static inline int floatx80_is_any_nan(floatx80 a)
+{
+    return ((a.high & 0x7fff) == 0x7fff) && (a.low<<1);
+}
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+typedef enum __attribute__ ((__packed__)) {
+    float_class_unclassified,
+    float_class_zero,
+    float_class_normal,
+    float_class_inf,
+    float_class_qnan,  /* all NaNs from here */
+    float_class_snan,
+} FloatClass;
+
+static inline __attribute__((unused)) bool is_snan(FloatClass c)
+{
+    return c == float_class_snan;
+}
+
+static inline __attribute__((unused)) bool is_qnan(FloatClass c)
+{
+    return c == float_class_qnan;
+}
+
+static inline flag snan_bit_is_one(float_status *status)
+{
+#if defined(TARGET_MIPS)
+    return status->snan_bit_is_one;
+#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+floatx80 floatx80_default_nan(float_status *status)
+{
+    floatx80 r;
+
+    /* None of the targets that have snan_bit_is_one use floatx80.  */
+    assert(!snan_bit_is_one(status));
+#if defined(TARGET_M68K)
+    r.low = UINT64_C(0xFFFFFFFFFFFFFFFF);
+    r.high = 0x7FFF;
+#else
+    /* X86 */
+    r.low = UINT64_C(0xC000000000000000);
+    r.high = 0xFFFF;
+#endif
+    return r;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static int pickNaN(FloatClass a_cls, FloatClass b_cls,
+                   flag aIsLargerSignificand)
+{
+#if defined(TARGET_ARM) || defined(TARGET_MIPS) || defined(TARGET_HPPA)
+    /* ARM mandated NaN propagation rules (see FPProcessNaNs()), take
+     * the first of:
+     *  1. A if it is signaling
+     *  2. B if it is signaling
+     *  3. A (quiet)
+     *  4. B (quiet)
+     * A signaling NaN is always quietened before returning it.
+     */
+    /* According to MIPS specifications, if one of the two operands is
+     * a sNaN, a new qNaN has to be generated. This is done in
+     * floatXX_silence_nan(). For qNaN inputs the specifications
+     * says: "When possible, this QNaN result is one of the operand QNaN
+     * values." In practice it seems that most implementations choose
+     * the first operand if both operands are qNaN. In short this gives
+     * the following rules:
+     *  1. A if it is signaling
+     *  2. B if it is signaling
+     *  3. A (quiet)
+     *  4. B (quiet)
+     * A signaling NaN is always silenced before returning it.
+     */
+    if (is_snan(a_cls)) {
+        return 0;
+    } else if (is_snan(b_cls)) {
+        return 1;
+    } else if (is_qnan(a_cls)) {
+        return 0;
+    } else {
+        return 1;
+    }
+#elif defined(TARGET_PPC) || defined(TARGET_XTENSA) || defined(TARGET_M68K)
+    /* PowerPC propagation rules:
+     *  1. A if it sNaN or qNaN
+     *  2. B if it sNaN or qNaN
+     * A signaling NaN is always silenced before returning it.
+     */
+    /* M68000 FAMILY PROGRAMMER'S REFERENCE MANUAL
+     * 3.4 FLOATING-POINT INSTRUCTION DETAILS
+     * If either operand, but not both operands, of an operation is a
+     * nonsignaling NaN, then that NaN is returned as the result. If both
+     * operands are nonsignaling NaNs, then the destination operand
+     * nonsignaling NaN is returned as the result.
+     * If either operand to an operation is a signaling NaN (SNaN), then the
+     * SNaN bit is set in the FPSR EXC byte. If the SNaN exception enable bit
+     * is set in the FPCR ENABLE byte, then the exception is taken and the
+     * destination is not modified. If the SNaN exception enable bit is not
+     * set, setting the SNaN bit in the operand to a one converts the SNaN to
+     * a nonsignaling NaN. The operation then continues as described in the
+     * preceding paragraph for nonsignaling NaNs.
+     */
+    if (is_nan(a_cls)) {
+        return 0;
+    } else {
+        return 1;
+    }
+#else
+    /* This implements x87 NaN propagation rules:
+     * SNaN + QNaN => return the QNaN
+     * two SNaNs => return the one with the larger significand, silenced
+     * two QNaNs => return the one with the larger significand
+     * SNaN and a non-NaN => return the SNaN, silenced
+     * QNaN and a non-NaN => return the QNaN
+     *
+     * If we get down to comparing significands and they are the same,
+     * return the NaN with the positive sign bit (if any).
+     */
+    if (is_snan(a_cls)) {
+        if (is_snan(b_cls)) {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+        return is_qnan(b_cls) ? 1 : 0;
+    } else if (is_qnan(a_cls)) {
+        if (is_snan(b_cls) || !is_qnan(b_cls)) {
+            return 0;
+        } else {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+    } else {
+        return 1;
+    }
+#endif
+}
+
+int floatx80_is_signaling_nan(floatx80 a, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return 0;
+#else
+    if (snan_bit_is_one(status)) {
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && ((a.low << 1) >= 0x8000000000000000ULL);
+    } else {
+        uint64_t aLow;
+
+        aLow = a.low & ~UINT64_C(0x4000000000000000);
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && (uint64_t)(aLow << 1)
+            && (a.low == aLow);
+    }
+#endif
+}
+
+floatx80 floatx80_silence_nan(floatx80 a, float_status *status)
+{
+    /* None of the targets that have snan_bit_is_one use floatx80.  */
+    assert(!snan_bit_is_one(status));
+    a.low |= UINT64_C(0xC000000000000000);
+    return a;
+}
+
+floatx80 propagateFloatx80NaN(floatx80 a, floatx80 b, float_status *status)
+{
+    flag aIsLargerSignificand;
+    FloatClass a_cls, b_cls;
+
+    /* This is not complete, but is good enough for pickNaN.  */
+    a_cls = (!floatx80_is_any_nan(a)
+             ? float_class_normal
+             : floatx80_is_signaling_nan(a, status)
+             ? float_class_snan
+             : float_class_qnan);
+    b_cls = (!floatx80_is_any_nan(b)
+             ? float_class_normal
+             : floatx80_is_signaling_nan(b, status)
+             ? float_class_snan
+             : float_class_qnan);
+
+    if (is_snan(a_cls) || is_snan(b_cls)) {
+        float_raise(float_flag_invalid, status);
+    }
+
+    if (status->default_nan_mode) {
+        return floatx80_default_nan(status);
+    }
+
+    if (a.low < b.low) {
+        aIsLargerSignificand = 0;
+    } else if (b.low < a.low) {
+        aIsLargerSignificand = 1;
+    } else {
+        aIsLargerSignificand = (a.high < b.high) ? 1 : 0;
+    }
+
+    if (pickNaN(a_cls, b_cls, aIsLargerSignificand)) {
+        if (is_snan(b_cls)) {
+            return floatx80_silence_nan(b, status);
+        }
+        return b;
+    } else {
+        if (is_snan(a_cls)) {
+            return floatx80_silence_nan(a, status);
+        }
+        return a;
+    }
+}
+
+floatx80 floatx80_round_to_int(floatx80 a, float_status *status)
+{
+    flag aSign;
+    int32_t aExp;
+    uint64_t lastBitMask, roundBitsMask;
+    floatx80 z;
+
+    if (floatx80_invalid_encoding(a)) {
+        float_raise(float_flag_invalid, status);
+        return floatx80_default_nan(status);
+    }
+    aExp = extractFloatx80Exp( a );
+    if ( 0x403E <= aExp ) {
+        if ( ( aExp == 0x7FFF ) && (uint64_t) ( extractFloatx80Frac( a )<<1 ) ) {
+            return propagateFloatx80NaN(a, a, status);
+        }
+        return a;
+    }
+    if ( aExp < 0x3FFF ) {
+        if (    ( aExp == 0 )
+             && ( (uint64_t) ( extractFloatx80Frac( a )<<1 ) == 0 ) ) {
+            return a;
+        }
+        status->float_exception_flags |= float_flag_inexact;
+        aSign = extractFloatx80Sign( a );
+        switch (status->float_rounding_mode) {
+         case float_round_nearest_even:
+            if ( ( aExp == 0x3FFE ) && (uint64_t) ( extractFloatx80Frac( a )<<1 )
+               ) {
+                return
+                    packFloatx80( aSign, 0x3FFF, UINT64_C(0x8000000000000000));
+            }
+            break;
+        case float_round_ties_away:
+            if (aExp == 0x3FFE) {
+                return packFloatx80(aSign, 0x3FFF, UINT64_C(0x8000000000000000));
+            }
+            break;
+         case float_round_down:
+            return
+                  aSign ?
+                      packFloatx80( 1, 0x3FFF, UINT64_C(0x8000000000000000))
+                : packFloatx80( 0, 0, 0 );
+         case float_round_up:
+            return
+                  aSign ? packFloatx80( 1, 0, 0 )
+                : packFloatx80( 0, 0x3FFF, UINT64_C(0x8000000000000000));
+        }
+        return packFloatx80( aSign, 0, 0 );
+    }
+    lastBitMask = 1;
+    lastBitMask <<= 0x403E - aExp;
+    roundBitsMask = lastBitMask - 1;
+    z = a;
+    switch (status->float_rounding_mode) {
+    case float_round_nearest_even:
+        z.low += lastBitMask>>1;
+        if ((z.low & roundBitsMask) == 0) {
+            z.low &= ~lastBitMask;
+        }
+        break;
+    case float_round_ties_away:
+        z.low += lastBitMask >> 1;
+        break;
+    case float_round_to_zero:
+        break;
+    case float_round_up:
+        if (!extractFloatx80Sign(z)) {
+            z.low += roundBitsMask;
+        }
+        break;
+    case float_round_down:
+        if (extractFloatx80Sign(z)) {
+            z.low += roundBitsMask;
+        }
+        break;
+    default:
+        abort();
+    }
+    z.low &= ~ roundBitsMask;
+    if ( z.low == 0 ) {
+        ++z.high;
+        z.low = UINT64_C(0x8000000000000000);
+    }
+    if (z.low != a.low) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    return z;
+
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -524,8 +887,6 @@ typedef struct CPUX86State {
 } CPUX86State;
 
 #define ST0    (env->fpregs[env->fpstt].d)
-
-floatx80 floatx80_round_to_int(floatx80, float_status *status);
 
 void helper_frndint(CPUX86State *env)
 {

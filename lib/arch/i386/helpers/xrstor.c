@@ -187,7 +187,7 @@ static inline uint64_t ldq_le_p(const void *ptr)
     return le_bswap(ldq_he_p(ptr), 64);
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -516,13 +516,25 @@ typedef enum OnOffAuto {
     ON_OFF_AUTO__MAX,
 } OnOffAuto;
 
+#define HF_CPL_SHIFT         0
+
 #define HF_CS64_SHIFT       15
+
+#define HF_MPX_EN_SHIFT     25
 
 #define HF_MPX_IU_SHIFT     26
 
+#define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
+
 #define HF_CS64_MASK         (1 << HF_CS64_SHIFT)
 
+#define HF_MPX_EN_MASK       (1 << HF_MPX_EN_SHIFT)
+
 #define HF_MPX_IU_MASK       (1 << HF_MPX_IU_SHIFT)
+
+#define HF2_MPX_PR_SHIFT         5
+
+#define HF2_MPX_PR_MASK         (1 << HF2_MPX_PR_SHIFT)
 
 #define CR4_OSXSAVE_MASK (1U << 18)
 
@@ -639,6 +651,10 @@ typedef struct BNDReg {
     uint64_t lb;
     uint64_t ub;
 } BNDReg;
+
+#define BNDCFG_ENABLE       1ULL
+
+#define BNDCFG_BNDPRESERVE  2ULL
 
 #define ZMM_Q(n) _q_ZMMReg[n]
 
@@ -1197,11 +1213,8 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-static void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr) {
-    __builtin_trap();
-    __builtin_unreachable();
-}
+void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
+                                      uintptr_t retaddr);
 
 void update_fp_status(CPUX86State *env);
 
@@ -1530,6 +1543,36 @@ static inline void tlb_flush(CPUState *cpu)
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
+void cpu_sync_bndcs_hflags(CPUX86State *env)
+{
+    uint32_t hflags = env->hflags;
+    uint32_t hflags2 = env->hflags2;
+    uint32_t bndcsr;
+
+    if ((hflags & HF_CPL_MASK) == 3) {
+        bndcsr = env->bndcs_regs.cfgu;
+    } else {
+        bndcsr = env->msr_bndcfgs;
+    }
+
+    if ((env->cr[4] & CR4_OSXSAVE_MASK)
+        && (env->xcr0 & XSTATE_BNDCSR_MASK)
+        && (bndcsr & BNDCFG_ENABLE)) {
+        hflags |= HF_MPX_EN_MASK;
+    } else {
+        hflags &= ~HF_MPX_EN_MASK;
+    }
+
+    if (bndcsr & BNDCFG_BNDPRESERVE) {
+        hflags2 |= HF2_MPX_PR_MASK;
+    } else {
+        hflags2 &= ~HF2_MPX_PR_MASK;
+    }
+
+    env->hflags = hflags;
+    env->hflags2 = hflags2;
+}
+
 static inline void set_float_rounding_mode(int val, float_status *status)
 {
     status->float_rounding_mode = val;
@@ -1773,7 +1816,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
             do_xrstor_fpu(env, ptr, ra);
         } else {
             helper_fninit(env);
-            __builtin_memset(env->fpregs, 0, sizeof(env->fpregs));
+            memset(env->fpregs, 0, sizeof(env->fpregs));
         }
     }
     if (rfbm & XSTATE_SSE_MASK) {
@@ -1785,7 +1828,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
         } else {
             /* ??? When AVX is implemented, we may have to be more
                selective in the clearing.  */
-            __builtin_memset(env->xmm_regs, 0, sizeof(env->xmm_regs));
+            memset(env->xmm_regs, 0, sizeof(env->xmm_regs));
         }
     }
     if (rfbm & XSTATE_BNDREGS_MASK) {
@@ -1793,7 +1836,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
             do_xrstor_bndregs(env, ptr + XO(bndreg_state), ra);
             env->hflags |= HF_MPX_IU_MASK;
         } else {
-            __builtin_memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
+            memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
             env->hflags &= ~HF_MPX_IU_MASK;
         }
     }
@@ -1801,7 +1844,7 @@ void helper_xrstor(CPUX86State *env, target_ulong ptr, uint64_t rfbm)
         if (xstate_bv & XSTATE_BNDCSR_MASK) {
             do_xrstor_bndcsr(env, ptr + XO(bndcsr_state), ra);
         } else {
-            __builtin_memset(&env->bndcs_regs, 0, sizeof(env->bndcs_regs));
+            memset(&env->bndcs_regs, 0, sizeof(env->bndcs_regs));
         }
         cpu_sync_bndcs_hflags(env);
     }

@@ -2,17 +2,6 @@
 
 #include <stdint.h>
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -37,6 +26,47 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+floatx80 int64_to_floatx80(int64_t, float_status *status);
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+floatx80 int64_to_floatx80(int64_t a, float_status *status)
+{
+    flag zSign;
+    uint64_t absA;
+    int8_t shiftCount;
+
+    if ( a == 0 ) return packFloatx80( 0, 0, 0 );
+    zSign = ( a < 0 );
+    absA = zSign ? - a : a;
+    shiftCount = clz64(absA);
+    return packFloatx80( zSign, 0x403E - shiftCount, absA<<shiftCount );
+
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -522,8 +552,6 @@ typedef struct CPUX86State {
 
     unsigned nr_dies;
 } CPUX86State;
-
-floatx80 int64_to_floatx80(int64_t, float_status *status);
 
 void helper_fildll_ST0(CPUX86State *env, int64_t val)
 {

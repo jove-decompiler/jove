@@ -2,16 +2,9 @@
 
 #include <stdint.h>
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
+#include <stdlib.h>
 
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
+#include <assert.h>
 
 typedef uint8_t flag;
 
@@ -23,6 +16,31 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_tininess_after_rounding  = 0,
+    float_tininess_before_rounding = 1
+};
+
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -37,6 +55,731 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+floatx80 floatx80_sub(floatx80, floatx80, float_status *status);
+
+static inline int floatx80_is_any_nan(floatx80 a)
+{
+    return ((a.high & 0x7fff) == 0x7fff) && (a.low<<1);
+}
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+static inline void shift64RightJamming(uint64_t a, int count, uint64_t *zPtr)
+{
+    uint64_t z;
+
+    if ( count == 0 ) {
+        z = a;
+    }
+    else if ( count < 64 ) {
+        z = ( a>>count ) | ( ( a<<( ( - count ) & 63 ) ) != 0 );
+    }
+    else {
+        z = ( a != 0 );
+    }
+    *zPtr = z;
+
+}
+
+static inline void
+ shift64ExtraRightJamming(
+     uint64_t a0, uint64_t a1, int count, uint64_t *z0Ptr, uint64_t *z1Ptr)
+{
+    uint64_t z0, z1;
+    int8_t negCount = ( - count ) & 63;
+
+    if ( count == 0 ) {
+        z1 = a1;
+        z0 = a0;
+    }
+    else if ( count < 64 ) {
+        z1 = ( a0<<negCount ) | ( a1 != 0 );
+        z0 = a0>>count;
+    }
+    else {
+        if ( count == 64 ) {
+            z1 = a0 | ( a1 != 0 );
+        }
+        else {
+            z1 = ( ( a0 | a1 ) != 0 );
+        }
+        z0 = 0;
+    }
+    *z1Ptr = z1;
+    *z0Ptr = z0;
+
+}
+
+static inline void
+ shift128RightJamming(
+     uint64_t a0, uint64_t a1, int count, uint64_t *z0Ptr, uint64_t *z1Ptr)
+{
+    uint64_t z0, z1;
+    int8_t negCount = ( - count ) & 63;
+
+    if ( count == 0 ) {
+        z1 = a1;
+        z0 = a0;
+    }
+    else if ( count < 64 ) {
+        z1 = ( a0<<negCount ) | ( a1>>count ) | ( ( a1<<negCount ) != 0 );
+        z0 = a0>>count;
+    }
+    else {
+        if ( count == 64 ) {
+            z1 = a0 | ( a1 != 0 );
+        }
+        else if ( count < 128 ) {
+            z1 = ( a0>>( count & 63 ) ) | ( ( ( a0<<negCount ) | a1 ) != 0 );
+        }
+        else {
+            z1 = ( ( a0 | a1 ) != 0 );
+        }
+        z0 = 0;
+    }
+    *z1Ptr = z1;
+    *z0Ptr = z0;
+
+}
+
+static inline void shortShift128Left(uint64_t a0, uint64_t a1, int count,
+                                     uint64_t *z0Ptr, uint64_t *z1Ptr)
+{
+    *z1Ptr = a1 << count;
+    *z0Ptr = count == 0 ? a0 : (a0 << count) | (a1 >> (-count & 63));
+}
+
+static inline void
+ sub128(
+     uint64_t a0, uint64_t a1, uint64_t b0, uint64_t b1, uint64_t *z0Ptr, uint64_t *z1Ptr )
+{
+
+    *z1Ptr = a1 - b1;
+    *z0Ptr = a0 - b0 - ( a1 < b1 );
+
+}
+
+typedef enum __attribute__ ((__packed__)) {
+    float_class_unclassified,
+    float_class_zero,
+    float_class_normal,
+    float_class_inf,
+    float_class_qnan,  /* all NaNs from here */
+    float_class_snan,
+} FloatClass;
+
+static inline __attribute__((unused)) bool is_snan(FloatClass c)
+{
+    return c == float_class_snan;
+}
+
+static inline __attribute__((unused)) bool is_qnan(FloatClass c)
+{
+    return c == float_class_qnan;
+}
+
+static inline flag snan_bit_is_one(float_status *status)
+{
+#if defined(TARGET_MIPS)
+    return status->snan_bit_is_one;
+#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+#define floatx80_infinity_high 0x7FFF
+
+#define floatx80_infinity_low  UINT64_C(0x8000000000000000)
+
+floatx80 floatx80_default_nan(float_status *status)
+{
+    floatx80 r;
+
+    /* None of the targets that have snan_bit_is_one use floatx80.  */
+    assert(!snan_bit_is_one(status));
+#if defined(TARGET_M68K)
+    r.low = UINT64_C(0xFFFFFFFFFFFFFFFF);
+    r.high = 0x7FFF;
+#else
+    /* X86 */
+    r.low = UINT64_C(0xC000000000000000);
+    r.high = 0xFFFF;
+#endif
+    return r;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static int pickNaN(FloatClass a_cls, FloatClass b_cls,
+                   flag aIsLargerSignificand)
+{
+#if defined(TARGET_ARM) || defined(TARGET_MIPS) || defined(TARGET_HPPA)
+    /* ARM mandated NaN propagation rules (see FPProcessNaNs()), take
+     * the first of:
+     *  1. A if it is signaling
+     *  2. B if it is signaling
+     *  3. A (quiet)
+     *  4. B (quiet)
+     * A signaling NaN is always quietened before returning it.
+     */
+    /* According to MIPS specifications, if one of the two operands is
+     * a sNaN, a new qNaN has to be generated. This is done in
+     * floatXX_silence_nan(). For qNaN inputs the specifications
+     * says: "When possible, this QNaN result is one of the operand QNaN
+     * values." In practice it seems that most implementations choose
+     * the first operand if both operands are qNaN. In short this gives
+     * the following rules:
+     *  1. A if it is signaling
+     *  2. B if it is signaling
+     *  3. A (quiet)
+     *  4. B (quiet)
+     * A signaling NaN is always silenced before returning it.
+     */
+    if (is_snan(a_cls)) {
+        return 0;
+    } else if (is_snan(b_cls)) {
+        return 1;
+    } else if (is_qnan(a_cls)) {
+        return 0;
+    } else {
+        return 1;
+    }
+#elif defined(TARGET_PPC) || defined(TARGET_XTENSA) || defined(TARGET_M68K)
+    /* PowerPC propagation rules:
+     *  1. A if it sNaN or qNaN
+     *  2. B if it sNaN or qNaN
+     * A signaling NaN is always silenced before returning it.
+     */
+    /* M68000 FAMILY PROGRAMMER'S REFERENCE MANUAL
+     * 3.4 FLOATING-POINT INSTRUCTION DETAILS
+     * If either operand, but not both operands, of an operation is a
+     * nonsignaling NaN, then that NaN is returned as the result. If both
+     * operands are nonsignaling NaNs, then the destination operand
+     * nonsignaling NaN is returned as the result.
+     * If either operand to an operation is a signaling NaN (SNaN), then the
+     * SNaN bit is set in the FPSR EXC byte. If the SNaN exception enable bit
+     * is set in the FPCR ENABLE byte, then the exception is taken and the
+     * destination is not modified. If the SNaN exception enable bit is not
+     * set, setting the SNaN bit in the operand to a one converts the SNaN to
+     * a nonsignaling NaN. The operation then continues as described in the
+     * preceding paragraph for nonsignaling NaNs.
+     */
+    if (is_nan(a_cls)) {
+        return 0;
+    } else {
+        return 1;
+    }
+#else
+    /* This implements x87 NaN propagation rules:
+     * SNaN + QNaN => return the QNaN
+     * two SNaNs => return the one with the larger significand, silenced
+     * two QNaNs => return the one with the larger significand
+     * SNaN and a non-NaN => return the SNaN, silenced
+     * QNaN and a non-NaN => return the QNaN
+     *
+     * If we get down to comparing significands and they are the same,
+     * return the NaN with the positive sign bit (if any).
+     */
+    if (is_snan(a_cls)) {
+        if (is_snan(b_cls)) {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+        return is_qnan(b_cls) ? 1 : 0;
+    } else if (is_qnan(a_cls)) {
+        if (is_snan(b_cls) || !is_qnan(b_cls)) {
+            return 0;
+        } else {
+            return aIsLargerSignificand ? 0 : 1;
+        }
+    } else {
+        return 1;
+    }
+#endif
+}
+
+int floatx80_is_signaling_nan(floatx80 a, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return 0;
+#else
+    if (snan_bit_is_one(status)) {
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && ((a.low << 1) >= 0x8000000000000000ULL);
+    } else {
+        uint64_t aLow;
+
+        aLow = a.low & ~UINT64_C(0x4000000000000000);
+        return ((a.high & 0x7FFF) == 0x7FFF)
+            && (uint64_t)(aLow << 1)
+            && (a.low == aLow);
+    }
+#endif
+}
+
+floatx80 floatx80_silence_nan(floatx80 a, float_status *status)
+{
+    /* None of the targets that have snan_bit_is_one use floatx80.  */
+    assert(!snan_bit_is_one(status));
+    a.low |= UINT64_C(0xC000000000000000);
+    return a;
+}
+
+floatx80 propagateFloatx80NaN(floatx80 a, floatx80 b, float_status *status)
+{
+    flag aIsLargerSignificand;
+    FloatClass a_cls, b_cls;
+
+    /* This is not complete, but is good enough for pickNaN.  */
+    a_cls = (!floatx80_is_any_nan(a)
+             ? float_class_normal
+             : floatx80_is_signaling_nan(a, status)
+             ? float_class_snan
+             : float_class_qnan);
+    b_cls = (!floatx80_is_any_nan(b)
+             ? float_class_normal
+             : floatx80_is_signaling_nan(b, status)
+             ? float_class_snan
+             : float_class_qnan);
+
+    if (is_snan(a_cls) || is_snan(b_cls)) {
+        float_raise(float_flag_invalid, status);
+    }
+
+    if (status->default_nan_mode) {
+        return floatx80_default_nan(status);
+    }
+
+    if (a.low < b.low) {
+        aIsLargerSignificand = 0;
+    } else if (b.low < a.low) {
+        aIsLargerSignificand = 1;
+    } else {
+        aIsLargerSignificand = (a.high < b.high) ? 1 : 0;
+    }
+
+    if (pickNaN(a_cls, b_cls, aIsLargerSignificand)) {
+        if (is_snan(b_cls)) {
+            return floatx80_silence_nan(b, status);
+        }
+        return b;
+    } else {
+        if (is_snan(a_cls)) {
+            return floatx80_silence_nan(a, status);
+        }
+        return a;
+    }
+}
+
+void normalizeFloatx80Subnormal(uint64_t aSig, int32_t *zExpPtr,
+                                uint64_t *zSigPtr)
+{
+    int8_t shiftCount;
+
+    shiftCount = clz64(aSig);
+    *zSigPtr = aSig<<shiftCount;
+    *zExpPtr = 1 - shiftCount;
+}
+
+floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
+                              int32_t zExp, uint64_t zSig0, uint64_t zSig1,
+                              float_status *status)
+{
+    int8_t roundingMode;
+    flag roundNearestEven, increment, isTiny;
+    int64_t roundIncrement, roundMask, roundBits;
+
+    roundingMode = status->float_rounding_mode;
+    roundNearestEven = ( roundingMode == float_round_nearest_even );
+    if ( roundingPrecision == 80 ) goto precision80;
+    if ( roundingPrecision == 64 ) {
+        roundIncrement = UINT64_C(0x0000000000000400);
+        roundMask = UINT64_C(0x00000000000007FF);
+    }
+    else if ( roundingPrecision == 32 ) {
+        roundIncrement = UINT64_C(0x0000008000000000);
+        roundMask = UINT64_C(0x000000FFFFFFFFFF);
+    }
+    else {
+        goto precision80;
+    }
+    zSig0 |= ( zSig1 != 0 );
+    switch (roundingMode) {
+    case float_round_nearest_even:
+    case float_round_ties_away:
+        break;
+    case float_round_to_zero:
+        roundIncrement = 0;
+        break;
+    case float_round_up:
+        roundIncrement = zSign ? 0 : roundMask;
+        break;
+    case float_round_down:
+        roundIncrement = zSign ? roundMask : 0;
+        break;
+    default:
+        abort();
+    }
+    roundBits = zSig0 & roundMask;
+    if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
+        if (    ( 0x7FFE < zExp )
+             || ( ( zExp == 0x7FFE ) && ( zSig0 + roundIncrement < zSig0 ) )
+           ) {
+            goto overflow;
+        }
+        if ( zExp <= 0 ) {
+            if (status->flush_to_zero) {
+                float_raise(float_flag_output_denormal, status);
+                return packFloatx80(zSign, 0, 0);
+            }
+            isTiny =
+                   (status->float_detect_tininess
+                    == float_tininess_before_rounding)
+                || ( zExp < 0 )
+                || ( zSig0 <= zSig0 + roundIncrement );
+            shift64RightJamming( zSig0, 1 - zExp, &zSig0 );
+            zExp = 0;
+            roundBits = zSig0 & roundMask;
+            if (isTiny && roundBits) {
+                float_raise(float_flag_underflow, status);
+            }
+            if (roundBits) {
+                status->float_exception_flags |= float_flag_inexact;
+            }
+            zSig0 += roundIncrement;
+            if ( (int64_t) zSig0 < 0 ) zExp = 1;
+            roundIncrement = roundMask + 1;
+            if ( roundNearestEven && ( roundBits<<1 == roundIncrement ) ) {
+                roundMask |= roundIncrement;
+            }
+            zSig0 &= ~ roundMask;
+            return packFloatx80( zSign, zExp, zSig0 );
+        }
+    }
+    if (roundBits) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    zSig0 += roundIncrement;
+    if ( zSig0 < roundIncrement ) {
+        ++zExp;
+        zSig0 = UINT64_C(0x8000000000000000);
+    }
+    roundIncrement = roundMask + 1;
+    if ( roundNearestEven && ( roundBits<<1 == roundIncrement ) ) {
+        roundMask |= roundIncrement;
+    }
+    zSig0 &= ~ roundMask;
+    if ( zSig0 == 0 ) zExp = 0;
+    return packFloatx80( zSign, zExp, zSig0 );
+ precision80:
+    switch (roundingMode) {
+    case float_round_nearest_even:
+    case float_round_ties_away:
+        increment = ((int64_t)zSig1 < 0);
+        break;
+    case float_round_to_zero:
+        increment = 0;
+        break;
+    case float_round_up:
+        increment = !zSign && zSig1;
+        break;
+    case float_round_down:
+        increment = zSign && zSig1;
+        break;
+    default:
+        abort();
+    }
+    if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
+        if (    ( 0x7FFE < zExp )
+             || (    ( zExp == 0x7FFE )
+                  && ( zSig0 == UINT64_C(0xFFFFFFFFFFFFFFFF) )
+                  && increment
+                )
+           ) {
+            roundMask = 0;
+ overflow:
+            float_raise(float_flag_overflow | float_flag_inexact, status);
+            if (    ( roundingMode == float_round_to_zero )
+                 || ( zSign && ( roundingMode == float_round_up ) )
+                 || ( ! zSign && ( roundingMode == float_round_down ) )
+               ) {
+                return packFloatx80( zSign, 0x7FFE, ~ roundMask );
+            }
+            return packFloatx80(zSign,
+                                floatx80_infinity_high,
+                                floatx80_infinity_low);
+        }
+        if ( zExp <= 0 ) {
+            isTiny =
+                   (status->float_detect_tininess
+                    == float_tininess_before_rounding)
+                || ( zExp < 0 )
+                || ! increment
+                || ( zSig0 < UINT64_C(0xFFFFFFFFFFFFFFFF) );
+            shift64ExtraRightJamming( zSig0, zSig1, 1 - zExp, &zSig0, &zSig1 );
+            zExp = 0;
+            if (isTiny && zSig1) {
+                float_raise(float_flag_underflow, status);
+            }
+            if (zSig1) {
+                status->float_exception_flags |= float_flag_inexact;
+            }
+            switch (roundingMode) {
+            case float_round_nearest_even:
+            case float_round_ties_away:
+                increment = ((int64_t)zSig1 < 0);
+                break;
+            case float_round_to_zero:
+                increment = 0;
+                break;
+            case float_round_up:
+                increment = !zSign && zSig1;
+                break;
+            case float_round_down:
+                increment = zSign && zSig1;
+                break;
+            default:
+                abort();
+            }
+            if ( increment ) {
+                ++zSig0;
+                zSig0 &=
+                    ~ ( ( (uint64_t) ( zSig1<<1 ) == 0 ) & roundNearestEven );
+                if ( (int64_t) zSig0 < 0 ) zExp = 1;
+            }
+            return packFloatx80( zSign, zExp, zSig0 );
+        }
+    }
+    if (zSig1) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    if ( increment ) {
+        ++zSig0;
+        if ( zSig0 == 0 ) {
+            ++zExp;
+            zSig0 = UINT64_C(0x8000000000000000);
+        }
+        else {
+            zSig0 &= ~ ( ( (uint64_t) ( zSig1<<1 ) == 0 ) & roundNearestEven );
+        }
+    }
+    else {
+        if ( zSig0 == 0 ) zExp = 0;
+    }
+    return packFloatx80( zSign, zExp, zSig0 );
+
+}
+
+floatx80 normalizeRoundAndPackFloatx80(int8_t roundingPrecision,
+                                       flag zSign, int32_t zExp,
+                                       uint64_t zSig0, uint64_t zSig1,
+                                       float_status *status)
+{
+    int8_t shiftCount;
+
+    if ( zSig0 == 0 ) {
+        zSig0 = zSig1;
+        zSig1 = 0;
+        zExp -= 64;
+    }
+    shiftCount = clz64(zSig0);
+    shortShift128Left( zSig0, zSig1, shiftCount, &zSig0, &zSig1 );
+    zExp -= shiftCount;
+    return roundAndPackFloatx80(roundingPrecision, zSign, zExp,
+                                zSig0, zSig1, status);
+
+}
+
+static floatx80 addFloatx80Sigs(floatx80 a, floatx80 b, flag zSign,
+                                float_status *status)
+{
+    int32_t aExp, bExp, zExp;
+    uint64_t aSig, bSig, zSig0, zSig1;
+    int32_t expDiff;
+
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    bSig = extractFloatx80Frac( b );
+    bExp = extractFloatx80Exp( b );
+    expDiff = aExp - bExp;
+    if ( 0 < expDiff ) {
+        if ( aExp == 0x7FFF ) {
+            if ((uint64_t)(aSig << 1)) {
+                return propagateFloatx80NaN(a, b, status);
+            }
+            return a;
+        }
+        if ( bExp == 0 ) --expDiff;
+        shift64ExtraRightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
+        zExp = aExp;
+    }
+    else if ( expDiff < 0 ) {
+        if ( bExp == 0x7FFF ) {
+            if ((uint64_t)(bSig << 1)) {
+                return propagateFloatx80NaN(a, b, status);
+            }
+            return packFloatx80(zSign,
+                                floatx80_infinity_high,
+                                floatx80_infinity_low);
+        }
+        if ( aExp == 0 ) ++expDiff;
+        shift64ExtraRightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
+        zExp = bExp;
+    }
+    else {
+        if ( aExp == 0x7FFF ) {
+            if ( (uint64_t) ( ( aSig | bSig )<<1 ) ) {
+                return propagateFloatx80NaN(a, b, status);
+            }
+            return a;
+        }
+        zSig1 = 0;
+        zSig0 = aSig + bSig;
+        if ( aExp == 0 ) {
+            normalizeFloatx80Subnormal( zSig0, &zExp, &zSig0 );
+            goto roundAndPack;
+        }
+        zExp = aExp;
+        goto shiftRight1;
+    }
+    zSig0 = aSig + bSig;
+    if ( (int64_t) zSig0 < 0 ) goto roundAndPack;
+ shiftRight1:
+    shift64ExtraRightJamming( zSig0, zSig1, 1, &zSig0, &zSig1 );
+    zSig0 |= UINT64_C(0x8000000000000000);
+    ++zExp;
+ roundAndPack:
+    return roundAndPackFloatx80(status->floatx80_rounding_precision,
+                                zSign, zExp, zSig0, zSig1, status);
+}
+
+static floatx80 subFloatx80Sigs(floatx80 a, floatx80 b, flag zSign,
+                                float_status *status)
+{
+    int32_t aExp, bExp, zExp;
+    uint64_t aSig, bSig, zSig0, zSig1;
+    int32_t expDiff;
+
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    bSig = extractFloatx80Frac( b );
+    bExp = extractFloatx80Exp( b );
+    expDiff = aExp - bExp;
+    if ( 0 < expDiff ) goto aExpBigger;
+    if ( expDiff < 0 ) goto bExpBigger;
+    if ( aExp == 0x7FFF ) {
+        if ( (uint64_t) ( ( aSig | bSig )<<1 ) ) {
+            return propagateFloatx80NaN(a, b, status);
+        }
+        float_raise(float_flag_invalid, status);
+        return floatx80_default_nan(status);
+    }
+    if ( aExp == 0 ) {
+        aExp = 1;
+        bExp = 1;
+    }
+    zSig1 = 0;
+    if ( bSig < aSig ) goto aBigger;
+    if ( aSig < bSig ) goto bBigger;
+    return packFloatx80(status->float_rounding_mode == float_round_down, 0, 0);
+ bExpBigger:
+    if ( bExp == 0x7FFF ) {
+        if ((uint64_t)(bSig << 1)) {
+            return propagateFloatx80NaN(a, b, status);
+        }
+        return packFloatx80(zSign ^ 1, floatx80_infinity_high,
+                            floatx80_infinity_low);
+    }
+    if ( aExp == 0 ) ++expDiff;
+    shift128RightJamming( aSig, 0, - expDiff, &aSig, &zSig1 );
+ bBigger:
+    sub128( bSig, 0, aSig, zSig1, &zSig0, &zSig1 );
+    zExp = bExp;
+    zSign ^= 1;
+    goto normalizeRoundAndPack;
+ aExpBigger:
+    if ( aExp == 0x7FFF ) {
+        if ((uint64_t)(aSig << 1)) {
+            return propagateFloatx80NaN(a, b, status);
+        }
+        return a;
+    }
+    if ( bExp == 0 ) --expDiff;
+    shift128RightJamming( bSig, 0, expDiff, &bSig, &zSig1 );
+ aBigger:
+    sub128( aSig, 0, bSig, zSig1, &zSig0, &zSig1 );
+    zExp = aExp;
+ normalizeRoundAndPack:
+    return normalizeRoundAndPackFloatx80(status->floatx80_rounding_precision,
+                                         zSign, zExp, zSig0, zSig1, status);
+}
+
+floatx80 floatx80_sub(floatx80 a, floatx80 b, float_status *status)
+{
+    flag aSign, bSign;
+
+    if (floatx80_invalid_encoding(a) || floatx80_invalid_encoding(b)) {
+        float_raise(float_flag_invalid, status);
+        return floatx80_default_nan(status);
+    }
+    aSign = extractFloatx80Sign( a );
+    bSign = extractFloatx80Sign( b );
+    if ( aSign == bSign ) {
+        return subFloatx80Sigs(a, b, aSign, status);
+    }
+    else {
+        return addFloatx80Sigs(a, b, aSign, status);
+    }
+
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -526,8 +1269,6 @@ typedef struct CPUX86State {
 #define FT0    (env->ft0)
 
 #define ST0    (env->fpregs[env->fpstt].d)
-
-floatx80 floatx80_sub(floatx80, floatx80, float_status *status);
 
 void helper_fsub_ST0_FT0(CPUX86State *env)
 {

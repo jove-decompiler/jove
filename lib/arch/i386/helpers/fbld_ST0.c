@@ -68,34 +68,6 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define QTAILQ_HEAD(name, type)                                         \
-union name {                                                            \
-        struct type *tqh_first;       /* first element */               \
-        QTailQLink tqh_circ;          /* link for circular backwards list */ \
-}
-
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -160,7 +132,12 @@ static inline uint64_t ldq_le_p(const void *ptr)
     return le_bswap(ldq_he_p(ptr), 64);
 }
 
-#define signal_barrier() do {} while (0)
+static inline int clz64(uint64_t val)
+{
+    return val ? __builtin_clzll(val) : 64;
+}
+
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -174,6 +151,65 @@ static inline int test_bit(long nr, const unsigned long *addr)
 {
     return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
 }
+
+floatx80 int64_to_floatx80(int64_t, float_status *status);
+
+static inline floatx80 floatx80_chs(floatx80 a)
+{
+    a.high ^= 0x8000;
+    return a;
+}
+
+static inline floatx80 packFloatx80(flag zSign, int32_t zExp, uint64_t zSig)
+{
+    floatx80 z;
+
+    z.low = zSig;
+    z.high = (((uint16_t)zSign) << 15) + zExp;
+    return z;
+}
+
+floatx80 int64_to_floatx80(int64_t a, float_status *status)
+{
+    flag zSign;
+    uint64_t absA;
+    int8_t shiftCount;
+
+    if ( a == 0 ) return packFloatx80( 0, 0, 0 );
+    zSign = ( a < 0 );
+    absA = zSign ? - a : a;
+    shiftCount = clz64(absA);
+    return packFloatx80( zSign, 0x403E - shiftCount, absA<<shiftCount );
+
+}
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 #define DECLARE_BITMAP(name,bits)                  \
         unsigned long name[BITS_TO_LONGS(bits)]
@@ -1358,14 +1394,6 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
 
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-floatx80 int64_to_floatx80(int64_t, float_status *status);
-
-static inline floatx80 floatx80_chs(floatx80 a)
-{
-    a.high ^= 0x8000;
-    return a;
-}
 
 static inline void fpush(CPUX86State *env)
 {

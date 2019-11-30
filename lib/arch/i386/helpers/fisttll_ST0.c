@@ -2,17 +2,6 @@
 
 #include <stdint.h>
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -23,6 +12,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_flag_invalid   =  1,
+    float_flag_divbyzero =  4,
+    float_flag_overflow  =  8,
+    float_flag_underflow = 16,
+    float_flag_inexact   = 32,
+    float_flag_input_denormal = 64,
+    float_flag_output_denormal = 128
+};
 
 typedef struct float_status {
     signed char float_detect_tininess;
@@ -37,6 +36,84 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+int64_t floatx80_to_int64_round_to_zero(floatx80, float_status *status);
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+int64_t floatx80_to_int64_round_to_zero(floatx80 a, float_status *status)
+{
+    flag aSign;
+    int32_t aExp, shiftCount;
+    uint64_t aSig;
+    int64_t z;
+
+    if (floatx80_invalid_encoding(a)) {
+        float_raise(float_flag_invalid, status);
+        return 1ULL << 63;
+    }
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    aSign = extractFloatx80Sign( a );
+    shiftCount = aExp - 0x403E;
+    if ( 0 <= shiftCount ) {
+        aSig &= UINT64_C(0x7FFFFFFFFFFFFFFF);
+        if ( ( a.high != 0xC03E ) || aSig ) {
+            float_raise(float_flag_invalid, status);
+            if ( ! aSign || ( ( aExp == 0x7FFF ) && aSig ) ) {
+                return INT64_MAX;
+            }
+        }
+        return INT64_MIN;
+    }
+    else if ( aExp < 0x3FFF ) {
+        if (aExp | aSig) {
+            status->float_exception_flags |= float_flag_inexact;
+        }
+        return 0;
+    }
+    z = aSig>>( - shiftCount );
+    if ( (uint64_t) ( aSig<<( shiftCount & 63 ) ) ) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    if ( aSign ) z = - z;
+    return z;
+
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -524,8 +601,6 @@ typedef struct CPUX86State {
 } CPUX86State;
 
 #define ST0    (env->fpregs[env->fpstt].d)
-
-int64_t floatx80_to_int64_round_to_zero(floatx80, float_status *status);
 
 int64_t helper_fisttll_ST0(CPUX86State *env)
 {

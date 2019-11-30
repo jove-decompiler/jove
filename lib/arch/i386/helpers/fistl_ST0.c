@@ -2,16 +2,7 @@
 
 #include <stdint.h>
 
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
+#include <stdlib.h>
 
 typedef uint8_t flag;
 
@@ -23,6 +14,16 @@ typedef struct {
     uint64_t low;
     uint16_t high;
 } floatx80;
+
+enum {
+    float_round_nearest_even = 0,
+    float_round_down         = 1,
+    float_round_up           = 2,
+    float_round_to_zero      = 3,
+    float_round_ties_away    = 4,
+    /* Not an IEEE rounding mode: round to the closest odd mantissa value */
+    float_round_to_odd       = 5,
+};
 
 enum {
     float_flag_invalid   =  1,
@@ -47,6 +48,137 @@ typedef struct float_status {
     /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+static inline void set_float_exception_flags(int val, float_status *status)
+{
+    status->float_exception_flags = val;
+}
+
+static inline int get_float_exception_flags(float_status *status)
+{
+    return status->float_exception_flags;
+}
+
+int32_t floatx80_to_int32(floatx80, float_status *status);
+
+static inline bool floatx80_invalid_encoding(floatx80 a)
+{
+    return (a.low & (1ULL << 63)) == 0 && (a.high & 0x7FFF) != 0;
+}
+
+static inline uint64_t extractFloatx80Frac(floatx80 a)
+{
+    return a.low;
+}
+
+static inline int32_t extractFloatx80Exp(floatx80 a)
+{
+    return a.high & 0x7FFF;
+}
+
+static inline flag extractFloatx80Sign(floatx80 a)
+{
+    return a.high >> 15;
+}
+
+static inline void shift64RightJamming(uint64_t a, int count, uint64_t *zPtr)
+{
+    uint64_t z;
+
+    if ( count == 0 ) {
+        z = a;
+    }
+    else if ( count < 64 ) {
+        z = ( a>>count ) | ( ( a<<( ( - count ) & 63 ) ) != 0 );
+    }
+    else {
+        z = ( a != 0 );
+    }
+    *zPtr = z;
+
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+static int32_t roundAndPackInt32(flag zSign, uint64_t absZ, float_status *status)
+{
+    int8_t roundingMode;
+    flag roundNearestEven;
+    int8_t roundIncrement, roundBits;
+    int32_t z;
+
+    roundingMode = status->float_rounding_mode;
+    roundNearestEven = ( roundingMode == float_round_nearest_even );
+    switch (roundingMode) {
+    case float_round_nearest_even:
+    case float_round_ties_away:
+        roundIncrement = 0x40;
+        break;
+    case float_round_to_zero:
+        roundIncrement = 0;
+        break;
+    case float_round_up:
+        roundIncrement = zSign ? 0 : 0x7f;
+        break;
+    case float_round_down:
+        roundIncrement = zSign ? 0x7f : 0;
+        break;
+    case float_round_to_odd:
+        roundIncrement = absZ & 0x80 ? 0 : 0x7f;
+        break;
+    default:
+        abort();
+    }
+    roundBits = absZ & 0x7F;
+    absZ = ( absZ + roundIncrement )>>7;
+    absZ &= ~ ( ( ( roundBits ^ 0x40 ) == 0 ) & roundNearestEven );
+    z = absZ;
+    if ( zSign ) z = - z;
+    if ( ( absZ>>32 ) || ( z && ( ( z < 0 ) ^ zSign ) ) ) {
+        float_raise(float_flag_invalid, status);
+        return zSign ? INT32_MIN : INT32_MAX;
+    }
+    if (roundBits) {
+        status->float_exception_flags |= float_flag_inexact;
+    }
+    return z;
+
+}
+
+int32_t floatx80_to_int32(floatx80 a, float_status *status)
+{
+    flag aSign;
+    int32_t aExp, shiftCount;
+    uint64_t aSig;
+
+    if (floatx80_invalid_encoding(a)) {
+        float_raise(float_flag_invalid, status);
+        return 1 << 31;
+    }
+    aSig = extractFloatx80Frac( a );
+    aExp = extractFloatx80Exp( a );
+    aSign = extractFloatx80Sign( a );
+    if ( ( aExp == 0x7FFF ) && (uint64_t) ( aSig<<1 ) ) aSign = 0;
+    shiftCount = 0x4037 - aExp;
+    if ( shiftCount <= 0 ) shiftCount = 1;
+    shift64RightJamming( aSig, shiftCount, &aSig );
+    return roundAndPackInt32(aSign, aSig, status);
+
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -534,18 +666,6 @@ typedef struct CPUX86State {
 } CPUX86State;
 
 #define ST0    (env->fpregs[env->fpstt].d)
-
-static inline void set_float_exception_flags(int val, float_status *status)
-{
-    status->float_exception_flags = val;
-}
-
-static inline int get_float_exception_flags(float_status *status)
-{
-    return status->float_exception_flags;
-}
-
-int32_t floatx80_to_int32(floatx80, float_status *status);
 
 int32_t helper_fistl_ST0(CPUX86State *env)
 {
