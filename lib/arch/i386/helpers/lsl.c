@@ -2133,7 +2133,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
     sc->flags = e2;
 }
 
-void helper_lldt(CPUX86State *env, int selector)
+static void helper_lldt(CPUX86State *env, int selector)
 {
     SegmentCache *dt;
     uint32_t e1, e2;
