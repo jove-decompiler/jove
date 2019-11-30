@@ -200,7 +200,7 @@ static inline int clz32(uint32_t val)
     return val ? __builtin_clz(val) : 32;
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
