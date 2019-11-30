@@ -1879,7 +1879,7 @@ uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
 
 typedef uint32_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {

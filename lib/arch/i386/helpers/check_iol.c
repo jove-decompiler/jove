@@ -1068,7 +1068,7 @@ void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
 
 typedef uint32_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
