@@ -1030,8 +1030,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define SVM_EXIT_CPUID		0x072
 
-void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
+                                          int error_code, uintptr_t retaddr) {
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
                                    uint64_t param, uintptr_t retaddr);
