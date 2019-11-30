@@ -1602,3 +1602,13 @@ void helper_rsqrtss(CPUX86State *env, ZMMReg *d, ZMMReg *s)
                               &env->sse_status);
 }
 
+//
+// from musl
+//
+
+float fabsf(float x)
+{
+	union {float f; uint32_t i;} u = {x};
+	u.i &= 0x7fffffff;
+	return u.f;
+}

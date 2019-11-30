@@ -12,6 +12,11 @@
 
 #include <math.h>
 
+static double internal_floor(double);
+static double internal_fabs(double);
+static double internal_ceil(double);
+static double internal_rint(double);
+
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -1163,7 +1168,7 @@ void helper_fprem1(CPUX86State *env)
     if (expdif < 53) {
         dblq = fpsrcop / fptemp;
         /* round dblq towards nearest integer */
-        dblq = rint(dblq);
+        dblq = internal_rint(dblq);
         st0 = fpsrcop - fptemp * dblq;
 
         /* convert dblq to q by truncating towards zero */
@@ -1184,7 +1189,7 @@ void helper_fprem1(CPUX86State *env)
         fpsrcop = (st0 / st1) / fptemp;
         /* fpsrcop = integer obtained by chopping */
         fpsrcop = (fpsrcop < 0.0) ?
-                  -(floor(fabs(fpsrcop))) : floor(fpsrcop);
+                  -(internal_floor(internal_fabs(fpsrcop))) : internal_floor(fpsrcop);
         st0 -= (st1 * fpsrcop * fptemp);
     }
     ST0 = double_to_floatx80(env, st0);
@@ -1222,7 +1227,7 @@ void helper_fprem(CPUX86State *env)
     if (expdif < 53) {
         dblq = fpsrcop / fptemp; /* ST0 / ST1 */
         /* round dblq towards zero */
-        dblq = (dblq < 0.0) ? ceil(dblq) : floor(dblq);
+        dblq = (dblq < 0.0) ? internal_ceil(dblq) : internal_floor(dblq);
         st0 = fpsrcop - fptemp * dblq; /* fpsrcop is ST0 */
 
         /* convert dblq to q by truncating towards zero */
@@ -1245,9 +1250,125 @@ void helper_fprem(CPUX86State *env)
         fpsrcop = (st0 / st1) / fptemp;
         /* fpsrcop = integer obtained by chopping */
         fpsrcop = (fpsrcop < 0.0) ?
-                  -(floor(fabs(fpsrcop))) : floor(fpsrcop);
+                  -(internal_floor(internal_fabs(fpsrcop))) : internal_floor(fpsrcop);
         st0 -= (st1 * fpsrcop * fptemp);
     }
     ST0 = double_to_floatx80(env, st0);
 }
 
+//
+// from musl
+//
+
+double internal_fabs(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	u.i &= -1ULL/2;
+	return u.f;
+}
+
+#define LDBL_EPSILON 1.0842021724855044340e-19L
+
+#define EPS LDBL_EPSILON
+
+static const double_t floor_toint = 1/EPS;
+
+#define fp_force_evalf fp_force_evalf
+
+#define fp_force_eval fp_force_eval
+
+static inline void fp_force_evalf(float x)
+{
+	volatile float y;
+	y = x;
+}
+
+#define fp_force_evall fp_force_evall
+
+static inline void fp_force_eval(double x)
+{
+	volatile double y;
+	y = x;
+}
+
+#define FORCE_EVAL(x) do {                        \
+	if (sizeof(x) == sizeof(float)) {         \
+		fp_force_evalf(x);                \
+	} else if (sizeof(x) == sizeof(double)) { \
+		fp_force_eval(x);                 \
+	} else {                                  \
+		fp_force_evall(x);                \
+	}                                         \
+} while(0)
+
+static inline void fp_force_evall(long double x)
+{
+	volatile long double y;
+	y = x;
+}
+
+double internal_floor(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	int e = u.i >> 52 & 0x7ff;
+	double_t y;
+
+	if (e >= 0x3ff+52 || x == 0)
+		return x;
+	/* y = int(x) - x, where int(x) is an integer neighbor of x */
+	if (u.i >> 63)
+		y = x - floor_toint + floor_toint - x;
+	else
+		y = x + floor_toint - floor_toint - x;
+	/* special case because of non-nearest rounding modes */
+	if (e <= 0x3ff-1) {
+		FORCE_EVAL(y);
+		return u.i >> 63 ? -1 : 0;
+	}
+	if (y > 0)
+		return x + y - 1;
+	return x + y;
+}
+
+static const double_t toint = 1/EPS;
+
+double internal_ceil(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	int e = u.i >> 52 & 0x7ff;
+	double_t y;
+
+	if (e >= 0x3ff+52 || x == 0)
+		return x;
+	/* y = int(x) - x, where int(x) is an integer neighbor of x */
+	if (u.i >> 63)
+		y = x - toint + toint - x;
+	else
+		y = x + toint - toint - x;
+	/* special case because of non-nearest rounding modes */
+	if (e <= 0x3ff-1) {
+		FORCE_EVAL(y);
+		return u.i >> 63 ? -0.0 : 1;
+	}
+	if (y < 0)
+		return x + y + 1;
+	return x + y;
+}
+
+double internal_rint(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	int e = u.i>>52 & 0x7ff;
+	int s = u.i>>63;
+	double_t y;
+
+	if (e >= 0x3ff+52)
+		return x;
+	if (s)
+		y = x - toint + toint;
+	else
+		y = x + toint - toint;
+	if (y == 0)
+		return s ? -0.0 : 0;
+	return y;
+}

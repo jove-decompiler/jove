@@ -1446,3 +1446,13 @@ void helper_haddpd(CPUX86State *env, ZMMReg *d, ZMMReg *s)
     *d = r;
 }
 
+//
+// from musl
+//
+
+double fabs(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	u.i &= -1ULL/2;
+	return u.f;
+}

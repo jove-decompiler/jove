@@ -1403,3 +1403,13 @@ void helper_pfmul(CPUX86State *env, MMXReg *d, MMXReg *s)
     d->MMX_S(1) = float32_mul(d->MMX_S(1), s->MMX_S(1), &env->mmx_status);
 }
 
+//
+// from musl
+//
+
+float fabsf(float x)
+{
+	union {float f; uint32_t i;} u = {x};
+	u.i &= 0x7fffffff;
+	return u.f;
+}

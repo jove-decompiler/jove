@@ -1469,3 +1469,13 @@ void helper_pfrcp(CPUX86State *env, MMXReg *d, MMXReg *s)
     d->MMX_S(1) = d->MMX_S(0);
 }
 
+//
+// from musl
+//
+
+float fabsf(float x)
+{
+	union {float f; uint32_t i;} u = {x};
+	u.i &= 0x7fffffff;
+	return u.f;
+}

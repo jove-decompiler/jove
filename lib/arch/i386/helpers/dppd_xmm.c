@@ -1599,3 +1599,13 @@ void glue(helper_dppd, SUFFIX)(CPUX86State *env, Reg *d, Reg *s, uint32_t mask)
     d->ZMM_D(1) = (mask & (1 << 1)) ? iresult : float64_zero;
 }
 
+//
+// from musl
+//
+
+double fabs(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	u.i &= -1ULL/2;
+	return u.f;
+}

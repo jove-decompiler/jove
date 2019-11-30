@@ -1607,3 +1607,13 @@ void helper_pfrsqrt(CPUX86State *env, MMXReg *d, MMXReg *s)
     d->MMX_L(0) = d->MMX_L(1);
 }
 
+//
+// from musl
+//
+
+float fabsf(float x)
+{
+	union {float f; uint32_t i;} u = {x};
+	u.i &= 0x7fffffff;
+	return u.f;
+}

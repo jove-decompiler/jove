@@ -1461,3 +1461,13 @@ void helper_addsubpd(CPUX86State *env, ZMMReg *d, ZMMReg *s)
     d->ZMM_D(1) = float64_add(d->ZMM_D(1), s->ZMM_D(1), &env->sse_status);
 }
 
+//
+// from musl
+//
+
+double fabs(double x)
+{
+	union {double f; uint64_t i;} u = {x};
+	u.i &= -1ULL/2;
+	return u.f;
+}

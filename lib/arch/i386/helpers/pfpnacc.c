@@ -1415,3 +1415,13 @@ void helper_pfpnacc(CPUX86State *env, MMXReg *d, MMXReg *s)
     *d = r;
 }
 
+//
+// from musl
+//
+
+float fabsf(float x)
+{
+	union {float f; uint32_t i;} u = {x};
+	u.i &= 0x7fffffff;
+	return u.f;
+}
