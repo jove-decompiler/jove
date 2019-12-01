@@ -4123,8 +4123,22 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     llvm::Function *helperF =
         Module->getFunction(std::string("helper_") + helper_nm);
 
-    assert(helperF);
-    assert(helperF->arg_size() == nb_iargs);
+    if (!helperF) {
+      WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
+                                          helper_nm);
+      exit(1);
+    }
+
+#if 0
+    if (helperF->arg_size() != nb_iargs) {
+      WithColor::error() << llvm::formatv(
+          "helper {0} takes {1} args but nb_iargs={2}\n", helper_nm,
+          helperF->arg_size(), nb_iargs);
+      exit(1);
+    }
+#else
+    assert(nb_iargs >= helperF->arg_size());
+#endif
 
     helperF->setLinkage(llvm::GlobalValue::InternalLinkage);
 
@@ -4731,7 +4745,19 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-    uintptr_t Addr = R.Addend;
+    uintptr_t Addr;
+    if (R.Addend) {
+      Addr = R.Addend;
+    } else {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -5026,7 +5052,19 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-    uintptr_t Addr = R.Addend;
+    uintptr_t Addr;
+    if (R.Addend) {
+      Addr = R.Addend;
+    } else {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
 
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
@@ -6271,14 +6309,34 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
 
   unsigned off = TCG->_ctx.temps[glb].mem_offset;
 
+  unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
+  llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, CPUStateGlobal, llvm::APInt(64, off),
-      IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices, "");
+      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy, Indices, "");
 
-  assert(llvm::isa<llvm::Constant>(res));
-  return llvm::cast<llvm::Constant>(res);
+  if (res) {
+    assert(llvm::isa<llvm::Constant>(res));
+    return llvm::ConstantExpr::getPointerCast(llvm::cast<llvm::Constant>(res),
+                                              llvm::PointerType::get(GlbTy, 0));
+  }
+
+  //
+  // fallback
+  //
+#if 0
+  WithColor::error() << llvm::formatv(
+      "failed to get CPUState global pointer for {0}\n",
+      TCG->_ctx.temps[glb].name);
+#endif
+
+  return llvm::ConstantExpr::getIntToPtr(
+      llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), off)),
+      llvm::PointerType::get(GlbTy, 0));
 }
 
 static int TranslateFunction(binary_t &Binary, function_t &f) {
@@ -8607,42 +8665,94 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       break;
 
     const helper_function_t &hf = LookupHelper(op);
+    llvm::FunctionType *FTy = hf.F->getFunctionType();
 
     //
     // build the vector of arguments to pass
     //
     std::vector<llvm::Value *> ArgVec;
-    ArgVec.resize(nb_iargs);
+    ArgVec.reserve(nb_iargs);
 
-    // we'll need this in case a parameter is a pointer type
-    llvm::FunctionType *FTy = hf.F->getFunctionType();
+    int iarg_idx = 0;
+    for (llvm::Type *ParamTy : FTy->params()) {
+      assert(iarg_idx < nb_iargs);
 
-    TCGArg *const iargs_begin = &op->args[nb_oargs + 0];
-    TCGArg *const iargs_end = &op->args[nb_oargs + nb_iargs];
+      if (ParamTy == CPUStateType) {
+        {
+          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
+          assert(temp_idx(ts) == tcg_env_index);
+        }
 
-    std::transform(iargs_begin,
-                   iargs_end,
-                   ArgVec.begin(),
-                   [&](TCGArg &a) -> llvm::Value * {
-                     TCGTemp *ts = arg_temp(a);
-                     unsigned idx = temp_idx(ts);
+        llvm::Value *Arg;
 
-                     if (idx == tcg_env_index) {
-                       if (hf.Analysis.Simple)
-                         return IRB.CreateAlloca(CPUStateType, 0, "env");
-                       else
-                         return CPUStateGlobal;
-                     }
+	if (hf.Analysis.Simple)
+	  Arg = IRB.CreateAlloca(CPUStateType, 0, "env");
+	else
+	  Arg = CPUStateGlobal;
 
-                     llvm::Value *res = get(ts);
+        ArgVec.push_back(Arg);
+        ++iarg_idx;
+      } else if (ParamTy->isPointerTy()) {
+        TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
 
-                     unsigned i = &a - iargs_begin;
-                     llvm::Type *ArgTy = FTy->getParamType(i);
-                     if (ArgTy->isPointerTy())
-                       res = IRB.CreateIntToPtr(res, ArgTy);
+        if (WordBits() == 32) {
+	  assert(ts->type == TCG_TYPE_I32);
+	} else if (WordBits() == 64) {
+	  assert(ts->type == TCG_TYPE_I64);
+	} else {
+	  __builtin_trap();
+	  __builtin_unreachable();
+	}
 
-                     return res;
-                   });
+        ArgVec.push_back(IRB.CreateIntToPtr(get(ts), ParamTy));
+        ++iarg_idx;
+      } else if (ParamTy->isIntegerTy()) {
+	if (ParamTy->isIntegerTy(32)) {
+          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
+	  if (ts->type == TCG_TYPE_I32) {
+            ArgVec.push_back(get(ts));
+            ++iarg_idx;
+          } else {
+	    __builtin_trap();
+	    __builtin_unreachable();
+	  }
+        } else if (ParamTy->isIntegerTy(64)) {
+          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
+
+          if (ts->type == TCG_TYPE_I64) {
+            ArgVec.push_back(get(ts));
+            ++iarg_idx;
+	  } else if (ts->type == TCG_TYPE_I32) {
+	    llvm::Value *lo = get(ts);
+
+            ++iarg_idx;
+	    assert(iarg_idx < nb_iargs);
+            ts = arg_temp(op->args[nb_oargs + iarg_idx]);
+	    assert(ts->type == TCG_TYPE_I32);
+	    llvm::Value *hi = get(ts);
+            ++iarg_idx;
+
+            llvm::Value *combined =
+                IRB.CreateOr(IRB.CreateZExt(lo, IRB.getInt64Ty()),
+                             IRB.CreateShl(IRB.CreateZExt(hi, IRB.getInt64Ty()),
+                                           llvm::APInt(64, 32)));
+            ArgVec.push_back(combined);
+          } else {
+	    __builtin_trap();
+	    __builtin_unreachable();
+	  }
+	} else {
+	  __builtin_trap();
+	  __builtin_unreachable();
+	}
+      } else {
+	__builtin_trap();
+	__builtin_unreachable();
+      }
+    }
+
+    assert(ArgVec.size() == hf.F->arg_size());
+    assert(iarg_idx == nb_iargs); /* confirm we consumed all inputs */
 
     //
     // does the helper function take a CPUState* parameter?
@@ -8694,8 +8804,27 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     // does the helper have an output?
     //
     if (nb_oargs > 0) {
-      assert(nb_oargs == 1);
-      set(Ret, arg_temp(op->args[0]));
+      if (nb_oargs == 1) {
+	TCGTemp *dst = arg_temp(op->args[0]);
+
+        set(Ret, dst);
+      } else if (nb_oargs == 2) {
+	TCGTemp *dst1 = arg_temp(op->args[0]);
+	TCGTemp *dst2 = arg_temp(op->args[1]);
+
+	assert(dst1->type == TCG_TYPE_I32);
+	assert(dst2->type == TCG_TYPE_I32);
+
+	assert(FTy->getReturnType()->isIntegerTy(64));
+
+        set(IRB.CreateTrunc(Ret, IRB.getInt32Ty()), dst1);
+        set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
+                            IRB.getInt32Ty()),
+            dst2);
+      } else {
+	__builtin_trap();
+	__builtin_unreachable();
+      }
     }
 
     break;
