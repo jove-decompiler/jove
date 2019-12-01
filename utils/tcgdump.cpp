@@ -310,14 +310,13 @@ int tcgdump(void) {
 
     unsigned BBSize;
     for (uintptr_t A = Addr; A < Addr + Sym.st_size; A += BBSize) {
-      jove::terminator_info_t T;
-
       if (BreakOn.Active) {
 	if (A == BreakOn.Addr) {
           ::TCGDumpUserBreakPoint();
 	}
       }
 
+      jove::terminator_info_t T;
       std::tie(BBSize, T) = tcg.translate(A);
 
       //
@@ -378,9 +377,14 @@ int tcgdump(void) {
         printf("NextPC: 0x%" PRIxPTR "\n", T._call.NextPC);
         break;
 
+      case jove::TERMINATOR::NONE:
+        printf("NextPC: 0x%" PRIxPTR "\n", T._none.NextPC);
+        break;
+
       default:
         break;
       }
+
       fputc('\n', stdout);
     }
   }
