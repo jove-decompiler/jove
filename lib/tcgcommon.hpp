@@ -305,7 +305,8 @@ struct tiny_code_generator_t {
     tb.jove.T.Type = TERMINATOR::UNKNOWN;
 
     __jove_end_pc = pc_end;
-#if defined(__aarch64__)
+
+#if defined(__aarch64__) || defined(__i386__)
     gen_intermediate_code(&_cpu.parent_obj, &tb, /* max_insn */ 1000000);
 #else
     gen_intermediate_code(&_cpu.parent_obj, &tb);
@@ -323,7 +324,7 @@ struct tiny_code_generator_t {
       }
     }
 
-#if defined(__i386__)
+#if 0 /* defined(__i386__) */
     struct terminator_info_t &ti = tb.jove.T;
 
     /* quirk */
@@ -340,7 +341,7 @@ struct tiny_code_generator_t {
   }
 
   void dump_operations(void) {
-#if defined(__aarch64__)
+#if defined(__aarch64__) || defined(__i386__)
     tcg_dump_ops(&_ctx, false);
 #else
     tcg_dump_ops(&_ctx);
