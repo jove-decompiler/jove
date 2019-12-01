@@ -797,6 +797,52 @@ i386-dppd_xmm_EXTRICATE_ARGS := float64_mul float64_add
 i386-mulsh_i64_EXTRICATE_ARGS := muls64
 i386-muluh_i64_EXTRICATE_ARGS := mulu64
 
+i386-addss_EXTRICATE_ARGS := float64_add float32_add
+i386-addpd_EXTRICATE_ARGS := float64_add float32_add
+i386-addsd_EXTRICATE_ARGS := float64_add float32_add
+i386-subss_EXTRICATE_ARGS := float64_sub float32_sub
+i386-subpd_EXTRICATE_ARGS := float64_sub float32_sub
+i386-subsd_EXTRICATE_ARGS := float64_sub float32_sub
+i386-mulss_EXTRICATE_ARGS := float64_mul float32_mul
+i386-mulpd_EXTRICATE_ARGS := float64_mul float32_mul
+i386-mulsd_EXTRICATE_ARGS := float64_mul float32_mul
+i386-divss_EXTRICATE_ARGS := float64_div float32_div
+i386-divpd_EXTRICATE_ARGS := float64_div float32_div
+i386-divsd_EXTRICATE_ARGS := float64_div float32_div
+i386-minss_EXTRICATE_ARGS := float64_lt float32_lt
+i386-minpd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-minsd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-maxss_EXTRICATE_ARGS := float64_lt float32_lt
+i386-maxpd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-maxsd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-sqrtss_EXTRICATE_ARGS := float64_sqrt float32_sqrt
+i386-sqrtpd_EXTRICATE_ARGS := float64_sqrt float32_sqrt
+i386-sqrtsd_EXTRICATE_ARGS := float64_sqrt float32_sqrt
+i386-cmpeqss_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpeqpd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpeqsd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpltss_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpltpd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpltsd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpless_EXTRICATE_ARGS := float64_le float32_le
+i386-cmplepd_EXTRICATE_ARGS := float64_le float32_le
+i386-cmplesd_EXTRICATE_ARGS := float64_le float32_le
+i386-cmpunordss_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+i386-cmpunordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+i386-cmpunordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+i386-cmpneqss_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpneqpd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpneqsd_EXTRICATE_ARGS := float64_eq_quiet float32_eq_quiet
+i386-cmpnltss_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpnltpd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpnltsd_EXTRICATE_ARGS := float64_lt float32_lt
+i386-cmpnless_EXTRICATE_ARGS := float64_le float32_le
+i386-cmpnlepd_EXTRICATE_ARGS := float64_le float32_le
+i386-cmpnlesd_EXTRICATE_ARGS := float64_le float32_le
+i386-cmpordss_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+i386-cmpordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+i386-cmpordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
+
 #
 # TCG helpers
 #
