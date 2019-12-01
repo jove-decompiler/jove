@@ -1345,13 +1345,13 @@ extern bool have_popcnt;
 
 #define TCG_TARGET_HAS_ctpop_i32        have_popcnt
 
-#define TCG_TARGET_HAS_deposit_i32      1
+#define TCG_TARGET_HAS_deposit_i32      0
 
-#define TCG_TARGET_HAS_extract_i32      1
+#define TCG_TARGET_HAS_extract_i32      0
 
-#define TCG_TARGET_HAS_sextract_i32     1
+#define TCG_TARGET_HAS_sextract_i32     0
 
-#define TCG_TARGET_HAS_extract2_i32     1
+#define TCG_TARGET_HAS_extract2_i32     0
 
 #define TCG_TARGET_HAS_movcond_i32      1
 
