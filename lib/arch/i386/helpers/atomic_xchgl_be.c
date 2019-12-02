@@ -877,7 +877,7 @@ static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 #define HELPER(name) glue(helper_, name)
 
