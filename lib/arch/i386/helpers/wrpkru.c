@@ -1218,7 +1218,7 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
+static void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
                    uint32_t *eax, uint32_t *ebx,
                    uint32_t *ecx, uint32_t *edx);
 
@@ -1238,8 +1238,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define SVM_EXIT_CPUID		0x072
 
-void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
+                                          int error_code, uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
                                    uint64_t param, uintptr_t retaddr);
@@ -1251,12 +1254,7 @@ static inline void tlb_flush(CPUState *cpu)
 # define GETPC() \
     ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
 
-void cpu_svm_check_intercept_param(CPUX86State *env, uint32_t type,
-                                   uint64_t param, uintptr_t retaddr)
-{
-}
-
-void helper_cpuid(CPUX86State *env)
+static void helper_cpuid(CPUX86State *env)
 {
     uint32_t eax, ebx, ecx, edx;
 

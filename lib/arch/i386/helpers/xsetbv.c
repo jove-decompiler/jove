@@ -93,8 +93,7 @@ struct _GSList
 
 #define g_assert(expr)                  G_STMT_START { \
                                              if G_LIKELY (expr) ; else \
-                                               g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
-                                                                         #expr); \
+                                               __builtin_trap(); __builtin_unreachable(); \
                                         } G_STMT_END
 
 GLIB_AVAILABLE_IN_ALL
@@ -1297,7 +1296,7 @@ struct X86CPU {
 
 void cpu_sync_bndcs_hflags(CPUX86State *env);
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
+static void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
                    uint32_t *eax, uint32_t *ebx,
                    uint32_t *ecx, uint32_t *edx);
 
@@ -1323,8 +1322,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
+                                      uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 #define g2h(x) ((void *)((unsigned long)(x)))
 
