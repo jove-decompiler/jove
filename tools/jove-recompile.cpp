@@ -234,17 +234,25 @@ int recompile(void) {
     return 1;
   }
 
-#if 0
-  ld_path = (boost::dll::program_location().parent_path().parent_path() /
-             "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
-                .string();
-#elif 0
-  ld_path = "/usr/bin/ld.gold";
-#else
-  ld_path = "/usr/bin/ld";
+  std::string lld_path =
+      (boost::dll::program_location().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
+          .string();
+
+  std::string ld_gold_path = "/usr/bin/ld.gold";
+  std::string ld_bfd_path = "/usr/bin/ld.bfd";
+
+#if defined(__x86_64__)
+  ld_path = ld_bfd_path;
+#elif defined(__i386__)
+  ld_path = lld_path;
+#elif defined(__aarch64__)
+  ld_path = ld_bfd_path;
 #endif
+
   if (!fs::exists(ld_path)) {
-    WithColor::error() << "could not find /usr/bin/ld\n";
+    WithColor::error() << llvm::formatv("could not find linker at {0}\n",
+                                        ld_path);
     return 1;
   }
 
