@@ -1059,7 +1059,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint32_t abi_ptr;
 
