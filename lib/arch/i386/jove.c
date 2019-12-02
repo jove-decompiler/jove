@@ -526,7 +526,7 @@ _CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong sp_addr);
+_HIDDEN void _jove_begin(target_ulong sp_addr);
 
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
@@ -547,8 +547,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
-static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_HIDDEN target_ulong _jove_alloc_stack(void);
+_HIDDEN void _jove_free_stack(target_ulong);
 
 //
 // utility functions
@@ -580,11 +580,11 @@ void _jove_start(void) {
                   mark the outermost frame obviously.  */
                "xor %%ebp, %%ebp\n"
                "push %%esp\n"
-               "call %P0\n"
+               "call _jove_begin\n"
+               "hlt\n"
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i"(_jove_begin)
                : /* Clobbers */);
 }
 
@@ -1161,56 +1161,49 @@ void _jove_fail2(target_ulong rdi,
 target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                          target_ulong *args   /* rsi */,
                          target_ulong *emuspp /* rdx */) {
-  asm volatile("pushq %%r15\n" /* callee-saved registers */
-               "pushq %%r14\n"
-               "pushq %%r13\n"
-               "pushq %%r12\n"
+  asm volatile("push %%ebp\n" // r15 /* callee-saved registers */
+               "push %%edi\n" // r14
+               "push %%esi\n" // r13
+               "push %%ebx\n" // r12
 
-               "movq %%rdi, %%r12\n" /* dstpc in r12 */
-               "movq %%rsi, %%r13\n" /* args in r13 */
-               "movq %%rdx, %%r14\n" /* emuspp in r14 */
-               "movq %%rsp, %%r15\n" /* save sp in r15 */
+               "mov 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
+               "mov 0x18(%%esp), %%esi\n" /* args in esi */
+               "mov 0x1c(%%esp), %%edi\n" /* emuspp in edi */
+               "mov %%esp, %%ebp\n" /* save sp in ebp */
 
-               "call %P[jove_alloc_stack]\n"
-               "movq %%r12, %%r10\n" /* dstpc in r10 */
-               "movq %%rax, %%r12\n" /* allocated stack in r12 */
-               "addq $0x80000, %%rax\n"
+               "call _jove_alloc_stack\n"
+               "mov %%ebx, %%ecx\n" /* dstpc in ecx */
+               "mov %%eax, %%ebx\n" /* allocated stack in ebx */
+               "add $0x80000, %%eax\n"
 
-               "movq (%%r14), %%rsp\n" /* sp=*emusp */
-               "movq %%rax, (%%r14)\n" /* *emusp=stack storage */
+               "mov (%%edi), %%esp\n" /* sp=*emusp */
+               "mov %%eax, (%%edi)\n" /* *emusp=stack storage */
 
-               /* unpack args */
-               "movq 40(%%r13), %%r9\n"
-               "movq 32(%%r13), %%r8\n"
-               "movq 24(%%r13), %%rcx\n"
-               "movq 16(%%r13), %%rdx\n"
-               "movq  8(%%r13), %%rsi\n"
-               "movq  0(%%r13), %%rdi\n"
+               /* -- no registers to unpack args into -- */
 
-               "addq $8, %%rsp\n" /* replace return address on the stack */
-               "callq *%%r10\n"   /* call dstpc */
+               "add $4, %%esp\n" /* replace return address on the stack */
+               "call *%%ecx\n"   /* call dstpc */
 
-               "movq %%rsp, (%%r14)\n" /* store modified emusp */
-               "movq %%r15, %%rsp\n"   /* restore stack pointer */
+               "mov %%esp, (%%edi)\n" /* store modified emusp */
+               "mov %%ebp, %%esp\n"   /* restore stack pointer */
 
-               "movq %%rax, %%r15\n" /* save return value */
+               "mov %%eax, %%ebp\n" /* save return value */
 
-               "movq %%r12, %%rdi\n" /* pass allocated stack */
-               "call %P[jove_free_stack]\n"
+               "push %%ebx\n" /* pass allocated stack */
+               "call _jove_free_stack\n"
+               "add $0x4, %%esp\n"
 
-               "movq %%r15, %%rax\n" /* restore return value */
+               "mov %%ebp, %%eax\n" /* restore return value */
 
-               "popq %%r12\n"
-               "popq %%r13\n"
-               "popq %%r14\n"
-               "popq %%r15\n" /* callee-saved registers */
+               "pop %%ebx\n"
+               "pop %%esi\n"
+               "pop %%edi\n"
+               "pop %%ebp\n" /* callee-saved registers */
 
-               "retq\n"
+               "ret\n"
 
                : /* OutputOperands */
                : /* InputOperands */
-               [jove_alloc_stack] "i"(_jove_alloc_stack),
-               [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
 
