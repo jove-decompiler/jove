@@ -126,7 +126,7 @@ typedef struct IRQState *qemu_irq;
 #define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
                        QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
 
-extern bool tcg_allowed;
+static bool tcg_allowed = true;
 
 #define tcg_enabled() (tcg_allowed)
 

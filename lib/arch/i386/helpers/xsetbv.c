@@ -218,7 +218,7 @@ static inline int test_bit(long nr, const unsigned long *addr)
 unsigned long find_last_bit(const unsigned long *addr,
                             unsigned long size);
 
-extern bool tcg_allowed;
+static bool tcg_allowed = true;
 
 #define tcg_enabled() (tcg_allowed)
 
