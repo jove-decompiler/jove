@@ -2,3 +2,6 @@
 	path = third_party/llvm-project
 	url = git@gitlab.com:aleden/llvm-project.git
 	branch = release/9.x
+[submodule "third_party/prebuilts"]
+	path = third_party/prebuilts
+	url = https://github.com/aleden/prebuilts.git
