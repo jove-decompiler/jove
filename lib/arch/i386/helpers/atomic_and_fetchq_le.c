@@ -1064,7 +1064,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 typedef uint32_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1283,7 +1283,7 @@ static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 #define HELPER(name) glue(helper_, name)
 
-__thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 #define ATOMIC_MMU_DECLS do {} while (0)
 
