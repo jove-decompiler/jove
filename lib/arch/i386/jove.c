@@ -1161,10 +1161,10 @@ void _jove_fail2(target_ulong rdi,
 target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                          target_ulong *args   /* rsi */,
                          target_ulong *emuspp /* rdx */) {
-  asm volatile("push %%ebp\n" // r15 /* callee-saved registers */
-               "push %%edi\n" // r14
-               "push %%esi\n" // r13
-               "push %%ebx\n" // r12
+  asm volatile("push %%ebp\n" /* callee-saved registers */
+               "push %%edi\n"
+               "push %%esi\n"
+               "push %%ebx\n"
 
                "mov 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
                "mov 0x18(%%esp), %%esi\n" /* args in esi */
