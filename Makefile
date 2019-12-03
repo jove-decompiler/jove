@@ -869,7 +869,7 @@ check-helpers: $(foreach helper,$($(ARCH)_HELPERS),check-$(helper))
 define check_helper_template
 .PHONY: check-$(1)
 check-$(1): $(BINDIR)/$(1).bc $(BINDIR)/check-helper
-	@$(BINDIR)/check-helper $(1)
+	-@$(BINDIR)/check-helper $(1)
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call check_helper_template,$(helper))))
 
