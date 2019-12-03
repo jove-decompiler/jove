@@ -70,7 +70,7 @@ void HELPER(NAME)(void *vd, void *vn, void *vm, uint32_t desc)         \
     intptr_t i;                                                        \
     ARMVectorReg tmp_m;                                                \
     if (unlikely((vm - vd) < (uintptr_t)oprsz)) {                      \
-        vm = memcpy(&tmp_m, vm, oprsz);                                \
+        vm = __builtin_memcpy(&tmp_m, vm, oprsz);                                \
     }                                                                  \
     for (i = 0; i < oprsz_2; i += sizeof(TYPE)) {                      \
         *(TYPE *)(vd + H(i)) = *(TYPE *)(vn + H(2 * i + odd_ofs));     \

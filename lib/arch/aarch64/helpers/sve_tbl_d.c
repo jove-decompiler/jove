@@ -47,7 +47,7 @@ void HELPER(NAME)(void *vd, void *vn, void *vm, uint32_t desc) \
     TYPE *d = vd, *n = vn, *m = vm;                            \
     ARMVectorReg tmp;                                          \
     if (unlikely(vd == vn)) {                                  \
-        n = memcpy(&tmp, vn, opr_sz);                          \
+        n = __builtin_memcpy(&tmp, vn, opr_sz);                          \
     }                                                          \
     for (i = 0; i < elem; i++) {                               \
         TYPE j = m[H(i)];                                      \

@@ -50,10 +50,10 @@ void HELPER(NAME)(void *vd, void *vn, void *vm, uint32_t desc)       \
     /* We produce output faster than we consume input.               \
        Therefore we must be mindful of possible overlap.  */         \
     if (unlikely((vn - vd) < (uintptr_t)oprsz)) {                    \
-        vn = memcpy(&tmp_n, vn, oprsz_2);                            \
+        vn = __builtin_memcpy(&tmp_n, vn, oprsz_2);                            \
     }                                                                \
     if (unlikely((vm - vd) < (uintptr_t)oprsz)) {                    \
-        vm = memcpy(&tmp_m, vm, oprsz_2);                            \
+        vm = __builtin_memcpy(&tmp_m, vm, oprsz_2);                            \
     }                                                                \
     for (i = 0; i < oprsz_2; i += sizeof(TYPE)) {                    \
         *(TYPE *)(vd + H(2 * i + 0)) = *(TYPE *)(vn + H(i));         \

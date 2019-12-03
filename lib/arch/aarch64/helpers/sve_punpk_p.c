@@ -90,7 +90,7 @@ void HELPER(sve_punpk_p)(void *vd, void *vn, uint32_t pred_desc)
         /* We produce output faster than we consume input.
            Therefore we must be mindful of possible overlap.  */
         if ((vn - vd) < (uintptr_t)oprsz) {
-            vn = memcpy(&tmp_n, vn, oprsz);
+            vn = __builtin_memcpy(&tmp_n, vn, oprsz);
         }
         if (high) {
             high = oprsz >> 1;

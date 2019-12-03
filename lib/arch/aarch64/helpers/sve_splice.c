@@ -166,7 +166,7 @@ void HELPER(sve_splice)(void *vd, void *vn, void *vm, void *vg, uint32_t desc)
         last_i = last_i * 8 + 63 - clz64(last_g);
         len = last_i - first_i + (1 << esz);
         if (vd == vm) {
-            vm = memcpy(&tmp, vm, opr_sz * 8);
+            vm = __builtin_memcpy(&tmp, vm, opr_sz * 8);
         }
         swap_memmove(vd, vn + first_i, len);
     }

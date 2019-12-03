@@ -137,7 +137,7 @@ void HELPER(sve_ext)(void *vd, void *vn, void *vm, uint32_t desc)
         ARMVectorReg tmp;
         swap_memmove(&tmp, vm, n_ofs);
         swap_memmove(vd, vd + n_ofs, n_siz);
-        memcpy(vd + n_siz, &tmp, n_ofs);
+        __builtin_memcpy(vd + n_siz, &tmp, n_ofs);
     }
 }
 

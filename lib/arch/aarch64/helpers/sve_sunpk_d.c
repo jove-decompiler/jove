@@ -49,7 +49,7 @@ void HELPER(NAME)(void *vd, void *vn, uint32_t desc)           \
     TYPES *n = vn;                                             \
     ARMVectorReg tmp;                                          \
     if (unlikely(vn - vd < opr_sz)) {                          \
-        n = memcpy(&tmp, n, opr_sz / 2);                       \
+        n = __builtin_memcpy(&tmp, n, opr_sz / 2);                       \
     }                                                          \
     for (i = 0; i < opr_sz / sizeof(TYPED); i++) {             \
         d[HD(i)] = n[HS(i)];                                   \

@@ -145,7 +145,7 @@ void HELPER(sve_uzp_p)(void *vd, void *vn, void *vm, uint32_t pred_desc)
         intptr_t oprsz_16 = oprsz / 16;
 
         if ((vm - vd) < (uintptr_t)oprsz) {
-            m = memcpy(&tmp_m, vm, oprsz);
+            m = __builtin_memcpy(&tmp_m, vm, oprsz);
         }
 
         for (i = 0; i < oprsz_16; i++) {

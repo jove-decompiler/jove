@@ -94,10 +94,10 @@ void HELPER(sve_zip_p)(void *vd, void *vn, void *vm, uint32_t pred_desc)
         /* We produce output faster than we consume input.
            Therefore we must be mindful of possible overlap.  */
         if ((vn - vd) < (uintptr_t)oprsz) {
-            vn = memcpy(&tmp_n, vn, oprsz);
+            vn = __builtin_memcpy(&tmp_n, vn, oprsz);
         }
         if ((vm - vd) < (uintptr_t)oprsz) {
-            vm = memcpy(&tmp_m, vm, oprsz);
+            vm = __builtin_memcpy(&tmp_m, vm, oprsz);
         }
         if (high) {
             high = oprsz >> 1;
