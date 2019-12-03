@@ -1340,9 +1340,10 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 target_ulong _jove_alloc_stack(void) {
-  long ret = _jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0) {
+  void *ret =
+      (void *)_jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret == MAP_FAILED) {
     __builtin_trap();
     __builtin_unreachable();
   }
