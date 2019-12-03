@@ -4,7 +4,7 @@ THIRD_PARTY_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKE
 _LLVM_DIR         := $(THIRD_PARTY_ROOT_DIR)/llvm-project
 _LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
 
-GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9a-z-')
+GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9_a-z-')
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86

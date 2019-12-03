@@ -8,7 +8,7 @@ _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
 _LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
 
-GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9a-z-')
+GCC_TARGET := $(shell gcc -v 2>&1 >/dev/null | grep '^Target:' | cut -f2 "-d " | tr -cd '0-9_a-z-')
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 ARCH := x86_64
