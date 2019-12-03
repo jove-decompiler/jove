@@ -62,7 +62,7 @@ static void swap_memmove(void *vd, void *vs, size_t n)
 #endif
     switch (o) {
     case 0:
-        memmove(vd, vs, n);
+        __builtin_memmove(vd, vs, n);
         break;
 
     case 4:
