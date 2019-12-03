@@ -1899,7 +1899,7 @@ static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
 #endif
 
     clear_helper_retaddr();
-    memcpy(vd, &scratch, reg_max);
+    __builtin_memcpy(vd, &scratch, reg_max);
 }
 
 DO_LD1_1(ld1bb,  0)
@@ -1928,8 +1928,8 @@ static void sve_ld2_r(CPUARMState *env, void *vg, target_ulong addr,
     clear_helper_retaddr();
 
     /* Wait until all exceptions have been raised to write back.  */
-    memcpy(&env->vfp.zregs[rd], &scratch[0], oprsz);
-    memcpy(&env->vfp.zregs[(rd + 1) & 31], &scratch[1], oprsz);
+    __builtin_memcpy(&env->vfp.zregs[rd], &scratch[0], oprsz);
+    __builtin_memcpy(&env->vfp.zregs[(rd + 1) & 31], &scratch[1], oprsz);
 }
 
 #define DO_LDN_2(N, SUFF, SIZE)                                       \

@@ -1876,7 +1876,7 @@ static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
 #endif
 
     clear_helper_retaddr();
-    memcpy(vd, &scratch, reg_max);
+    __builtin_memcpy(vd, &scratch, reg_max);
 }
 
 DO_LD1_1(ld1bb,  0)
@@ -1911,7 +1911,7 @@ static void sve_ld1_zs(CPUARMState *env, void *vd, void *vg, void *vm,
     clear_helper_retaddr();
 
     /* Wait until all exceptions have been raised to write back.  */
-    memcpy(vd, &scratch, oprsz);
+    __builtin_memcpy(vd, &scratch, oprsz);
 }
 
 #define DO_LD1_ZPZ_S(MEM, OFS) \

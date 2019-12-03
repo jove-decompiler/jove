@@ -1990,7 +1990,7 @@ static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
 #endif
 
     clear_helper_retaddr();
-    memcpy(vd, &scratch, reg_max);
+    __builtin_memcpy(vd, &scratch, reg_max);
 }
 
 DO_LD1_1(ld1bb,  0)
