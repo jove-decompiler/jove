@@ -96,7 +96,7 @@ static uint32_t do_zero(ARMPredicateReg *d, intptr_t oprsz)
     /* It is quicker to zero the whole predicate than loop on OPRSZ.
      * The compiler should turn this into 4 64-bit integer stores.
      */
-    memset(d, 0, sizeof(ARMPredicateReg));
+    __builtin_memset(d, 0, sizeof(ARMPredicateReg));
     return PREDTEST_INIT;
 }
 

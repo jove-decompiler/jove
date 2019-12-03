@@ -1648,7 +1648,7 @@ static void swap_memzero(void *vd, size_t n)
 #endif
     switch (o) {
     case 0:
-        memset(vd, 0, n);
+        __builtin_memset(vd, 0, n);
         break;
 
     case 4:
@@ -1784,7 +1784,7 @@ static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
     reg_off = find_next_active(vg, 0, reg_max, esz);
     if (unlikely(reg_off == reg_max)) {
         /* The entire predicate was false; no load occurs.  */
-        memset(vd, 0, reg_max);
+        __builtin_memset(vd, 0, reg_max);
         return;
     }
     mem_off = reg_off >> diffsz;
@@ -1818,7 +1818,7 @@ static void sve_ld1_r(CPUARMState *env, void *vg, const target_ulong addr,
     swap_memzero(&scratch, reg_off);
     host_fn(&scratch, vg, g2h(addr), mem_off, mem_max);
 #else
-    memset(&scratch, 0, reg_max);
+    __builtin_memset(&scratch, 0, reg_max);
     goto start;
     while (1) {
         reg_off = find_next_active(vg, reg_off, reg_max, esz);

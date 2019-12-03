@@ -1242,9 +1242,9 @@ void HELPER(dc_zva)(CPUARMState *env, uint64_t vaddr_in)
                  * we know we don't need to update dirty status, etc.
                  */
                 for (i = 0; i < maxidx - 1; i++) {
-                    memset(hostaddr[i], 0, TARGET_PAGE_SIZE);
+                    __builtin_memset(hostaddr[i], 0, TARGET_PAGE_SIZE);
                 }
-                memset(hostaddr[i], 0, blocklen - (i * TARGET_PAGE_SIZE));
+                __builtin_memset(hostaddr[i], 0, blocklen - (i * TARGET_PAGE_SIZE));
                 return;
             }
             /*
@@ -1269,7 +1269,7 @@ void HELPER(dc_zva)(CPUARMState *env, uint64_t vaddr_in)
          * similar, or clearing of a block of code we have translations
          * cached for). Just do a series of byte writes as the architecture
          * demands. It's not worth trying to use a cpu_physical_memory_map(),
-         * memset(), unmap() sequence here because:
+         * __builtin_memset(), unmap() sequence here because:
          *  + we'd need to account for the blocksize being larger than a page
          *  + the direct-RAM access case is almost always going to be dealt
          *    with in the fastpath code above, so there's no speed benefit
@@ -1281,7 +1281,7 @@ void HELPER(dc_zva)(CPUARMState *env, uint64_t vaddr_in)
         }
     }
 #else
-    memset(g2h(vaddr), 0, blocklen);
+    __builtin_memset(g2h(vaddr), 0, blocklen);
 #endif
 }
 
