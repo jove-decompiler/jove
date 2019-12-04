@@ -260,6 +260,10 @@ int main(int argc, char **argv) {
   auto r15_index = [&](void) -> int {
     return tcg_index_of_named_global("r15");
   };
+#elif defined(__i386__)
+  auto gs_base_index = [&](void) -> int {
+    return tcg_index_of_named_global("gs_base");
+  };
 #endif
 
 #if defined(__aarch64__)
@@ -299,6 +303,8 @@ int main(int argc, char **argv) {
   __TCG_CONST(r13_index);
   __TCG_CONST(r14_index);
   __TCG_CONST(r15_index);
+#elif defined(__i386__)
+  __TCG_CONST(gs_base_index);
 #endif
 
 #if defined(__aarch64__)

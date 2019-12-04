@@ -3605,6 +3605,8 @@ void function_t::Analyze(void) {
     this->Analysis.args.reset(tcg_env_index);
 #if defined(__x86_64__)
     this->Analysis.args.reset(tcg_fs_base_index);
+#elif defined(__i386__)
+    this->Analysis.args.reset(tcg_gs_base_index);
 #endif
     if (tcg_program_counter_index >= 0)
       this->Analysis.args.reset(tcg_program_counter_index);
@@ -3648,6 +3650,8 @@ void function_t::Analyze(void) {
       this->Analysis.rets.reset(tcg_env_index);
 #if defined(__x86_64__)
       this->Analysis.rets.reset(tcg_fs_base_index);
+#elif defined(__i386__)
+      this->Analysis.rets.reset(tcg_gs_base_index);
 #endif
       if (tcg_program_counter_index >= 0)
         this->Analysis.rets.reset(tcg_program_counter_index);
@@ -6882,7 +6886,7 @@ int FixupTPBaseAddrs(void) {
 #if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
 #elif defined(__i386__)
-    llvm::StringRef AsmText("movq \%gs:0x0,$0");
+    llvm::StringRef AsmText("mov \%gs:0x0,$0");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
 #else
@@ -8526,6 +8530,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       assert(idx != tcg_env_index);
 #if defined(__x86_64__)
       assert(idx != tcg_fs_base_index);
+#elif defined(__i386__)
+      assert(idx != tcg_gs_base_index);
 #endif
     }
 
@@ -8544,10 +8550,13 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       switch (idx) {
       case tcg_env_index:
         return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+
 #if defined(__x86_64__)
       case tcg_fs_base_index:
-        return f.TPBaseVal;
+#elif defined(__i386__)
+      case tcg_gs_base_index:
 #endif
+        return f.TPBaseVal;
       }
     }
 

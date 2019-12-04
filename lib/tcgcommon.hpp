@@ -66,6 +66,9 @@ struct terminator_info_t {
 #include "jove/jove.h"
 
 static unsigned long guest_base_addr;
+#ifdef g2h
+#error "g2h is already defined!"
+#endif
 #define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
 
 static unsigned long __jove_end_pc = 0;
@@ -324,7 +327,7 @@ struct tiny_code_generator_t {
       }
     }
 
-#if 0 /* defined(__i386__) */
+#if defined(__i386__)
     struct terminator_info_t &ti = tb.jove.T;
 
     /* quirk */
