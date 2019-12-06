@@ -4035,9 +4035,11 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 
     WithColor::note() << "helper " << helper_nm << '\n';
 
+    std::string suffix = opts::DFSan ? ".dfsan.bc" : ".bc";
+
     std::string helperModulePath =
         (boost::dll::program_location().parent_path() /
-         (std::string(helper_nm) + ".bc"))
+         (std::string(helper_nm) + suffix))
             .string();
 
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
