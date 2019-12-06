@@ -834,16 +834,43 @@ struct X86CPU {
 };
 
 #define JOVE_SYS_ATTR __attribute__((noinline))
-
 #include "jove_sys.h"
 
 __attribute__((always_inline)) void helper_syscall(CPUX86State *, int);
+
+#ifdef JOVE_DFSAN
+
+#define SYSEXIT(nm) __dfs_sys_exit_##nm
+#define SYSENTR(nm) __dfs_sys_entr_##nm
+
+//
+// declare dfsan syscall hooks
+//
+#define ___SYSCALL0(nr, nm)                                                    \
+  void SYSEXIT(nm)(long sysret);
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  void SYSEXIT(nm)(long sysret, t1 a1);
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2);
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3);
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4);
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);
+
+#define JOVE_DFSAN_POSTHOOK
+#include "syscalls.inc.h"
+#undef JOVE_DFSAN_POSTHOOK
+#endif
 
 void helper_syscall(CPUX86State *env, int next_eip_addend)
 {
   unsigned long sysnum = env->regs[R_EAX];
 
-  unsigned long sysret;
+  long sysret;
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
   case nr:                                                                     \
@@ -901,6 +928,68 @@ void helper_syscall(CPUX86State *env, int next_eip_addend)
     __builtin_trap();
     __builtin_unreachable();
   }
+
+#ifdef JOVE_DFSAN
+  //
+  // call post hooks
+  //
+  switch (sysnum) {
+#define ___SYSCALL0(nr, nm)                                                    \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret);                                                       \
+    break;
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI]);                                 \
+    break;
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI],                                  \
+                        (t2)env->regs[R_ESI]);                                 \
+    break;
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI],                                  \
+                        (t2)env->regs[R_ESI],                                  \
+                        (t3)env->regs[R_EDX]);                                 \
+    break;
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI],                                  \
+                        (t2)env->regs[R_ESI],                                  \
+                        (t3)env->regs[R_EDX],                                  \
+                        (t4)env->regs[R_R10]);                                 \
+    break;
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI],                                  \
+                        (t2)env->regs[R_ESI],                                  \
+                        (t3)env->regs[R_EDX],                                  \
+                        (t4)env->regs[R_R10],                                  \
+                        (t5)env->regs[R_R8]);                                  \
+    break;
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  case nr:                                                                     \
+    SYSEXIT(nm)(sysret, (t1)env->regs[R_EDI],                                  \
+                        (t2)env->regs[R_ESI],                                  \
+                        (t3)env->regs[R_EDX],                                  \
+                        (t4)env->regs[R_R10],                                  \
+                        (t5)env->regs[R_R8],                                   \
+                        (t6)env->regs[R_R9]);                                  \
+    break;
+
+#define JOVE_DFSAN_POSTHOOK
+#include "syscalls.inc.h"
+#undef JOVE_DFSAN_POSTHOOK
+
+  default:
+    break;
+  }
+
+#undef SYSENTR
+#undef SYSEXIT
+
+#endif
 
   env->regs[R_EAX] = sysret;
 }
