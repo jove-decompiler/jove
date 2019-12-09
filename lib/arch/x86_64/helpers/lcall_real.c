@@ -113,12 +113,12 @@ typedef struct float_status {
 
 static inline void stw_he_p(void *ptr, uint16_t v)
 {
-    memcpy(ptr, &v, sizeof(v));
+    __builtin_memcpy(ptr, &v, sizeof(v));
 }
 
 static inline void stl_he_p(void *ptr, uint32_t v)
 {
-    memcpy(ptr, &v, sizeof(v));
+    __builtin_memcpy(ptr, &v, sizeof(v));
 }
 
 static inline void stw_le_p(void *ptr, uint16_t v)

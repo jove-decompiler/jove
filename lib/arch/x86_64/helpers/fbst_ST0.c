@@ -120,14 +120,14 @@ static inline void stb_p(void *ptr, uint8_t v)
 static inline int lduw_he_p(const void *ptr)
 {
     uint16_t r;
-    memcpy(&r, ptr, sizeof(r));
+    __builtin_memcpy(&r, ptr, sizeof(r));
     return r;
 }
 
 static inline uint64_t ldq_he_p(const void *ptr)
 {
     uint64_t r;
-    memcpy(&r, ptr, sizeof(r));
+    __builtin_memcpy(&r, ptr, sizeof(r));
     return r;
 }
 

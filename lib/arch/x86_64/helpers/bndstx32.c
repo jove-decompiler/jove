@@ -116,13 +116,13 @@ typedef struct float_status {
 static inline int ldl_he_p(const void *ptr)
 {
     int32_t r;
-    memcpy(&r, ptr, sizeof(r));
+    __builtin_memcpy(&r, ptr, sizeof(r));
     return r;
 }
 
 static inline void stl_he_p(void *ptr, uint32_t v)
 {
-    memcpy(ptr, &v, sizeof(v));
+    __builtin_memcpy(ptr, &v, sizeof(v));
 }
 
 static inline int ldl_le_p(const void *ptr)
