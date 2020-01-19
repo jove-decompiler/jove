@@ -1401,8 +1401,7 @@ void _jove_check_return_address(target_ulong RetAddr,
     return; /* the return address is bogus because foreign code is calling into
                recompiled code */
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _jove_fail2(RetAddr, NativeRetAddr);
 }
 
 bool _jove_is_readable_mem(target_ulong Addr) {
