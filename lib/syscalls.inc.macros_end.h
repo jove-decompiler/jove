@@ -13,3 +13,7 @@
 #ifdef ___SYSCALL_PARAM
 #undef ___SYSCALL_PARAM
 #endif
+
+#ifdef ___DFSAN_SYSEXITS
+#undef ___DFSAN_SYSEXITS
+#endif

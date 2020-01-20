@@ -861,9 +861,8 @@ __attribute__((always_inline)) void helper_syscall(CPUX86State *, int);
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);
 
-#define JOVE_DFSAN_POSTHOOK
+#define ___DFSAN_SYSEXITS
 #include "syscalls.inc.h"
-#undef JOVE_DFSAN_POSTHOOK
 #endif
 
 void helper_syscall(CPUX86State *env, int next_eip_addend)
@@ -978,9 +977,8 @@ void helper_syscall(CPUX86State *env, int next_eip_addend)
                         (t6)env->regs[R_R9]);                                  \
     break;
 
-#define JOVE_DFSAN_POSTHOOK
+#define ___DFSAN_SYSEXITS
 #include "syscalls.inc.h"
-#undef JOVE_DFSAN_POSTHOOK
 
   default:
     break;
