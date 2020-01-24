@@ -54,6 +54,8 @@ struct symbol_t {
   bool IsDefined() const { return !IsUndefined(); }
 };
 
+struct hook_t;
+
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -73,6 +75,9 @@ struct symbol_t {
   llvm::AllocaInst *PCAlloca;                                                  \
   llvm::LoadInst *PCRelVal;                                                    \
   llvm::LoadInst *TPBaseVal;                                                   \
+  const hook_t *hook;                                                          \
+  llvm::Function *PreHook;                                                     \
+  llvm::Function *PostHook;                                                    \
                                                                                \
   struct {                                                                     \
     llvm::GlobalIFunc *IFunc;                                                  \
@@ -89,7 +94,8 @@ struct symbol_t {
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
   function_t()                                                                 \
-      : _resolver({.IFunc = nullptr}), IsNamed(false), Analyzed(false) {}      \
+      : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
+        _resolver({.IFunc = nullptr}), IsNamed(false), Analyzed(false) {}      \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -104,6 +110,7 @@ struct symbol_t {
 #include <memory>
 #include <sstream>
 #include <fstream>
+#include <unordered_set>
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -186,6 +193,7 @@ struct symbol_t {
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
+#include <boost/container_hash/extensions.hpp>
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -647,6 +655,7 @@ static int ParseDecompilation(void);
 static int FindBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
+static int LocateHooks(void);
 static int PrepareToTranslateCode(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinaryRelocations(void);
@@ -686,6 +695,7 @@ int llvm(void) {
       || FindBinary()
       || InitStateForBinaries()
       || CreateModule()
+      || (opts::DFSan ? LocateHooks() : 0)
       || PrepareToTranslateCode()
       || ProcessDynamicTargets()
       || ProcessBinaryRelocations()
@@ -1125,6 +1135,171 @@ int CreateModule(void) {
   return 0;
 }
 
+typedef std::unordered_set<
+    std::pair<binary_index_t, function_index_t>,
+    boost::hash<std::pair<binary_index_t, function_index_t>>>
+    hooks_t;
+
+static hooks_t dfsanPreHooks, dfsanPostHooks;
+
+struct hook_t {
+  struct arg_info_t {
+    unsigned Size;
+    bool isPointer;
+  };
+
+  const char *Sym;
+  std::vector<arg_info_t> Args;
+  arg_info_t Ret;
+
+  bool Pre;
+  bool Post;
+};
+
+#define PRE 1
+#define POST 2
+
+static const hook_t HookArray[] = {
+#define ___HOOK1(hook_kind, rett, sym, t1)                                     \
+  {                                                                            \
+    .Sym = #sym,                                                               \
+    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value}},   \
+    .Ret = {                                                                   \
+      .Size = sizeof(rett),                                                    \
+      .isPointer = std::is_pointer<rett>::value                                \
+    },                                                                         \
+    .Pre = !!(hook_kind & PRE),                                                \
+    .Post = !!(hook_kind & POST),                                              \
+  },
+#define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
+  {                                                                            \
+    .Sym = #sym,                                                               \
+    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value},    \
+             {.Size = sizeof(t2), .isPointer = std::is_pointer<t2>::value}},   \
+    .Ret = {                                                                   \
+      .Size = sizeof(rett),                                                    \
+      .isPointer = std::is_pointer<rett>::value                                \
+    },                                                                         \
+    .Pre = !!(hook_kind & PRE),                                                \
+    .Post = !!(hook_kind & POST),                                              \
+  },
+#include "dfsan_hooks.inc.h"
+};
+
+static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
+  if (info.isPointer)
+    return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
+
+  return llvm::Type::getIntNTy(*Context, info.Size * 8);
+}
+
+static llvm::Type *VoidType(void);
+
+template <bool IsPreOrPost>
+static llvm::Function *declareHook(const hook_t &h) {
+  const char *namePrefix = IsPreOrPost ? "__dfs_pre_hook_"
+                                       : "__dfs_post_hook_";
+
+  std::string name(namePrefix);
+  name.append(h.Sym);
+
+  // first check if it already exists
+  if (llvm::Function *F = Module->getFunction(name)) {
+    assert(F->empty());
+    return F; // it does
+  }
+
+  std::vector<llvm::Type *> argTypes;
+  argTypes.resize(h.Args.size());
+  std::transform(h.Args.begin(),
+                 h.Args.end(),
+                 argTypes.begin(),
+                 type_of_arg_info);
+
+  if (!IsPreOrPost /* POST */) {
+    llvm::Type *retTy = type_of_arg_info(h.Ret);
+
+    argTypes.insert(argTypes.begin(), retTy);
+  }
+
+  llvm::FunctionType *FTy =
+      llvm::FunctionType::get(VoidType(), argTypes, false);
+
+  return llvm::Function::Create(FTy, llvm::GlobalValue::ExternalLinkage, name,
+                                Module.get());
+}
+
+static llvm::Function *declarePreHook(const hook_t &h) {
+  return declareHook<true>(h);
+}
+
+static llvm::Function *declarePostHook(const hook_t &h) {
+  return declareHook<false>(h);
+}
+
+//
+// the duty of this function is to map symbol names to (BIdx, FIdx) pairs
+//
+int LocateHooks(void) {
+  assert(opts::DFSan);
+
+  for (unsigned i = 0; i < ARRAY_SIZE(HookArray); ++i) {
+    const hook_t &h = HookArray[i];
+
+    for (const auto &binary : Decompilation.Binaries) {
+      auto &SymDynTargets = binary.Analysis.SymDynTargets;
+
+      auto it = SymDynTargets.find(h.Sym);
+      if (it == SymDynTargets.end())
+        continue;
+
+      for (std::pair<binary_index_t, function_index_t> IdxPair : (*it).second) {
+        function_t &f = Decompilation.Binaries.at(IdxPair.first)
+                            .Analysis.Functions.at(IdxPair.second);
+
+        if (h.Pre && dfsanPreHooks.insert(IdxPair).second) {
+          f.hook = &h;
+          f.PreHook = declarePreHook(h);
+
+          llvm::outs() << llvm::formatv("pre-hook {0} @ ({1}, {2})\n",
+                                        h.Sym,
+                                        IdxPair.first,
+                                        IdxPair.second);
+        }
+
+        if (h.Post && dfsanPostHooks.insert(IdxPair).second) {
+          f.hook = &h;
+          f.PostHook = declarePostHook(h);
+
+          llvm::outs() << llvm::formatv("post-hook {0} @ ({1}, {2})\n",
+                                        h.Sym,
+                                        IdxPair.first,
+                                        IdxPair.second);
+        }
+      }
+    }
+  }
+
+#if 0
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &binary = Decompilation.Binaries[BIdx];
+  }
+
+  for (const auto &binary : Decompilation.Binaries) {
+    auto &SymDynTargets = binary.Analysis.SymDynTargets;
+    auto it = SymDynTargets.find(
+
+    auto _it = SymDynTargets.find(SymName);
+    if (_it != SymDynTargets.end()) {
+      IdxPair = *(*_it).second.begin();
+      break;
+    }
+  }
+#endif
+
+  return 0;
+}
+
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
 /// the size, entity size and virtual address are different entries in arbitrary
@@ -1233,7 +1408,6 @@ int ProcessBinaryTLSSymbols(void) {
   return 0;
 }
 
-static llvm::Type *VoidType(void);
 static llvm::FunctionType *DetermineFunctionType(function_t &);
 static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
                                                  function_index_t FuncIdx);
@@ -7860,7 +8034,35 @@ int TranslateBasicBlock(binary_t &Binary,
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
-    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+    function_index_t FIdx = ICFG[bb].Term._call.Target;
+
+    if (opts::DFSan) {
+      auto it = dfsanPreHooks.find({BinaryIndex, FIdx});
+      if (it != dfsanPreHooks.end()) {
+        llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
+                                      (*it).first,
+                                      (*it).second);
+
+        function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                               .Analysis.Functions.at((*it).second);
+        assert(hook_f.hook);
+        const hook_t &hook = *hook_f.hook;
+
+        std::vector<llvm::Value *> ArgVec;
+
+        ArgVec.resize(hook.Args.size());
+        std::transform(hook.Args.begin(),
+                       hook.Args.end(),
+                       ArgVec.begin(),
+                       [](const hook_t::arg_info_t &info) -> llvm::Value * {
+                         llvm::Type *Ty = type_of_arg_info(info);
+                         return llvm::Constant::getNullValue(Ty);
+                       });
+        IRB.CreateCall(hook_f.PreHook, ArgVec);
+      }
+    }
+
+    function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
     std::vector<llvm::Value *> ArgVec;
     {
@@ -7908,6 +8110,37 @@ int TranslateBasicBlock(binary_t &Binary,
         }
       }
     }
+
+    if (opts::DFSan) {
+      auto it = dfsanPostHooks.find({BinaryIndex, FIdx});
+      if (it != dfsanPostHooks.end()) {
+        llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
+                                      (*it).first,
+                                      (*it).second);
+
+        function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                               .Analysis.Functions.at((*it).second);
+        assert(hook_f.hook);
+        const hook_t &hook = *hook_f.hook;
+
+        std::vector<llvm::Value *> ArgVec;
+
+        ArgVec.resize(hook.Args.size());
+        std::transform(hook.Args.begin(),
+                       hook.Args.end(),
+                       ArgVec.begin(),
+                       [](const hook_t::arg_info_t &info) -> llvm::Value * {
+                         llvm::Type *Ty = type_of_arg_info(info);
+                         return llvm::Constant::getNullValue(Ty);
+                       });
+
+        ArgVec.insert(ArgVec.begin(),
+                      llvm::Constant::getNullValue(type_of_arg_info(hook.Ret)));
+
+        IRB.CreateCall(hook_f.PostHook, ArgVec);
+      }
+    }
+
     break;
   }
 
