@@ -8379,7 +8379,7 @@ int TranslateBasicBlock(binary_t &Binary,
                 hook.Args.begin(),
                 hook.Args.end(),
                 _ArgVec.begin(),
-                [&](const hook_t::arg_info_t &info) -> llvm::Value * {
+                [&ArgVec, &IRB, &j](const hook_t::arg_info_t &info) -> llvm::Value * {
                   llvm::Value *ArgVal = ArgVec.at(j++);
 
                   llvm::Type *DstTy = type_of_arg_info(info);
@@ -8401,9 +8401,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
           assert(Ret->getType() != VoidType());
 
-          llvm::Value *_Ret = [&](void) -> llvm::Value * {
-            const hook_t::arg_info_t &info = hook.Ret;
-
+          llvm::Value *_Ret =
+              [Ret, &IRB](const hook_t::arg_info_t &info) -> llvm::Value * {
             llvm::Type *DstTy = type_of_arg_info(info);
             if (info.isPointer)
               return IRB.CreateIntToPtr(Ret, DstTy);
@@ -8418,7 +8417,7 @@ int TranslateBasicBlock(binary_t &Binary,
             assert(dstBits < WordBits());
 
             return IRB.CreateTrunc(Ret, DstTy);
-          }();
+          }(hook.Ret);
 
           _ArgVec.insert(_ArgVec.begin(), _Ret);
 
@@ -8598,7 +8597,7 @@ int TranslateBasicBlock(binary_t &Binary,
                     hook.Args.begin(),
                     hook.Args.end(),
                     _ArgVec.begin(),
-                    [&](const hook_t::arg_info_t &info) -> llvm::Value * {
+                    [&ArgVec, &IRB, &j](const hook_t::arg_info_t &info) -> llvm::Value * {
                       llvm::Value *ArgVal = ArgVec.at(j++);
 
                       llvm::Type *DstTy = type_of_arg_info(info);
@@ -8620,9 +8619,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
               assert(Ret->getType() != VoidType());
 
-              llvm::Value *_Ret = [&](void) -> llvm::Value * {
-                const hook_t::arg_info_t &info = hook.Ret;
-
+              llvm::Value *_Ret =
+                  [Ret, &IRB](const hook_t::arg_info_t &info) -> llvm::Value * {
                 llvm::Type *DstTy = type_of_arg_info(info);
                 if (info.isPointer)
                   return IRB.CreateIntToPtr(Ret, DstTy);
@@ -8637,7 +8635,7 @@ int TranslateBasicBlock(binary_t &Binary,
                 assert(dstBits < WordBits());
 
                 return IRB.CreateTrunc(Ret, DstTy);
-              }();
+              }(hook.Ret);
 
               _ArgVec.insert(_ArgVec.begin(), _Ret);
 
