@@ -8266,10 +8266,14 @@ int TranslateBasicBlock(binary_t &Binary,
 #endif
 
     if (DynTargetsComplete) {
+#if 0
       if (DynTargets.size() > 1)
         WithColor::warning() << llvm::formatv(
             "DynTargetsComplete but more than one dyn target ({0:x})\n",
             ICFG[bb].Term.Addr);
+#else
+      assert(DynTargets.size() == 1);
+#endif
 
       struct {
         binary_index_t BIdx;
@@ -8350,6 +8354,33 @@ int TranslateBasicBlock(binary_t &Binary,
 
             IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
           }
+        }
+      }
+
+      if (opts::DFSan) {
+        auto it = dfsanPostHooks.find(*DynTargets.begin());
+        if (it != dfsanPostHooks.end()) {
+          llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
+                                        (*it).first, (*it).second);
+
+          function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                                   .Analysis.Functions.at((*it).second);
+          assert(hook_f.hook);
+          const hook_t &hook = *hook_f.hook;
+
+          std::vector<llvm::Value *> ArgVec;
+
+          ArgVec.resize(hook.Args.size());
+          std::transform(hook.Args.begin(), hook.Args.end(), ArgVec.begin(),
+                         [](const hook_t::arg_info_t &info) -> llvm::Value * {
+                           llvm::Type *Ty = type_of_arg_info(info);
+                           return llvm::Constant::getNullValue(Ty);
+                         });
+
+          ArgVec.insert(ArgVec.begin(), llvm::Constant::getNullValue(
+                                            type_of_arg_info(hook.Ret)));
+
+          IRB.CreateCall(hook_f.PostHook, ArgVec);
         }
       }
     } else {
@@ -8501,6 +8532,34 @@ int TranslateBasicBlock(binary_t &Binary,
 
             assert(glbv.size() == 1);
             IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+          }
+
+          if (opts::DFSan) {
+            auto it = dfsanPostHooks.find(DynTargetsVec[i]);
+            if (it != dfsanPostHooks.end()) {
+              llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
+                                            (*it).first, (*it).second);
+
+              function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                                       .Analysis.Functions.at((*it).second);
+              assert(hook_f.hook);
+              const hook_t &hook = *hook_f.hook;
+
+              std::vector<llvm::Value *> ArgVec;
+
+              ArgVec.resize(hook.Args.size());
+              std::transform(
+                  hook.Args.begin(), hook.Args.end(), ArgVec.begin(),
+                  [](const hook_t::arg_info_t &info) -> llvm::Value * {
+                    llvm::Type *Ty = type_of_arg_info(info);
+                    return llvm::Constant::getNullValue(Ty);
+                  });
+
+              ArgVec.insert(ArgVec.begin(), llvm::Constant::getNullValue(
+                                                type_of_arg_info(hook.Ret)));
+
+              IRB.CreateCall(hook_f.PostHook, ArgVec);
+            }
           }
 
           IRB.CreateBr(ThruB);
