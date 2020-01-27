@@ -572,12 +572,19 @@ static _INL uintptr_t _get_stack_end(void);
 //
 
 void _jove_start(void) {
-  asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
+  asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
+               ".cfi_undefined rip\n"
+
+                /* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
                "xorq %%rbp, %%rbp\n"
 
                "movq %%rsp, %%r9\n"
-               "jmp %P0\n"
+
+	       /* Align the stack to a 16 byte boundary to follow the ABI.  */
+               "and  $~15, %%rsp\n"
+               "call %P0\n"
+               "hlt\n" /* Crash if somehow `_jove_begin' does return. */
 
                : /* OutputOperands */
                : /* InputOperands */
