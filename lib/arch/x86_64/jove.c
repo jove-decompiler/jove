@@ -573,7 +573,7 @@ static _INL uintptr_t _get_stack_end(void);
 
 void _jove_start(void) {
   asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
-               ".cfi_undefined rip\n"
+               ".cfi_undefined %%rip\n"
 
                 /* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */

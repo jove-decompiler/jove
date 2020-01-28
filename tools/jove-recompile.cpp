@@ -629,11 +629,6 @@ skip_dfsan:
         "--disable-simplify-libcalls"
       };
 
-      if (opts::DFSan) {
-        //arg_vec.push_back("--stack-alignment=16");
-        //arg_vec.push_back("--stackrealign");
-      }
-
       arg_vec.push_back(nullptr);
 
       print_command(&arg_vec[0]);
