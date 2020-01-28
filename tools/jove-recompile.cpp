@@ -630,7 +630,7 @@ skip_dfsan:
       };
 
       if (opts::DFSan) {
-        arg_vec.push_back("--stack-alignment=16");
+        //arg_vec.push_back("--stack-alignment=16");
         //arg_vec.push_back("--stackrealign");
       }
 
