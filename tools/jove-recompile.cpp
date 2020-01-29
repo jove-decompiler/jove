@@ -626,7 +626,14 @@ skip_dfsan:
         "--relocation-model=pic",
         "--frame-pointer=all",
 
-        "--disable-simplify-libcalls"
+        "--disable-simplify-libcalls",
+
+        "--exception-model=dwarf",
+        "--generate-arange-section",
+
+#if 0
+        "--dwarf-version=4",
+#endif
       };
 
       arg_vec.push_back(nullptr);

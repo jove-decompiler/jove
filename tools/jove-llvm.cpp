@@ -4587,6 +4587,7 @@ int CreateFunctions(void) {
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  llvm::GlobalValue::ExternalLinkage, jove_name,
                                  Module.get());
+    f.F->addFnAttr(llvm::Attribute::UWTable);
 
     for (const symbol_t &sym : f.Syms) {
       if (sym.Vers.empty()) {
