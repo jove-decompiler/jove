@@ -506,7 +506,11 @@ int recompile(void) {
         "/usr/bin/vendor_perl/graph-easy",
 
         input_arg.c_str(),
-	"--as_ascii",
+#if 0
+	"--as=ascii",
+#else
+	"--as=boxart",
+#endif
 
         nullptr
     };
