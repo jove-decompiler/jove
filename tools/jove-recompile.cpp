@@ -1,6 +1,7 @@
 #include <string>
 #include <vector>
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/graphviz.hpp>
 
 struct dso_properties_t {
   unsigned BIdx;
@@ -156,6 +157,8 @@ static bool dynamic_linking_info_of_binary(binary_t &,
                                            dynamic_linking_info_t &out);
 
 static void IgnoreCtrlC(void);
+
+static void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 
 int recompile(void) {
   compiler_runtime_afp =
@@ -446,9 +449,6 @@ int recompile(void) {
     dso_graph[b.dso].BIdx = BIdx;
   }
 
-  //
-  // topological sort of dynamic linking graph
-  //
   std::unordered_map<std::string, binary_index_t> soname_map;
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -482,6 +482,54 @@ int recompile(void) {
     }
   }
 
+  //
+  // graphviz
+  //
+  std::string dso_dot_path = (fs::path(tmpdir) /  "dso_graph.dot").string();
+
+  {
+    std::ofstream ofs(dso_dot_path);
+
+    write_dso_graphviz(ofs, dso_graph);
+  }
+
+  //
+  // graph-easy
+  //
+  pid_t pid = fork();
+  if (!pid) {
+    IgnoreCtrlC();
+
+    std::string input_arg = "--input=" + dso_dot_path;
+
+    const char *arg_arr[] = {
+        "/usr/bin/vendor_perl/graph-easy",
+
+        input_arg.c_str(),
+	"--as_ascii",
+
+        nullptr
+    };
+
+    print_command(&arg_arr[0]);
+
+    close(STDIN_FILENO);
+    execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+    int err = errno;
+    WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
+    return 1;
+  }
+
+  //
+  // check exit code
+  //
+  if (await_process_completion(pid))
+    WithColor::warning() << "graph-easy failed for " << dso_dot_path << '\n';
+
+  //
+  // topological sort of dynamic linking graph
+  //
   std::vector<dso_t> top_sorted;
 
   try {
@@ -842,6 +890,77 @@ skip_dfsan:
   }
 
   return 0;
+}
+
+struct graphviz_label_writer {
+  const dso_graph_t &g;
+
+  graphviz_label_writer(const dso_graph_t &g) : g(g) {}
+
+  void operator()(std::ostream &out, dso_t v) const {
+    std::string name =
+        fs::path(Decompilation.Binaries.at(g[v].BIdx).Path).filename().string();
+
+    boost::replace_all(name, "\\", "\\\\");
+    boost::replace_all(name, "\r\n", "\\l");
+    boost::replace_all(name, "\n", "\\l");
+    boost::replace_all(name, "\"", "\\\"");
+    boost::replace_all(name, "{", "\\{");
+    boost::replace_all(name, "}", "\\}");
+    boost::replace_all(name, "|", "\\|");
+    boost::replace_all(name, "|", "\\|");
+    boost::replace_all(name, "<", "\\<");
+    boost::replace_all(name, ">", "\\>");
+    boost::replace_all(name, "(", "\\(");
+    boost::replace_all(name, ")", "\\)");
+    boost::replace_all(name, ",", "\\,");
+    boost::replace_all(name, ";", "\\;");
+    boost::replace_all(name, ":", "\\:");
+    boost::replace_all(name, " ", "\\ ");
+
+    out << "[label=\"";
+    out << name;
+    out << "\"]";
+  }
+};
+
+struct graphviz_edge_prop_writer {
+  const dso_graph_t &g;
+  graphviz_edge_prop_writer(const dso_graph_t &g) : g(g) {}
+
+  template <class Edge>
+  void operator()(std::ostream &out, const Edge &e) const {
+    static const char *edge_type_styles[] = {
+        "solid", "dashed", /*"invis"*/ "dotted"
+    };
+
+    out << "[style=\"" << edge_type_styles[0] << "\"]";
+  }
+};
+
+struct graphviz_prop_writer {
+  void operator()(std::ostream &out) const {
+    out << "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "\n"
+           "node [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "shape = \"record\"\n"
+           "]\n"
+           "\n"
+           "edge [\n"
+           "fontname = \"Courier\"\n"
+           "fontsize = 10\n"
+           "]\n"
+           "\n";
+  }
+};
+
+void write_dso_graphviz(std::ostream &out, const dso_graph_t &dso_graph) {
+  boost::write_graphviz(
+      out, dso_graph, graphviz_label_writer(dso_graph),
+      graphviz_edge_prop_writer(dso_graph), graphviz_prop_writer());
 }
 
 void handle_sigint(int no) {
