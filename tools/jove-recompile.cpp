@@ -401,6 +401,41 @@ int recompile(void) {
   }
 
   //
+  // additional stuff for DFSan
+  //
+  {
+    fs::create_directories(fs::path(opts::Output) / "jove");
+
+    {
+      std::ofstream ofs(
+          (fs::path(opts::Output) / "jove" / "BinaryPathsTable.txt").c_str());
+
+      for (const binary_t &binary : Decompilation.Binaries)
+	ofs << binary.Path << '\n';
+    }
+
+    fs::create_directories(fs::path(opts::Output) / "jove" / "BinaryBlockAddrTables");
+
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      binary_t &binary = Decompilation.Binaries[BIdx];
+      auto &ICFG = binary.Analysis.ICFG;
+
+      {
+        std::ofstream ofs((fs::path(opts::Output) / "jove" /
+                           "BinaryBlockAddrTables" / std::to_string(BIdx))
+                              .c_str());
+
+        for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+             ++BBIdx) {
+          basic_block_t bb = boost::vertex(BBIdx, ICFG);
+          uintptr_t Addr = ICFG[bb].Addr;
+          ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
+        }
+      }
+    }
+  }
+
+  //
   // build dynamic linking graph
   //
   dso_graph_t dso_graph;
