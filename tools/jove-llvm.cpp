@@ -8152,6 +8152,9 @@ int TranslateBasicBlock(binary_t &Binary,
   llvm::LoadInst *SavedCallStackBegin = nullptr;
 
   auto save_callstack_pointers = [&](void) -> void {
+    if (!opts::CallStack)
+      return;
+
     assert(!SavedCallStackP);
     assert(!SavedCallStackBegin);
 
@@ -8163,6 +8166,9 @@ int TranslateBasicBlock(binary_t &Binary,
   };
 
   auto restore_callstack_pointers = [&](void) -> void {
+    if (!opts::CallStack)
+      return;
+
     assert(SavedCallStackP);
     assert(SavedCallStackBegin);
 
@@ -8497,9 +8503,9 @@ int TranslateBasicBlock(binary_t &Binary,
             IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
             CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-        if (opts::CallStack) save_callstack_pointers();
+        save_callstack_pointers();
         Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-        if (opts::CallStack) restore_callstack_pointers();
+        restore_callstack_pointers();
       } else {
         Ret = IRB.CreateCall(
             IRB.CreateIntToPtr(
@@ -8795,9 +8801,9 @@ int TranslateBasicBlock(binary_t &Binary,
                 IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                 CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-            if (opts::CallStack) save_callstack_pointers();
+            save_callstack_pointers();
             Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-            if (opts::CallStack) restore_callstack_pointers();
+            restore_callstack_pointers();
           } else {
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
