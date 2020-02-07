@@ -8086,10 +8086,40 @@ int TranslateBasicBlock(binary_t &Binary,
   if (T.Type == TERMINATOR::INDIRECT_JUMP)
     _indirect_jump.IsTailCall = boost::out_degree(bb, ICFG) == 0;
 
-  if (opts::CallStack &&
-      T.Type == TERMINATOR::RETURN) {
-    IRB.CreateStore(IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
-                    CallStackGlobal);
+  if (opts::CallStack) {
+    switch (T.Type) {
+    case TERMINATOR::RETURN:
+      IRB.CreateStore(
+          IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+          CallStackGlobal);
+      break;
+
+    case TERMINATOR::CALL:
+    case TERMINATOR::INDIRECT_CALL: {
+      binary_index_t BIdx = BinaryIndex;
+
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
+
+      basic_block_index_t BBIdx = bb_idx_map[bb];
+
+      static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
+      static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
+
+      uint64_t comb =
+          (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
+
+      llvm::LoadInst *Ptr = IRB.CreateLoad(CallStackGlobal);
+      IRB.CreateStore(IRB.getInt64(comb), Ptr);
+
+      IRB.CreateStore(IRB.CreateConstGEP1_64(Ptr, 1), CallStackGlobal);
+      break;
+    }
+
+    default:
+      break;
+    }
   }
 
   switch (T.Type) {
@@ -8140,29 +8170,6 @@ int TranslateBasicBlock(binary_t &Binary,
     IRB.CreateStore(SavedCallStackBegin, CallStackBeginGlobal);
   };
 #endif
-
-  if (opts::CallStack) {
-    if (T.Type == TERMINATOR::CALL || T.Type == TERMINATOR::INDIRECT_CALL) {
-      binary_index_t BIdx = BinaryIndex;
-
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
-
-      basic_block_index_t BBIdx = bb_idx_map[bb];
-
-      static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
-      static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
-
-      uint64_t comb =
-          (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
-
-      llvm::LoadInst *Ptr = IRB.CreateLoad(CallStackGlobal);
-      IRB.CreateStore(IRB.getInt64(comb), Ptr);
-
-      IRB.CreateStore(IRB.CreateConstGEP1_64(Ptr, 1), CallStackGlobal);
-    }
-  }
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
