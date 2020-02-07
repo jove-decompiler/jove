@@ -8811,19 +8811,27 @@ int TranslateBasicBlock(binary_t &Binary,
             Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
             restore_callstack_pointers();
           } else {
+            bool foreign = DynTargetNeedsThunkPred(DynTargetsVec[i]);
+
+            if (foreign)
+              save_callstack_pointers();
+
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
                     IRB.CreateLoad(f.PCAlloca),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
-#if defined(__x86_64__)
-            if (DynTargetNeedsThunkPred(DynTargetsVec[i])) {
-              llvm::LoadInst *SPVal =
-                  IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
+            if (foreign)
+              restore_callstack_pointers();
 
+#if defined(__x86_64__)
+            if (foreign) {
               IRB.CreateStore(
-                  IRB.CreateAdd(SPVal, llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
+                  IRB.CreateAdd(
+                      IRB.CreateLoad(
+                          f.GlobalAllocaVec[tcg_stack_pointer_index]),
+                      llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
                   CPUStateGlobalPointer(tcg_stack_pointer_index));
 
 #if 0
