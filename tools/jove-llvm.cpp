@@ -8497,9 +8497,9 @@ int TranslateBasicBlock(binary_t &Binary,
             IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
             CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-        save_callstack_pointers();
+        if (opts::CallStack) save_callstack_pointers();
         Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-        restore_callstack_pointers();
+        if (opts::CallStack) restore_callstack_pointers();
       } else {
         Ret = IRB.CreateCall(
             IRB.CreateIntToPtr(
@@ -8795,9 +8795,9 @@ int TranslateBasicBlock(binary_t &Binary,
                 IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                 CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-            save_callstack_pointers();
+            if (opts::CallStack) save_callstack_pointers();
             Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-            restore_callstack_pointers();
+            if (opts::CallStack) restore_callstack_pointers();
           } else {
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
