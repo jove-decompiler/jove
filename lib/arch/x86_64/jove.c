@@ -452,6 +452,9 @@ extern /* __thread */ struct CPUX86State __jove_env;
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
 
+extern /* __thread */ uint64_t *__jove_callstack;
+extern /* __thread */ uint64_t *__jove_callstack_begin;
+
 extern int    __jove_startup_info_argc;
 extern char **__jove_startup_info_argv;
 extern char **__jove_startup_info_environ;
@@ -504,6 +507,7 @@ extern /* -> static */ uintptr_t _jove_sections_global_beg_addr(void);
 extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
 extern /* -> static */ uint32_t _jove_binary_index(void);
 extern /* -> static */ bool _jove_trace_enabled(void);
+extern /* -> static */ bool _jove_dfsan_enabled(void);
 extern /* -> static */ void _jove_call_entry(void);
 extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
@@ -545,6 +549,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 
 static target_ulong _jove_alloc_stack(void);
 static void _jove_free_stack(target_ulong);
+
+#define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
 //
 // utility functions
@@ -593,6 +599,7 @@ void _jove_start(void) {
 }
 
 static void _jove_trace_init(void);
+static void _jove_callstack_init(void);
 
 void _jove_begin(target_ulong rdi,
                  target_ulong rsi,
@@ -641,9 +648,13 @@ void _jove_begin(target_ulong rdi,
     __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
-  // trace init (if -trace was passed)
+  // init trace (if enabled)
   if (_jove_trace_enabled())
     _jove_trace_init();
+
+  // init callstack (if enabled)
+  if (_jove_dfsan_enabled())
+    _jove_callstack_init();
 
   _jove_install_function_table();
   _jove_install_foreign_function_tables();
@@ -879,7 +890,7 @@ void _jove_trace_init(void) {
     long ret =
         _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
-    if (ret < 0) {
+    if (ret < 0 && ret > -4096) {
       __builtin_trap();
       __builtin_unreachable();
     }
@@ -908,6 +919,40 @@ void _jove_trace_init(void) {
       __builtin_trap();
       __builtin_unreachable();
     }
+  }
+}
+
+void _jove_callstack_init(void) {
+  if (__jove_callstack)
+    return;
+
+  {
+    long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+    if (ret < 0 && ret > -4096) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    void *ptr = (void *)ret;
+
+    //
+    // create guard pages on both sides
+    //
+    unsigned long beg = (unsigned long)ret;
+    unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+    if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
   }
 }
 
@@ -1363,7 +1408,7 @@ void _jove_install_foreign_function_tables(void) {
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0) {
+  if (ret < 0 && ret > -4096) {
     __builtin_trap();
     __builtin_unreachable();
   }

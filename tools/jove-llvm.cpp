@@ -318,6 +318,8 @@ static cl::opt<bool> DFSan("dfsan",
                            cl::desc("Instrument code with DataFlowSanitizer"),
                            cl::cat(JoveCategory));
 
+static bool CallStack;
+
 static cl::opt<bool>
     CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
                                     cl::desc("Check for stack overrun"),
@@ -346,6 +348,7 @@ int main(int argc, char **argv) {
   }
 
   jove::cmdline.argv = argv;
+  opts::CallStack = opts::DFSan;
 
   return jove::llvm();
 }
@@ -551,6 +554,8 @@ static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *TraceGlobal;
+static llvm::GlobalVariable *CallStackGlobal;
+static llvm::GlobalVariable *CallStackBeginGlobal;
 
 static llvm::GlobalVariable *JoveFunctionTablesGlobal;
 static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
@@ -1090,6 +1095,12 @@ int CreateModule(void) {
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);
+
+  CallStackGlobal = Module->getGlobalVariable("__jove_callstack", true);
+  assert(CallStackGlobal);
+
+  CallStackBeginGlobal = Module->getGlobalVariable("__jove_callstack_begin", true);
+  assert(CallStackBeginGlobal);
 
   JoveInstallForeignFunctionTables =
       Module->getFunction("_jove_install_foreign_function_tables");
@@ -3373,9 +3384,19 @@ static void explode_tcg_global_set(std::vector<unsigned> &out,
   if (glbs.none())
     return;
 
-  out.reserve(glbs.size());
-
   unsigned long long x = glbs.to_ullong();
+
+  unsigned long n;
+
+#if defined(__x86_64__)
+  static_assert(sizeof(x) == sizeof(uint64_t));
+  asm("popcntq %1, %0" : "=r"(n) : "0"(x));
+#else
+  n = glbs.size();
+#endif
+
+  out.reserve(n);
+
   int idx = 0;
   do {
     int pos = ffsll(x);
@@ -6007,6 +6028,24 @@ int CreateSectionGlobalVariables(void) {
               }
             }
 
+            llvm::Value *SavedCallStackP = nullptr;
+            if (opts::CallStack) {
+              SavedCallStackP = IRB.CreateLoad(CallStackGlobal);
+              SavedCallStackP->setName("saved_callstack");
+
+              {
+                constexpr unsigned CallStackAllocaSize = 4096 * 16;
+
+                llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                    llvm::ArrayType::get(IRB.getInt64Ty(), CallStackAllocaSize));
+
+                llvm::Value *NewCallStackP =
+                    IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+                IRB.CreateStore(NewCallStackP, CallStackGlobal);
+              }
+            }
+
             unsigned N = FTy->getNumParams();
 
             std::vector<llvm::Value *> ArgVec;
@@ -6029,6 +6068,9 @@ int CreateSectionGlobalVariables(void) {
 
             if (opts::Trace)
               IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+            if (opts::CallStack)
+              IRB.CreateStore(SavedCallStackP, CallStackGlobal);
 
             if (FTy->getReturnType()->isVoidTy())
               IRB.CreateRetVoid();
@@ -6181,6 +6223,24 @@ int CreateSectionGlobalVariables(void) {
             }
           }
 
+          llvm::Value *SavedCallStackP = nullptr;
+          if (opts::CallStack) {
+            SavedCallStackP = IRB.CreateLoad(CallStackGlobal);
+            SavedCallStackP->setName("saved_callstack");
+
+            {
+              constexpr unsigned CallStackAllocaSize = 4096 * 16;
+
+              llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                  llvm::ArrayType::get(IRB.getInt64Ty(), CallStackAllocaSize));
+
+              llvm::Value *NewCallStackP =
+                  IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+              IRB.CreateStore(NewCallStackP, CallStackGlobal);
+            }
+          }
+
           unsigned N = FTy->getNumParams();
 
           std::vector<llvm::Value *> ArgVec;
@@ -6203,6 +6263,9 @@ int CreateSectionGlobalVariables(void) {
 
           if (opts::Trace)
             IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+          if (opts::CallStack)
+            IRB.CreateStore(SavedCallStackP, CallStackGlobal);
 
           if (FTy->getReturnType()->isVoidTy())
             IRB.CreateRetVoid();
@@ -6333,6 +6396,21 @@ int FixupHelperStubs(void) {
     }
 
     TraceEnabledF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_dfsan_enabled");
+    assert(F && F->empty());
+
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.CreateRet(IRB.getInt1(opts::DFSan));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
   if (Binary.IsExecutable)
@@ -8008,6 +8086,12 @@ int TranslateBasicBlock(binary_t &Binary,
   if (T.Type == TERMINATOR::INDIRECT_JUMP)
     _indirect_jump.IsTailCall = boost::out_degree(bb, ICFG) == 0;
 
+  if (opts::CallStack &&
+      T.Type == TERMINATOR::RETURN) {
+    IRB.CreateStore(IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+                    CallStackGlobal);
+  }
+
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
@@ -8031,6 +8115,53 @@ int TranslateBasicBlock(binary_t &Binary,
 
   default:
     break;
+  }
+
+#if 0
+  llvm::LoadInst *SavedCallStackP = nullptr;
+  llvm::LoadInst *SavedCallStackBegin = nullptr;
+
+  auto save_callstack_pointers = [&](void) -> void {
+    assert(!SavedCallStackP);
+    assert(!SavedCallStackBegin);
+
+    SavedCallStackP = IRB.CreateLoad(CallStackGlobal);
+    SavedCallStackBegin = IRB.CreateLoad(CallStackBeginGlobal);
+
+    assert(SavedCallStackP);
+    assert(SavedCallStackBegin);
+  };
+
+  auto restore_callstack_pointers = [&](void) -> void {
+    assert(SavedCallStackP);
+    assert(SavedCallStackBegin);
+
+    IRB.CreateStore(SavedCallStackP, CallStackGlobal);
+    IRB.CreateStore(SavedCallStackBegin, CallStackBeginGlobal);
+  };
+#endif
+
+  if (opts::CallStack) {
+    if (T.Type == TERMINATOR::CALL || T.Type == TERMINATOR::INDIRECT_CALL) {
+      binary_index_t BIdx = BinaryIndex;
+
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
+
+      basic_block_index_t BBIdx = bb_idx_map[bb];
+
+      static_assert(sizeof(BIdx) == sizeof(uint32_t), "sizeof(BIdx)");
+      static_assert(sizeof(BBIdx) == sizeof(uint32_t), "sizeof(BBIdx)");
+
+      uint64_t comb =
+          (static_cast<uint64_t>(BIdx) << 32) | static_cast<uint64_t>(BBIdx);
+
+      llvm::LoadInst *Ptr = IRB.CreateLoad(CallStackGlobal);
+      IRB.CreateStore(IRB.getInt64(comb), Ptr);
+
+      IRB.CreateStore(IRB.CreateConstGEP1_64(Ptr, 1), CallStackGlobal);
+    }
   }
 
   switch (T.Type) {
@@ -8207,6 +8338,7 @@ int TranslateBasicBlock(binary_t &Binary,
     }
 
   case TERMINATOR::INDIRECT_CALL: {
+    bool IsCall = T.Type == TERMINATOR::INDIRECT_CALL;
     const auto &DynTargets = ICFG[bb].DynTargets;
     const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
 
@@ -8298,6 +8430,45 @@ int TranslateBasicBlock(binary_t &Binary,
                        });
       }
 
+#if 1
+      llvm::Value *TemporaryStack = nullptr;
+      if (opts::CallStack &&
+          DynTargetNeedsThunkPred(*DynTargets.begin())) {
+#if 0
+        save_callstack_pointers();
+#endif
+
+#if 0
+#if 0
+        constexpr unsigned CallStackAllocaSize = 16 * 4096;
+
+        llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+            llvm::ArrayType::get(IRB.getInt64Ty(), CallStackAllocaSize));
+
+        llvm::Value *NewCallStackP = IRB.CreateConstInBoundsGEP2_64(
+            TraceAlloca, 0, CallStackAllocaSize / 2);
+
+        llvm::Value *NewCallStackBegin =
+            IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+#else
+        TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+
+        llvm::Value *NewCallStackBegin = IRB.CreateIntToPtr(
+            IRB.CreateAdd(TemporaryStack,
+                          llvm::ConstantInt::get(WordType(), JOVE_PAGE_SIZE)),
+            llvm::PointerType::get(WordType(), 0));
+        llvm::Value *NewCallStackP = IRB.CreateIntToPtr(
+            IRB.CreateAdd(TemporaryStack, llvm::ConstantInt::get(
+                                              WordType(), JOVE_STACK_SIZE / 2)),
+            llvm::PointerType::get(WordType(), 0));
+#endif
+
+        IRB.CreateStore(NewCallStackP, CallStackGlobal);
+        IRB.CreateStore(NewCallStackBegin, CallStackBeginGlobal);
+#endif
+      }
+#endif
+
       llvm::CallInst *Ret;
       if (DynTargetNeedsThunkPred(*DynTargets.begin()) &&
           ArgVec.size() >= CallConvArgArray.size()) {
@@ -8333,7 +8504,32 @@ int TranslateBasicBlock(binary_t &Binary,
               IRB.CreateAdd(
                   SPVal, llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
               CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+#if 0
+          if (opts::CallStack && IsCall)
+            IRB.CreateStore(
+                IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+                CallStackGlobal);
+#endif
         }
+#endif
+      }
+
+      if (opts::CallStack &&
+          /* IsCall && */
+          DynTargetNeedsThunkPred(*DynTargets.begin())) {
+#if 0
+        //restore_callstack_pointers();
+
+        llvm::Value *Ptr = IRB.CreateLoad(CallStackGlobal, false /* Volatile */);
+        llvm::Value *PtrDec = IRB.CreateConstGEP1_64(Ptr, -1);
+
+        IRB.CreateStore(IRB.getInt64(0), PtrDec, false /* Volatile */);
+        IRB.CreateStore(PtrDec, CallStackGlobal, false /* Volatile */);
+#else
+        IRB.CreateStore(
+            IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+            CallStackGlobal);
 #endif
       }
 
@@ -8426,6 +8622,8 @@ int TranslateBasicBlock(binary_t &Binary,
         }
       }
     } else {
+      assert(!DynTargets.empty());
+
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", f.F);
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
@@ -8445,8 +8643,6 @@ int TranslateBasicBlock(binary_t &Binary,
 
       llvm::BasicBlock *ElseB = nullptr;
       {
-        assert(!DynTargetsVec.empty());
-
         unsigned i = 0;
 
         llvm::BasicBlock *B = llvm::BasicBlock::Create(
@@ -8527,6 +8723,48 @@ int TranslateBasicBlock(binary_t &Binary,
                            });
           }
 
+#if 1
+          llvm::Value *TemporaryStack = nullptr;
+          if (opts::CallStack &&
+              DynTargetNeedsThunkPred(DynTargetsVec[i])) {
+#if 0
+            SavedCallStackP = nullptr; /* XXX */
+            SavedCallStackBegin = nullptr; /* XXX */
+
+            save_callstack_pointers();
+#endif
+
+#if 0
+#if 0
+            constexpr unsigned CallStackAllocaSize = 16 * 4096;
+
+            llvm::AllocaInst *TraceAlloca = IRB.CreateAlloca(
+                llvm::ArrayType::get(IRB.getInt64Ty(), CallStackAllocaSize));
+
+            llvm::Value *NewCallStackP = IRB.CreateConstInBoundsGEP2_64(
+                TraceAlloca, 0, CallStackAllocaSize / 2);
+
+            llvm::Value *NewCallStackBegin = IRB.CreateConstInBoundsGEP2_64(
+                TraceAlloca, 0, 0);
+#else
+        TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+
+        llvm::Value *NewCallStackBegin = IRB.CreateIntToPtr(
+            IRB.CreateAdd(TemporaryStack,
+                          llvm::ConstantInt::get(WordType(), JOVE_PAGE_SIZE)),
+            llvm::PointerType::get(WordType(), 0));
+        llvm::Value *NewCallStackP = IRB.CreateIntToPtr(
+            IRB.CreateAdd(TemporaryStack, llvm::ConstantInt::get(
+                                              WordType(), JOVE_STACK_SIZE / 2)),
+            llvm::PointerType::get(WordType(), 0));
+#endif
+
+            IRB.CreateStore(NewCallStackP, CallStackGlobal);
+            IRB.CreateStore(NewCallStackBegin, CallStackBeginGlobal);
+#endif
+          }
+#endif
+
           llvm::CallInst *Ret;
           if (DynTargetNeedsThunkPred(DynTargetsVec[i]) &&
               ArgVec.size() >= CallConvArgArray.size()) {
@@ -8559,10 +8797,34 @@ int TranslateBasicBlock(binary_t &Binary,
                   IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]);
 
               IRB.CreateStore(
-                  IRB.CreateAdd(SPVal, llvm::ConstantInt::get(
-                                           WordType(), sizeof(uintptr_t))),
+                  IRB.CreateAdd(SPVal, llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
                   CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+#if 0
+              if (opts::CallStack && IsCall)
+                IRB.CreateStore(
+                    IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+                    CallStackGlobal);
+#endif
             }
+#endif
+          }
+
+          if (opts::CallStack &&
+              /* IsCall && */
+              DynTargetNeedsThunkPred(DynTargetsVec[i])) {
+#if 0
+            //restore_callstack_pointers();
+
+            llvm::Value *Ptr = IRB.CreateLoad(CallStackGlobal);
+            llvm::Value *PtrDec = IRB.CreateConstGEP1_64(Ptr, -1);
+
+            IRB.CreateStore(IRB.getInt64(0), PtrDec);
+            IRB.CreateStore(PtrDec, CallStackGlobal);
+#else
+        IRB.CreateStore(
+            IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+            CallStackGlobal);
 #endif
           }
 

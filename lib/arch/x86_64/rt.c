@@ -452,6 +452,9 @@ typedef struct CPUX86State {
 /* __thread */ uint64_t *__jove_trace       = NULL;
 /* __thread */ uint64_t *__jove_trace_begin = NULL;
 
+/* __thread */ uint64_t *__jove_callstack       = NULL;
+/* __thread */ uint64_t *__jove_callstack_begin = NULL;
+
 #define _JOVE_MAX_BINARIES 512
 
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
