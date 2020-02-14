@@ -1,0 +1,31 @@
+#include <stdint.h>
+
+typedef uint64_t target_ulong;
+
+#define MIPSDSP_Q0  0x000000FF
+
+#define MIPSDSP_RETURN64_16(a, b, c, d) (((uint64_t)(a) << 48) |        \
+                                         ((uint64_t)(b) << 32) |        \
+                                         ((uint64_t)(c) << 16) |        \
+                                         (uint64_t)(d))
+
+#define PRECEQU_QH(name, a, b, c, d) \
+target_ulong helper_precequ_qh_##name(target_ulong rt)       \
+{                                                            \
+    uint16_t tempD, tempC, tempB, tempA;                     \
+                                                             \
+    tempD = (rt >> a) & MIPSDSP_Q0;                          \
+    tempC = (rt >> b) & MIPSDSP_Q0;                          \
+    tempB = (rt >> c) & MIPSDSP_Q0;                          \
+    tempA = (rt >> d) & MIPSDSP_Q0;                          \
+                                                             \
+    tempD = tempD << 7;                                      \
+    tempC = tempC << 7;                                      \
+    tempB = tempB << 7;                                      \
+    tempA = tempA << 7;                                      \
+                                                             \
+    return MIPSDSP_RETURN64_16(tempD, tempC, tempB, tempA);  \
+}
+
+PRECEQU_QH(obr, 24, 16, 8, 0)
+
