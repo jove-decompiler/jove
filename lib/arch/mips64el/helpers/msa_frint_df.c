@@ -1795,24 +1795,9 @@ enum {
     EXCP_LAST = EXCP_TLBRI,
 };
 
-static inline void set_float_rounding_mode(int val, float_status *status)
-{
-    status->float_rounding_mode = val;
-}
-
 static inline void set_float_exception_flags(int val, float_status *status)
 {
     status->float_exception_flags = val;
-}
-
-static inline void set_flush_to_zero(flag val, float_status *status)
-{
-    status->flush_to_zero = val;
-}
-
-static inline void set_flush_inputs_to_zero(flag val, float_status *status)
-{
-    status->flush_inputs_to_zero = val;
 }
 
 static inline int get_float_exception_flags(float_status *status)
@@ -1827,20 +1812,7 @@ enum CPUMIPSMSADataFormat {
     DF_DOUBLE
 };
 
-extern unsigned int ieee_rm[];
-
 int ieee_ex_to_mips(int xcpt);
-
-static inline void restore_msa_fp_status(CPUMIPSState *env)
-{
-    float_status *status = &env->active_tc.msa_fp_status;
-    int rounding_mode = (env->active_tc.msacsr & MSACSR_RM_MASK) >> MSACSR_RM;
-    bool flush_to_zero = (env->active_tc.msacsr & MSACSR_FS_MASK) != 0;
-
-    set_float_rounding_mode(ieee_rm[rounding_mode], status);
-    set_flush_to_zero(flush_to_zero, status);
-    set_flush_inputs_to_zero(flush_to_zero, status);
-}
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                           int error_code, uintptr_t pc);
@@ -1852,8 +1824,9 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
     do_raise_exception_err(env, exception, 0, pc);
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 float32 float32_round_to_int(float32, float_status *status);
 
@@ -1891,23 +1864,6 @@ static inline void msa_move_v(wr_t *pwd, wr_t *pws)
 {
     pwd->d[0] = pws->d[0];
     pwd->d[1] = pws->d[1];
-}
-
-void helper_msa_ctcmsa(CPUMIPSState *env, target_ulong elm, uint32_t cd)
-{
-    switch (cd) {
-    case 0:
-        break;
-    case 1:
-        env->active_tc.msacsr = (int32_t)elm & MSACSR_MASK;
-        restore_msa_fp_status(env);
-        /* check exception */
-        if ((GET_FP_ENABLE(env->active_tc.msacsr) | FP_UNIMPLEMENTED)
-            & GET_FP_CAUSE(env->active_tc.msacsr)) {
-            do_raise_exception(env, EXCP_MSAFPE, GETPC());
-        }
-        break;
-    }
 }
 
 #define FLOAT_SNAN32(s) (float32_default_nan(s) ^ 0x00400020)

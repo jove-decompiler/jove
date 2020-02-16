@@ -1779,8 +1779,9 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 void HELPER(exit_atomic)(CPUArchState *env)
 {

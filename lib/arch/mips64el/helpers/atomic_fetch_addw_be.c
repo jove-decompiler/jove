@@ -2117,8 +2117,9 @@ uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
 
 void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 #define HELPER(name) glue(helper_, name)
 
@@ -2162,40 +2163,6 @@ atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
 {
     qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info);
     qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info | TRACE_MEM_ST);
-}
-
-#define DATA_SIZE 1
-
-# define SUFFIX     b
-
-# define DATA_TYPE  uint8_t
-
-# define SHIFT      0
-
-# define ABI_TYPE  uint32_t
-
-# define END
-
-# define MEND _be
-
-ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
-                              ABI_TYPE cmpv, ABI_TYPE newv EXTRA_ARGS)
-{
-    ATOMIC_MMU_DECLS;
-    DATA_TYPE *haddr = ATOMIC_MMU_LOOKUP;
-    DATA_TYPE ret;
-    uint16_t info = glue(trace_mem_build_info_no_se, MEND)(SHIFT, false,
-                                                           ATOMIC_MMU_IDX);
-
-    atomic_trace_rmw_pre(env, addr, info);
-#if DATA_SIZE == 16
-    ret = atomic16_cmpxchg(haddr, cmpv, newv);
-#else
-    ret = atomic_cmpxchg__nocheck(haddr, cmpv, newv);
-#endif
-    ATOMIC_MMU_CLEANUP;
-    atomic_trace_rmw_post(env, addr, info);
-    return ret;
 }
 
 #define DATA_SIZE 2

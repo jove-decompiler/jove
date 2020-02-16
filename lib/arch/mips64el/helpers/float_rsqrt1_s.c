@@ -1825,19 +1825,15 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
     do_raise_exception_err(env, exception, 0, pc);
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 float32 float32_div(float32, float32, float_status *status);
 
 float32 float32_sqrt(float32, float_status *status);
 
 #define float32_one make_float32(0x3f800000)
-
-void helper_raise_exception(CPUMIPSState *env, uint32_t exception)
-{
-    do_raise_exception(env, exception, GETPC());
-}
 
 int ieee_ex_to_mips(int xcpt)
 {

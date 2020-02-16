@@ -1827,8 +1827,9 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
     do_raise_exception_err(env, exception, 0, pc);
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 float64 float64_sub(float64, float64, float_status *status);
 
@@ -1843,11 +1844,6 @@ static inline float64 float64_chs(float64 a)
 }
 
 #define float64_one make_float64(0x3ff0000000000000LL)
-
-void helper_raise_exception(CPUMIPSState *env, uint32_t exception)
-{
-    do_raise_exception(env, exception, GETPC());
-}
 
 int ieee_ex_to_mips(int xcpt)
 {

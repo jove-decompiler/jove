@@ -136,48 +136,7 @@ typedef struct float_status {
     flag snan_bit_is_one;
 } float_status;
 
-#define typeof_strip_qual(expr)                                                    \
-  typeof(                                                                          \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), bool) ||                          \
-        __builtin_types_compatible_p(typeof(expr), const bool) ||                  \
-        __builtin_types_compatible_p(typeof(expr), volatile bool) ||               \
-        __builtin_types_compatible_p(typeof(expr), const volatile bool),           \
-        (bool)1,                                                                   \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), signed char) ||                   \
-        __builtin_types_compatible_p(typeof(expr), const signed char) ||           \
-        __builtin_types_compatible_p(typeof(expr), volatile signed char) ||        \
-        __builtin_types_compatible_p(typeof(expr), const volatile signed char),    \
-        (signed char)1,                                                            \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), unsigned char) ||                 \
-        __builtin_types_compatible_p(typeof(expr), const unsigned char) ||         \
-        __builtin_types_compatible_p(typeof(expr), volatile unsigned char) ||      \
-        __builtin_types_compatible_p(typeof(expr), const volatile unsigned char),  \
-        (unsigned char)1,                                                          \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), signed short) ||                  \
-        __builtin_types_compatible_p(typeof(expr), const signed short) ||          \
-        __builtin_types_compatible_p(typeof(expr), volatile signed short) ||       \
-        __builtin_types_compatible_p(typeof(expr), const volatile signed short),   \
-        (signed short)1,                                                           \
-    __builtin_choose_expr(                                                         \
-      __builtin_types_compatible_p(typeof(expr), unsigned short) ||                \
-        __builtin_types_compatible_p(typeof(expr), const unsigned short) ||        \
-        __builtin_types_compatible_p(typeof(expr), volatile unsigned short) ||     \
-        __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
-        (unsigned short)1,                                                         \
-      (expr)+0))))))
-
 #define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
-
-#define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
-    typeof_strip_qual(*ptr) _old = (old);                               \
-    (void)__atomic_compare_exchange_n(ptr, &_old, new, false,           \
-                              __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);      \
-    _old;                                                               \
-})
 
 #define atomic_fetch_or(ptr, n)  __atomic_fetch_or(ptr, n, __ATOMIC_SEQ_CST)
 
@@ -2042,14 +2001,6 @@ static inline uint16_t trace_mem_build_info(
 }
 
 static inline
-uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
-                                       TCGMemOpIdx oi)
-{
-    return trace_mem_build_info(size_shift, false, MO_BE, store,
-                                get_mmuidx(oi));
-}
-
-static inline
 uint16_t trace_mem_build_info_no_se_le(int size_shift, bool store,
                                        TCGMemOpIdx oi)
 {
@@ -2059,8 +2010,9 @@ uint16_t trace_mem_build_info_no_se_le(int size_shift, bool store,
 
 void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 #define HELPER(name) glue(helper_, name)
 
@@ -2104,40 +2056,6 @@ atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
 {
     qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info);
     qemu_plugin_vcpu_mem_cb(env_cpu(env), addr, info | TRACE_MEM_ST);
-}
-
-#define DATA_SIZE 1
-
-# define SUFFIX     b
-
-# define DATA_TYPE  uint8_t
-
-# define SHIFT      0
-
-# define ABI_TYPE  uint32_t
-
-# define END
-
-# define MEND _be
-
-ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
-                              ABI_TYPE cmpv, ABI_TYPE newv EXTRA_ARGS)
-{
-    ATOMIC_MMU_DECLS;
-    DATA_TYPE *haddr = ATOMIC_MMU_LOOKUP;
-    DATA_TYPE ret;
-    uint16_t info = glue(trace_mem_build_info_no_se, MEND)(SHIFT, false,
-                                                           ATOMIC_MMU_IDX);
-
-    atomic_trace_rmw_pre(env, addr, info);
-#if DATA_SIZE == 16
-    ret = atomic16_cmpxchg(haddr, cmpv, newv);
-#else
-    ret = atomic_cmpxchg__nocheck(haddr, cmpv, newv);
-#endif
-    ATOMIC_MMU_CLEANUP;
-    atomic_trace_rmw_post(env, addr, info);
-    return ret;
 }
 
 #define DATA_SIZE 2
