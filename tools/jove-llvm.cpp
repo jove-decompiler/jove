@@ -3384,26 +3384,26 @@ static void explode_tcg_global_set(std::vector<unsigned> &out,
   if (glbs.none())
     return;
 
-  unsigned long long x = glbs.to_ullong();
+  out.reserve(glbs.count());
 
-  unsigned long n;
+  constexpr bool FitsInUnsignedLongLong =
+      tcg_num_globals <= sizeof(unsigned long long) * 8;
 
-#if defined(__x86_64__)
-  static_assert(sizeof(x) == sizeof(uint64_t));
-  asm("popcntq %1, %0" : "=r"(n) : "0"(x));
-#else
-  n = glbs.size();
-#endif
+  if (FitsInUnsignedLongLong) { /* use ffsll */
+    unsigned long long x = glbs.to_ullong();
 
-  out.reserve(n);
-
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-    out.push_back(idx - 1);
-  } while (x);
+    int idx = 0;
+    do {
+      int pos = ffsll(x);
+      x >>= pos;
+      idx += pos;
+      out.push_back(idx - 1);
+    } while (x);
+  } else {
+    for (size_t glb = glbs._Find_first(); glb < glbs.size();
+         glb = glbs._Find_next(glb))
+      out.push_back(glb);
+  }
 }
 
 template <typename Graph>
