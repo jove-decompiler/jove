@@ -32,8 +32,6 @@ int main(int argc, char **argv) {
   };
 
   auto print_call_conv_sets = [&](void) -> void {
-    assert(num_globals() < 64);
-
 #if defined(__x86_64__)
     const std::array<const char *, 6> arg_regs{"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     //const std::array<const char *, 2> ret_regs{"rax", "rdx"};
@@ -45,10 +43,16 @@ int main(int argc, char **argv) {
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     //const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     const std::array<const char *, 1> ret_regs = {"x0"};
+#elif defined(__mips64)
+    const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
+    //const std::array<const char *, 2> ret_regs = {"v0", "v1"};
+    const std::array<const char *, 1> ret_regs = {"v0"};
+#else
+#error
 #endif
 
     {
-      std::bitset<64> s;
+      std::bitset<128> s;
       for (const char *nm : arg_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -147,6 +151,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("esp");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("sp");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("sp");
+#else
+#error
 #endif
   };
   auto frame_pointer_index = [&](void) -> int {
@@ -156,6 +164,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("ebp");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x29");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("s8");
+#else
+#error
 #endif
   };
   auto program_counter_env_offset = [&](void) -> int {
@@ -163,6 +175,10 @@ int main(int argc, char **argv) {
     return offsetof(CPUX86State, eip);
 #elif defined(__aarch64__)
     return -1;
+#elif defined(__mips64)
+    return offsetof(CPUMIPSState, active_tc.PC);
+#else
+#error
 #endif
   };
   auto syscall_number_index = [&](void) -> int {
@@ -172,6 +188,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("eax");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x8");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("v0");
+#else
+#error
 #endif
   };
 
@@ -182,6 +202,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("eax");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x0");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("v0");
+#else
+#error
 #endif
   };
 
@@ -192,6 +216,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("ebx");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x0");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("a0");
+#else
+#error
 #endif
   };
   auto syscall_arg2_index = [&](void) -> int {
@@ -201,6 +229,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("ecx");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x1");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("a1");
+#else
+#error
 #endif
   };
   auto syscall_arg3_index = [&](void) -> int {
@@ -210,6 +242,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("edx");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x2");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("a2");
+#else
+#error
 #endif
   };
   auto syscall_arg4_index = [&](void) -> int {
@@ -219,6 +255,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("esi");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x3");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("a3");
+#else
+#error
 #endif
   };
   auto syscall_arg5_index = [&](void) -> int {
@@ -228,6 +268,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("edi");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x4");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("t0");
+#else
+#error
 #endif
   };
   auto syscall_arg6_index = [&](void) -> int {
@@ -237,6 +281,10 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("ebp");
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x5");
+#elif defined(__mips64)
+    return tcg_index_of_named_global("t1");
+#else
+#error
 #endif
   };
 
