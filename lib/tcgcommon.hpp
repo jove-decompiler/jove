@@ -143,6 +143,10 @@ struct tiny_code_generator_t {
   X86CPU _cpu;
 #elif defined(__aarch64__)
   ARMCPU _cpu;
+#elif defined(__mips64)
+  MIPSCPU _cpu;
+#else
+#error "unknown arch"
 #endif
 
   TCGContext _ctx;
@@ -275,6 +279,10 @@ struct tiny_code_generator_t {
 
     register_cp_regs_for_features(&_cpu);
     init_cpreg_list(&_cpu);
+#elif defined(__mips64)
+    mips_tcg_init();
+#else
+#error
 #endif
   }
 
@@ -309,7 +317,7 @@ struct tiny_code_generator_t {
 
     __jove_end_pc = pc_end;
 
-#if defined(__aarch64__) || defined(__i386__)
+#if defined(__aarch64__) || defined(__i386__) || defined(__mips64)
     gen_intermediate_code(&_cpu.parent_obj, &tb, /* max_insn */ 1000000);
 #else
     gen_intermediate_code(&_cpu.parent_obj, &tb);
@@ -344,7 +352,7 @@ struct tiny_code_generator_t {
   }
 
   void dump_operations(void) {
-#if defined(__aarch64__) || defined(__i386__)
+#if defined(__aarch64__) || defined(__i386__) || defined(__mips64)
     tcg_dump_ops(&_ctx, false);
 #else
     tcg_dump_ops(&_ctx);

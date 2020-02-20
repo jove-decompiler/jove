@@ -177,7 +177,7 @@ static basic_block_index_t translate_basic_block(binary_index_t,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
 #elif defined(__i386__)

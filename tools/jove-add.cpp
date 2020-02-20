@@ -166,7 +166,7 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   exit(1);
 }
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
 #elif defined(__i386__)
@@ -1006,6 +1006,10 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86;
 #elif defined(__aarch64__)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
+#elif defined(__mips64)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mips64el;
+#else
+#error
 #endif
 
   return Obj.getArch() == archty;

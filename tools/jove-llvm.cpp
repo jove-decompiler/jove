@@ -642,7 +642,7 @@ static struct {
   std::unordered_map<std::string, std::unordered_set<std::string>> Table;
 } VersionScript;
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
 #elif defined(__i386__)
 constexpr target_ulong Cookie = 0xd27b9f5a;
@@ -846,7 +846,7 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename llvm::object::ELF64LEObjectFile ELFO;
 typedef typename llvm::object::ELF64LEFile ELFT;
 #elif defined(__i386__)
@@ -3983,8 +3983,10 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 #elif defined(__aarch64__)
         if (helper_ptr == helper_exception_with_syndrome &&
 	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
+#elif defined(__mips64)
+        if (helper_ptr && false /* TODO */) {
 #else
-#error
+#error "TODO"
 #endif
           const auto &N = constprop[tcg_syscall_number_index];
           if (N < syscalls::NR_END) {
@@ -7138,12 +7140,15 @@ int FixupTPBaseAddrs(void) {
     llvm::FunctionType *AsmFTy =
         llvm::FunctionType::get(WordType(), AsmArgTypes, false);
 
+    // TODO replace with thread pointer intrinsic
 #if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
 #elif defined(__i386__)
     llvm::StringRef AsmText("mov \%gs:0x0,$0");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
+#elif defined(__mips64)
+    llvm::StringRef AsmText("thiswontassemble");
 #else
 #error
 #endif
@@ -10155,6 +10160,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::StringRef Constraints("~{memory},~{cc},~{dirflag},~{fpsr},~{flags}");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("dmb ish");
+    llvm::StringRef Constraints("~{memory}");
+#elif defined(__mips64)
+    llvm::StringRef AsmText("thiswontassemble"); /* TODO XXX */
     llvm::StringRef Constraints("~{memory}");
 #else
 #error

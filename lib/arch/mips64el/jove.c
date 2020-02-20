@@ -1811,12 +1811,10 @@ _CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong rdi,
-                        target_ulong rsi,
-                        target_ulong rdx,
-                        target_ulong rcx,
-                        target_ulong r8,
-                        target_ulong sp_addr /* formerly r9 */);
+static void _jove_begin(target_ulong a0,
+                        target_ulong a1,
+                        target_ulong v0,     /* formerly a2 */
+                        target_ulong sp_addr /* formerly a3 */);
 
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
@@ -1868,19 +1866,14 @@ static _INL uintptr_t _get_stack_end(void);
 //
 
 void _jove_start(void) {
-  asm volatile(/* Clearing frame pointer is insufficient, use CFI.  */
-               ".cfi_undefined %%rip\n"
+  asm volatile(/* The return address register is set to zero so that programs that search backword through stack frames recognize the last stack frame. */
+               "move $31, $0\n"
 
-                /* Clear the frame pointer.  The ABI suggests this be done, to
-                  mark the outermost frame obviously.  */
-               "xorq %%rbp, %%rbp\n"
+               "move $6, $2\n"  /* a2=v0 */
+               "move $7, $29\n" /* a3=sp */
 
-               "movq %%rsp, %%r9\n"
-
-	       /* Align the stack to a 16 byte boundary to follow the ABI.  */
-               "and  $~15, %%rsp\n"
-               "call %P0\n"
-               "hlt\n" /* Crash if somehow `_jove_begin' does return. */
+               "jalr %P0\n"
+               "hlt: b hlt\n" /* Crash if somehow it does return. */
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -1891,18 +1884,13 @@ void _jove_start(void) {
 static void _jove_trace_init(void);
 static void _jove_callstack_init(void);
 
-void _jove_begin(target_ulong rdi,
-                 target_ulong rsi,
-                 target_ulong rdx,
-                 target_ulong rcx,
-                 target_ulong r8,
-                 target_ulong sp_addr /* formerly r9 */) {
-  __jove_env.regs[R_EDI] = rdi;
-  __jove_env.regs[R_ESI] = rsi;
-  __jove_env.regs[R_EDX] = rdx;
-  __jove_env.regs[R_ECX] = rcx;
-  __jove_env.regs[R_R8] = r8;
-  __jove_env.df = 1;
+void _jove_begin(target_ulong a0,
+                 target_ulong a1,
+                 target_ulong v0,     /* formerly a2 */
+                 target_ulong sp_addr /* formerly a3 */) {
+  __jove_env.active_tc.gpr[4] = a0;
+  __jove_env.active_tc.gpr[5] = a1;
+  __jove_env.active_tc.gpr[2] = v0;
 
   //
   // _jove_startup_info
@@ -1935,7 +1923,7 @@ void _jove_begin(target_ulong rdi,
 
     _memcpy(env_sp, (void *)sp_addr, len);
 
-    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
+    __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
   }
 
   // init trace (if enabled)

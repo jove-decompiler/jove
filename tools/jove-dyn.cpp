@@ -327,6 +327,12 @@ static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
 #endif
 
+#if defined(__mips64)
+struct user_regs_struct {
+  unsigned long regs[38]; /* XXX TODO */
+};
+#endif
+
 static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
 static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
 
@@ -335,7 +341,7 @@ static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
 static int await_process_completion(pid_t);
 
-#if defined(__x86_64__) || defined(__aarch64__)
+#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
 #elif defined(__i386__)
@@ -748,6 +754,10 @@ int ParentProc(pid_t child) {
               gpr.orig_eax
 #elif defined(__aarch64__)
               gpr.regs[8]
+#elif defined(__mips64)
+              gpr.regs[0] /* XXX TODO */
+#else
+#error
 #endif
               ;
 
@@ -1414,6 +1424,10 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #elif defined(__aarch64__)
     return opc == llvm::AArch64::BLR
         || opc == llvm::AArch64::BR;
+#elif defined(__mips64)
+    return false;
+#else
+#error
 #endif
   };
 
@@ -1438,6 +1452,10 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
+#elif defined(__mips64)
+  abort();
+#else
+#error
 #endif
 
   // write the word back
@@ -1492,6 +1510,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       gpr.eip
 #elif defined(__aarch64__)
       gpr.pc
+#elif defined(__mips64)
+      gpr.regs[0] /* XXX TODO */
+#else
+#error
 #endif
       ;
 
@@ -1502,6 +1524,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   pc -= 1; /* int3 */
 #elif defined(__aarch64__)
   //pc -= 4; /* brk */
+#elif defined(__mips64)
+  // XXX TODO
+#else
+#error
 #endif
 
   //
@@ -1909,8 +1935,9 @@ static void harvest_irelative_reloc_targets(pid_t child,
           llvm::ELF::R_386_IRELATIVE
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_IRELATIVE
+#elif defined(__mips64)
+	  0 /* XXX TODO ? */
 #else
-          0
 #error
 #endif
           ;
@@ -2013,8 +2040,9 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_386_JUMP_SLOT
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_JUMP_SLOT
+#elif defined(__mips64)
+          llvm::ELF::R_MIPS_JUMP_SLOT
 #else
-          0
 #error
 #endif
           ;
@@ -2026,8 +2054,9 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_386_GLOB_DAT
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_GLOB_DAT
+#elif defined(__mips64)
+          llvm::ELF::R_MIPS_GLOB_DAT
 #else
-          0
 #error
 #endif
           ;
@@ -2039,12 +2068,12 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_386_32
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_ABS64
+#elif defined(__mips64)
+          llvm::ELF::R_MIPS_64
 #else
-          0
 #error
 #endif
           ;
-
 
       unsigned reloc_ty = R.getType(E.isMips64EL());
       if (reloc_ty != jump_slot_reloc_ty &&
@@ -2283,6 +2312,16 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 #endif
 
 void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
+#if defined(__mips64)
+  unsigned long _request = PTRACE_GETREGS;
+  unsigned long _pid = child;
+  unsigned long _addr = 0;
+  unsigned long _data = reinterpret_cast<unsigned long>(&out.regs[0]);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_GETREGS failed : ") +
+                             std::string(strerror(errno)));
+#else
   struct iovec iov = {.iov_base = &out,
                       .iov_len = sizeof(struct user_regs_struct)};
 
@@ -2294,9 +2333,20 @@ void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
     throw std::runtime_error(std::string("PTRACE_GETREGSET failed : ") +
                              std::string(strerror(errno)));
+#endif
 }
 
 void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
+#if defined(__mips64)
+  unsigned long _request = PTRACE_SETREGS;
+  unsigned long _pid = child;
+  unsigned long _addr = 1 /* NT_PRSTATUS */;
+  unsigned long _data = reinterpret_cast<unsigned long>(&out.regs[0]);
+
+  if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
+    throw std::runtime_error(std::string("PTRACE_SETREGS failed : ") +
+                             std::string(strerror(errno)));
+#else
   struct iovec iov = {.iov_base = const_cast<struct user_regs_struct *>(&in),
                       .iov_len = sizeof(struct user_regs_struct)};
 
@@ -2308,6 +2358,7 @@ void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
     throw std::runtime_error(std::string("PTRACE_SETREGSET failed : ") +
                              std::string(strerror(errno)));
+#endif
 }
 
 unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
@@ -2397,6 +2448,10 @@ bool verify_arch(const obj::ObjectFile &Obj) {
       llvm::Triple::ArchType::x86;
 #elif defined(__aarch64__)
       llvm::Triple::ArchType::aarch64
+#elif defined(__mips64)
+      llvm::Triple::ArchType::mips64el
+#else
+#error
 #endif
       ;
 
