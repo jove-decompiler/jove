@@ -305,6 +305,8 @@ static int qemu_icache_linesize;
 
 void pstrcpy(char *buf, int buf_size, const char *str);
 
+char *pstrcat(char *buf, int buf_size, const char *s);
+
 typedef uint8_t flag;
 
 typedef uint32_t float32;
@@ -2006,6 +2008,9 @@ typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
 
+constexpr target_ulong JOVE_RETADDR_COOKIE = 0xbd47c92caa6cbcb4;
+constexpr target_ulong JOVE_PCREL_MAGIC = std::numeric_limits<target_ulong>::max();
+
 typedef struct CPUTLB { } CPUTLB;
 
 #define ISA_MIPS2         0x0000000000000002ULL
@@ -3015,7 +3020,10 @@ struct TBContext {
     unsigned tb_flush_count;
 };
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#ifndef g2h
+#error
+#endif
 
 typedef uint64_t abi_ptr;
 
@@ -4029,6 +4037,9 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb);
 
 void tcg_set_frame(TCGContext *s, TCGReg reg, intptr_t start, intptr_t size);
 
+TCGTemp *tcg_global_mem_new_internal(TCGType, TCGv_ptr,
+                                     intptr_t, const char *);
+
 TCGTemp *tcg_temp_new_internal(TCGType, bool);
 
 void tcg_temp_free_internal(TCGTemp *);
@@ -4048,6 +4059,13 @@ static inline void tcg_temp_free_ptr(TCGv_ptr arg)
     tcg_temp_free_internal(tcgv_ptr_temp(arg));
 }
 
+static inline TCGv_i32 tcg_global_mem_new_i32(TCGv_ptr reg, intptr_t offset,
+                                              const char *name)
+{
+    TCGTemp *t = tcg_global_mem_new_internal(TCG_TYPE_I32, reg, offset, name);
+    return temp_tcgv_i32(t);
+}
+
 static inline TCGv_i32 tcg_temp_new_i32(void)
 {
     TCGTemp *t = tcg_temp_new_internal(TCG_TYPE_I32, false);
@@ -4058,6 +4076,13 @@ static inline TCGv_i32 tcg_temp_local_new_i32(void)
 {
     TCGTemp *t = tcg_temp_new_internal(TCG_TYPE_I32, true);
     return temp_tcgv_i32(t);
+}
+
+static inline TCGv_i64 tcg_global_mem_new_i64(TCGv_ptr reg, intptr_t offset,
+                                              const char *name)
+{
+    TCGTemp *t = tcg_global_mem_new_internal(TCG_TYPE_I64, reg, offset, name);
+    return temp_tcgv_i64(t);
 }
 
 static inline TCGv_i64 tcg_temp_new_i64(void)
@@ -8657,6 +8682,8 @@ void tcg_gen_lookup_and_goto_ptr(void);
 
 #define tcg_temp_new() tcg_temp_new_i64()
 
+#define tcg_global_mem_new tcg_global_mem_new_i64
+
 #define tcg_temp_local_new() tcg_temp_local_new_i64()
 
 #define tcg_temp_free tcg_temp_free_i64
@@ -11933,6 +11960,62 @@ void tcg_set_frame(TCGContext *s, TCGReg reg, intptr_t start, intptr_t size)
     s->frame_end = start + size;
     s->frame_temp
         = tcg_global_reg_new_internal(s, TCG_TYPE_PTR, reg, "_frame");
+}
+
+TCGTemp *tcg_global_mem_new_internal(TCGType type, TCGv_ptr base,
+                                     intptr_t offset, const char *name)
+{
+    TCGContext *s = tcg_ctx;
+    TCGTemp *base_ts = tcgv_ptr_temp(base);
+    TCGTemp *ts = tcg_global_alloc(s);
+    int indirect_reg = 0, bigendian = 0;
+#ifdef HOST_WORDS_BIGENDIAN
+    bigendian = 1;
+#endif
+
+    if (!base_ts->fixed_reg) {
+        /* We do not support double-indirect registers.  */
+        tcg_debug_assert(!base_ts->indirect_reg);
+        base_ts->indirect_base = 1;
+        s->nb_indirects += (TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64
+                            ? 2 : 1);
+        indirect_reg = 1;
+    }
+
+    if (TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64) {
+        TCGTemp *ts2 = tcg_global_alloc(s);
+        char buf[64];
+
+        ts->base_type = TCG_TYPE_I64;
+        ts->type = TCG_TYPE_I32;
+        ts->indirect_reg = indirect_reg;
+        ts->mem_allocated = 1;
+        ts->mem_base = base_ts;
+        ts->mem_offset = offset + bigendian * 4;
+        pstrcpy(buf, sizeof(buf), name);
+        pstrcat(buf, sizeof(buf), "_0");
+        ts->name = strdup(buf);
+
+        tcg_debug_assert(ts2 == ts + 1);
+        ts2->base_type = TCG_TYPE_I64;
+        ts2->type = TCG_TYPE_I32;
+        ts2->indirect_reg = indirect_reg;
+        ts2->mem_allocated = 1;
+        ts2->mem_base = base_ts;
+        ts2->mem_offset = offset + (1 - bigendian) * 4;
+        pstrcpy(buf, sizeof(buf), name);
+        pstrcat(buf, sizeof(buf), "_1");
+        ts2->name = strdup(buf);
+    } else {
+        ts->base_type = type;
+        ts->type = type;
+        ts->indirect_reg = indirect_reg;
+        ts->mem_allocated = 1;
+        ts->mem_base = base_ts;
+        ts->mem_offset = offset;
+        ts->name = name;
+    }
+    return ts;
 }
 
 TCGTemp *tcg_temp_new_internal(TCGType type, bool temp_local)
@@ -16273,6 +16356,21 @@ typedef struct DisasContext {
     bool saar;
 } DisasContext;
 
+static const char * const regnames[] = {
+    "r0", "at", "v0", "v1", "a0", "a1", "a2", "a3",
+    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+    "s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7",
+    "t8", "t9", "k0", "k1", "gp", "sp", "s8", "ra",
+};
+
+static const char * const regnames_HI[] = {
+    "HI0", "HI1", "HI2", "HI3",
+};
+
+static const char * const regnames_LO[] = {
+    "LO0", "LO1", "LO2", "LO3",
+};
+
 #define LOG_DISAS(...)                                                        \
     do {                                                                      \
         if (MIPS_DEBUG_DISAS) {                                               \
@@ -16290,6 +16388,25 @@ typedef struct DisasContext {
                           ((ctx->opcode >> 16) & 0x1F));                      \
         }                                                                     \
     } while (0)
+
+static const char * const msaregnames[] = {
+    "w0.d0",  "w0.d1",  "w1.d0",  "w1.d1",
+    "w2.d0",  "w2.d1",  "w3.d0",  "w3.d1",
+    "w4.d0",  "w4.d1",  "w5.d0",  "w5.d1",
+    "w6.d0",  "w6.d1",  "w7.d0",  "w7.d1",
+    "w8.d0",  "w8.d1",  "w9.d0",  "w9.d1",
+    "w10.d0", "w10.d1", "w11.d0", "w11.d1",
+    "w12.d0", "w12.d1", "w13.d0", "w13.d1",
+    "w14.d0", "w14.d1", "w15.d0", "w15.d1",
+    "w16.d0", "w16.d1", "w17.d0", "w17.d1",
+    "w18.d0", "w18.d1", "w19.d0", "w19.d1",
+    "w20.d0", "w20.d1", "w21.d0", "w21.d1",
+    "w22.d0", "w22.d1", "w23.d0", "w23.d1",
+    "w24.d0", "w24.d1", "w25.d0", "w25.d1",
+    "w26.d0", "w26.d1", "w27.d0", "w27.d1",
+    "w28.d0", "w28.d1", "w29.d0", "w29.d1",
+    "w30.d0", "w30.d1", "w31.d0", "w31.d1",
+};
 
 static inline void gen_load_gpr(TCGv t, int reg)
 {
@@ -33988,6 +34105,7 @@ static void gen_mmi_pcpyh(DisasContext *ctx)
         /* nop */
     } else if (rt == 0) {
         tcg_gen_movi_i64(cpu_gpr[rd], 0);
+        abort();
         tcg_gen_movi_i64(cpu_mmr[rd], 0);
     } else {
         TCGv_i64 t0 = tcg_temp_new();
@@ -34006,6 +34124,7 @@ static void gen_mmi_pcpyh(DisasContext *ctx)
 
         tcg_gen_mov_i64(cpu_gpr[rd], t1);
 
+        abort();
         tcg_gen_andi_i64(t0, cpu_mmr[rt], mask);
         tcg_gen_movi_i64(t1, 0);
         tcg_gen_or_i64(t1, t0, t1);
@@ -34038,8 +34157,10 @@ static void gen_mmi_pcpyld(DisasContext *ctx)
         /* nop */
     } else {
         if (rs == 0) {
+            abort();
             tcg_gen_movi_i64(cpu_mmr[rd], 0);
         } else {
+            abort();
             tcg_gen_mov_i64(cpu_mmr[rd], cpu_gpr[rs]);
         }
         if (rt == 0) {
@@ -34069,12 +34190,15 @@ static void gen_mmi_pcpyud(DisasContext *ctx)
         if (rs == 0) {
             tcg_gen_movi_i64(cpu_gpr[rd], 0);
         } else {
+            abort();
             tcg_gen_mov_i64(cpu_gpr[rd], cpu_mmr[rs]);
         }
         if (rt == 0) {
+            abort();
             tcg_gen_movi_i64(cpu_mmr[rd], 0);
         } else {
             if (rd != rt) {
+                abort();
                 tcg_gen_mov_i64(cpu_mmr[rd], cpu_mmr[rt]);
             }
         }
@@ -37898,6 +38022,88 @@ void gen_intermediate_code(CPUState *cs, TranslationBlock *tb, int max_insns)
     DisasContext ctx;
 
     translator_loop(&mips_tr_ops, &ctx.base, cs, tb, max_insns);
+}
+
+void mips_tcg_init(void)
+{
+    int i;
+
+    cpu_gpr[0] = NULL;
+    for (i = 1; i < 32; i++)
+        cpu_gpr[i] = tcg_global_mem_new(cpu_env,
+                                        offsetof(CPUMIPSState,
+                                                 active_tc.gpr[i]),
+                                        regnames[i]);
+
+    for (i = 0; i < 32; i++) {
+        int off = offsetof(CPUMIPSState, active_fpu.fpr[i].wr.d[0]);
+        msa_wr_d[i * 2] =
+                tcg_global_mem_new_i64(cpu_env, off, msaregnames[i * 2]);
+        /*
+         * The scalar floating-point unit (FPU) registers are mapped on
+         * the MSA vector registers.
+         */
+        fpu_f64[i] = msa_wr_d[i * 2];
+        off = offsetof(CPUMIPSState, active_fpu.fpr[i].wr.d[1]);
+        msa_wr_d[i * 2 + 1] =
+                tcg_global_mem_new_i64(cpu_env, off, msaregnames[i * 2 + 1]);
+    }
+
+    cpu_PC = tcg_global_mem_new(cpu_env,
+                                offsetof(CPUMIPSState, active_tc.PC), "PC");
+    for (i = 0; i < MIPS_DSP_ACC; i++) {
+        cpu_HI[i] = tcg_global_mem_new(cpu_env,
+                                       offsetof(CPUMIPSState, active_tc.HI[i]),
+                                       regnames_HI[i]);
+        cpu_LO[i] = tcg_global_mem_new(cpu_env,
+                                       offsetof(CPUMIPSState, active_tc.LO[i]),
+                                       regnames_LO[i]);
+    }
+    cpu_dspctrl = tcg_global_mem_new(cpu_env,
+                                     offsetof(CPUMIPSState,
+                                              active_tc.DSPControl),
+                                     "DSPControl");
+    bcond = tcg_global_mem_new(cpu_env,
+                               offsetof(CPUMIPSState, bcond), "bcond");
+    btarget = tcg_global_mem_new(cpu_env,
+                                 offsetof(CPUMIPSState, btarget), "btarget");
+    hflags = tcg_global_mem_new_i32(cpu_env,
+                                    offsetof(CPUMIPSState, hflags), "hflags");
+
+    fpu_fcr0 = tcg_global_mem_new_i32(cpu_env,
+                                      offsetof(CPUMIPSState, active_fpu.fcr0),
+                                      "fcr0");
+    fpu_fcr31 = tcg_global_mem_new_i32(cpu_env,
+                                       offsetof(CPUMIPSState, active_fpu.fcr31),
+                                       "fcr31");
+    cpu_lladdr = tcg_global_mem_new(cpu_env, offsetof(CPUMIPSState, lladdr),
+                                    "lladdr");
+    cpu_llval = tcg_global_mem_new(cpu_env, offsetof(CPUMIPSState, llval),
+                                   "llval");
+
+    // XXX JOVE
+#if 0 /* defined(TARGET_MIPS64) */
+    cpu_mmr[0] = NULL;
+    for (i = 1; i < 32; i++) {
+        cpu_mmr[i] = tcg_global_mem_new_i64(cpu_env,
+                                            offsetof(CPUMIPSState,
+                                                     active_tc.mmr[i]),
+                                            regnames[i]);
+    }
+#endif
+
+#if !defined(TARGET_MIPS64)
+    for (i = 0; i < NUMBER_OF_MXU_REGISTERS - 1; i++) {
+        mxu_gpr[i] = tcg_global_mem_new(cpu_env,
+                                        offsetof(CPUMIPSState,
+                                                 active_tc.mxu_gpr[i]),
+                                        mxuregnames[i]);
+    }
+
+    mxu_CR = tcg_global_mem_new(cpu_env,
+                                offsetof(CPUMIPSState, active_tc.mxu_cr),
+                                mxuregnames[NUMBER_OF_MXU_REGISTERS - 1]);
+#endif
 }
 
 extern TCGv_i32 TCGV_LOW_link_error(TCGv_i64);
@@ -42626,6 +42832,15 @@ void pstrcpy(char *buf, int buf_size, const char *str)
         *q++ = c;
     }
     *q = '\0';
+}
+
+char *pstrcat(char *buf, int buf_size, const char *s)
+{
+    int len;
+    len = strlen(buf);
+    if (len < buf_size)
+        pstrcpy(buf + len, buf_size - len, s);
+    return buf;
 }
 
 void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
