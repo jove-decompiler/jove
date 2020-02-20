@@ -127,7 +127,6 @@ $(BINDIR)/jove-recompile: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-readtrace: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-init: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-dump: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/tcgglobals: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-extract: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/tcgdump: $(BINDIR)/jove/tcgconstants.h
 $(BINDIR)/jove-trace2lines: $(BINDIR)/jove/tcgconstants.h
