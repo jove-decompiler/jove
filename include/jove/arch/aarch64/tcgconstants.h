@@ -1,0 +1,89 @@
+#pragma once
+#include <bitset>
+#include <array>
+
+namespace jove {
+constexpr int tcg_num_globals = 57;
+constexpr int tcg_num_helpers = 1854;
+constexpr int tcg_max_temps = 512;
+constexpr int tcg_env_index = 0;
+constexpr int tcg_program_counter_index = 23;
+constexpr int tcg_frame_pointer_index = 53;
+constexpr int tcg_stack_pointer_index = 55;
+constexpr int tcg_program_counter_env_offset = -1;
+constexpr int tcg_syscall_number_index = 32;
+constexpr int tcg_syscall_return_index = 24;
+constexpr int tcg_syscall_arg1_index = 24;
+constexpr int tcg_syscall_arg2_index = 25;
+constexpr int tcg_syscall_arg3_index = 26;
+constexpr int tcg_syscall_arg4_index = 27;
+constexpr int tcg_syscall_arg5_index = 28;
+constexpr int tcg_syscall_arg6_index = 29;
+constexpr int tcg_tpidr_el0_env_offset = 1296;
+typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+constexpr tcg_global_set_t CallConvArgs(4278190080);
+typedef std::array<unsigned, 8> CallConvArgArrayTy;
+static const CallConvArgArrayTy CallConvArgArray{24, 25, 26, 27, 28, 29, 30, 31};
+constexpr tcg_global_set_t CallConvRets(16777216);
+typedef std::array<unsigned, 1> CallConvRetArrayTy;
+static const CallConvRetArrayTy CallConvRetArray{24};
+static const int8_t tcg_global_by_offset_lookup_table[12033] = {
+[0 ... 12032] = -1,
+[0] = 1,
+[4] = 2,
+[8] = 3,
+[12] = 4,
+[16] = 5,
+[20] = 6,
+[24] = 7,
+[28] = 8,
+[32] = 9,
+[36] = 10,
+[40] = 11,
+[44] = 12,
+[48] = 13,
+[52] = 14,
+[56] = 15,
+[60] = 16,
+[520] = 17,
+[528] = 18,
+[524] = 19,
+[532] = 20,
+[12016] = 21,
+[12024] = 22,
+[320] = 23,
+[64] = 24,
+[72] = 25,
+[80] = 26,
+[88] = 27,
+[96] = 28,
+[104] = 29,
+[112] = 30,
+[120] = 31,
+[128] = 32,
+[136] = 33,
+[144] = 34,
+[152] = 35,
+[160] = 36,
+[168] = 37,
+[176] = 38,
+[184] = 39,
+[192] = 40,
+[200] = 41,
+[208] = 42,
+[216] = 43,
+[224] = 44,
+[232] = 45,
+[240] = 46,
+[248] = 47,
+[256] = 48,
+[264] = 49,
+[272] = 50,
+[280] = 51,
+[288] = 52,
+[296] = 53,
+[304] = 54,
+[312] = 55,
+[12032] = 56,
+};
+}
