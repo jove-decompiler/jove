@@ -19661,6 +19661,11 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             generate_exception_end(ctx, EXCP_RI);
             goto out;
         }
+
+        ctx->base.tb->jove.T.Type = opc == OPC_JR
+                                        ? jove::TERMINATOR::INDIRECT_JUMP
+                                        : jove::TERMINATOR::INDIRECT_CALL;
+
         gen_load_gpr(btarget, rs);
         break;
     default:
@@ -19820,6 +19825,10 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
     if (blink > 0) {
         int post_delay = insn_bytes + delayslot_size;
         int lowbit = !!(ctx->hflags & MIPS_HFLAG_M16);
+
+        if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
+          ctx->base.tb->jove.T._indirect_call.NextPC =
+              ctx->base.pc_next + post_delay + lowbit;
 
         tcg_gen_movi_tl(cpu_gpr[blink],
                         ctx->base.pc_next + post_delay + lowbit);
