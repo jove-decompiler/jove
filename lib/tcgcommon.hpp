@@ -264,6 +264,18 @@ struct tiny_code_generator_t {
     _cpu.env.features |= 1ULL << ARM_FEATURE_V4T;
     _cpu.env.features |= 1ULL << ARM_FEATURE_VBAR;
 #endif
+#elif defined(__mips64)
+    _cpu.env.insn_flags = 511;
+    _cpu.env.hflags = 234;
+    _cpu.env.CP0_Config1 = -1100926821;
+    _cpu.env.CP0_Config2 = -2147483648;
+    _cpu.env.CP0_Config3 = 0;
+    _cpu.env.CP0_Config4 = 0;
+    _cpu.env.CP0_Config5 = 0;
+    _cpu.env.PAMask = 68719476735;
+    _cpu.env.CP0_LLAddr_shift = 4;
+#else
+#error
 #endif
 
     // zero-initialize TCG
@@ -307,11 +319,13 @@ struct tiny_code_generator_t {
     tb.cflags          = cflags;
 
     tb.pc = pc;
-#if defined(__x86_64__) || defined(__i386__)
+
+#if defined(__x86_64__) || defined(__i386__) || defined(__mips64)
     tb.flags = _cpu.env.hflags;
 #elif defined(__aarch64__)
     tb.flags = R_TBFLAG_ANY_AARCH64_STATE_MASK;
 #endif
+
     tb.jove.T.Addr = pc;
     tb.jove.T.Type = TERMINATOR::UNKNOWN;
 
