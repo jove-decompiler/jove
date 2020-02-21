@@ -119,21 +119,7 @@ $(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp
 endef
 $(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
-$(BINDIR)/jove-add: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-dyn: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-llvm: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-recover: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-recompile: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-readtrace: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-init: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-dump: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-extract: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/tcgdump: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-trace2lines: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jv2xml: $(BINDIR)/jove/tcgconstants.h
-$(BINDIR)/jove-trace: $(BINDIR)/jove/tcgconstants.h
-
-$(BINDIR)/jove/tcgconstants.h: $(BINDIR)/gen-tcgconstants
+include/jove/arch/$(ARCH)/tcgconstants.h: $(BINDIR)/gen-tcgconstants
 	@mkdir -p $(BINDIR)/jove
 	@echo GEN $@
 	@$< > $@

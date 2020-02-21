@@ -1,0 +1,144 @@
+#pragma once
+#include <bitset>
+#include <array>
+
+namespace jove {
+constexpr int tcg_num_globals = 114;
+constexpr int tcg_num_helpers = 1193;
+constexpr int tcg_max_temps = 512;
+constexpr int tcg_env_index = 1;
+constexpr int tcg_program_counter_index = -1;
+constexpr int tcg_frame_pointer_index = 31;
+constexpr int tcg_stack_pointer_index = 30;
+constexpr int tcg_program_counter_env_offset = 256;
+constexpr int tcg_syscall_number_index = 3;
+constexpr int tcg_syscall_return_index = 3;
+constexpr int tcg_syscall_arg1_index = 5;
+constexpr int tcg_syscall_arg2_index = 6;
+constexpr int tcg_syscall_arg3_index = 7;
+constexpr int tcg_syscall_arg4_index = 8;
+constexpr int tcg_syscall_arg5_index = 9;
+constexpr int tcg_syscall_arg6_index = 10;
+typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+constexpr tcg_global_set_t CallConvArgs(480);
+typedef std::array<unsigned, 4> CallConvArgArrayTy;
+static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
+constexpr tcg_global_set_t CallConvRets(8);
+typedef std::array<unsigned, 1> CallConvRetArrayTy;
+static const CallConvRetArrayTy CallConvRetArray{3};
+static const int8_t tcg_global_by_offset_lookup_table[15921] = {
+[0 ... 15920] = -1,
+[8] = 2,
+[16] = 3,
+[24] = 4,
+[32] = 5,
+[40] = 6,
+[48] = 7,
+[56] = 8,
+[64] = 9,
+[72] = 10,
+[80] = 11,
+[88] = 12,
+[96] = 13,
+[104] = 14,
+[112] = 15,
+[120] = 16,
+[128] = 17,
+[136] = 18,
+[144] = 19,
+[152] = 20,
+[160] = 21,
+[168] = 22,
+[176] = 23,
+[184] = 24,
+[192] = 25,
+[200] = 26,
+[208] = 27,
+[216] = 28,
+[224] = 29,
+[232] = 30,
+[240] = 31,
+[248] = 32,
+[824] = 33,
+[832] = 34,
+[840] = 35,
+[848] = 36,
+[856] = 37,
+[864] = 38,
+[872] = 39,
+[880] = 40,
+[888] = 41,
+[896] = 42,
+[904] = 43,
+[912] = 44,
+[920] = 45,
+[928] = 46,
+[936] = 47,
+[944] = 48,
+[952] = 49,
+[960] = 50,
+[968] = 51,
+[976] = 52,
+[984] = 53,
+[992] = 54,
+[1000] = 55,
+[1008] = 56,
+[1016] = 57,
+[1024] = 58,
+[1032] = 59,
+[1040] = 60,
+[1048] = 61,
+[1056] = 62,
+[1064] = 63,
+[1072] = 64,
+[1080] = 65,
+[1088] = 66,
+[1096] = 67,
+[1104] = 68,
+[1112] = 69,
+[1120] = 70,
+[1128] = 71,
+[1136] = 72,
+[1144] = 73,
+[1152] = 74,
+[1160] = 75,
+[1168] = 76,
+[1176] = 77,
+[1184] = 78,
+[1192] = 79,
+[1200] = 80,
+[1208] = 81,
+[1216] = 82,
+[1224] = 83,
+[1232] = 84,
+[1240] = 85,
+[1248] = 86,
+[1256] = 87,
+[1264] = 88,
+[1272] = 89,
+[1280] = 90,
+[1288] = 91,
+[1296] = 92,
+[1304] = 93,
+[1312] = 94,
+[1320] = 95,
+[1328] = 96,
+[256] = 97,
+[264] = 98,
+[296] = 99,
+[272] = 100,
+[304] = 101,
+[280] = 102,
+[312] = 103,
+[288] = 104,
+[320] = 105,
+[360] = 106,
+[15920] = 107,
+[15912] = 108,
+[15908] = 109,
+[1344] = 110,
+[1352] = 111,
+[1920] = 112,
+[1928] = 113,
+};
+}
