@@ -77,10 +77,12 @@ def trace_insns(debugger, command, result, internal_dict):
 
     # the two modules already in memory should be the dynamic linker and the
     # application
-    modules = list(filter(lambda mod: str(mod.GetFileSpec()).find("[vdso]") == -1 and str(mod.GetFileSpec()).find("/usr/lib/ld-") == -1, modules))
+    modules = list(filter(lambda mod: str(mod.GetFileSpec()).find("[vdso]") == -1 and str(mod.GetFileSpec()).find("/ld-") == -1, modules))
 
     if len(modules) != 1:
         print("unable to find application module")
+        module_names = map(lambda mod: str(mod.GetFileSpec()), modules)
+        print(list(module_names))
         return
 
     app_mod = modules[0]
