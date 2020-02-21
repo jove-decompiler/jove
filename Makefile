@@ -41,7 +41,6 @@ CXXFLAGS := -std=gnu++14 \
             -fwrapv \
             -Ofast \
             -g \
-            -I bin \
             -I include \
             -I lib \
             -I lib/arch/$(ARCH) \
@@ -138,7 +137,7 @@ $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 
 .PHONY: clean
 clean:
-	rm -rf $(TOOLBINS) $(UTILBINS) $(TOOLDEPS) $(UTILDEPS) $(BINDIR)/jove $(BINDIR)/*.bc
+	rm -rf $(TOOLBINS) $(UTILBINS) $(TOOLDEPS) $(UTILDEPS) $(BINDIR)/*.bc
 
 #
 # for extricating QEMU code
