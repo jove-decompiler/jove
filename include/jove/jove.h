@@ -21,7 +21,15 @@
 #include <numeric>
 #include <limits>
 
-#include "../../../bin/jove/tcgconstants.h" // XXX
+#if defined(__aarch64__)
+#include <jove/arch/aarch64/tcgconstants.h>
+#elif defined(__x86_64__)
+#include <jove/arch/x86_64/tcgconstants.h>
+#elif defined(__i386__)
+#include <jove/arch/i386/tcgconstants.h>
+#elif defined(__mips64)
+#include <jove/arch/mips64el/tcgconstants.h>
+#endif
 
 namespace jove {
 
