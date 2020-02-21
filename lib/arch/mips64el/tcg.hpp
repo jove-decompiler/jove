@@ -37993,9 +37993,11 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
         (ctx->hflags & MIPS_HFLAG_BMASK) == 0) {
         ctx->base.is_jmp = DISAS_TOO_MANY;
     }
+#if 0 /* XXX JOVE */
     if (ctx->base.pc_next - ctx->page_start >= TARGET_PAGE_SIZE) {
         ctx->base.is_jmp = DISAS_TOO_MANY;
     }
+#endif
 }
 
 static void mips_tr_tb_stop(DisasContextBase *dcbase, CPUState *cs)
