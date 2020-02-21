@@ -19612,6 +19612,16 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             bcond_compute = 1;
         }
         btgt = ctx->base.pc_next + insn_bytes + offset;
+
+        if (bcond_compute) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._conditional_jump.Target = btgt;
+          ctx->base.tb->jove.T._conditional_jump.NextPC =
+              ctx->base.pc_next + 2 * insn_bytes;
+        } else {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
+        }
         break;
     case OPC_BGEZ:
     case OPC_BGEZAL:
