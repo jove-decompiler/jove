@@ -120,7 +120,6 @@ $(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
 .PHONY: gen-tcgconstants
 gen-tcgconstants: $(BINDIR)/gen-tcgconstants
-	@mkdir -p $(BINDIR)/jove
 	@echo GEN $@
 	@$< > include/jove/arch/$(ARCH)/tcgconstants.h
 
