@@ -118,10 +118,11 @@ $(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp
 endef
 $(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
-include/jove/arch/$(ARCH)/tcgconstants.h: $(BINDIR)/gen-tcgconstants
+.PHONY: gen-tcgconstants
+gen-tcgconstants: $(BINDIR)/gen-tcgconstants
 	@mkdir -p $(BINDIR)/jove
 	@echo GEN $@
-	@$< > $@
+	@$< > include/jove/arch/$(ARCH)/tcgconstants.h
 
 $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@echo CC $<
