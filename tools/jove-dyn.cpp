@@ -2341,7 +2341,7 @@ void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
   unsigned long _request = PTRACE_SETREGS;
   unsigned long _pid = child;
   unsigned long _addr = 1 /* NT_PRSTATUS */;
-  unsigned long _data = reinterpret_cast<unsigned long>(&out.regs[0]);
+  unsigned long _data = reinterpret_cast<unsigned long>(&in.regs[0]);
 
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
     throw std::runtime_error(std::string("PTRACE_SETREGS failed : ") +
