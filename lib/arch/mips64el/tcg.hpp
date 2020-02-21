@@ -19662,9 +19662,18 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             goto out;
         }
 
-        ctx->base.tb->jove.T.Type = opc == OPC_JR
-                                        ? jove::TERMINATOR::INDIRECT_JUMP
-                                        : jove::TERMINATOR::INDIRECT_CALL;
+        if (opc == OPC_JR) {
+          if (rs == 31) { /* jr ra */
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+          } else {
+            ctx->base.tb->jove.T.Type =jove::TERMINATOR::INDIRECT_JUMP;
+          }
+        } else if (opc == OPC_JALR) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+        } else {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
 
         gen_load_gpr(btarget, rs);
         break;
@@ -19690,6 +19699,9 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             /* Always take and link */
             blink = 31;
             ctx->hflags |= MIPS_HFLAG_B;
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+            ctx->base.tb->jove.T._call.Target = btgt;
             break;
         case OPC_BNE:     /* rx != rx        */
         case OPC_BGTZ:    /* 0 > 0           */
@@ -19826,9 +19838,14 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         int post_delay = insn_bytes + delayslot_size;
         int lowbit = !!(ctx->hflags & MIPS_HFLAG_M16);
 
-        if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
-          ctx->base.tb->jove.T._indirect_call.NextPC =
-              ctx->base.pc_next + post_delay + lowbit;
+        {
+          int64_t NextPC = ctx->base.pc_next + post_delay + lowbit;
+
+          if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
+            ctx->base.tb->jove.T._indirect_call.NextPC = NextPC;
+          else if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::CALL)
+            ctx->base.tb->jove.T._call.NextPC = NextPC;
+        }
 
         tcg_gen_movi_tl(cpu_gpr[blink],
                         ctx->base.pc_next + post_delay + lowbit);
