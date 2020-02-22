@@ -37992,8 +37992,13 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
     }
     if (is_slot) {
         gen_branch(ctx, insn_bytes);
-    }
-    ctx->base.pc_next += insn_bytes;
+        if (__jove_end_pc)
+          __jove_end_pc += 4;
+        } else {
+          ctx->base.tb->jove.T.Addr = ctx->base.pc_next;
+
+          ctx->base.pc_next += insn_bytes;
+        }
 
     if (ctx->base.is_jmp != DISAS_NEXT) {
         return;
@@ -42985,8 +42990,6 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             break;
           }
         }
-
-        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
