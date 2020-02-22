@@ -42971,6 +42971,17 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             db->is_jmp = DISAS_TOO_MANY;
             break;
         }
+
+        if (__jove_end_pc) {
+          if (db->pc_next >= __jove_end_pc) {
+            tb->jove.T.Type = jove::TERMINATOR::NONE;
+            tb->jove.T.Addr = 0; /* XXX */
+            tb->jove.T._none.NextPC = __jove_end_pc;
+            break;
+          }
+        }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
