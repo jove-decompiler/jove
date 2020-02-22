@@ -42,6 +42,11 @@
 
 #include <signal.h>
 
+#ifdef __mips64
+#include <unistd.h>
+#include <sys/syscall.h>   /* For SYS_xxx definitions */
+#endif
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -90,7 +95,14 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+#ifndef __mips64
   return jove::add();
+#else
+  long rc = jove::add();
+  syscall(__NR_exit_group, rc);
+  __builtin_trap();
+  __builtin_unreachable();
+#endif
 }
 
 namespace jove {
