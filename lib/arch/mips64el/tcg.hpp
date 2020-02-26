@@ -37587,6 +37587,11 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
             check_insn_opc_removed(ctx, ISA_MIPS32R6);
             gen_compute_branch1(ctx, MASK_BC1(ctx->opcode),
                                 (rt >> 2) & 0x7, imm << 2);
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            ctx->base.tb->jove.T._conditional_jump.Target = ctx->btarget;
+            ctx->base.tb->jove.T._conditional_jump.NextPC =
+                ctx->base.pc_next + 4;
             break;
         case OPC_PS_FMT:
             check_ps(ctx);
