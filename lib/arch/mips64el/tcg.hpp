@@ -20667,8 +20667,12 @@ static void gen_cp1(DisasContext *ctx, uint32_t opc, int rt, int fs)
             gen_helper_0e2i(ctc1, t0, fs_tmp, rt);
             tcg_temp_free_i32(fs_tmp);
         }
+
+        /* XXX jove */
+#if 0
         /* Stop translation as we may have changed hflags */
         ctx->base.is_jmp = DISAS_STOP;
+#endif
         break;
 #if defined(TARGET_MIPS64)
     case OPC_DMFC1:
