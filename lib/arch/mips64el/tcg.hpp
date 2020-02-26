@@ -19504,6 +19504,8 @@ static void gen_trap(DisasContext *ctx, uint32_t opc,
         case OPC_TGEIU: /* r0 >= 0  unsigned */
             /* Always trap */
             generate_exception_end(ctx, EXCP_TRAP);
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         case OPC_TLT:   /* rs < rs           */
         case OPC_TLTI:  /* r0 < 0            */
