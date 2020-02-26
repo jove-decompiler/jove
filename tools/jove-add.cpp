@@ -47,6 +47,14 @@
 #include <sys/syscall.h>   /* For SYS_xxx definitions */
 #endif
 
+extern "C" {
+void __attribute__((noinline))
+     __attribute__((visibility("default")))
+UserBreakPoint(void) {
+  puts(__func__);
+}
+}
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -78,6 +86,12 @@ static cl::opt<bool>
 
 static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
+
+static cl::opt<std::string> BreakOnAddr(
+    "break-on-addr",
+    cl::desc("Allow user to set a debugger breakpoint on TCGDumpBreakPoint, "
+             "and triggered when basic block address matches given address"),
+    cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -186,7 +200,17 @@ typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
 #endif
 
+static struct {
+  uintptr_t Addr;
+  bool Active;
+} BreakOn = {.Active = false};
+
 int add(void) {
+  if (!opts::BreakOnAddr.empty()) {
+    BreakOn.Active = true;
+    BreakOn.Addr = std::stoi(opts::BreakOnAddr.c_str(), 0, 16);
+  }
+
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
@@ -825,6 +849,12 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   unsigned Size = 0;
   jove::terminator_info_t T;
   do {
+    if (BreakOn.Active) {
+      if (Addr == BreakOn.Addr) {
+        ::UserBreakPoint();
+      }
+    }
+
     unsigned size;
     std::tie(size, T) = tcg.translate(Addr + Size);
 
