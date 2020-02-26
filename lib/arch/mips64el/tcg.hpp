@@ -34024,9 +34024,13 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
         break;
     case OPC_SYSCALL:
         generate_exception_end(ctx, EXCP_SYSCALL);
+
+        ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case OPC_BREAK:
         generate_exception_end(ctx, EXCP_BREAK);
+
+        ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case OPC_SYNC:
         check_insn(ctx, ISA_MIPS2);
