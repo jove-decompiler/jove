@@ -1,5 +1,4 @@
-#ifndef JOVE_H
-#define JOVE_H
+#pragma once
 
 #ifndef JOVE_EXTRA_BB_PROPERTIES
 #define JOVE_EXTRA_BB_PROPERTIES
@@ -303,5 +302,3 @@ struct terminator_info_t {
 };
 
 }
-
-#endif // JOVE_H

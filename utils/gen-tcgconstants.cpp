@@ -1,9 +1,6 @@
-#define JOVE_H // XXX
-
+#include "tcgcommon.hpp"
 #include <llvm/Support/InitLLVM.h>
 #include <array>
-
-#include "tcgcommon.hpp"
 
 namespace jove {
 void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
