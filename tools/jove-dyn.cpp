@@ -212,7 +212,14 @@ int main(int argc, char **argv) {
   if (!child)
     return jove::ChildProc();
 
+#ifndef __mips64
   return jove::ParentProc(child);
+#else
+  int rc = jove::ParentProc(child);
+  syscall(__NR_exit_group, rc);
+  __builtin_trap();
+  __builtin_unreachable();
+#endif
 }
 
 namespace jove {
@@ -2437,7 +2444,13 @@ int ChildProc(void) {
 
   env_vec.push_back(nullptr);
 
-  return execve(opts::Prog.c_str(), arg_vec.data(), env_vec.data());
+  execve(opts::Prog.c_str(), arg_vec.data(), env_vec.data());
+
+  /* if we got here, execve failed */
+  int err = errno;
+  WithColor::error() << llvm::formatv("failed to execve (reason: {0})",
+                                      strerror(err));
+  return 1;
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {
