@@ -8,6 +8,12 @@ _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
 _LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
 
+LLVM_COMPONENTS := object \
+                   native \
+                   passes \
+                   objcarcopts \
+                   coroutines
+
 GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
@@ -49,10 +55,14 @@ CXXFLAGS := -std=gnu++14 \
             -D_GNU_SOURCE \
             -DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
 
-LDFLAGS := $(shell pkg-config --libs glib-2.0) \
-           $(shell $(_LLVM_CONFIG) --ldflags --libs) \
+LDFLAGS := -Wl,--no-undefined \
+           $(shell $(_LLVM_CONFIG) --ldflags) \
+           -Wl,--push-state \
+           -Wl,--as-needed \
+           $(shell $(_LLVM_CONFIG) --libs $(LLVM_COMPONENTS)) \
+           -Wl,--pop-state, \
+           $(shell pkg-config --libs glib-2.0) \
            $(shell $(_LLVM_CONFIG) --system-libs) \
-           -Wl,--no-undefined \
            -ldl \
            -pthread \
            -lboost_filesystem \
