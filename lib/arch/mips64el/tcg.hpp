@@ -19506,6 +19506,7 @@ static void gen_trap(DisasContext *ctx, uint32_t opc,
             generate_exception_end(ctx, EXCP_TRAP);
 
             ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+            ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
             break;
         case OPC_TLT:   /* rs < rs           */
         case OPC_TLTI:  /* r0 < 0            */
@@ -19644,10 +19645,15 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         }
         btgt = ctx->base.pc_next + insn_bytes + offset;
 
-        ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
-        ctx->base.tb->jove.T._conditional_jump.Target = btgt;
-        ctx->base.tb->jove.T._conditional_jump.NextPC =
-            ctx->base.pc_next + 2 * insn_bytes;
+        if (bcond_compute) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._conditional_jump.Target = btgt;
+          ctx->base.tb->jove.T._conditional_jump.NextPC =
+              ctx->base.pc_next + 2 * insn_bytes;
+        } else {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
+        }
         break;
     case OPC_BPOSGE32:
 #if defined(TARGET_MIPS64)
@@ -34032,11 +34038,13 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
         generate_exception_end(ctx, EXCP_SYSCALL);
 
         ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
         break;
     case OPC_BREAK:
         generate_exception_end(ctx, EXCP_BREAK);
 
         ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
         break;
     case OPC_SYNC:
         check_insn(ctx, ISA_MIPS2);
@@ -37595,7 +37603,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
             ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
             ctx->base.tb->jove.T._conditional_jump.Target = ctx->btarget;
             ctx->base.tb->jove.T._conditional_jump.NextPC =
-                ctx->base.pc_next + 4;
+                ctx->base.pc_next + 2 * 4;
             break;
         case OPC_PS_FMT:
             check_ps(ctx);
@@ -38008,12 +38016,13 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
     if (is_slot) {
         gen_branch(ctx, insn_bytes);
         if (__jove_end_pc)
-          __jove_end_pc += 4;
-        } else {
-          ctx->base.tb->jove.T.Addr = ctx->base.pc_next;
+            __jove_end_pc += 4;
+    } else {
+        ctx->base.tb->jove.T.Addr = ctx->base.pc_next;
 
-          ctx->base.pc_next += insn_bytes;
-        }
+        ctx->base.pc_next += insn_bytes; /* XXX if slot don't do this so that
+                                            delay slot is outside BB extent */
+    }
 
     if (ctx->base.is_jmp != DISAS_NEXT) {
         return;
