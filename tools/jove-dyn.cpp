@@ -769,11 +769,12 @@ int ParentProc(pid_t child) {
               ;
 
           bool does_mmap = false
-#ifdef __NR_mmap
+#if   defined(__NR_mmap)
                            || syscallno == __NR_mmap
-#endif
-#ifdef __NR_mmap2
+#elif defined(__NR_mmap2)
                            || syscallno == __NR_mmap2
+#else
+#error
 #endif
               ;
 
@@ -1460,7 +1461,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
 #elif defined(__mips64)
-  abort();
+  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
 #else
 #error
 #endif
@@ -1486,6 +1487,10 @@ void place_breakpoint(pid_t child,
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
+#elif defined(__mips64)
+  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
+#else
+#error
 #endif
 
   // write the word back
@@ -2182,6 +2187,11 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
 
     // thus, if we get here, it's either a file or [vdso]
     auto it = BinPathToIdxMap.find(vm_prop.nm);
+    if (it == BinPathToIdxMap.end()) {
+      WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
+                                            vm_prop.nm);
+    }
+
     if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
       binary_index_t binary_idx = (*it).second;
       BinFoundVec.set(binary_idx);
