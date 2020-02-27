@@ -497,40 +497,48 @@ int recompile(void) {
   //
   // graph-easy
   //
-  pid_t pid = fork();
-  if (!pid) {
-    IgnoreCtrlC();
+  bool haveGraphEasy = fs::exists("/usr/bin/vendor_perl/graph-easy") ||
+                       fs::exists("/usr/bin/graph-easy");
 
-    std::string input_arg = "--input=" + dso_dot_path;
+  if (haveGraphEasy) {
+    pid_t pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
 
-    const char *arg_arr[] = {
-        "/usr/bin/vendor_perl/graph-easy",
+      std::string input_arg = "--input=" + dso_dot_path;
+
+      const char *arg_arr[] = {
+        fs::exists("/usr/bin/vendor_perl/graph-easy")
+            ? "/usr/bin/vendor_perl/graph-easy"
+            : "/usr/bin/graph-easy",
 
         input_arg.c_str(),
 #if 0
 	"--as=ascii",
 #else
-	"--as=boxart",
+        "--as=boxart",
 #endif
 
         nullptr
-    };
+      };
 
-    print_command(&arg_arr[0]);
+      print_command(&arg_arr[0]);
 
-    close(STDIN_FILENO);
-    execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      close(STDIN_FILENO);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
-    int err = errno;
-    WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
-    return 1;
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
+    }
+
+    //
+    // check exit code
+    //
+    if (await_process_completion(pid))
+      WithColor::warning() << "graph-easy failed for " << dso_dot_path << '\n';
   }
-
-  //
-  // check exit code
-  //
-  if (await_process_completion(pid))
-    WithColor::warning() << "graph-easy failed for " << dso_dot_path << '\n';
 
   //
   // topological sort of dynamic linking graph
