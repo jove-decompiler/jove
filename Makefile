@@ -147,7 +147,7 @@ $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 
 .PHONY: clean
 clean:
-	rm -rf $(TOOLBINS) $(UTILBINS) $(TOOLDEPS) $(UTILDEPS) $(BINDIR)/*.bc
+	rm -rf $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(TOOLDEPS) $(UTILDEPS) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
 
 #
 # for extricating QEMU code
