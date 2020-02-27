@@ -4,7 +4,6 @@ namespace jove {
 void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
 } // namespace jove
 
-#include "jove/jove.h"
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
@@ -90,21 +89,32 @@ struct reached_visitor : public boost::default_bfs_visitor {
   }
 };
 
+// XXX code duplication
 static void explode_tcg_global_set(std::vector<unsigned> &out,
                                    tcg_global_set_t glbs) {
   if (glbs.none())
     return;
 
-  out.reserve(glbs.size());
+  out.reserve(glbs.count());
 
-  unsigned long long x = glbs.to_ullong();
-  int idx = 0;
-  do {
-    int pos = ffsll(x);
-    x >>= pos;
-    idx += pos;
-    out.push_back(idx - 1);
-  } while (x);
+  constexpr bool FitsInUnsignedLongLong =
+      tcg_num_globals <= sizeof(unsigned long long) * 8;
+
+  if (FitsInUnsignedLongLong) { /* use ffsll */
+    unsigned long long x = glbs.to_ullong();
+
+    int idx = 0;
+    do {
+      int pos = ffsll(x);
+      x >>= pos;
+      idx += pos;
+      out.push_back(idx - 1);
+    } while (x);
+  } else {
+    for (size_t glb = glbs._Find_first(); glb < glbs.size();
+         glb = glbs._Find_next(glb))
+      out.push_back(glb);
+  }
 }
 
 static void dumpDecompilation(const decompilation_t& decompilation) {
@@ -169,7 +179,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
         }
 
-#if 0
+#if 1
         if (!(ICFG[bb].Analysis.Stale &&
               ICFG[bb].Analysis.live.def.none() &&
               ICFG[bb].Analysis.live.use.none() &&
@@ -290,7 +300,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
 
-#if 0
+#if 1
         if (!(f.Analysis.Stale &&
               f.Analysis.args.none() &&
               f.Analysis.rets.none()))
