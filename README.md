@@ -8,6 +8,8 @@
 - `ninja`
 - `cmake`
 - `python`
+- `libxml2`
+- `z3`
 ## Building llvm
 ```bash
 cd jove/
