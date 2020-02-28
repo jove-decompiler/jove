@@ -10,6 +10,9 @@
 - `python`
 - `libxml2`
 - `z3`
+- `python` `yaml` module
+## Optional
+- `easy-graph` ([debian](https://packages.debian.org/testing/libgraph-easy-perl), [AUR](https://aur.archlinux.org/packages/perl-graph-easy/))
 ## Building llvm
 ```bash
 cd jove/
