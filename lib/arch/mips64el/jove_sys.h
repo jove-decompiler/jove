@@ -102,12 +102,14 @@
                  : "IK"(nr), "r"(__a0), "r"(__a1)                              \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
