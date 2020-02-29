@@ -334,9 +334,9 @@ static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
 #endif
 
-#if defined(__mips64)
+#if defined(__mips64) || defined(__mips__)
 struct user_regs_struct {
-  unsigned long regs[38]; /* XXX TODO */
+  uint64_t regs[38];
 };
 #endif
 
@@ -761,8 +761,8 @@ int ParentProc(pid_t child) {
               gpr.orig_eax
 #elif defined(__aarch64__)
               gpr.regs[8]
-#elif defined(__mips64)
-              gpr.regs[0] /* XXX TODO */
+#elif defined(__mips64) || defined(__mips__)
+              gpr.regs[2]
 #else
 #error
 #endif
