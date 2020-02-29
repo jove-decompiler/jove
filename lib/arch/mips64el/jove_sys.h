@@ -55,12 +55,14 @@
                  : "IK"(nr)                                                    \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
@@ -76,12 +78,14 @@
                  : "IK"(nr), "r"(__a0)                                         \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
@@ -121,12 +125,14 @@
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2)                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
@@ -144,12 +150,14 @@
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2)                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
@@ -169,12 +177,14 @@
                  : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2), "r"(__a4)        \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
@@ -196,12 +206,14 @@
                    "r"(__a5)                                                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
+    long res = __v0;                                                           \
     {                                                                          \
-      long err __attribute__((unused));                                        \
-      err = __a3;                                                              \
+      long _sc_err = __a3;                                                     \
+      if (_sc_err)                                                             \
+        res = -_sc_err;                                                        \
     }                                                                          \
                                                                                \
-    return __v0;                                                               \
+    return res;                                                                \
   }
 
 #include "syscalls.inc.h"
