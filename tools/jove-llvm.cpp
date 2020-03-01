@@ -3995,24 +3995,26 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             unsigned M = syscalls::nparams_tbl[N];
             assert(M < 7);
             switch (M) {
-            case 6:
-              iglbs.set(tcg_syscall_arg6_index);
-            case 5:
-              iglbs.set(tcg_syscall_arg5_index);
-            case 4:
-              iglbs.set(tcg_syscall_arg4_index);
-            case 3:
-              iglbs.set(tcg_syscall_arg3_index);
-            case 2:
-              iglbs.set(tcg_syscall_arg2_index);
-            case 1:
-              iglbs.set(tcg_syscall_arg1_index);
-            case 0:
-              break;
+
+#define __I_CASE(z, _i, _unused)                                                    \
+  case _i:                                                                          \
+    if (!(BOOST_PP_CAT(BOOST_PP_CAT(tcg_syscall_arg,_i),_index) < 0)) \
+      iglbs.set(BOOST_PP_CAT(BOOST_PP_CAT(tcg_syscall_arg,_i),_index));
+
+BOOST_PP_REPEAT_FROM_TO(1, 7, __I_CASE, void)
+
+              case 0:
+                break;
+
+#undef __I_CASE
+
+              default:
+                __builtin_trap();
+                __builtin_unreachable();
             }
 
-	    oglbs.set(tcg_syscall_return_index);
-	    iglbs.set(tcg_syscall_number_index);
+            oglbs.set(tcg_syscall_return_index);
+            iglbs.set(tcg_syscall_number_index);
           }
         }
       } else {
