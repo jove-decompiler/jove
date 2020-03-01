@@ -1433,7 +1433,8 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     return opc == llvm::AArch64::BLR
         || opc == llvm::AArch64::BR;
 #elif defined(__mips64)
-    return false;
+    return opc == llvm::Mips::JALR
+        || opc == llvm::Mips::JR;
 #else
 #error
 #endif
@@ -1523,7 +1524,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #elif defined(__aarch64__)
       gpr.pc
 #elif defined(__mips64)
-      gpr.regs[0] /* XXX TODO */
+      gpr.regs[34]
 #else
 #error
 #endif
@@ -1537,7 +1538,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #elif defined(__aarch64__)
   //pc -= 4; /* brk */
 #elif defined(__mips64)
-  // XXX TODO
+  //pc -= 4; /* break */
 #else
 #error
 #endif
@@ -1572,7 +1573,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   auto &ICFG = binary.Analysis.ICFG;
 
   //
-  // update program counter so it is as it should be
+  // push program counter past instruction in preparation for producing a
+  // return address
   //
   pc += IndBrInfo.InsnBytes.size();
 
@@ -1693,6 +1695,43 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #undef __REG_CASE
 
+#elif defined(__mips64)
+
+    case llvm::Mips::ZERO: return 0;
+    //case llvm::Mips::AT: return gpr.regs[1];
+    case llvm::Mips::V0: return gpr.regs[2];
+    case llvm::Mips::V1: return gpr.regs[3];
+    case llvm::Mips::A0: return gpr.regs[4];
+    case llvm::Mips::A1: return gpr.regs[5];
+    case llvm::Mips::A2: return gpr.regs[6];
+    case llvm::Mips::A3: return gpr.regs[7];
+    case llvm::Mips::T0: return gpr.regs[8];
+    case llvm::Mips::T1: return gpr.regs[9];
+    case llvm::Mips::T2: return gpr.regs[10];
+    case llvm::Mips::T3: return gpr.regs[11];
+    case llvm::Mips::T4: return gpr.regs[12];
+    case llvm::Mips::T5: return gpr.regs[13];
+    case llvm::Mips::T6: return gpr.regs[14];
+    case llvm::Mips::T7: return gpr.regs[15];
+    case llvm::Mips::S0: return gpr.regs[16];
+    case llvm::Mips::S1: return gpr.regs[17];
+    case llvm::Mips::S2: return gpr.regs[18];
+    case llvm::Mips::S3: return gpr.regs[19];
+    case llvm::Mips::S4: return gpr.regs[20];
+    case llvm::Mips::S5: return gpr.regs[21];
+    case llvm::Mips::S6: return gpr.regs[22];
+    case llvm::Mips::S7: return gpr.regs[23];
+    case llvm::Mips::T8: return gpr.regs[24];
+    case llvm::Mips::T9: return gpr.regs[25];
+
+
+    case llvm::Mips::GP: return gpr.regs[28];
+    case llvm::Mips::SP: return gpr.regs[29];
+    case llvm::Mips::FP: return gpr.regs[30];
+    case llvm::Mips::RA: return gpr.regs[31];
+
+#else
+#error
 #endif
 
     default:
@@ -1777,6 +1816,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     case llvm::AArch64::BR: /* br x17 */
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
+
+#elif defined(__mips64)
+
+    case llvm::Mips::JALR: /* jalr $25 */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+
+    case llvm::Mips::JR: /* jr $25 */
+      assert(Inst.getOperand(0).isReg());
+      return RegValue(Inst.getOperand(0).getReg());
+
+#else
+#error
 #endif
 
     default:
@@ -1799,6 +1851,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     _ptrace_pokedata(child, gpr.esp, pc);
 #elif defined(__aarch64__)
     gpr.regs[30 /* lr */] = pc;
+#elif defined(__mips64)
+    gpr.regs[31 /* ra */] = pc + 4; /* delay slot */
+#else
+#error
 #endif
   }
 
@@ -2181,7 +2237,9 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     if (vm_prop.nm.empty())
       continue;
     if (vm_prop.nm[0] != '/') {
-      if (vm_prop.nm.find("[vdso]") == std::string::npos)
+      if (vm_prop.nm.find("[vdso]") != std::string::npos)
+        continue;
+      if (vm_prop.nm.find("[stack]") != std::string::npos)
         continue;
     }
 
