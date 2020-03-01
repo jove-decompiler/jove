@@ -59,7 +59,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -82,7 +82,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -106,7 +106,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -131,7 +131,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -156,7 +156,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -184,7 +184,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
@@ -213,7 +213,7 @@
     {                                                                          \
       long _sc_err = __a3;                                                     \
       if (_sc_err)                                                             \
-        res = -_sc_err;                                                        \
+        res = -res;                                                            \
     }                                                                          \
                                                                                \
     return res;                                                                \
