@@ -26,6 +26,8 @@ else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
 ARCH := arm
 else ifeq "$(GCC_TARGET)" "mips64el-linux-gnuabi64"
 ARCH := mips64el
+else ifeq "$(GCC_TARGET)" "mipsel-linux-gnu"
+ARCH := mipsel
 else
 $(error "Unknown GCC target $(GCC_TARGET)")
 endif

@@ -16,6 +16,8 @@ else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
 _LLVM_TARGETS_TO_BUILD := ARM
 else ifeq "$(GCC_TARGET)" "mips64el-linux-gnuabi64"
 _LLVM_TARGETS_TO_BUILD := Mips
+else ifeq "$(GCC_TARGET)" "mipsel-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := Mips
 else
 $(error "Unknown GCC target $(GCC_TARGET)")
 endif
