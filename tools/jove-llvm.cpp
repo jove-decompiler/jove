@@ -6781,11 +6781,11 @@ int PrepareToOptimize(void) {
 }
 
 static void ReloadGlobalVariables(void) {
-  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",          true);
+  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",               true);
   TPBaseGlobal     = Module->getGlobalVariable("__jove_thread_pointer_base", true);
-  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",            true);
-  SectsGlobal      = Module->getGlobalVariable("__jove_sections",       true);
-  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const", true);
+  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",                 true);
+  SectsGlobal      = Module->getGlobalVariable("__jove_sections",            true);
+  ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
 }
 
 static int DoOptimize(void) {
