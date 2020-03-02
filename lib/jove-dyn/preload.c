@@ -11,11 +11,10 @@
 #define EXECUTABLE_REGION_SIZE (4096 * 16)
 
 #define _CTOR   __attribute__((constructor))
-#define _HIDDEN __attribute__((visibility("hidden")))
 
 static void PrintMessageOrDie(const char *format, ...);
 
-_CTOR _HIDDEN static void preload_init(void) {
+_CTOR static void preload_init(void) {
   const char *fifo_path = getenv("JOVE_DYN_FIFO_PATH");
   if (!fifo_path)
     return;
