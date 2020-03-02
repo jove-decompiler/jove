@@ -98,6 +98,10 @@ JOVE_RT_SO     := libjove_rt.so
 JOVE_RT_SONAME := $(JOVE_RT_SO).0
 JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
 
+JOVE_DYN_PRELOAD_SO     := libjove_dyn_preload.so
+JOVE_DYN_PRELOAD_SONAME := $(JOVE_DYN_PRELOAD_SO).0
+JOVE_DYN_PRELOAD        := $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME)
+
 #
 # TCG helpers (for each architecture)
 #
@@ -112,7 +116,7 @@ mips64el_HELPERS := raise_exception_err raise_exception raise_exception_debug sd
 HELPERS_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 HELPERS_DFSAN_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).dfsan.bc)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
 
 helpers: $(HELPERS_BITCODE)
 
@@ -139,6 +143,11 @@ $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
 	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
+
+$(JOVE_DYN_PRELOAD): lib/jove-dyn/preload.c
+	@echo CC $<
+	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_DYN_PRELOAD_SONAME) -Ofast -fno-stack-protector -fPIC -g -Wall $<
+	@ln -sf $(JOVE_DYN_PRELOAD_SONAME) $(BINDIR)/$(JOVE_DYN_PRELOAD_SO)
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 	@echo CC $<
