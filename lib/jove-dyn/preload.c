@@ -55,6 +55,8 @@ success:
   if (close(fd) < 0)
     PrintMessageOrDie("%s: close failed (%s)\n", __func__, strerror(errno));
 
+  return;
+
 failure:
   //
   // if we failed, unmap the region
