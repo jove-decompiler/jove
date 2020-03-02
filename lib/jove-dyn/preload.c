@@ -10,7 +10,7 @@
 
 #define EXECUTABLE_REGION_SIZE (4096 * 16)
 
-#define _CTOR   __attribute__((constructor))
+#define _CTOR __attribute__((constructor))
 
 static void PrintMessageOrDie(const char *format, ...);
 
