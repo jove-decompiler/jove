@@ -8,6 +8,7 @@
 #include <cinttypes>
 #include <array>
 #include <boost/filesystem.hpp>
+#include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -2478,41 +2479,47 @@ int ChildProc(void) {
   // signal-delivery-stop.
   //
 
-  std::vector<char *> arg_vec;
-  arg_vec.push_back(const_cast<char *>(opts::Prog.c_str()));
+  std::vector<const char *> arg_vec;
+  arg_vec.push_back(opts::Prog.c_str());
 
-  {
-    std::vector<char *> _arg_vec;
-    _arg_vec.resize(opts::Args.size());
-    std::transform(opts::Args.begin(), opts::Args.end(), _arg_vec.begin(),
-                   [](const std::string &arg) -> char * {
-                     return const_cast<char *>(arg.c_str());
-                   });
-
-    arg_vec.insert(arg_vec.end(), _arg_vec.begin(), _arg_vec.end());
-  }
+  for (const std::string &Arg : opts::Args)
+    arg_vec.push_back(Arg.c_str());
 
   arg_vec.push_back(nullptr);
 
-  std::vector<char *> env_vec;
+  std::vector<const char *> env_vec;
   for (char **env = ::environ; *env; ++env)
     env_vec.push_back(*env);
-  env_vec.push_back(const_cast<char *>("LD_BIND_NOW=1"));
+  env_vec.push_back("LD_BIND_NOW=1");
 
-  {
-    std::vector<char *> _env_vec;
-    _env_vec.resize(opts::Envs.size());
-    std::transform(opts::Envs.begin(), opts::Envs.end(), _env_vec.begin(),
-                   [](const std::string &arg) -> char * {
-                     return const_cast<char *>(arg.c_str());
-                   });
+#ifdef __mips64
+  std::string jove_dyn_preload_lib_path =
+      fs::canonical(boost::dll::program_location().parent_path() /
+                    "libjove_dyn_preload.so")
+          .string();
 
-    env_vec.insert(env_vec.end(), _env_vec.begin(), _env_vec.end());
+  if (!fs::exists(jove_dyn_preload_lib_path)) {
+    WithColor::error() << llvm::formatv(
+        "could not find libjove_dyn_preload.so at {0}\n",
+        jove_dyn_preload_lib_path.c_str());
+
+    return 1;
   }
+
+  std::string jove_dyn_preload_lib_arg =
+      "LD_PRELOAD=" + jove_dyn_preload_lib_path;
+
+  env_vec.push_back(jove_dyn_preload_lib_arg.c_str());
+#endif
+
+  for (const std::string &Env : opts::Envs)
+    env_vec.push_back(Env.c_str());
 
   env_vec.push_back(nullptr);
 
-  execve(opts::Prog.c_str(), arg_vec.data(), env_vec.data());
+  execve(arg_vec[0],
+         const_cast<char **>(&arg_vec[0]),
+         const_cast<char **>(&env_vec[0]));
 
   /* if we got here, execve failed */
   int err = errno;
