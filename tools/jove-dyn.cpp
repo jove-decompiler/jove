@@ -2422,6 +2422,10 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         IndBrInfo.bbidx = bbidx;
         IndBrInfo.TermAddr = bbprop.Term.Addr;
         IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#ifdef __mips64
+        IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
+        assert(IndBrInfo.InsnBytes.size() == sizeof(uint64_t));
+#endif
 
         auto sectit = st.SectMap.find(bbprop.Term.Addr);
         assert(sectit != st.SectMap.end());
