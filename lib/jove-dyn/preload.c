@@ -6,6 +6,7 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <stdarg.h>
 
 #define EXECUTABLE_REGION_SIZE (4096 * 16)
@@ -28,11 +29,9 @@ _CTOR static void preload_init(void) {
     return;
   }
 
-  (void)unlink(fifo_path);
-
-  int fd = mkfifo(fifo_path, 0666);
+  int fd = open(fifo_path, O_WRONLY);
   if (fd < 0) {
-    PrintMessageOrDie("%s: mkfifo failed (%s)\n", __func__, strerror(errno));
+    PrintMessageOrDie("%s: open failed (%s)\n", __func__, strerror(errno));
     goto failure;
   }
 
@@ -51,30 +50,31 @@ _CTOR static void preload_init(void) {
     goto failure;
   }
 
-success:
-  if (close(fd) < 0)
-    PrintMessageOrDie("%s: close failed (%s)\n", __func__, strerror(errno));
-
-  return;
-
 failure:
   //
   // if we failed, unmap the region
   //
   if (munmap(addr, EXECUTABLE_REGION_SIZE) < 0)
     PrintMessageOrDie("%s: munmap failed (%s)\n", __func__, strerror(errno));
+
+success:
+  if (!(fd < 0) && close(fd) < 0)
+    PrintMessageOrDie("%s: close failed (%s)\n", __func__, strerror(errno));
 }
 
 void PrintMessageOrDie(const char *format, ...) {
+  char buff[0x100];
+
   va_list ap;
   va_start(ap, format);
 
-  char buff[0x100];
   int len = vsnprintf(buff, sizeof(buff), format, ap);
   if (len < 0) {
     __builtin_trap();
     __builtin_unreachable();
   }
+
+  va_end(ap);
 
   ssize_t ret;
   do
