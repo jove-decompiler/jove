@@ -310,6 +310,7 @@ struct indirect_branch_t {
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
+  bool IsCall;
 };
 
 static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
@@ -380,6 +381,24 @@ static void fifo_reader(const char *fifo_path);
 
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
+
+#if 0
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_NOCLDWAIT;
+    sa.sa_handler = SIG_DFL;
+
+    if (sigaction(SIGINT, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+#elif 0
+  signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
+#endif
 
 #ifdef __mips64
   {
@@ -1388,7 +1407,9 @@ basic_block_index_t translate_basic_block(pid_t child,
       uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
 
       assert(IndBrMap.find(termpc) == IndBrMap.end());
+
       indirect_branch_t &indbr = IndBrMap[termpc];
+      indbr.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
       indbr.binary_idx = binary_idx;
       indbr.bbidx = bbidx;
       indbr.TermAddr = bbprop.Term.Addr;
@@ -1489,6 +1510,11 @@ void place_breakpoint_at_indirect_branch(pid_t child,
                                          uintptr_t Addr,
                                          indirect_branch_t &indbr,
                                          disas_t &dis) {
+#ifdef __mips64
+  if (indbr.IsCall)
+    return;
+#endif
+
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
@@ -1552,6 +1578,11 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 
       _ptrace_pokedata(child, ExecutableRegionAddress, key);
       TrampolineMap.insert({key, ExecutableRegionAddress});
+
+      if (opts::VeryVerbose)
+        WithColor::note() << llvm::formatv("mips64 trampoline @ {0:x}\n",
+                                           ExecutableRegionAddress);
+
       ExecutableRegionAddress += sizeof(key);
     }
   }
@@ -2418,6 +2449,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         assert(IndBrMap.find(Addr) == IndBrMap.end());
 
         indirect_branch_t &IndBrInfo = IndBrMap[Addr];
+        IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
         IndBrInfo.binary_idx = binary_idx;
         IndBrInfo.bbidx = bbidx;
         IndBrInfo.TermAddr = bbprop.Term.Addr;
