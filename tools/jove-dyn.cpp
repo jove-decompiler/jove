@@ -7,6 +7,7 @@
 #include <fstream>
 #include <cinttypes>
 #include <array>
+#include <thread>
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
@@ -145,8 +146,8 @@ static cl::alias PrintSignalsAlias("s", cl::desc("Alias for -signals."),
 
 namespace jove {
 
-static int ChildProc(void);
-static int ParentProc(pid_t child);
+static int ChildProc(const char *fifo_path);
+static int ParentProc(pid_t child, const char *fifo_path);
 
 }
 
@@ -209,14 +210,22 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  std::string fifo_path = tmpnam(nullptr);
+
+  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("mkfifo failed ({0})\n", strerror(err));
+    return 1;
+  }
+
   pid_t child = fork();
   if (!child)
-    return jove::ChildProc();
+    return jove::ChildProc(fifo_path.c_str());
 
 #ifndef __mips64
-  return jove::ParentProc(child);
+  return jove::ParentProc(child, fifo_path.c_str());
 #else
-  int rc = jove::ParentProc(child);
+  int rc = jove::ParentProc(child, fifo_path.c_str());
   syscall(__NR_exit_group, rc);
   __builtin_trap();
   __builtin_unreachable();
@@ -231,6 +240,8 @@ static decompilation_t decompilation;
 
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
+
+static void *ExecutableRegionAddress = nullptr;
 
 static bool SeenExec = false;
 
@@ -359,8 +370,19 @@ typedef typename obj::ELF32LEFile ELFT;
 
 static void IgnoreCtrlC(void);
 
-int ParentProc(pid_t child) {
+#ifdef __mips64
+static void fifo_reader(const char *fifo_path);
+#endif
+
+int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
+
+#ifdef __mips64
+  {
+    std::thread fifo_thread(fifo_reader, fifo_path);
+    fifo_thread.detach(); /* go be free */
+  }
+#endif
 
   //
   // observe the (initial) signal-delivery-stop
@@ -706,8 +728,10 @@ int ParentProc(pid_t child) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(SeenExec && !BinFoundVec.all() ? PTRACE_SYSCALL
-                                                           : PTRACE_CONT,
+        if (unlikely(ptrace(SeenExec && (!BinFoundVec.all() ||
+                                         !ExecutableRegionAddress)
+                                ? PTRACE_SYSCALL
+                                : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
           WithColor::error() << "failed to resume tracee : " << strerror(errno)
                              << '\n';
@@ -779,8 +803,12 @@ int ParentProc(pid_t child) {
 #endif
               ;
 
-          if (does_mmap)
-            search_address_space_for_binaries(child, dis);
+          if (does_mmap) {
+            if (!ExecutableRegionAddress)
+              WithColor::note() << "!ExecutableRegionAddress\n";
+            else
+              search_address_space_for_binaries(child, dis);
+          }
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
@@ -873,7 +901,7 @@ int ParentProc(pid_t child) {
       }
     }
   } catch (const std::exception &e) {
-    WithColor::note() << llvm::formatv("{0}\n", e.what());
+    WithColor::note() << llvm::formatv("exception! {0}\n", e.what());
   }
 
   {
@@ -936,6 +964,35 @@ int ParentProc(pid_t child) {
 
   return 0;
 }
+
+#ifdef __mips64
+void fifo_reader(const char *fifo_path) {
+  int fd = open(fifo_path, O_RDONLY);
+  if (fd < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("failed to open fifo \"{0}\" ({1})\n",
+                                        fifo_path, strerror(err));
+  }
+
+  {
+    void *addr;
+    ssize_t ret;
+    do
+      ret = read(fd, &addr, sizeof(addr));
+    while (ret < 0 && errno == EINTR);
+
+    if (ret == sizeof(addr)) {
+      if (opts::VeryVerbose)
+        WithColor::note() << llvm::formatv("ExecutableRegionAddress: {0}\n",
+                                           addr);
+      ExecutableRegionAddress = addr;
+    } else {
+      WithColor::error() << llvm::formatv("{0}: read gave {1}\n",
+                                          __func__, ret);
+    }
+  }
+}
+#endif
 
 void IgnoreCtrlC(void) {
   struct sigaction sa;
@@ -2463,7 +2520,7 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
                              std::string(strerror(errno)));
 }
 
-int ChildProc(void) {
+int ChildProc(const char *fifo_path) {
   //
   // the request
   //
@@ -2508,8 +2565,10 @@ int ChildProc(void) {
 
   std::string jove_dyn_preload_lib_arg =
       "LD_PRELOAD=" + jove_dyn_preload_lib_path;
-
   env_vec.push_back(jove_dyn_preload_lib_arg.c_str());
+
+  std::string fifo_path_arg = std::string("JOVE_DYN_FIFO_PATH=") + fifo_path;
+  env_vec.push_back(fifo_path_arg.c_str());
 #endif
 
   for (const std::string &Env : opts::Envs)
