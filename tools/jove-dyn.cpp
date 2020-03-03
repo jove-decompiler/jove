@@ -991,6 +991,12 @@ void fifo_reader(const char *fifo_path) {
                                           __func__, ret);
     }
   }
+
+  if (close(fd) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: close failed ({1})\n", __func__,
+                                        strerror(err));
+  }
 }
 #endif
 
