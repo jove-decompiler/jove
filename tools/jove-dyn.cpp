@@ -241,9 +241,13 @@ static decompilation_t decompilation;
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
 
-static void *ExecutableRegionAddress = nullptr;
+static uintptr_t ExecutableRegionAddress = 0x0;
 
 static bool SeenExec = false;
+
+#ifdef __mips64
+static std::unordered_map<uint64_t, uintptr_t> TrampolineMap;
+#endif
 
 struct vm_properties_t {
   uintptr_t beg;
@@ -985,7 +989,9 @@ void fifo_reader(const char *fifo_path) {
       if (opts::VeryVerbose)
         WithColor::note() << llvm::formatv("ExecutableRegionAddress: {0}\n",
                                            addr);
-      ExecutableRegionAddress = addr;
+      assert(!ExecutableRegionAddress);
+
+      ExecutableRegionAddress = reinterpret_cast<uintptr_t>(addr);
     } else {
       WithColor::error() << llvm::formatv("{0}: read gave {1}\n",
                                           __func__, ret);
@@ -1387,7 +1393,10 @@ basic_block_index_t translate_basic_block(pid_t child,
       indbr.bbidx = bbidx;
       indbr.TermAddr = bbprop.Term.Addr;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-
+#ifdef __mips64
+      indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
+      assert(indbr.InsnBytes.size() == sizeof(uint64_t));
+#endif
       memcpy(&indbr.InsnBytes[0],
              &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
              indbr.InsnBytes.size());
@@ -1399,9 +1408,9 @@ basic_block_index_t translate_basic_block(pid_t child,
 
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
       uint64_t InstLen;
-      bool Disassembled = DisAsm.getInstruction(
-        Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
-        llvm::nulls());
+      bool Disassembled =
+          DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
+                                bbprop.Term.Addr, llvm::nulls(), llvm::nulls());
       assert(Disassembled);
 
       ++brkpt_count;
@@ -1529,6 +1538,23 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
 #else
 #error
+#endif
+
+#ifdef __mips64
+  {
+    /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
+    assert(indbr.InsnBytes.size() == sizeof(uint64_t));
+    uint64_t key = *((uint64_t *)indbr.InsnBytes.data());
+
+    auto it = TrampolineMap.find(key);
+    if (it == TrampolineMap.end()) {
+      assert(ExecutableRegionAddress);
+
+      _ptrace_pokedata(child, ExecutableRegionAddress, key);
+      TrampolineMap.insert({key, ExecutableRegionAddress});
+      ExecutableRegionAddress += sizeof(key);
+    }
+  }
 #endif
 
   // write the word back
@@ -1925,7 +1951,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   // set program counter to be branch target
   //
+#ifndef __mips64
   pc = target;
+#else
+  {
+    auto it = TrampolineMap.find(*((uint64_t *)IndBrInfo.InsnBytes.data()));
+    if (it == TrampolineMap.end()) {
+      throw std::runtime_error(
+          (fmt("no trampoline for breakpoint @ %#lx\n") % _pc).str());
+    } else {
+      pc = (*it).second;
+    }
+  }
+#endif
 
   if (opts::VeryVerbose)
     llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
