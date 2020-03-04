@@ -263,9 +263,11 @@ int recompile(void) {
     return 1;
   }
 
-  opt_path = "/usr/bin/opt";
+  opt_path = (boost::dll::program_location().parent_path().parent_path() /
+              "third_party" / "llvm-project" / "install" / "bin" / "opt")
+                 .string();
   if (!fs::exists(opt_path)) {
-    WithColor::error() << "could not find /usr/bin/opt\n";
+    WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);
     return 1;
   }
 
