@@ -485,6 +485,7 @@ int add(void) {
     }
   }
 
+  uintptr_t initFunctionAddr = 0;
   //
   // parse dynamic table
   //
@@ -521,6 +522,9 @@ int add(void) {
         break;
       case llvm::ELF::DT_NEEDED:
         IsStaticallyLinked = false;
+        break;
+      case llvm::ELF::DT_INIT:
+        initFunctionAddr = Dyn.getVal();
         break;
       }
     };
@@ -596,6 +600,12 @@ int add(void) {
       translate_function(binary, tcg, dis, Sym.st_value);
     }
   }
+
+  //
+  // translate constructors
+  //
+  if (initFunctionAddr)
+    translate_function(binary, tcg, dis, initFunctionAddr);
 
   //
   // translate all exported functions
