@@ -840,10 +840,14 @@ int ParentProc(pid_t child, const char *fifo_path) {
               ;
 
           if (does_mmap) {
-            if (!ExecutableRegionAddress)
+#if defined(__mips64) || defined(__mips__)
+            if (!ExecutableRegionAddress) {
               WithColor::note() << "!ExecutableRegionAddress\n";
-            else
+            } else
+#endif
+            {
               search_address_space_for_binaries(child, dis);
+            }
           }
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
