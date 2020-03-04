@@ -242,6 +242,7 @@ static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
 
 static uintptr_t ExecutableRegionAddress = 0x0;
+static size_t ExecutableRegionSpent = 0;
 
 static bool SeenExec = false;
 
@@ -310,6 +311,14 @@ struct indirect_branch_t {
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
+#ifdef __mips64
+#ifdef ___mips
+#error
+#endif
+  struct {
+    llvm::MCInst Inst;
+  } ___mips;
+#endif
   bool IsCall;
 };
 
@@ -1428,11 +1437,25 @@ basic_block_index_t translate_basic_block(pid_t child,
       llvm::MCInst &Inst = indbr.Inst;
 
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-      uint64_t InstLen;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
-                                bbprop.Term.Addr, llvm::nulls(), llvm::nulls());
-      assert(Disassembled);
+      {
+        uint64_t InstLen;
+        bool Disassembled =
+            DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
+                                  bbprop.Term.Addr, llvm::errs(), llvm::errs());
+        assert(Disassembled);
+      }
+
+#ifdef __mips64
+      {
+        uint64_t InstLen;
+        bool Disassembled = DisAsm.getInstruction(
+            indbr.___mips.Inst, InstLen,
+            llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
+            bbprop.Term.Addr + 4,
+            llvm::errs(), llvm::errs());
+        assert(Disassembled);
+      }
+#endif
 
       ++brkpt_count;
       place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
@@ -1510,11 +1533,6 @@ void place_breakpoint_at_indirect_branch(pid_t child,
                                          uintptr_t Addr,
                                          indirect_branch_t &indbr,
                                          disas_t &dis) {
-#ifdef __mips64
-  if (indbr.IsCall)
-    return;
-#endif
-
   llvm::MCInst &Inst = indbr.Inst;
 
   auto is_opcode_handled = [](unsigned opc) -> bool {
@@ -1567,6 +1585,47 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #endif
 
 #ifdef __mips64
+  auto encoding_of_jump_to_reg = [](unsigned r) -> uint32_t {
+    switch (r) {
+      case llvm::Mips::ZERO: return 0x00000008;
+      case llvm::Mips::AT:   return 0x00200008;
+      case llvm::Mips::V0:   return 0x00400008;
+      case llvm::Mips::V1:   return 0x00600008;
+      case llvm::Mips::A0:   return 0x00800008;
+      case llvm::Mips::A1:   return 0x00a00008;
+      case llvm::Mips::A2:   return 0x00c00008;
+      case llvm::Mips::A3:   return 0x00e00008;
+      case llvm::Mips::T0:   return 0x01000008;
+      case llvm::Mips::T1:   return 0x01200008;
+      case llvm::Mips::T2:   return 0x01400008;
+      case llvm::Mips::T3:   return 0x01600008;
+      case llvm::Mips::T4:   return 0x01800008;
+      case llvm::Mips::T5:   return 0x01a00008;
+      case llvm::Mips::T6:   return 0x01c00008;
+      case llvm::Mips::T7:   return 0x01e00008;
+      case llvm::Mips::S0:   return 0x02000008;
+      case llvm::Mips::S1:   return 0x02200008;
+      case llvm::Mips::S2:   return 0x02400008;
+      case llvm::Mips::S3:   return 0x02600008;
+      case llvm::Mips::S4:   return 0x02800008;
+      case llvm::Mips::S5:   return 0x02a00008;
+      case llvm::Mips::S6:   return 0x02c00008;
+      case llvm::Mips::S7:   return 0x02e00008;
+      case llvm::Mips::T8:   return 0x03000008;
+      case llvm::Mips::T9:   return 0x03200008;
+      case llvm::Mips::K0:   return 0x03400008;
+      case llvm::Mips::K1:   return 0x03600008;
+      case llvm::Mips::GP:   return 0x03800008;
+      case llvm::Mips::SP:   return 0x03a00008;
+      case llvm::Mips::FP:   return 0x03c00008;
+      case llvm::Mips::RA:   return 0x03e00008;
+
+      default:
+        __builtin_trap();
+        __builtin_unreachable();
+    }
+  };
+
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
     assert(indbr.InsnBytes.size() == sizeof(uint64_t));
@@ -1576,7 +1635,30 @@ void place_breakpoint_at_indirect_branch(pid_t child,
     if (it == TrampolineMap.end()) {
       assert(ExecutableRegionAddress);
 
-      _ptrace_pokedata(child, ExecutableRegionAddress, key);
+      uint64_t val = key;
+
+      if (indbr.IsCall) {
+        assert(Inst.getOpcode() == llvm::Mips::JALR);
+        assert(Inst.getNumOperands() == 2);
+        assert(Inst.getOperand(0).isReg());
+        assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+        assert(Inst.getOperand(1).isReg());
+
+#if 0
+        if (Inst.getNumOperands() != 1) {
+          WithColor::error() << llvm::formatv(
+              "{0}: unknown number ({1}) of operands [{2}]\n", __func__,
+              Inst.getNumOperands(), StringOfMCInst(Inst, dis));
+        }
+#endif
+
+        uint32_t first_insn_replacement =
+            encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
+
+        ((uint32_t *)&val)[0] = first_insn_replacement;
+      }
+
+      _ptrace_pokedata(child, ExecutableRegionAddress, val);
       TrampolineMap.insert({key, ExecutableRegionAddress});
 
       if (opts::VeryVerbose)
@@ -1584,6 +1666,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
                                            ExecutableRegionAddress);
 
       ExecutableRegionAddress += sizeof(key);
+      ExecutableRegionSpent += sizeof(key);
     }
   }
 #endif
@@ -1818,7 +1901,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #elif defined(__mips64)
 
-    case llvm::Mips::ZERO: return 0;
+    //case llvm::Mips::ZERO: return 0;
     //case llvm::Mips::AT: return gpr.regs[1];
     case llvm::Mips::V0: return gpr.regs[2];
     case llvm::Mips::V1: return gpr.regs[3];
@@ -1941,10 +2024,28 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__mips64)
 
     case llvm::Mips::JALR: /* jalr $25 */
+#if 0
+      assert(Inst.getNumOperands() == 1 ||
+             Inst.getNumOperands() == 2);
+
+      for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
+        assert(Inst.getOperand(i).isReg());
+        if (Inst.getOperand(i).getReg() == llvm::Mips::RA)
+          continue;
+
+        return RegValue(Inst.getOperand(i).getReg());
+      }
+      abort();
+#else
+      assert(Inst.getNumOperands() == 2);
       assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
+      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+      assert(Inst.getOperand(1).isReg());
+      return RegValue(Inst.getOperand(1).getReg());
+#endif
 
     case llvm::Mips::JR: /* jr $25 */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
@@ -1973,7 +2074,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__aarch64__)
     gpr.regs[30 /* lr */] = pc;
 #elif defined(__mips64)
-    gpr.regs[31 /* ra */] = pc + 4; /* delay slot */
+    gpr.regs[31 /* ra */] = pc;
 #else
 #error
 #endif
@@ -1997,16 +2098,51 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
 
   if (opts::VeryVerbose)
-    llvm::errs() << (fmt("target=%#lx") % target).str() << '\n';
+    llvm::errs() << llvm::formatv("{0}: target={1:x} {2} [{3}]"
+#ifdef __mips64
+                                  " ; {4} [{5}]"
+#endif
+                                  "\n",
+
+                                  __func__,
+                                  target,
+                                  Inst,
+                                  StringOfMCInst(Inst, dis),
+#ifdef __mips64
+                                  IndBrInfo.___mips.Inst,
+                                  StringOfMCInst(IndBrInfo.___mips.Inst, dis),
+#endif
+                                  0 /* XXX unused */
+                                  );
+
+  if (opts::VeryVerbose && ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
+#ifdef __mips64
+    auto ra = gpr.regs[31];
+
+    auto it = AddressSpace.find(ra);
+    if (it == AddressSpace.end()) {
+      WithColor::warning() << llvm::formatv("{0}: unknown binary for ra {1}\n",
+                                            __func__,
+                                            description_of_program_counter(ra));
+      return;
+    }
+
+    binary_index_t binary_idx = *(*it).second.begin();
+
+    llvm::errs() << llvm::formatv("{0}: return address is {1:x}\n",
+                                  __func__,
+                                  rva_of_va(ra, binary_idx));
+#endif
+  }
 
   //
   // update the decompilation based on the target
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    if (!opts::Quiet)
-      llvm::errs() << "warning: unknown binary for "
-                   << description_of_program_counter(target) << '\n';
+    WithColor::warning() << llvm::formatv("{0}: unknown binary for target {1}\n",
+                                          __func__,
+                                          description_of_program_counter(target));
     return;
   }
 
@@ -2472,11 +2608,24 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         //
         llvm::MCInst &Inst = IndBrInfo.Inst;
 
-        uint64_t InstLen;
-        bool Disassembled = DisAsm.getInstruction(
-            Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
-            llvm::nulls());
-        assert(Disassembled);
+        {
+          uint64_t InstLen;
+          bool Disassembled = DisAsm.getInstruction(
+              Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
+              llvm::errs(), llvm::errs());
+          assert(Disassembled);
+        }
+
+#ifdef __mips64
+        {
+          uint64_t InstLen;
+          bool Disassembled = DisAsm.getInstruction(
+              IndBrInfo.___mips.Inst, InstLen,
+              llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
+              bbprop.Term.Addr + 4, llvm::errs(), llvm::errs());
+          assert(Disassembled);
+        }
+#endif
 
         place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
         ++cnt;
@@ -2756,6 +2905,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
 
     IP.printInst(&Inst, ss, "", STI);
 
+#if 0
     ss << '\n';
     ss << "[opcode: " << Inst.getOpcode() << ']';
     for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
@@ -2779,6 +2929,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
     }
 
     ss << '\n';
+#endif
   }
 
   return res;

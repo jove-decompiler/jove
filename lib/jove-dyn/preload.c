@@ -29,6 +29,8 @@ _CTOR static void preload_init(void) {
     return;
   }
 
+  memset(addr, 0, EXECUTABLE_REGION_SIZE);
+
   int fd = open(fifo_path, O_WRONLY);
   if (fd < 0) {
     PrintMessageOrDie("%s: open failed (%s)\n", __func__, strerror(errno));
