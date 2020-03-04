@@ -845,9 +845,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
               WithColor::note() << "!ExecutableRegionAddress\n";
             } else
 #endif
-            {
-              search_address_space_for_binaries(child, dis);
-            }
+            { search_address_space_for_binaries(child, dis); }
           }
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
