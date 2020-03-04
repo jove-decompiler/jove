@@ -241,14 +241,14 @@ static decompilation_t decompilation;
 static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
 
+#if defined(__mips64) || defined(__mips__)
 static uintptr_t ExecutableRegionAddress = 0x0;
 static size_t ExecutableRegionSpent = 0;
 
-static bool SeenExec = false;
-
-#ifdef __mips64
 static std::unordered_map<uint64_t, uintptr_t> TrampolineMap;
 #endif
+
+static bool SeenExec = false;
 
 struct vm_properties_t {
   uintptr_t beg;
@@ -761,7 +761,11 @@ int ParentProc(pid_t child, const char *fifo_path) {
     for (;;) {
       if (likely(!(child < 0))) {
         if (unlikely(ptrace(SeenExec && (!BinFoundVec.all() ||
+#if defined(__mips64) || defined(__mips__)
                                          !ExecutableRegionAddress)
+#else
+                                         false)
+#endif
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
