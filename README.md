@@ -3,6 +3,7 @@
 - Arch Linux (x86_64)
 - Arch Linux 32 (i386)
 - Arch Linux ARM (arm64)
+- Debian 11 (mips64el)
 ## Prerequisites
 - `gcc`,`g++`
 - `ninja`
