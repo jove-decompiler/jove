@@ -251,6 +251,10 @@ int recompile(void) {
   ld_path = lld_path;
 #elif defined(__aarch64__)
   ld_path = ld_bfd_path;
+#elif defined(__mips64)
+  ld_path = ld_bfd_path;
+#else
+#error
 #endif
 
   if (!fs::exists(ld_path)) {
