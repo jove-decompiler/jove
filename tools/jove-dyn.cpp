@@ -243,7 +243,7 @@ static bool update_view_of_virtual_memory(pid_t child);
 
 #if defined(__mips64) || defined(__mips__)
 static uintptr_t ExecutableRegionAddress = 0x0;
-static size_t ExecutableRegionSpent = 0;
+static size_t ExecutableRegionUsed = 0;
 
 static std::unordered_map<uint64_t, uintptr_t> TrampolineMap;
 #endif
@@ -830,16 +830,25 @@ int ParentProc(pid_t child, const char *fifo_path) {
               ;
 
           bool does_mmap = false
-#if   defined(__NR_mmap)
+#ifdef __NR_mmap
                            || syscallno == __NR_mmap
-#elif defined(__NR_mmap2)
+#endif
+#ifdef __NR_mmap2
                            || syscallno == __NR_mmap2
-#else
-#error
+#endif
+
+#if !defined(__NR_mmap) && !defined(__NR_mmap2)
+#error "we should have at least one"
 #endif
               ;
 
-          if (does_mmap) {
+          if (does_mmap ||
+#if defined(__mips64) || defined(__mips__)
+                true
+#else
+                false
+#endif
+              ) {
 #if defined(__mips64) || defined(__mips__)
             if (!ExecutableRegionAddress) {
               WithColor::note() << "!ExecutableRegionAddress\n";
@@ -1535,6 +1544,49 @@ basic_block_index_t translate_basic_block(pid_t child,
 
 static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
+#ifdef __mips64
+uint32_t encoding_of_jump_to_reg(unsigned r) {
+  switch (r) {
+    case llvm::Mips::ZERO: return 0x00000008;
+    case llvm::Mips::AT:   return 0x00200008;
+    case llvm::Mips::V0:   return 0x00400008;
+    case llvm::Mips::V1:   return 0x00600008;
+    case llvm::Mips::A0:   return 0x00800008;
+    case llvm::Mips::A1:   return 0x00a00008;
+    case llvm::Mips::A2:   return 0x00c00008;
+    case llvm::Mips::A3:   return 0x00e00008;
+    case llvm::Mips::T0:   return 0x01000008;
+    case llvm::Mips::T1:   return 0x01200008;
+    case llvm::Mips::T2:   return 0x01400008;
+    case llvm::Mips::T3:   return 0x01600008;
+    case llvm::Mips::T4:   return 0x01800008;
+    case llvm::Mips::T5:   return 0x01a00008;
+    case llvm::Mips::T6:   return 0x01c00008;
+    case llvm::Mips::T7:   return 0x01e00008;
+    case llvm::Mips::S0:   return 0x02000008;
+    case llvm::Mips::S1:   return 0x02200008;
+    case llvm::Mips::S2:   return 0x02400008;
+    case llvm::Mips::S3:   return 0x02600008;
+    case llvm::Mips::S4:   return 0x02800008;
+    case llvm::Mips::S5:   return 0x02a00008;
+    case llvm::Mips::S6:   return 0x02c00008;
+    case llvm::Mips::S7:   return 0x02e00008;
+    case llvm::Mips::T8:   return 0x03000008;
+    case llvm::Mips::T9:   return 0x03200008;
+    case llvm::Mips::K0:   return 0x03400008;
+    case llvm::Mips::K1:   return 0x03600008;
+    case llvm::Mips::GP:   return 0x03800008;
+    case llvm::Mips::SP:   return 0x03a00008;
+    case llvm::Mips::FP:   return 0x03c00008;
+    case llvm::Mips::RA:   return 0x03e00008;
+
+    default:
+      __builtin_trap();
+      __builtin_unreachable();
+  }
+}
+#endif
+
 void place_breakpoint_at_indirect_branch(pid_t child,
                                          uintptr_t Addr,
                                          indirect_branch_t &indbr,
@@ -1591,64 +1643,17 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #endif
 
 #ifdef __mips64
-  auto encoding_of_jump_to_reg = [](unsigned r) -> uint32_t {
-    switch (r) {
-      case llvm::Mips::ZERO: return 0x00000008;
-      case llvm::Mips::AT:   return 0x00200008;
-      case llvm::Mips::V0:   return 0x00400008;
-      case llvm::Mips::V1:   return 0x00600008;
-      case llvm::Mips::A0:   return 0x00800008;
-      case llvm::Mips::A1:   return 0x00a00008;
-      case llvm::Mips::A2:   return 0x00c00008;
-      case llvm::Mips::A3:   return 0x00e00008;
-      case llvm::Mips::T0:   return 0x01000008;
-      case llvm::Mips::T1:   return 0x01200008;
-      case llvm::Mips::T2:   return 0x01400008;
-      case llvm::Mips::T3:   return 0x01600008;
-      case llvm::Mips::T4:   return 0x01800008;
-      case llvm::Mips::T5:   return 0x01a00008;
-      case llvm::Mips::T6:   return 0x01c00008;
-      case llvm::Mips::T7:   return 0x01e00008;
-      case llvm::Mips::S0:   return 0x02000008;
-      case llvm::Mips::S1:   return 0x02200008;
-      case llvm::Mips::S2:   return 0x02400008;
-      case llvm::Mips::S3:   return 0x02600008;
-      case llvm::Mips::S4:   return 0x02800008;
-      case llvm::Mips::S5:   return 0x02a00008;
-      case llvm::Mips::S6:   return 0x02c00008;
-      case llvm::Mips::S7:   return 0x02e00008;
-      case llvm::Mips::T8:   return 0x03000008;
-      case llvm::Mips::T9:   return 0x03200008;
-      case llvm::Mips::K0:   return 0x03400008;
-      case llvm::Mips::K1:   return 0x03600008;
-      case llvm::Mips::GP:   return 0x03800008;
-      case llvm::Mips::SP:   return 0x03a00008;
-      case llvm::Mips::FP:   return 0x03c00008;
-      case llvm::Mips::RA:   return 0x03e00008;
-
-      default:
-        __builtin_trap();
-        __builtin_unreachable();
-    }
-  };
-
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
     assert(indbr.InsnBytes.size() == sizeof(uint64_t));
     uint64_t key = *((uint64_t *)indbr.InsnBytes.data());
 
-    auto it = TrampolineMap.find(key);
-    if (it == TrampolineMap.end()) {
-      assert(ExecutableRegionAddress);
-
-      uint64_t val = key;
-
-      if (indbr.IsCall) {
-        assert(Inst.getOpcode() == llvm::Mips::JALR);
-        assert(Inst.getNumOperands() == 2);
-        assert(Inst.getOperand(0).isReg());
-        assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
-        assert(Inst.getOperand(1).isReg());
+    if (indbr.IsCall) {
+      assert(Inst.getOpcode() == llvm::Mips::JALR);
+      assert(Inst.getNumOperands() == 2);
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+      assert(Inst.getOperand(1).isReg());
 
 #if 0
         if (Inst.getNumOperands() != 1) {
@@ -1658,21 +1663,31 @@ void place_breakpoint_at_indirect_branch(pid_t child,
         }
 #endif
 
-        uint32_t first_insn_replacement =
-            encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
+      uint32_t first_insn_replacement =
+          encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
 
-        ((uint32_t *)&val)[0] = first_insn_replacement;
-      }
+      ((uint32_t *)&key)[0] = first_insn_replacement;
+    }
+
+    auto it = TrampolineMap.find(key);
+    if (it == TrampolineMap.end()) {
+      assert(ExecutableRegionAddress);
+
+      uint64_t val = key;
 
       _ptrace_pokedata(child, ExecutableRegionAddress, val);
       TrampolineMap.insert({key, ExecutableRegionAddress});
 
-      if (opts::VeryVerbose)
-        WithColor::note() << llvm::formatv("mips64 trampoline @ {0:x}\n",
-                                           ExecutableRegionAddress);
-
       ExecutableRegionAddress += sizeof(key);
-      ExecutableRegionSpent += sizeof(key);
+      ExecutableRegionUsed += sizeof(key);
+
+#define EXECUTABLE_REGION_SIZE (4096 * 16)
+
+      if (opts::VeryVerbose)
+        WithColor::note() << llvm::formatv(
+            "executable region in tracee has {0} bytes left (used {1} bytes)\n",
+            EXECUTABLE_REGION_SIZE - ExecutableRegionUsed,
+            ExecutableRegionUsed);
     }
   }
 #endif
@@ -1907,8 +1922,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #elif defined(__mips64)
 
-    //case llvm::Mips::ZERO: return 0;
-    //case llvm::Mips::AT: return gpr.regs[1];
+    case llvm::Mips::ZERO: return 0;
+    case llvm::Mips::AT: return gpr.regs[1];
     case llvm::Mips::V0: return gpr.regs[2];
     case llvm::Mips::V1: return gpr.regs[3];
     case llvm::Mips::A0: return gpr.regs[4];
@@ -2093,8 +2108,36 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   pc = target;
 #else
   {
-    auto it = TrampolineMap.find(*((uint64_t *)IndBrInfo.InsnBytes.data()));
+    uint64_t key = *((uint64_t *)IndBrInfo.InsnBytes.data());
+
+    if (IndBrInfo.IsCall) {
+      llvm::MCInst &Inst = IndBrInfo.Inst;
+
+      assert(Inst.getOpcode() == llvm::Mips::JALR);
+      assert(Inst.getNumOperands() == 2);
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+      assert(Inst.getOperand(1).isReg());
+
+#if 0
+        if (Inst.getNumOperands() != 1) {
+          WithColor::error() << llvm::formatv(
+              "{0}: unknown number ({1}) of operands [{2}]\n", __func__,
+              Inst.getNumOperands(), StringOfMCInst(Inst, dis));
+        }
+#endif
+
+      uint32_t first_insn_replacement =
+          encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
+
+      ((uint32_t *)&key)[0] = first_insn_replacement;
+    }
+
+    auto it = TrampolineMap.find(key);
     if (it == TrampolineMap.end()) {
+      WithColor::error() << llvm::formatv(
+          "no trampoline for breakpoint @ {0:x}\n", _pc);
+
       throw std::runtime_error(
           (fmt("no trampoline for breakpoint @ %#lx\n") % _pc).str());
     } else {

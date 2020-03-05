@@ -17,8 +17,11 @@ static void PrintMessageOrDie(const char *format, ...);
 
 _CTOR static void preload_init(void) {
   const char *fifo_path = getenv("JOVE_DYN_FIFO_PATH");
-  if (!fifo_path)
+  if (!fifo_path) {
+    PrintMessageOrDie("%s: couldn't find JOVE_DYN_FIFO_PATH in environment\n",
+                      __func__);
     return;
+  }
 
   void *addr =
       mmap(0x0, EXECUTABLE_REGION_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC,
