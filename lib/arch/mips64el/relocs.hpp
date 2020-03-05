@@ -8,10 +8,11 @@ case llvm::ELF::R_MIPS_TLS_TPREL64:
   return relocation_t::TYPE::TPOFF;
 case llvm::ELF::R_MIPS_TLS_DTPMOD64:
   return relocation_t::TYPE::TPMOD;
+case llvm::ELF::R_MIPS_REL32:
+  return relocation_t::TYPE::RELATIVE;
 case llvm::ELF::R_MIPS_NONE:
 case llvm::ELF::R_MIPS_16:
 case llvm::ELF::R_MIPS_32:
-case llvm::ELF::R_MIPS_REL32:
 case llvm::ELF::R_MIPS_26:
 case llvm::ELF::R_MIPS_HI16:
 case llvm::ELF::R_MIPS_LO16:
