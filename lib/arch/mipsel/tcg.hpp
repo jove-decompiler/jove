@@ -1,3 +1,5 @@
+#define NEED_CPU_H
+
 #define USE_TCG_OPTIMIZATIONS
 
 #define CONFIG_TCG_INTERPRETER 1
@@ -295,8 +297,7 @@ typedef struct IRQState *qemu_irq;
 #define QEMU_IS_ARRAY(x) (!__builtin_types_compatible_p(typeof(x), \
                                                         typeof(&(x)[0])))
 
-#define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
-                       QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
 extern int qemu_icache_linesize;
 
@@ -419,6 +420,7 @@ static inline bool is_power_of_2(uint64_t value)
 
 #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
 
+#if 0
 #define typeof_strip_qual(expr)                                                    \
   typeof(                                                                          \
     __builtin_choose_expr(                                                         \
@@ -452,6 +454,9 @@ static inline bool is_power_of_2(uint64_t value)
         __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
         (unsigned short)1,                                                         \
       (expr)+0))))))
+#else
+#define typeof_strip_qual(expr) std::remove_reference<std::remove_cv<decltype(expr)>::type>::type
+#endif
 
 #define smp_mb()                     ({ barrier(); __atomic_thread_fence(__ATOMIC_SEQ_CST); })
 
@@ -802,7 +807,7 @@ struct ObjectClass
 struct Object
 {
     /*< private >*/
-    ObjectClass *class;
+    ObjectClass *klass;
     ObjectFree *free;
     GHashTable *properties;
     uint32_t ref;
@@ -923,9 +928,9 @@ typedef struct MemTxAttrs {
 } MemTxAttrs;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
+    ::vaddr vaddr;
+    ::vaddr len;
+    ::vaddr hitaddr;
     MemTxAttrs hitattrs;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUWatchpoint) entry;
@@ -1672,7 +1677,7 @@ typedef struct CPUClass {
     /*< public >*/
 
     ObjectClass *(*class_by_name)(const char *cpu_model);
-    void (*parse_features)(const char *typename, char *str, Error **errp);
+    void (*parse_features)(const char *_typename, char *str, Error **errp);
 
     void (*reset)(CPUState *cpu);
     int reset_dump_flags;
@@ -1854,7 +1859,7 @@ typedef struct MIPSCPU MIPSCPU;
 
 #define TCG_TARGET_STACK_ALIGN          16
 
-typedef enum {
+enum {
     TCG_REG_R0 = 0,
     TCG_REG_R1,
     TCG_REG_R2,
@@ -1893,7 +1898,9 @@ typedef enum {
 #endif
     /* Special value UINT8_MAX is used by TCI to encode constant values. */
     TCG_CONST = UINT8_MAX
-} TCGReg;
+};
+
+typedef int TCGReg;
 
 #define TCG_TARGET_DEFAULT_MO  (0)
 
@@ -2912,7 +2919,10 @@ struct TBContext {
     unsigned tb_flush_count;
 };
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#ifndef g2h
+#error
+#endif
 
 typedef uint32_t abi_ptr;
 
@@ -2920,22 +2930,26 @@ extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
+#if 0
     helper_retaddr = ra;
     /*
      * Ensure that this write is visible to the SIGSEGV handler that
      * may be invoked due to a subsequent invalid memory operation.
      */
     signal_barrier();
+#endif
 }
 
 static inline void clear_helper_retaddr(void)
 {
+#if 0
     /*
      * Ensure that previous memory operations have succeeded before
      * removing the data visible to the signal handler.
      */
     signal_barrier();
     helper_retaddr = 0;
+#endif
 }
 
 typedef struct TraceEvent {
@@ -2984,7 +2998,7 @@ static inline void trace_guest_mem_before_trans(CPUState * __cpu, uint16_t info)
     }
 }
 
-typedef enum MemOp {
+enum {
     MO_8     = 0,
     MO_16    = 1,
     MO_32    = 2,
@@ -3077,9 +3091,11 @@ typedef enum MemOp {
 #endif
 
     MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
+};
 
-typedef enum {
+typedef int MemOp;
+
+enum {
     /* Used to indicate the type of accesses on which ordering
        is to be ensured.  Modeled after SPARC barriers.
 
@@ -3097,7 +3113,9 @@ typedef enum {
     TCG_BAR_LDAQ  = 0x10,  /* Following ops will not come forward */
     TCG_BAR_STRL  = 0x20,  /* Previous ops will not be delayed */
     TCG_BAR_SC    = 0x30,  /* No ops cross barrier; OR of the above */
-} TCGBar;
+};
+
+typedef int TCGBar;
 
 #define MAX_OPC_PARAM_PER_ARG 2
 
@@ -3568,7 +3586,7 @@ typedef struct TCGPool {
     uint8_t data[0] __attribute__ ((aligned));
 } TCGPool;
 
-typedef enum TCGType {
+enum {
     TCG_TYPE_I32,
     TCG_TYPE_I64,
 
@@ -3598,7 +3616,9 @@ typedef enum TCGType {
 #else
     TCG_TYPE_TL = TCG_TYPE_I32,
 #endif
-} TCGType;
+};
+
+typedef int TCGType;
 
 static inline unsigned get_alignment_bits(MemOp memop)
 {
@@ -3653,7 +3673,7 @@ typedef struct TCGv_ptr_d *TCGv_ptr;
 
 typedef TCGv_ptr TCGv_env;
 
-typedef enum {
+enum {
     /* non-signed */
     TCG_COND_NEVER  = 0 | 0 | 0 | 0,
     TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
@@ -3669,7 +3689,9 @@ typedef enum {
     TCG_COND_GEU    = 0 | 4 | 0 | 1,
     TCG_COND_LEU    = 8 | 4 | 0 | 0,
     TCG_COND_GTU    = 8 | 4 | 0 | 1,
-} TCGCond;
+};
+
+typedef int TCGCond;
 
 static inline TCGCond tcg_invert_cond(TCGCond c)
 {
@@ -3880,7 +3902,7 @@ static inline TCGTemp *arg_temp(TCGArg a)
 static inline TCGTemp *tcgv_i32_temp(TCGv_i32 v)
 {
     uintptr_t o = (uintptr_t)v;
-    TCGTemp *t = (void *)tcg_ctx + o;
+    TCGTemp *t = (TCGTemp *)((char *)tcg_ctx + o);
     tcg_debug_assert(offsetof(TCGContext, temps[temp_idx(t)]) == o);
     return t;
 }
@@ -3913,7 +3935,7 @@ static inline TCGArg tcgv_ptr_arg(TCGv_ptr v)
 static inline TCGv_i32 temp_tcgv_i32(TCGTemp *t)
 {
     (void)temp_idx(t); /* trigger embedded assert */
-    return (TCGv_i32)((void *)t - (void *)tcg_ctx);
+    return (TCGv_i32)((char *)t - (char *)tcg_ctx);
 }
 
 static inline TCGv_i64 temp_tcgv_i64(TCGTemp *t)
@@ -4157,7 +4179,7 @@ static inline TCGLabel *arg_label(TCGArg i)
 
 static inline ptrdiff_t tcg_ptr_byte_diff(void *a, void *b)
 {
-    return a - b;
+    return (char *)a - (char *)b;
 }
 
 static inline size_t tcg_current_code_size(TCGContext *s)
@@ -4192,6 +4214,8 @@ static inline int tcg_can_emit_vec_op(TCGOpcode o, TCGType t, unsigned ve)
     return 0;
 }
 
+uint64_t dup_const(unsigned vece, uint64_t c);
+
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \
      ? (  (VECE) == MO_8  ? 0x0101010101010101ull * (uint8_t)(C)   \
@@ -4199,8 +4223,6 @@ static inline int tcg_can_emit_vec_op(TCGOpcode o, TCGType t, unsigned ve)
         : (VECE) == MO_32 ? 0x0000000100000001ull * (uint32_t)(C)  \
         : dup_const(VECE, C))                                      \
      : dup_const(VECE, C))
-
-uint64_t dup_const(unsigned vece, uint64_t c);
 
 #define TRACE_MEM_SZ_SHIFT_MASK 0xf
 
@@ -6259,7 +6281,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1))                                                 \
 {                                                                       \
   TCGTemp *args[1] = { dh_arg(t1, 1) };                                 \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 1, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 1, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_2(name, flags, ret, t1, t2)                    \
@@ -6267,7 +6289,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2))                             \
 {                                                                       \
   TCGTemp *args[2] = { dh_arg(t1, 1), dh_arg(t2, 2) };                  \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 2, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 2, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_3(name, flags, ret, t1, t2, t3)                \
@@ -6275,7 +6297,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2), dh_arg_decl(t3, 3))         \
 {                                                                       \
   TCGTemp *args[3] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3) };   \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 3, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 3, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_4(name, flags, ret, t1, t2, t3, t4)            \
@@ -6285,7 +6307,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[4] = { dh_arg(t1, 1), dh_arg(t2, 2),                    \
                      dh_arg(t3, 3), dh_arg(t4, 4) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 4, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 4, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_5(name, flags, ret, t1, t2, t3, t4, t5)        \
@@ -6295,7 +6317,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[5] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3),     \
                      dh_arg(t4, 4), dh_arg(t5, 5) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 5, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 5, args);                 \
 }
 
 DEF_HELPER_3(raise_exception_err, noreturn, env, i32, int)
@@ -8372,7 +8394,7 @@ static __attribute__((unused)) inline void tcg_patch64(tcg_insn_unit *p,
 static void tcg_out_reloc(TCGContext *s, tcg_insn_unit *code_ptr, int type,
                           TCGLabel *l, intptr_t addend)
 {
-    TCGRelocation *r = tcg_malloc(sizeof(TCGRelocation));
+    TCGRelocation *r = (TCGRelocation *)tcg_malloc(sizeof(TCGRelocation));
 
     r->type = type;
     r->ptr = code_ptr;
@@ -8390,7 +8412,7 @@ static void tcg_out_label(TCGContext *s, TCGLabel *l, tcg_insn_unit *ptr)
 TCGLabel *gen_new_label(void)
 {
     TCGContext *s = tcg_ctx;
-    TCGLabel *l = tcg_malloc(sizeof(TCGLabel));
+    TCGLabel *l = (TCGLabel *)tcg_malloc(sizeof(TCGLabel));
 
     memset(l, 0, sizeof(TCGLabel));
     l->id = s->nb_labels++;
@@ -8643,7 +8665,7 @@ static const TCGTargetOpDef tcg_target_op_defs[] = {
 #endif
 
     { INDEX_op_mb, { } },
-    { -1 },
+    { (TCGOpcode)-1 },
 };
 
 static const TCGTargetOpDef *tcg_target_op_def(TCGOpcode op)
@@ -9209,7 +9231,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
     if (p < region.start_aligned) {
         region_idx = 0;
     } else {
-        ptrdiff_t offset = p - region.start_aligned;
+        ptrdiff_t offset = (char *)p - (char *)region.start_aligned;
 
         if (offset > region.stride * (region.n - 1)) {
             region_idx = region.n - 1;
@@ -9217,7 +9239,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
             region_idx = offset / region.stride;
         }
     }
-    return region_trees + region_idx * tree_size;
+    return (tcg_region_tree *)((char *)region_trees + region_idx * tree_size);
 }
 
 void tcg_tb_insert(TranslationBlock *tb)
@@ -9234,7 +9256,7 @@ static void tcg_region_tree_lock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         qemu_mutex_lock(&rt->lock);
     }
@@ -9245,7 +9267,7 @@ static void tcg_region_tree_unlock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         qemu_mutex_unlock(&rt->lock);
     }
@@ -9257,7 +9279,7 @@ void tcg_tb_foreach(GTraverseFunc func, gpointer user_data)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         g_tree_foreach(rt->tree, func, user_data);
     }
@@ -9271,7 +9293,7 @@ size_t tcg_nb_tbs(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         nb_tbs += g_tree_nnodes(rt->tree);
     }
@@ -9285,7 +9307,7 @@ static void tcg_region_tree_reset_all(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((char *)region_trees + i * tree_size);
 
         /* Increment the refcount first so that destroy acts as a reset */
         g_tree_ref(rt->tree);
@@ -9298,8 +9320,8 @@ static void tcg_region_bounds(size_t curr_region, void **pstart, void **pend)
 {
     void *start, *end;
 
-    start = region.start_aligned + curr_region * region.stride;
-    end = start + region.size;
+    start = (char *)region.start_aligned + curr_region * region.stride;
+    end = (char *)start + region.size;
 
     if (curr_region == 0) {
         start = region.start;
@@ -9320,8 +9342,8 @@ static void tcg_region_assign(TCGContext *s, size_t curr_region)
 
     s->code_gen_buffer = start;
     s->code_gen_ptr = start;
-    s->code_gen_buffer_size = end - start;
-    s->code_gen_highwater = end - TCG_HIGHWATER;
+    s->code_gen_buffer_size = (char *)end - (char *)start;
+    s->code_gen_highwater = (char *)end - TCG_HIGHWATER;
 }
 
 static bool tcg_region_alloc__locked(TCGContext *s)
@@ -9395,7 +9417,7 @@ size_t tcg_code_size(void)
         const TCGContext *s = atomic_read(&tcg_ctxs[i]);
         size_t size;
 
-        size = atomic_read(&s->code_gen_ptr) - s->code_gen_buffer;
+        size = (char *)atomic_read(&s->code_gen_ptr) - (char *)s->code_gen_buffer;
         g_assert(size <= s->code_gen_buffer_size);
         total += size;
     }
@@ -9410,7 +9432,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
     
     if (size > TCG_POOL_CHUNK_SIZE) {
         /* big malloc: insert a new pool (XXX: could optimize) */
-        p = g_malloc(sizeof(TCGPool) + size);
+        p = (TCGPool *)g_malloc(sizeof(TCGPool) + size);
         p->size = size;
         p->next = s->pool_first_large;
         s->pool_first_large = p;
@@ -9425,7 +9447,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
             if (!p->next) {
             new_pool:
                 pool_size = TCG_POOL_CHUNK_SIZE;
-                p = g_malloc(sizeof(TCGPool) + pool_size);
+                p = (TCGPool *)g_malloc(sizeof(TCGPool) + pool_size);
                 p->size = pool_size;
                 p->next = NULL;
                 if (s->pool_current) 
@@ -9629,42 +9651,42 @@ static const TCGHelperInfo all_helpers[] = {
 #define str(s) #s
 
 #define DEF_HELPER_FLAGS_0(NAME, FLAGS, ret) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) },
 
 #define DEF_HELPER_FLAGS_1(NAME, FLAGS, ret, t1) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) },
 
 #define DEF_HELPER_FLAGS_2(NAME, FLAGS, ret, t1, t2) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) },
 
 #define DEF_HELPER_FLAGS_3(NAME, FLAGS, ret, t1, t2, t3) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) },
 
 #define DEF_HELPER_FLAGS_4(NAME, FLAGS, ret, t1, t2, t3, t4) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) },
 
 #define DEF_HELPER_FLAGS_5(NAME, FLAGS, ret, t1, t2, t3, t4, t5) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
     | dh_sizemask(t5, 5) },
 
 #define DEF_HELPER_FLAGS_6(NAME, FLAGS, ret, t1, t2, t3, t4, t5, t6) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
@@ -11195,8 +11217,8 @@ void tcg_context_init(TCGContext *s)
         total_args += n;
     }
 
-    args_ct = g_malloc(sizeof(TCGArgConstraint) * total_args);
-    sorted_args = g_malloc(sizeof(int) * total_args);
+    args_ct = (TCGArgConstraint *)g_malloc(sizeof(TCGArgConstraint) * total_args);
+    sorted_args = (int *)g_malloc(sizeof(int) * total_args);
 
     for(op = 0; op < NB_OPS; op++) {
         def = &tcg_op_defs[op];
@@ -11264,7 +11286,7 @@ TranslationBlock *tcg_tb_alloc(TCGContext *s)
     void *next;
 
  retry:
-    tb = (void *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
+    tb = (TranslationBlock *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
     next = (void *)ROUND_UP((uintptr_t)(tb + 1), align);
 
     if (unlikely(next > s->code_gen_highwater)) {
@@ -11303,7 +11325,7 @@ static inline TCGTemp *tcg_temp_alloc(TCGContext *s)
 {
     int n = s->nb_temps++;
     tcg_debug_assert(n < TCG_MAX_TEMPS);
-    return memset(&s->temps[n], 0, sizeof(TCGTemp));
+    return (TCGTemp *)memset(&s->temps[n], 0, sizeof(TCGTemp));
 }
 
 static inline TCGTemp *tcg_global_alloc(TCGContext *s)
@@ -11773,7 +11795,7 @@ void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
     TCGHelperInfo *info;
     TCGOp *op;
 
-    info = g_hash_table_lookup(helper_table, (gpointer)func);
+    info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)func);
     flags = info->flags;
     sizemask = info->sizemask;
 
@@ -11986,7 +12008,7 @@ static inline const char *tcg_find_helper(TCGContext *s, uintptr_t val)
 {
     const char *ret = NULL;
     if (helper_table) {
-        TCGHelperInfo *info = g_hash_table_lookup(helper_table, (gpointer)val);
+        TCGHelperInfo *info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)val);
         if (info) {
             ret = info->name;
         }
@@ -12297,7 +12319,7 @@ static void process_op_defs(TCGContext *s)
 {
     TCGOpcode op;
 
-    for (op = 0; op < NB_OPS; op++) {
+    for (op = (TCGOpcode)0; op < NB_OPS; op = (TCGOpcode)(op + 1)) {
         TCGOpDef *def = &tcg_op_defs[op];
         const TCGTargetOpDef *tdefs;
         TCGType type;
@@ -12405,7 +12427,7 @@ static TCGOp *tcg_op_alloc(TCGOpcode opc)
     TCGOp *op;
 
     if (likely(QTAILQ_EMPTY(&s->free_ops))) {
-        op = tcg_malloc(sizeof(TCGOp));
+        op = (TCGOp *)tcg_malloc(sizeof(TCGOp));
     } else {
         op = QTAILQ_FIRST(&s->free_ops);
         QTAILQ_REMOVE(&s->free_ops, op, link);
@@ -12522,7 +12544,7 @@ static void reachable_code_pass(TCGContext *s)
 
 static inline TCGRegSet *la_temp_pref(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (TCGRegSet *)ts->state_ptr;
 }
 
 static inline void la_reset_pref(TCGTemp *ts)
@@ -12614,7 +12636,7 @@ static void liveness_pass_1(TCGContext *s)
     TCGRegSet *prefs;
     int i;
 
-    prefs = tcg_malloc(sizeof(TCGRegSet) * nb_temps);
+    prefs = (TCGRegSet *)tcg_malloc(sizeof(TCGRegSet) * nb_temps);
     for (i = 0; i < nb_temps; ++i) {
         s->temps[i].state_ptr = prefs + i;
     }
@@ -12974,7 +12996,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts && arg_ts->state == TS_DEAD) {
                     TCGOpcode lopc = (arg_ts->type == TCG_TYPE_I32
                                       ? INDEX_op_ld_i32
@@ -12997,7 +13019,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts) {
                     op->args[i] = temp_arg(dir_ts);
                     changes = true;
@@ -13033,7 +13055,7 @@ static bool liveness_pass_2(TCGContext *s)
         /* Outputs become available.  */
         for (i = 0; i < nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
-            dir_ts = arg_ts->state_ptr;
+            dir_ts = (TCGTemp *)arg_ts->state_ptr;
             if (!dir_ts) {
                 continue;
             }
@@ -13955,8 +13977,8 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 
     tcg_reg_alloc_start(s);
 
-    s->code_buf = tb->tc.ptr;
-    s->code_ptr = tb->tc.ptr;
+    s->code_buf = (tcg_insn_unit *)tb->tc.ptr;
+    s->code_ptr = (tcg_insn_unit *)tb->tc.ptr;
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);
@@ -15525,6 +15547,7 @@ static inline void gen_io_end(void)
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
+#if 0
     TCGv_i32 count, imm;
 
     tcg_ctx->exitreq_label = gen_new_label();
@@ -15560,6 +15583,7 @@ static inline void gen_tb_start(TranslationBlock *tb)
     }
 
     tcg_temp_free_i32(count);
+#endif
 }
 
 #define gen_helper_0e0i(name, arg) do {                           \
@@ -15582,6 +15606,7 @@ static inline void gen_tb_start(TranslationBlock *tb)
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+#if 0
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */
@@ -15590,6 +15615,7 @@ static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 
     gen_set_label(tcg_ctx->exitreq_label);
     tcg_gen_exit_tb(tb, TB_EXIT_REQUESTED);
+#endif
 }
 
 #define DISAS_STOP       DISAS_TARGET_0
@@ -16350,7 +16376,7 @@ static void gen_ld(DisasContext *ctx, uint32_t opc,
     t0 = tcg_temp_new();
     gen_base_offset_addr(ctx, t0, base, offset);
 
-    switch (opc) {
+    switch ((int32_t)opc) {
 #if defined(TARGET_MIPS64)
     case OPC_LWU:
         tcg_gen_qemu_ld_tl(t0, t0, mem_idx, MO_TEUL |
@@ -16572,7 +16598,7 @@ static void gen_st(DisasContext *ctx, uint32_t opc, int rt,
 
     gen_base_offset_addr(ctx, t0, base, offset);
     gen_load_gpr(t1, rt);
-    switch (opc) {
+    switch ((int32_t)opc) {
 #if defined(TARGET_MIPS64)
     case OPC_SD:
         tcg_gen_qemu_st_tl(t1, t0, mem_idx, MO_TEQ |
@@ -16705,7 +16731,7 @@ static void gen_flt_ldst(DisasContext *ctx, uint32_t opc, int ft,
      * Don't do NOP if destination is zero: we must perform the actual
      * memory access.
      */
-    switch (opc) {
+    switch ((int32_t)opc) {
     case OPC_LWC1:
         {
             TCGv_i32 fp0 = tcg_temp_new_i32();
@@ -16756,7 +16782,7 @@ static void gen_cop1_ldst(DisasContext *ctx, uint32_t op, int rt,
 
     if (ctx->CP0_Config1 & (1 << CP0C1_FP)) {
         check_cp1_enabled(ctx);
-        switch (op) {
+        switch ((int32_t)op) {
         case OPC_LDC1:
         case OPC_SDC1:
             check_insn(ctx, ISA_MIPS2);
@@ -21991,7 +22017,7 @@ static void gen_compute_compact_branch(DisasContext *ctx, uint32_t opc,
     }
 
     /* Load needed operands and calculate btarget */
-    switch (opc) {
+    switch ((int32_t)opc) {
     /* compact branch */
     case OPC_BOVC: /* OPC_BEQZALC, OPC_BEQC */
     case OPC_BNVC: /* OPC_BNEZALC, OPC_BNEC */
@@ -22054,7 +22080,7 @@ static void gen_compute_compact_branch(DisasContext *ctx, uint32_t opc,
 
     if (bcond_compute == 0) {
         /* Uncoditional compact branch */
-        switch (opc) {
+        switch ((int32_t)opc) {
         case OPC_JIALC:
             tcg_gen_movi_tl(cpu_gpr[31], ctx->base.pc_next + 4 + m16_lowbit);
             /* Fallthrough */
@@ -22080,7 +22106,7 @@ static void gen_compute_compact_branch(DisasContext *ctx, uint32_t opc,
         TCGLabel *fs = gen_new_label();
         save_cpu_state(ctx, 0);
 
-        switch (opc) {
+        switch ((int32_t)opc) {
         case OPC_BLEZALC: /* OPC_BGEZALC, OPC_BGEUC */
             if (rs == 0 && rt != 0) {
                 /* OPC_BLEZALC */
@@ -24884,7 +24910,7 @@ static void gen_pool32fxf(DisasContext *ctx, int rt, int rs)
     case FLOAT_2BIT_FMT(CVT_S, FMT_DWL_L):
         mips32_op = OPC_CVT_S_L;
     do_unaryfp:
-        gen_farith(ctx, mips32_op, -1, rs, rt, 0);
+        gen_farith(ctx, (enum fopcode)mips32_op, -1, rs, rt, 0);
         break;
 
         /* Conditional moves on floating-point codes */
@@ -25294,7 +25320,7 @@ static void decode_micromips32_opc(CPUMIPSState *env, DisasContext *ctx)
                     check_insn_opc_removed(ctx, ISA_MIPS32R6);
                     mips32_op = OPC_CVT_PS_S;
                 do_ps:
-                    gen_farith(ctx, mips32_op, rt, rs, rd, 0);
+                    gen_farith(ctx, (enum fopcode)mips32_op, rt, rs, rd, 0);
                     break;
                 default:
                     goto pool32f_invalid;
@@ -25400,7 +25426,7 @@ static void decode_micromips32_opc(CPUMIPSState *env, DisasContext *ctx)
                 case MULR_PS:
                     mips32_op = OPC_MULR_PS;
                 do_3d:
-                    gen_farith(ctx, mips32_op, rt, rs, rd, 0);
+                    gen_farith(ctx, (enum fopcode)mips32_op, rt, rs, rd, 0);
                     break;
                 default:
                     goto pool32f_invalid;
@@ -25638,7 +25664,7 @@ static void decode_micromips32_opc(CPUMIPSState *env, DisasContext *ctx)
                 }
                 break;
             do_fpop:
-                gen_farith(ctx, mips32_op, rt, rs, rd, 0);
+                gen_farith(ctx, (enum fopcode)mips32_op, rt, rs, rd, 0);
                 break;
             default:
             pool32f_invalid:
@@ -28675,7 +28701,7 @@ static void gen_compute_compact_branch_nm(DisasContext *ctx, uint32_t opc,
     TCGv t1 = tcg_temp_new();
 
     /* Load needed operands and calculate btarget */
-    switch (opc) {
+    switch ((int32_t)opc) {
     /* compact branch */
     case OPC_BGEC:
     case OPC_BLTC:
@@ -28725,7 +28751,7 @@ static void gen_compute_compact_branch_nm(DisasContext *ctx, uint32_t opc,
 
     if (bcond_compute == 0) {
         /* Uncoditional compact branch */
-        switch (opc) {
+        switch ((int32_t)opc) {
         case OPC_BC:
             gen_goto_tb(ctx, 0, ctx->btarget);
             break;
@@ -28738,7 +28764,7 @@ static void gen_compute_compact_branch_nm(DisasContext *ctx, uint32_t opc,
         /* Conditional compact branch */
         TCGLabel *fs = gen_new_label();
 
-        switch (opc) {
+        switch ((int32_t)opc) {
         case OPC_BGEUC:
             if (rs == 0 && rt != 0) {
                 /* OPC_BLEZALC */
@@ -37681,7 +37707,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
     rd = (ctx->opcode >> 11) & 0x1f;
     sa = (ctx->opcode >> 6) & 0x1f;
     imm = (int16_t)ctx->opcode;
-    switch (op) {
+    switch ((int32_t)op) {
     case OPC_SPECIAL:
         decode_opc_special(env, ctx);
         break;
@@ -38122,7 +38148,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
         case OPC_S_FMT:
         case OPC_D_FMT:
             check_cp1_enabled(ctx);
-            gen_farith(ctx, ctx->opcode & FOP(0x3f, 0x1f), rt, rd, sa,
+            gen_farith(ctx, (enum fopcode)(ctx->opcode & FOP(0x3f, 0x1f)), rt, rd, sa,
                        (imm >> 8) & 0x7);
             break;
         case OPC_W_FMT:
@@ -38181,13 +38207,13 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
                     gen_r6_cmp_d(ctx, ctx->opcode & 0x1f, rt, rd, sa);
                     break;
                 default:
-                    gen_farith(ctx, ctx->opcode & FOP(0x3f, 0x1f),
+                    gen_farith(ctx, (enum fopcode)(ctx->opcode & FOP(0x3f, 0x1f)),
                                rt, rd, sa, (imm >> 8) & 0x7);
 
                     break;
                 }
             } else {
-                gen_farith(ctx, ctx->opcode & FOP(0x3f, 0x1f), rt, rd, sa,
+                gen_farith(ctx, (enum fopcode)(ctx->opcode & FOP(0x3f, 0x1f)), rt, rd, sa,
                            (imm >> 8) & 0x7);
             }
             break;
@@ -38406,7 +38432,7 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
 static void mips_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
 {
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
-    CPUMIPSState *env = cs->env_ptr;
+    CPUMIPSState *env = (CPUMIPSState *)cs->env_ptr;
 
     ctx->page_start = ctx->base.pc_first & TARGET_PAGE_MASK;
     ctx->saved_pc = -1;
@@ -38481,7 +38507,7 @@ static bool mips_tr_breakpoint_check(DisasContextBase *dcbase, CPUState *cs,
 
 static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
 {
-    CPUMIPSState *env = cs->env_ptr;
+    CPUMIPSState *env = (CPUMIPSState *)cs->env_ptr;
     DisasContext *ctx = container_of(dcbase, DisasContext, base);
     int insn_bytes;
     int is_slot;
@@ -38834,7 +38860,7 @@ static uint8_t *encode_sleb128(uint8_t *p, target_long val)
 
 static int encode_search(TranslationBlock *tb, uint8_t *block)
 {
-    uint8_t *highwater = tcg_ctx->code_gen_highwater;
+    uint8_t *highwater = (uint8_t *)tcg_ctx->code_gen_highwater;
     uint8_t *p = block;
     int i, j, n;
 
@@ -38875,7 +38901,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
 
     /* Level 2..N-1.  */
     for (i = v_l2_levels; i > 0; i--) {
-        void **p = atomic_rcu_read(lp);
+        void **p = (void **)atomic_rcu_read(lp);
 
         if (p == NULL) {
             void *existing;
@@ -38887,14 +38913,14 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
             existing = atomic_cmpxchg(lp, NULL, p);
             if (unlikely(existing)) {
                 g_free(p);
-                p = existing;
+                p = (void **)existing;
             }
         }
 
         lp = p + ((index >> (i * V_L2_BITS)) & (V_L2_SIZE - 1));
     }
 
-    pd = atomic_rcu_read(lp);
+    pd = (PageDesc *)atomic_rcu_read(lp);
     if (pd == NULL) {
         void *existing;
 
@@ -38914,7 +38940,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
         existing = atomic_cmpxchg(lp, NULL, pd);
         if (unlikely(existing)) {
             g_free(pd);
-            pd = existing;
+            pd = (PageDesc *)existing;
         }
     }
 
@@ -38992,7 +39018,7 @@ static void page_flush_tb_1(int level, void **lp)
         return;
     }
     if (level == 0) {
-        PageDesc *pd = *lp;
+        PageDesc *pd = (PageDesc *)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_lock(&pd[i]);
@@ -39001,7 +39027,7 @@ static void page_flush_tb_1(int level, void **lp)
             page_unlock(&pd[i]);
         }
     } else {
-        void **pp = *lp;
+        void **pp = (void **)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_flush_tb_1(level - 1, pp + i);
@@ -39020,8 +39046,8 @@ static void page_flush_tb(void)
 
 static gboolean tb_host_size_iter(gpointer key, gpointer value, gpointer data)
 {
-    const TranslationBlock *tb = value;
-    size_t *size = data;
+    const TranslationBlock *tb = (const TranslationBlock *)value;
+    size_t *size = (size_t *)data;
 
     *size += tb->tc.size;
     return false;
@@ -39074,17 +39100,17 @@ void tb_flush(CPUState *cpu)
         unsigned tb_flush_count = atomic_mb_read(&tb_ctx.tb_flush_count);
 
         if (cpu_in_exclusive_context(cpu)) {
-            do_tb_flush(cpu, RUN_ON_CPU_HOST_INT(tb_flush_count));
+            do_tb_flush(cpu, RUN_ON_CPU_HOST_INT((int)tb_flush_count));
         } else {
             async_safe_run_on_cpu(cpu, do_tb_flush,
-                                  RUN_ON_CPU_HOST_INT(tb_flush_count));
+                                  RUN_ON_CPU_HOST_INT((int)tb_flush_count));
         }
     }
 }
 
 static void do_tb_page_check(void *p, uint32_t hash, void *userp)
 {
-    TranslationBlock *tb = p;
+    TranslationBlock *tb = (TranslationBlock *)p;
     int flags1, flags2;
 
     flags1 = page_get_flags(tb->pc);
@@ -39120,7 +39146,7 @@ static inline void tb_page_remove(PageDesc *pd, TranslationBlock *tb)
 
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
 {
-    uintptr_t addr = (uintptr_t)(tb->tc.ptr + tb->jmp_reset_offset[n]);
+    uintptr_t addr = (uintptr_t)((char *)tb->tc.ptr + tb->jmp_reset_offset[n]);
     tb_set_jmp_target(tb, n, addr);
 }
 
@@ -39230,7 +39256,7 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
                 tb_page_remove(p2, tb);
                 invalidate_page_bitmap(p2);
             }
-            tb = existing_tb;
+            tb = (TranslationBlock *)existing_tb;
         }
     }
 
@@ -39251,7 +39277,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
                               uint32_t flags, int cflags)
 {
-    CPUArchState *env = cpu->env_ptr;
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb, *existing_tb;
     tb_page_addr_t phys_pc, phys_page2;
     target_ulong virt_page2;
@@ -39297,7 +39323,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         cpu_loop_exit(cpu);
     }
 
-    gen_code_buf = tcg_ctx->code_gen_ptr;
+    gen_code_buf = (tcg_insn_unit *)tcg_ctx->code_gen_ptr;
     tb->tc.ptr = gen_code_buf;
     tb->pc = pc;
     tb->cs_base = cs_base;
@@ -39320,7 +39346,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     gen_intermediate_code(cpu, tb, max_insns);
     tcg_ctx->cpu = NULL;
 
-    trace_translate_block(tb, tb->pc, tb->tc.ptr);
+    trace_translate_block(tb, tb->pc, (uint8_t *)tb->tc.ptr);
 
     /* generate machine code */
     tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;
@@ -39374,7 +39400,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
             g_assert_not_reached();
         }
     }
-    search_size = encode_search(tb, (void *)gen_code_buf + gen_code_size);
+    search_size = encode_search(tb, (uint8_t *)gen_code_buf + gen_code_size);
     if (unlikely(search_size < 0)) {
         goto buffer_overflow;
     }
@@ -39393,7 +39419,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         qemu_log_lock();
         qemu_log("OUT: [size=%d]\n", gen_code_size);
         if (tcg_ctx->data_gen_ptr) {
-            size_t code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;
+            size_t code_size = (uint8_t *)tcg_ctx->data_gen_ptr - (uint8_t *)tb->tc.ptr;
             size_t data_size = gen_code_size - code_size;
             size_t i;
 
@@ -39403,11 +39429,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                 if (sizeof(tcg_target_ulong) == 8) {
                     qemu_log("0x%08" PRIxPTR ":  .quad  0x%016" PRIx64 "\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint64_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint64_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 } else {
                     qemu_log("0x%08" PRIxPTR ":  .long  0x%08x\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint32_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint32_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 }
             }
         } else {
@@ -39892,7 +39918,7 @@ struct tcg_temp_info {
 
 static inline struct tcg_temp_info *ts_info(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (tcg_temp_info *)ts->state_ptr;
 }
 
 static inline struct tcg_temp_info *arg_info(TCGArg arg)
@@ -40450,7 +40476,7 @@ void tcg_optimize(TCGContext *s)
     nb_temps = s->nb_temps;
     nb_globals = s->nb_globals;
     bitmap_zero(temps_used.l, nb_temps);
-    infos = tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
+    infos = (struct tcg_temp_info *)tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
 
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
         tcg_target_ulong mask, partmask, affected;
@@ -43427,13 +43453,13 @@ typedef void (*gen_atomic_cx_i64)(TCGv_i64, TCGv_env, TCGv, TCGv_i64, TCGv_i64);
 # define WITH_ATOMIC64(X) X,
 
 static void * const table_cmpxchg[16] = {
-    [MO_8] = gen_helper_atomic_cmpxchgb,
-    [MO_16 | MO_LE] = gen_helper_atomic_cmpxchgw_le,
-    [MO_16 | MO_BE] = gen_helper_atomic_cmpxchgw_be,
-    [MO_32 | MO_LE] = gen_helper_atomic_cmpxchgl_le,
-    [MO_32 | MO_BE] = gen_helper_atomic_cmpxchgl_be,
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_cmpxchgq_le)
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_cmpxchgq_be)
+    [MO_8] = (void *)gen_helper_atomic_cmpxchgb,
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_cmpxchgw_le,
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_cmpxchgw_be,
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_cmpxchgl_le,
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_cmpxchgl_be,
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_cmpxchgq_le)
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_cmpxchgq_be)
 };
 
 void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
@@ -43461,7 +43487,7 @@ void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
     } else {
         gen_atomic_cx_i32 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i32)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -43506,7 +43532,7 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_cx_i64 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i64)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
