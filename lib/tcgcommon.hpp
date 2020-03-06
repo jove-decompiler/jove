@@ -78,7 +78,7 @@ struct tiny_code_generator_t {
   X86CPU _cpu;
 #elif defined(__aarch64__)
   ARMCPU _cpu;
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
   MIPSCPU _cpu;
 #else
 #error "unknown arch"
@@ -209,6 +209,16 @@ struct tiny_code_generator_t {
     _cpu.env.CP0_Config5 = 0;
     _cpu.env.PAMask = 68719476735;
     _cpu.env.CP0_LLAddr_shift = 4;
+#elif defined(__mips__)
+    _cpu.env.insn_flags = 4294967395;
+    _cpu.env.hflags = 226;
+    _cpu.env.CP0_Config1 = -1642525553;
+    _cpu.env.CP0_Config2 = -2147483648;
+    _cpu.env.CP0_Config3 = 0;
+    _cpu.env.CP0_Config4 = 0;
+    _cpu.env.CP0_Config5 = 0;
+    _cpu.env.PAMask = 4294967295;
+    _cpu.env.CP0_LLAddr_shift = 4;
 #else
 #error
 #endif
@@ -226,7 +236,7 @@ struct tiny_code_generator_t {
 
     register_cp_regs_for_features(&_cpu);
     init_cpreg_list(&_cpu);
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     mips_tcg_init();
 #else
 #error
@@ -266,7 +276,7 @@ struct tiny_code_generator_t {
 
     __jove_end_pc = pc_end;
 
-#if defined(__aarch64__) || defined(__i386__) || defined(__mips64)
+#if defined(__aarch64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
     gen_intermediate_code(&_cpu.parent_obj, &tb, /* max_insn */ 1000000);
 #else
     gen_intermediate_code(&_cpu.parent_obj, &tb);
@@ -301,7 +311,7 @@ struct tiny_code_generator_t {
   }
 
   void dump_operations(void) {
-#if defined(__aarch64__) || defined(__i386__) || defined(__mips64)
+#if defined(__aarch64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
     tcg_dump_ops(&_ctx, false);
 #else
     tcg_dump_ops(&_ctx);
