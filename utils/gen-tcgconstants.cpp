@@ -44,6 +44,10 @@ int main(int argc, char **argv) {
     const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
     //const std::array<const char *, 2> ret_regs = {"v0", "v1"};
     const std::array<const char *, 1> ret_regs = {"v0"};
+#elif defined(__mips__)
+    const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
+    //const std::array<const char *, 2> ret_regs = {"v0", "v1"};
+    const std::array<const char *, 1> ret_regs = {"v0"};
 #else
 #error
 #endif
@@ -120,7 +124,7 @@ int main(int argc, char **argv) {
     printf("static const int8_t tcg_global_by_offset_lookup_table[%u] = {\n"
            "[0 ... %u] = -1,\n", max_offset + 1, max_offset);
 
-    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
+    for (int i = 0; i < tcg._ctx.nb_globals && i < INT8_MAX; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
 
       if (!ts.mem_base)
@@ -139,7 +143,11 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("env");
   };
   auto program_counter_index = [&](void) -> int {
+#if defined(__mips64) || defined(__mips__)
+    return tcg_index_of_named_global("PC");
+#else
     return tcg_index_of_named_global("pc");
+#endif
   };
   auto stack_pointer_index = [&](void) -> int {
 #if defined(__x86_64__)
@@ -149,6 +157,8 @@ int main(int argc, char **argv) {
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("sp");
 #elif defined(__mips64)
+    return tcg_index_of_named_global("sp");
+#elif defined(__mips__)
     return tcg_index_of_named_global("sp");
 #else
 #error
@@ -163,6 +173,8 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("x29");
 #elif defined(__mips64)
     return tcg_index_of_named_global("s8");
+#elif defined(__mips__)
+    return tcg_index_of_named_global("s8");
 #else
 #error
 #endif
@@ -172,7 +184,7 @@ int main(int argc, char **argv) {
     return offsetof(CPUX86State, eip);
 #elif defined(__aarch64__)
     return -1;
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     return offsetof(CPUMIPSState, active_tc.PC);
 #else
 #error
@@ -186,6 +198,8 @@ int main(int argc, char **argv) {
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x8");
 #elif defined(__mips64)
+    return tcg_index_of_named_global("v0");
+#elif defined(__mips__)
     return tcg_index_of_named_global("v0");
 #else
 #error
@@ -201,6 +215,8 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("x0");
 #elif defined(__mips64)
     return tcg_index_of_named_global("v0");
+#elif defined(__mips__)
+    return tcg_index_of_named_global("v0");
 #else
 #error
 #endif
@@ -215,6 +231,8 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("x0");
 #elif defined(__mips64)
     return tcg_index_of_named_global("a0");
+#elif defined(__mips__)
+    return tcg_index_of_named_global("a0");
 #else
 #error
 #endif
@@ -227,6 +245,8 @@ int main(int argc, char **argv) {
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x1");
 #elif defined(__mips64)
+    return tcg_index_of_named_global("a1");
+#elif defined(__mips__)
     return tcg_index_of_named_global("a1");
 #else
 #error
@@ -241,6 +261,8 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("x2");
 #elif defined(__mips64)
     return tcg_index_of_named_global("a2");
+#elif defined(__mips__)
+    return tcg_index_of_named_global("a2");
 #else
 #error
 #endif
@@ -253,6 +275,8 @@ int main(int argc, char **argv) {
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x3");
 #elif defined(__mips64)
+    return tcg_index_of_named_global("a3");
+#elif defined(__mips__)
     return tcg_index_of_named_global("a3");
 #else
 #error
@@ -267,6 +291,8 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("x4");
 #elif defined(__mips64)
     return tcg_index_of_named_global("t0");
+#elif defined(__mips__)
+    return tcg_index_of_named_global("t0");
 #else
 #error
 #endif
@@ -279,6 +305,8 @@ int main(int argc, char **argv) {
 #elif defined(__aarch64__)
     return tcg_index_of_named_global("x5");
 #elif defined(__mips64)
+    return tcg_index_of_named_global("t1");
+#elif defined(__mips__)
     return tcg_index_of_named_global("t1");
 #else
 #error
