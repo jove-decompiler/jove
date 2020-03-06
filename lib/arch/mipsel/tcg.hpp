@@ -1,3 +1,5 @@
+#include <type_traits>
+
 #define NEED_CPU_H
 
 #define USE_TCG_OPTIMIZATIONS
@@ -299,7 +301,7 @@ typedef struct IRQState *qemu_irq;
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern int qemu_icache_linesize;
+static int qemu_icache_linesize;
 
 void pstrcpy(char *buf, int buf_size, const char *str);
 
@@ -1528,11 +1530,11 @@ struct GuestPanicInformation {
          (var);                                                         \
          (var) = atomic_rcu_read(&(var)->field.tqe_next))
 
-void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line);
+void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line) {}
 
 typedef void (*QemuMutexLockFunc)(QemuMutex *m, const char *f, int l);
 
-extern QemuMutexLockFunc qemu_mutex_lock_func;
+static QemuMutexLockFunc qemu_mutex_lock_func;
 
 #define qemu_mutex_lock(m) ({                                           \
             QemuMutexLockFunc _f = atomic_read(&qemu_mutex_lock_func);  \
@@ -1755,7 +1757,7 @@ typedef QTAILQ_HEAD(CPUTailQ, CPUState) CPUTailQ;
 
 #define CPU_FOREACH(cpu) QTAILQ_FOREACH_RCU(cpu, &cpus, node)
 
-extern CPUTailQ cpus;
+static CPUTailQ cpus;
 
 static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
 {
@@ -1766,7 +1768,10 @@ static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
     }
 }
 
-void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data);
+static void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 static inline bool cpu_in_exclusive_context(const CPUState *cpu)
 {
@@ -2899,7 +2904,10 @@ typedef void (*qht_iter_func_t)(void *p, uint32_t h, void *up);
 
 bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing);
 
-bool qht_reset_size(struct qht *ht, size_t n_elems);
+bool qht_reset_size(struct qht *ht, size_t n_elems) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void qht_iter(struct qht *ht, qht_iter_func_t func, void *userp);
 
@@ -4437,6 +4445,10 @@ struct TranslationBlock {
     uintptr_t jmp_list_head;
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_dest[2];
+
+    struct {
+      jove::terminator_info_t T;
+    } jove;
 };
 
 static inline uint32_t tb_cflags(const TranslationBlock *tb)
@@ -4446,11 +4458,13 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
 
 void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
 
-void mmap_lock(void);
+void mmap_lock(void) {}
 
-void mmap_unlock(void);
+void mmap_unlock(void) {}
 
-bool have_mmap_lock(void);
+bool have_mmap_lock(void) {
+  return false;
+}
 
 static inline tb_page_addr_t get_page_addr_code(CPUArchState *env,
                                                 target_ulong addr)
@@ -8667,6 +8681,12 @@ static const TCGTargetOpDef tcg_target_op_defs[] = {
     { INDEX_op_mb, { } },
     { (TCGOpcode)-1 },
 };
+
+#undef R
+#undef RI
+#undef R64
+#undef L
+#undef S
 
 static const TCGTargetOpDef *tcg_target_op_def(TCGOpcode op)
 {
@@ -38784,7 +38804,7 @@ uint32_t tb_hash_func(tb_page_addr_t phys_pc, target_ulong pc, uint32_t flags,
     return qemu_xxhash7(phys_pc, pc, flags, cf_mask, trace_vcpu_dstate);
 }
 
-extern bool tcg_allowed;
+static bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -43570,3 +43590,77 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
     }
 }
 
+#undef dup_const
+
+/* Duplicate C as per VECE.  */
+uint64_t (dup_const)(unsigned vece, uint64_t c)
+{
+    switch (vece) {
+    case MO_8:
+        return 0x0101010101010101ull * (uint8_t)c;
+    case MO_16:
+        return 0x0001000100010001ull * (uint16_t)c;
+    case MO_32:
+        return 0x0000000100000001ull * (uint32_t)c;
+    case MO_64:
+        return c;
+    default:
+        g_assert_not_reached();
+    }
+}
+
+static inline void mul64(uint64_t *plow, uint64_t *phigh,
+                         uint64_t a, uint64_t b)
+{
+    typedef union {
+        uint64_t ll;
+        struct {
+#ifdef HOST_WORDS_BIGENDIAN
+            uint32_t high, low;
+#else
+            uint32_t low, high;
+#endif
+        } l;
+    } LL;
+    LL rl, rm, rn, rh, a0, b0;
+    uint64_t c;
+
+    a0.ll = a;
+    b0.ll = b;
+
+    rl.ll = (uint64_t)a0.l.low * b0.l.low;
+    rm.ll = (uint64_t)a0.l.low * b0.l.high;
+    rn.ll = (uint64_t)a0.l.high * b0.l.low;
+    rh.ll = (uint64_t)a0.l.high * b0.l.high;
+
+    c = (uint64_t)rl.l.high + rm.l.low + rn.l.low;
+    rl.l.high = c;
+    c >>= 32;
+    c = c + rm.l.high + rn.l.high + rh.l.low;
+    rh.l.low = c;
+    rh.l.high += (uint32_t)(c >> 32);
+
+    *plow = rl.ll;
+    *phigh = rh.ll;
+}
+
+void mulu64 (uint64_t *plow, uint64_t *phigh, uint64_t a, uint64_t b)
+{
+    mul64(plow, phigh, a, b);
+}
+
+void muls64 (uint64_t *plow, uint64_t *phigh, int64_t a, int64_t b)
+{
+    uint64_t rh;
+
+    mul64(plow, &rh, a, b);
+
+    /* Adjust for signs.  */
+    if (b < 0) {
+        rh -= a;
+    }
+    if (a < 0) {
+        rh -= b;
+    }
+    *phigh = rh;
+}
