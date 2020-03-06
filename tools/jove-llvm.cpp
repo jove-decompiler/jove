@@ -445,6 +445,8 @@ struct relocation_t {
 
   llvm::Type *T; /* XXX */
   llvm::Constant *C; /* XXX */
+
+  llvm::SmallString<32> RelocationTypeName;
 };
 
 static const char *string_of_reloc_type(relocation_t::TYPE ty) {
@@ -3033,11 +3035,49 @@ int ProcessBinaryRelocations(void) {
       }
     };
 
-    res.Type = relocation_type_of_elf_rel_type(R.getType(E.isMips64EL()));
+
+    if (E.isMips64EL()) {
+      unsigned Type = R.getType(E.isMips64EL());
+
+      // The Mips N64 ABI allows up to three operations to be specified per
+      // relocation record. Unfortunately there's no easy way to test for the
+      // presence of N64 ELFs as they have no special flag that identifies them
+      // as being N64. We can safely assume at the moment that all Mips
+      // ELFCLASS64 ELFs are N64. New Mips64 ABIs should provide enough
+      // information to disambiguate between old vs new ABIs.
+      uint8_t Type1 = (Type >> 0) & 0xFF;
+      uint8_t Type2 = (Type >> 8) & 0xFF;
+      uint8_t Type3 = (Type >> 16) & 0xFF;
+
+      relocation_t::TYPE RelType1 = relocation_type_of_elf_rel_type(Type1);
+      relocation_t::TYPE RelType2 = relocation_type_of_elf_rel_type(Type2);
+      relocation_t::TYPE RelType3 = relocation_type_of_elf_rel_type(Type3);
+
+      bool Rel1None = RelType1 == relocation_t::TYPE::NONE;
+      bool Rel2None = RelType2 == relocation_t::TYPE::NONE;
+      bool Rel3None = RelType3 == relocation_t::TYPE::NONE;
+
+      res.Type = relocation_t::TYPE::NONE;
+      if (!Rel1None)
+        res.Type = RelType1;
+      else if (!Rel2None)
+        res.Type = RelType2;
+      else if (!Rel3None)
+        res.Type = RelType3;
+    } else {
+      res.Type = relocation_type_of_elf_rel_type(R.getType(E.isMips64EL()));
+    }
+
     res.Addr = R.r_offset;
     res.Addend = 0;
 
-    RelocationTable.push_back(res);
+    E.getRelocationTypeName(R.getType(E.isMips64EL()), res.RelocationTypeName);
+
+    if (res.Type != relocation_t::TYPE::NONE)
+      RelocationTable.push_back(res);
+    else
+      WithColor::warning() << llvm::formatv("unrecognized relocation: {0}\n",
+                                            res.RelocationTypeName);
   };
 
   auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
@@ -3061,11 +3101,48 @@ int ProcessBinaryRelocations(void) {
       }
     };
 
-    res.Type = relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
+    if (E.isMips64EL()) {
+      unsigned Type = R.getType(E.isMips64EL());
+
+      // The Mips N64 ABI allows up to three operations to be specified per
+      // relocation record. Unfortunately there's no easy way to test for the
+      // presence of N64 ELFs as they have no special flag that identifies them
+      // as being N64. We can safely assume at the moment that all Mips
+      // ELFCLASS64 ELFs are N64. New Mips64 ABIs should provide enough
+      // information to disambiguate between old vs new ABIs.
+      uint8_t Type1 = (Type >> 0) & 0xFF;
+      uint8_t Type2 = (Type >> 8) & 0xFF;
+      uint8_t Type3 = (Type >> 16) & 0xFF;
+
+      relocation_t::TYPE RelType1 = relocation_type_of_elf_rela_type(Type1);
+      relocation_t::TYPE RelType2 = relocation_type_of_elf_rela_type(Type2);
+      relocation_t::TYPE RelType3 = relocation_type_of_elf_rela_type(Type3);
+
+      bool Rel1None = RelType1 == relocation_t::TYPE::NONE;
+      bool Rel2None = RelType2 == relocation_t::TYPE::NONE;
+      bool Rel3None = RelType3 == relocation_t::TYPE::NONE;
+
+      res.Type = relocation_t::TYPE::NONE;
+      if (!Rel1None)
+        res.Type = RelType1;
+      else if (!Rel2None)
+        res.Type = RelType2;
+      else if (!Rel3None)
+        res.Type = RelType3;
+    } else {
+      res.Type = relocation_type_of_elf_rela_type(R.getType(E.isMips64EL()));
+    }
+
     res.Addr = R.r_offset;
     res.Addend = R.r_addend;
 
-    RelocationTable.push_back(res);
+    E.getRelocationTypeName(R.getType(E.isMips64EL()), res.RelocationTypeName);
+
+    if (res.Type != relocation_t::TYPE::NONE)
+      RelocationTable.push_back(res);
+    else
+      WithColor::warning() << llvm::formatv("unrecognized relocation: {0}\n",
+                                            res.RelocationTypeName);
   };
 
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
@@ -3082,11 +3159,12 @@ int ProcessBinaryRelocations(void) {
   // print relocations & symbols
   //
   llvm::outs() << "\nRelocations:\n\n";
-  for (const relocation_t &reloc : RelocationTable) {
+  for (relocation_t &reloc : RelocationTable) {
     llvm::outs() << "  " <<
-      (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
-                                   % reloc.Addr
-                                   % reloc.Addend).str();
+      (fmt("%-12s [%-12s] @ %-16x +%-16x") % string_of_reloc_type(reloc.Type)
+                                           % reloc.RelocationTypeName.c_str()
+                                           % reloc.Addr
+                                           % reloc.Addend).str();
 
     if (reloc.SymbolIndex < SymbolTable.size()) {
       symbol_t &sym = SymbolTable[reloc.SymbolIndex];
@@ -5083,6 +5161,7 @@ int CreateSectionGlobalVariables(void) {
   auto type_of_relocation = [&](const relocation_t &R) -> llvm::Type * {
     switch (R.Type) {
     case relocation_t::TYPE::ADDRESSOF: {
+      assert(R.SymbolIndex < SymbolTable.size());
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
       switch (S.Type) {
@@ -5120,6 +5199,7 @@ int CreateSectionGlobalVariables(void) {
       return type_of_tpmod_relocation(R);
 
     case relocation_t::TYPE::COPY: {
+      assert(R.SymbolIndex < SymbolTable.size());
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
       return type_of_copy_relocation(R, S);
@@ -5754,9 +5834,11 @@ int CreateSectionGlobalVariables(void) {
         done = false;
 
         llvm::outs() << "!type_of_relocation(R): " <<
-          (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
-                                       % R.Addr
-                                       % R.Addend).str();
+          (fmt("%-12s [%-12s] @ %-16x +%-16x")
+           % string_of_reloc_type(R.Type)
+           % R.RelocationTypeName.c_str()
+           % R.Addr
+           % R.Addend).str();
 
         if (R.SymbolIndex < SymbolTable.size()) {
           symbol_t &sym = SymbolTable[R.SymbolIndex];
@@ -5787,9 +5869,11 @@ int CreateSectionGlobalVariables(void) {
         done = false;
 
         llvm::outs() << "!constant_of_relocation(R): " <<
-          (fmt("%-12s @ %-16x +%-16x") % string_of_reloc_type(R.Type)
-                                       % R.Addr
-                                       % R.Addend).str();
+          (fmt("%-12s [%-12s] @ %-16x +%-16x")
+           % string_of_reloc_type(R.Type)
+           % R.RelocationTypeName.c_str()
+           % R.Addr
+           % R.Addend).str();
 
         if (R.SymbolIndex < SymbolTable.size()) {
           symbol_t &sym = SymbolTable[R.SymbolIndex];
