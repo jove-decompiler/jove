@@ -2559,9 +2559,9 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         continue;
       if (vm_prop.nm.find("[stack]") != std::string::npos)
         continue;
-      if (vm_prop.nm.find("libjove_dyn_preload.so") != std::string::npos)
-        continue;
     }
+    if (vm_prop.nm.find("libjove_dyn_preload.so") != std::string::npos)
+      continue;
 
     // thus, if we get here, it's either a file or [vdso]
     auto it = BinPathToIdxMap.find(vm_prop.nm);
