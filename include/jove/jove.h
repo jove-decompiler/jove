@@ -28,6 +28,10 @@
 #include <jove/arch/i386/tcgconstants.h>
 #elif defined(__mips64)
 #include <jove/arch/mips64el/tcgconstants.h>
+#elif defined(__mips__)
+#include <jove/arch/mipsel/tcgconstants.h>
+#else
+#error "TODO"
 #endif
 
 namespace jove {
