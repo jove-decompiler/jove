@@ -19862,12 +19862,12 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         int lowbit = !!(ctx->hflags & MIPS_HFLAG_M16);
 
         {
-          int64_t NextPC = ctx->base.pc_next + post_delay + lowbit;
+            int64_t NextPC = ctx->base.pc_next + post_delay + lowbit;
 
-          if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
-            ctx->base.tb->jove.T._indirect_call.NextPC = NextPC;
-          else if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::CALL)
-            ctx->base.tb->jove.T._call.NextPC = NextPC;
+            if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
+                ctx->base.tb->jove.T._indirect_call.NextPC = NextPC;
+            else if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::CALL)
+                ctx->base.tb->jove.T._call.NextPC = NextPC;
         }
 
         tcg_gen_movi_tl(cpu_gpr[blink],
@@ -43007,12 +43007,12 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         }
 
         if (__jove_end_pc) {
-          if (db->pc_next >= __jove_end_pc) {
-            tb->jove.T.Type = jove::TERMINATOR::NONE;
-            tb->jove.T.Addr = 0; /* XXX */
-            tb->jove.T._none.NextPC = __jove_end_pc;
-            break;
-          }
+            if (db->pc_next >= __jove_end_pc) {
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Addr = 0; /* XXX */
+                tb->jove.T._none.NextPC = __jove_end_pc;
+                break;
+            }
         }
     }
 
