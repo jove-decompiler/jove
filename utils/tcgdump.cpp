@@ -71,9 +71,11 @@ namespace jove {
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__mips__)
 typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
+#else
+#error
 #endif
 
 typedef typename ELFT::Elf_Dyn Elf_Dyn;

@@ -311,14 +311,17 @@ struct indirect_branch_t {
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
-#ifdef __mips64
+
+#if defined(__mips64) || defined(__mips__)
 #ifdef ___mips
-#error
+#error "lol"
 #endif
+
   struct {
     llvm::MCInst Inst;
   } ___mips;
 #endif
+
   bool IsCall;
 };
 
@@ -377,9 +380,11 @@ static int await_process_completion(pid_t);
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__mips__)
 typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
+#else
+#error
 #endif
 
 static void IgnoreCtrlC(void);
@@ -1544,7 +1549,7 @@ basic_block_index_t translate_basic_block(pid_t child,
 
 static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
 uint32_t encoding_of_jump_to_reg(unsigned r) {
   switch (r) {
     case llvm::Mips::ZERO: return 0x00000008;
@@ -1607,7 +1612,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #elif defined(__aarch64__)
     return opc == llvm::AArch64::BLR
         || opc == llvm::AArch64::BR;
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     return opc == llvm::Mips::JALR
         || opc == llvm::Mips::JR;
 #else
@@ -1636,13 +1641,13 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
 #else
 #error
 #endif
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
     assert(indbr.InsnBytes.size() == sizeof(uint64_t));
@@ -1713,7 +1718,7 @@ void place_breakpoint(pid_t child,
   reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
   reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
 #else
 #error
@@ -1748,7 +1753,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       gpr.eip
 #elif defined(__aarch64__)
       gpr.pc
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
       gpr.regs[34]
 #else
 #error
@@ -1762,7 +1767,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   pc -= 1; /* int3 */
 #elif defined(__aarch64__)
   //pc -= 4; /* brk */
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
   //pc -= 4; /* break */
 #else
 #error
@@ -1920,7 +1925,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #undef __REG_CASE
 
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
 
     case llvm::Mips::ZERO: return 0;
     case llvm::Mips::AT: return gpr.regs[1];
@@ -2042,7 +2047,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
 
     case llvm::Mips::JALR: /* jalr $25 */
 #if 0
@@ -2094,7 +2099,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     _ptrace_pokedata(child, gpr.esp, pc);
 #elif defined(__aarch64__)
     gpr.regs[30 /* lr */] = pc;
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     gpr.regs[31 /* ra */] = pc;
 #else
 #error
@@ -2104,7 +2109,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   // set program counter to be branch target
   //
-#ifndef __mips64
+#if !defined(__mips64) && !defined(__mips__)
   pc = target;
 #else
   {
@@ -2148,7 +2153,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   if (opts::VeryVerbose)
     llvm::errs() << llvm::formatv("{0}: target={1:x} {2} [{3}]"
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
                                   " ; {4} [{5}]"
 #endif
                                   "\n",
@@ -2157,7 +2162,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   target,
                                   Inst,
                                   StringOfMCInst(Inst, dis),
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
                                   IndBrInfo.___mips.Inst,
                                   StringOfMCInst(IndBrInfo.___mips.Inst, dis),
 #endif
@@ -2165,7 +2170,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   );
 
   if (opts::VeryVerbose && ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
     auto ra = gpr.regs[31];
 
     auto it = AddressSpace.find(ra);
@@ -2321,7 +2326,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
           llvm::ELF::R_386_IRELATIVE
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_IRELATIVE
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
 	  0 /* XXX TODO ? */
 #else
 #error
@@ -2426,7 +2431,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_386_JUMP_SLOT
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_JUMP_SLOT
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
           llvm::ELF::R_MIPS_JUMP_SLOT
 #else
 #error
@@ -2440,7 +2445,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_386_GLOB_DAT
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_GLOB_DAT
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
           llvm::ELF::R_MIPS_GLOB_DAT
 #else
 #error
@@ -2456,6 +2461,8 @@ static void harvest_addressof_reloc_targets(pid_t child,
           llvm::ELF::R_AARCH64_ABS64
 #elif defined(__mips64)
           llvm::ELF::R_MIPS_64
+#elif defined(__mips__)
+          llvm::ELF::R_MIPS_32
 #else
 #error
 #endif
@@ -2877,6 +2884,8 @@ bool verify_arch(const obj::ObjectFile &Obj) {
       llvm::Triple::ArchType::aarch64
 #elif defined(__mips64)
       llvm::Triple::ArchType::mips64el
+#elif defined(__mips__)
+      llvm::Triple::ArchType::mipsel
 #else
 #error
 #endif

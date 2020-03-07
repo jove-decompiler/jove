@@ -195,9 +195,11 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LEObjectFile ELFO;
 typedef typename obj::ELF64LEFile ELFT;
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__mips__)
 typedef typename obj::ELF32LEObjectFile ELFO;
 typedef typename obj::ELF32LEFile ELFT;
+#else
+#error
 #endif
 
 static struct {
@@ -1060,6 +1062,8 @@ bool verify_arch(const obj::ObjectFile &Obj) {
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
 #elif defined(__mips64)
   const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mips64el;
+#elif defined(__mips__)
+  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mipsel;
 #else
 #error
 #endif

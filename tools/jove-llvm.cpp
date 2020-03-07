@@ -645,7 +645,7 @@ static struct {
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__mips__)
 constexpr target_ulong Cookie = 0xd27b9f5a;
 #else
 #error
@@ -850,9 +850,11 @@ struct dfs_visitor : public boost::default_dfs_visitor {
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename llvm::object::ELF64LEObjectFile ELFO;
 typedef typename llvm::object::ELF64LEFile ELFT;
-#elif defined(__i386__)
+#elif defined(__i386__) || defined(__mips__)
 typedef typename llvm::object::ELF32LEObjectFile ELFO;
 typedef typename llvm::object::ELF32LEFile ELFT;
+#else
+#error
 #endif
 
 typedef typename ELFT::Elf_Dyn Elf_Dyn;
@@ -4062,8 +4064,10 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
 #elif defined(__mips64)
         if (helper_ptr && false /* TODO */) {
+#elif defined(__mips__)
+        if (helper_ptr && false /* TODO */) {
 #else
-#error "TODO"
+#error
 #endif
           const auto &N = constprop[tcg_syscall_number_index];
           if (N < syscalls::NR_END) {
@@ -7232,7 +7236,7 @@ int FixupTPBaseAddrs(void) {
     llvm::StringRef AsmText("mov \%gs:0x0,$0");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     llvm::StringRef AsmText("thiswontassemble");
 #else
 #error
@@ -9229,20 +9233,15 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     } else {
       pcrel_flag = false;
 
-      const TCGArg &Addr = op->args[0];
+      uint64_t Addr = op->args[0];
+      assert(Addr < UINT32_MAX);
 
       lstaddr = Addr;
 
       unsigned Line = Addr;
-      unsigned Column = Addr;
-
-      if (sizeof(unsigned) == 4 && sizeof(TCGArg) == 8) {
-        Line   = static_cast<unsigned>(Addr);
-        Column = static_cast<unsigned>(Addr >> 32);
-      }
 
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, Line, Column, f.DebugInformation.Subprogram));
+          *Context, Line, 0 /* Column */, f.DebugInformation.Subprogram));
     }
     break;
 
@@ -10246,7 +10245,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("dmb ish");
     llvm::StringRef Constraints("~{memory}");
-#elif defined(__mips64)
+#elif defined(__mips64) || defined(__mips__)
     llvm::StringRef AsmText("thiswontassemble"); /* TODO XXX */
     llvm::StringRef Constraints("~{memory}");
 #else
