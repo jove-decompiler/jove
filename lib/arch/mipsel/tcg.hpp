@@ -18760,6 +18760,9 @@ static void gen_trap(DisasContext *ctx, uint32_t opc,
         case OPC_TGEIU: /* r0 >= 0  unsigned */
             /* Always trap */
             generate_exception_end(ctx, EXCP_TRAP);
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+            ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
             break;
         case OPC_TLT:   /* rs < rs           */
         case OPC_TLTI:  /* r0 < 0            */
@@ -18868,6 +18871,16 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             bcond_compute = 1;
         }
         btgt = ctx->base.pc_next + insn_bytes + offset;
+
+        if (bcond_compute) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._conditional_jump.Target = btgt;
+          ctx->base.tb->jove.T._conditional_jump.NextPC =
+              ctx->base.pc_next + 2 * insn_bytes;
+        } else {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
+        }
         break;
     case OPC_BGEZ:
     case OPC_BGEZAL:
@@ -18887,6 +18900,16 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             bcond_compute = 1;
         }
         btgt = ctx->base.pc_next + insn_bytes + offset;
+
+        if (bcond_compute) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._conditional_jump.Target = btgt;
+          ctx->base.tb->jove.T._conditional_jump.NextPC =
+              ctx->base.pc_next + 2 * insn_bytes;
+        } else {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
+        }
         break;
     case OPC_BPOSGE32:
 #if defined(TARGET_MIPS64)
@@ -18917,6 +18940,20 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             generate_exception_end(ctx, EXCP_RI);
             goto out;
         }
+
+        if (opc == OPC_JR) {
+          if (rs == 31) { /* jr ra */
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
+          } else {
+            ctx->base.tb->jove.T.Type =jove::TERMINATOR::INDIRECT_JUMP;
+          }
+        } else if (opc == OPC_JALR) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+        } else {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
+
         gen_load_gpr(btarget, rs);
         break;
     default:
@@ -18941,6 +18978,9 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             /* Always take and link */
             blink = 31;
             ctx->hflags |= MIPS_HFLAG_B;
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+            ctx->base.tb->jove.T._call.Target = btgt;
             break;
         case OPC_BNE:     /* rx != rx        */
         case OPC_BGTZ:    /* 0 > 0           */
@@ -19076,6 +19116,15 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
     if (blink > 0) {
         int post_delay = insn_bytes + delayslot_size;
         int lowbit = !!(ctx->hflags & MIPS_HFLAG_M16);
+
+        {
+            int64_t NextPC = ctx->base.pc_next + post_delay + lowbit;
+
+            if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
+                ctx->base.tb->jove.T._indirect_call.NextPC = NextPC;
+            else if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::CALL)
+                ctx->base.tb->jove.T._call.NextPC = NextPC;
+        }
 
         tcg_gen_movi_tl(cpu_gpr[blink],
                         ctx->base.pc_next + post_delay + lowbit);
@@ -19880,8 +19929,11 @@ static void gen_cp1(DisasContext *ctx, uint32_t opc, int rt, int fs)
             gen_helper_0e2i(ctc1, t0, fs_tmp, rt);
             tcg_temp_free_i32(fs_tmp);
         }
+        /* XXX jove */
+#if 0
         /* Stop translation as we may have changed hflags */
         ctx->base.is_jmp = DISAS_STOP;
+#endif
         break;
 #if defined(TARGET_MIPS64)
     case OPC_DMFC1:
@@ -33200,9 +33252,15 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
         break;
     case OPC_SYSCALL:
         generate_exception_end(ctx, EXCP_SYSCALL);
+
+        ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
         break;
     case OPC_BREAK:
         generate_exception_end(ctx, EXCP_BREAK);
+
+        ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
         break;
     case OPC_SYNC:
         check_insn(ctx, ISA_MIPS2);
@@ -38169,6 +38227,11 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
             check_insn_opc_removed(ctx, ISA_MIPS32R6);
             gen_compute_branch1(ctx, MASK_BC1(ctx->opcode),
                                 (rt >> 2) & 0x7, imm << 2);
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            ctx->base.tb->jove.T._conditional_jump.Target = ctx->btarget;
+            ctx->base.tb->jove.T._conditional_jump.NextPC =
+                ctx->base.pc_next + 2 * 4;
             break;
         case OPC_PS_FMT:
             check_ps(ctx);
@@ -38580,8 +38643,14 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
     }
     if (is_slot) {
         gen_branch(ctx, insn_bytes);
+        if (__jove_end_pc)
+            __jove_end_pc += 4;
+    } else {
+        ctx->base.tb->jove.T.Addr = ctx->base.pc_next;
+
+        ctx->base.pc_next += insn_bytes; /* XXX if slot don't do this so that
+                                            delay slot is outside BB extent */
     }
-    ctx->base.pc_next += insn_bytes;
 
     if (ctx->base.is_jmp != DISAS_NEXT) {
         return;
@@ -38596,9 +38665,11 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
         (ctx->hflags & MIPS_HFLAG_BMASK) == 0) {
         ctx->base.is_jmp = DISAS_TOO_MANY;
     }
+#if 0 /* XXX JOVE */
     if (ctx->base.pc_next - ctx->page_start >= TARGET_PAGE_SIZE) {
         ctx->base.is_jmp = DISAS_TOO_MANY;
     }
+#endif
 }
 
 static void mips_tr_tb_stop(DisasContextBase *dcbase, CPUState *cs)
@@ -39900,6 +39971,15 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         if (tcg_op_buf_full() || db->num_insns >= db->max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
             break;
+        }
+
+        if (__jove_end_pc) {
+            if (db->pc_next >= __jove_end_pc) {
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Addr = 0; /* XXX */
+                tb->jove.T._none.NextPC = __jove_end_pc;
+                break;
+            }
         }
     }
 
