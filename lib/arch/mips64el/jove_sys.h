@@ -176,8 +176,7 @@
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
-                 : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2)                   \
-                   "r"(__a4)                                                   \
+                 : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2), "r"(__a4)        \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     long res = __v0;                                                           \
@@ -205,8 +204,8 @@
                                                                                \
     asm volatile(__SYSCALL_ASM                                                 \
                  : "=r"(__v0), "+r"(__a3)                                      \
-                 : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2),                  \
-                   "r"(__a4), "r"(__a5)                                        \
+                 : "IK"(nr), "r"(__a0), "r"(__a1), "r"(__a2), "r"(__a4),       \
+                   "r"(__a5)                                                   \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     long res = __v0;                                                           \
