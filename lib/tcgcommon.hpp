@@ -265,7 +265,7 @@ struct tiny_code_generator_t {
 
     tb.pc = pc;
 
-#if defined(__x86_64__) || defined(__i386__) || defined(__mips64)
+#if defined(__x86_64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
     tb.flags = _cpu.env.hflags;
 #elif defined(__aarch64__)
     tb.flags = R_TBFLAG_ANY_AARCH64_STATE_MASK;
