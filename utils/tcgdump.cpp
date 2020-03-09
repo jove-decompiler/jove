@@ -493,12 +493,13 @@ int tcgdump(void) {
           break;
         }
 
-        std::string str;
+        std::string inst_str;
         {
-          llvm::raw_string_ostream StrStream(str);
+          llvm::raw_string_ostream StrStream(inst_str);
           IP->printInst(&Inst, StrStream, "", *STI);
         }
-        puts(str.c_str());
+
+        printf("%" PRIxPTR "%s\n", _A, inst_str.c_str());
       }
       fputc('\n', stdout);
 
