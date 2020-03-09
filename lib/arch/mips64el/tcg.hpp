@@ -34038,13 +34038,13 @@ static void decode_opc_special(CPUMIPSState *env, DisasContext *ctx)
         generate_exception_end(ctx, EXCP_SYSCALL);
 
         ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
-        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next + 4;
         break;
     case OPC_BREAK:
         generate_exception_end(ctx, EXCP_BREAK);
 
         ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
-        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next;
+        ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next + 4;
         break;
     case OPC_SYNC:
         check_insn(ctx, ISA_MIPS2);
@@ -37558,6 +37558,9 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
         case OPC_CTC1:
             check_cp1_enabled(ctx);
             gen_cp1(ctx, op1, rt, rd);
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+            ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next + 4;
             break;
 #if defined(TARGET_MIPS64)
         case OPC_DMFC1:
