@@ -2589,6 +2589,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     if (vm_prop.nm[0] != '/') {
       if (vm_prop.nm.find("[stack]") != std::string::npos)
         continue;
+      if (vm_prop.nm.find("[vsyscall]") != std::string::npos)
+        continue; /* if a dynamic target is in [vsyscall], we'll know */
     }
     if (vm_prop.nm.find("libjove_dyn_preload.so") != std::string::npos)
       continue;
