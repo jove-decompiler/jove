@@ -389,7 +389,7 @@ typedef typename obj::ELF32LEFile ELFT;
 
 static void IgnoreCtrlC(void);
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips)
 static void fifo_reader(const char *fifo_path);
 #endif
 
@@ -414,7 +414,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
 #endif
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips)
   {
     std::thread fifo_thread(fifo_reader, fifo_path);
     fifo_thread.detach(); /* go be free */
@@ -1017,7 +1017,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   return 0;
 }
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips)
 void fifo_reader(const char *fifo_path) {
   int fd = open(fifo_path, O_RDONLY);
   if (fd < 0) {
@@ -1443,7 +1443,7 @@ basic_block_index_t translate_basic_block(pid_t child,
       indbr.bbidx = bbidx;
       indbr.TermAddr = bbprop.Term.Addr;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
       indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
       assert(indbr.InsnBytes.size() == sizeof(uint64_t));
 #endif
@@ -1465,7 +1465,7 @@ basic_block_index_t translate_basic_block(pid_t child,
         assert(Disassembled);
       }
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
       {
         uint64_t InstLen;
         bool Disassembled = DisAsm.getInstruction(
@@ -1650,6 +1650,20 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 #if defined(__mips64) || defined(__mips__)
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
+    if (indbr.InsnBytes.size() != sizeof(uint64_t)) {
+      binary_t &Binary = decompilation.Binaries[indbr.binary_idx];
+      const auto &ICFG = Binary.Analysis.ICFG;
+      throw std::runtime_error(
+        (fmt("indbr.InsnBytes.size() = %u @ %#lx\n"
+             "%s BB %#lx\n"
+             "%s")
+         % static_cast<unsigned>(indbr.InsnBytes.size())
+         % Addr
+         % Binary.Path
+         % ICFG[boost::vertex(indbr.bbidx, ICFG)].Addr
+         % StringOfMCInst(Inst, dis)).str());
+    }
+
     assert(indbr.InsnBytes.size() == sizeof(uint64_t));
     uint64_t key = *((uint64_t *)indbr.InsnBytes.data());
 
@@ -1679,8 +1693,19 @@ void place_breakpoint_at_indirect_branch(pid_t child,
       assert(ExecutableRegionAddress);
 
       uint64_t val = key;
+      if (sizeof(long) == sizeof(val)) { /* we can do it with one poke */
+        _ptrace_pokedata(child, ExecutableRegionAddress, val);
+      } else if (sizeof(long) == sizeof(uint32_t)) { /* two pokes will suffice */
+        uint32_t val0 = ((uint32_t *)&val)[0];
+        uint32_t val1 = ((uint32_t *)&val)[1];
 
-      _ptrace_pokedata(child, ExecutableRegionAddress, val);
+        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
+        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
+      } else {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
       TrampolineMap.insert({key, ExecutableRegionAddress});
 
       ExecutableRegionAddress += sizeof(key);
@@ -2648,7 +2673,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         IndBrInfo.bbidx = bbidx;
         IndBrInfo.TermAddr = bbprop.Term.Addr;
         IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
         IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
         assert(IndBrInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
@@ -2674,7 +2699,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
           assert(Disassembled);
         }
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
         {
           uint64_t InstLen;
           bool Disassembled = DisAsm.getInstruction(
@@ -2732,7 +2757,7 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 #endif
 
 void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
-#if defined(__mips64)
+#if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_GETREGS;
   unsigned long _pid = child;
   unsigned long _addr = 0;
@@ -2757,7 +2782,7 @@ void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
 }
 
 void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
-#if defined(__mips64)
+#if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_SETREGS;
   unsigned long _pid = child;
   unsigned long _addr = 1 /* NT_PRSTATUS */;
@@ -2836,7 +2861,7 @@ int ChildProc(const char *fifo_path) {
     env_vec.push_back(*env);
   env_vec.push_back("LD_BIND_NOW=1");
 
-#ifdef __mips64
+#if defined(__mips64) || defined(__mips__)
   std::string jove_dyn_preload_lib_path =
       fs::canonical(boost::dll::program_location().parent_path() /
                     "libjove_dyn_preload.so")
