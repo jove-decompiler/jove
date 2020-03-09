@@ -1459,9 +1459,9 @@ basic_block_index_t translate_basic_block(pid_t child,
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
       {
         uint64_t InstLen;
-        bool Disassembled =
-            DisAsm.getInstruction(Inst, InstLen, indbr.InsnBytes,
-                                  bbprop.Term.Addr, llvm::errs(), llvm::errs());
+        bool Disassembled = DisAsm.getInstruction(
+            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
+            llvm::nulls());
         assert(Disassembled);
       }
 
@@ -2693,7 +2693,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
           uint64_t InstLen;
           bool Disassembled = DisAsm.getInstruction(
               Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
-              llvm::errs(), llvm::errs());
+              llvm::nulls(), llvm::nulls());
           assert(Disassembled);
         }
 
