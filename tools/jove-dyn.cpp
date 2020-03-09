@@ -2587,8 +2587,6 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     if (vm_prop.nm.empty())
       continue;
     if (vm_prop.nm[0] != '/') {
-      if (vm_prop.nm.find("[vdso]") != std::string::npos)
-        continue;
       if (vm_prop.nm.find("[stack]") != std::string::npos)
         continue;
     }
