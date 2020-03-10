@@ -917,8 +917,7 @@ int InitStateForBinaries(void) {
                    f.BasicBlocks.end(),
                    std::back_inserter(f.ExitBasicBlocks),
                    [&](basic_block_t bb) -> bool {
-                     return boost::out_degree(bb, ICFG) == 0 &&
-                            ICFG[bb].Term.Type != TERMINATOR::UNREACHABLE;
+                     return ICFG[bb].Term.Type == TERMINATOR::RETURN;
                    });
     }
 
