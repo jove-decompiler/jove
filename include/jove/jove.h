@@ -144,6 +144,12 @@ inline basic_block_t NullBasicBlock(void) {
       interprocedural_control_flow_graph_t>::null_vertex();
 }
 
+inline bool IsDefinitelyTailCall(icfg_t &ICFG, basic_block_t bb) {
+  return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+         boost::out_degree(bb, ICFG) == 0 &&
+         !ICFG[bb].DynTargets.empty();
+}
+
 struct function_t {
   basic_block_index_t Entry;
 
