@@ -2883,6 +2883,17 @@ int ChildProc(const char *fifo_path) {
   env_vec.push_back(fifo_path_arg.c_str());
 #endif
 
+#if defined(__x86_64__)
+  // <3 glibc
+  env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                    "-AVX_Usable,"
+                    "-AVX2_Usable,"
+                    "-AVX512F_Usable,"
+                    "-SSE4_1,"
+                    "-SSE4_2,"
+                    "-SSSE3");
+#endif
+
   for (const std::string &Env : opts::Envs)
     env_vec.push_back(Env.c_str());
 
