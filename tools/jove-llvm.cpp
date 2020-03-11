@@ -300,6 +300,10 @@ static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
 
+static cl::opt<bool> DumpPreOpt1("dump-pre-opt1",
+                                 cl::desc("Dump bitcode before Optimize1()"),
+                                 cl::cat(JoveCategory));
+
 static cl::opt<bool> DumpPostOpt1("dump-post-opt1",
                                   cl::desc("Dump bitcode after Optimize1()"),
                                   cl::cat(JoveCategory));
@@ -720,6 +724,7 @@ int llvm(void) {
       || TranslateFunctions()
       || InlineCalls()
       || PrepareToOptimize()
+      || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
       || Optimize1()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
       || (opts::NoFixupPcrel ? 0 : FixupPCRelativeAddrs())
@@ -4457,7 +4462,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         EnvArgNo = std::distance(inputs_beg, it);
     }
 
-    helper_function_t hf;
+    helper_function_t &hf = HelperFuncMap[addr];
     hf.F = helperF;
     hf.EnvArgNo = EnvArgNo;
 
@@ -4474,14 +4479,14 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 #endif
     {
       WithColor::note() << llvm::formatv(
-          "forcing Analysis.Simple = true for {0}\n", helper_nm);
+          "forcing Analysis.Simple = true for helper_{0}\n", helper_nm);
       hf.Analysis.Simple = true; /* XXX */
     }
 
-    it = HelperFuncMap.insert({addr, hf}).first;
+    return hf;
+  } else {
+    return (*it).second;
   }
-
-  return (*it).second;
 }
 
 tcg_global_set_t DetermineFunctionArgs(function_t &f) {
@@ -9326,25 +9331,18 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     int iarg_idx = 0;
     for (llvm::Type *ParamTy : FTy->params()) {
       assert(iarg_idx < nb_iargs);
+      TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
 
-      if (ParamTy == CPUStateType) {
-        {
-          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
-          assert(temp_idx(ts) == tcg_env_index);
-        }
+      if (temp_idx(ts) == tcg_env_index) {
+        assert(hf.EnvArgNo == iarg_idx);
 
-        llvm::Value *Arg;
-
-	if (hf.Analysis.Simple)
-	  Arg = IRB.CreateAlloca(CPUStateType, 0, "env");
+        if (hf.Analysis.Simple)
+	  ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
 	else
-	  Arg = CPUStateGlobal;
+	  ArgVec.push_back(CPUStateGlobal);
 
-        ArgVec.push_back(Arg);
         ++iarg_idx;
       } else if (ParamTy->isPointerTy()) {
-        TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
-
         if (WordBits() == 32) {
 	  assert(ts->type == TCG_TYPE_I32);
 	} else if (WordBits() == 64) {
@@ -9358,7 +9356,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
         ++iarg_idx;
       } else if (ParamTy->isIntegerTy()) {
 	if (ParamTy->isIntegerTy(32)) {
-          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
 	  if (ts->type == TCG_TYPE_I32) {
             ArgVec.push_back(get(ts));
             ++iarg_idx;
@@ -9367,8 +9364,6 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 	    __builtin_unreachable();
 	  }
         } else if (ParamTy->isIntegerTy(64)) {
-          TCGTemp *ts = arg_temp(op->args[nb_oargs + iarg_idx]);
-
           if (ts->type == TCG_TYPE_I64) {
             ArgVec.push_back(get(ts));
             ++iarg_idx;
