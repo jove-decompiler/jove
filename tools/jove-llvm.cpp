@@ -4077,18 +4077,32 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             unsigned M = syscalls::nparams_tbl[N];
             assert(M < 7);
             switch (M) {
-
-#define __I_CASE(z, _i, _unused)                                                    \
-  case _i:                                                                          \
-    if (!(BOOST_PP_CAT(BOOST_PP_CAT(tcg_syscall_arg,_i),_index) < 0)) \
-      iglbs.set(BOOST_PP_CAT(BOOST_PP_CAT(tcg_syscall_arg,_i),_index));
-
-BOOST_PP_REPEAT_FROM_TO(1, 7, __I_CASE, void)
-
+              case 6:
+                if (tcg_syscall_arg6_index >= 0)
+                  iglbs.set(tcg_syscall_arg6_index);
+                /* fallthrough */
+              case 5:
+                if (tcg_syscall_arg5_index >= 0)
+                  iglbs.set(tcg_syscall_arg5_index);
+                /* fallthrough */
+              case 4:
+                if (tcg_syscall_arg4_index >= 0)
+                  iglbs.set(tcg_syscall_arg4_index);
+                /* fallthrough */
+              case 3:
+                if (tcg_syscall_arg3_index >= 0)
+                  iglbs.set(tcg_syscall_arg3_index);
+                /* fallthrough */
+              case 2:
+                if (tcg_syscall_arg2_index >= 0)
+                  iglbs.set(tcg_syscall_arg2_index);
+                /* fallthrough */
+              case 1:
+                if (tcg_syscall_arg1_index >= 0)
+                  iglbs.set(tcg_syscall_arg1_index);
+                /* fallthrough */
               case 0:
                 break;
-
-#undef __I_CASE
 
               default:
                 __builtin_trap();
