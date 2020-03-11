@@ -722,7 +722,7 @@ int llvm(void) {
       || PrepareToOptimize()
       || Optimize1()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
-      || FixupPCRelativeAddrs()
+      || (opts::NoFixupPcrel ? 0 : FixupPCRelativeAddrs())
       || FixupTPBaseAddrs()
       || InternalizeStaticFunctions()
       || InternalizeSections()
@@ -7060,9 +7060,6 @@ ConstantForAddress(uintptr_t Addr) {
 }
 
 int FixupPCRelativeAddrs(void) {
-  if (opts::NoFixupPcrel)
-    return 0;
-
   if (!PCRelGlobal)
     return 0;
 
