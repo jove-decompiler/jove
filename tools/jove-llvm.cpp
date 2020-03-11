@@ -7082,9 +7082,15 @@ int FixupPCRelativeAddrs(void) {
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
 
-          Inst->setOperand(
-              OtherOperandIdx,
-              ConstantForAddress(CI->getValue().abs().getZExtValue()));
+          if (CI->getValue().isNegative()) {
+            Inst->setOperand(OtherOperandIdx,
+                             llvm::ConstantExpr::getNeg(ConstantForAddress(
+                                 CI->getValue().abs().getZExtValue())));
+          } else {
+            Inst->setOperand(
+                OtherOperandIdx,
+                ConstantForAddress(CI->getValue().abs().getZExtValue()));
+          }
           continue;
         }
 
@@ -7162,9 +7168,16 @@ int FixupPCRelativeAddrs(void) {
                                         ? llvm::cast<llvm::ConstantInt>(_LHS)
                                         : llvm::cast<llvm::ConstantInt>(_RHS);
 
-            OtherInst->setOperand(
-                _OtherOperandIdx,
-                ConstantForAddress(CI->getValue().abs().getZExtValue()));
+            if (CI->getValue().isNegative()) {
+              OtherInst->setOperand(
+                  _OtherOperandIdx,
+                  llvm::ConstantExpr::getNeg(
+                      ConstantForAddress(CI->getValue().abs().getZExtValue())));
+            } else {
+              OtherInst->setOperand(
+                  _OtherOperandIdx,
+                  ConstantForAddress(CI->getValue().abs().getZExtValue()));
+            }
             continue;
           }
 
