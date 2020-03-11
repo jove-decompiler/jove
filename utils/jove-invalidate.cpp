@@ -57,6 +57,16 @@ static void invalidateInput(const std::string &Path) {
     for (function_t &f : binary.Analysis.Functions)
       f.InvalidateAnalysis();
 
+  // invalidate all basic block analyses
+  for (binary_t &binary : Decompilation.Binaries) {
+    auto &ICFG = binary.Analysis.ICFG;
+    auto it_pair = boost::vertices(ICFG);
+    for (auto it = it_pair.first; it != it_pair.second; ++it) {
+      basic_block_t bb = *it;
+      ICFG[bb].InvalidateAnalysis();
+    }
+  }
+
   //
   // write decompilation
   //
