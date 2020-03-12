@@ -9211,10 +9211,11 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #if defined(__x86_64__)
       case tcg_fs_base_index:
+        return f.TPBaseVal;
 #elif defined(__i386__)
       case tcg_gs_base_index:
-#endif
         return f.TPBaseVal;
+#endif
       }
     }
 
