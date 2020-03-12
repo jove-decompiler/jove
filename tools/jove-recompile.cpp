@@ -620,7 +620,7 @@ int recompile(void) {
       };
 
       if (opts::DFSan)
-        arg_vec.push_back("-dfsan");
+        arg_vec.push_back("--dfsan");
       if (opts::CheckEmulatedStackReturnAddress)
         arg_vec.push_back("--check-emulated-stack-return-address");
       if (opts::Trace)
@@ -731,13 +731,6 @@ skip_dfsan:
         "--frame-pointer=all",
 
         "--disable-simplify-libcalls",
-
-        "--exception-model=dwarf",
-        "--generate-arange-section",
-
-#if 0
-        "--dwarf-version=4",
-#endif
       };
 
       arg_vec.push_back(nullptr);
@@ -757,7 +750,8 @@ skip_dfsan:
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
-      WithColor::error() << "llc failed for " << binary_filename << '\n';
+      WithColor::error() << llvm::formatv("llc failed for {0}\n",
+                                          binary_filename);
       return ret;
     }
 
