@@ -3461,7 +3461,7 @@ int PrepareToTranslateCode(void) {
   return 0;
 }
 
-static void AnalyzeTCGHelper(helper_function_t &hf);
+static bool AnalyzeHelper(helper_function_t &hf);
 
 static void explode_tcg_global_set(std::vector<unsigned> &out,
                                    tcg_global_set_t glbs) {
@@ -4332,8 +4332,6 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     const char *helper_nm = tcg_find_helper(s, addr);
     assert(helper_nm);
 
-    WithColor::note() << "helper " << helper_nm << '\n';
-
     std::string suffix = opts::DFSan ? ".dfsan.bc" : ".bc";
 
     std::string helperModulePath =
@@ -4465,8 +4463,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     helper_function_t &hf = HelperFuncMap[addr];
     hf.F = helperF;
     hf.EnvArgNo = EnvArgNo;
-
-    AnalyzeTCGHelper(hf);
+    hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
 
 #if defined(__x86_64__)
     if (reinterpret_cast<void *>(addr) ==
@@ -4478,10 +4475,11 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     if (false)
 #endif
     {
-      WithColor::note() << llvm::formatv(
-          "forcing Analysis.Simple = true for helper_{0}\n", helper_nm);
       hf.Analysis.Simple = true; /* XXX */
     }
+
+    WithColor::note() << llvm::formatv("[helper] {0}{1}\n", helper_nm,
+                                       hf.Analysis.Simple ? "-" : "");
 
     return hf;
   } else {
@@ -9102,11 +9100,11 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
 }
 
-void AnalyzeTCGHelper(helper_function_t &hf) {
-  hf.Analysis.Simple = true;
-
+bool AnalyzeHelper(helper_function_t &hf) {
   if (hf.EnvArgNo < 0)
-    return;
+    return true; /* doesn't take CPUState* parameter */
+
+  bool res = true;
 
   llvm::Function::arg_iterator arg_it = hf.F->arg_begin();
   std::advance(arg_it, hf.EnvArgNo);
@@ -9118,7 +9116,7 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
           llvm::cast<llvm::GetElementPtrInst>(EnvU);
 
       if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
-        hf.Analysis.Simple = false;
+        res = false;
         continue;
       }
 
@@ -9128,7 +9126,12 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
 
       if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
           tcg_global_by_offset_lookup_table[off] < 0) {
-        hf.Analysis.Simple = false;
+
+        if (opts::Verbose)
+          WithColor::warning() << llvm::formatv("{0}: off={1} EnvGEP={2}\n",
+                                                __func__, off, *EnvGEP);
+
+        res = false;
         continue;
       }
 
@@ -9144,18 +9147,22 @@ void AnalyzeTCGHelper(helper_function_t &hf) {
           assert(llvm::isa<llvm::Instruction>(GEPU));
           if (!llvm::Instruction::isCast(
                   llvm::cast<llvm::Instruction>(GEPU)->getOpcode())) {
-            WithColor::warning() << "unknown global GEP user " << *GEPU << '\n';
-
-            hf.Analysis.Simple = false;
+            WithColor::warning() << llvm::formatv(
+                "{0}: unknown global GEP user {1}\n", __func__, *GEPU);
           }
+
+          res = false;
         }
       }
     } else {
-      WithColor::warning() << "unknown env user " << *EnvU << '\n';
+      WithColor::warning() << llvm::formatv(
+          "{0}: unknown env user {1}\n", __func__, *EnvU);
 
-      hf.Analysis.Simple = false;
+      res = false;
     }
   }
+
+  return res;
 }
 
 static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
@@ -9409,7 +9416,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       // store our globals to the local env
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.Analysis.InGlbs);
+      explode_tcg_global_set(glbv, hf.Analysis.InGlbs | hf.Analysis.OutGlbs);
       for (unsigned glb : glbv) {
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
