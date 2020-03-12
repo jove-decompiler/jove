@@ -6,7 +6,7 @@
 - Debian 11 (mips64el)
 - Debian 11 (mipsel)
 ## Prerequisites
-- `gcc`,`g++`
+- `gcc` (capable of building LLVM)
 - `ninja`
 - `cmake`
 - `python`
