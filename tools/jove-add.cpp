@@ -566,14 +566,17 @@ int add(void) {
     }
   }
 
-  if (Interp.Found || IsStaticallyLinked) {
-    llvm::outs() << "translating entry point @ "
-                 << (fmt("%#lx") % E.getHeader()->e_entry).str() << '\n';
+  {
+    uintptr_t EntryAddr = E.getHeader()->e_entry;
+    if (EntryAddr && (Interp.Found || IsStaticallyLinked)) {
+      llvm::outs() << "translating entry point @ "
+                   << (fmt("%#lx") % EntryAddr).str() << '\n';
 
-    binary.Analysis.EntryFunction =
-        translate_function(binary, tcg, dis, E.getHeader()->e_entry);
-  } else {
-    binary.Analysis.EntryFunction = invalid_function_index;
+      binary.Analysis.EntryFunction =
+          translate_function(binary, tcg, dis, EntryAddr);
+    } else {
+      binary.Analysis.EntryFunction = invalid_function_index;
+    }
   }
 
   //
