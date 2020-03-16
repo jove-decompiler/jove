@@ -47,6 +47,7 @@ CXXFLAGS := -std=gnu++14 \
             -fvisibility=hidden \
             -fexceptions \
             -fwrapv \
+            -fno-common \
             -Ofast \
             -g \
             -I include \
