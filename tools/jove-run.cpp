@@ -324,7 +324,10 @@ int run(void) {
                         "-AVX512F_Usable,"
                         "-SSE4_1,"
                         "-SSE4_2,"
-                        "-SSSE3");
+                        "-SSSE3,"
+                        "-Fast_Unaligned_Load,"
+                        "-ERMS,"
+                        "-AVX_Fast_Unaligned_Load");
 #endif
 
     for (const std::string &s : env.s_vec)
