@@ -595,6 +595,11 @@ static inline flag extractFloat64Sign(float64 a)
     return float64_val(a) >> 63;
 }
 
+static void myabort(void) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
 static float32 roundAndPackFloat32(flag zSign, int zExp, uint32_t zSig,
                                    float_status *status)
 {
@@ -620,7 +625,7 @@ static float32 roundAndPackFloat32(flag zSign, int zExp, uint32_t zSig,
         roundIncrement = zSign ? 0x7f : 0;
         break;
     default:
-        abort();
+        myabort();
         break;
     }
     roundBits = zSig & 0x7F;

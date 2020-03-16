@@ -212,6 +212,11 @@ floatx80 propagateFloatx80NaN(floatx80 a, floatx80 b, float_status *status)
     }
 }
 
+static void myabort(void) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
 floatx80 floatx80_round_to_int(floatx80 a, float_status *status)
 {
     flag aSign;
@@ -289,7 +294,7 @@ floatx80 floatx80_round_to_int(floatx80 a, float_status *status)
         }
         break;
     default:
-        abort();
+        myabort();
     }
     z.low &= ~ roundBitsMask;
     if ( z.low == 0 ) {
