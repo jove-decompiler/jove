@@ -876,14 +876,14 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(help
 define build_helper_template
 $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c
 	@echo BC $$<
-	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG $($(ARCH)_HELPER_CFLAGS) $$<
+	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
 define build_helper_dfsan_template
 $(BINDIR)/$(1).dfsan.bc: lib/arch/$(ARCH)/helpers/$(1).c
 	@echo BC "(DFSAN)" $$<
-	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -Ofast -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG -DJOVE_DFSAN $($(ARCH)_HELPER_CFLAGS) $$<
+	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG -DJOVE_DFSAN $($(ARCH)_HELPER_CFLAGS) $$<
 endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_dfsan_template,$(helper))))
 
