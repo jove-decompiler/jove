@@ -4332,6 +4332,9 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     const char *helper_nm = tcg_find_helper(s, addr);
     assert(helper_nm);
 
+    assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
+           "helper function already exists");
+
     std::string suffix = opts::DFSan ? ".dfsan.bc" : ".bc";
 
     std::string helperModulePath =
@@ -4375,10 +4378,12 @@ const helper_function_t &LookupHelper(TCGOp *op) {
           continue;
 
         // is helper function?
-        if (F.getName() == std::string("helper_") + helper_nm)
+        if (F.getName() == std::string("helper_") + helper_nm) {
+          assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
           continue;
+        }
 
-#if 0
+#if 1
         F.setLinkage(llvm::GlobalValue::InternalLinkage);
 #else
         F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
@@ -4429,7 +4434,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     if (!helperF) {
       WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
                                           helper_nm);
-      exit(1);
+      abort();
     }
 
 #if 0
@@ -4443,7 +4448,8 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     assert(nb_iargs >= helperF->arg_size());
 #endif
 
-    helperF->setLinkage(llvm::GlobalValue::InternalLinkage);
+    assert(helperF->getLinkage() == llvm::GlobalValue::ExternalLinkage);
+    helperF->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
     //
     // analyze helper
@@ -4478,8 +4484,8 @@ const helper_function_t &LookupHelper(TCGOp *op) {
       hf.Analysis.Simple = true; /* XXX */
     }
 
-    WithColor::note() << llvm::formatv("[helper] {0}{1}\n", helper_nm,
-                                       hf.Analysis.Simple ? "-" : "");
+    WithColor::note() << llvm::formatv(
+        "[helper] {0} {1}\n", hf.Analysis.Simple ? "-" : "+", helper_nm);
 
     return hf;
   } else {
@@ -4710,7 +4716,7 @@ int CreateFunctions(void) {
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  llvm::GlobalValue::ExternalLinkage, jove_name,
                                  Module.get());
-    f.F->addFnAttr(llvm::Attribute::UWTable);
+    //f.F->addFnAttr(llvm::Attribute::UWTable);
 
     for (const symbol_t &sym : f.Syms) {
       if (sym.Vers.empty()) {
