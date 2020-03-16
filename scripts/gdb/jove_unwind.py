@@ -11,7 +11,6 @@ class JoveUnwindCommand(gdb.Command):
         super(JoveUnwindCommand, self).__init__("jove_unwind", gdb.COMMAND_DATA)
 
     def invoke(self, arg, from_tty):
-        print("Hello!")
         inferiors = gdb.inferiors()
         for inferior in inferiors:
             for thread in inferior.threads():
@@ -31,11 +30,34 @@ class JoveUnwindCommand(gdb.Command):
                         path = st.fullname()
                         path = path[:-len(suffix)]
 
-                        print(path)
+                        #print(path)
 
-                        completedProcess = subprocess.run(["/usr/bin/llvm-symbolizer", "-print-address", "-inlining=0", "-pretty-print", "-print-source-context-lines=10"], input=('%s 0x%x' % (path, sal.line)), capture_output=True, text=True)
-                        print(completedProcess.stdout)
-                        print(completedProcess.stderr)
+                        just_functions = True
+
+                        if just_functions:
+                            completedProcess = subprocess.run(\
+                                ["/usr/bin/llvm-symbolizer",\
+                                "--print-address",\
+                                "--inlining=0",\
+                                "--output-style=GNU",\
+                                "--pretty-print"],\
+                                input=('%s 0x%x' % (path, sal.line)),\
+                                capture_output=True, text=True)
+                        else:
+                            completedProcess = subprocess.run(\
+                                ["/usr/bin/llvm-symbolizer",\
+                                "-print-address",\
+                                "-inlining=0",\
+                                "-pretty-print",\
+                                "-print-source-context-lines=10"],\
+                                input=('%s 0x%x' % (path, sal.line)),\
+                                capture_output=True, text=True)
+
+                        if completedProcess.stdout.strip():
+                            print(completedProcess.stdout.strip())
+
+                        if completedProcess.stderr.strip():
+                            print(completedProcess.stderr.strip())
 
                     cur_frame = cur_frame.older()
 
