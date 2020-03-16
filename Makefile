@@ -94,13 +94,13 @@ UTILS      := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
 UTILBINS   := $(foreach util,$(UTILS),$(BINDIR)/$(util))
 UTILDEPS   := $(foreach util,$(UTILS),$(BINDIR)/$(util).d)
 
-JOVE_RT_SO     := libjove_rt.so
-JOVE_RT_SONAME := $(JOVE_RT_SO).0
-JOVE_RT        := $(BINDIR)/$(JOVE_RT_SONAME)
+JOVE_RT_SONAME := libjove_rt.so
+JOVE_RT_SO     := $(JOVE_RT_SONAME).0
+JOVE_RT        := $(BINDIR)/$(JOVE_RT_SO)
 
-JOVE_DYN_PRELOAD_SO     := libjove_dyn_preload.so
-JOVE_DYN_PRELOAD_SONAME := $(JOVE_DYN_PRELOAD_SO).0
-JOVE_DYN_PRELOAD        := $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME)
+JOVE_DYN_PRELOAD_SONAME := libjove_dyn_preload.so
+JOVE_DYN_PRELOAD_SO     := $(JOVE_DYN_PRELOAD_SONAME).0
+JOVE_DYN_PRELOAD        := $(BINDIR)/$(JOVE_DYN_PRELOAD_SO)
 
 #
 # TCG helpers (for each architecture)
@@ -144,12 +144,12 @@ gen-tcgconstants: $(BINDIR)/gen-tcgconstants
 $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
-	@ln -sf $(JOVE_RT_SONAME) $(BINDIR)/$(JOVE_RT_SO)
+	@ln -sf $(JOVE_RT_SO) $(BINDIR)/$(JOVE_RT_SONAME)
 
 $(JOVE_DYN_PRELOAD): lib/jove-dyn/preload.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_DYN_PRELOAD_SONAME) -Ofast -fno-stack-protector -fPIC -g -Wall $<
-	@ln -sf $(JOVE_DYN_PRELOAD_SONAME) $(BINDIR)/$(JOVE_DYN_PRELOAD_SO)
+	@ln -sf $(JOVE_DYN_PRELOAD_SO) $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME)
 
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 	@echo CC $<
