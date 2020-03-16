@@ -1816,11 +1816,11 @@ _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
                                        target_ulong *emuspp);
 
-_NOINL void _jove_recover_dyn_target(uint32_t CallerBBIdx,
-                                     target_ulong CalleeAddr);
+_NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
+                                             target_ulong CalleeAddr);
 
-_NOINL void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                                      target_ulong BBAddr);
+_NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
+                                              target_ulong BBAddr);
 
 _NAKED _NOINL _NORET void _jove_fail1(target_ulong);
 _NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);

@@ -1135,11 +1135,9 @@ int CreateModule(void) {
 
   JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
   assert(JoveRecoverDynTargetFunc && !JoveRecoverDynTargetFunc->empty());
-  JoveRecoverDynTargetFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
   assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
-  JoveRecoverBasicBlockFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
