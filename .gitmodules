@@ -1,7 +1,7 @@
 [submodule "third_party/llvm-project"]
 	path = third_party/llvm-project
-	url = git@gitlab.com:aleden/llvm-project.git
-	branch = release/9.x
+	url = git@gitlab.com:aarnolabs/llvm/llvm.git
+	branch = print_trace_llvm10_jove
 [submodule "third_party/prebuilts"]
 	path = third_party/prebuilts
 	url = https://github.com/aleden/prebuilts.git
