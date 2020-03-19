@@ -43,6 +43,7 @@ CXXFLAGS := -std=gnu++14 \
             -Wno-macro-redefined \
             -Wno-shift-count-negative \
             -Wno-initializer-overrides \
+            -Wno-c99-designator \
             -fno-omit-frame-pointer \
             -fvisibility=hidden \
             -fexceptions \
