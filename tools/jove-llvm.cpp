@@ -3384,7 +3384,10 @@ int PrepareToTranslateCode(void) {
     return 1;
   }
 
-  AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName));
+  {
+    llvm::MCTargetOptions Options;
+    AsmInfo.reset(TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
+  }
   if (!AsmInfo) {
     WithColor::error() << "no assembly info\n";
     return 1;
@@ -4201,17 +4204,15 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
       std::ptrdiff_t Offset = A - (*sectit).first.lower();
 
       llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm->getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
-                                 A, llvm::nulls(), llvm::nulls());
-
+      bool Disassembled = DisAsm->getInstruction(
+          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
       if (!Disassembled) {
         WithColor::error() << "failed to disassemble "
                            << (fmt("%#lx") % Addr).str() << '\n';
         break;
       }
 
-      IP->printInst(&Inst, llvm::outs(), "", *STI);
+      IP->printInst(&Inst, A, "", *STI, llvm::outs());
       llvm::outs() << '\n';
     }
 
@@ -6532,9 +6533,38 @@ int FixupHelperStubs(void) {
     llvm::Function *CallEntryF = Module->getFunction("_jove_call_entry");
     assert(CallEntryF && CallEntryF->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+	llvm::DISubprogram::SPFlagDefinition |
+	llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+	DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+	/* Scope       */ DebugInformation.CompileUnit,
+	/* Name        */ CallEntryF->getName(),
+	/* LinkageName */ CallEntryF->getName(),
+	/* File        */ DebugInformation.File,
+	/* LineNo      */ 0,
+	/* Ty          */ SubProgType,
+	/* ScopeLine   */ 0,
+	/* Flags       */ llvm::DINode::FlagZero,
+	/* SPFlags     */ SubProgFlags);
+
+    CallEntryF->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", CallEntryF);
     {
       llvm::IRBuilderTy IRB(BB);
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       if (is_function_index_valid(Binary.Analysis.EntryFunction)) {
         function_t &f =
@@ -6866,25 +6896,28 @@ int PrepareToOptimize(void) {
   llvm::initializeTarget(Registry);
   // For codegen passes, only passes that do IR to IR transformation are
   // supported.
-  llvm::initializeExpandMemCmpPassPass(Registry);
-  llvm::initializeScalarizeMaskedMemIntrinPass(Registry);
-  llvm::initializeCodeGenPreparePass(Registry);
-  llvm::initializeAtomicExpandPass(Registry);
-  llvm::initializeRewriteSymbolsLegacyPassPass(Registry);
-  llvm::initializeWinEHPreparePass(Registry);
-  llvm::initializeDwarfEHPreparePass(Registry);
-  llvm::initializeSafeStackLegacyPassPass(Registry);
-  llvm::initializeSjLjEHPreparePass(Registry);
-  llvm::initializePreISelIntrinsicLoweringLegacyPassPass(Registry);
-  llvm::initializeGlobalMergePass(Registry);
-  llvm::initializeIndirectBrExpandPassPass(Registry);
-  llvm::initializeInterleavedAccessPass(Registry);
-  llvm::initializeEntryExitInstrumenterPass(Registry);
-  llvm::initializePostInlineEntryExitInstrumenterPass(Registry);
-  llvm::initializeUnreachableBlockElimLegacyPassPass(Registry);
-  llvm::initializeExpandReductionsPass(Registry);
-  llvm::initializeWasmEHPreparePass(Registry);
-  llvm::initializeWriteBitcodePassPass(Registry);
+  initializeExpandMemCmpPassPass(Registry);
+  initializeScalarizeMaskedMemIntrinPass(Registry);
+  initializeCodeGenPreparePass(Registry);
+  initializeAtomicExpandPass(Registry);
+  initializeRewriteSymbolsLegacyPassPass(Registry);
+  initializeWinEHPreparePass(Registry);
+  initializeDwarfEHPreparePass(Registry);
+  initializeSafeStackLegacyPassPass(Registry);
+  initializeSjLjEHPreparePass(Registry);
+  initializePreISelIntrinsicLoweringLegacyPassPass(Registry);
+  initializeGlobalMergePass(Registry);
+  initializeIndirectBrExpandPassPass(Registry);
+  initializeInterleavedLoadCombinePass(Registry);
+  initializeInterleavedAccessPass(Registry);
+  initializeEntryExitInstrumenterPass(Registry);
+  initializePostInlineEntryExitInstrumenterPass(Registry);
+  initializeUnreachableBlockElimLegacyPassPass(Registry);
+  initializeExpandReductionsPass(Registry);
+  initializeWasmEHPreparePass(Registry);
+  initializeWriteBitcodePassPass(Registry);
+  initializeHardwareLoopsPass(Registry);
+  initializeTypePromotionPass(Registry);
 
   return 0;
 }

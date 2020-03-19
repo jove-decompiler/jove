@@ -717,8 +717,9 @@ int ParentProc(pid_t child, const char *fifo_path) {
     return 1;
   }
 
+  llvm::MCTargetOptions Options;
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
     WithColor::error() << "no assembly info\n";
     return 1;
@@ -1372,17 +1373,15 @@ basic_block_index_t translate_basic_block(pid_t child,
       std::ptrdiff_t Offset = A - (*sectit).first.lower();
 
       llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
-                                A, llvm::nulls(), llvm::nulls());
-
+      bool Disassembled = DisAsm.getInstruction(
+          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
       if (!Disassembled) {
         WithColor::error() << (fmt("failed to disassemble %#lx") % Addr).str()
                            << '\n';
         break;
       }
 
-      IP.printInst(&Inst, llvm::errs(), "", STI);
+      IP.printInst(&Inst, A, "", STI, llvm::errs());
       llvm::errs() << '\n';
     }
 
@@ -1460,8 +1459,7 @@ basic_block_index_t translate_basic_block(pid_t child,
       {
         uint64_t InstLen;
         bool Disassembled = DisAsm.getInstruction(
-            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls(),
-            llvm::nulls());
+            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
         assert(Disassembled);
       }
 
@@ -1472,7 +1470,7 @@ basic_block_index_t translate_basic_block(pid_t child,
             indbr.___mips.Inst, InstLen,
             llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
             bbprop.Term.Addr + 4,
-            llvm::errs(), llvm::errs());
+            llvm::nulls());
         assert(Disassembled);
       }
 #endif
@@ -2695,7 +2693,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
           uint64_t InstLen;
           bool Disassembled = DisAsm.getInstruction(
               Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
-              llvm::nulls(), llvm::nulls());
+              llvm::nulls());
           assert(Disassembled);
         }
 
@@ -2705,7 +2703,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
           bool Disassembled = DisAsm.getInstruction(
               IndBrInfo.___mips.Inst, InstLen,
               llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
-              bbprop.Term.Addr + 4, llvm::errs(), llvm::errs());
+              bbprop.Term.Addr + 4,
+	      llvm::errs());
           assert(Disassembled);
         }
 #endif
@@ -3002,7 +3001,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
   {
     llvm::raw_string_ostream ss(res);
 
-    IP.printInst(&Inst, ss, "", STI);
+    IP.printInst(&Inst, 0x0 /* XXX */, "", STI, ss);
 
 #if 0
     ss << '\n';

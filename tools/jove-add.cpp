@@ -273,8 +273,9 @@ int add(void) {
     return 1;
   }
 
+  llvm::MCTargetOptions Options;
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
     WithColor::error() << "no assembly info\n";
     return 1;
@@ -929,9 +930,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
       std::ptrdiff_t Offset = A - (*sectit).first.lower();
 
       llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
-                                A, llvm::nulls(), llvm::nulls());
+      bool Disassembled = DisAsm.getInstruction(
+          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
 
       if (!Disassembled) {
         WithColor::error() << llvm::formatv("failed to disassemble {0:x}\n",
@@ -939,7 +939,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
         break;
       }
 
-      IP.printInst(&Inst, llvm::errs(), "", STI);
+      IP.printInst(&Inst, A, "", STI, llvm::errs());
       llvm::errs() << '\n';
     }
 

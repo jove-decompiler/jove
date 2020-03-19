@@ -314,8 +314,9 @@ int tcgdump(void) {
     return 1;
   }
 
+  llvm::MCTargetOptions Options;
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
     fprintf(stderr, "no assembly info\n");
     return 1;
@@ -481,13 +482,10 @@ int tcgdump(void) {
       uint64_t InstLen;
       for (uintptr_t _A = A; _A < A + BBSize; _A += InstLen) {
         llvm::MCInst Inst;
-        llvm::raw_ostream &DebugOut = llvm::nulls();
-        llvm::raw_ostream &CommentStream = llvm::nulls();
 
         ptrdiff_t Offset = _A - SectBase;
         bool Disassembled = DisAsm->getInstruction(
-            Inst, InstLen, SectProp.contents.slice(Offset), _A, DebugOut,
-            CommentStream);
+            Inst, InstLen, SectProp.contents.slice(Offset), _A, llvm::nulls());
         if (!Disassembled) {
           fprintf(stderr, "failed to disassemble %" PRIxPTR "\n", _A);
           break;
@@ -496,7 +494,7 @@ int tcgdump(void) {
         std::string inst_str;
         {
           llvm::raw_string_ostream StrStream(inst_str);
-          IP->printInst(&Inst, StrStream, "", *STI);
+          IP->printInst(&Inst, _A, "", *STI, StrStream);
         }
 
         printf("%" PRIxPTR "%s\n", _A, inst_str.c_str());
