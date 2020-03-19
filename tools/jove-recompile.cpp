@@ -844,7 +844,7 @@ skip_dfsan:
 
       arg_vec.push_back("-ljove_rt");
       if (opts::DFSan)
-        arg_vec.push_back("-lclang_rt.dfsan-x86_64");
+        arg_vec.push_back("-lclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME);
 
       std::string so_interp_canon = fs::canonical(b.dynl.interp).string();
 
