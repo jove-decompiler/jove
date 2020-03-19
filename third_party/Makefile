@@ -52,4 +52,10 @@ build-llvm:
 		   -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" \
 		   -D LLVM_USE_LINKER=bfd \
 		   -D LLVM_ENABLE_LTO=OFF \
-	&& ninja install
+	&& ninja install \
+	&& echo "stupid hacks that shouldn't be necessary" \
+	&& mkdir -p $(_LLVM_DIR)/Release \
+	&& ln -sf ../install/lib $(_LLVM_DIR)/Release/lib \
+	&& touch $(_LLVM_DIR)/Release/lib/libgtest.a \
+	&& touch $(_LLVM_DIR)/Release/lib/libgtest_main.a \
+	&& touch $(_LLVM_DIR)/Release/lib/libLLVMTestingSupport.a
