@@ -163,7 +163,7 @@ static void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
 int recompile(void) {
   compiler_runtime_afp =
       (boost::dll::program_location().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "9.0.1" /
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
        "lib" / "linux" / ("libclang_rt.builtins-" ___JOVE_ARCH_NAME ".a"))
           .string();
 
@@ -219,8 +219,8 @@ int recompile(void) {
 #else
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "9.0.1" /
-       "lib" / "linux" / ("libclang_rt.dfsan-" ___JOVE_ARCH_NAME ".so"))
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
+       "lib" / "linux" / ("libclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME ".so"))
           .string();
   if (!fs::exists(jove_dfsan_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n",
@@ -391,7 +391,8 @@ int recompile(void) {
   //
   if (opts::DFSan) {
     fs::path chrooted_path =
-        fs::path(opts::Output) / "usr" / "lib" / "libclang_rt.dfsan-x86_64.so";
+        fs::path(opts::Output) / "usr" / "lib" /
+        ("libclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME ".so");
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy(jove_dfsan_path, chrooted_path);
