@@ -7610,6 +7610,17 @@ int DFSanInstrument(void) {
     return 1;
   }
 
+  //
+  // XXX
+  //
+  {
+    llvm::GlobalVariable *GV =
+        Module->getGlobalVariable("__dfsan_disable_logging", true);
+    assert(GV);
+    GV->setLinkage(llvm::GlobalValue::ExternalLinkage);
+    GV->setInitializer(nullptr);
+  }
+
   return 0;
 }
 
