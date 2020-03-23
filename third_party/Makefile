@@ -25,6 +25,9 @@ endif
 $(info GCC TARGET  $(GCC_TARGET))
 $(info LLVM_TARGET $(_LLVM_TARGETS_TO_BUILD))
 
+#BUILD_TYPE := Debug
+BUILD_TYPE := Release
+
 .PHONY: nothing
 nothing:
 	@echo .
@@ -33,7 +36,7 @@ nothing:
 build-llvm:
 	cd $(_LLVM_DIR) && \
 	cmake llvm -G Ninja \
-	           -D CMAKE_BUILD_TYPE=Release \
+	           -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 		   -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" \
 		   -D "PYTHON_EXECUTABLE=/usr/bin/python" \
 		   -D "LLVM_ENABLE_PROJECTS=llvm;clang;lld;compiler-rt" \
@@ -50,12 +53,12 @@ build-llvm:
 		   -D "LLVM_HOST_TRIPLE=$(GCC_TARGET)" \
 		   -D "LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET)" \
 		   -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" \
-		   -D LLVM_USE_LINKER=bfd \
+		   -D LLVM_USE_LINKER=gold \
 		   -D LLVM_ENABLE_LTO=OFF \
 	&& ninja install \
 	&& echo "stupid hacks that shouldn't be necessary" \
-	&& mkdir -p $(_LLVM_DIR)/Release \
-	&& ln -sf ../install/lib $(_LLVM_DIR)/Release/lib \
-	&& touch $(_LLVM_DIR)/Release/lib/libgtest.a \
-	&& touch $(_LLVM_DIR)/Release/lib/libgtest_main.a \
-	&& touch $(_LLVM_DIR)/Release/lib/libLLVMTestingSupport.a
+	&& mkdir -p $(_LLVM_DIR)/$(BUILD_TYPE) \
+	&& ln -sf ../install/lib $(_LLVM_DIR)/$(BUILD_TYPE)/lib \
+	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libgtest.a \
+	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libgtest_main.a \
+	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libLLVMTestingSupport.a
