@@ -1,5 +1,11 @@
 #include "syscalls.inc.macros_begin.h"
 
+#if !defined(___DFSAN) || defined(___DFSAN_SYSENTRS)
+___SYSCALL1(231, exit_group, int, error_code)
+___SYSCALL1(60, exit, int, error_code)
+#endif
+
+#if !defined(___DFSAN) || defined(___DFSAN_SYSEXITS)
 ___SYSCALL3(0, read, unsigned int, fd, char __user *, buf, size_t, count)
 ___SYSCALL6(45, recvfrom, int, fd, void __user *, ubuf, size_t, size, unsigned int, flags, struct sockaddr __user *, addr, int __user *, addr_len)
 ___SYSCALL3(47, recvmsg, int, fd, struct msghdr __user *, msg, unsigned int, flags)
@@ -19,7 +25,9 @@ ___SYSCALL2(97, getrlimit, unsigned int, resource, struct rlimit __user *, rlim)
 ___SYSCALL4(53, socketpair, int, family, int, type, int, protocol, int __user *, usockvec)
 ___SYSCALL3(78, getdents, unsigned int, fd, struct linux_dirent __user *, dirent, unsigned int, count)
 ___SYSCALL3(217, getdents64, unsigned int, fd, struct linux_dirent64 __user *, dirent, unsigned int, count)
-#if !defined(___DFSAN_SYSEXITS)
+#endif
+
+#if !defined(___DFSAN)
 ___SYSCALL3(1, write, unsigned int, fd, const char __user *, buf, size_t, count)
 ___SYSCALL3(2, open, const char __user *, filename, int, flags, mode_t, mode)
 ___SYSCALL3(7, poll, struct pollfd __user *, ufds, unsigned int, nfds, int, timeout_msecs)
@@ -67,7 +75,6 @@ ___SYSCALL5(55, getsockopt, int, fd, int, level, int, optname, char __user *, op
 ___SYSCALL5(56, clone, unsigned long, clone_flags, unsigned long, newsp, int __user *, parent_tidptr, int __user *, child_tidptr, unsigned long, tls)
 ___SYSCALL0(58, vfork)
 ___SYSCALL3(59, execve, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp)
-___SYSCALL1(60, exit, int, error_code)
 ___SYSCALL4(61, wait4, pid_t, upid, int __user *, stat_addr, int, options, struct rusage __user *, ru)
 ___SYSCALL2(62, kill, pid_t, pid, int, sig)
 ___SYSCALL1(63, newuname, struct new_utsname __user *, name)
@@ -219,7 +226,6 @@ ___SYSCALL2(227, clock_settime, const clockid_t, which_clock, const struct __ker
 ___SYSCALL2(228, clock_gettime, const clockid_t, which_clock, struct __kernel_timespec __user *, tp)
 ___SYSCALL2(229, clock_getres, const clockid_t, which_clock, struct __kernel_timespec __user *, tp)
 ___SYSCALL4(230, clock_nanosleep, const clockid_t, which_clock, int, flags, const struct __kernel_timespec __user *, rqtp, struct __kernel_timespec __user *, rmtp)
-___SYSCALL1(231, exit_group, int, error_code)
 ___SYSCALL4(232, epoll_wait, int, epfd, struct epoll_event __user *, events, int, maxevents, int, timeout)
 ___SYSCALL4(233, epoll_ctl, int, epfd, int, op, int, fd, struct epoll_event __user *, event)
 ___SYSCALL3(234, tgkill, pid_t, tgid, pid_t, pid, int, sig)
