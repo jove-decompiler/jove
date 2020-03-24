@@ -321,6 +321,12 @@ static cl::opt<bool> DFSan("dfsan",
                            cl::desc("Instrument code with DataFlowSanitizer"),
                            cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    DFSanOutputModuleID("dfsan-output-module-id",
+                        cl::desc("Write to file containing module ID (which is "
+                                 "found from DFSanModuleID metadata"),
+                        cl::value_desc("filename"), cl::cat(JoveCategory));
+
 static bool CallStack;
 
 static cl::opt<bool>
@@ -7619,6 +7625,24 @@ int DFSanInstrument(void) {
     assert(GV);
     GV->setLinkage(llvm::GlobalValue::ExternalLinkage);
     GV->setInitializer(nullptr);
+  }
+
+  {
+    llvm::NamedMDNode *TopNode =
+        Module->getOrInsertNamedMetadata("DFSanModuleID");
+    assert(TopNode);
+
+    llvm::MDNode *SubNode = TopNode->getOperand(0);
+
+    std::string ModuleID =
+        llvm::cast<llvm::MDString>(SubNode->getOperand(0))->getString();
+    WithColor::note() << llvm::formatv("ModuleID is {0}\n", ModuleID);
+
+    {
+      std::ofstream ofs(opts::DFSanOutputModuleID);
+
+      ofs << ModuleID;
+    }
   }
 
   return 0;
