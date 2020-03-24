@@ -415,8 +415,9 @@ int recompile(void) {
   //
   // additional stuff for DFSan
   //
-  {
+  if (opts::DFSan) {
     fs::create_directories(fs::path(opts::Output) / "jove");
+    fs::create_directories(fs::path(opts::Output) / "dfsan");
 
     {
       std::ofstream ofs(
@@ -604,6 +605,7 @@ int recompile(void) {
 
     std::string bcfp(chrooted_path.string() + ".bc");
     std::string mapfp(chrooted_path.string() + ".map");
+    std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
     pid = fork();
     if (!pid) {
@@ -620,8 +622,14 @@ int recompile(void) {
         "-d", opts::jv.c_str(),
       };
 
-      if (opts::DFSan)
+      std::string output_module_id_file_arg =
+          "--dfsan-output-module-id=" + dfsan_modid_fp;
+
+      if (opts::DFSan) {
         arg_vec.push_back("--dfsan");
+        arg_vec.push_back(output_module_id_file_arg.c_str());
+      }
+
       if (opts::CheckEmulatedStackReturnAddress)
         arg_vec.push_back("--check-emulated-stack-return-address");
       if (opts::Trace)
@@ -650,6 +658,17 @@ int recompile(void) {
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
       return ret;
+    }
+
+    if (opts::DFSan) {
+      std::ifstream ifs(dfsan_modid_fp);
+      std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
+                              std::istreambuf_iterator<char>());
+
+      WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
+                                         dfsan_modid);
+
+      fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid);
     }
 
     std::string optbcfp = bcfp;
