@@ -1206,6 +1206,19 @@ static const hook_t HookArray[] = {
     .Pre = !!(hook_kind & PRE),                                                \
     .Post = !!(hook_kind & POST),                                              \
   },
+#define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
+  {                                                                            \
+    .Sym = #sym,                                                               \
+    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value},    \
+             {.Size = sizeof(t2), .isPointer = std::is_pointer<t2>::value},    \
+             {.Size = sizeof(t3), .isPointer = std::is_pointer<t3>::value}},   \
+    .Ret = {                                                                   \
+      .Size = sizeof(rett),                                                    \
+      .isPointer = std::is_pointer<rett>::value                                \
+    },                                                                         \
+    .Pre = !!(hook_kind & PRE),                                                \
+    .Post = !!(hook_kind & POST),                                              \
+  },
 #include "dfsan_hooks.inc.h"
 };
 
