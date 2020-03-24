@@ -139,6 +139,7 @@ int run(void) {
       fprintf(stderr, "mounting /run failed : %s\n", strerror(errno));
   }
 
+#if 0
   {
     fs::path subdir = fs::path(opts::sysroot) / "tmp";
 
@@ -146,6 +147,7 @@ int run(void) {
               MS_NOSUID | MS_NODEV | MS_STRICTATIME, "mode=1777") < 0)
       fprintf(stderr, "mounting /tmp failed : %s\n", strerror(errno));
   }
+#endif
 
   {
     fs::path chrooted_resolv_conf =
@@ -417,12 +419,14 @@ int run(void) {
               strerror(errno));
   }
 
+#if 0
   {
     fs::path subdir = fs::path(opts::sysroot) / "tmp";
 
     if (umount2(subdir.c_str(), 0) < 0)
       fprintf(stderr, "unmounting /tmp failed : %s\n", strerror(errno));
   }
+#endif
 
   {
     fs::path subdir = fs::path(opts::sysroot) / "run";
