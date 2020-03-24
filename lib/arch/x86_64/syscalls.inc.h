@@ -6,6 +6,7 @@ ___SYSCALL1(60, exit, int, error_code)
 #endif
 
 #if !defined(___DFSAN) || defined(___DFSAN_SYSEXITS)
+___SYSCALL3(1, write, unsigned int, fd, const char __user *, buf, size_t, count)
 ___SYSCALL3(0, read, unsigned int, fd, char __user *, buf, size_t, count)
 ___SYSCALL6(45, recvfrom, int, fd, void __user *, ubuf, size_t, size, unsigned int, flags, struct sockaddr __user *, addr, int __user *, addr_len)
 ___SYSCALL3(47, recvmsg, int, fd, struct msghdr __user *, msg, unsigned int, flags)
@@ -28,7 +29,6 @@ ___SYSCALL3(217, getdents64, unsigned int, fd, struct linux_dirent64 __user *, d
 #endif
 
 #if !defined(___DFSAN)
-___SYSCALL3(1, write, unsigned int, fd, const char __user *, buf, size_t, count)
 ___SYSCALL3(2, open, const char __user *, filename, int, flags, mode_t, mode)
 ___SYSCALL3(7, poll, struct pollfd __user *, ufds, unsigned int, nfds, int, timeout_msecs)
 ___SYSCALL3(8, lseek, unsigned int, fd, off_t, offset, unsigned int, whence)
