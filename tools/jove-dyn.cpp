@@ -2073,25 +2073,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__mips64) || defined(__mips__)
 
     case llvm::Mips::JALR: /* jalr $25 */
-#if 0
-      assert(Inst.getNumOperands() == 1 ||
-             Inst.getNumOperands() == 2);
-
-      for (unsigned i = 0; i < Inst.getNumOperands(); ++i) {
-        assert(Inst.getOperand(i).isReg());
-        if (Inst.getOperand(i).getReg() == llvm::Mips::RA)
-          continue;
-
-        return RegValue(Inst.getOperand(i).getReg());
-      }
-      abort();
-#else
       assert(Inst.getNumOperands() == 2);
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
       assert(Inst.getOperand(1).isReg());
       return RegValue(Inst.getOperand(1).getReg());
-#endif
 
     case llvm::Mips::JR: /* jr $25 */
       assert(Inst.getNumOperands() == 1);
