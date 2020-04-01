@@ -179,7 +179,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
         }
 
-#if 1
+#if 0
         if (!(ICFG[bb].Analysis.Stale &&
               ICFG[bb].Analysis.live.def.none() &&
               ICFG[bb].Analysis.live.use.none() &&
@@ -300,7 +300,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         //Writer.printHex("Address", ICFG[boost::vertex(f.Entry, ICFG)].Addr);
 
-#if 1
+#if 0
         if (!(f.Analysis.Stale &&
               f.Analysis.args.none() &&
               f.Analysis.rets.none()))
