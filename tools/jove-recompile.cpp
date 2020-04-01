@@ -178,19 +178,25 @@ int recompile(void) {
   //
   // sanity checks for output path
   //
-  if (fs::exists(opts::Output))
-    fs::remove_all(opts::Output);
-
-  if (!fs::create_directory(opts::Output)) {
-    WithColor::error() << "failed to create directory at \"" << opts::Output
-                       << "\"\n";
-    return 1;
+  if (fs::exists(opts::Output)) {
+    WithColor::warning() << llvm::formatv("reusing output directory {}\n",
+                                          opts::Output);
+  } else {
+    if (!fs::create_directory(opts::Output)) {
+      WithColor::error() << "failed to create directory at \"" << opts::Output
+                         << "\"\n";
+      return 1;
+    }
   }
 
   //
   // create symlink back to jv
   //
-  fs::create_symlink(fs::canonical(opts::jv), fs::path(opts::Output) / ".jv");
+  try {
+    fs::create_symlink(fs::canonical(opts::jv), fs::path(opts::Output) / ".jv");
+  } catch (...) {
+    ;
+  }
 
   //
   // get paths to stuff
@@ -350,16 +356,21 @@ int recompile(void) {
 
     fs::path chrooted_path(opts::Output + b.Path);
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy(b.Path, chrooted_path);
+
+    fs::copy_file(b.Path, chrooted_path, fs::copy_option::overwrite_if_exists);
 
     if (!b.dynl.soname.empty()) {
       rtld_soname = b.dynl.soname;
 
       std::string binary_filename = fs::path(b.Path).filename().string();
 
-      if (binary_filename != b.dynl.soname)
-        fs::create_symlink(binary_filename,
-                           chrooted_path.parent_path() / b.dynl.soname);
+      try {
+        if (binary_filename != b.dynl.soname)
+          fs::create_symlink(binary_filename,
+                             chrooted_path.parent_path() / b.dynl.soname);
+      } catch (...) {
+        ;
+      }
     }
 
     break;
@@ -374,7 +385,8 @@ int recompile(void) {
           fs::path(opts::Output) / "usr" / "lib" / JOVE_RT_SONAME;
 
       fs::create_directories(chrooted_path.parent_path());
-      fs::copy(jove_rt_path, chrooted_path);
+      fs::copy_file(jove_rt_path, chrooted_path,
+                    fs::copy_option::overwrite_if_exists);
     }
 
     {
@@ -382,7 +394,12 @@ int recompile(void) {
           fs::path(opts::Output) / "usr" / "lib" / JOVE_RT_SO;
 
       fs::create_directories(chrooted_path.parent_path());
-      fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
+
+      try {
+        fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
+      } catch (...) {
+        ;
+      }
     }
   }
 
@@ -877,9 +894,13 @@ skip_dfsan:
       if (!b.dynl.soname.empty()) {
         arg_vec.push_back(soname_arg.c_str());
 
-        if (binary_filename != b.dynl.soname)
-          fs::create_symlink(binary_filename,
-                             chrooted_path.parent_path() / b.dynl.soname);
+        try {
+          if (binary_filename != b.dynl.soname)
+            fs::create_symlink(binary_filename,
+                               chrooted_path.parent_path() / b.dynl.soname);
+        } catch (...) {
+          ;
+        }
       }
 
 #if 0
