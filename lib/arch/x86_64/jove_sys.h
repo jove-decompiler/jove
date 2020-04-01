@@ -35,6 +35,8 @@
 #define __user
 #endif
 
+#define __SYSCALL_CLOBBERS "memory", "cc", "r11", "cx"
+
 #define ___SYSCALL0(nr, nm)                                                    \
   static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
     long _ret;                                                                 \
@@ -44,7 +46,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr)                                                    \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
@@ -60,7 +62,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1)                                          \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
@@ -77,7 +79,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1), "r"(_a2)                                \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
@@ -95,7 +97,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3)                      \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
@@ -114,7 +116,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4)            \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
@@ -135,7 +137,7 @@
     asm volatile("syscall\n\t"                                                 \
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5)  \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                               \
                                                                                \
     return _ret;                                                               \
   }
@@ -158,7 +160,7 @@
                  : "=a"(_ret)                                                  \
                  : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), \
                    "r"(_a6)                                                    \
-                 : "memory", "cc", "r11", "cx");                               \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
