@@ -6231,6 +6231,19 @@ int CreateSectionGlobalVariables(void) {
     }
   }
 
+  // XXX clean this up
+  std::unordered_map<llvm::Function *, function_index_t> LLVMFnToJoveFnMap;
+
+  {
+    for (function_index_t fidx = 0;
+         fidx < Decompilation.Binaries[BinaryIndex].Analysis.Functions.size();
+         ++fidx) {
+      function_t &f =
+          Decompilation.Binaries[BinaryIndex].Analysis.Functions.at(fidx);
+      LLVMFnToJoveFnMap.insert({f.F, fidx});
+    }
+  }
+
   //
   // Global Ctors/Dtors
   //
@@ -6246,6 +6259,18 @@ int CreateSectionGlobalVariables(void) {
       assert(llvm::isa<llvm::Function>(C));
 
       llvm::Function *F = llvm::cast<llvm::Function>(C);
+
+      {
+        function_t &f = Decompilation.Binaries[BinaryIndex]
+                            .Analysis.Functions[LLVMFnToJoveFnMap[F]];
+        if (!f.IsABI) {
+          WithColor::note() << llvm::formatv("!IsABI for {0}\n", F->getName());
+          f.IsABI = true;
+
+          ABIChanged = true;
+        }
+      }
+
       auto it = CtorStubMap.find(F);
       if (it == CtorStubMap.end()) {
         llvm::FunctionType *FTy = F->getFunctionType();
@@ -6433,6 +6458,13 @@ int CreateSectionGlobalVariables(void) {
   }
 
   SectsGlobal->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
+  if (ABIChanged) {
+    WriteDecompilation();
+
+    execve(cmdline.argv[0], cmdline.argv, ::environ);
+    abort();
+  }
 
   return 0;
 }
