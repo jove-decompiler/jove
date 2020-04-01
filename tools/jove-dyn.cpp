@@ -2399,6 +2399,11 @@ static void harvest_addressof_reloc_targets(pid_t child,
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
+    if (!BinFoundVec[BIdx]) {
+      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
+      continue;
+    }
+
     //
     // parse the ELF
     //
