@@ -7082,11 +7082,15 @@ int Optimize1(void) {
 }
 
 static llvm::Constant *
-ConstantForAddress(uintptr_t Addr) {
-  if (!Addr) {
+ConstantForAddress(llvm::APInt Addr) {
+  if (Addr.isNullValue()) {
     // the NULL pointer is a special case
     return llvm::ConstantInt::get(WordType(), 0);
   }
+
+  bool isNeg = Addr.isNegative();
+  if (isNeg)
+    Addr = Addr.abs();
 
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
@@ -7127,27 +7131,28 @@ ConstantForAddress(uintptr_t Addr) {
 
   llvm::Constant *res;
 
-  auto it = st.FuncMap.find(Addr);
+  auto it = st.FuncMap.find(Addr.getZExtValue());
   if (it != st.FuncMap.end()) {
     function_t &f = Binary.Analysis.Functions[(*it).second];
     res = f.F;
 
     if (!f.IsABI) {
-      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
+      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n",
+                                         Addr.getZExtValue());
       f.IsABI = true;
 
       ABIChanged = true;
     }
   } else {
-    res = SectionPointer(Addr);
+    res = SectionPointer(Addr.getZExtValue());
     if (!res) {
       WithColor::error() << __func__ << ": !SectionPointer("
-                         << llvm::format_hex(Addr, 1) << ")\n";
+                         << llvm::format_hex(Addr.getZExtValue(), 1) << ")\n";
 
 #if 0
       llvm::GlobalVariable *PCRelFailGlobal = new llvm::GlobalVariable(
           *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
-          nullptr, (fmt("PCRelFail0x%lx") % Addr).str());
+          nullptr, (fmt("PCRelFail0x%lx") % Addr.getZExtValue()).str());
 
       return llvm::ConstantExpr::getPtrToInt(PCRelFailGlobal, WordType());
 #else
@@ -7161,12 +7166,26 @@ ConstantForAddress(uintptr_t Addr) {
   else
     assert(res->getType()->isIntegerTy(WordBits()));
 
-  return res;
+  if (isNeg)
+    return llvm::ConstantExpr::getNeg(res);
+  else
+    return res;
+}
+
+static llvm::Constant *
+ConstantForAddress(uintptr_t Addr) {
+  return ConstantForAddress(llvm::APInt(WordBits(), Addr));
 }
 
 int FixupPCRelativeAddrs(void) {
   if (!PCRelGlobal)
     return 0;
+
+#define WARN(val)                                                              \
+  do {                                                                         \
+    WithColor::warning() << llvm::formatv("{0}:{1}: {2}\n", __FILE__,          \
+                                          __LINE__, val);                      \
+  } while (false)
 
   auto handle_load_of_pcrel = [&](llvm::LoadInst *L) -> void {
     for (llvm::User *U : L->users()) {
@@ -7187,15 +7206,7 @@ int FixupPCRelativeAddrs(void) {
         if (llvm::isa<llvm::ConstantInt>(Other)) {
           llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
 
-          if (CI->getValue().isNegative()) {
-            Inst->setOperand(OtherOperandIdx,
-                             llvm::ConstantExpr::getNeg(ConstantForAddress(
-                                 CI->getValue().abs().getZExtValue())));
-          } else {
-            Inst->setOperand(
-                OtherOperandIdx,
-                ConstantForAddress(CI->getValue().abs().getZExtValue()));
-          }
+          Inst->setOperand(OtherOperandIdx, ConstantForAddress(CI->getValue()));
           continue;
         }
 
@@ -7204,11 +7215,10 @@ int FixupPCRelativeAddrs(void) {
           if (llvm::isa<llvm::ConstantInt>(SI->getTrueValue()) &&
               llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
             SI->setTrueValue(ConstantForAddress(
-                llvm::cast<llvm::ConstantInt>(SI->getTrueValue())
-                    ->getZExtValue()));
+                llvm::cast<llvm::ConstantInt>(SI->getTrueValue())->getValue()));
             SI->setFalseValue(ConstantForAddress(
                 llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
-                    ->getZExtValue()));
+                    ->getValue()));
             continue;
           }
         }
@@ -7222,7 +7232,7 @@ int FixupPCRelativeAddrs(void) {
             if (llvm::isa<llvm::ConstantInt>(incomingValue)) {
               llvm::ConstantInt *CI =
                   llvm::cast<llvm::ConstantInt>(incomingValue);
-              PI->setIncomingValue(i, ConstantForAddress(CI->getZExtValue()));
+              PI->setIncomingValue(i, ConstantForAddress(CI->getValue()));
               continue;
             }
 
@@ -7233,10 +7243,10 @@ int FixupPCRelativeAddrs(void) {
                   llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
                 SI->setTrueValue(ConstantForAddress(
                     llvm::cast<llvm::ConstantInt>(SI->getTrueValue())
-                        ->getZExtValue()));
+                        ->getValue()));
                 SI->setFalseValue(ConstantForAddress(
                     llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
-                        ->getZExtValue()));
+                        ->getValue()));
                 continue;
               }
             }
@@ -7273,16 +7283,8 @@ int FixupPCRelativeAddrs(void) {
                                         ? llvm::cast<llvm::ConstantInt>(_LHS)
                                         : llvm::cast<llvm::ConstantInt>(_RHS);
 
-            if (CI->getValue().isNegative()) {
-              OtherInst->setOperand(
-                  _OtherOperandIdx,
-                  llvm::ConstantExpr::getNeg(
-                      ConstantForAddress(CI->getValue().abs().getZExtValue())));
-            } else {
-              OtherInst->setOperand(
-                  _OtherOperandIdx,
-                  ConstantForAddress(CI->getValue().abs().getZExtValue()));
-            }
+            OtherInst->setOperand(_OtherOperandIdx,
+                                  ConstantForAddress(CI->getValue()));
             continue;
           }
 
@@ -7290,6 +7292,68 @@ int FixupPCRelativeAddrs(void) {
               "handle_load_of_pcrel: unknown _LHS={0} _RHS={1} in function {2}\n",
               *_LHS, *_RHS,
               Inst->getParent()->getParent()->getName());
+          break;
+        }
+
+        case llvm::Instruction::Select: {
+          llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(OtherInst);
+
+          {
+            llvm::Value *T = SI->getTrueValue();
+
+            if (llvm::isa<llvm::ConstantInt>(T)) {
+              SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(T)->getValue()));
+            } else if (llvm::isa<llvm::SelectInst>(T)) {
+              llvm::SelectInst *_SI = llvm::cast<llvm::SelectInst>(T);
+
+              {
+                llvm::Value *_T = _SI->getTrueValue();
+                if (llvm::isa<llvm::ConstantInt>(_T))
+                  _SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_T)->getValue()));
+                else
+                  WARN(*_T);
+              }
+
+              {
+                llvm::Value *_F = _SI->getFalseValue();
+                if (llvm::isa<llvm::ConstantInt>(_F))
+                  _SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_F)->getValue()));
+                else
+                  WARN(*_F);
+              }
+            } else {
+              WARN(*T);
+            }
+          }
+
+          {
+            llvm::Value *F = SI->getFalseValue();
+
+            if (llvm::isa<llvm::ConstantInt>(F)) {
+              SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(F)->getValue()));
+            } else if (llvm::isa<llvm::SelectInst>(F)) {
+              llvm::SelectInst *_SI = llvm::cast<llvm::SelectInst>(F);
+
+              {
+                llvm::Value *_T = _SI->getTrueValue();
+                if (llvm::isa<llvm::ConstantInt>(_T))
+                  _SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_T)->getValue()));
+                else
+                  WARN(*_T);
+              }
+
+              {
+                llvm::Value *_F = _SI->getFalseValue();
+                if (llvm::isa<llvm::ConstantInt>(_F))
+                  _SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_F)->getValue()));
+                else
+                  WARN(*_F);
+              }
+            } else {
+              WARN(*F);
+            }
+          }
+
           break;
         }
 
