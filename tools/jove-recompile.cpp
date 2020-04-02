@@ -412,7 +412,8 @@ int recompile(void) {
         ("libclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME ".so");
 
     fs::create_directories(chrooted_path.parent_path());
-    fs::copy(jove_dfsan_path, chrooted_path);
+    fs::copy_file(jove_dfsan_path, chrooted_path,
+                  fs::copy_option::overwrite_if_exists);
   }
 
   //
@@ -685,7 +686,8 @@ int recompile(void) {
       WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
                                          dfsan_modid);
 
-      fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid);
+      fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid,
+                    fs::copy_option::overwrite_if_exists);
     }
 
     std::string optbcfp = bcfp;
