@@ -834,8 +834,8 @@ skip_dfsan:
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
 
-#if 0 /* __tls_get_addr... */
-          "--no-undefined",
+#if 1 /* __tls_get_addr... */
+          "--unresolved-symbols=ignore-all"
 #endif
       };
 
