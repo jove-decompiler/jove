@@ -2203,8 +2203,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   auto it = AddressSpace.find(target);
   if (it == AddressSpace.end()) {
-    WithColor::warning() << llvm::formatv("{0}: unknown binary for target {1}\n",
-                                          __func__,
+    update_view_of_virtual_memory(child);
+
+    WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
+                                          description_of_program_counter(_pc),
                                           description_of_program_counter(target));
     return;
   }
