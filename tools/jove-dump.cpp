@@ -345,6 +345,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
         }
 
         Writer.printBoolean("IsABI", f.IsABI);
+        Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
       }
     }
 

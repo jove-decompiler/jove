@@ -694,6 +694,7 @@ static function_index_t translate_function(binary_t &binary,
       translate_basic_block(binary, tcg, dis, Addr);
   binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
+  binary.Analysis.Functions[res].IsSignalHandler = false;
 
   return res;
 }

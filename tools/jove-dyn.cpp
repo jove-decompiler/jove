@@ -142,6 +142,9 @@ static cl::alias PrintSignalsAlias("s", cl::desc("Alias for -signals."),
                                    cl::aliasopt(PrintSignals),
                                    cl::cat(JoveCategory));
 
+static cl::opt<bool> Syscalls("syscalls", cl::desc("Always trace system calls"),
+                              cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -392,6 +395,13 @@ static void IgnoreCtrlC(void);
 #if defined(__mips64) || defined(__mips)
 static void fifo_reader(const char *fifo_path);
 #endif
+
+static function_index_t translate_function(pid_t child,
+                                           binary_index_t binary_idx,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t &dis,
+                                           target_ulong Addr,
+                                           unsigned &brkpt_count);
 
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
@@ -766,7 +776,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(SeenExec && (!BinFoundVec.all() ||
+        if (unlikely(ptrace(SeenExec && (opts::Syscalls ||
+                                         !BinFoundVec.all() ||
 #if defined(__mips64) || defined(__mips__)
                                          !ExecutableRegionAddress)
 #else
@@ -835,16 +846,55 @@ int ParentProc(pid_t child, const char *fifo_path) {
 #endif
               ;
 
+#if defined(__x86_64__)
+          if (syscallno == __NR_rt_sigaction) {
+            WithColor::note()
+                << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
+                                 gpr.rdi, gpr.rsi, gpr.rdx, gpr.r10);
+
+            uintptr_t act = gpr.rsi;
+            if (act) {
+              uintptr_t handler = _ptrace_peekdata(child, act);
+
+              if (handler && (void *)handler != SIG_IGN) {
+                update_view_of_virtual_memory(child);
+
+                auto it = AddressSpace.find(handler);
+                if (it == AddressSpace.end()) {
+                  WithColor::warning() << llvm::formatv(
+                      "sighandler {0:x} in unknown binary\n", handler);
+                } else {
+                  binary_index_t handler_binary_idx = *(*it).second.begin();
+
+                  unsigned brkpt_count = 0;
+                  function_index_t f_idx = translate_function(
+                      child, handler_binary_idx, tcg, dis,
+                      rva_of_va(handler, handler_binary_idx), brkpt_count);
+
+                  if (f_idx == invalid_function_index) {
+                    WithColor::error() << llvm::formatv(
+                        "failed to translate signal handler {0:x}\n", handler);
+                  } else {
+                    binary_t &binary =
+                        decompilation.Binaries[handler_binary_idx];
+                    binary.Analysis.Functions[f_idx].IsSignalHandler = true;
+                  }
+                }
+              }
+            }
+          }
+#endif
+
+#if !defined(__NR_mmap) && !defined(__NR_mmap2)
+#error "we should have at least one"
+#endif
+
           bool does_mmap = false
 #ifdef __NR_mmap
                            || syscallno == __NR_mmap
 #endif
 #ifdef __NR_mmap2
                            || syscallno == __NR_mmap2
-#endif
-
-#if !defined(__NR_mmap) && !defined(__NR_mmap2)
-#error "we should have at least one"
 #endif
               ;
 
@@ -1105,12 +1155,12 @@ static basic_block_index_t translate_basic_block(pid_t,
                                                  const target_ulong Addr,
                                                  unsigned &brkpt_count);
 
-static function_index_t translate_function(pid_t child,
-                                           binary_index_t binary_idx,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           target_ulong Addr,
-                                           unsigned &brkpt_count) {
+function_index_t translate_function(pid_t child,
+                                    binary_index_t binary_idx,
+                                    tiny_code_generator_t &tcg,
+                                    disas_t &dis,
+                                    target_ulong Addr,
+                                    unsigned &brkpt_count) {
   binary_t &binary = decompilation.Binaries[binary_idx];
   auto &FuncMap = BinStateVec[binary_idx].FuncMap;
 
@@ -1127,6 +1177,7 @@ static function_index_t translate_function(pid_t child,
       translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
   binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
+  binary.Analysis.Functions[res].IsSignalHandler = false;
 
   return res;
 }
@@ -2564,6 +2615,9 @@ static void harvest_reloc_targets(pid_t child,
 }
 
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
+  if (BinFoundVec.all())
+    return; /* there is no need */
+
   if (!update_view_of_virtual_memory(child)) {
     WithColor::error() << "failed to read virtual memory maps of child "
                        << child << '\n';

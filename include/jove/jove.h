@@ -160,7 +160,7 @@ struct function_t {
     bool Stale;
   } Analysis;
 
-  bool IsABI;
+  bool IsABI, IsSignalHandler;
 
   void InvalidateAnalysis(void) {
     this->Analysis.Stale = true;
@@ -174,7 +174,8 @@ struct function_t {
        &BOOST_SERIALIZATION_NVP(Analysis.args)
        &BOOST_SERIALIZATION_NVP(Analysis.rets)
        &BOOST_SERIALIZATION_NVP(Analysis.Stale)
-       &BOOST_SERIALIZATION_NVP(IsABI);
+       &BOOST_SERIALIZATION_NVP(IsABI)
+       &BOOST_SERIALIZATION_NVP(IsSignalHandler);
   }
 };
 

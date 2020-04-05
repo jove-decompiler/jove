@@ -580,6 +580,7 @@ static function_index_t translate_function(binary_index_t binary_idx,
       translate_basic_block(binary_idx, tcg, dis, Addr);
   binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
+  binary.Analysis.Functions[res].IsSignalHandler = false;
 
   return res;
 }
