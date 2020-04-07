@@ -7130,7 +7130,7 @@ int Optimize1(void) {
 }
 
 static llvm::Constant *
-ConstantForAddress(uintptr_t Addr) {
+ConstantForRelativeAddress(uintptr_t Addr) {
   if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
     return nullptr;
 
@@ -9424,7 +9424,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     // instruction which retrives the PC-relative address.
     //
 #ifdef __x86_64__ /* we can get away with this on x86_64 */
-    llvm::Value *res = ConstantForAddress(A);
+    llvm::Value *res = ConstantForRelativeAddress(A);
     assert(res);
     return res;
 #else
