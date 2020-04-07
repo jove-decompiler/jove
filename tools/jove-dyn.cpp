@@ -878,6 +878,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
                     binary_t &binary =
                         decompilation.Binaries[handler_binary_idx];
                     binary.Analysis.Functions[f_idx].IsSignalHandler = true;
+                    binary.Analysis.Functions[f_idx].IsABI = true;
                   }
                 }
               }
