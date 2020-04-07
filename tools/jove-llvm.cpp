@@ -587,6 +587,8 @@ static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
 
+static std::vector<function_index_t> FuncIdxAreABIVec;
+
 static llvm::GlobalVariable *PCRelGlobal;
 static llvm::GlobalVariable *TLSModGlobal;
 
@@ -678,11 +680,11 @@ static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int ProcessExportedFunctions(void);
 static int CreateFunctions(void);
-static int CreateFunctionTable(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
+static int CreateFunctionTable(void);
 static int CreatePCRelGlobal(void);
 static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
@@ -718,11 +720,11 @@ int llvm(void) {
       || ProcessIFuncResolvers()
       || ProcessExportedFunctions()
       || CreateFunctions()
-      || CreateFunctionTable()
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
+      || CreateFunctionTable()
       || CreatePCRelGlobal()
       || CreateTPBaseGlobal()
       || FixupHelperStubs()
@@ -777,6 +779,10 @@ static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
 
+static llvm::Type *WordType(void) {
+  return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
+}
+
 int ParseDecompilation(void) {
   std::ifstream ifs(
       fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
@@ -815,6 +821,8 @@ DynTargetNeedsThunkPred(std::pair<binary_index_t, function_index_t> DynTarget) {
   return binary.IsDynamicLinker || binary.IsVDSO;
 }
 
+static llvm::Constant *SectionPointer(uintptr_t Addr);
+
 static llvm::Value *
 GetDynTargetAddress(llvm::IRBuilderTy &IRB,
                     std::pair<binary_index_t, function_index_t> IdxPair) {
@@ -825,12 +833,51 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
 
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
+  if (DynTarget.BIdx == BinaryIndex) {
+    binary_t &binary = Decompilation.Binaries[BinaryIndex];
+    auto &ICFG = binary.Analysis.ICFG;
+    const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
+    return llvm::ConstantExpr::getPtrToInt(
+        SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr), WordType());
+  }
+
+  bool needsThunk = DynTargetNeedsThunkPred(IdxPair);
+
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      DynTargetNeedsThunkPred(IdxPair) ? JoveForeignFunctionTablesGlobal
-                                       : JoveFunctionTablesGlobal,
+      needsThunk ? JoveForeignFunctionTablesGlobal
+                 : JoveFunctionTablesGlobal,
       0, DynTarget.BIdx));
 
-  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
+  return IRB.CreateLoad(IRB.CreateConstGEP1_64(
+      FnsTbl, needsThunk ? DynTarget.FIdx : 2 * DynTarget.FIdx + 0));
+}
+
+static llvm::Value *GetDynTargetCallableAddress(
+    llvm::IRBuilderTy &IRB,
+    std::pair<binary_index_t, function_index_t> IdxPair) {
+  struct {
+    binary_index_t BIdx;
+    function_index_t FIdx;
+  } DynTarget;
+
+  std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
+
+  if (DynTarget.BIdx == BinaryIndex) {
+    binary_t &binary = Decompilation.Binaries[BinaryIndex];
+    auto &ICFG = binary.Analysis.ICFG;
+    const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
+    return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+  }
+
+  bool needsThunk = DynTargetNeedsThunkPred(IdxPair);
+
+  llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+      needsThunk ? JoveForeignFunctionTablesGlobal
+                 : JoveFunctionTablesGlobal,
+      0, DynTarget.BIdx));
+
+  return IRB.CreateLoad(IRB.CreateConstGEP1_64(
+      FnsTbl, needsThunk ? DynTarget.FIdx : 2 * DynTarget.FIdx + 1));
 }
 
 template <class T>
@@ -1848,10 +1895,6 @@ int ProcessExportedFunctions(void) {
 }
 
 static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
-
-static llvm::Type *WordType(void) {
-  return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
-}
 
 int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
@@ -4770,20 +4813,25 @@ int CreateFunctions(void) {
 
 int CreateFunctionTable(void) {
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  auto &ICFG = binary.Analysis.ICFG;
 
   std::vector<llvm::Constant *> constantTable;
-  constantTable.resize(binary.Analysis.Functions.size());
+  constantTable.resize(2 * binary.Analysis.Functions.size());
 
-  std::transform(binary.Analysis.Functions.begin(),
-                 binary.Analysis.Functions.end(), constantTable.begin(),
-                 [](const function_t &f) -> llvm::Constant * {
-                   return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
-                 });
+  for (unsigned i = 0; i < binary.Analysis.Functions.size(); ++i) {
+    const function_t &f = binary.Analysis.Functions[i];
+    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+
+    llvm::Constant *C1 = llvm::ConstantExpr::getPtrToInt(SectionPointer(Addr), WordType());
+    llvm::Constant *C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+
+    constantTable[2 * i + 0] = C1;
+    constantTable[2 * i + 1] = C2;
+  }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
 
-  llvm::ArrayType *T =
-      llvm::ArrayType::get(WordType(), binary.Analysis.Functions.size() + 1);
+  llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
   llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
   llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
@@ -5604,12 +5652,12 @@ int CreateSectionGlobalVariables(void) {
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
                                            nullptr, "__jove_sections");
-    SectsGlobal->setAlignment(4096);
+    SectsGlobal->setAlignment(llvm::MaybeAlign(4096));
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
         nullptr, "__jove_sections_const");
-    ConstSectsGlobal->setAlignment(4096);
+    ConstSectsGlobal->setAlignment(llvm::MaybeAlign(4096));
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
       return;
@@ -7082,102 +7130,38 @@ int Optimize1(void) {
 }
 
 static llvm::Constant *
-ConstantForAddress(llvm::APInt Addr) {
-  if (Addr.isNullValue()) {
-    // the NULL pointer is a special case
-    return llvm::ConstantInt::get(WordType(), 0);
-  }
-
-  bool isNeg = Addr.isNegative();
-  if (isNeg)
-    Addr = Addr.abs();
+ConstantForAddress(uintptr_t Addr) {
+  if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
+    return nullptr;
 
   binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
-#if 0
-  {
-    auto it = AddressSpaceObjects.find(Addr);
-    if (it != AddressSpaceObjects.end()) {
-      uintptr_t Base = (*it).lower();
-      unsigned off = Addr - Base;
-
-      llvm::StringRef SymName;
-      {
-        auto _it = AddrToSymbolMap.find(Base);
-        assert(_it != AddrToSymbolMap.end());
-        SymName = *(*_it).second.begin();
-      }
-
-      if (opts::Verbose)
-        WithColor::note() << (fmt("addrspace obj @ %s+%u") %
-                              SymName.str().c_str() % off)
-                                 .str()
-                          << '\n';
-
-      llvm::Constant *res = Module->getNamedValue(SymName);
-      assert(res);
-
-      res = llvm::ConstantExpr::getPtrToInt(res, WordType());
-
-      if (off)
-        res = llvm::ConstantExpr::getAdd(
-            res, llvm::ConstantInt::get(WordType(), off));
-
-      return res;
-    }
-  }
-#endif
-
   llvm::Constant *res;
 
-  auto it = st.FuncMap.find(Addr.getZExtValue());
+  auto it = st.FuncMap.find(Addr);
   if (it != st.FuncMap.end()) {
     function_t &f = Binary.Analysis.Functions[(*it).second];
     res = f.F;
 
     if (!f.IsABI) {
-      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n",
-                                         Addr.getZExtValue());
-      f.IsABI = true;
+      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
 
+      FuncIdxAreABIVec.push_back((*it).second);
       ABIChanged = true;
     }
   } else {
-    res = SectionPointer(Addr.getZExtValue());
-    if (!res) {
-      WithColor::error() << __func__ << ": !SectionPointer("
-                         << llvm::format_hex(Addr.getZExtValue(), 1) << ")\n";
-
-#if 0
-      llvm::GlobalVariable *PCRelFailGlobal = new llvm::GlobalVariable(
-          *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage,
-          nullptr, (fmt("PCRelFail0x%lx") % Addr.getZExtValue()).str());
-
-      return llvm::ConstantExpr::getPtrToInt(PCRelFailGlobal, WordType());
-#else
-      return llvm::Constant::getNullValue(WordType());
-#endif
-    }
+    res = SectionPointer(Addr);
+    assert(res);
   }
 
-  if (res->getType()->isPtrOrPtrVectorTy())
-    res = llvm::ConstantExpr::getPtrToInt(res, WordType());
-  else
-    assert(res->getType()->isIntegerTy(WordBits()));
-
-  if (isNeg)
-    return llvm::ConstantExpr::getNeg(res);
-  else
-    return res;
-}
-
-static llvm::Constant *
-ConstantForAddress(uintptr_t Addr) {
-  return ConstantForAddress(llvm::APInt(WordBits(), Addr));
+  assert(res->getType()->isPointerTy());
+  return llvm::ConstantExpr::getPtrToInt(res, WordType());
 }
 
 int FixupPCRelativeAddrs(void) {
+  // TODO REMOVE THE FOLLOWING COMMENTED OUT CODE
+#if 0
   if (!PCRelGlobal)
     return 0;
 
@@ -7387,6 +7371,7 @@ int FixupPCRelativeAddrs(void) {
   PCRelGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
   PCRelGlobal->setConstant(true);
   PCRelGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+#endif
 
   return 0;
 }
@@ -7910,6 +7895,10 @@ int RecoverControlFlow(void) {
 
   if (!Changed && !ABIChanged)
     return 0;
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  for (function_index_t fidx : FuncIdxAreABIVec)
+    Binary.Analysis.Functions.at(fidx).IsABI = true;
 
   WriteDecompilation();
 
@@ -8633,8 +8622,9 @@ int TranslateBasicBlock(binary_t &Binary,
 
         IRB.SetInsertPoint(IfSuccBlockVec[i]);
         llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-        llvm::Value *EQV =
-            IRB.CreateICmpEQ(PC, ConstantForAddress(ICFG[succ].Addr));
+        llvm::Value *EQV = IRB.CreateICmpEQ(
+            PC, llvm::ConstantExpr::getPtrToInt(SectionPointer(ICFG[succ].Addr),
+                                                WordType()));
         IRB.CreateCondBr(EQV, ICFG[succ].B,
                          i + 1 < N ? IfSuccBlockVec[i + 1] : ElseBlock);
       }
@@ -8898,9 +8888,14 @@ int TranslateBasicBlock(binary_t &Binary,
 
         do {
           IRB.SetInsertPoint(B);
-          llvm::Value *EQV =
-              IRB.CreateICmpEQ(IRB.CreateLoad(f.PCAlloca),
+
+          llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+          llvm::Value *EQV_1 =
+              IRB.CreateICmpEQ(PC,
                                GetDynTargetAddress(IRB, DynTargetsVec[i]));
+          llvm::Value *EQV_2 =
+              IRB.CreateICmpEQ(PC,
+                               GetDynTargetCallableAddress(IRB, DynTargetsVec[i]));
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
@@ -8911,7 +8906,7 @@ int TranslateBasicBlock(binary_t &Binary,
                 (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 f.F);
 
-          IRB.CreateCondBr(EQV, DynTargetsDoCallBVec[i], B);
+          IRB.CreateCondBr(IRB.CreateOr(EQV_1, EQV_2), DynTargetsDoCallBVec[i], B);
         } while (++i != DynTargetsVec.size());
 
         ElseB = B;
@@ -8985,7 +8980,7 @@ int TranslateBasicBlock(binary_t &Binary,
             }
 
             llvm::Value *CallArgs[] = {
-                IRB.CreateLoad(f.PCAlloca),
+                GetDynTargetCallableAddress(IRB, DynTargetsVec[i]),
                 IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                 CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
@@ -8998,7 +8993,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
-                    IRB.CreateLoad(f.PCAlloca),
+                    GetDynTargetCallableAddress(IRB, DynTargetsVec[i]),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
@@ -9411,23 +9406,34 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   static bool pcrel_flag = false;
 
-  auto immediate_constant = [&](unsigned bits, TCGArg a) -> llvm::Value * {
-    llvm::Value *res = [&]() {
-      if (bits == 64)
-        return IRB.getInt64(a);
-      if (bits == 32)
-        return IRB.getInt32(a);
+  auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
+    if (!pcrel_flag)
+      return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, bits), A);
 
-      abort();
-    }();
+    pcrel_flag = false; /* reset pcrel flag */
+    assert(bits == WordBits());
 
-    if (pcrel_flag && bits == WordBits()) {
-      pcrel_flag = false;
-
-      return IRB.CreateAdd(res, f.PCRelVal);
-    }
-
+    //
+    // on x86_64, PC-relative accesses are easy to handle. But on other
+    // architectures, the program counter register cannot be directly
+    // referenced, and so it is not as simple.
+    //
+    // on aarch64, adrp retrives address of 4KB page at a PC-relative offset.
+    //
+    // on i386, a call instruction is often followed immediately by a pop
+    // instruction which retrives the PC-relative address.
+    //
+#ifdef __x86_64__ /* we can get away with this on x86_64 */
+    llvm::Value *res = ConstantForAddress(A);
+    assert(res);
     return res;
+#else
+    return llvm::ConstantExpr::getAdd(
+        llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+        llvm::ConstantExpr::getSub(
+            llvm::ConstantInt::get(WordType(), A),
+            llvm::ConstantInt::get(WordType(), SectsStartAddr)));
+#endif
   };
 
   const TCGOpcode opc = op->opc;
