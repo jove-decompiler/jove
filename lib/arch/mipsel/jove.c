@@ -2369,8 +2369,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
     uintptr_t *fns = __jove_function_tables[BIdx];
     if (!fns) {
-      /* XXX */
-      if (BIdx == 1 || BIdx == 2) {
+      if (BIdx == 1 || BIdx == 2) { /* XXX */
         fns = __jove_foreign_function_tables[BIdx];
         if (!fns)
           continue;
@@ -2379,12 +2378,24 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
       }
     }
 
-    for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
-      if (CalleeAddr == fns[FIdx]) {
-        Callee.BIdx = BIdx;
-        Callee.FIdx = FIdx;
+    if (BIdx == 1 || BIdx == 2) { /* XXX */
+      for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
+        if (CalleeAddr == fns[FIdx]) {
+          Callee.BIdx = BIdx;
+          Callee.FIdx = FIdx;
 
-        goto found;
+          goto found;
+        }
+      }
+    } else {
+      for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
+        if (CalleeAddr == fns[2 * FIdx + 0] ||
+            CalleeAddr == fns[2 * FIdx + 1]) {
+          Callee.BIdx = BIdx;
+          Callee.FIdx = FIdx;
+
+          goto found;
+        }
       }
     }
   }
