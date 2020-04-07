@@ -147,7 +147,7 @@ static int await_process_completion(pid_t);
 static void print_command(const char **argv);
 
 static std::string compiler_runtime_afp, jove_llvm_path, jove_bin_path,
-    jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path;
+    jove_rt_path, jove_dfsan_path, llc_path, ld_path, opt_path, llvm_dis_path;
 
 static std::atomic<bool> Cancel(false);
 
@@ -240,6 +240,15 @@ int recompile(void) {
                  .string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
+    return 1;
+  }
+
+  llvm_dis_path =
+      (boost::dll::program_location().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "install" / "bin" / "llvm-dis")
+          .string();
+  if (!fs::exists(llvm_dis_path)) {
+    WithColor::error() << "could not find llvm-dis\n";
     return 1;
   }
 
@@ -622,6 +631,7 @@ int recompile(void) {
     }
 
     std::string bcfp(chrooted_path.string() + ".bc");
+    std::string llfp(chrooted_path.string() + ".ll");
     std::string mapfp(chrooted_path.string() + ".map");
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
@@ -689,6 +699,35 @@ int recompile(void) {
       fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid,
                     fs::copy_option::overwrite_if_exists);
     }
+
+    //
+    // run llvm-dis on bitcode
+    //
+    pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
+
+      const char *arg_arr[] = {
+        llvm_dis_path.c_str(),
+
+        "-o", llfp.c_str(),
+        bcfp.c_str(),
+
+        nullptr
+      };
+
+      print_command(&arg_arr[0]);
+
+      close(STDIN_FILENO);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
+    }
+
+    await_process_completion(pid);
 
     std::string optbcfp = bcfp;
 
