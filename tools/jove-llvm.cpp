@@ -9,6 +9,7 @@ class BasicBlock;
 class AllocaInst;
 class Type;
 class LoadInst;
+class CallInst;
 class DISubprogram;
 class GlobalIFunc;
 namespace object {
@@ -83,6 +84,11 @@ struct hook_t;
   } _resolver;                                                                 \
                                                                                \
   struct {                                                                     \
+    llvm::LoadInst *SavedSP;                                                   \
+    llvm::CallInst *SignalStack;                                               \
+  } _signal_handler;                                                           \
+                                                                               \
+  struct {                                                                     \
     llvm::DISubprogram *Subprogram;                                            \
   } DebugInformation;                                                          \
                                                                                \
@@ -94,7 +100,9 @@ struct hook_t;
                                                                                \
   function_t()                                                                 \
       : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
-        _resolver({.IFunc = nullptr}), IsNamed(false), Analyzed(false) {}      \
+        _resolver({.IFunc = nullptr}),                                         \
+        _signal_handler({.SavedSP = nullptr, .SignalStack = nullptr}),         \
+        IsNamed(false), Analyzed(false) {}                                     \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -6888,6 +6896,24 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
   {
     llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
 
+    if (f.IsSignalHandler) {
+      IRB.SetCurrentDebugLocation(
+          llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
+                                f.DebugInformation.Subprogram));
+
+      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+      f._signal_handler.SavedSP = IRB.CreateLoad(SPPtr);
+      f._signal_handler.SignalStack = IRB.CreateCall(JoveAllocStackFunc);
+
+      llvm::Value *NewSP =
+          IRB.CreateAdd(f._signal_handler.SignalStack,
+                        llvm::ConstantInt::get(
+                            WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16));
+
+      IRB.CreateStore(NewSP, SPPtr);
+    }
+
     for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
       f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
           IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
@@ -9216,6 +9242,16 @@ int TranslateBasicBlock(binary_t &Binary,
       break;
 
   case TERMINATOR::RETURN: {
+    if (f.IsSignalHandler) {
+      assert(f._signal_handler.SavedSP);
+      assert(f._signal_handler.SignalStack);
+
+      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+      IRB.CreateStore(f._signal_handler.SavedSP, SPPtr);
+
+      IRB.CreateCall(JoveFreeStackFunc, {f._signal_handler.SignalStack});
+    }
+
     if (DetermineFunctionType(f)->getReturnType()->isVoidTy()) {
       IRB.CreateRetVoid();
       break;

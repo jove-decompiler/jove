@@ -886,6 +886,12 @@ __attribute__((always_inline)) void helper_syscall(CPUX86State *, int);
 
 #endif /* JOVE_DFSAN */
 
+__attribute__((naked)) static void _jove_restore_rt(void) {
+  asm volatile("mov $0xf, %rax\n"
+               "syscall\n"
+               "hlt");
+}
+
 void helper_syscall(CPUX86State *env, int next_eip_addend)
 {
   unsigned long sysnum = env->regs[R_EAX];
@@ -952,6 +958,17 @@ void helper_syscall(CPUX86State *env, int next_eip_addend)
 
 #endif
 
+  //
+  // hacks
+  //
+  if (sysnum == 13 /* rt_sigaction */) {
+    unsigned long *act = (unsigned long *)env->regs[R_ESI];
+    act[2] = (unsigned long)_jove_restore_rt;
+  }
+
+  //
+  // perform the call
+  //
   long sysret;
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
