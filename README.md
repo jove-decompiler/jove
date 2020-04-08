@@ -31,8 +31,8 @@ make
 ```bash
 cd jove/bin
 jove-init -o $HOME/.jove/ls -git $(which ls)
-jove-dyn -d $HOME/.jove/ls $(which ls) -q -args=--version
-jove-dyn -d $HOME/.jove/ls $(which ls) -q -args=--help
-jove-dyn -d $HOME/.jove/ls $(which ls) -q -args=/
+jove-bootstrap -d $HOME/.jove/ls $(which ls) -q -- --version
+jove-bootstrap -d $HOME/.jove/ls $(which ls) -q -- --help
+jove-bootstrap -d $HOME/.jove/ls $(which ls) -q -- /
 ((j=0)) ; while jove-recompile -d $HOME/.jove/ls -o ls.recompiled.$j ; do sudo jove-run ls.recompiled.$j $(which ls) / ; sudo chown -R aeden:aeden $HOME/.jove/ls ; ((j++)) ; echo j is $j ; done
 ```
