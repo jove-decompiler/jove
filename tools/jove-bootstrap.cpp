@@ -403,6 +403,8 @@ static function_index_t translate_function(pid_t child,
                                            target_ulong Addr,
                                            unsigned &brkpt_count);
 
+static unsigned GetVDSOSize(void);
+
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
 
@@ -490,7 +492,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
       const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
       assert(vdso);
 
-      unsigned n = sysconf(_SC_PAGESIZE);
+      unsigned n = GetVDSOSize();
+      assert(n);
 
       if (binary.Data.size() != n ||
           memcmp(&binary.Data[0], vdso, binary.Data.size())) {
@@ -3038,6 +3041,47 @@ bool update_view_of_virtual_memory(pid_t child) {
   fclose(fp);
 
   return true;
+}
+
+unsigned GetVDSOSize(void) {
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  fp = fopen("/proc/self/maps", "r");
+
+  if (fp == NULL) {
+    return 0;
+  }
+
+  unsigned res = 0;
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    int fields, dev_maj, dev_min, inode;
+    uint64_t min, max, offset;
+    char flag_r, flag_w, flag_x, flag_p;
+    char path[512] = "";
+    fields = sscanf(line,
+                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
+                    " %512s",
+                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &dev_maj, &dev_min, &inode, path);
+
+    if ((fields < 10) || (fields > 11)) {
+      continue;
+    }
+
+    if (strcmp(path, "[vdso]") == 0) {
+      res = max - min;
+      break;
+    }
+  }
+
+  free(line);
+  fclose(fp);
+
+  return res;
 }
 
 std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
