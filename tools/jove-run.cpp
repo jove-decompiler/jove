@@ -275,8 +275,9 @@ int run(void) {
 #endif
 
   fs::path recover_fifo_path = fs::path(opts::sysroot) / "jove-recover.fifo";
+  unlink(recover_fifo_path.c_str());
   if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
-    fprintf(stderr, "pipe failed : %s\n", strerror(errno));
+    fprintf(stderr, "mkfifo failed : %s\n", strerror(errno));
     return 1;
   }
 
@@ -345,7 +346,10 @@ int run(void) {
 
   IgnoreCtrlC();
 
-  std::thread pipe_reader(recover, recover_fifo_path.c_str());
+  {
+    std::thread pipe_reader(recover, recover_fifo_path.c_str());
+    pipe_reader.detach(); /* go be free */
+  }
 
   //
   // wait for process to exit
@@ -373,7 +377,7 @@ int run(void) {
     }
   }
 
-  pipe_reader.join();
+  //pipe_reader.join();
 
   if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
@@ -488,11 +492,13 @@ static size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   return expected;
 }
 
+static fs::path jove_recover_path, jv_path;
+
 void recover(const char *fifo_path) {
   //
   // get paths to stuff
   //
-  fs::path jove_recover_path =
+  jove_recover_path =
       boost::dll::program_location().parent_path() / "jove-recover";
   if (!fs::exists(jove_recover_path)) {
     fprintf(stderr, "recover: couldn't find jove-recover at %s\n",
@@ -500,7 +506,7 @@ void recover(const char *fifo_path) {
     return;
   }
 
-  fs::path jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
+  jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
   if (!fs::exists(jv_path)) {
     fprintf(stderr, "recover: no jv found\n");
     return;
@@ -513,7 +519,7 @@ void recover(const char *fifo_path) {
     return;
   }
 
-  for (;;) {
+  auto process_fifo_bytes = [](int recover_fd) -> bool {
     char ch;
 
     {
@@ -524,8 +530,7 @@ void recover(const char *fifo_path) {
         else
           fprintf(stderr, "recover: read gave %zd\n", ret);
 
-        close(recover_fd);
-        return;
+        return false;
       }
     }
 
@@ -579,7 +584,7 @@ void recover(const char *fifo_path) {
       }
 
       await_process_completion(pid);
-      break;
+      return true;
     }
 
     case 'b': {
@@ -626,19 +631,22 @@ void recover(const char *fifo_path) {
       }
 
       await_process_completion(pid);
-      break;
+      return true;
     }
 
     case 'z':
-      close(recover_fd);
-      return;
+      return false;
 
     default:
-      fprintf(stderr, "recover: unknown character (%c)\n", ch);
-      close(recover_fd);
-      return;
+      break;
     }
-  }
+
+    fprintf(stderr, "recover: unknown character (%c)\n", ch);
+    return true;
+  };
+
+  while (process_fifo_bytes(recover_fd))
+    ;
 
   close(recover_fd);
 }
