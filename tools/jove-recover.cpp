@@ -230,12 +230,15 @@ int recover(void) {
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
 
+    bool wasDynTargetsEmpty =
+        ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.empty();
+
     bool isNewTarget = ICFG[boost::vertex(Caller.BBIdx, ICFG)]
                            .DynTargets.insert({Callee.BIdx, Callee.FIdx})
                            .second;
 
     // TODO only invalidate the functions which contain...
-    if (isNewTarget)
+    if (wasDynTargetsEmpty && isNewTarget)
       InvalidateAllFunctionAnalyses();
 
     msg = (fmt("[jove-recover] (call) %s -> %s") %
