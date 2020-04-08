@@ -84,7 +84,7 @@ struct hook_t;
   } _resolver;                                                                 \
                                                                                \
   struct {                                                                     \
-    llvm::LoadInst *SavedSP;                                                   \
+    llvm::AllocaInst *SavedCPUState;                                           \
     llvm::CallInst *SignalStack;                                               \
   } _signal_handler;                                                           \
                                                                                \
@@ -101,7 +101,7 @@ struct hook_t;
   function_t()                                                                 \
       : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
         _resolver({.IFunc = nullptr}),                                         \
-        _signal_handler({.SavedSP = nullptr, .SignalStack = nullptr}),         \
+        _signal_handler({.SavedCPUState = nullptr, .SignalStack = nullptr}),   \
         IsNamed(false), Analyzed(false) {}                                     \
                                                                                \
   void Analyze(void);                                                          \
@@ -544,6 +544,8 @@ static std::unordered_map<std::string,
 static std::set<std::pair<binary_index_t, function_index_t>>
     BinaryDynamicTargets;
 
+//static std::vector<llvm::CallInst *> MemCopiesToExpand;
+
 static llvm::Triple TheTriple;
 static llvm::SubtargetFeatures Features;
 
@@ -706,6 +708,7 @@ static int FixupTPBaseAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int Optimize2(void);
+static int ExpandMemoryIntrinsicCalls(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RecoverControlFlow(void);
 static int DFSanInstrument(void);
@@ -749,6 +752,7 @@ int llvm(void) {
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
       || Optimize2()
+      || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
       || RecoverControlFlow()
       || (opts::DFSan ? DFSanInstrument() : 0)
@@ -4346,7 +4350,7 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
 #else
         llvm::TargetTransformInfo TTI(DL);
 #endif
-        expandMemCpyAsLoop(Memcpy, TTI);
+        llvm::expandMemCpyAsLoop(Memcpy, TTI);
         Changed = true;
         Memcpy->eraseFromParent();
       }
@@ -4472,26 +4476,6 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 #else
         GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
 #endif
-      }
-
-      //
-      // lower memory intrinsics (memcpy, memset, memmove)
-      //
-      for (llvm::Function &F : helperM.functions()) {
-        if (!F.isDeclaration())
-          continue;
-
-        switch (F.getIntrinsicID()) {
-        case llvm::Intrinsic::memcpy:
-        case llvm::Intrinsic::memmove:
-        case llvm::Intrinsic::memset:
-          if (!expandMemIntrinsicUses(F))
-            WithColor::warning() << "couldn't expand llvm.mem intrinsic\n";
-          break;
-
-        default:
-          break;
-        }
       }
     }
 
@@ -6903,7 +6887,15 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
       llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
 
-      f._signal_handler.SavedSP = IRB.CreateLoad(SPPtr);
+      f._signal_handler.SavedCPUState = IRB.CreateAlloca(CPUStateType);
+      llvm::CallInst *MemCpyCall =
+        IRB.CreateMemCpy(f._signal_handler.SavedCPUState,
+                         llvm::MaybeAlign(),
+                         CPUStateGlobal,
+                         llvm::MaybeAlign(),
+                         sizeof(CPUArchState));
+      //MemCopiesToExpand.push_back(MemCpyCall);
+
       f._signal_handler.SignalStack = IRB.CreateCall(JoveAllocStackFunc);
 
       llvm::Value *NewSP =
@@ -6993,6 +6985,18 @@ int TranslateFunctions(void) {
 }
 
 static int InlineCalls(void) {
+#if 0
+  for (llvm::CallInst *Inst : MemCopiesToExpand) {
+    assert(llvm::isa<llvm::MemCpyInst>(Inst));
+    auto *MemCpy = llvm::cast<llvm::MemCpyInst>(Inst);
+
+    llvm::TargetTransformInfo TTI(DL);
+    llvm::expandMemCpyAsLoop(MemCpy, TTI);
+
+    MemCpy->eraseFromParent();
+  }
+#endif
+
   for (llvm::CallInst *CallInst : CallsToInline) {
     llvm::InlineFunctionInfo IFI;
     llvm::InlineResult InlRes = llvm::InlineFunction(CallInst, IFI);
@@ -7626,6 +7630,32 @@ int Optimize2(void) {
 
   if (int ret = DoOptimize())
     return ret;
+
+  return 0;
+}
+
+int ExpandMemoryIntrinsicCalls(void) {
+  //
+  // lower memory intrinsics (memcpy, memset, memmove)
+  //
+  for (llvm::Function &F : Module->functions()) {
+    if (!F.isDeclaration())
+      continue;
+
+    switch (F.getIntrinsicID()) {
+    case llvm::Intrinsic::memcpy:
+    case llvm::Intrinsic::memmove:
+    case llvm::Intrinsic::memset:
+      if (!expandMemIntrinsicUses(F)) {
+        WithColor::warning() << "couldn't expand llvm.mem intrinsic\n";
+        return 1;
+      }
+      break;
+
+    default:
+      break;
+    }
+  }
 
   return 0;
 }
@@ -9243,11 +9273,16 @@ int TranslateBasicBlock(binary_t &Binary,
 
   case TERMINATOR::RETURN: {
     if (f.IsSignalHandler) {
-      assert(f._signal_handler.SavedSP);
+      assert(f._signal_handler.SavedCPUState);
       assert(f._signal_handler.SignalStack);
 
-      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
-      IRB.CreateStore(f._signal_handler.SavedSP, SPPtr);
+      llvm::CallInst *MemCpyCall =
+        IRB.CreateMemCpy(CPUStateGlobal,
+                         llvm::MaybeAlign(),
+                         f._signal_handler.SavedCPUState,
+                         llvm::MaybeAlign(),
+                         sizeof(CPUArchState));
+      //MemCopiesToExpand.push_back(MemCpyCall);
 
       IRB.CreateCall(JoveFreeStackFunc, {f._signal_handler.SignalStack});
     }
