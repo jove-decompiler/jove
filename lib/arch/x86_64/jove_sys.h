@@ -35,132 +35,112 @@
 #define __user
 #endif
 
-#define __SYSCALL_CLOBBERS "memory", "cc", "r11", "cx"
+#define __SYSCALL_CLOBBERS "memory", "cc", "r11", "rcx"
 
 #define ___SYSCALL0(nr, nm)                                                    \
   static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr)                                                    \
+                 : "a"(_nr)                                                    \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1)                                          \
+                 : "a"(_nr), "D"(a1)                                           \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2) {                     \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-    register t2 _a2 asm("rsi") = a2;                                           \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1), "r"(_a2)                                \
+                 : "a"(_nr), "D"(a1), "S"(a2)                                  \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {              \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-    register t2 _a2 asm("rsi") = a2;                                           \
-    register t3 _a3 asm("rdx") = a3;                                           \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3)                      \
+                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3)                         \
                  : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {       \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
+                                           long a4) {                          \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-    register t2 _a2 asm("rsi") = a2;                                           \
-    register t3 _a3 asm("rdx") = a3;                                           \
-    register t4 _a4 asm("r10") = a4;                                           \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("movq %5, %%r10\n"                                            \
+                 "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4)            \
-                 : __SYSCALL_CLOBBERS);                                        \
+                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4)                \
+                 : __SYSCALL_CLOBBERS, "r10");                                 \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,         \
-                                           t5 a5) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5) {                          \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-    register t2 _a2 asm("rsi") = a2;                                           \
-    register t3 _a3 asm("rdx") = a3;                                           \
-    register t4 _a4 asm("r10") = a4;                                           \
-    register t5 _a5 asm("r8") = a5;                                            \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("movq %5, %%r10\n"                                            \
+                 "movq %6, %%r8\n"                                             \
+                 "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5)  \
-                 : __SYSCALL_CLOBBERS);                               \
+                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5)       \
+                 : __SYSCALL_CLOBBERS, "r10", "r8");                           \
                                                                                \
     return _ret;                                                               \
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5,  \
-                                           t6 a6) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5, long a6) {                 \
     long _ret;                                                                 \
                                                                                \
-    register unsigned long _nr asm("rax") = nr;                                \
+    unsigned long _nr = nr;                                                    \
                                                                                \
-    register t1 _a1 asm("rdi") = a1;                                           \
-    register t2 _a2 asm("rsi") = a2;                                           \
-    register t3 _a3 asm("rdx") = a3;                                           \
-    register t4 _a4 asm("r10") = a4;                                           \
-    register t5 _a5 asm("r8") = a5;                                            \
-    register t6 _a6 asm("r9") = a6;                                            \
-                                                                               \
-    asm volatile("syscall\n\t"                                                 \
+    asm volatile("movq %5, %%r10\n"                                            \
+                 "movq %6, %%r8\n"                                             \
+                 "movq %7, %%r9\n"                                             \
+                 "syscall\n"                                                   \
                  : "=a"(_ret)                                                  \
-                 : "r"(_nr), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), \
-                   "r"(_a6)                                                    \
-                 : __SYSCALL_CLOBBERS);                                        \
+                 : "a"(_nr), "D"(a1), "S"(a2), "d"(a3), "r"(a4), "r"(a5),      \
+                   "r"(a6)                                                     \
+                 : __SYSCALL_CLOBBERS, "r10", "r8", "r9");                     \
                                                                                \
     return _ret;                                                               \
   }
