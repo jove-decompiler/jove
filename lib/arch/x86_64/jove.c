@@ -447,7 +447,7 @@ typedef struct CPUX86State {
 
 #include <stddef.h>
 
-extern /* __thread */ struct CPUX86State __jove_env;
+extern __thread struct CPUX86State __jove_env;
 
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
@@ -528,6 +528,8 @@ static void _jove_begin(target_ulong rdi,
                         target_ulong r8,
                         target_ulong sp_addr /* formerly r9 */);
 
+_HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
+
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
                                        target_ulong *emuspp);
@@ -600,6 +602,25 @@ void _jove_start(void) {
 
 static void _jove_trace_init(void);
 static void _jove_callstack_init(void);
+
+unsigned long _jove_thread_init(unsigned long clone_newsp) {
+  //
+  // initialize CPUState
+  //
+  __jove_env.df = 1;
+
+  //
+  // setup the emulated stack
+  //
+  unsigned long env_stack_beg = _jove_alloc_stack();
+  unsigned long env_stack_end = env_stack_beg + JOVE_STACK_SIZE;
+
+  unsigned long env_sp = env_stack_end - JOVE_PAGE_SIZE - 16;
+
+  _memcpy((void *)env_sp , (void *)clone_newsp, 16);
+
+  return env_sp;
+}
 
 void _jove_begin(target_ulong rdi,
                  target_ulong rsi,
