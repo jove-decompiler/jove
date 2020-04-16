@@ -13,9 +13,12 @@ class JoveUnwindCommand(gdb.Command):
     def invoke(self, arg, from_tty):
         inferiors = gdb.inferiors()
         for inferior in inferiors:
+            print("inferior " + str(inferior))
             for thread in inferior.threads():
                 # Change to our threads context
                 thread.switch()
+
+                print("thread " + str(thread))
 
                 # Take a human readable copy of the backtrace, we'll need this for display later.
                 #o = gdb.execute('bt', to_string=True)
