@@ -261,7 +261,7 @@ int recompile(void) {
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
 
 #if defined(__x86_64__)
-  ld_path = ld_bfd_path;
+  ld_path = ld_gold_path;
 #elif defined(__i386__)
   ld_path = lld_path;
 #elif defined(__aarch64__)
