@@ -1,6 +1,6 @@
 #include <stdint.h>
 
-#define TARGET_LONG_BITS 64
+# define TARGET_LONG_BITS             64
 
 typedef uint64_t target_ulong;
 

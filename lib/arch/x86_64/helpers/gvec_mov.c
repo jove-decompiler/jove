@@ -56,7 +56,7 @@ void HELPER(gvec_mov)(void *d, void *a, uint32_t desc)
 {
     intptr_t oprsz = simd_oprsz(desc);
 
-    __builtin_memcpy(d, a, oprsz);
+    memcpy(d, a, oprsz);
     clear_high(d, oprsz, desc);
 }
 

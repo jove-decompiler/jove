@@ -1,18 +1,108 @@
 #define TARGET_X86_64 1
 
+#define CONFIG_USER_ONLY 1
+
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
+
+#define xglue(x, y) x ## y
+
+#define glue(x, y) xglue(x, y)
+
+#define unlikely(x)   __builtin_expect(!!(x), 0)
+
+#define container_of(ptr, type, member) ({                      \
+        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
+        (type *) ((char *) __mptr - offsetof(type, member));})
+
+#  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
+
+#include <stddef.h>
 
 #include <stdbool.h>
 
 #include <stdint.h>
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
+#include <sys/types.h>
+
+#include <stdio.h>
+
+#include <limits.h>
+
+#include <setjmp.h>
+
+typedef char   gchar;
+
+typedef unsigned int    guint;
+
+typedef void* gpointer;
+
+typedef struct _GArray		GArray;
+
+struct _GArray
+{
+  gchar *data;
+  guint len;
+};
+
+typedef struct _GHashTable  GHashTable;
+
+typedef struct _GSList GSList;
+
+struct _GSList
+{
+  gpointer data;
+  GSList *next;
+};
+
+typedef struct AddressSpace AddressSpace;
+
+typedef struct BusState BusState;
+
+typedef struct CPUAddressSpace CPUAddressSpace;
+
+typedef struct CPUState CPUState;
+
+typedef struct DeviceState DeviceState;
+
+typedef struct MemoryRegion MemoryRegion;
+
+typedef struct ObjectClass ObjectClass;
+
+typedef struct QemuMutex QemuMutex;
+
+typedef struct QemuOpts QemuOpts;
+
+typedef struct IRQState *qemu_irq;
+
+#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
 }
 
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef uint8_t flag;
 
@@ -35,8 +125,80 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
+
+#define BITS_PER_BYTE           CHAR_BIT
+
+#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
+
+#define DECLARE_BITMAP(name,bits)                  \
+        unsigned long name[BITS_TO_LONGS(bits)]
+
+struct TypeImpl;
+
+typedef struct TypeImpl *Type;
+
+typedef struct Object Object;
+
+typedef void (ObjectUnparent)(Object *obj);
+
+#define OBJECT_CLASS_CAST_CACHE 4
+
+typedef void (ObjectFree)(void *obj);
+
+struct ObjectClass
+{
+    /*< private >*/
+    Type type;
+    GSList *interfaces;
+
+    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
+    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
+
+    ObjectUnparent *unparent;
+
+    GHashTable *properties;
+};
+
+struct Object
+{
+    /*< private >*/
+    ObjectClass *class;
+    ObjectFree *free;
+    GHashTable *properties;
+    uint32_t ref;
+    Object *parent;
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    const char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    QemuOpts *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+};
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -53,9 +215,71 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
+struct QemuMutex {
+    pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
+    bool initialized;
+};
+
+struct QemuCond {
+    pthread_cond_t cond;
+    bool initialized;
+};
+
+struct QemuThread {
+    pthread_t thread;
+};
+
+struct Notifier;
+
+enum qemu_plugin_event {
+    QEMU_PLUGIN_EV_VCPU_INIT,
+    QEMU_PLUGIN_EV_VCPU_EXIT,
+    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
+    QEMU_PLUGIN_EV_VCPU_IDLE,
+    QEMU_PLUGIN_EV_VCPU_RESUME,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
+    QEMU_PLUGIN_EV_FLUSH,
+    QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
+};
+
 typedef uint64_t vaddr;
+
+typedef struct CPUWatchpoint CPUWatchpoint;
+
+struct TranslationBlock;
+
+typedef union IcountDecr {
+    uint32_t u32;
+    struct {
+#ifdef HOST_WORDS_BIGENDIAN
+        uint16_t high;
+        uint16_t low;
+#else
+        uint16_t low;
+        uint16_t high;
+#endif
+    } u16;
+} IcountDecr;
 
 typedef struct CPUBreakpoint {
     vaddr pc;
@@ -64,7 +288,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -72,23 +296,168 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
+struct KVMState;
+
+struct kvm_run;
+
+#define TB_JMP_CACHE_BITS 12
+
+#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+
+struct hax_vcpu_state;
+
+#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+
+struct qemu_work_item;
+
+struct CPUState {
+    /*< private >*/
+    DeviceState parent_obj;
+    /*< public >*/
+
+    int nr_cores;
+    int nr_threads;
+
+    struct QemuThread *thread;
+#ifdef _WIN32
+    HANDLE hThread;
+#endif
+    int thread_id;
+    bool running, has_waiter;
+    struct QemuCond *halt_cond;
+    bool thread_kicked;
+    bool created;
+    bool stop;
+    bool stopped;
+    bool unplug;
+    bool crash_occurred;
+    bool exit_request;
+    bool in_exclusive_context;
+    uint32_t cflags_next_tb;
+    /* updates protected by BQL */
+    uint32_t interrupt_request;
+    int singlestep_enabled;
+    int64_t icount_budget;
+    int64_t icount_extra;
+    uint64_t random_seed;
+    sigjmp_buf jmp_env;
+
+    QemuMutex work_mutex;
+    struct qemu_work_item *queued_work_first, *queued_work_last;
+
+    CPUAddressSpace *cpu_ases;
+    int num_ases;
+    AddressSpace *as;
+    MemoryRegion *memory;
+
+    void *env_ptr; /* CPUArchState */
+    IcountDecr *icount_decr_ptr;
+
+    /* Accessed in parallel; all accesses must be atomic */
+    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+
+    struct GDBRegisterState *gdb_regs;
+    int gdb_num_regs;
+    int gdb_num_g_regs;
+    QTAILQ_ENTRY(CPUState) node;
+
+    /* ice debug support */
+    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
+
+    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
+    CPUWatchpoint *watchpoint_hit;
+
+    void *opaque;
+
+    /* In order to avoid passing too many arguments to the MMIO helpers,
+     * we store some rarely used information in the CPU context.
+     */
+    uintptr_t mem_io_pc;
+
+    int kvm_fd;
+    struct KVMState *kvm_state;
+    struct kvm_run *kvm_run;
+
+    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
+    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
+    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+
+    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
+
+    GArray *plugin_mem_cbs;
+
+    /* TODO Move common fields from CPUArchState here. */
+    int cpu_index;
+    int cluster_index;
+    uint32_t halted;
+    uint32_t can_do_io;
+    int32_t exception_index;
+
+    /* shared by kvm, hax and hvf */
+    bool vcpu_dirty;
+
+    /* Used to keep track of an outstanding cpu throttle thread for migration
+     * autoconverge
+     */
+    bool throttle_thread_scheduled;
+
+    bool ignore_memory_transaction_failures;
+
+    struct hax_vcpu_state *hax_vcpu;
+
+    int hvf_fd;
+
+    /* track IOMMUs whose translations we've cached in the TCG TLB */
+    GArray *iommu_notifiers;
+};
+
+typedef struct Notifier Notifier;
+
+struct Notifier
+{
+    void (*notify)(Notifier *notifier, void *data);
+    QLIST_ENTRY(Notifier) node;
+};
+
+#define HV_SINT_COUNT                         16
+
+typedef struct X86CPU X86CPU;
+
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
 #define HV_X64_MSR_CRASH_P4                     0x40000104
 
 #define HV_CRASH_PARAMS    (HV_X64_MSR_CRASH_P4 - HV_X64_MSR_CRASH_P0 + 1)
 
-#define HV_SINT_COUNT                         16
-
 #define HV_STIMER_COUNT                       4
 
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
+typedef int64_t target_long;
 
 typedef uint64_t target_ulong;
+
+typedef struct CPUTLB { } CPUTLB;
+
+typedef struct CPUNegativeOffsetState {
+    CPUTLB tlb;
+    IcountDecr icount_decr;
+} CPUNegativeOffsetState;
+
+typedef enum OnOffAuto {
+    ON_OFF_AUTO_AUTO,
+    ON_OFF_AUTO_ON,
+    ON_OFF_AUTO_OFF,
+    ON_OFF_AUTO__MAX,
+} OnOffAuto;
+
+#define CC_C    0x0001
+
+#define CC_P    0x0004
+
+#define CC_A    0x0010
+
+#define CC_Z    0x0040
+
+#define CC_S    0x0080
 
 #define CC_O    0x0800
 
@@ -108,6 +477,7 @@ typedef enum FeatureWord {
     FEAT_7_0_EBX,       /* CPUID[EAX=7,ECX=0].EBX */
     FEAT_7_0_ECX,       /* CPUID[EAX=7,ECX=0].ECX */
     FEAT_7_0_EDX,       /* CPUID[EAX=7,ECX=0].EDX */
+    FEAT_7_1_EAX,       /* CPUID[EAX=7,ECX=1].EAX */
     FEAT_8000_0001_EDX, /* CPUID[8000_0001].EDX */
     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
@@ -118,17 +488,103 @@ typedef enum FeatureWord {
     FEAT_HYPERV_EAX,    /* CPUID[4000_0003].EAX */
     FEAT_HYPERV_EBX,    /* CPUID[4000_0003].EBX */
     FEAT_HYPERV_EDX,    /* CPUID[4000_0003].EDX */
+    FEAT_HV_RECOMM_EAX, /* CPUID[4000_0004].EAX */
+    FEAT_HV_NESTED_EAX, /* CPUID[4000_000A].EAX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
     FEAT_XSAVE_COMP_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
     FEAT_XSAVE_COMP_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
+    FEAT_ARCH_CAPABILITIES,
+    FEAT_CORE_CAPABILITY,
+    FEAT_VMX_PROCBASED_CTLS,
+    FEAT_VMX_SECONDARY_CTLS,
+    FEAT_VMX_PINBASED_CTLS,
+    FEAT_VMX_EXIT_CTLS,
+    FEAT_VMX_ENTRY_CTLS,
+    FEAT_VMX_MISC,
+    FEAT_VMX_EPT_VPID_CAPS,
+    FEAT_VMX_BASIC,
+    FEAT_VMX_VMFUNC,
     FEATURE_WORDS,
 } FeatureWord;
 
 #define EXCP04_INTO	4
 
-typedef uint32_t FeatureWordArray[FEATURE_WORDS];
+#define EXCP08_DBLE	8
+
+#define EXCP0E_PAGE	14
+
+typedef uint64_t FeatureWordArray[FEATURE_WORDS];
+
+typedef enum {
+    CC_OP_DYNAMIC, /* must use dynamic code to get cc_op */
+    CC_OP_EFLAGS,  /* all cc are explicitly computed, CC_SRC = flags */
+
+    CC_OP_MULB, /* modify all flags, C, O = (CC_SRC != 0) */
+    CC_OP_MULW,
+    CC_OP_MULL,
+    CC_OP_MULQ,
+
+    CC_OP_ADDB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_ADDW,
+    CC_OP_ADDL,
+    CC_OP_ADDQ,
+
+    CC_OP_ADCB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_ADCW,
+    CC_OP_ADCL,
+    CC_OP_ADCQ,
+
+    CC_OP_SUBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_SUBW,
+    CC_OP_SUBL,
+    CC_OP_SUBQ,
+
+    CC_OP_SBBB, /* modify all flags, CC_DST = res, CC_SRC = src1 */
+    CC_OP_SBBW,
+    CC_OP_SBBL,
+    CC_OP_SBBQ,
+
+    CC_OP_LOGICB, /* modify all flags, CC_DST = res */
+    CC_OP_LOGICW,
+    CC_OP_LOGICL,
+    CC_OP_LOGICQ,
+
+    CC_OP_INCB, /* modify all flags except, CC_DST = res, CC_SRC = C */
+    CC_OP_INCW,
+    CC_OP_INCL,
+    CC_OP_INCQ,
+
+    CC_OP_DECB, /* modify all flags except, CC_DST = res, CC_SRC = C  */
+    CC_OP_DECW,
+    CC_OP_DECL,
+    CC_OP_DECQ,
+
+    CC_OP_SHLB, /* modify all flags, CC_DST = res, CC_SRC.msb = C */
+    CC_OP_SHLW,
+    CC_OP_SHLL,
+    CC_OP_SHLQ,
+
+    CC_OP_SARB, /* modify all flags, CC_DST = res, CC_SRC.lsb = C */
+    CC_OP_SARW,
+    CC_OP_SARL,
+    CC_OP_SARQ,
+
+    CC_OP_BMILGB, /* Z,S via CC_DST, C = SRC==0; O=0; P,A undefined */
+    CC_OP_BMILGW,
+    CC_OP_BMILGL,
+    CC_OP_BMILGQ,
+
+    CC_OP_ADCX, /* CC_DST = C, CC_SRC = rest.  */
+    CC_OP_ADOX, /* CC_DST = O, CC_SRC = rest.  */
+    CC_OP_ADCOX, /* CC_DST = C, CC_SRC2 = O, CC_SRC = rest.  */
+
+    CC_OP_CLR, /* Z set, all other flags clear.  */
+    CC_OP_POPCNT, /* Z via CC_SRC, all other flags clear.  */
+
+    CC_OP_NB,
+} CCOp;
 
 #define MMREG_UNION(n, bits)        \
     union n {                       \
@@ -199,6 +655,62 @@ typedef enum TPRAccess {
     TPR_ACCESS_READ,
     TPR_ACCESS_WRITE,
 } TPRAccess;
+
+enum CacheType {
+    DATA_CACHE,
+    INSTRUCTION_CACHE,
+    UNIFIED_CACHE
+};
+
+typedef struct CPUCacheInfo {
+    enum CacheType type;
+    uint8_t level;
+    /* Size in bytes */
+    uint32_t size;
+    /* Line size, in bytes */
+    uint16_t line_size;
+    /*
+     * Associativity.
+     * Note: representation of fully-associative caches is not implemented
+     */
+    uint8_t associativity;
+    /* Physical line partitions. CPUID[0x8000001D].EBX, CPUID[4].EBX */
+    uint8_t partitions;
+    /* Number of sets. CPUID[0x8000001D].ECX, CPUID[4].ECX */
+    uint32_t sets;
+    /*
+     * Lines per tag.
+     * AMD-specific: CPUID[0x80000005], CPUID[0x80000006].
+     * (Is this synonym to @partitions?)
+     */
+    uint8_t lines_per_tag;
+
+    /* Self-initializing cache */
+    bool self_init;
+    /*
+     * WBINVD/INVD is not guaranteed to act upon lower level caches of
+     * non-originating threads sharing this cache.
+     * CPUID[4].EDX[bit 0], CPUID[0x8000001D].EDX[bit 0]
+     */
+    bool no_invd_sharing;
+    /*
+     * Cache is inclusive of lower cache levels.
+     * CPUID[4].EDX[bit 1], CPUID[0x8000001D].EDX[bit 1].
+     */
+    bool inclusive;
+    /*
+     * A complex function is used to index the cache, potentially using all
+     * address bits.  CPUID[4].EDX[bit 2].
+     */
+    bool complex_indexing;
+} CPUCacheInfo;
+
+typedef struct CPUCaches {
+        CPUCacheInfo *l1d_cache;
+        CPUCacheInfo *l1i_cache;
+        CPUCacheInfo *l2_cache;
+        CPUCacheInfo *l3_cache;
+} CPUCaches;
 
 typedef struct CPUX86State {
     /* standard registers */
@@ -303,8 +815,10 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
+    uint64_t virt_ssbd;
 
     /* End of state preserved by INIT (dummy marker).  */
     struct {} end_init_save;
@@ -314,6 +828,7 @@ typedef struct CPUX86State {
     uint64_t steal_time_msr;
     uint64_t async_pf_en_msr;
     uint64_t pv_eoi_en_msr;
+    uint64_t poll_control_msr;
 
     /* Partition-wide HV MSRs, will be updated only on the first vcpu */
     uint64_t msr_hv_hypercall;
@@ -330,6 +845,9 @@ typedef struct CPUX86State {
     uint64_t msr_hv_synic_sint[HV_SINT_COUNT];
     uint64_t msr_hv_stimer_config[HV_STIMER_COUNT];
     uint64_t msr_hv_stimer_count[HV_STIMER_COUNT];
+    uint64_t msr_hv_reenlightenment_control;
+    uint64_t msr_hv_tsc_emulation_control;
+    uint64_t msr_hv_tsc_emulation_status;
 
     uint64_t msr_rtit_ctrl;
     uint64_t msr_rtit_status;
@@ -357,20 +875,26 @@ typedef struct CPUX86State {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
+    uint64_t nested_cr3;
+    uint32_t nested_pg_mode;
     uint8_t v_tpr;
 
     /* KVM states, automatically cleared on reset */
     uint8_t nmi_injected;
     uint8_t nmi_pending;
 
+    uintptr_t retaddr;
+
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* processor features (e.g. for CPUID insn) */
+    /* Minimum cpuid leaf 7 value */
+    uint32_t cpuid_level_func7;
+    /* Actual cpuid leaf 7 value */
+    uint32_t cpuid_min_level_func7;
     /* Minimum level/xlevel/xlevel2, based on CPU model + features */
     uint32_t cpuid_min_level, cpuid_min_xlevel, cpuid_min_xlevel2;
     /* Maximum level/xlevel/xlevel2 value for auto-assignment: */
@@ -385,6 +909,11 @@ typedef struct CPUX86State {
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
+    /* Cache information for CPUID.  When legacy-cache=on, the cache data
+     * on each CPUID leaf will be different, because we keep compatibility
+     * with old QEMU versions.
+     */
+    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
 
     /* MTRRs */
     uint64_t mtrr_fixed[11];
@@ -393,16 +922,25 @@ typedef struct CPUX86State {
 
     /* For KVM */
     uint32_t mp_state;
-    int32_t exception_injected;
+    int32_t exception_nr;
     int32_t interrupt_injected;
     uint8_t soft_interrupt;
+    uint8_t exception_pending;
+    uint8_t exception_injected;
     uint8_t has_error_code;
+    uint8_t exception_has_payload;
+    uint64_t exception_payload;
     uint32_t ins_len;
     uint32_t sipi_vector;
     bool tsc_valid;
     int64_t tsc_khz;
     int64_t user_tsc_khz; /* for sanity check only */
-    void *kvm_xsave_buf;
+#if defined(CONFIG_KVM) || defined(CONFIG_HVF)
+    void *xsave_buf;
+#endif
+#if defined(CONFIG_KVM)
+    struct kvm_nested_state *nested_state;
+#endif
 #if defined(CONFIG_HVF)
     HVFX86EmulatorState *hvf_emul;
 #endif
@@ -419,16 +957,1042 @@ typedef struct CPUX86State {
     uint16_t fpregs_format_vmstate;
 
     uint64_t xss;
+    uint32_t umwait;
 
     TPRAccess tpr_access_type;
+
+    unsigned nr_dies;
 } CPUX86State;
 
+struct kvm_msrs;
+
+struct X86CPU {
+    /*< private >*/
+    CPUState parent_obj;
+    /*< public >*/
+
+    CPUNegativeOffsetState neg;
+    CPUX86State env;
+
+    uint32_t hyperv_spinlock_attempts;
+    char *hyperv_vendor_id;
+    bool hyperv_synic_kvm_only;
+    uint64_t hyperv_features;
+    bool hyperv_passthrough;
+    OnOffAuto hyperv_no_nonarch_cs;
+
+    bool check_cpuid;
+    bool enforce_cpuid;
+    /*
+     * Force features to be enabled even if the host doesn't support them.
+     * This is dangerous and should be done only for testing CPUID
+     * compatibility.
+     */
+    bool force_features;
+    bool expose_kvm;
+    bool expose_tcg;
+    bool migratable;
+    bool migrate_smi_count;
+    bool max_features; /* Enable all supported features automatically */
+    uint32_t apic_id;
+
+    /* Enables publishing of TSC increment and Local APIC bus frequencies to
+     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
+    bool vmware_cpuid_freq;
+
+    /* if true the CPUID code directly forward host cache leaves to the guest */
+    bool cache_info_passthrough;
+
+    /* if true the CPUID code directly forwards
+     * host monitor/mwait leaves to the guest */
+    struct {
+        uint32_t eax;
+        uint32_t ebx;
+        uint32_t ecx;
+        uint32_t edx;
+    } mwait;
+
+    /* Features that were filtered out because of missing host capabilities */
+    FeatureWordArray filtered_features;
+
+    /* Enable PMU CPUID bits. This can't be enabled by default yet because
+     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
+     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
+     * capabilities) directly to the guest.
+     */
+    bool enable_pmu;
+
+    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
+     * disabled by default to avoid breaking migration between QEMU with
+     * different LMCE configurations.
+     */
+    bool enable_lmce;
+
+    /* Compatibility bits for old machine types.
+     * If true present virtual l3 cache for VM, the vcpus in the same virtual
+     * socket share an virtual l3 cache.
+     */
+    bool enable_l3_cache;
+
+    /* Compatibility bits for old machine types.
+     * If true present the old cache topology information
+     */
+    bool legacy_cache;
+
+    /* Compatibility bits for old machine types: */
+    bool enable_cpuid_0xb;
+
+    /* Enable auto level-increase for all CPUID leaves */
+    bool full_cpuid_auto_level;
+
+    /* Enable auto level-increase for Intel Processor Trace leave */
+    bool intel_pt_auto_level;
+
+    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
+    bool fill_mtrr_mask;
+
+    /* if true override the phys_bits value with a value read from the host */
+    bool host_phys_bits;
+
+    /* if set, limit maximum value for phys_bits when host_phys_bits is true */
+    uint8_t host_phys_bits_limit;
+
+    /* Stop SMI delivery for migration compatibility with old machines */
+    bool kvm_no_smi_migration;
+
+    /* Number of physical address bits supported */
+    uint32_t phys_bits;
+
+    /* in order to simplify APIC support, we leave this pointer to the
+       user */
+    struct DeviceState *apic_state;
+    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
+    Notifier machine_done;
+
+    struct kvm_msrs *kvm_msr_buf;
+
+    int32_t node_id; /* NUMA node this CPU belongs to */
+    int32_t socket_id;
+    int32_t die_id;
+    int32_t core_id;
+    int32_t thread_id;
+
+    int32_t hv_max_vps;
+};
+
+#define CC_DST  (env->cc_dst)
+
+#define CC_SRC  (env->cc_src)
+
+#define CC_SRC2 (env->cc_src2)
+
 #define CC_OP   (env->cc_op)
+
+static inline target_long lshift(target_long x, int n)
+{
+    if (n >= 0) {
+        return x << n;
+    } else {
+        return x >> (-n);
+    }
+}
+
+typedef CPUX86State CPUArchState;
+
+typedef X86CPU ArchCPU;
+
+static inline ArchCPU *env_archcpu(CPUArchState *env)
+{
+    return container_of(env, ArchCPU, env);
+}
+
+static inline CPUState *env_cpu(CPUArchState *env)
+{
+    return &env_archcpu(env)->parent_obj;
+}
+
+#define SVM_EXIT_EXCP_BASE      0x040
+
+#define SVM_EXIT_SWINT		0x075
 
 void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
                                    int error_code, int next_eip_addend);
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
+
+void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
+                                   uint64_t param, uintptr_t retaddr);
+
+#define SHIFT 0
+
+#define DATA_BITS (1 << (3 + SHIFT))
+
+#define SUFFIX b
+
+#define DATA_TYPE uint8_t
+
+#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
+
+const uint8_t parity_table[256] = {
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    CC_P, 0, 0, CC_P, 0, CC_P, CC_P, 0,
+    0, CC_P, CC_P, 0, CC_P, 0, 0, CC_P,
+};
+
+static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1;
+
+    cf = dst < src1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1 - src3;
+
+    cf = (src3 ? dst <= src1 : dst < src1);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2;
+
+    cf = src1 < src2;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2 + src3;
+
+    cf = (src3 ? src1 <= src2 : src1 < src2);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = 0;
+    pf = parity_table[(uint8_t)dst];
+    af = 0;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst - 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst + 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK - 1) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = src1 & 1;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 != 0);
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = cf * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 == 0);
+    pf = 0; /* undefined */
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+#define SHIFT 1
+
+#define DATA_BITS (1 << (3 + SHIFT))
+
+#define SUFFIX w
+
+#define DATA_TYPE uint16_t
+
+#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
+
+static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1;
+
+    cf = dst < src1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1 - src3;
+
+    cf = (src3 ? dst <= src1 : dst < src1);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2;
+
+    cf = src1 < src2;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2 + src3;
+
+    cf = (src3 ? src1 <= src2 : src1 < src2);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = 0;
+    pf = parity_table[(uint8_t)dst];
+    af = 0;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst - 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst + 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK - 1) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = src1 & 1;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 != 0);
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = cf * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 == 0);
+    pf = 0; /* undefined */
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+#define SHIFT 2
+
+#define DATA_BITS (1 << (3 + SHIFT))
+
+#define SUFFIX l
+
+#define DATA_TYPE uint32_t
+
+#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
+
+static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1;
+
+    cf = dst < src1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1 - src3;
+
+    cf = (src3 ? dst <= src1 : dst < src1);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2;
+
+    cf = src1 < src2;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2 + src3;
+
+    cf = (src3 ? src1 <= src2 : src1 < src2);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = 0;
+    pf = parity_table[(uint8_t)dst];
+    af = 0;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst - 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst + 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK - 1) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = src1 & 1;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 != 0);
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = cf * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 == 0);
+    pf = 0; /* undefined */
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+#define SHIFT 3
+
+#define DATA_BITS (1 << (3 + SHIFT))
+
+#define SUFFIX q
+
+#define DATA_TYPE uint64_t
+
+#define SIGN_MASK (((DATA_TYPE)1) << (DATA_BITS - 1))
+
+static int glue(compute_all_add, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1;
+
+    cf = dst < src1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_adc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2 = dst - src1 - src3;
+
+    cf = (src3 ? dst <= src1 : dst < src1);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2 ^ -1) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sub, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2;
+
+    cf = src1 < src2;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sbb, SUFFIX)(DATA_TYPE dst, DATA_TYPE src2,
+                                         DATA_TYPE src3)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src1 = dst + src2 + src3;
+
+    cf = (src3 ? src1 <= src2 : src1 < src2);
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & 0x10;
+    zf = (dst == 0) << 6;
+    sf = lshift(dst, 8 - DATA_BITS) & 0x80;
+    of = lshift((src1 ^ src2) & (src1 ^ dst), 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_logic, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = 0;
+    pf = parity_table[(uint8_t)dst];
+    af = 0;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_inc, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst - 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_dec, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+    DATA_TYPE src2;
+
+    cf = src1;
+    src1 = dst + 1;
+    src2 = 1;
+    pf = parity_table[(uint8_t)dst];
+    af = (dst ^ src1 ^ src2) & CC_A;
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = (dst == SIGN_MASK - 1) * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_shl, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 >> (DATA_BITS - 1)) & CC_C;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_sar, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = src1 & 1;
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    /* of is defined iff shift count == 1 */
+    of = lshift(src1 ^ dst, 12 - DATA_BITS) & CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_mul, SUFFIX)(DATA_TYPE dst, target_long src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 != 0);
+    pf = parity_table[(uint8_t)dst];
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = cf * CC_O;
+    return cf | pf | af | zf | sf | of;
+}
+
+static int glue(compute_all_bmilg, SUFFIX)(DATA_TYPE dst, DATA_TYPE src1)
+{
+    int cf, pf, af, zf, sf, of;
+
+    cf = (src1 == 0);
+    pf = 0; /* undefined */
+    af = 0; /* undefined */
+    zf = (dst == 0) * CC_Z;
+    sf = lshift(dst, 8 - DATA_BITS) & CC_S;
+    of = 0;
+    return cf | pf | af | zf | sf | of;
+}
+
+static target_ulong compute_all_adcx(target_ulong dst, target_ulong src1,
+                                     target_ulong src2)
+{
+    return (src1 & ~CC_C) | (dst * CC_C);
+}
+
+static target_ulong compute_all_adox(target_ulong dst, target_ulong src1,
+                                     target_ulong src2)
+{
+    return (src1 & ~CC_O) | (src2 * CC_O);
+}
+
+static target_ulong compute_all_adcox(target_ulong dst, target_ulong src1,
+                                      target_ulong src2)
+{
+    return (src1 & ~(CC_C | CC_O)) | (dst * CC_C) | (src2 * CC_O);
+}
+
+target_ulong helper_cc_compute_all(target_ulong dst, target_ulong src1,
+                                   target_ulong src2, int op)
+{
+    switch (op) {
+    default: /* should never happen */
+        return 0;
+
+    case CC_OP_EFLAGS:
+        return src1;
+    case CC_OP_CLR:
+        return CC_Z | CC_P;
+    case CC_OP_POPCNT:
+        return src1 ? 0 : CC_Z;
+
+    case CC_OP_MULB:
+        return compute_all_mulb(dst, src1);
+    case CC_OP_MULW:
+        return compute_all_mulw(dst, src1);
+    case CC_OP_MULL:
+        return compute_all_mull(dst, src1);
+
+    case CC_OP_ADDB:
+        return compute_all_addb(dst, src1);
+    case CC_OP_ADDW:
+        return compute_all_addw(dst, src1);
+    case CC_OP_ADDL:
+        return compute_all_addl(dst, src1);
+
+    case CC_OP_ADCB:
+        return compute_all_adcb(dst, src1, src2);
+    case CC_OP_ADCW:
+        return compute_all_adcw(dst, src1, src2);
+    case CC_OP_ADCL:
+        return compute_all_adcl(dst, src1, src2);
+
+    case CC_OP_SUBB:
+        return compute_all_subb(dst, src1);
+    case CC_OP_SUBW:
+        return compute_all_subw(dst, src1);
+    case CC_OP_SUBL:
+        return compute_all_subl(dst, src1);
+
+    case CC_OP_SBBB:
+        return compute_all_sbbb(dst, src1, src2);
+    case CC_OP_SBBW:
+        return compute_all_sbbw(dst, src1, src2);
+    case CC_OP_SBBL:
+        return compute_all_sbbl(dst, src1, src2);
+
+    case CC_OP_LOGICB:
+        return compute_all_logicb(dst, src1);
+    case CC_OP_LOGICW:
+        return compute_all_logicw(dst, src1);
+    case CC_OP_LOGICL:
+        return compute_all_logicl(dst, src1);
+
+    case CC_OP_INCB:
+        return compute_all_incb(dst, src1);
+    case CC_OP_INCW:
+        return compute_all_incw(dst, src1);
+    case CC_OP_INCL:
+        return compute_all_incl(dst, src1);
+
+    case CC_OP_DECB:
+        return compute_all_decb(dst, src1);
+    case CC_OP_DECW:
+        return compute_all_decw(dst, src1);
+    case CC_OP_DECL:
+        return compute_all_decl(dst, src1);
+
+    case CC_OP_SHLB:
+        return compute_all_shlb(dst, src1);
+    case CC_OP_SHLW:
+        return compute_all_shlw(dst, src1);
+    case CC_OP_SHLL:
+        return compute_all_shll(dst, src1);
+
+    case CC_OP_SARB:
+        return compute_all_sarb(dst, src1);
+    case CC_OP_SARW:
+        return compute_all_sarw(dst, src1);
+    case CC_OP_SARL:
+        return compute_all_sarl(dst, src1);
+
+    case CC_OP_BMILGB:
+        return compute_all_bmilgb(dst, src1);
+    case CC_OP_BMILGW:
+        return compute_all_bmilgw(dst, src1);
+    case CC_OP_BMILGL:
+        return compute_all_bmilgl(dst, src1);
+
+    case CC_OP_ADCX:
+        return compute_all_adcx(dst, src1, src2);
+    case CC_OP_ADOX:
+        return compute_all_adox(dst, src1, src2);
+    case CC_OP_ADCOX:
+        return compute_all_adcox(dst, src1, src2);
+
+#ifdef TARGET_X86_64
+    case CC_OP_MULQ:
+        return compute_all_mulq(dst, src1);
+    case CC_OP_ADDQ:
+        return compute_all_addq(dst, src1);
+    case CC_OP_ADCQ:
+        return compute_all_adcq(dst, src1, src2);
+    case CC_OP_SUBQ:
+        return compute_all_subq(dst, src1);
+    case CC_OP_SBBQ:
+        return compute_all_sbbq(dst, src1, src2);
+    case CC_OP_LOGICQ:
+        return compute_all_logicq(dst, src1);
+    case CC_OP_INCQ:
+        return compute_all_incq(dst, src1);
+    case CC_OP_DECQ:
+        return compute_all_decq(dst, src1);
+    case CC_OP_SHLQ:
+        return compute_all_shlq(dst, src1);
+    case CC_OP_SARQ:
+        return compute_all_sarq(dst, src1);
+    case CC_OP_BMILGQ:
+        return compute_all_bmilgq(dst, src1);
+#endif
+    }
+}
+
+uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
+{
+    return helper_cc_compute_all(CC_DST, CC_SRC, CC_SRC2, op);
+}
+
+extern int qemu_loglevel;
+
+static inline bool qemu_loglevel_mask(int mask)
+{
+    return (qemu_loglevel & mask) != 0;
+}
+
+int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
+
+#define CPU_LOG_INT        (1 << 4)
+
+#define qemu_log_mask(MASK, FMT, ...)                   \
+    do {                                                \
+        if (unlikely(qemu_loglevel_mask(MASK))) {       \
+            qemu_log(FMT, ## __VA_ARGS__);              \
+        }                                               \
+    } while (0)
+
+void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 
 void helper_into(CPUX86State *env, int next_eip_addend)
 {
@@ -438,5 +2002,73 @@ void helper_into(CPUX86State *env, int next_eip_addend)
     if (eflags & CC_O) {
         raise_interrupt(env, EXCP04_INTO, 1, 0, next_eip_addend);
     }
+}
+
+static int check_exception(CPUX86State *env, int intno, int *error_code,
+                           uintptr_t retaddr)
+{
+    int first_contributory = env->old_exception == 0 ||
+                              (env->old_exception >= 10 &&
+                               env->old_exception <= 13);
+    int second_contributory = intno == 0 ||
+                               (intno >= 10 && intno <= 13);
+
+    qemu_log_mask(CPU_LOG_INT, "check_exception old: 0x%x new 0x%x\n",
+                env->old_exception, intno);
+
+#if !defined(CONFIG_USER_ONLY)
+    if (env->old_exception == EXCP08_DBLE) {
+        if (env->hflags & HF_GUEST_MASK) {
+            cpu_vmexit(env, SVM_EXIT_SHUTDOWN, 0, retaddr); /* does not return */
+        }
+
+        qemu_log_mask(CPU_LOG_RESET, "Triple fault\n");
+
+        qemu_system_reset_request(SHUTDOWN_CAUSE_GUEST_RESET);
+        return EXCP_HLT;
+    }
+#endif
+
+    if ((first_contributory && second_contributory)
+        || (env->old_exception == EXCP0E_PAGE &&
+            (second_contributory || (intno == EXCP0E_PAGE)))) {
+        intno = EXCP08_DBLE;
+        *error_code = 0;
+    }
+
+    if (second_contributory || (intno == EXCP0E_PAGE) ||
+        (intno == EXCP08_DBLE)) {
+        env->old_exception = intno;
+    }
+
+    return intno;
+}
+
+static void QEMU_NORETURN raise_interrupt2(CPUX86State *env, int intno,
+                                           int is_int, int error_code,
+                                           int next_eip_addend,
+                                           uintptr_t retaddr)
+{
+    CPUState *cs = env_cpu(env);
+
+    if (!is_int) {
+        cpu_svm_check_intercept_param(env, SVM_EXIT_EXCP_BASE + intno,
+                                      error_code, retaddr);
+        intno = check_exception(env, intno, &error_code, retaddr);
+    } else {
+        cpu_svm_check_intercept_param(env, SVM_EXIT_SWINT, 0, retaddr);
+    }
+
+    cs->exception_index = intno;
+    env->error_code = error_code;
+    env->exception_is_int = is_int;
+    env->exception_next_eip = env->eip + next_eip_addend;
+    cpu_loop_exit_restore(cs, retaddr);
+}
+
+void QEMU_NORETURN raise_interrupt(CPUX86State *env, int intno, int is_int,
+                                   int error_code, int next_eip_addend)
+{
+    raise_interrupt2(env, intno, is_int, error_code, next_eip_addend, 0);
 }
 

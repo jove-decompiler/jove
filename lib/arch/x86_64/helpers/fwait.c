@@ -4,88 +4,20 @@
 
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
 
-#define xglue(x, y) x ## y
-
-#define glue(x, y) xglue(x, y)
-
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
-#define container_of(ptr, type, member) ({                      \
-        const typeof(((type *) 0)->member) *__mptr = (ptr);     \
-        (type *) ((char *) __mptr - offsetof(type, member));})
-
-#include <stddef.h>
-
 #include <stdbool.h>
 
 #include <stdint.h>
 
-#include <sys/types.h>
-
-#include <stdio.h>
-
-#include <string.h>
-
-#include <limits.h>
-
-#include <setjmp.h>
-
-typedef void* gpointer;
-
-typedef struct _GHashTable  GHashTable;
-
-typedef struct _GSList GSList;
-
-struct _GSList
-{
-  gpointer data;
-  GSList *next;
-};
-
-typedef struct AddressSpace AddressSpace;
-
-typedef struct BusState BusState;
-
-typedef struct CPUAddressSpace CPUAddressSpace;
-
-typedef struct CPUState CPUState;
-
-typedef struct DeviceState DeviceState;
-
-typedef struct MemoryRegion MemoryRegion;
-
-typedef struct QemuMutex QemuMutex;
-
-typedef struct QemuOpts QemuOpts;
-
-#define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
-
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
 }
 
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define Q_TAILQ_HEAD(name, type, qual)                                  \
-struct name {                                                           \
-        qual type *tqh_first;           /* first element */             \
-        qual type *qual *tqh_last;      /* addr of last next element */ \
-}
-
-#define QTAILQ_HEAD(name, type)  Q_TAILQ_HEAD(name, struct type,)
-
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
-}
-
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef uint8_t flag;
 
@@ -108,125 +40,9 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
-
-#define le_bswap(v, size) (v)
-
-typedef union {
-     floatx80 d;
-     struct {
-         uint64_t lower;
-         uint16_t upper;
-     } l;
-} CPU_LDoubleU;
-
-static inline int lduw_he_p(const void *ptr)
-{
-    uint16_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline uint64_t ldq_he_p(const void *ptr)
-{
-    uint64_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline int lduw_le_p(const void *ptr)
-{
-    return (uint16_t)le_bswap(lduw_he_p(ptr), 16);
-}
-
-static inline uint64_t ldq_le_p(const void *ptr)
-{
-    return le_bswap(ldq_he_p(ptr), 64);
-}
-
-#define BITS_PER_BYTE           CHAR_BIT
-
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
-
-#define DECLARE_BITMAP(name,bits)                  \
-        unsigned long name[BITS_TO_LONGS(bits)]
-
-struct TypeImpl;
-
-typedef struct TypeImpl *Type;
-
-typedef struct ObjectClass ObjectClass;
-
-typedef struct Object Object;
-
-typedef void (ObjectUnparent)(Object *obj);
-
-#define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
-
-struct ObjectClass
-{
-    /*< private >*/
-    Type type;
-    GSList *interfaces;
-
-    const char *object_cast_cache[OBJECT_CLASS_CAST_CACHE];
-    const char *class_cast_cache[OBJECT_CLASS_CAST_CACHE];
-
-    ObjectUnparent *unparent;
-
-    GHashTable *properties;
-};
-
-struct Object
-{
-    /*< private >*/
-    ObjectClass *klass;
-    ObjectFree *free;
-    GHashTable *properties;
-    uint32_t ref;
-    Object *parent;
-};
-
-typedef struct IRQState *qemu_irq;
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -243,36 +59,21 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
-struct QemuMutex {
-    pthread_mutex_t lock;
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-struct Notifier;
-
-#define CPU(obj) ((CPUState *)(obj))
-
 typedef uint64_t vaddr;
-
-typedef struct CPUWatchpoint CPUWatchpoint;
-
-struct TranslationBlock;
-
-typedef struct icount_decr_u16 {
-    uint16_t low;
-    uint16_t high;
-} icount_decr_u16;
 
 typedef struct CPUBreakpoint {
     vaddr pc;
@@ -281,7 +82,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -289,133 +90,7 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(breakpoints_head, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(watchpoints_head, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-    vaddr mem_io_vaddr;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    /* Note that this is accessed at the start of every TB via a negative
-       offset from AREG0.  Leave this field at the end so as to make the
-       (absolute value) offset as small as possible.  This reduces code
-       size, especially for hosts without large memory offsets.  */
-    union {
-        uint32_t u32;
-        icount_decr_u16 u16;
-    } icount_decr;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    /* The pending_tlb_flush flag is set and cleared atomically to
-     * avoid potential races. The aim of the flag is to avoid
-     * unnecessary flushes.
-     */
-    uint16_t pending_tlb_flush;
-
-    int hvf_fd;
-};
-
-typedef struct Notifier Notifier;
-
-struct Notifier
-{
-    void (*notify)(Notifier *notifier, void *data);
-    QLIST_ENTRY(Notifier) node;
-};
+#define HV_SINT_COUNT                         16
 
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
@@ -423,19 +98,7 @@ struct Notifier
 
 #define HV_CRASH_PARAMS    (HV_X64_MSR_CRASH_P4 - HV_X64_MSR_CRASH_P0 + 1)
 
-#define HV_SINT_COUNT                         16
-
 #define HV_STIMER_COUNT                       4
-
-typedef struct X86CPU X86CPU;
-
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
-
-#define CPUArchState struct CPUX86State
 
 typedef uint64_t target_ulong;
 
@@ -457,6 +120,7 @@ typedef enum FeatureWord {
     FEAT_7_0_EBX,       /* CPUID[EAX=7,ECX=0].EBX */
     FEAT_7_0_ECX,       /* CPUID[EAX=7,ECX=0].ECX */
     FEAT_7_0_EDX,       /* CPUID[EAX=7,ECX=0].EDX */
+    FEAT_7_1_EAX,       /* CPUID[EAX=7,ECX=1].EAX */
     FEAT_8000_0001_EDX, /* CPUID[8000_0001].EDX */
     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
@@ -467,17 +131,30 @@ typedef enum FeatureWord {
     FEAT_HYPERV_EAX,    /* CPUID[4000_0003].EAX */
     FEAT_HYPERV_EBX,    /* CPUID[4000_0003].EBX */
     FEAT_HYPERV_EDX,    /* CPUID[4000_0003].EDX */
+    FEAT_HV_RECOMM_EAX, /* CPUID[4000_0004].EAX */
+    FEAT_HV_NESTED_EAX, /* CPUID[4000_000A].EAX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
     FEAT_XSAVE_COMP_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
     FEAT_XSAVE_COMP_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
+    FEAT_ARCH_CAPABILITIES,
+    FEAT_CORE_CAPABILITY,
+    FEAT_VMX_PROCBASED_CTLS,
+    FEAT_VMX_SECONDARY_CTLS,
+    FEAT_VMX_PINBASED_CTLS,
+    FEAT_VMX_EXIT_CTLS,
+    FEAT_VMX_ENTRY_CTLS,
+    FEAT_VMX_MISC,
+    FEAT_VMX_EPT_VPID_CAPS,
+    FEAT_VMX_BASIC,
+    FEAT_VMX_VMFUNC,
     FEATURE_WORDS,
 } FeatureWord;
 
 #define EXCP10_COPR	16
 
-typedef uint32_t FeatureWordArray[FEATURE_WORDS];
+typedef uint64_t FeatureWordArray[FEATURE_WORDS];
 
 #define MMREG_UNION(n, bits)        \
     union n {                       \
@@ -548,6 +225,62 @@ typedef enum TPRAccess {
     TPR_ACCESS_READ,
     TPR_ACCESS_WRITE,
 } TPRAccess;
+
+enum CacheType {
+    DATA_CACHE,
+    INSTRUCTION_CACHE,
+    UNIFIED_CACHE
+};
+
+typedef struct CPUCacheInfo {
+    enum CacheType type;
+    uint8_t level;
+    /* Size in bytes */
+    uint32_t size;
+    /* Line size, in bytes */
+    uint16_t line_size;
+    /*
+     * Associativity.
+     * Note: representation of fully-associative caches is not implemented
+     */
+    uint8_t associativity;
+    /* Physical line partitions. CPUID[0x8000001D].EBX, CPUID[4].EBX */
+    uint8_t partitions;
+    /* Number of sets. CPUID[0x8000001D].ECX, CPUID[4].ECX */
+    uint32_t sets;
+    /*
+     * Lines per tag.
+     * AMD-specific: CPUID[0x80000005], CPUID[0x80000006].
+     * (Is this synonym to @partitions?)
+     */
+    uint8_t lines_per_tag;
+
+    /* Self-initializing cache */
+    bool self_init;
+    /*
+     * WBINVD/INVD is not guaranteed to act upon lower level caches of
+     * non-originating threads sharing this cache.
+     * CPUID[4].EDX[bit 0], CPUID[0x8000001D].EDX[bit 0]
+     */
+    bool no_invd_sharing;
+    /*
+     * Cache is inclusive of lower cache levels.
+     * CPUID[4].EDX[bit 1], CPUID[0x8000001D].EDX[bit 1].
+     */
+    bool inclusive;
+    /*
+     * A complex function is used to index the cache, potentially using all
+     * address bits.  CPUID[4].EDX[bit 2].
+     */
+    bool complex_indexing;
+} CPUCacheInfo;
+
+typedef struct CPUCaches {
+        CPUCacheInfo *l1d_cache;
+        CPUCacheInfo *l1i_cache;
+        CPUCacheInfo *l2_cache;
+        CPUCacheInfo *l3_cache;
+} CPUCaches;
 
 typedef struct CPUX86State {
     /* standard registers */
@@ -652,8 +385,10 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
+    uint64_t virt_ssbd;
 
     /* End of state preserved by INIT (dummy marker).  */
     struct {} end_init_save;
@@ -663,6 +398,7 @@ typedef struct CPUX86State {
     uint64_t steal_time_msr;
     uint64_t async_pf_en_msr;
     uint64_t pv_eoi_en_msr;
+    uint64_t poll_control_msr;
 
     /* Partition-wide HV MSRs, will be updated only on the first vcpu */
     uint64_t msr_hv_hypercall;
@@ -679,6 +415,9 @@ typedef struct CPUX86State {
     uint64_t msr_hv_synic_sint[HV_SINT_COUNT];
     uint64_t msr_hv_stimer_config[HV_STIMER_COUNT];
     uint64_t msr_hv_stimer_count[HV_STIMER_COUNT];
+    uint64_t msr_hv_reenlightenment_control;
+    uint64_t msr_hv_tsc_emulation_control;
+    uint64_t msr_hv_tsc_emulation_status;
 
     uint64_t msr_rtit_ctrl;
     uint64_t msr_rtit_status;
@@ -706,20 +445,26 @@ typedef struct CPUX86State {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
+    uint64_t nested_cr3;
+    uint32_t nested_pg_mode;
     uint8_t v_tpr;
 
     /* KVM states, automatically cleared on reset */
     uint8_t nmi_injected;
     uint8_t nmi_pending;
 
+    uintptr_t retaddr;
+
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* processor features (e.g. for CPUID insn) */
+    /* Minimum cpuid leaf 7 value */
+    uint32_t cpuid_level_func7;
+    /* Actual cpuid leaf 7 value */
+    uint32_t cpuid_min_level_func7;
     /* Minimum level/xlevel/xlevel2, based on CPU model + features */
     uint32_t cpuid_min_level, cpuid_min_xlevel, cpuid_min_xlevel2;
     /* Maximum level/xlevel/xlevel2 value for auto-assignment: */
@@ -734,6 +479,11 @@ typedef struct CPUX86State {
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
+    /* Cache information for CPUID.  When legacy-cache=on, the cache data
+     * on each CPUID leaf will be different, because we keep compatibility
+     * with old QEMU versions.
+     */
+    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
 
     /* MTRRs */
     uint64_t mtrr_fixed[11];
@@ -742,16 +492,25 @@ typedef struct CPUX86State {
 
     /* For KVM */
     uint32_t mp_state;
-    int32_t exception_injected;
+    int32_t exception_nr;
     int32_t interrupt_injected;
     uint8_t soft_interrupt;
+    uint8_t exception_pending;
+    uint8_t exception_injected;
     uint8_t has_error_code;
+    uint8_t exception_has_payload;
+    uint64_t exception_payload;
     uint32_t ins_len;
     uint32_t sipi_vector;
     bool tsc_valid;
     int64_t tsc_khz;
     int64_t user_tsc_khz; /* for sanity check only */
-    void *kvm_xsave_buf;
+#if defined(CONFIG_KVM) || defined(CONFIG_HVF)
+    void *xsave_buf;
+#endif
+#if defined(CONFIG_KVM)
+    struct kvm_nested_state *nested_state;
+#endif
 #if defined(CONFIG_HVF)
     HVFX86EmulatorState *hvf_emul;
 #endif
@@ -768,342 +527,21 @@ typedef struct CPUX86State {
     uint16_t fpregs_format_vmstate;
 
     uint64_t xss;
+    uint32_t umwait;
 
     TPRAccess tpr_access_type;
+
+    unsigned nr_dies;
 } CPUX86State;
 
-struct kvm_msrs;
+void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
+                                      uintptr_t retaddr);
 
-struct X86CPU {
-    /*< private >*/
-    CPUState parent_obj;
-    /*< public >*/
+# define GETPC() tci_tb_ptr
 
-    CPUX86State env;
-
-    bool hyperv_vapic;
-    bool hyperv_relaxed_timing;
-    int hyperv_spinlock_attempts;
-    char *hyperv_vendor_id;
-    bool hyperv_time;
-    bool hyperv_crash;
-    bool hyperv_reset;
-    bool hyperv_vpindex;
-    bool hyperv_runtime;
-    bool hyperv_synic;
-    bool hyperv_stimer;
-    bool hyperv_frequencies;
-    bool check_cpuid;
-    bool enforce_cpuid;
-    bool expose_kvm;
-    bool expose_tcg;
-    bool migratable;
-    bool max_features; /* Enable all supported features automatically */
-    uint32_t apic_id;
-
-    /* Enables publishing of TSC increment and Local APIC bus frequencies to
-     * the guest OS in CPUID page 0x40000010, the same way that VMWare does. */
-    bool vmware_cpuid_freq;
-
-    /* if true the CPUID code directly forward host cache leaves to the guest */
-    bool cache_info_passthrough;
-
-    /* Features that were filtered out because of missing host capabilities */
-    uint32_t filtered_features[FEATURE_WORDS];
-
-    /* Enable PMU CPUID bits. This can't be enabled by default yet because
-     * it doesn't have ABI stability guarantees, as it passes all PMU CPUID
-     * bits returned by GET_SUPPORTED_CPUID (that depend on host CPU and kernel
-     * capabilities) directly to the guest.
-     */
-    bool enable_pmu;
-
-    /* LMCE support can be enabled/disabled via cpu option 'lmce=on/off'. It is
-     * disabled by default to avoid breaking migration between QEMU with
-     * different LMCE configurations.
-     */
-    bool enable_lmce;
-
-    /* Compatibility bits for old machine types.
-     * If true present virtual l3 cache for VM, the vcpus in the same virtual
-     * socket share an virtual l3 cache.
-     */
-    bool enable_l3_cache;
-
-    /* Compatibility bits for old machine types: */
-    bool enable_cpuid_0xb;
-
-    /* Enable auto level-increase for all CPUID leaves */
-    bool full_cpuid_auto_level;
-
-    /* if true fill the top bits of the MTRR_PHYSMASKn variable range */
-    bool fill_mtrr_mask;
-
-    /* if true override the phys_bits value with a value read from the host */
-    bool host_phys_bits;
-
-    /* Stop SMI delivery for migration compatibility with old machines */
-    bool kvm_no_smi_migration;
-
-    /* Number of physical address bits supported */
-    uint32_t phys_bits;
-
-    /* in order to simplify APIC support, we leave this pointer to the
-       user */
-    struct DeviceState *apic_state;
-    struct MemoryRegion *cpu_as_root, *cpu_as_mem, *smram;
-    Notifier machine_done;
-
-    struct kvm_msrs *kvm_msr_buf;
-
-    int32_t node_id; /* NUMA node this CPU belongs to */
-    int32_t socket_id;
-    int32_t core_id;
-    int32_t thread_id;
-
-    int32_t hv_max_vps;
-};
-
-#define ENV_GET_CPU(e) CPU(x86_env_get_cpu(e))
-
-static inline X86CPU *x86_env_get_cpu(CPUX86State *env)
-{
-    return container_of(env, X86CPU, env);
-}
-
-#define lduw_p(p) lduw_le_p(p)
-
-#define ldq_p(p) ldq_le_p(p)
-
-extern unsigned long guest_base;
-
-static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
-                                             int exception_index,
-                                             uintptr_t retaddr) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-#define g2h(x) ((void *)((unsigned long)(target_ulong)(x)))
-
-#define MEMSUFFIX _data
-
-static uintptr_t helper_retaddr;
-
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-extern int trace_events_enabled_count;
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
-{
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
-}
-
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
-
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
-
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint8_t info)
-{
-}
-
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint8_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
-
-typedef enum TCGMemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
-
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
-
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-
-    /* MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} TCGMemOp;
-
-static inline uint8_t trace_mem_build_info(
-    TCGMemOp size, bool sign_extend, TCGMemOp endianness, bool store)
-{
-    uint8_t res = 0;
-    res |= size;
-    res |= (sign_extend << 2);
-    if (endianness == MO_BE) {
-        res |= (1ULL << 3);
-    }
-    res |= (store << 4);
-    return res;
-}
-
-#define DATA_SIZE 2
-
-#define USUFFIX uw
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
-{
-#if !defined(CODE_ACCESS)
-    trace_guest_mem_before_exec(
-        ENV_GET_CPU(env), ptr,
-        trace_mem_build_info(DATA_SIZE, false, MO_TE, false));
-#endif
-    return glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  target_ulong ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    helper_retaddr = retaddr;
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    helper_retaddr = 0;
-    return ret;
-}
-
-#define DATA_SIZE 8
-
-#define USUFFIX q
-
-#define RES_TYPE uint64_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
-{
-#if !defined(CODE_ACCESS)
-    trace_guest_mem_before_exec(
-        ENV_GET_CPU(env), ptr,
-        trace_mem_build_info(DATA_SIZE, false, MO_TE, false));
-#endif
-    return glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  target_ulong ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    helper_retaddr = retaddr;
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    helper_retaddr = 0;
-    return ret;
-}
+extern uintptr_t tci_tb_ptr;
 
 #define FPUS_SE (1 << 7)
-
-static inline floatx80 helper_fldt(CPUX86State *env, target_ulong ptr,
-                                   uintptr_t retaddr)
-{
-    CPU_LDoubleU temp;
-
-    temp.l.lower = cpu_ldq_data_ra(env, ptr, retaddr);
-    temp.l.upper = cpu_lduw_data_ra(env, ptr + 8, retaddr);
-    return temp.d;
-}
 
 static void fpu_raise_exception(CPUX86State *env, uintptr_t retaddr)
 {
@@ -1111,20 +549,10 @@ static void fpu_raise_exception(CPUX86State *env, uintptr_t retaddr)
         raise_exception_ra(env, EXCP10_COPR, retaddr);
     }
 #if !defined(CONFIG_USER_ONLY)
-    else {
-        cpu_set_ferr(env);
+    else if (ferr_irq && !(env->hflags2 & HF2_IGNNE_MASK)) {
+        qemu_irq_raise(ferr_irq);
     }
 #endif
-}
-
-void helper_fldt_ST0(CPUX86State *env, target_ulong ptr)
-{
-    int new_fpstt;
-
-    new_fpstt = (env->fpstt - 1) & 7;
-    env->fpregs[new_fpstt].d = helper_fldt(env, ptr, GETPC());
-    env->fpstt = new_fpstt;
-    env->fptags[new_fpstt] = 0; /* validate stack entry */
 }
 
 void helper_fwait(CPUX86State *env)

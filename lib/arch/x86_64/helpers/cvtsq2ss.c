@@ -17,7 +17,11 @@
 #define G_GNUC_NORETURN                         \
   __attribute__((__noreturn__))
 
-#define G_STRFUNC     ((const char*) (__FUNCTION__))
+#define G_STRFUNC     ((const char*) (__func__))
+
+#define MAX(a, b)  (((a) > (b)) ? (a) : (b))
+
+#define MIN(a, b)  (((a) < (b)) ? (a) : (b))
 
 #define G_STMT_START  do
 
@@ -31,17 +35,20 @@ typedef char   gchar;
 
 #define G_LOG_DOMAIN    ((gchar*) 0)
 
-#define g_assert_not_reached()          G_STMT_START { __builtin_trap(); __builtin_unreachable(); } G_STMT_END
+#define g_assert_not_reached()          G_STMT_START { g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, NULL); } G_STMT_END
+
+GLIB_AVAILABLE_IN_ALL
+void    g_assertion_message_expr        (const char     *domain,
+                                         const char     *file,
+                                         int             line,
+                                         const char     *func,
+                                         const char     *expr) G_GNUC_NORETURN;
 
 typedef uint8_t flag;
 
 typedef uint32_t float32;
 
-#define float32_val(x) (x)
-
 #define make_float32(x) (x)
-
-#define const_float32(x) (x)
 
 typedef uint64_t float64;
 
@@ -85,6 +92,7 @@ typedef struct float_status {
     /* should denormalised inputs go to zero and set the input_denormal flag? */
     flag flush_inputs_to_zero;
     flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
     flag snan_bit_is_one;
 } float_status;
 
@@ -121,65 +129,6 @@ static inline void shift64RightJamming(uint64_t a, int count, uint64_t *zPtr)
 
 }
 
-float32 float32_default_nan(float_status *status)
-{
-#if defined(TARGET_SPARC) || defined(TARGET_M68K)
-    return const_float32(0x7FFFFFFF);
-#elif defined(TARGET_PPC) || defined(TARGET_ARM) || defined(TARGET_ALPHA) || \
-      defined(TARGET_XTENSA) || defined(TARGET_S390X) || \
-      defined(TARGET_TRICORE) || defined(TARGET_RISCV)
-    return const_float32(0x7FC00000);
-#elif defined(TARGET_HPPA)
-    return const_float32(0x7FA00000);
-#else
-    if (status->snan_bit_is_one) {
-        return const_float32(0x7FBFFFFF);
-    } else {
-#if defined(TARGET_MIPS)
-        return const_float32(0x7FC00000);
-#else
-        return const_float32(0xFFC00000);
-#endif
-    }
-#endif
-}
-
-void float_raise(uint8_t flags, float_status *status)
-{
-    status->float_exception_flags |= flags;
-}
-
-int float32_is_signaling_nan(float32 a_, float_status *status)
-{
-    uint32_t a = float32_val(a_);
-    if (status->snan_bit_is_one) {
-        return ((uint32_t)(a << 1) >= 0xFF800000);
-    } else {
-        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
-    }
-}
-
-float32 float32_maybe_silence_nan(float32 a_, float_status *status)
-{
-    if (float32_is_signaling_nan(a_, status)) {
-        if (status->snan_bit_is_one) {
-#ifdef TARGET_HPPA
-            uint32_t a = float32_val(a_);
-            a &= ~0x00400000;
-            a |=  0x00200000;
-            return make_float32(a);
-#else
-            return float32_default_nan(status);
-#endif
-        } else {
-            uint32_t a = float32_val(a_);
-            a |= (1 << 22);
-            return make_float32(a);
-        }
-    }
-    return a_;
-}
-
 typedef enum __attribute__ ((__packed__)) {
     float_class_unclassified,
     float_class_zero,
@@ -187,8 +136,6 @@ typedef enum __attribute__ ((__packed__)) {
     float_class_inf,
     float_class_qnan,  /* all NaNs from here */
     float_class_snan,
-    float_class_dnan,
-    float_class_msnan, /* maybe silenced */
 } FloatClass;
 
 #define DECOMPOSED_BINARY_POINT    (64 - 2)
@@ -225,6 +172,7 @@ typedef struct {
     uint64_t frac_lsbm1;
     uint64_t round_mask;
     uint64_t roundeven_mask;
+    bool arm_althp;
 } FloatFmt;
 
 static const FloatFmt float32_params = {
@@ -243,9 +191,15 @@ static inline float32 float32_pack_raw(FloatParts p)
     return make_float32(pack_raw(float32_params, p));
 }
 
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
 static FloatParts round_canonical(FloatParts p, float_status *s,
                                   const FloatFmt *parm)
 {
+    const uint64_t frac_lsb = parm->frac_lsb;
     const uint64_t frac_lsbm1 = parm->frac_lsbm1;
     const uint64_t round_mask = parm->round_mask;
     const uint64_t roundeven_mask = parm->roundeven_mask;
@@ -281,6 +235,10 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             inc = p.sign ? round_mask : 0;
             overflow_norm = !p.sign;
             break;
+        case float_round_to_odd:
+            overflow_norm = true;
+            inc = frac & frac_lsb ? 0 : round_mask;
+            break;
         default:
             g_assert_not_reached();
         }
@@ -297,7 +255,15 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             }
             frac >>= frac_shift;
 
-            if (unlikely(exp >= exp_max)) {
+            if (parm->arm_althp) {
+                /* ARM Alt HP eschews Inf and NaN for a wider exponent.  */
+                if (unlikely(exp > exp_max)) {
+                    /* Overflow.  Return the maximum normal.  */
+                    flags = float_flag_invalid;
+                    exp = exp_max;
+                    frac = -1;
+                }
+            } else if (unlikely(exp >= exp_max)) {
                 flags |= float_flag_overflow | float_flag_inexact;
                 if (overflow_norm) {
                     exp = exp_max - 1;
@@ -320,9 +286,14 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             shift64RightJamming(frac, 1 - exp, &frac);
             if (frac & round_mask) {
                 /* Need to recompute round-to-even.  */
-                if (s->float_rounding_mode == float_round_nearest_even) {
+                switch (s->float_rounding_mode) {
+                case float_round_nearest_even:
                     inc = ((frac & roundeven_mask) != frac_lsbm1
                            ? frac_lsbm1 : 0);
+                    break;
+                case float_round_to_odd:
+                    inc = frac & frac_lsb ? 0 : round_mask;
+                    break;
                 }
                 flags |= float_flag_inexact;
                 frac += inc;
@@ -348,13 +319,16 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
 
     case float_class_inf:
     do_inf:
+        assert(!parm->arm_althp);
         exp = exp_max;
         frac = 0;
         break;
 
     case float_class_qnan:
     case float_class_snan:
+        assert(!parm->arm_althp);
         exp = exp_max;
+        frac >>= parm->frac_shift;
         break;
 
     default:
@@ -369,59 +343,55 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
 
 static float32 float32_round_pack_canonical(FloatParts p, float_status *s)
 {
-    switch (p.cls) {
-    case float_class_dnan:
-        return float32_default_nan(s);
-    case float_class_msnan:
-        return float32_maybe_silence_nan(float32_pack_raw(p), s);
-    default:
-        p = round_canonical(p, s, &float32_params);
-        return float32_pack_raw(p);
-    }
+    return float32_pack_raw(round_canonical(p, s, &float32_params));
 }
 
-static FloatParts int_to_float(int64_t a, float_status *status)
+static FloatParts int_to_float(int64_t a, int scale, float_status *status)
 {
-    FloatParts r;
+    FloatParts r = { .sign = false };
+
     if (a == 0) {
         r.cls = float_class_zero;
-        r.sign = false;
-    } else if (a == (1ULL << 63)) {
-        r.cls = float_class_normal;
-        r.sign = true;
-        r.frac = DECOMPOSED_IMPLICIT_BIT;
-        r.exp = 63;
     } else {
-        uint64_t f;
-        if (a < 0) {
-            f = -a;
-            r.sign = true;
-        } else {
-            f = a;
-            r.sign = false;
-        }
-        int shift = clz64(f) - 1;
+        uint64_t f = a;
+        int shift;
+
         r.cls = float_class_normal;
-        r.exp = (DECOMPOSED_BINARY_POINT - shift);
-        r.frac = f << shift;
+        if (a < 0) {
+            f = -f;
+            r.sign = true;
+        }
+        shift = clz64(f) - 1;
+        scale = MIN(MAX(scale, -0x10000), 0x10000);
+
+        r.exp = DECOMPOSED_BINARY_POINT - shift + scale;
+        r.frac = (shift < 0 ? DECOMPOSED_IMPLICIT_BIT : f << shift);
     }
 
     return r;
 }
 
-float32 int64_to_float32(int64_t a, float_status *status)
+float32 int64_to_float32_scalbn(int64_t a, int scale, float_status *status)
 {
-    FloatParts pa = int_to_float(a, status);
+    FloatParts pa = int_to_float(a, scale, status);
     return float32_round_pack_canonical(pa, status);
 }
 
-#define Q_TAILQ_ENTRY(type, qual)                                       \
-struct {                                                                \
-        qual type *tqe_next;            /* next element */              \
-        qual type *qual *tqe_prev;      /* address of previous next element */\
+float32 int64_to_float32(int64_t a, float_status *status)
+{
+    return int64_to_float32_scalbn(a, 0, status);
 }
 
-#define QTAILQ_ENTRY(type)       Q_TAILQ_ENTRY(struct type,)
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
 
 typedef struct MemTxAttrs {
     /* Bus masters which don't specify any attributes will get this
@@ -438,6 +408,18 @@ typedef struct MemTxAttrs {
     unsigned int user:1;
     /* Requester ID (for MSI for example) */
     unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
 } MemTxAttrs;
 
 typedef uint64_t vaddr;
@@ -449,7 +431,7 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr _vaddr;
+    vaddr vaddr;
     vaddr len;
     vaddr hitaddr;
     MemTxAttrs hitattrs;
@@ -457,21 +439,15 @@ struct CPUWatchpoint {
     QTAILQ_ENTRY(CPUWatchpoint) entry;
 };
 
+#define HV_SINT_COUNT                         16
+
 #define HV_X64_MSR_CRASH_P0                     0x40000100
 
 #define HV_X64_MSR_CRASH_P4                     0x40000104
 
 #define HV_CRASH_PARAMS    (HV_X64_MSR_CRASH_P4 - HV_X64_MSR_CRASH_P0 + 1)
 
-#define HV_SINT_COUNT                         16
-
 #define HV_STIMER_COUNT                       4
-
-#define CPU_COMMON_TLB
-
-#define CPU_COMMON                                                      \
-    /* soft mmu support */                                              \
-    CPU_COMMON_TLB
 
 typedef uint64_t target_ulong;
 
@@ -491,6 +467,7 @@ typedef enum FeatureWord {
     FEAT_7_0_EBX,       /* CPUID[EAX=7,ECX=0].EBX */
     FEAT_7_0_ECX,       /* CPUID[EAX=7,ECX=0].ECX */
     FEAT_7_0_EDX,       /* CPUID[EAX=7,ECX=0].EDX */
+    FEAT_7_1_EAX,       /* CPUID[EAX=7,ECX=1].EAX */
     FEAT_8000_0001_EDX, /* CPUID[8000_0001].EDX */
     FEAT_8000_0001_ECX, /* CPUID[8000_0001].ECX */
     FEAT_8000_0007_EDX, /* CPUID[8000_0007].EDX */
@@ -501,15 +478,28 @@ typedef enum FeatureWord {
     FEAT_HYPERV_EAX,    /* CPUID[4000_0003].EAX */
     FEAT_HYPERV_EBX,    /* CPUID[4000_0003].EBX */
     FEAT_HYPERV_EDX,    /* CPUID[4000_0003].EDX */
+    FEAT_HV_RECOMM_EAX, /* CPUID[4000_0004].EAX */
+    FEAT_HV_NESTED_EAX, /* CPUID[4000_000A].EAX */
     FEAT_SVM,           /* CPUID[8000_000A].EDX */
     FEAT_XSAVE,         /* CPUID[EAX=0xd,ECX=1].EAX */
     FEAT_6_EAX,         /* CPUID[6].EAX */
     FEAT_XSAVE_COMP_LO, /* CPUID[EAX=0xd,ECX=0].EAX */
     FEAT_XSAVE_COMP_HI, /* CPUID[EAX=0xd,ECX=0].EDX */
+    FEAT_ARCH_CAPABILITIES,
+    FEAT_CORE_CAPABILITY,
+    FEAT_VMX_PROCBASED_CTLS,
+    FEAT_VMX_SECONDARY_CTLS,
+    FEAT_VMX_PINBASED_CTLS,
+    FEAT_VMX_EXIT_CTLS,
+    FEAT_VMX_ENTRY_CTLS,
+    FEAT_VMX_MISC,
+    FEAT_VMX_EPT_VPID_CAPS,
+    FEAT_VMX_BASIC,
+    FEAT_VMX_VMFUNC,
     FEATURE_WORDS,
 } FeatureWord;
 
-typedef uint32_t FeatureWordArray[FEATURE_WORDS];
+typedef uint64_t FeatureWordArray[FEATURE_WORDS];
 
 #define MMREG_UNION(n, bits)        \
     union n {                       \
@@ -582,6 +572,62 @@ typedef enum TPRAccess {
     TPR_ACCESS_READ,
     TPR_ACCESS_WRITE,
 } TPRAccess;
+
+enum CacheType {
+    DATA_CACHE,
+    INSTRUCTION_CACHE,
+    UNIFIED_CACHE
+};
+
+typedef struct CPUCacheInfo {
+    enum CacheType type;
+    uint8_t level;
+    /* Size in bytes */
+    uint32_t size;
+    /* Line size, in bytes */
+    uint16_t line_size;
+    /*
+     * Associativity.
+     * Note: representation of fully-associative caches is not implemented
+     */
+    uint8_t associativity;
+    /* Physical line partitions. CPUID[0x8000001D].EBX, CPUID[4].EBX */
+    uint8_t partitions;
+    /* Number of sets. CPUID[0x8000001D].ECX, CPUID[4].ECX */
+    uint32_t sets;
+    /*
+     * Lines per tag.
+     * AMD-specific: CPUID[0x80000005], CPUID[0x80000006].
+     * (Is this synonym to @partitions?)
+     */
+    uint8_t lines_per_tag;
+
+    /* Self-initializing cache */
+    bool self_init;
+    /*
+     * WBINVD/INVD is not guaranteed to act upon lower level caches of
+     * non-originating threads sharing this cache.
+     * CPUID[4].EDX[bit 0], CPUID[0x8000001D].EDX[bit 0]
+     */
+    bool no_invd_sharing;
+    /*
+     * Cache is inclusive of lower cache levels.
+     * CPUID[4].EDX[bit 1], CPUID[0x8000001D].EDX[bit 1].
+     */
+    bool inclusive;
+    /*
+     * A complex function is used to index the cache, potentially using all
+     * address bits.  CPUID[4].EDX[bit 2].
+     */
+    bool complex_indexing;
+} CPUCacheInfo;
+
+typedef struct CPUCaches {
+        CPUCacheInfo *l1d_cache;
+        CPUCacheInfo *l1i_cache;
+        CPUCacheInfo *l2_cache;
+        CPUCacheInfo *l3_cache;
+} CPUCaches;
 
 typedef struct CPUX86State {
     /* standard registers */
@@ -686,8 +732,10 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
+    uint64_t virt_ssbd;
 
     /* End of state preserved by INIT (dummy marker).  */
     struct {} end_init_save;
@@ -697,6 +745,7 @@ typedef struct CPUX86State {
     uint64_t steal_time_msr;
     uint64_t async_pf_en_msr;
     uint64_t pv_eoi_en_msr;
+    uint64_t poll_control_msr;
 
     /* Partition-wide HV MSRs, will be updated only on the first vcpu */
     uint64_t msr_hv_hypercall;
@@ -713,6 +762,9 @@ typedef struct CPUX86State {
     uint64_t msr_hv_synic_sint[HV_SINT_COUNT];
     uint64_t msr_hv_stimer_config[HV_STIMER_COUNT];
     uint64_t msr_hv_stimer_count[HV_STIMER_COUNT];
+    uint64_t msr_hv_reenlightenment_control;
+    uint64_t msr_hv_tsc_emulation_control;
+    uint64_t msr_hv_tsc_emulation_status;
 
     uint64_t msr_rtit_ctrl;
     uint64_t msr_rtit_status;
@@ -740,20 +792,26 @@ typedef struct CPUX86State {
     uint16_t intercept_dr_read;
     uint16_t intercept_dr_write;
     uint32_t intercept_exceptions;
+    uint64_t nested_cr3;
+    uint32_t nested_pg_mode;
     uint8_t v_tpr;
 
     /* KVM states, automatically cleared on reset */
     uint8_t nmi_injected;
     uint8_t nmi_pending;
 
+    uintptr_t retaddr;
+
     /* Fields up to this point are cleared by a CPU reset */
     struct {} end_reset_fields;
 
-    CPU_COMMON
-
-    /* Fields after CPU_COMMON are preserved across CPU reset. */
+    /* Fields after this point are preserved across CPU reset. */
 
     /* processor features (e.g. for CPUID insn) */
+    /* Minimum cpuid leaf 7 value */
+    uint32_t cpuid_level_func7;
+    /* Actual cpuid leaf 7 value */
+    uint32_t cpuid_min_level_func7;
     /* Minimum level/xlevel/xlevel2, based on CPU model + features */
     uint32_t cpuid_min_level, cpuid_min_xlevel, cpuid_min_xlevel2;
     /* Maximum level/xlevel/xlevel2 value for auto-assignment: */
@@ -768,6 +826,11 @@ typedef struct CPUX86State {
     /* Features that were explicitly enabled/disabled */
     FeatureWordArray user_features;
     uint32_t cpuid_model[12];
+    /* Cache information for CPUID.  When legacy-cache=on, the cache data
+     * on each CPUID leaf will be different, because we keep compatibility
+     * with old QEMU versions.
+     */
+    CPUCaches cache_info_cpuid2, cache_info_cpuid4, cache_info_amd;
 
     /* MTRRs */
     uint64_t mtrr_fixed[11];
@@ -776,16 +839,25 @@ typedef struct CPUX86State {
 
     /* For KVM */
     uint32_t mp_state;
-    int32_t exception_injected;
+    int32_t exception_nr;
     int32_t interrupt_injected;
     uint8_t soft_interrupt;
+    uint8_t exception_pending;
+    uint8_t exception_injected;
     uint8_t has_error_code;
+    uint8_t exception_has_payload;
+    uint64_t exception_payload;
     uint32_t ins_len;
     uint32_t sipi_vector;
     bool tsc_valid;
     int64_t tsc_khz;
     int64_t user_tsc_khz; /* for sanity check only */
-    void *kvm_xsave_buf;
+#if defined(CONFIG_KVM) || defined(CONFIG_HVF)
+    void *xsave_buf;
+#endif
+#if defined(CONFIG_KVM)
+    struct kvm_nested_state *nested_state;
+#endif
 #if defined(CONFIG_HVF)
     HVFX86EmulatorState *hvf_emul;
 #endif
@@ -802,8 +874,11 @@ typedef struct CPUX86State {
     uint16_t fpregs_format_vmstate;
 
     uint64_t xss;
+    uint32_t umwait;
 
     TPRAccess tpr_access_type;
+
+    unsigned nr_dies;
 } CPUX86State;
 
 void helper_cvtsq2ss(CPUX86State *env, ZMMReg *d, uint64_t val)
