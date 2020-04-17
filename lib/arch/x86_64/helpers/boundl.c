@@ -1051,7 +1051,7 @@ void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
     __builtin_unreachable();
 }
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint64_t abi_ptr;
 

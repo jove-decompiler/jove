@@ -1208,7 +1208,7 @@ static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
      }
 }
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint64_t abi_ptr;
 

@@ -2044,7 +2044,7 @@ uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
     return helper_cc_compute_all(CC_DST, CC_SRC, CC_SRC2, op);
 }
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint64_t abi_ptr;
 
