@@ -1009,7 +1009,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define SVM_EXIT_SWINT		0x075
 
-void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
+static void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
                                    int error_code, int next_eip_addend);
 
 void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
@@ -1037,7 +1037,11 @@ void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 
 void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
 {
+#if 0
     raise_interrupt(env, intno, 1, 0, next_eip_addend);
+#else
+    __builtin_trap();
+#endif
 }
 
 static int check_exception(CPUX86State *env, int intno, int *error_code,
