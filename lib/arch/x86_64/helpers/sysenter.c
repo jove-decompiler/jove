@@ -718,7 +718,10 @@ static inline void cpu_x86_load_seg_cache(CPUX86State *env,
 }
 
 void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
+                                          int error_code, uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 # define GETPC() tci_tb_ptr
 

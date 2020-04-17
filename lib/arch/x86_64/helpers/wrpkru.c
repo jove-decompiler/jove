@@ -1000,7 +1000,10 @@ static inline CPUState *env_cpu(CPUArchState *env)
 }
 
 void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
+                                          int error_code, uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 static inline void tlb_flush(CPUState *cpu)
 {

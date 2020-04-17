@@ -817,7 +817,10 @@ static inline void cpu_x86_load_seg_cache(CPUX86State *env,
 #define CC_OP   (env->cc_op)
 
 void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr);
+                                          int error_code, uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 static inline void cpu_load_eflags(CPUX86State *env, int eflags,
                                    int update_mask)
