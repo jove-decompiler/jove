@@ -160,6 +160,7 @@ int qemu_loglevel;
 
 int qemu_log(const char *fmt, ...)
 {
+#if 0
     int ret = 0;
     if (qemu_logfile) {
         va_list ap;
@@ -173,9 +174,13 @@ int qemu_log(const char *fmt, ...)
         }
     }
     return ret;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
-int qemu_guest_getrandom(void *buf, size_t len, Error **errp);
+static int qemu_guest_getrandom(void *buf, size_t len, Error **errp);
 
 int qcrypto_random_bytes(void *buf,
                          size_t buflen,
