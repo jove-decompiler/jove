@@ -1017,13 +1017,18 @@ static void do_pause(X86CPU *cpu)
     cpu_loop_exit(cs);
 }
 
+__attribute__((always_inline))
 void helper_pause(CPUX86State *env, int next_eip_addend)
 {
+#if 0
     X86CPU *cpu = env_archcpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_PAUSE, 0, GETPC());
     env->eip += next_eip_addend;
 
     do_pause(cpu);
+#else
+    asm volatile("pause");
+#endif
 }
 
