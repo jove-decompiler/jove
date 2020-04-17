@@ -999,7 +999,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define HELPER(name) glue(helper_, name)
 
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
+static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() tci_tb_ptr
 
