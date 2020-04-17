@@ -1,3 +1,7 @@
+#include <type_traits>
+
+#define NEED_CPU_H
+
 #define CONFIG_TCG_INTERPRETER 1
 
 #define CONFIG_ATOMIC64 1
@@ -94,7 +98,7 @@ static inline void qemu_flockfile(FILE *f)
 
 #define G_LIKELY(expr) (__builtin_expect (_G_BOOLEAN_EXPR(expr), 1))
 
-#define _GLIB_EXTERN extern
+#define _GLIB_EXTERN extern "C"
 
 #define G_MAXULONG	ULONG_MAX
 
@@ -285,10 +289,9 @@ typedef struct IRQState *qemu_irq;
 #define QEMU_IS_ARRAY(x) (!__builtin_types_compatible_p(typeof(x), \
                                                         typeof(&(x)[0])))
 
-#define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
-                       QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
+#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-extern int qemu_icache_linesize;
+static int qemu_icache_linesize;
 
 typedef uint8_t flag;
 
@@ -442,7 +445,7 @@ static inline bool is_power_of_2(uint64_t value)
     return !(value & (value - 1));
 }
 
-extern bool tcg_allowed;
+bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -565,6 +568,7 @@ union {                                                                 \
 
 #define barrier()   ({ asm volatile("" ::: "memory"); (void)0; })
 
+#if 0
 #define typeof_strip_qual(expr)                                                    \
   typeof(                                                                          \
     __builtin_choose_expr(                                                         \
@@ -598,6 +602,9 @@ union {                                                                 \
         __builtin_types_compatible_p(typeof(expr), const volatile unsigned short), \
         (unsigned short)1,                                                         \
       (expr)+0))))))
+#else
+#define typeof_strip_qual(expr) std::remove_reference<std::remove_cv<decltype(expr)>::type>::type
+#endif
 
 #define smp_read_barrier_depends()   barrier()
 
@@ -814,7 +821,7 @@ struct ObjectClass
 struct Object
 {
     /*< private >*/
-    ObjectClass *class;
+    ObjectClass *klass;
     ObjectFree *free;
     GHashTable *properties;
     uint32_t ref;
@@ -901,11 +908,11 @@ struct QemuThread {
     pthread_t thread;
 };
 
-void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line);
+void qemu_mutex_unlock_impl(QemuMutex *mutex, const char *file, const int line) {}
 
 typedef void (*QemuMutexLockFunc)(QemuMutex *m, const char *f, int l);
 
-extern QemuMutexLockFunc qemu_mutex_lock_func;
+static QemuMutexLockFunc qemu_mutex_lock_func;
 
 #define qemu_mutex_lock(m) ({                                           \
             QemuMutexLockFunc _f = atomic_read(&qemu_mutex_lock_func);  \
@@ -1084,9 +1091,9 @@ typedef struct CPUBreakpoint {
 } CPUBreakpoint;
 
 struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
+    ::vaddr vaddr;
+    ::vaddr len;
+    ::vaddr hitaddr;
     MemTxAttrs hitattrs;
     int flags; /* BP_* */
     QTAILQ_ENTRY(CPUWatchpoint) entry;
@@ -1102,7 +1109,7 @@ struct kvm_run;
 
 struct hax_vcpu_state;
 
-#define RUN_ON_CPU_HOST_INT(i)    ((run_on_cpu_data){.host_int = (i)})
+#define RUN_ON_CPU_HOST_INT(i)    ((run_on_cpu_data){.host_int = (int)(i)})
 
 typedef union {
     int           host_int;
@@ -1222,7 +1229,7 @@ typedef QTAILQ_HEAD(CPUTailQ, CPUState) CPUTailQ;
 
 #define CPU_FOREACH(cpu) QTAILQ_FOREACH_RCU(cpu, &cpus, node)
 
-extern CPUTailQ cpus;
+static CPUTailQ cpus;
 
 static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
 {
@@ -1233,7 +1240,7 @@ static inline void cpu_tb_jmp_cache_clear(CPUState *cpu)
     }
 }
 
-void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data);
+static void async_safe_run_on_cpu(CPUState *cpu, run_on_cpu_func func, run_on_cpu_data data) {}
 
 static inline bool cpu_in_exclusive_context(const CPUState *cpu)
 {
@@ -1406,7 +1413,7 @@ typedef struct X86CPU X86CPU;
 
 #define TCG_TARGET_STACK_ALIGN          16
 
-typedef enum {
+enum {
     TCG_REG_R0 = 0,
     TCG_REG_R1,
     TCG_REG_R2,
@@ -1445,7 +1452,9 @@ typedef enum {
 #endif
     /* Special value UINT8_MAX is used by TCI to encode constant values. */
     TCG_CONST = UINT8_MAX
-} TCGReg;
+};
+
+typedef long TCGReg;
 
 #define TCG_TARGET_DEFAULT_MO  (0)
 
@@ -1464,6 +1473,9 @@ typedef int64_t target_long;
 #define TARGET_FMT_lx "%016" PRIx64
 
 typedef uint64_t target_ulong;
+
+constexpr target_ulong JOVE_RETADDR_COOKIE = 0xbd47c92caa6cbcb4;
+constexpr target_ulong JOVE_PCREL_MAGIC = std::numeric_limits<target_ulong>::max();
 
 typedef struct CPUTLB { } CPUTLB;
 
@@ -1742,7 +1754,7 @@ typedef enum FeatureWord {
 
 typedef uint64_t FeatureWordArray[FEATURE_WORDS];
 
-typedef enum {
+enum {
     CC_OP_DYNAMIC, /* must use dynamic code to get cc_op */
     CC_OP_EFLAGS,  /* all cc are explicitly computed, CC_SRC = flags */
 
@@ -1809,7 +1821,9 @@ typedef enum {
     CC_OP_POPCNT, /* Z via CC_SRC, all other flags clear.  */
 
     CC_OP_NB,
-} CCOp;
+};
+
+typedef int CCOp;
 
 #define MMREG_UNION(n, bits)        \
     union n {                       \
@@ -2431,9 +2445,15 @@ struct qht {
 
 typedef void (*qht_iter_func_t)(void *p, uint32_t h, void *up);
 
-bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing);
+bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
-bool qht_reset_size(struct qht *ht, size_t n_elems);
+bool qht_reset_size(struct qht *ht, size_t n_elems) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void qht_iter(struct qht *ht, qht_iter_func_t func, void *userp);
 
@@ -2453,30 +2473,34 @@ struct TBContext {
     unsigned tb_flush_count;
 };
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+//#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint64_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+extern uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
+#if 0
     helper_retaddr = ra;
     /*
      * Ensure that this write is visible to the SIGSEGV handler that
      * may be invoked due to a subsequent invalid memory operation.
      */
     signal_barrier();
+#endif
 }
 
 static inline void clear_helper_retaddr(void)
 {
+#if 0
     /*
      * Ensure that previous memory operations have succeeded before
      * removing the data visible to the signal handler.
      */
     signal_barrier();
     helper_retaddr = 0;
+#endif
 }
 
 typedef struct TraceEvent {
@@ -2525,7 +2549,7 @@ static inline void trace_guest_mem_before_trans(CPUState * __cpu, uint16_t info)
     }
 }
 
-typedef enum MemOp {
+enum {
     MO_8     = 0,
     MO_16    = 1,
     MO_32    = 2,
@@ -2618,9 +2642,11 @@ typedef enum MemOp {
 #endif
 
     MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
+};
 
-typedef enum {
+typedef int MemOp;
+
+enum {
     /* Used to indicate the type of accesses on which ordering
        is to be ensured.  Modeled after SPARC barriers.
 
@@ -2638,7 +2664,9 @@ typedef enum {
     TCG_BAR_LDAQ  = 0x10,  /* Following ops will not come forward */
     TCG_BAR_STRL  = 0x20,  /* Previous ops will not be delayed */
     TCG_BAR_SC    = 0x30,  /* No ops cross barrier; OR of the above */
-} TCGBar;
+};
+
+typedef int TCGBar;
 
 #define MAX_OPC_PARAM_PER_ARG 1
 
@@ -3037,7 +3065,7 @@ typedef struct TCGPool {
     uint8_t data[0] __attribute__ ((aligned));
 } TCGPool;
 
-typedef enum TCGType {
+enum {
     TCG_TYPE_I32,
     TCG_TYPE_I64,
 
@@ -3067,7 +3095,9 @@ typedef enum TCGType {
 #else
     TCG_TYPE_TL = TCG_TYPE_I32,
 #endif
-} TCGType;
+};
+
+typedef int TCGType;
 
 static inline unsigned get_alignment_bits(MemOp memop)
 {
@@ -3122,7 +3152,7 @@ typedef struct TCGv_ptr_d *TCGv_ptr;
 
 typedef TCGv_ptr TCGv_env;
 
-typedef enum {
+enum {
     /* non-signed */
     TCG_COND_NEVER  = 0 | 0 | 0 | 0,
     TCG_COND_ALWAYS = 0 | 0 | 0 | 1,
@@ -3138,7 +3168,9 @@ typedef enum {
     TCG_COND_GEU    = 0 | 4 | 0 | 1,
     TCG_COND_LEU    = 8 | 4 | 0 | 0,
     TCG_COND_GTU    = 8 | 4 | 0 | 1,
-} TCGCond;
+};
+
+typedef int TCGCond;
 
 static inline TCGCond tcg_invert_cond(TCGCond c)
 {
@@ -3349,7 +3381,7 @@ static inline TCGTemp *arg_temp(TCGArg a)
 static inline TCGTemp *tcgv_i32_temp(TCGv_i32 v)
 {
     uintptr_t o = (uintptr_t)v;
-    TCGTemp *t = (void *)tcg_ctx + o;
+    TCGTemp *t = (TCGTemp *)((char *)tcg_ctx + o);
     tcg_debug_assert(offsetof(TCGContext, temps[temp_idx(t)]) == o);
     return t;
 }
@@ -3382,7 +3414,7 @@ static inline TCGArg tcgv_ptr_arg(TCGv_ptr v)
 static inline TCGv_i32 temp_tcgv_i32(TCGTemp *t)
 {
     (void)temp_idx(t); /* trigger embedded assert */
-    return (TCGv_i32)((void *)t - (void *)tcg_ctx);
+    return (TCGv_i32)((char *)t - (char *)tcg_ctx);
 }
 
 static inline TCGv_i64 temp_tcgv_i64(TCGTemp *t)
@@ -3616,7 +3648,7 @@ static inline TCGLabel *arg_label(TCGArg i)
 
 static inline ptrdiff_t tcg_ptr_byte_diff(void *a, void *b)
 {
-    return a - b;
+    return (char *)a - (char *)b;
 }
 
 static inline size_t tcg_current_code_size(TCGContext *s)
@@ -3651,6 +3683,23 @@ static inline int tcg_can_emit_vec_op(TCGOpcode o, TCGType t, unsigned ve)
     return 0;
 }
 
+/* Duplicate C as per VECE.  */
+uint64_t (dup_const)(unsigned vece, uint64_t c)
+{
+    switch (vece) {
+    case MO_8:
+        return 0x0101010101010101ull * (uint8_t)c;
+    case MO_16:
+        return 0x0001000100010001ull * (uint16_t)c;
+    case MO_32:
+        return 0x0000000100000001ull * (uint32_t)c;
+    case MO_64:
+        return c;
+    default:
+        g_assert_not_reached();
+    }
+}
+
 #define dup_const(VECE, C)                                         \
     (__builtin_constant_p(VECE)                                    \
      ? (  (VECE) == MO_8  ? 0x0101010101010101ull * (uint8_t)(C)   \
@@ -3658,8 +3707,6 @@ static inline int tcg_can_emit_vec_op(TCGOpcode o, TCGType t, unsigned ve)
         : (VECE) == MO_32 ? 0x0000000100000001ull * (uint32_t)(C)  \
         : dup_const(VECE, C))                                      \
      : dup_const(VECE, C))
-
-uint64_t dup_const(unsigned vece, uint64_t c);
 
 #define TRACE_MEM_SZ_SHIFT_MASK 0xf
 
@@ -4503,7 +4550,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2), dh_arg_decl(t3, 3))         \
 {                                                                       \
   TCGTemp *args[3] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3) };   \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 3, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 3, args);                 \
 }
 
 DEF_HELPER_4(glue(maskmov, SUFFIX), void, env, Reg, Reg, tl)
@@ -4907,7 +4954,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[4] = { dh_arg(t1, 1), dh_arg(t2, 2),                    \
                      dh_arg(t3, 3), dh_arg(t4, 4) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 4, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 4, args);                 \
 }
 
 DEF_HELPER_4(glue(maskmov, SUFFIX), void, env, Reg, Reg, tl)
@@ -5121,7 +5168,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1), dh_arg_decl(t2, 2))                             \
 {                                                                       \
   TCGTemp *args[2] = { dh_arg(t1, 1), dh_arg(t2, 2) };                  \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 2, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 2, args);                 \
 }
 
 DEF_HELPER_2(glue(movl_mm_T0, SUFFIX), void, Reg, i32)
@@ -5616,6 +5663,10 @@ struct TranslationBlock {
     uintptr_t jmp_list_head;
     uintptr_t jmp_list_next[2];
     uintptr_t jmp_dest[2];
+
+    struct {
+      jove::terminator_info_t T;
+    } jove;
 };
 
 static inline uint32_t tb_cflags(const TranslationBlock *tb)
@@ -5625,11 +5676,13 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
 
 void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
 
-void mmap_lock(void);
+void mmap_lock(void) {}
 
-void mmap_unlock(void);
+void mmap_unlock(void) {}
 
-bool have_mmap_lock(void);
+static bool have_mmap_lock(void) {
+  return false;
+}
 
 static inline tb_page_addr_t get_page_addr_code(CPUArchState *env,
                                                 target_ulong addr)
@@ -5912,7 +5965,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
     dh_arg_decl(t1, 1))                                                 \
 {                                                                       \
   TCGTemp *args[1] = { dh_arg(t1, 1) };                                 \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 1, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 1, args);                 \
 }
 
 #define DEF_HELPER_FLAGS_5(name, flags, ret, t1, t2, t3, t4, t5)        \
@@ -5922,7 +5975,7 @@ static inline void glue(gen_helper_, name)(dh_retvar_decl(ret)          \
 {                                                                       \
   TCGTemp *args[5] = { dh_arg(t1, 1), dh_arg(t2, 2), dh_arg(t3, 3),     \
                      dh_arg(t4, 4), dh_arg(t5, 5) };                    \
-  tcg_gen_callN(HELPER(name), dh_retvar(ret), 5, args);                 \
+  tcg_gen_callN((void *)HELPER(name), dh_retvar(ret), 5, args);                 \
 }
 
 DEF_HELPER_FLAGS_4(cc_compute_all, TCG_CALL_NO_RWG_SE, tl, tl, tl, tl, int)
@@ -7537,6 +7590,7 @@ static inline void gen_io_end(void)
 
 static inline void gen_tb_start(TranslationBlock *tb)
 {
+#if 0
     TCGv_i32 count, imm;
 
     tcg_ctx->exitreq_label = gen_new_label();
@@ -7572,10 +7626,12 @@ static inline void gen_tb_start(TranslationBlock *tb)
     }
 
     tcg_temp_free_i32(count);
+#endif
 }
 
 static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 {
+#if 0
     if (tb_cflags(tb) & CF_USE_ICOUNT) {
         /* Update the num_insn immediate parameter now that we know
          * the actual insn count.  */
@@ -7584,6 +7640,7 @@ static inline void gen_tb_end(TranslationBlock *tb, int num_insns)
 
     gen_set_label(tcg_ctx->exitreq_label);
     tcg_gen_exit_tb(tb, TB_EXIT_REQUESTED);
+#endif
 }
 
 typedef struct DisasContext {
@@ -8228,17 +8285,17 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
         t0 = gen_ext_tl(reg, cpu_cc_dst, size, false);
     add_sub:
         return (CCPrepare) { .cond = TCG_COND_LTU, .reg = t0,
-                             .reg2 = t1, .mask = -1, .use_reg2 = true };
+                             .reg2 = t1, .mask = (target_ulong)-1, .use_reg2 = true };
 
     case CC_OP_LOGICB ... CC_OP_LOGICQ:
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
 
     case CC_OP_INCB ... CC_OP_INCQ:
     case CC_OP_DECB ... CC_OP_DECQ:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
 
     case CC_OP_SHLB ... CC_OP_SHLQ:
         /* (CC_SRC >> (DATA_BITS - 1)) & 1 */
@@ -8249,17 +8306,17 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
 
     case CC_OP_MULB ... CC_OP_MULQ:
         return (CCPrepare) { .cond = TCG_COND_NE,
-                             .reg = cpu_cc_src, .mask = -1 };
+                             .reg = cpu_cc_src, .mask = (target_ulong)-1 };
 
     case CC_OP_BMILGB ... CC_OP_BMILGQ:
         size = s->cc_op - CC_OP_BMILGB;
         t0 = gen_ext_tl(reg, cpu_cc_src, size, false);
-        return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = (target_ulong)-1 };
 
     case CC_OP_ADCX:
     case CC_OP_ADCOX:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_dst,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
 
     case CC_OP_EFLAGS:
     case CC_OP_SARB ... CC_OP_SARQ:
@@ -8274,7 +8331,7 @@ static CCPrepare gen_prepare_eflags_c(DisasContext *s, TCGv reg)
        gen_helper_cc_compute_c(reg, cpu_cc_dst, cpu_cc_src,
                                cpu_cc_src2, cpu_cc_op);
        return (CCPrepare) { .cond = TCG_COND_NE, .reg = reg,
-                            .mask = -1, .no_setcond = true };
+                            .mask = (target_ulong)-1, .no_setcond = true };
     }
 }
 
@@ -8299,12 +8356,12 @@ static CCPrepare gen_prepare_eflags_s(DisasContext *s, TCGv reg)
                              .mask = CC_S };
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
     default:
         {
             MemOp size = (s->cc_op - CC_OP_ADDB) & 3;
             TCGv t0 = gen_ext_tl(reg, cpu_cc_dst, size, true);
-            return (CCPrepare) { .cond = TCG_COND_LT, .reg = t0, .mask = -1 };
+            return (CCPrepare) { .cond = TCG_COND_LT, .reg = t0, .mask = (target_ulong)-1 };
         }
     }
 }
@@ -8315,10 +8372,10 @@ static CCPrepare gen_prepare_eflags_o(DisasContext *s, TCGv reg)
     case CC_OP_ADOX:
     case CC_OP_ADCOX:
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src2,
-                             .mask = -1, .no_setcond = true };
+                             .mask = (target_ulong)-1, .no_setcond = true };
     case CC_OP_CLR:
     case CC_OP_POPCNT:
-        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_NEVER, .mask = (target_ulong)-1 };
     default:
         gen_compute_eflags(s);
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
@@ -8339,15 +8396,15 @@ static CCPrepare gen_prepare_eflags_z(DisasContext *s, TCGv reg)
         return (CCPrepare) { .cond = TCG_COND_NE, .reg = cpu_cc_src,
                              .mask = CC_Z };
     case CC_OP_CLR:
-        return (CCPrepare) { .cond = TCG_COND_ALWAYS, .mask = -1 };
+        return (CCPrepare) { .cond = TCG_COND_ALWAYS, .mask = (target_ulong)-1 };
     case CC_OP_POPCNT:
         return (CCPrepare) { .cond = TCG_COND_EQ, .reg = cpu_cc_src,
-                             .mask = -1 };
+                             .mask = (target_ulong)-1 };
     default:
         {
             MemOp size = (s->cc_op - CC_OP_ADDB) & 3;
             TCGv t0 = gen_ext_tl(reg, cpu_cc_dst, size, false);
-            return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = -1 };
+            return (CCPrepare) { .cond = TCG_COND_EQ, .reg = t0, .mask = (target_ulong)-1 };
         }
     }
 }
@@ -8372,7 +8429,7 @@ static CCPrepare gen_prepare_cc(DisasContext *s, int b, TCGv reg)
             gen_extu(size, s->tmp4);
             t0 = gen_ext_tl(s->tmp0, cpu_cc_src, size, false);
             cc = (CCPrepare) { .cond = TCG_COND_LEU, .reg = s->tmp4,
-                               .reg2 = t0, .mask = -1, .use_reg2 = true };
+                               .reg2 = t0, .mask = (target_ulong)-1, .use_reg2 = true };
             break;
 
         case JCC_L:
@@ -8385,7 +8442,7 @@ static CCPrepare gen_prepare_cc(DisasContext *s, int b, TCGv reg)
             gen_exts(size, s->tmp4);
             t0 = gen_ext_tl(s->tmp0, cpu_cc_src, size, true);
             cc = (CCPrepare) { .cond = cond, .reg = s->tmp4,
-                               .reg2 = t0, .mask = -1, .use_reg2 = true };
+                               .reg2 = t0, .mask = (target_ulong)-1, .use_reg2 = true };
             break;
 
         default:
@@ -8612,6 +8669,10 @@ static inline void gen_repz_ ## op(DisasContext *s, MemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s, s->aflag, l2);                                       \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 #define GEN_REPZ2(op)                                                         \
@@ -8630,6 +8691,10 @@ static inline void gen_repz_ ## op(DisasContext *s, MemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s, s->aflag, l2);                                       \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 GEN_REPZ(movs)
@@ -8732,6 +8797,9 @@ static void gen_exception(DisasContext *s, int trapno, target_ulong cur_eip)
 static void gen_illegal_opcode(DisasContext *s)
 {
     gen_exception(s, EXCP06_ILLOP, s->pc_start - s->cs_base);
+
+    // TODO warn the user?
+    s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
 static void gen_op(DisasContext *s1, int op, MemOp ot, int d)
@@ -9448,6 +9516,7 @@ static AddressParts gen_lea_modrm_0(CPUX86State *env, DisasContext *s,
                 if (CODE64(s) && !havesib) {
                     base = -2;
                     disp += s->pc + s->rip_offset;
+                    tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 }
             }
             break;
@@ -10153,27 +10222,27 @@ typedef void (*SSEFunc_0_eppt)(TCGv_ptr env, TCGv_ptr reg_a, TCGv_ptr reg_b,
 
 static const SSEFunc_0_epp sse_op_table1[256][4] = {
     /* 3DNow! extensions */
-    [0x0e] = { SSE_DUMMY }, /* femms */
-    [0x0f] = { SSE_DUMMY }, /* pf... */
+    [0x0e] = { (SSEFunc_0_epp)SSE_DUMMY }, /* femms */
+    [0x0f] = { (SSEFunc_0_epp)SSE_DUMMY }, /* pf... */
     /* pure SSE operations */
-    [0x10] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
-    [0x11] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movups, movupd, movss, movsd */
-    [0x12] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
-    [0x13] = { SSE_SPECIAL, SSE_SPECIAL },  /* movlps, movlpd */
+    [0x10] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movups, movupd, movss, movsd */
+    [0x11] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movups, movupd, movss, movsd */
+    [0x12] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movlps, movlpd, movsldup, movddup */
+    [0x13] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movlps, movlpd */
     [0x14] = { gen_helper_punpckldq_xmm, gen_helper_punpcklqdq_xmm },
     [0x15] = { gen_helper_punpckhdq_xmm, gen_helper_punpckhqdq_xmm },
-    [0x16] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd, movshdup */
-    [0x17] = { SSE_SPECIAL, SSE_SPECIAL },  /* movhps, movhpd */
+    [0x16] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movhps, movhpd, movshdup */
+    [0x17] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movhps, movhpd */
 
-    [0x28] = { SSE_SPECIAL, SSE_SPECIAL },  /* movaps, movapd */
-    [0x29] = { SSE_SPECIAL, SSE_SPECIAL },  /* movaps, movapd */
-    [0x2a] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvtpi2ps, cvtpi2pd, cvtsi2ss, cvtsi2sd */
-    [0x2b] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movntps, movntpd, movntss, movntsd */
-    [0x2c] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvttps2pi, cvttpd2pi, cvttsd2si, cvttss2si */
-    [0x2d] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* cvtps2pi, cvtpd2pi, cvtsd2si, cvtss2si */
+    [0x28] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movaps, movapd */
+    [0x29] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },  /* movaps, movapd */
+    [0x2a] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvtpi2ps, cvtpi2pd, cvtsi2ss, cvtsi2sd */
+    [0x2b] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movntps, movntpd, movntss, movntsd */
+    [0x2c] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvttps2pi, cvttpd2pi, cvttsd2si, cvttss2si */
+    [0x2d] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* cvtps2pi, cvtpd2pi, cvtsd2si, cvtss2si */
     [0x2e] = { gen_helper_ucomiss, gen_helper_ucomisd },
     [0x2f] = { gen_helper_comiss, gen_helper_comisd },
-    [0x50] = { SSE_SPECIAL, SSE_SPECIAL }, /* movmskps, movmskpd */
+    [0x50] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movmskps, movmskpd */
     [0x51] = SSE_FOP(sqrt),
     [0x52] = { gen_helper_rsqrtps, NULL, gen_helper_rsqrtss, NULL },
     [0x53] = { gen_helper_rcpps, NULL, gen_helper_rcpss, NULL },
@@ -10196,8 +10265,8 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
                (SSEFunc_0_epp)gen_helper_shufpd }, /* XXX: casts */
 
     /* SSSE3, SSE4, MOVBE, CRC32, BMI1, BMI2, ADX.  */
-    [0x38] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
-    [0x3a] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
+    [0x38] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
+    [0x3a] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
 
     /* MMX ops and their SSE extensions */
     [0x60] = MMX_OP2(punpcklbw),
@@ -10214,35 +10283,35 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0x6b] = MMX_OP2(packssdw),
     [0x6c] = { NULL, gen_helper_punpcklqdq_xmm },
     [0x6d] = { NULL, gen_helper_punpckhqdq_xmm },
-    [0x6e] = { SSE_SPECIAL, SSE_SPECIAL }, /* movd mm, ea */
-    [0x6f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, , movqdu */
+    [0x6e] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movd mm, ea */
+    [0x6f] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movq, movdqa, , movqdu */
     [0x70] = { (SSEFunc_0_epp)gen_helper_pshufw_mmx,
                (SSEFunc_0_epp)gen_helper_pshufd_xmm,
                (SSEFunc_0_epp)gen_helper_pshufhw_xmm,
                (SSEFunc_0_epp)gen_helper_pshuflw_xmm }, /* XXX: casts */
-    [0x71] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftw */
-    [0x72] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftd */
-    [0x73] = { SSE_SPECIAL, SSE_SPECIAL }, /* shiftq */
+    [0x71] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftw */
+    [0x72] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftd */
+    [0x73] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* shiftq */
     [0x74] = MMX_OP2(pcmpeqb),
     [0x75] = MMX_OP2(pcmpeqw),
     [0x76] = MMX_OP2(pcmpeql),
-    [0x77] = { SSE_DUMMY }, /* emms */
-    [0x78] = { NULL, SSE_SPECIAL, NULL, SSE_SPECIAL }, /* extrq_i, insertq_i */
+    [0x77] = { (SSEFunc_0_epp)SSE_DUMMY }, /* emms */
+    [0x78] = { NULL, (SSEFunc_0_epp)SSE_SPECIAL, NULL, (SSEFunc_0_epp)SSE_SPECIAL }, /* extrq_i, insertq_i */
     [0x79] = { NULL, gen_helper_extrq_r, NULL, gen_helper_insertq_r },
     [0x7c] = { NULL, gen_helper_haddpd, NULL, gen_helper_haddps },
     [0x7d] = { NULL, gen_helper_hsubpd, NULL, gen_helper_hsubps },
-    [0x7e] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movd, movd, , movq */
-    [0x7f] = { SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL }, /* movq, movdqa, movdqu */
-    [0xc4] = { SSE_SPECIAL, SSE_SPECIAL }, /* pinsrw */
-    [0xc5] = { SSE_SPECIAL, SSE_SPECIAL }, /* pextrw */
+    [0x7e] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movd, movd, , movq */
+    [0x7f] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* movq, movdqa, movdqu */
+    [0xc4] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pinsrw */
+    [0xc5] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pextrw */
     [0xd0] = { NULL, gen_helper_addsubpd, NULL, gen_helper_addsubps },
     [0xd1] = MMX_OP2(psrlw),
     [0xd2] = MMX_OP2(psrld),
     [0xd3] = MMX_OP2(psrlq),
     [0xd4] = MMX_OP2(paddq),
     [0xd5] = MMX_OP2(pmullw),
-    [0xd6] = { NULL, SSE_SPECIAL, SSE_SPECIAL, SSE_SPECIAL },
-    [0xd7] = { SSE_SPECIAL, SSE_SPECIAL }, /* pmovmskb */
+    [0xd6] = { NULL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL },
+    [0xd7] = { (SSEFunc_0_epp)SSE_SPECIAL, (SSEFunc_0_epp)SSE_SPECIAL }, /* pmovmskb */
     [0xd8] = MMX_OP2(psubusb),
     [0xd9] = MMX_OP2(psubusw),
     [0xda] = MMX_OP2(pminub),
@@ -10258,7 +10327,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0xe4] = MMX_OP2(pmulhuw),
     [0xe5] = MMX_OP2(pmulhw),
     [0xe6] = { NULL, gen_helper_cvttpd2dq, gen_helper_cvtdq2pd, gen_helper_cvtpd2dq },
-    [0xe7] = { SSE_SPECIAL , SSE_SPECIAL },  /* movntq, movntq */
+    [0xe7] = { (SSEFunc_0_epp)SSE_SPECIAL , (SSEFunc_0_epp)SSE_SPECIAL },  /* movntq, movntq */
     [0xe8] = MMX_OP2(psubsb),
     [0xe9] = MMX_OP2(psubsw),
     [0xea] = MMX_OP2(pminsw),
@@ -10267,7 +10336,7 @@ static const SSEFunc_0_epp sse_op_table1[256][4] = {
     [0xed] = MMX_OP2(paddsw),
     [0xee] = MMX_OP2(pmaxsw),
     [0xef] = MMX_OP2(pxor),
-    [0xf0] = { NULL, NULL, NULL, SSE_SPECIAL }, /* lddqu */
+    [0xf0] = { NULL, NULL, NULL, (SSEFunc_0_epp)SSE_SPECIAL }, /* lddqu */
     [0xf1] = MMX_OP2(psllw),
     [0xf2] = MMX_OP2(pslld),
     [0xf3] = MMX_OP2(psllq),
@@ -10371,7 +10440,7 @@ struct SSEOpHelper_epp {
 
 #define SSE42_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, CPUID_EXT_SSE42 }
 
-#define SSE41_SPECIAL { { NULL, SSE_SPECIAL }, CPUID_EXT_SSE41 }
+#define SSE41_SPECIAL { { NULL, (SSEFunc_0_epp)SSE_SPECIAL }, CPUID_EXT_SSE41 }
 
 #define PCLMULQDQ_OP(x) { { NULL, gen_helper_ ## x ## _xmm }, \
         CPUID_EXT_PCLMULQDQ }
@@ -10436,6 +10505,8 @@ static const struct SSEOpHelper_epp sse_op_table6[256] = {
     [0xde] = AESNI_OP(aesdec),
     [0xdf] = AESNI_OP(aesdeclast),
 };
+
+#define SSE41_SPECIAL { { NULL, (SSEFunc_0_eppi)SSE_SPECIAL }, CPUID_EXT_SSE41 }
 
 static const struct SSEOpHelper_eppi sse_op_table7[256] = {
     [0x08] = SSE41_OP(roundps),
@@ -11911,7 +11982,7 @@ static void gen_sse(CPUX86State *env, DisasContext *s, int b,
 
 static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
 {
-    CPUX86State *env = cpu->env_ptr;
+    CPUX86State *env = (CPUX86State *)cpu->env_ptr;
     int b, prefixes;
     int shift;
     MemOp ot, aflag, dflag;
@@ -12487,11 +12558,19 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(s->T0, s->T0);
             }
             next_eip = s->pc - s->cs_base;
+#if 0
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(s->T1, next_eip);
+#else
+            tcg_gen_movi_tl(s->T1, JOVE_RETADDR_COOKIE);
+#endif
             gen_push_v(s, s->T1);
             gen_op_jmp_v(s->T0);
             gen_bnd_jmp(s);
             gen_jr(s, s->T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 3: /* lcall Ev */
             gen_op_ld_v(s, ot, s->T1, s->A0);
@@ -12511,6 +12590,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(s->tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, s->tmp4);
+
+            next_eip = s->pc - s->cs_base;
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_CALL;
+            s->base.tb->jove.T._indirect_call.NextPC = next_eip;
             break;
         case 4: /* jmp Ev */
             if (dflag == MO_16) {
@@ -12519,6 +12602,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_op_jmp_v(s->T0);
             gen_bnd_jmp(s);
             gen_jr(s, s->T0);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 5: /* ljmp Ev */
             gen_op_ld_v(s, ot, s->T1, s->A0);
@@ -12535,6 +12620,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             }
             tcg_gen_ld_tl(s->tmp4, cpu_env, offsetof(CPUX86State, eip));
             gen_jr(s, s->tmp4);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::INDIRECT_JUMP;
             break;
         case 6: /* push Ev */
             gen_push_v(s, s->T0);
@@ -13938,6 +14025,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
         gen_jr(s, s->T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xc3: /* ret */
         ot = gen_pop_T0(s);
@@ -13946,6 +14035,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_op_jmp_v(s->T0);
         gen_bnd_jmp(s);
         gen_jr(s, s->T0);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xca: /* lret im */
         val = x86_ldsw_code(env, s);
@@ -13970,6 +14061,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_stack_update(s, val + (2 << dflag));
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xcb: /* lret */
         val = 0;
@@ -13993,6 +14086,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             set_cc_op(s, CC_OP_EFLAGS);
         }
         gen_eob(s);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::RETURN;
         break;
     case 0xe8: /* call im */
         {
@@ -14008,10 +14103,19 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             } else if (!CODE64(s)) {
                 tval &= 0xffffffff;
             }
+#if 0
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(s->T0, next_eip);
+#else
+            tcg_gen_movi_tl(s->T0, JOVE_RETADDR_COOKIE);
+#endif
             gen_push_v(s, s->T0);
             gen_bnd_jmp(s);
             gen_jmp(s, tval);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+            s->base.tb->jove.T._call.Target = tval;
+            s->base.tb->jove.T._call.NextPC = next_eip;
         }
         break;
     case 0x9a: /* lcall im */
@@ -14042,6 +14146,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0xea: /* ljmp im */
         {
@@ -14064,6 +14171,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             tval &= 0xffff;
         }
         gen_jmp(s, tval);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+        s->base.tb->jove.T._unconditional_jump.Target = tval;
         break;
     case 0x70 ... 0x7f: /* jcc Jb */
         tval = (int8_t)insn_get(env, s, MO_8);
@@ -14082,6 +14192,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
         gen_bnd_jmp(s);
         gen_jcc(s, b, tval, next_eip);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+        s->base.tb->jove.T._conditional_jump.Target = tval;
+        s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         break;
 
     case 0x190 ... 0x19f: /* setcc Gv */
@@ -14167,6 +14281,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             /* abort translation because TF/AC flag may change */
             gen_jmp_im(s, s->pc - s->cs_base);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9e: /* sahf */
@@ -14460,6 +14576,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(s, pc_start - s->cs_base);
             gen_helper_pause(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         }
         break;
     case 0x9b: /* fwait */
@@ -14472,6 +14590,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         break;
     case 0xcc: /* int3 */
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xcd: /* int N */
         val = x86_ldub_code(env, s);
@@ -14480,6 +14600,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         } else {
             gen_interrupt(s, val, pc_start - s->cs_base, s->pc - s->cs_base);
         }
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0xce: /* into */
         if (CODE64(s))
@@ -14603,6 +14725,10 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_jmp_im(s, tval);
             gen_set_label(l2);
             gen_eob(s);
+
+            s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;
+            s->base.tb->jove.T._conditional_jump.Target = tval;
+            s->base.tb->jove.T._conditional_jump.NextPC = next_eip;
         }
         break;
     case 0x130: /* wrmsr */
@@ -14667,6 +14793,8 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
            after the syscall insn completes. This allows #DB to not be
            generated after one has entered CPL0 if TF is set in FMASK.  */
         gen_eob_worker(s, false, true);
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
         break;
     case 0x107: /* sysret */
         if (!s->pe) {
@@ -14699,6 +14827,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_helper_hlt(cpu_env, tcg_const_i32(s->pc - pc_start));
             s->base.is_jmp = DISAS_NORETURN;
         }
+        s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
         break;
     case 0x100:
         modrm = x86_ldub_code(env, s);
@@ -15880,7 +16009,7 @@ void tcg_x86_init(void)
 static void i386_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cpu)
 {
     DisasContext *dc = container_of(dcbase, DisasContext, base);
-    CPUX86State *env = cpu->env_ptr;
+    CPUX86State *env = (CPUX86State *)cpu->env_ptr;
     uint32_t flags = dc->base.tb->flags;
     target_ulong cs_base = dc->base.tb->cs_base;
 
@@ -16162,7 +16291,7 @@ static __attribute__((unused)) inline void tcg_patch64(tcg_insn_unit *p,
 static void tcg_out_reloc(TCGContext *s, tcg_insn_unit *code_ptr, int type,
                           TCGLabel *l, intptr_t addend)
 {
-    TCGRelocation *r = tcg_malloc(sizeof(TCGRelocation));
+    TCGRelocation *r = (TCGRelocation *)tcg_malloc(sizeof(TCGRelocation));
 
     r->type = type;
     r->ptr = code_ptr;
@@ -16180,7 +16309,7 @@ static void tcg_out_label(TCGContext *s, TCGLabel *l, tcg_insn_unit *ptr)
 TCGLabel *gen_new_label(void)
 {
     TCGContext *s = tcg_ctx;
-    TCGLabel *l = tcg_malloc(sizeof(TCGLabel));
+    TCGLabel *l = (TCGLabel *)tcg_malloc(sizeof(TCGLabel));
 
     memset(l, 0, sizeof(TCGLabel));
     l->id = s->nb_labels++;
@@ -16433,8 +16562,14 @@ static const TCGTargetOpDef tcg_target_op_defs[] = {
 #endif
 
     { INDEX_op_mb, { } },
-    { -1 },
+    { (TCGOpcode)-1 },
 };
+
+#undef R
+#undef RI
+#undef R64
+#undef L
+#undef S
 
 static const TCGTargetOpDef *tcg_target_op_def(TCGOpcode op)
 {
@@ -17010,7 +17145,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
     if (p < region.start_aligned) {
         region_idx = 0;
     } else {
-        ptrdiff_t offset = p - region.start_aligned;
+        ptrdiff_t offset = (char *)p - (char *)region.start_aligned;
 
         if (offset > region.stride * (region.n - 1)) {
             region_idx = region.n - 1;
@@ -17018,7 +17153,7 @@ static struct tcg_region_tree *tc_ptr_to_region_tree(void *p)
             region_idx = offset / region.stride;
         }
     }
-    return region_trees + region_idx * tree_size;
+    return (struct tcg_region_tree *)((uint8_t *)region_trees + region_idx * tree_size);
 }
 
 void tcg_tb_insert(TranslationBlock *tb)
@@ -17035,7 +17170,7 @@ static void tcg_region_tree_lock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((uint8_t *)region_trees + i * tree_size);
 
         qemu_mutex_lock(&rt->lock);
     }
@@ -17046,7 +17181,7 @@ static void tcg_region_tree_unlock_all(void)
     size_t i;
 
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((uint8_t *)region_trees + i * tree_size);
 
         qemu_mutex_unlock(&rt->lock);
     }
@@ -17058,7 +17193,7 @@ void tcg_tb_foreach(GTraverseFunc func, gpointer user_data)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((uint8_t *)region_trees + i * tree_size);
 
         g_tree_foreach(rt->tree, func, user_data);
     }
@@ -17072,7 +17207,7 @@ size_t tcg_nb_tbs(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((uint8_t *)region_trees + i * tree_size);
 
         nb_tbs += g_tree_nnodes(rt->tree);
     }
@@ -17086,7 +17221,7 @@ static void tcg_region_tree_reset_all(void)
 
     tcg_region_tree_lock_all();
     for (i = 0; i < region.n; i++) {
-        struct tcg_region_tree *rt = region_trees + i * tree_size;
+        struct tcg_region_tree *rt = (struct tcg_region_tree *)((uint8_t *)region_trees + i * tree_size);
 
         /* Increment the refcount first so that destroy acts as a reset */
         g_tree_ref(rt->tree);
@@ -17099,8 +17234,8 @@ static void tcg_region_bounds(size_t curr_region, void **pstart, void **pend)
 {
     void *start, *end;
 
-    start = region.start_aligned + curr_region * region.stride;
-    end = start + region.size;
+    start = (uint8_t *)region.start_aligned + curr_region * region.stride;
+    end = (uint8_t *)start + region.size;
 
     if (curr_region == 0) {
         start = region.start;
@@ -17121,8 +17256,8 @@ static void tcg_region_assign(TCGContext *s, size_t curr_region)
 
     s->code_gen_buffer = start;
     s->code_gen_ptr = start;
-    s->code_gen_buffer_size = end - start;
-    s->code_gen_highwater = end - TCG_HIGHWATER;
+    s->code_gen_buffer_size = (uint8_t *)end - (uint8_t *)start;
+    s->code_gen_highwater = (uint8_t *)end - TCG_HIGHWATER;
 }
 
 static bool tcg_region_alloc__locked(TCGContext *s)
@@ -17196,7 +17331,7 @@ size_t tcg_code_size(void)
         const TCGContext *s = atomic_read(&tcg_ctxs[i]);
         size_t size;
 
-        size = atomic_read(&s->code_gen_ptr) - s->code_gen_buffer;
+        size = (uint8_t *)atomic_read(&s->code_gen_ptr) - (uint8_t *)s->code_gen_buffer;
         g_assert(size <= s->code_gen_buffer_size);
         total += size;
     }
@@ -17211,7 +17346,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
     
     if (size > TCG_POOL_CHUNK_SIZE) {
         /* big malloc: insert a new pool (XXX: could optimize) */
-        p = g_malloc(sizeof(TCGPool) + size);
+        p = (TCGPool *)g_malloc(sizeof(TCGPool) + size);
         p->size = size;
         p->next = s->pool_first_large;
         s->pool_first_large = p;
@@ -17226,7 +17361,7 @@ void *tcg_malloc_internal(TCGContext *s, int size)
             if (!p->next) {
             new_pool:
                 pool_size = TCG_POOL_CHUNK_SIZE;
-                p = g_malloc(sizeof(TCGPool) + pool_size);
+                p = (TCGPool *)g_malloc(sizeof(TCGPool) + pool_size);
                 p->size = pool_size;
                 p->next = NULL;
                 if (s->pool_current) 
@@ -17430,42 +17565,42 @@ static const TCGHelperInfo all_helpers[] = {
 #define str(s) #s
 
 #define DEF_HELPER_FLAGS_0(NAME, FLAGS, ret) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) },
 
 #define DEF_HELPER_FLAGS_1(NAME, FLAGS, ret, t1) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) },
 
 #define DEF_HELPER_FLAGS_2(NAME, FLAGS, ret, t1, t2) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) },
 
 #define DEF_HELPER_FLAGS_3(NAME, FLAGS, ret, t1, t2, t3) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) },
 
 #define DEF_HELPER_FLAGS_4(NAME, FLAGS, ret, t1, t2, t3, t4) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) },
 
 #define DEF_HELPER_FLAGS_5(NAME, FLAGS, ret, t1, t2, t3, t4, t5) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
     | dh_sizemask(t5, 5) },
 
 #define DEF_HELPER_FLAGS_6(NAME, FLAGS, ret, t1, t2, t3, t4, t5, t6) \
-  { .func = HELPER(NAME), .name = str(NAME), \
+  { .func = (void *)HELPER(NAME), .name = str(NAME), \
     .flags = FLAGS | dh_callflag(ret), \
     .sizemask = dh_sizemask(ret, 0) | dh_sizemask(t1, 1) \
     | dh_sizemask(t2, 2) | dh_sizemask(t3, 3) | dh_sizemask(t4, 4) \
@@ -18774,8 +18909,8 @@ void tcg_context_init(TCGContext *s)
         total_args += n;
     }
 
-    args_ct = g_malloc(sizeof(TCGArgConstraint) * total_args);
-    sorted_args = g_malloc(sizeof(int) * total_args);
+    args_ct = (TCGArgConstraint *)g_malloc(sizeof(TCGArgConstraint) * total_args);
+    sorted_args = (int *)g_malloc(sizeof(int) * total_args);
 
     for(op = 0; op < NB_OPS; op++) {
         def = &tcg_op_defs[op];
@@ -18843,7 +18978,7 @@ TranslationBlock *tcg_tb_alloc(TCGContext *s)
     void *next;
 
  retry:
-    tb = (void *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
+    tb = (TranslationBlock *)ROUND_UP((uintptr_t)s->code_gen_ptr, align);
     next = (void *)ROUND_UP((uintptr_t)(tb + 1), align);
 
     if (unlikely(next > s->code_gen_highwater)) {
@@ -18882,7 +19017,7 @@ static inline TCGTemp *tcg_temp_alloc(TCGContext *s)
 {
     int n = s->nb_temps++;
     tcg_debug_assert(n < TCG_MAX_TEMPS);
-    return memset(&s->temps[n], 0, sizeof(TCGTemp));
+    return (TCGTemp *)memset(&s->temps[n], 0, sizeof(TCGTemp));
 }
 
 static inline TCGTemp *tcg_global_alloc(TCGContext *s)
@@ -19352,7 +19487,7 @@ void tcg_gen_callN(void *func, TCGTemp *ret, int nargs, TCGTemp **args)
     TCGHelperInfo *info;
     TCGOp *op;
 
-    info = g_hash_table_lookup(helper_table, (gpointer)func);
+    info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)func);
     flags = info->flags;
     sizemask = info->sizemask;
 
@@ -19565,7 +19700,7 @@ static inline const char *tcg_find_helper(TCGContext *s, uintptr_t val)
 {
     const char *ret = NULL;
     if (helper_table) {
-        TCGHelperInfo *info = g_hash_table_lookup(helper_table, (gpointer)val);
+        TCGHelperInfo *info = (TCGHelperInfo *)g_hash_table_lookup(helper_table, (gpointer)val);
         if (info) {
             ret = info->name;
         }
@@ -19876,7 +20011,7 @@ static void process_op_defs(TCGContext *s)
 {
     TCGOpcode op;
 
-    for (op = 0; op < NB_OPS; op++) {
+    for (op = (TCGOpcode)0; op < NB_OPS; op = (TCGOpcode)(op + 1)) {
         TCGOpDef *def = &tcg_op_defs[op];
         const TCGTargetOpDef *tdefs;
         TCGType type;
@@ -19984,7 +20119,7 @@ static TCGOp *tcg_op_alloc(TCGOpcode opc)
     TCGOp *op;
 
     if (likely(QTAILQ_EMPTY(&s->free_ops))) {
-        op = tcg_malloc(sizeof(TCGOp));
+        op = (TCGOp *)tcg_malloc(sizeof(TCGOp));
     } else {
         op = QTAILQ_FIRST(&s->free_ops);
         QTAILQ_REMOVE(&s->free_ops, op, link);
@@ -20101,7 +20236,7 @@ static void reachable_code_pass(TCGContext *s)
 
 static inline TCGRegSet *la_temp_pref(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (TCGRegSet *)ts->state_ptr;
 }
 
 static inline void la_reset_pref(TCGTemp *ts)
@@ -20193,7 +20328,7 @@ static void liveness_pass_1(TCGContext *s)
     TCGRegSet *prefs;
     int i;
 
-    prefs = tcg_malloc(sizeof(TCGRegSet) * nb_temps);
+    prefs = (TCGRegSet *)tcg_malloc(sizeof(TCGRegSet) * nb_temps);
     for (i = 0; i < nb_temps; ++i) {
         s->temps[i].state_ptr = prefs + i;
     }
@@ -20553,7 +20688,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts && arg_ts->state == TS_DEAD) {
                     TCGOpcode lopc = (arg_ts->type == TCG_TYPE_I32
                                       ? INDEX_op_ld_i32
@@ -20576,7 +20711,7 @@ static bool liveness_pass_2(TCGContext *s)
         for (i = nb_oargs; i < nb_iargs + nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
             if (arg_ts) {
-                dir_ts = arg_ts->state_ptr;
+                dir_ts = (TCGTemp *)arg_ts->state_ptr;
                 if (dir_ts) {
                     op->args[i] = temp_arg(dir_ts);
                     changes = true;
@@ -20612,7 +20747,7 @@ static bool liveness_pass_2(TCGContext *s)
         /* Outputs become available.  */
         for (i = 0; i < nb_oargs; i++) {
             arg_ts = arg_temp(op->args[i]);
-            dir_ts = arg_ts->state_ptr;
+            dir_ts = (TCGTemp *)arg_ts->state_ptr;
             if (!dir_ts) {
                 continue;
             }
@@ -21534,8 +21669,8 @@ int tcg_gen_code(TCGContext *s, TranslationBlock *tb)
 
     tcg_reg_alloc_start(s);
 
-    s->code_buf = tb->tc.ptr;
-    s->code_ptr = tb->tc.ptr;
+    s->code_buf = (tcg_insn_unit *)tb->tc.ptr;
+    s->code_ptr = (tcg_insn_unit *)tb->tc.ptr;
 
 #ifdef TCG_TARGET_NEED_LDST_LABELS
     QSIMPLEQ_INIT(&s->ldst_labels);
@@ -23868,13 +24003,13 @@ typedef void (*gen_atomic_op_i32)(TCGv_i32, TCGv_env, TCGv, TCGv_i32);
 typedef void (*gen_atomic_op_i64)(TCGv_i64, TCGv_env, TCGv, TCGv_i64);
 
 static void * const table_cmpxchg[16] = {
-    [MO_8] = gen_helper_atomic_cmpxchgb,
-    [MO_16 | MO_LE] = gen_helper_atomic_cmpxchgw_le,
-    [MO_16 | MO_BE] = gen_helper_atomic_cmpxchgw_be,
-    [MO_32 | MO_LE] = gen_helper_atomic_cmpxchgl_le,
-    [MO_32 | MO_BE] = gen_helper_atomic_cmpxchgl_be,
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_cmpxchgq_le)
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_cmpxchgq_be)
+    [MO_8] = (void *)gen_helper_atomic_cmpxchgb,
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_cmpxchgw_le,
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_cmpxchgw_be,
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_cmpxchgl_le,
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_cmpxchgl_be,
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_cmpxchgq_le)
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_cmpxchgq_be)
 };
 
 void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
@@ -23902,7 +24037,7 @@ void tcg_gen_atomic_cmpxchg_i32(TCGv_i32 retv, TCGv addr, TCGv_i32 cmpv,
     } else {
         gen_atomic_cx_i32 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i32)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -23947,7 +24082,7 @@ void tcg_gen_atomic_cmpxchg_i64(TCGv_i64 retv, TCGv addr, TCGv_i64 cmpv,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_cx_i64 gen;
 
-        gen = table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_cx_i64)table_cmpxchg[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -24010,7 +24145,7 @@ static void do_atomic_op_i32(TCGv_i32 ret, TCGv addr, TCGv_i32 val,
 
     memop = tcg_canonicalize_memop(memop, 0, 0);
 
-    gen = table[memop & (MO_SIZE | MO_BSWAP)];
+    gen = (gen_atomic_op_i32)table[memop & (MO_SIZE | MO_BSWAP)];
     tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -24048,13 +24183,13 @@ static void do_nonatomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 
 #define GEN_ATOMIC_HELPER(NAME, OP, NEW)                                \
 static void * const table_##NAME[16] = {                                \
-    [MO_8] = gen_helper_atomic_##NAME##b,                               \
-    [MO_16 | MO_LE] = gen_helper_atomic_##NAME##w_le,                   \
-    [MO_16 | MO_BE] = gen_helper_atomic_##NAME##w_be,                   \
-    [MO_32 | MO_LE] = gen_helper_atomic_##NAME##l_le,                   \
-    [MO_32 | MO_BE] = gen_helper_atomic_##NAME##l_be,                   \
-    WITH_ATOMIC64([MO_64 | MO_LE] = gen_helper_atomic_##NAME##q_le)     \
-    WITH_ATOMIC64([MO_64 | MO_BE] = gen_helper_atomic_##NAME##q_be)     \
+    [MO_8] = (void *)gen_helper_atomic_##NAME##b,                               \
+    [MO_16 | MO_LE] = (void *)gen_helper_atomic_##NAME##w_le,                   \
+    [MO_16 | MO_BE] = (void *)gen_helper_atomic_##NAME##w_be,                   \
+    [MO_32 | MO_LE] = (void *)gen_helper_atomic_##NAME##l_le,                   \
+    [MO_32 | MO_BE] = (void *)gen_helper_atomic_##NAME##l_be,                   \
+    WITH_ATOMIC64([MO_64 | MO_LE] = (void *)gen_helper_atomic_##NAME##q_le)     \
+    WITH_ATOMIC64([MO_64 | MO_BE] = (void *)gen_helper_atomic_##NAME##q_be)     \
 };                                                                      \
 void tcg_gen_atomic_##NAME##_i32                                        \
     (TCGv_i32 ret, TCGv addr, TCGv_i32 val, TCGArg idx, MemOp memop)    \
@@ -24086,7 +24221,7 @@ static void do_atomic_op_i64(TCGv_i64 ret, TCGv addr, TCGv_i64 val,
 #ifdef CONFIG_ATOMIC64
         gen_atomic_op_i64 gen;
 
-        gen = table[memop & (MO_SIZE | MO_BSWAP)];
+        gen = (gen_atomic_op_i64)table[memop & (MO_SIZE | MO_BSWAP)];
         tcg_debug_assert(gen != NULL);
 
 #ifdef CONFIG_SOFTMMU
@@ -24168,7 +24303,7 @@ struct tcg_temp_info {
 
 static inline struct tcg_temp_info *ts_info(TCGTemp *ts)
 {
-    return ts->state_ptr;
+    return (struct tcg_temp_info *)ts->state_ptr;
 }
 
 static inline struct tcg_temp_info *arg_info(TCGArg arg)
@@ -24726,7 +24861,7 @@ void tcg_optimize(TCGContext *s)
     nb_temps = s->nb_temps;
     nb_globals = s->nb_globals;
     bitmap_zero(temps_used.l, nb_temps);
-    infos = tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
+    infos = (struct tcg_temp_info *)tcg_malloc(sizeof(struct tcg_temp_info) * nb_temps);
 
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
         tcg_target_ulong mask, partmask, affected;
@@ -26084,7 +26219,7 @@ static uint8_t *encode_sleb128(uint8_t *p, target_long val)
 
 static int encode_search(TranslationBlock *tb, uint8_t *block)
 {
-    uint8_t *highwater = tcg_ctx->code_gen_highwater;
+    uint8_t *highwater = (uint8_t *)tcg_ctx->code_gen_highwater;
     uint8_t *p = block;
     int i, j, n;
 
@@ -26125,7 +26260,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
 
     /* Level 2..N-1.  */
     for (i = v_l2_levels; i > 0; i--) {
-        void **p = atomic_rcu_read(lp);
+        void **p = (void **)atomic_rcu_read(lp);
 
         if (p == NULL) {
             void *existing;
@@ -26137,14 +26272,14 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
             existing = atomic_cmpxchg(lp, NULL, p);
             if (unlikely(existing)) {
                 g_free(p);
-                p = existing;
+                p = (void **)existing;
             }
         }
 
         lp = p + ((index >> (i * V_L2_BITS)) & (V_L2_SIZE - 1));
     }
 
-    pd = atomic_rcu_read(lp);
+    pd = (PageDesc *)atomic_rcu_read(lp);
     if (pd == NULL) {
         void *existing;
 
@@ -26164,7 +26299,7 @@ static PageDesc *page_find_alloc(tb_page_addr_t index, int alloc)
         existing = atomic_cmpxchg(lp, NULL, pd);
         if (unlikely(existing)) {
             g_free(pd);
-            pd = existing;
+            pd = (PageDesc *)existing;
         }
     }
 
@@ -26242,7 +26377,7 @@ static void page_flush_tb_1(int level, void **lp)
         return;
     }
     if (level == 0) {
-        PageDesc *pd = *lp;
+        PageDesc *pd = (PageDesc *)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_lock(&pd[i]);
@@ -26251,7 +26386,7 @@ static void page_flush_tb_1(int level, void **lp)
             page_unlock(&pd[i]);
         }
     } else {
-        void **pp = *lp;
+        void **pp = (void **)*lp;
 
         for (i = 0; i < V_L2_SIZE; ++i) {
             page_flush_tb_1(level - 1, pp + i);
@@ -26270,8 +26405,8 @@ static void page_flush_tb(void)
 
 static gboolean tb_host_size_iter(gpointer key, gpointer value, gpointer data)
 {
-    const TranslationBlock *tb = value;
-    size_t *size = data;
+    const TranslationBlock *tb = (const TranslationBlock *)value;
+    size_t *size = (size_t *)data;
 
     *size += tb->tc.size;
     return false;
@@ -26334,7 +26469,7 @@ void tb_flush(CPUState *cpu)
 
 static void do_tb_page_check(void *p, uint32_t hash, void *userp)
 {
-    TranslationBlock *tb = p;
+    TranslationBlock *tb = (TranslationBlock *)p;
     int flags1, flags2;
 
     flags1 = page_get_flags(tb->pc);
@@ -26370,7 +26505,7 @@ static inline void tb_page_remove(PageDesc *pd, TranslationBlock *tb)
 
 static inline void tb_reset_jump(TranslationBlock *tb, int n)
 {
-    uintptr_t addr = (uintptr_t)(tb->tc.ptr + tb->jmp_reset_offset[n]);
+    uintptr_t addr = (uintptr_t)((uint8_t *)tb->tc.ptr + tb->jmp_reset_offset[n]);
     tb_set_jmp_target(tb, n, addr);
 }
 
@@ -26480,7 +26615,7 @@ tb_link_page(TranslationBlock *tb, tb_page_addr_t phys_pc,
                 tb_page_remove(p2, tb);
                 invalidate_page_bitmap(p2);
             }
-            tb = existing_tb;
+            tb = (TranslationBlock *)existing_tb;
         }
     }
 
@@ -26501,7 +26636,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                               target_ulong pc, target_ulong cs_base,
                               uint32_t flags, int cflags)
 {
-    CPUArchState *env = cpu->env_ptr;
+    CPUArchState *env = (CPUArchState *)cpu->env_ptr;
     TranslationBlock *tb, *existing_tb;
     tb_page_addr_t phys_pc, phys_page2;
     target_ulong virt_page2;
@@ -26547,7 +26682,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         cpu_loop_exit(cpu);
     }
 
-    gen_code_buf = tcg_ctx->code_gen_ptr;
+    gen_code_buf = (tcg_insn_unit *)tcg_ctx->code_gen_ptr;
     tb->tc.ptr = gen_code_buf;
     tb->pc = pc;
     tb->cs_base = cs_base;
@@ -26570,7 +26705,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
     gen_intermediate_code(cpu, tb, max_insns);
     tcg_ctx->cpu = NULL;
 
-    trace_translate_block(tb, tb->pc, tb->tc.ptr);
+    trace_translate_block(tb, tb->pc, (uint8_t *)tb->tc.ptr);
 
     /* generate machine code */
     tb->jmp_reset_offset[0] = TB_JMP_RESET_OFFSET_INVALID;
@@ -26624,7 +26759,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
             g_assert_not_reached();
         }
     }
-    search_size = encode_search(tb, (void *)gen_code_buf + gen_code_size);
+    search_size = encode_search((TranslationBlock *)tb, (uint8_t *)gen_code_buf + gen_code_size);
     if (unlikely(search_size < 0)) {
         goto buffer_overflow;
     }
@@ -26643,7 +26778,7 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
         qemu_log_lock();
         qemu_log("OUT: [size=%d]\n", gen_code_size);
         if (tcg_ctx->data_gen_ptr) {
-            size_t code_size = tcg_ctx->data_gen_ptr - tb->tc.ptr;
+            size_t code_size = (uint8_t *)tcg_ctx->data_gen_ptr - (uint8_t *)tb->tc.ptr;
             size_t data_size = gen_code_size - code_size;
             size_t i;
 
@@ -26653,11 +26788,11 @@ TranslationBlock *tb_gen_code(CPUState *cpu,
                 if (sizeof(tcg_target_ulong) == 8) {
                     qemu_log("0x%08" PRIxPTR ":  .quad  0x%016" PRIx64 "\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint64_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint64_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 } else {
                     qemu_log("0x%08" PRIxPTR ":  .long  0x%08x\n",
                              (uintptr_t)tcg_ctx->data_gen_ptr + i,
-                             *(uint32_t *)(tcg_ctx->data_gen_ptr + i));
+                             *(uint32_t *)((uint8_t *)tcg_ctx->data_gen_ptr + i));
                 }
             }
         } else {
@@ -26822,6 +26957,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
         /* Stop translation if translate_insn so indicated.  */
         if (db->is_jmp != DISAS_NEXT) {
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
 
@@ -26837,8 +26974,21 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= db->max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN)
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
             break;
         }
+
+        if (__jove_end_pc) {
+            if (db->pc_next >= __jove_end_pc) {
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Addr = 0; /* XXX */
+                tb->jove.T._none.NextPC = __jove_end_pc;
+                break;
+            }
+        }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
