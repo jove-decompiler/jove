@@ -563,7 +563,7 @@ static FloatParts parts_default_nan(float_status *status)
 static FloatParts parts_silence_nan(FloatParts a, float_status *status)
 {
 #ifdef NO_SIGNALING_NANS
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 #elif defined(TARGET_HPPA)
     a.frac &= ~(1ULL << (DECOMPOSED_BINARY_POINT - 1));
     a.frac |= 1ULL << (DECOMPOSED_BINARY_POINT - 2);
@@ -746,7 +746,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             inc = frac & frac_lsb ? 0 : round_mask;
             break;
         default:
-            g_assert_not_reached();
+            __builtin_trap();__builtin_unreachable();
         }
 
         exp += parm->exp_bias;
@@ -838,7 +838,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
         break;
 
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     float_raise(flags, s);
@@ -957,7 +957,7 @@ static FloatParts addsub_floats(FloatParts a, FloatParts b, bool subtract,
             return b;
         }
     }
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 }
 
 static float64 QEMU_SOFTFLOAT_ATTR
@@ -1042,7 +1042,7 @@ static FloatParts mul_floats(FloatParts a, FloatParts b, float_status *s)
         b.sign = sign;
         return b;
     }
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 }
 
 static float64 QEMU_SOFTFLOAT_ATTR
