@@ -457,7 +457,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
         roundIncrement = zSign ? roundMask : 0;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     roundBits = zSig0 & roundMask;
     if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
@@ -526,7 +526,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
         increment = zSign && zSig1;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
         if (    ( 0x7FFE < zExp )
@@ -578,7 +578,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
                 increment = zSign && zSig1;
                 break;
             default:
-                abort();
+                __builtin_trap();__builtin_unreachable();
             }
             if ( increment ) {
                 ++zSig0;

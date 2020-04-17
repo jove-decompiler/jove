@@ -122,7 +122,7 @@ static int32_t roundAndPackInt32(flag zSign, uint64_t absZ, float_status *status
         roundIncrement = absZ & 0x80 ? 0 : 0x7f;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     roundBits = absZ & 0x7F;
     absZ = ( absZ + roundIncrement )>>7;

@@ -364,7 +364,7 @@ static float32 roundAndPackFloat32(flag zSign, int zExp, uint32_t zSig,
         roundIncrement = zSig & 0x80 ? 0 : 0x7f;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
         break;
     }
     roundBits = zSig & 0x7F;
