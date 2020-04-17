@@ -269,6 +269,8 @@ struct tiny_code_generator_t {
     tb.flags = _cpu.env.hflags;
 #elif defined(__aarch64__)
     tb.flags = R_TBFLAG_ANY_AARCH64_STATE_MASK;
+#else
+#error
 #endif
 
     tb.jove.T.Addr = pc;
@@ -276,11 +278,7 @@ struct tiny_code_generator_t {
 
     __jove_end_pc = pc_end;
 
-#if defined(__aarch64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
     gen_intermediate_code(&_cpu.parent_obj, &tb, /* max_insn */ 1000000);
-#else
-    gen_intermediate_code(&_cpu.parent_obj, &tb);
-#endif
 
     if (do_tcg_optimization)
       tcg_optimize(&_ctx);
@@ -311,11 +309,7 @@ struct tiny_code_generator_t {
   }
 
   void dump_operations(void) {
-#if defined(__aarch64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
     tcg_dump_ops(&_ctx, false);
-#else
-    tcg_dump_ops(&_ctx);
-#endif
   }
 };
 
