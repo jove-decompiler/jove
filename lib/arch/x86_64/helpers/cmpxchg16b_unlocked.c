@@ -1186,7 +1186,10 @@ static inline CPUState *env_cpu(CPUArchState *env)
 }
 
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+                                      uintptr_t retaddr) {
+    __builtin_trap();
+    __builtin_unreachable();
+}
 
 uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
 
