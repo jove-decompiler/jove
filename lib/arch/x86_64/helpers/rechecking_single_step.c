@@ -534,6 +534,8 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
+#if 0
+
 void QEMU_NORETURN raise_exception(CPUX86State *env, int exception_index);
 
 void helper_single_step(CPUX86State *env)
@@ -545,10 +547,15 @@ void helper_single_step(CPUX86State *env)
     raise_exception(env, EXCP01_DB);
 }
 
+#endif
+
+__attribute__((always_inline))
 void helper_rechecking_single_step(CPUX86State *env)
 {
+#if 0
     if ((env->eflags & TF_MASK) != 0) {
         helper_single_step(env);
     }
+#endif
 }
 
