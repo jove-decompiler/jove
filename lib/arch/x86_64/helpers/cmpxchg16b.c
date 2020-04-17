@@ -2959,7 +2959,7 @@ void helper_cmpxchg16b(CPUX86State *env, target_ulong a0)
     }
 }
 
-__thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 #define ATOMIC_MMU_DECLS do {} while (0)
 
