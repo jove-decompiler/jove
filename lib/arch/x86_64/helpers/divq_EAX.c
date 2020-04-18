@@ -607,8 +607,10 @@ static int div64(uint64_t *plow, uint64_t *phigh, uint64_t b)
     return 0;
 }
 
+__attribute__((always_inline))
 void helper_divq_EAX(CPUX86State *env, target_ulong t0)
 {
+#if 0
     uint64_t r0, r1;
 
     if (t0 == 0) {
@@ -621,5 +623,16 @@ void helper_divq_EAX(CPUX86State *env, target_ulong t0)
     }
     env->regs[R_EAX] = r0;
     env->regs[R_EDX] = r1;
-}
+#else
+  uint64_t low = env->regs[R_EAX];
+  uint64_t hig = env->regs[R_EDX];
 
+  __uint128_t x = ((__uint128_t)hig << 64) | low;
+
+  uint64_t q = x / t0;
+  uint64_t r = x % t0;
+
+  env->regs[R_EAX] = q;
+  env->regs[R_EDX] = r;
+#endif
+}
