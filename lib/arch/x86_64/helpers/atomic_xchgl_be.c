@@ -132,7 +132,7 @@ static inline uint32_t bswap32(uint32_t x)
     return bswap_32(x);
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define atomic_xchg__nocheck(ptr, i)    ({                  \
     __atomic_exchange_n(ptr, (i), __ATOMIC_SEQ_CST);        \

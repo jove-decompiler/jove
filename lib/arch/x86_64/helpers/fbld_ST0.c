@@ -105,7 +105,7 @@ static inline int clz64(uint64_t val)
     return val ? __builtin_clzll(val) : 64;
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
