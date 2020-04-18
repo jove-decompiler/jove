@@ -872,11 +872,12 @@ skip_dfsan:
 
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
+      };
 
 #if 1 /* __tls_get_addr... */
-          "--unresolved-symbols=ignore-all"
+      if (b.IsExecutable)
+        arg_vec.push_back("--unresolved-symbols=ignore-all");
 #endif
-      };
 
       if (fs::exists(mapfp) && fs::is_regular_file(mapfp) &&
           fs::file_size(mapfp) > 0) {
