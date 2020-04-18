@@ -83,6 +83,15 @@ static void checkHelper(const std::string &helper_nm) {
                            << " in helper module " << helper_nm << '\n';
       }
     }
+
+    for (llvm::GlobalVariable &GV : helperM.globals()) {
+      if (!GV.hasInitializer()) {
+        WithColor::error() << "undefined global variable " << GV.getName()
+                           << " in helper module " << helper_nm << '\n';
+
+        //syms.insert(GV.getName());
+      }
+    }
   }
 
   if (syms.empty())
