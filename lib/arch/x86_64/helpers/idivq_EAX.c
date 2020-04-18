@@ -655,8 +655,10 @@ static int idiv64(uint64_t *plow, uint64_t *phigh, int64_t b)
     return 0;
 }
 
+__attribute__((always_inline))
 void helper_idivq_EAX(CPUX86State *env, target_ulong t0)
 {
+#if 0
     uint64_t r0, r1;
 
     if (t0 == 0) {
@@ -669,5 +671,15 @@ void helper_idivq_EAX(CPUX86State *env, target_ulong t0)
     }
     env->regs[R_EAX] = r0;
     env->regs[R_EDX] = r1;
+#else
+    uint64_t low = env->regs[R_EAX];
+    uint64_t hig = env->regs[R_EDX];
+
+    __int128_t x = ((__int128_t)hig << 64) | low;
+    x /= t0;
+
+    env->regs[R_EAX] = (uint64_t)x;
+    env->regs[R_EDX] = (uint64_t)(x >> 64);
+#endif
 }
 
