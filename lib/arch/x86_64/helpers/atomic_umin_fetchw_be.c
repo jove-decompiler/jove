@@ -1428,5 +1428,6 @@ ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
     return RET;                                                     \
 }
 
+__attribute__((always_inline))
 GEN_ATOMIC_HELPER_FN(umin_fetch, MIN,  DATA_TYPE, new)
 

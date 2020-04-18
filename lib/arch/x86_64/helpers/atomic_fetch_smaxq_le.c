@@ -1421,5 +1421,6 @@ ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
     return RET;                                                     \
 }
 
+__attribute__((always_inline))
 GEN_ATOMIC_HELPER_FN(fetch_smax, MAX, SDATA_TYPE, old)
 

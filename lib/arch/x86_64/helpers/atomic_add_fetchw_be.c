@@ -1428,5 +1428,6 @@ ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
 
 #define ADD(X, Y)   (X + Y)
 
+__attribute__((always_inline))
 GEN_ATOMIC_HELPER_FN(add_fetch, ADD, DATA_TYPE, new)
 

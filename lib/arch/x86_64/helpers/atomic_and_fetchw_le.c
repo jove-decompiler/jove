@@ -1312,5 +1312,6 @@ ABI_TYPE ATOMIC_NAME(X)(CPUArchState *env, target_ulong addr,       \
     return ret;                                                     \
 }
 
+__attribute__((always_inline))
 GEN_ATOMIC_HELPER(and_fetch)
 
