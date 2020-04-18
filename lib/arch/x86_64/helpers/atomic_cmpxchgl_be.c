@@ -1342,6 +1342,7 @@ atomic_trace_rmw_post(CPUArchState *env, target_ulong addr, uint16_t info)
 
 # define MEND _be
 
+__attribute__((always_inline))
 ABI_TYPE ATOMIC_NAME(cmpxchg)(CPUArchState *env, target_ulong addr,
                               ABI_TYPE cmpv, ABI_TYPE newv EXTRA_ARGS)
 {
