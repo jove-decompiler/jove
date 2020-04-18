@@ -6,6 +6,7 @@
 
 #define HELPER(name) glue(helper_, name)
 
+__attribute__((always_inline))
 int64_t HELPER(div_i64)(int64_t arg1, int64_t arg2)
 {
     return arg1 / arg2;
