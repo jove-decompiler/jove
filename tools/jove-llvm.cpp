@@ -321,9 +321,14 @@ static cl::opt<bool> DumpPreOpt2("dump-pre-opt2",
                                  cl::cat(JoveCategory));
 
 static cl::opt<bool>
-    DumpAfterFSBaseFixup("dump-after-fsbase-fixup",
-                         cl::desc("Dump bitcode after fsbase fixup"),
-                         cl::cat(JoveCategory));
+    DumpPreFSBaseFixup("dump-pre-fsbase-fixup",
+                       cl::desc("Dump bitcode after fsbase fixup"),
+                       cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    DumpPostFSBaseFixup("dump-post-fsbase-fixup",
+                        cl::desc("Dump bitcode after fsbase fixup"),
+                        cl::cat(JoveCategory));
 
 static cl::opt<bool> DFSan("dfsan",
                            cl::desc("Instrument code with DataFlowSanitizer"),
@@ -702,12 +707,10 @@ static int CreateNoAliasMetadata(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
 static int PrepareToOptimize(void);
-static int Optimize1(void);
 static int FixupPCRelativeAddrs(void);
 static int FixupTPBaseAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
-static int Optimize2(void);
 static int ExpandMemoryIntrinsicCalls(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RecoverControlFlow(void);
@@ -717,6 +720,7 @@ static int WriteDecompilation(void);
 static int WriteVersionScript(void);
 static int WriteModule(void);
 
+static int DoOptimize(void);
 static void DumpModule(const char *);
 
 int llvm(void) {
@@ -744,14 +748,16 @@ int llvm(void) {
       || InlineCalls()
       || PrepareToOptimize()
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
-      || Optimize1()
+      || DoOptimize()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
       || (opts::NoFixupPcrel ? 0 : FixupPCRelativeAddrs())
+      || (opts::DumpPreFSBaseFixup ? (DumpModule("pre.fsbase.fixup"), 1) : 0)
       || FixupTPBaseAddrs()
+      || (opts::DumpPostFSBaseFixup ? (DumpModule("post.fsbase.fixup"), 1) : 0)
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
-      || Optimize2()
+      || DoOptimize()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
       || RecoverControlFlow()
@@ -765,6 +771,10 @@ int llvm(void) {
 }
 
 static void DumpModule(const char *suffix) {
+  //
+  // deliberately do not try and verify the module since it may be in an
+  // undefined state
+  //
   std::string s;
   {
     llvm::raw_string_ostream os(s);
@@ -780,6 +790,26 @@ static void DumpModule(const char *suffix) {
 
     std::ofstream ofs(dumpOutputPath.c_str());
     ofs << s;
+  }
+
+  {
+    fs::path dumpOutputPath =
+        fs::path(opts::Output).replace_extension(std::string(suffix) + ".bc");
+
+    WithColor::note() << llvm::formatv("dumping module to {0} ({1})\n",
+                                       dumpOutputPath.c_str(), suffix);
+
+    std::error_code EC;
+    llvm::ToolOutputFile Out(dumpOutputPath.c_str(), EC, llvm::sys::fs::F_None);
+    if (EC) {
+      WithColor::error() << EC.message() << '\n';
+      return;
+    }
+
+    llvm::WriteBitcodeToFile(*Module, Out.os());
+
+    // Declare success.
+    Out.keep();
   }
 }
 
@@ -6803,16 +6833,33 @@ static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
                                llvm::IRBuilderTy &);
 
 llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
+  assert(glb < tcg_num_globals);
+
   if (glb == tcg_env_index)
     return CPUStateGlobal;
 
-  assert(glb < tcg_num_globals);
-  assert(temp_idx(TCG->_ctx.temps[glb].mem_base) == tcg_env_index);
-
-  unsigned off = TCG->_ctx.temps[glb].mem_offset;
-
   unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
   llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+
+  struct TCGTemp *base_tmp = TCG->_ctx.temps[glb].mem_base;
+  if (!base_tmp || temp_idx(base_tmp) != tcg_env_index) {
+#if 1
+    // we don't know how to locate it.
+    return nullptr;
+#else
+    static int i = 0;
+
+    return llvm::ConstantExpr::getPointerCast(
+        new llvm::GlobalVariable(*Module, WordType(), false,
+                                 llvm::GlobalValue::ExternalLinkage, nullptr,
+                                 (fmt("CPUStateGlobalPointer_fail_%s_%i")
+                                  % TCG->_ctx.temps[glb].name
+                                  % i++).str()),
+        llvm::PointerType::get(GlbTy, 0));
+#endif
+  }
+
+  unsigned off = TCG->_ctx.temps[glb].mem_offset;
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
@@ -6958,7 +7005,16 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        llvm::Value *Val = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+        unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
+        llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+
+        llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+        llvm::Value *Val;
+        if (GlbPtr)
+          Val = IRB.CreateLoad(GlbPtr);
+        else
+          Val = llvm::Constant::getNullValue(GlbTy);
+
         llvm::Value *Ptr = f.GlobalAllocaVec[glb];
         IRB.CreateStore(Val, Ptr);
       }
@@ -7069,7 +7125,7 @@ static void ReloadGlobalVariables(void) {
   ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
 }
 
-static int DoOptimize(void) {
+int DoOptimize(void) {
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
     //llvm::errs() << *Module << '\n';
@@ -7126,45 +7182,6 @@ static int DoOptimize(void) {
   // becomes null.
   //
   ReloadGlobalVariables();
-
-  return 0;
-}
-
-int Optimize1(void) {
-  if (opts::NoOpt1)
-    return 0;
-
-  if (int ret = DoOptimize())
-    return ret;
-
-  if (opts::DumpPostOpt1) {
-#if 0
-    std::error_code EC;
-    llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
-    if (EC) {
-      WithColor::error() << EC.message() << '\n';
-      return 1;
-    }
-
-    llvm::WriteBitcodeToFile(*Module, Out.os());
-
-    // Declare success.
-    Out.keep();
-#else
-    std::string s;
-    {
-
-      llvm::raw_string_ostream os(s);
-      os << *Module << '\n';
-    }
-
-    {
-      std::ofstream ofs(opts::Output);
-      ofs << s;
-    }
-#endif
-    exit(0);
-  }
 
   return 0;
 }
@@ -7584,22 +7601,6 @@ int FixupTPBaseAddrs(void) {
     I->replaceAllUsesWith(V);
   }
 
-  if (opts::DumpAfterFSBaseFixup) {
-    std::string s;
-    {
-
-      llvm::raw_string_ostream os(s);
-      os << *Module << '\n';
-    }
-
-    {
-      std::ofstream ofs(opts::Output);
-      ofs << s;
-    }
-
-    exit(0);
-  }
-
   return 0;
 }
 
@@ -7630,16 +7631,6 @@ int InternalizeSections(void) {
     SectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
   if (ConstSectsGlobal)
     ConstSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-
-  return 0;
-}
-
-int Optimize2(void) {
-  if (opts::NoOpt2)
-    return 0;
-
-  if (int ret = DoOptimize())
-    return ret;
 
   return 0;
 }
