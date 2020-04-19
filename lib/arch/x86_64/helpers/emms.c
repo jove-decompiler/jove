@@ -526,6 +526,7 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
+__attribute__((always_inline))
 void helper_emms(CPUX86State *env)
 {
     /* set to empty state */
