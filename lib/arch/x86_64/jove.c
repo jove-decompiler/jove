@@ -556,7 +556,7 @@ typedef struct CPUX86State {
 
 #include <stddef.h>
 
-extern __thread struct CPUX86State __jove_env;
+extern /* __thread */ struct CPUX86State __jove_env;
 
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
