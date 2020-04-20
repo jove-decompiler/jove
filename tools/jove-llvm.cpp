@@ -7008,12 +7008,15 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
         unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
         llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
-        llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+        llvm::Constant *GlbPtr = nullptr;
+        if (glb == tcg_stack_pointer_index)
+          GlbPtr = CPUStateGlobalPointer(glb);
+
         llvm::Value *Val;
         if (GlbPtr)
           Val = IRB.CreateLoad(GlbPtr);
         else
-          Val = llvm::Constant::getNullValue(GlbTy);
+          Val = llvm::UndefValue::get(GlbTy); // llvm::Constant::getNullValue(GlbTy);
 
         llvm::Value *Ptr = f.GlobalAllocaVec[glb];
         IRB.CreateStore(Val, Ptr);
