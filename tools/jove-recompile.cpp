@@ -809,6 +809,9 @@ skip_dfsan:
         "--frame-pointer=all",
 
         "--disable-simplify-libcalls",
+#if 0
+        "--emulated-tls"
+#endif
       };
 
       arg_vec.push_back(nullptr);
