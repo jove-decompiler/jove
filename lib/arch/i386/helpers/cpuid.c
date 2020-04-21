@@ -565,8 +565,10 @@ void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
 
 extern uintptr_t tci_tb_ptr;
 
+__attribute__((always_inline))
 void helper_cpuid(CPUX86State *env)
 {
+#if 0
     uint32_t eax, ebx, ecx, edx;
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
@@ -577,5 +579,21 @@ void helper_cpuid(CPUX86State *env)
     env->regs[R_EBX] = ebx;
     env->regs[R_ECX] = ecx;
     env->regs[R_EDX] = edx;
+#else
+  uint32_t index = env->regs[R_EAX];
+  uint32_t count = env->regs[R_ECX];
+
+  uint32_t eax, ebx, ecx, edx;
+  asm volatile("cpuid"
+               : "=a"(eax), "=b"(ebx),
+                 "=c"(ecx), "=d"(edx)
+               : "0"(index), "c"(count)
+               : "cc");
+
+  env->regs[R_EAX] = eax;
+  env->regs[R_EBX] = ebx;
+  env->regs[R_ECX] = ecx;
+  env->regs[R_EDX] = edx;
+#endif
 }
 
