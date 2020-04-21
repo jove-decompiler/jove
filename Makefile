@@ -207,9 +207,6 @@ i386_SOURCE_LOCATIONS := $(_SL_X86_64_TCG_CONTEXT_INIT) \
                          $(_SL_X86_64_GEN_INTERMEDIATE_CODE) \
                          $(_SL_X86_64_TCG_X86_INIT)
 
-x86_64_HELPER_CFLAGS := -DCONFIG_ATOMIC64=1 \
-                        -DCONFIG_USER_ONLY=1
-
 #                           $(_SL_X86_64_TCG_GEN_GVEC_NOT) \
 #                           $(_SL_X86_64_TCG_GEN_LD_VEC)
 
