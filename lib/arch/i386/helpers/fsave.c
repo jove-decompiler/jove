@@ -68,7 +68,7 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-extern bool tcg_allowed;
+static bool tcg_allowed = true;
 
 #define tcg_enabled() (tcg_allowed)
 

@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-extern bool tcg_allowed;
+static bool tcg_allowed = true;
 
 #define tcg_enabled() (tcg_allowed)
 
