@@ -546,8 +546,12 @@ typedef struct CPUX86State {
 
 #define SVM_EXIT_RDPMC		0x06f
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void QEMU_NORETURN raise_exception_err(CPUX86State *env, int exception_index,
                                        int error_code);

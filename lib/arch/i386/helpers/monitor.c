@@ -558,8 +558,12 @@ typedef struct CPUX86State {
 
 #define SVM_EXIT_MONITOR	0x08a
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
                                    uint64_t param, uintptr_t retaddr);

@@ -1067,8 +1067,12 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 #define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 

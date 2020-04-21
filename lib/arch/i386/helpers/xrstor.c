@@ -1214,8 +1214,12 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void update_fp_status(CPUX86State *env);
 

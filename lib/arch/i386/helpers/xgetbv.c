@@ -542,8 +542,12 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
-void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr);
+static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
+                                             int exception_index,
+                                             uintptr_t retaddr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 # define GETPC() tci_tb_ptr
 
