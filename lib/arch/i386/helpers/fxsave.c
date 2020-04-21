@@ -170,7 +170,7 @@ static inline void stq_le_p(void *ptr, uint64_t v)
     stq_he_p(ptr, le_bswap(v, 64));
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 

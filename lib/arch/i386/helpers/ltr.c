@@ -154,7 +154,7 @@ static inline void stl_le_p(void *ptr, uint32_t v)
     stl_he_p(ptr, le_bswap(v, 32));
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 

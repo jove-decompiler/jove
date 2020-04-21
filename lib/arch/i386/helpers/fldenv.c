@@ -151,7 +151,7 @@ static inline int lduw_le_p(const void *ptr)
     return (uint16_t)le_bswap(lduw_he_p(ptr), 16);
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
