@@ -496,7 +496,7 @@ static float64 roundAndPackFloat64(flag zSign, int zExp, uint64_t zSig,
         roundIncrement = (zSig & 0x400) ? 0 : 0x3ff;
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     roundBits = zSig & 0x3FF;
     if ( 0x7FD <= (uint16_t) zExp ) {

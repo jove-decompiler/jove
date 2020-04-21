@@ -376,7 +376,7 @@ floatx80 floatx80_round_to_int(floatx80 a, float_status *status)
         }
         break;
     default:
-        abort();
+        __builtin_trap();__builtin_unreachable();
     }
     z.low &= ~ roundBitsMask;
     if ( z.low == 0 ) {
