@@ -1267,7 +1267,7 @@ uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
                                 get_mmuidx(oi));
 }
 
-void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
+static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
 
 # define GETPC() tci_tb_ptr
 
