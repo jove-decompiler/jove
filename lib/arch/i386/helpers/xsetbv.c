@@ -1876,6 +1876,8 @@ static inline uint64_t x86_cpu_xsave_components(X86CPU *cpu)
            cpu->env.features[FEAT_XSAVE_COMP_LO];
 }
 
+#endif
+
 void host_cpuid(uint32_t function, uint32_t count,
                 uint32_t *eax, uint32_t *ebx, uint32_t *ecx, uint32_t *edx)
 {
@@ -1909,6 +1911,8 @@ void host_cpuid(uint32_t function, uint32_t count,
     if (edx)
         *edx = vec[3];
 }
+
+#if 0
 
 
 void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
