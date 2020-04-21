@@ -985,6 +985,8 @@ struct X86CPU {
 
 typedef CPUX86State CPUArchState;
 
+#if 0
+
 typedef X86CPU ArchCPU;
 
 #define EXCP_HLT        0x10001
@@ -1016,13 +1018,20 @@ static void do_hlt(X86CPU *cpu)
     cpu_loop_exit(cs);
 }
 
+#endif
+
+__attribute__((always_inline))
 void helper_hlt(CPUX86State *env, int next_eip_addend)
 {
+#if 0
     X86CPU *cpu = env_archcpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_HLT, 0, GETPC());
     env->eip += next_eip_addend;
 
     do_hlt(cpu);
+#else
+    asm volatile("hlt");
+#endif
 }
 
