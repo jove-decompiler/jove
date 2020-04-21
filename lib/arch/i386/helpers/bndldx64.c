@@ -146,7 +146,7 @@ static inline uint64_t ldq_le_p(const void *ptr)
     return le_bswap(ldq_he_p(ptr), 64);
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -768,6 +768,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1055,11 +1056,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1285,16 +1286,9 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     return ret;
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
 
-static void helper_bndck(CPUX86State *env, uint32_t fail)
-{
-    if (unlikely(fail)) {
-        env->bndcs_regs.sts = 1;
-        raise_exception_ra(env, EXCP05_BOUND, GETPC());
-    }
-}
+extern uintptr_t tci_tb_ptr;
 
 static uint64_t lookup_bte64(CPUX86State *env, uint64_t base, uintptr_t ra)
 {
@@ -1310,12 +1304,7 @@ static uint64_t lookup_bte64(CPUX86State *env, uint64_t base, uintptr_t ra)
     bt = cpu_ldq_data_ra(env, bde, ra);
     if ((bt & 1) == 0) {
         env->bndcs_regs.sts = bde | 2;
-#if 0
         raise_exception_ra(env, EXCP05_BOUND, ra);
-#else
-        __builtin_trap();
-        __builtin_unreachable();
-#endif
     }
 
     return (extract64(base, 3, 17) << 5) + (bt & ~7);

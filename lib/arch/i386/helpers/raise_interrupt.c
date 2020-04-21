@@ -724,6 +724,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1006,7 +1007,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define SVM_EXIT_SWINT		0x075
 
-static void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
+void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
                                    int error_code, int next_eip_addend);
 
 void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
@@ -1102,10 +1103,6 @@ static void QEMU_NORETURN raise_interrupt2(CPUX86State *env, int intno,
 void QEMU_NORETURN raise_interrupt(CPUX86State *env, int intno, int is_int,
                                    int error_code, int next_eip_addend)
 {
-#if 0
     raise_interrupt2(env, intno, is_int, error_code, next_eip_addend, 0);
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
+

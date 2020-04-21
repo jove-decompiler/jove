@@ -70,7 +70,7 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-static bool tcg_allowed = true;
+extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -171,7 +171,7 @@ static inline uint64_t ldq_le_p(const void *ptr)
     return le_bswap(ldq_he_p(ptr), 64);
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -779,6 +779,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1077,11 +1078,11 @@ static inline void cpu_set_fpuc(CPUX86State *env, uint16_t fpuc)
      }
 }
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1342,8 +1343,9 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     return ret;
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 static inline void set_float_rounding_mode(int val, float_status *status)
 {
@@ -1378,16 +1380,6 @@ static inline floatx80 helper_fldt(CPUX86State *env, target_ulong ptr,
     temp.l.lower = cpu_ldq_data_ra(env, ptr, retaddr);
     temp.l.upper = cpu_lduw_data_ra(env, ptr + 8, retaddr);
     return temp.d;
-}
-
-void helper_fldt_ST0(CPUX86State *env, target_ulong ptr)
-{
-    int new_fpstt;
-
-    new_fpstt = (env->fpstt - 1) & 7;
-    env->fpregs[new_fpstt].d = helper_fldt(env, ptr, GETPC());
-    env->fpstt = new_fpstt;
-    env->fptags[new_fpstt] = 0; /* validate stack entry */
 }
 
 void update_fp_status(CPUX86State *env)

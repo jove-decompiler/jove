@@ -391,6 +391,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -567,28 +568,13 @@ int qemu_guest_getrandom(void *buf, size_t len, Error **errp);
 
 target_ulong HELPER(rdrand)(CPUX86State *env)
 {
-#if 0
     Error *err = NULL;
     target_ulong ret;
-#else
-    uint32_t r;
-    uint8_t valid;
-    asm volatile("rdrand     %0\n\t"
-                 "setc       %1\n"
-                 : "=r"(r), "=qm"(valid));
-#endif
 
-#if 0
     if (qemu_guest_getrandom(&ret, sizeof(ret), &err) < 0) {
-#else
-    if (!valid) {
-#endif
-#if 0
         qemu_log_mask(LOG_UNIMP, "rdrand: Crypto failure: %s",
                       error_get_pretty(err));
         error_free(err);
-#endif
-
         /* Failure clears CF and all other flags, and returns 0.  */
         env->cc_src = 0;
         return 0;
@@ -596,6 +582,6 @@ target_ulong HELPER(rdrand)(CPUX86State *env)
 
     /* Success sets CF and clears all others.  */
     env->cc_src = CC_C;
-    return r;
+    return ret;
 }
 

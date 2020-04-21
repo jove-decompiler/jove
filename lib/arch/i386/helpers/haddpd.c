@@ -500,7 +500,7 @@ static FloatParts parts_default_nan(float_status *status)
 static FloatParts parts_silence_nan(FloatParts a, float_status *status)
 {
 #ifdef NO_SIGNALING_NANS
-    __builtin_trap();__builtin_unreachable();
+    g_assert_not_reached();
 #elif defined(TARGET_HPPA)
     a.frac &= ~(1ULL << (DECOMPOSED_BINARY_POINT - 1));
     a.frac |= 1ULL << (DECOMPOSED_BINARY_POINT - 2);
@@ -683,7 +683,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             inc = frac & frac_lsb ? 0 : round_mask;
             break;
         default:
-            __builtin_trap();__builtin_unreachable();
+            g_assert_not_reached();
         }
 
         exp += parm->exp_bias;
@@ -775,7 +775,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
         break;
 
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
 
     float_raise(flags, s);
@@ -894,7 +894,7 @@ static FloatParts addsub_floats(FloatParts a, FloatParts b, bool subtract,
             return b;
         }
     }
-    __builtin_trap();__builtin_unreachable();
+    g_assert_not_reached();
 }
 
 static float64 QEMU_SOFTFLOAT_ATTR
@@ -1289,6 +1289,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1446,13 +1447,3 @@ void helper_haddpd(CPUX86State *env, ZMMReg *d, ZMMReg *s)
     *d = r;
 }
 
-//
-// from musl
-//
-
-double fabs(double x)
-{
-	union {double f; uint64_t i;} u = {x};
-	u.i &= -1ULL/2;
-	return u.f;
-}

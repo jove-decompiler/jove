@@ -22,8 +22,6 @@
 
 #include <limits.h>
 
-#include <assert.h>
-
 #include <setjmp.h>
 
 typedef char   gchar;
@@ -134,34 +132,12 @@ static inline int lduw_he_p(const void *ptr)
     return r;
 }
 
-static inline uint64_t ldq_he_p(const void *ptr)
-{
-    uint64_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline void stq_he_p(void *ptr, uint64_t v)
-{
-    __builtin_memcpy(ptr, &v, sizeof(v));
-}
-
 static inline int ldsw_le_p(const void *ptr)
 {
     return (int16_t)le_bswap(lduw_he_p(ptr), 16);
 }
 
-static inline uint64_t ldq_le_p(const void *ptr)
-{
-    return le_bswap(ldq_he_p(ptr), 64);
-}
-
-static inline void stq_le_p(void *ptr, uint64_t v)
-{
-    stq_he_p(ptr, le_bswap(v, 64));
-}
-
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -174,15 +150,6 @@ static inline void stq_le_p(void *ptr, uint64_t v)
 static inline int test_bit(long nr, const unsigned long *addr)
 {
     return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
-
-static inline uint64_t deposit64(uint64_t value, int start, int length,
-                                 uint64_t fieldval)
-{
-    uint64_t mask;
-    assert(start >= 0 && length > 0 && length <= 64 - start);
-    mask = (~0ULL >> (64 - length)) << start;
-    return (value & ~mask) | ((fieldval << start) & mask);
 }
 
 #define DECLARE_BITMAP(name,bits)                  \
@@ -503,36 +470,6 @@ typedef enum OnOffAuto {
     ON_OFF_AUTO__MAX,
 } OnOffAuto;
 
-enum {
-    R_EAX = 0,
-    R_ECX = 1,
-    R_EDX = 2,
-    R_EBX = 3,
-    R_ESP = 4,
-    R_EBP = 5,
-    R_ESI = 6,
-    R_EDI = 7,
-    R_R8 = 8,
-    R_R9 = 9,
-    R_R10 = 10,
-    R_R11 = 11,
-    R_R12 = 12,
-    R_R13 = 13,
-    R_R14 = 14,
-    R_R15 = 15,
-
-    R_AL = 0,
-    R_CL = 1,
-    R_DL = 2,
-    R_BL = 3,
-    R_AH = 4,
-    R_CH = 5,
-    R_DH = 6,
-    R_BH = 7,
-};
-
-#define CC_Z    0x0040
-
 #define HF_MPX_EN_SHIFT     25
 
 #define HF_MPX_EN_MASK       (1 << HF_MPX_EN_SHIFT)
@@ -818,6 +755,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1084,19 +1022,11 @@ struct X86CPU {
 
 #define MMU_USER_IDX    1
 
-#define CC_SRC  (env->cc_src)
-
-#define CC_OP   (env->cc_op)
-
 typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
 
 #define ldsw_p(p) ldsw_le_p(p)
-
-#define ldq_p(p) ldq_le_p(p)
-
-#define stq_p(p, v) stq_le_p(p, v)
 
 extern unsigned long guest_base;
 
@@ -1113,13 +1043,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-uint32_t cpu_cc_compute_all(CPUX86State *env1, int op);
-
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1344,93 +1272,9 @@ glue(glue(glue(cpu_lds, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     return ret;
 }
 
-#define SUFFIX q
+# define GETPC() tci_tb_ptr
 
-#define USUFFIX q
-
-#define SHIFT 3
-
-#define RES_TYPE uint64_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-static inline void
-glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr,
-                                      RES_TYPE v)
-{
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, true,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    glue(glue(st, SUFFIX), _p)(g2h(ptr), v);
-    qemu_plugin_vcpu_mem_cb(env_cpu(env), ptr, meminfo);
-}
-
-static inline void
-glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  RES_TYPE v,
-                                                  uintptr_t retaddr)
-{
-    set_helper_retaddr(retaddr);
-    glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(env, ptr, v);
-    clear_helper_retaddr();
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-static void helper_cmpxchg8b_unlocked(CPUX86State *env, target_ulong a0)
-{
-    uintptr_t ra = GETPC();
-    uint64_t oldv, cmpv, newv;
-    int eflags;
-
-    eflags = cpu_cc_compute_all(env, CC_OP);
-
-    cmpv = deposit64(env->regs[R_EAX], 32, 32, env->regs[R_EDX]);
-    newv = deposit64(env->regs[R_EBX], 32, 32, env->regs[R_ECX]);
-
-    oldv = cpu_ldq_data_ra(env, a0, ra);
-    newv = (cmpv == oldv ? newv : oldv);
-    /* always do the store */
-    cpu_stq_data_ra(env, a0, newv, ra);
-
-    if (oldv == cmpv) {
-        eflags |= CC_Z;
-    } else {
-        env->regs[R_EAX] = (uint32_t)oldv;
-        env->regs[R_EDX] = (uint32_t)(oldv >> 32);
-        eflags &= ~CC_Z;
-    }
-    CC_SRC = eflags;
-}
+extern uintptr_t tci_tb_ptr;
 
 void helper_boundw(CPUX86State *env, target_ulong a0, int v)
 {
@@ -1443,12 +1287,7 @@ void helper_boundw(CPUX86State *env, target_ulong a0, int v)
         if (env->hflags & HF_MPX_EN_MASK) {
             env->bndcs_regs.sts = 0;
         }
-#if 0
         raise_exception_ra(env, EXCP05_BOUND, GETPC());
-#else
-        __builtin_trap();
-        __builtin_unreachable();
-#endif
     }
 }
 

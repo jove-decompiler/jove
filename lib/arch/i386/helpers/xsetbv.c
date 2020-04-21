@@ -1,11 +1,5 @@
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
 
-#define xglue(x, y) x ## y
-
-#define glue(x, y) xglue(x, y)
-
-#define unlikely(x)   __builtin_expect(!!(x), 0)
-
 #define container_of(ptr, type, member) ({                      \
         const typeof(((type *) 0)->member) *__mptr = (ptr);     \
         (type *) ((char *) __mptr - offsetof(type, member));})
@@ -93,7 +87,8 @@ struct _GSList
 
 #define g_assert(expr)                  G_STMT_START { \
                                              if G_LIKELY (expr) ; else \
-                                               __builtin_trap(); __builtin_unreachable(); \
+                                               g_assertion_message_expr (G_LOG_DOMAIN, __FILE__, __LINE__, G_STRFUNC, \
+                                                                         #expr); \
                                         } G_STMT_END
 
 GLIB_AVAILABLE_IN_ALL
@@ -160,64 +155,19 @@ typedef struct float_status {
     flag snan_bit_is_one;
 } float_status;
 
-#define le_bswap(v, size) (v)
-
-typedef union {
-     floatx80 d;
-     struct {
-         uint64_t lower;
-         uint16_t upper;
-     } l;
-} CPU_LDoubleU;
-
-static inline int lduw_he_p(const void *ptr)
-{
-    uint16_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline uint64_t ldq_he_p(const void *ptr)
-{
-    uint64_t r;
-    __builtin_memcpy(&r, ptr, sizeof(r));
-    return r;
-}
-
-static inline int lduw_le_p(const void *ptr)
-{
-    return (uint16_t)le_bswap(lduw_he_p(ptr), 16);
-}
-
-static inline uint64_t ldq_le_p(const void *ptr)
-{
-    return le_bswap(ldq_he_p(ptr), 64);
-}
-
 static inline int clz32(uint32_t val)
 {
     return val ? __builtin_clz(val) : 32;
 }
 
-#define signal_barrier() do {} while (0)
-
 #define BITS_PER_BYTE           CHAR_BIT
 
-#define BITS_PER_LONG           (sizeof (unsigned long) * BITS_PER_BYTE)
-
-#define BIT_WORD(nr)            ((nr) / BITS_PER_LONG)
-
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
-
-static inline int test_bit(long nr, const unsigned long *addr)
-{
-    return 1UL & (addr[BIT_WORD(nr)] >> (nr & (BITS_PER_LONG-1)));
-}
 
 unsigned long find_last_bit(const unsigned long *addr,
                             unsigned long size);
 
-static bool tcg_allowed = true;
+extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -1030,6 +980,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1296,21 +1247,13 @@ struct X86CPU {
 
 void cpu_sync_bndcs_hflags(CPUX86State *env);
 
-static void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
+void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
                    uint32_t *eax, uint32_t *ebx,
                    uint32_t *ecx, uint32_t *edx);
-
-#define MMU_USER_IDX    1
 
 typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
-
-#define lduw_p(p) lduw_le_p(p)
-
-#define ldq_p(p) ldq_le_p(p)
-
-extern unsigned long guest_base;
 
 static inline ArchCPU *env_archcpu(CPUArchState *env)
 {
@@ -1322,279 +1265,12 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-static void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
-                                      uintptr_t retaddr) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
+void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
+                                      uintptr_t retaddr);
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+# define GETPC() tci_tb_ptr
 
-typedef uint32_t abi_ptr;
-
-static uintptr_t helper_retaddr;
-
-static inline void set_helper_retaddr(uintptr_t ra)
-{
-    helper_retaddr = ra;
-    /*
-     * Ensure that this write is visible to the SIGSEGV handler that
-     * may be invoked due to a subsequent invalid memory operation.
-     */
-    signal_barrier();
-}
-
-#define MEMSUFFIX _data
-
-static inline void clear_helper_retaddr(void)
-{
-    /*
-     * Ensure that previous memory operations have succeeded before
-     * removing the data visible to the signal handler.
-     */
-    signal_barrier();
-    helper_retaddr = 0;
-}
-
-typedef struct TraceEvent {
-    uint32_t id;
-    uint32_t vcpu_id;
-    const char * name;
-    const bool sstate;
-    uint16_t *dstate;
-} TraceEvent;
-
-extern int trace_events_enabled_count;
-
-#define trace_event_get_vcpu_state(vcpu, id)                            \
-    ((id ##_ENABLED) &&                                                 \
-     trace_event_get_vcpu_state_dynamic_by_vcpu_id(                     \
-         vcpu, _ ## id ## _EVENT.vcpu_id))
-
-static inline bool
-trace_event_get_vcpu_state_dynamic_by_vcpu_id(CPUState *vcpu,
-                                              uint32_t vcpu_id)
-{
-    /* it's on fast path, avoid consistency checks (asserts) */
-    if (unlikely(trace_events_enabled_count)) {
-        return test_bit(vcpu_id, vcpu->trace_dstate);
-    } else {
-        return false;
-    }
-}
-
-extern TraceEvent _TRACE_GUEST_MEM_BEFORE_EXEC_EVENT;
-
-#define TRACE_GUEST_MEM_BEFORE_EXEC_ENABLED 1
-
-static inline void _nocheck__trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-}
-
-static inline void trace_guest_mem_before_exec(CPUState * __cpu, uint64_t vaddr, uint16_t info)
-{
-    if (trace_event_get_vcpu_state(__cpu, TRACE_GUEST_MEM_BEFORE_EXEC)) {
-        _nocheck__trace_guest_mem_before_exec(__cpu, vaddr, info);
-    }
-}
-
-typedef enum MemOp {
-    MO_8     = 0,
-    MO_16    = 1,
-    MO_32    = 2,
-    MO_64    = 3,
-    MO_SIZE  = 3,   /* Mask for the above.  */
-
-    MO_SIGN  = 4,   /* Sign-extended, otherwise zero-extended.  */
-
-    MO_BSWAP = 8,   /* Host reverse endian.  */
-#ifdef HOST_WORDS_BIGENDIAN
-    MO_LE    = MO_BSWAP,
-    MO_BE    = 0,
-#else
-    MO_LE    = 0,
-    MO_BE    = MO_BSWAP,
-#endif
-#ifdef NEED_CPU_H
-#ifdef TARGET_WORDS_BIGENDIAN
-    MO_TE    = MO_BE,
-#else
-    MO_TE    = MO_LE,
-#endif
-#endif
-
-    /*
-     * MO_UNALN accesses are never checked for alignment.
-     * MO_ALIGN accesses will result in a call to the CPU's
-     * do_unaligned_access hook if the guest address is not aligned.
-     * The default depends on whether the target CPU defines
-     * TARGET_ALIGNED_ONLY.
-     *
-     * Some architectures (e.g. ARMv8) need the address which is aligned
-     * to a size more than the size of the memory access.
-     * Some architectures (e.g. SPARCv9) need an address which is aligned,
-     * but less strictly than the natural alignment.
-     *
-     * MO_ALIGN supposes the alignment size is the size of a memory access.
-     *
-     * There are three options:
-     * - unaligned access permitted (MO_UNALN).
-     * - an alignment to the size of an access (MO_ALIGN);
-     * - an alignment to a specified size, which may be more or less than
-     *   the access size (MO_ALIGN_x where 'x' is a size in bytes);
-     */
-    MO_ASHIFT = 4,
-    MO_AMASK = 7 << MO_ASHIFT,
-#ifdef NEED_CPU_H
-#ifdef TARGET_ALIGNED_ONLY
-    MO_ALIGN = 0,
-    MO_UNALN = MO_AMASK,
-#else
-    MO_ALIGN = MO_AMASK,
-    MO_UNALN = 0,
-#endif
-#endif
-    MO_ALIGN_2  = 1 << MO_ASHIFT,
-    MO_ALIGN_4  = 2 << MO_ASHIFT,
-    MO_ALIGN_8  = 3 << MO_ASHIFT,
-    MO_ALIGN_16 = 4 << MO_ASHIFT,
-    MO_ALIGN_32 = 5 << MO_ASHIFT,
-    MO_ALIGN_64 = 6 << MO_ASHIFT,
-
-    /* Combinations of the above, for ease of use.  */
-    MO_UB    = MO_8,
-    MO_UW    = MO_16,
-    MO_UL    = MO_32,
-    MO_SB    = MO_SIGN | MO_8,
-    MO_SW    = MO_SIGN | MO_16,
-    MO_SL    = MO_SIGN | MO_32,
-    MO_Q     = MO_64,
-
-    MO_LEUW  = MO_LE | MO_UW,
-    MO_LEUL  = MO_LE | MO_UL,
-    MO_LESW  = MO_LE | MO_SW,
-    MO_LESL  = MO_LE | MO_SL,
-    MO_LEQ   = MO_LE | MO_Q,
-
-    MO_BEUW  = MO_BE | MO_UW,
-    MO_BEUL  = MO_BE | MO_UL,
-    MO_BESW  = MO_BE | MO_SW,
-    MO_BESL  = MO_BE | MO_SL,
-    MO_BEQ   = MO_BE | MO_Q,
-
-#ifdef NEED_CPU_H
-    MO_TEUW  = MO_TE | MO_UW,
-    MO_TEUL  = MO_TE | MO_UL,
-    MO_TESW  = MO_TE | MO_SW,
-    MO_TESL  = MO_TE | MO_SL,
-    MO_TEQ   = MO_TE | MO_Q,
-#endif
-
-    MO_SSIZE = MO_SIZE | MO_SIGN,
-} MemOp;
-
-#define TRACE_MEM_SZ_SHIFT_MASK 0xf
-
-#define TRACE_MEM_SE (1ULL << 4)
-
-#define TRACE_MEM_BE (1ULL << 5)
-
-#define TRACE_MEM_ST (1ULL << 6)
-
-static inline uint16_t trace_mem_build_info(
-    int size_shift, bool sign_extend, MemOp endianness,
-    bool store, unsigned int mmu_idx)
-{
-    uint16_t res;
-
-    res = size_shift & TRACE_MEM_SZ_SHIFT_MASK;
-    if (sign_extend) {
-        res |= TRACE_MEM_SE;
-    }
-    if (endianness == MO_BE) {
-        res |= TRACE_MEM_BE;
-    }
-    if (store) {
-        res |= TRACE_MEM_ST;
-    }
-#ifdef CONFIG_SOFTMMU
-    res |= mmu_idx << TRACE_MEM_MMU_SHIFT;
-#endif
-    return res;
-}
-
-#define USUFFIX uw
-
-#define SHIFT 1
-
-#define RES_TYPE uint32_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-#define USUFFIX q
-
-#define SHIFT 3
-
-#define RES_TYPE uint64_t
-
-static inline RES_TYPE
-glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
-{
-    RES_TYPE ret;
-#ifdef CODE_ACCESS
-    set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-    clear_helper_retaddr();
-#else
-    uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
-                                            MMU_USER_IDX);
-    trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
-#endif
-    return ret;
-}
-
-static inline RES_TYPE
-glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
-                                                  abi_ptr ptr,
-                                                  uintptr_t retaddr)
-{
-    RES_TYPE ret;
-    set_helper_retaddr(retaddr);
-    ret = glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(env, ptr);
-    clear_helper_retaddr();
-    return ret;
-}
-
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+extern uintptr_t tci_tb_ptr;
 
 #define kvm_enabled()           (0)
 
@@ -2219,7 +1895,7 @@ void host_cpuid(uint32_t function, uint32_t count,
                  : : "a"(function), "c"(count), "S"(vec)
                  : "memory", "cc");
 #else
-    __builtin_trap();__builtin_unreachable();
+    abort();
 #endif
 
     if (eax)
@@ -2725,26 +2401,6 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
         *edx = 0;
         break;
     }
-}
-
-static inline floatx80 helper_fldt(CPUX86State *env, target_ulong ptr,
-                                   uintptr_t retaddr)
-{
-    CPU_LDoubleU temp;
-
-    temp.l.lower = cpu_ldq_data_ra(env, ptr, retaddr);
-    temp.l.upper = cpu_lduw_data_ra(env, ptr + 8, retaddr);
-    return temp.d;
-}
-
-void helper_fldt_ST0(CPUX86State *env, target_ulong ptr)
-{
-    int new_fpstt;
-
-    new_fpstt = (env->fpstt - 1) & 7;
-    env->fpregs[new_fpstt].d = helper_fldt(env, ptr, GETPC());
-    env->fpstt = new_fpstt;
-    env->fptags[new_fpstt] = 0; /* validate stack entry */
 }
 
 void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)

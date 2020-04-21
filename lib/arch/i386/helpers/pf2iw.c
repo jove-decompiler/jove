@@ -238,7 +238,7 @@ static FloatParts parts_default_nan(float_status *status)
 static FloatParts parts_silence_nan(FloatParts a, float_status *status)
 {
 #ifdef NO_SIGNALING_NANS
-    __builtin_trap();__builtin_unreachable();
+    g_assert_not_reached();
 #elif defined(TARGET_HPPA)
     a.frac &= ~(1ULL << (DECOMPOSED_BINARY_POINT - 1));
     a.frac |= 1ULL << (DECOMPOSED_BINARY_POINT - 2);
@@ -309,7 +309,7 @@ static FloatParts return_nan(FloatParts a, float_status *s)
         break;
 
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
     return a;
 }
@@ -359,7 +359,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
                 one = true;
                 break;
             default:
-                __builtin_trap();__builtin_unreachable();
+                g_assert_not_reached();
             }
 
             if (one) {
@@ -395,7 +395,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
                 inc = a.frac & frac_lsb ? 0 : rnd_mask;
                 break;
             default:
-                __builtin_trap();__builtin_unreachable();
+                g_assert_not_reached();
             }
 
             if (a.frac & rnd_mask) {
@@ -410,7 +410,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
         }
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
     return a;
 }
@@ -457,7 +457,7 @@ static int64_t round_to_int_and_pack(FloatParts in, int rmode, int scale,
             }
         }
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
 }
 
@@ -825,6 +825,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

@@ -808,6 +808,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1072,10 +1073,6 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
-
 typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
@@ -1094,8 +1091,6 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-#define SVM_EXIT_CPUID		0x072
-
 #define SVM_EXIT_MWAIT		0x08b
 
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
@@ -1106,22 +1101,9 @@ void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
 
 void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
 
-static void helper_cpuid(CPUX86State *env)
-{
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
-}
+extern uintptr_t tci_tb_ptr;
 
 static void do_pause(X86CPU *cpu)
 {
@@ -1145,7 +1127,6 @@ static void do_hlt(X86CPU *cpu)
 
 void helper_mwait(CPUX86State *env, int next_eip_addend)
 {
-#if 0
     CPUState *cs = env_cpu(env);
     X86CPU *cpu = env_archcpu(env);
 
@@ -1161,9 +1142,5 @@ void helper_mwait(CPUX86State *env, int next_eip_addend)
     } else {
         do_hlt(cpu);
     }
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
 

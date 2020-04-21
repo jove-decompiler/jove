@@ -147,7 +147,7 @@ static int64_t roundAndPackInt64(flag zSign, uint64_t absZ0, uint64_t absZ1,
         increment = !(absZ0 & 1) && absZ1;
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        abort();
     }
     if ( increment ) {
         ++absZ0;
@@ -547,6 +547,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

@@ -455,7 +455,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
         roundIncrement = zSign ? roundMask : 0;
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        abort();
     }
     roundBits = zSig0 & roundMask;
     if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
@@ -524,7 +524,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
         increment = zSign && zSig1;
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        abort();
     }
     if ( 0x7FFD <= (uint32_t) ( zExp - 1 ) ) {
         if (    ( 0x7FFE < zExp )
@@ -576,7 +576,7 @@ floatx80 roundAndPackFloatx80(int8_t roundingPrecision, flag zSign,
                 increment = zSign && zSig1;
                 break;
             default:
-                __builtin_trap();__builtin_unreachable();
+                abort();
             }
             if ( increment ) {
                 ++zSig0;
@@ -1118,6 +1118,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

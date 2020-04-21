@@ -2,7 +2,7 @@
 
 #include <stdint.h>
 
-static bool tcg_allowed = true;
+extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -389,6 +389,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

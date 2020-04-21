@@ -376,7 +376,7 @@ floatx80 floatx80_round_to_int(floatx80 a, float_status *status)
         }
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        abort();
     }
     z.low &= ~ roundBitsMask;
     if ( z.low == 0 ) {
@@ -738,6 +738,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

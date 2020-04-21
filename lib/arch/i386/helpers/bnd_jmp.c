@@ -387,6 +387,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -538,7 +539,7 @@ typedef struct CPUX86State {
 void helper_bnd_jmp(CPUX86State *env)
 {
     if (!(env->hflags2 & HF2_MPX_PR_MASK)) {
-        __builtin_memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
+        memset(env->bnd_regs, 0, sizeof(env->bnd_regs));
         env->hflags &= ~HF_MPX_IU_MASK;
     }
 }

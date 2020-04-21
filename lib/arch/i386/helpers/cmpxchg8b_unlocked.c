@@ -154,7 +154,7 @@ static inline void stq_le_p(void *ptr, uint64_t v)
     stq_he_p(ptr, le_bswap(v, 64));
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -886,6 +886,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1875,11 +1876,11 @@ uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
     return helper_cc_compute_all(CC_DST, CC_SRC, CC_SRC2, op);
 }
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -2129,8 +2130,9 @@ glue(glue(glue(cpu_st, SUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
     clear_helper_retaddr();
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 void helper_cmpxchg8b_unlocked(CPUX86State *env, target_ulong a0)
 {

@@ -385,6 +385,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -536,19 +537,15 @@ typedef struct CPUX86State {
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 void helper_bndck(CPUX86State *env, uint32_t fail)
 {
     if (unlikely(fail)) {
         env->bndcs_regs.sts = 1;
-#if 0
         raise_exception_ra(env, EXCP05_BOUND, GETPC());
-#else
-        __builtin_trap();
-        __builtin_unreachable();
-#endif
     }
 }
 

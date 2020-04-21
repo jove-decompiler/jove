@@ -433,34 +433,6 @@ typedef enum OnOffAuto {
     ON_OFF_AUTO__MAX,
 } OnOffAuto;
 
-enum {
-    R_EAX = 0,
-    R_ECX = 1,
-    R_EDX = 2,
-    R_EBX = 3,
-    R_ESP = 4,
-    R_EBP = 5,
-    R_ESI = 6,
-    R_EDI = 7,
-    R_R8 = 8,
-    R_R9 = 9,
-    R_R10 = 10,
-    R_R11 = 11,
-    R_R12 = 12,
-    R_R13 = 13,
-    R_R14 = 14,
-    R_R15 = 15,
-
-    R_AL = 0,
-    R_CL = 1,
-    R_DL = 2,
-    R_BL = 3,
-    R_AH = 4,
-    R_CH = 5,
-    R_DH = 6,
-    R_BH = 7,
-};
-
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -740,6 +712,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1004,10 +977,6 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
-
 typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
@@ -1016,8 +985,6 @@ static inline ArchCPU *env_archcpu(CPUArchState *env)
 {
     return container_of(env, ArchCPU, env);
 }
-
-#define SVM_EXIT_CPUID		0x072
 
 #define SVM_EXIT_INVLPG		0x079
 
@@ -1028,33 +995,15 @@ static inline void tlb_flush_page(CPUState *cpu, target_ulong addr)
 {
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
 
-static void helper_cpuid(CPUX86State *env)
-{
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
-}
+extern uintptr_t tci_tb_ptr;
 
 void helper_invlpg(CPUX86State *env, target_ulong addr)
 {
-#if 0
     X86CPU *cpu = env_archcpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_INVLPG, 0, GETPC());
     tlb_flush_page(CPU(cpu), addr);
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
 

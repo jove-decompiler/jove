@@ -104,34 +104,6 @@ struct CPUWatchpoint {
 
 typedef uint32_t target_ulong;
 
-enum {
-    R_EAX = 0,
-    R_ECX = 1,
-    R_EDX = 2,
-    R_EBX = 3,
-    R_ESP = 4,
-    R_EBP = 5,
-    R_ESI = 6,
-    R_EDI = 7,
-    R_R8 = 8,
-    R_R9 = 9,
-    R_R10 = 10,
-    R_R11 = 11,
-    R_R12 = 12,
-    R_R13 = 13,
-    R_R14 = 14,
-    R_R15 = 15,
-
-    R_AL = 0,
-    R_CL = 1,
-    R_DL = 2,
-    R_BL = 3,
-    R_AH = 4,
-    R_CH = 5,
-    R_DH = 6,
-    R_BH = 7,
-};
-
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -179,8 +151,6 @@ typedef enum FeatureWord {
     FEAT_VMX_VMFUNC,
     FEATURE_WORDS,
 } FeatureWord;
-
-#define EXCP00_DIVZ	0
 
 #define EXCP06_ILLOP	6
 
@@ -415,6 +385,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -566,36 +537,14 @@ typedef struct CPUX86State {
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
 
-static void helper_divb_AL(CPUX86State *env, target_ulong t0)
-{
-    unsigned int num, den, q, r;
-
-    num = (env->regs[R_EAX] & 0xffff);
-    den = (t0 & 0xff);
-    if (den == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q = (num / den);
-    if (q > 0xff) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q &= 0xff;
-    r = (num % den) & 0xff;
-    env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;
-}
+extern uintptr_t tci_tb_ptr;
 
 void helper_cr4_testbit(CPUX86State *env, uint32_t bit)
 {
     if (unlikely((env->cr[4] & bit) == 0)) {
-#if 0
         raise_exception_ra(env, EXCP06_ILLOP, GETPC());
-#else
-        __builtin_trap();
-        __builtin_unreachable();
-#endif
     }
 }
 

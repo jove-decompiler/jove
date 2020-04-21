@@ -144,7 +144,7 @@ static inline int ldl_le_p(const void *ptr)
     return le_bswap(ldl_he_p(ptr), 32);
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -770,6 +770,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1057,11 +1058,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
                                           int error_code, uintptr_t retaddr);
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1250,8 +1251,9 @@ static inline uint16_t trace_mem_build_info(
     return res;
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 #define MEMSUFFIX _kernel
 
@@ -1316,7 +1318,6 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
 
 void helper_lldt(CPUX86State *env, int selector)
 {
-#if 0
     SegmentCache *dt;
     uint32_t e1, e2;
     int index, entry_limit;
@@ -1367,9 +1368,5 @@ void helper_lldt(CPUX86State *env, int selector)
         }
     }
     env->ldt.selector = selector;
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
 

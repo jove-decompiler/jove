@@ -383,6 +383,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -533,7 +534,7 @@ typedef struct CPUX86State {
 
 void QEMU_NORETURN raise_exception(CPUX86State *env, int exception_index);
 
-static void helper_single_step(CPUX86State *env)
+void helper_single_step(CPUX86State *env)
 {
 #ifndef CONFIG_USER_ONLY
     check_hw_breakpoints(env, true);
@@ -544,12 +545,8 @@ static void helper_single_step(CPUX86State *env)
 
 void helper_rechecking_single_step(CPUX86State *env)
 {
-#if 0
     if ((env->eflags & TF_MASK) != 0) {
         helper_single_step(env);
     }
-#else
-    __builtin_trap();
-#endif
 }
 

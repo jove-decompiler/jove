@@ -381,6 +381,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -532,11 +533,7 @@ typedef struct CPUX86State {
 void helper_outb(CPUX86State *env, uint32_t port, uint32_t data)
 {
 #ifdef CONFIG_USER_ONLY
-#if 0
     fprintf(stderr, "outb: port=0x%04x, data=%02x\n", port, data);
-#else
-    __builtin_trap();
-#endif
 #else
     address_space_stb(&address_space_io, port, data,
                       cpu_get_mem_attrs(env), NULL);

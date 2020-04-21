@@ -157,7 +157,7 @@ typedef struct float_status {
         (unsigned short)1,                                                         \
       (expr)+0))))))
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
     typeof_strip_qual(*ptr) _old = (old);                               \
@@ -776,6 +776,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1058,11 +1059,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1266,14 +1267,15 @@ uint16_t trace_mem_build_info_no_se_be(int size_shift, bool store,
                                 get_mmuidx(oi));
 }
 
-static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
+void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 #define HELPER(name) glue(helper_, name)
 
-static uintptr_t helper_retaddr;
+__thread uintptr_t helper_retaddr;
 
 #define ATOMIC_MMU_DECLS do {} while (0)
 

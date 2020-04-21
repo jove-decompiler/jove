@@ -724,6 +724,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1100,11 +1101,6 @@ static void QEMU_NORETURN raise_interrupt2(CPUX86State *env, int intno,
 
 void raise_exception(CPUX86State *env, int exception_index)
 {
-#if 0
     raise_interrupt2(env, exception_index, 0, 0, 0, 0);
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
 

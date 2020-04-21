@@ -72,7 +72,7 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-static bool tcg_allowed = true;
+extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -185,7 +185,7 @@ static inline void stl_le_p(void *ptr, uint32_t v)
     stl_he_p(ptr, le_bswap(v, 32));
 }
 
-#define signal_barrier() do {} while (0)
+#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
 
 #define BITS_PER_BYTE           CHAR_BIT
 
@@ -1013,6 +1013,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1401,11 +1402,11 @@ static inline void cpu_load_eflags(CPUX86State *env, int eflags,
         (eflags & update_mask) | 0x2;
 }
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
-static uintptr_t helper_retaddr;
+extern __thread uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
@@ -1594,8 +1595,9 @@ static inline uint16_t trace_mem_build_info(
     return res;
 }
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 # define LOG_PCALL(...) do { } while (0)
 
@@ -2205,60 +2207,6 @@ static inline unsigned int get_sp_mask(unsigned int e2)
         sp += 4;                                                        \
     }
 
-static void helper_lldt(CPUX86State *env, int selector)
-{
-    SegmentCache *dt;
-    uint32_t e1, e2;
-    int index, entry_limit;
-    target_ulong ptr;
-
-    selector &= 0xffff;
-    if ((selector & 0xfffc) == 0) {
-        /* XXX: NULL selector case: invalid LDT */
-        env->ldt.base = 0;
-        env->ldt.limit = 0;
-    } else {
-        if (selector & 0x4) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-        dt = &env->gdt;
-        index = selector & ~7;
-#ifdef TARGET_X86_64
-        if (env->hflags & HF_LMA_MASK) {
-            entry_limit = 15;
-        } else
-#endif
-        {
-            entry_limit = 7;
-        }
-        if ((index + entry_limit) > dt->limit) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-        ptr = dt->base + index;
-        e1 = cpu_ldl_kernel_ra(env, ptr, GETPC());
-        e2 = cpu_ldl_kernel_ra(env, ptr + 4, GETPC());
-        if ((e2 & DESC_S_MASK) || ((e2 >> DESC_TYPE_SHIFT) & 0xf) != 2) {
-            raise_exception_err_ra(env, EXCP0D_GPF, selector & 0xfffc, GETPC());
-        }
-        if (!(e2 & DESC_P_MASK)) {
-            raise_exception_err_ra(env, EXCP0B_NOSEG, selector & 0xfffc, GETPC());
-        }
-#ifdef TARGET_X86_64
-        if (env->hflags & HF_LMA_MASK) {
-            uint32_t e3;
-
-            e3 = cpu_ldl_kernel_ra(env, ptr + 8, GETPC());
-            load_seg_cache_raw_dt(&env->ldt, e1, e2);
-            env->ldt.base |= (target_ulong)e3 << 32;
-        } else
-#endif
-        {
-            load_seg_cache_raw_dt(&env->ldt, e1, e2);
-        }
-    }
-    env->ldt.selector = selector;
-}
-
 static inline void validate_seg(CPUX86State *env, int seg_reg, int cpl)
 {
     int dpl;
@@ -2504,7 +2452,6 @@ static inline void helper_ret_protected(CPUX86State *env, int shift,
 
 void helper_iret_protected(CPUX86State *env, int shift, int next_eip)
 {
-#if 0
     int tss_selector, type;
     uint32_t e1, e2;
 
@@ -2532,9 +2479,5 @@ void helper_iret_protected(CPUX86State *env, int shift, int next_eip)
         helper_ret_protected(env, shift, 1, 0, GETPC());
     }
     env->hflags2 &= ~HF2_NMI_MASK;
-#else
-    __builtin_trap();
-    __builtin_unreachable();
-#endif
 }
 

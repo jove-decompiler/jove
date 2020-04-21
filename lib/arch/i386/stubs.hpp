@@ -550,7 +550,7 @@ uint64_t helper_clrsb_i64 (uint64_t) { return 0; }
 uint32_t helper_ctpop_i32 (uint32_t) { return 0; }
 uint64_t helper_ctpop_i64 (uint64_t) { return 0; }
 void * helper_lookup_tb_ptr (CPUArchState *) { return nullptr; }
-void __attribute__ ((__noreturn__)) helper_exit_atomic (CPUArchState *) { __builtin_trap(); __builtin_unreachable(); }
+void __attribute__ ((__noreturn__)) helper_exit_atomic (CPUArchState *) { __builtin_trap(); }
 uint32_t helper_atomic_cmpxchgb (CPUArchState *, target_ulong, uint32_t, uint32_t) { return 0; }
 uint32_t helper_atomic_cmpxchgw_be (CPUArchState *, target_ulong, uint32_t, uint32_t) { return 0; }
 uint32_t helper_atomic_cmpxchgw_le (CPUArchState *, target_ulong, uint32_t, uint32_t) { return 0; }

@@ -362,7 +362,7 @@ static float32 roundAndPackFloat32(flag zSign, int zExp, uint32_t zSig,
         roundIncrement = zSig & 0x80 ? 0 : 0x7f;
         break;
     default:
-        __builtin_trap();__builtin_unreachable();
+        abort();
         break;
     }
     roundBits = zSig & 0x7F;
@@ -784,6 +784,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

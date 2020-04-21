@@ -381,6 +381,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -533,14 +534,10 @@ void QEMU_NORETURN raise_exception(CPUX86State *env, int exception_index);
 
 void helper_single_step(CPUX86State *env)
 {
-#if 0
 #ifndef CONFIG_USER_ONLY
     check_hw_breakpoints(env, true);
     env->dr[6] |= DR6_BS;
 #endif
     raise_exception(env, EXCP01_DB);
-#else
-    __builtin_trap();
-#endif
 }
 

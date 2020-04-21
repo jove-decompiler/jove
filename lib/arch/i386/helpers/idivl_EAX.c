@@ -407,6 +407,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -558,26 +559,9 @@ typedef struct CPUX86State {
 void QEMU_NORETURN raise_exception_ra(CPUX86State *env, int exception_index,
                                       uintptr_t retaddr);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
 
-static void helper_divb_AL(CPUX86State *env, target_ulong t0)
-{
-    unsigned int num, den, q, r;
-
-    num = (env->regs[R_EAX] & 0xffff);
-    den = (t0 & 0xff);
-    if (den == 0) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q = (num / den);
-    if (q > 0xff) {
-        raise_exception_ra(env, EXCP00_DIVZ, GETPC());
-    }
-    q &= 0xff;
-    r = (num % den) & 0xff;
-    env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | (r << 8) | q;
-}
+extern uintptr_t tci_tb_ptr;
 
 void helper_idivl_EAX(CPUX86State *env, target_ulong t0)
 {
@@ -586,18 +570,14 @@ void helper_idivl_EAX(CPUX86State *env, target_ulong t0)
 
     num = ((uint32_t)env->regs[R_EAX]) | ((uint64_t)((uint32_t)env->regs[R_EDX]) << 32);
     den = t0;
-#if 0
     if (den == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
-#endif
     q = (num / den);
     r = (num % den);
-#if 0
     if (q != (int32_t)q) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
-#endif
     env->regs[R_EAX] = (uint32_t)q;
     env->regs[R_EDX] = (uint32_t)r;
 }

@@ -238,7 +238,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             inc = frac & frac_lsb ? 0 : round_mask;
             break;
         default:
-            __builtin_trap();__builtin_unreachable();
+            g_assert_not_reached();
         }
 
         exp += parm->exp_bias;
@@ -330,7 +330,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
         break;
 
     default:
-        __builtin_trap();__builtin_unreachable();
+        g_assert_not_reached();
     }
 
     float_raise(flags, s);
@@ -732,6 +732,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;

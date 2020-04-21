@@ -126,7 +126,7 @@ typedef struct IRQState *qemu_irq;
 #define ARRAY_SIZE(x) ((sizeof(x) / sizeof((x)[0])) + \
                        QEMU_BUILD_BUG_ON_ZERO(!QEMU_IS_ARRAY(x)))
 
-static bool tcg_allowed = true;
+extern bool tcg_allowed;
 
 #define tcg_enabled() (tcg_allowed)
 
@@ -954,6 +954,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1218,10 +1219,6 @@ struct X86CPU {
     int32_t hv_max_vps;
 };
 
-static void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
-                   uint32_t *eax, uint32_t *ebx,
-                   uint32_t *ecx, uint32_t *edx);
-
 typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
@@ -1236,32 +1233,16 @@ static inline CPUState *env_cpu(CPUArchState *env)
     return &env_archcpu(env)->parent_obj;
 }
 
-#define SVM_EXIT_CPUID		0x072
+void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
+                                          int error_code, uintptr_t retaddr);
 
-static void QEMU_NORETURN raise_exception_err_ra(CPUX86State *env, int exception_index,
-                                          int error_code, uintptr_t retaddr) {
-  __builtin_trap();
-  __builtin_unreachable();
-}
+# define GETPC() tci_tb_ptr
 
-void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
-                                   uint64_t param, uintptr_t retaddr);
+extern uintptr_t tci_tb_ptr;
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
-
-static void helper_cpuid(CPUX86State *env)
+void cpu_svm_check_intercept_param(CPUX86State *env, uint32_t type,
+                                   uint64_t param, uintptr_t retaddr)
 {
-    uint32_t eax, ebx, ecx, edx;
-
-    cpu_svm_check_intercept_param(env, SVM_EXIT_CPUID, 0, GETPC());
-
-    cpu_x86_cpuid(env, (uint32_t)env->regs[R_EAX], (uint32_t)env->regs[R_ECX],
-                  &eax, &ebx, &ecx, &edx);
-    env->regs[R_EAX] = eax;
-    env->regs[R_EBX] = ebx;
-    env->regs[R_ECX] = ecx;
-    env->regs[R_EDX] = edx;
 }
 
 uint64_t helper_rdpkru(CPUX86State *env, uint32_t ecx)
@@ -1903,7 +1884,7 @@ void host_cpuid(uint32_t function, uint32_t count,
                  : : "a"(function), "c"(count), "S"(vec)
                  : "memory", "cc");
 #else
-    __builtin_trap();__builtin_unreachable();
+    abort();
 #endif
 
     if (eax)

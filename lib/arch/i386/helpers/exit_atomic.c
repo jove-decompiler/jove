@@ -716,6 +716,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -996,10 +997,11 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define HELPER(name) glue(helper_, name)
 
-static void cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc) {}
+void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
-# define GETPC() \
-    ((uintptr_t)__builtin_extract_return_addr(__builtin_return_address(0)))
+# define GETPC() tci_tb_ptr
+
+extern uintptr_t tci_tb_ptr;
 
 void HELPER(exit_atomic)(CPUArchState *env)
 {

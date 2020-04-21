@@ -573,6 +573,7 @@ typedef struct CPUX86State {
     uint64_t msr_smi_count;
 
     uint32_t pkru;
+    uint32_t tsx_ctrl;
 
     uint64_t spec_ctrl;
     uint64_t virt_ssbd;
@@ -1426,7 +1427,7 @@ uint32_t cpu_cc_compute_all(CPUX86State *env, int op)
     return helper_cc_compute_all(CC_DST, CC_SRC, CC_SRC2, op);
 }
 
-#define g2h(x) ((void *)((unsigned long)(x)))
+#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
 
 typedef uint32_t abi_ptr;
 
