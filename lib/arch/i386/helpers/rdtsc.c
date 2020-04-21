@@ -580,8 +580,10 @@ void cpu_svm_check_intercept_param(CPUX86State *env1, uint32_t type,
 
 extern uintptr_t tci_tb_ptr;
 
+__attribute__((always_inline))
 void helper_rdtsc(CPUX86State *env)
 {
+#if 0
     uint64_t val;
 
     if ((env->cr[4] & CR4_TSD_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
@@ -592,5 +594,12 @@ void helper_rdtsc(CPUX86State *env)
     val = cpu_get_tsc(env) + env->tsc_offset;
     env->regs[R_EAX] = (uint32_t)(val);
     env->regs[R_EDX] = (uint32_t)(val >> 32);
+#else
+    uint32_t tickl, tickh;
+    asm volatile("rdtsc" : "=a"(tickl), "=d"(tickh));
+
+    env->regs[R_EAX] = tickl;
+    env->regs[R_EDX] = tickh;
+#endif
 }
 

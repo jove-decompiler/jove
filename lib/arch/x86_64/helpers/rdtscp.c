@@ -564,6 +564,8 @@ typedef struct CPUX86State {
     unsigned nr_dies;
 } CPUX86State;
 
+#if 0
+
 uint64_t cpu_get_tsc(CPUX86State *env);
 
 #define SVM_EXIT_RDTSC		0x06e
@@ -611,14 +613,29 @@ void helper_rdtsc(CPUX86State *env)
     env->regs[R_EDX] = (uint32_t)(val >> 32);
 }
 
+#endif
+
+__attribute__((always_inline))
 void helper_rdtscp(CPUX86State *env)
 {
+#if 0
     helper_rdtsc(env);
     env->regs[R_ECX] = (uint32_t)(env->tsc_aux);
+#else
+    unsigned int tickl, tickh, aux;
+    asm volatile("rdtscp" : "=a"(tickl), "=d"(tickh), "=c"(aux));
+
+    env->regs[R_EAX] = tickl;
+    env->regs[R_EDX] = tickh;
+    env->regs[R_ECX] = aux;
+#endif
 }
+
+#if 0
 
 uint64_t cpu_get_tsc(CPUX86State *env)
 {
     return cpu_get_host_ticks();
 }
 
+#endif
