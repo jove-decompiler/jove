@@ -1255,6 +1255,8 @@ typedef CPUX86State CPUArchState;
 
 typedef X86CPU ArchCPU;
 
+#if 0
+
 static inline ArchCPU *env_archcpu(CPUArchState *env)
 {
     return container_of(env, ArchCPU, env);
@@ -1908,6 +1910,7 @@ void host_cpuid(uint32_t function, uint32_t count,
         *edx = vec[3];
 }
 
+
 void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
                    uint32_t *eax, uint32_t *ebx,
                    uint32_t *ecx, uint32_t *edx)
@@ -2403,6 +2406,11 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
     }
 }
 
+#endif
+
+void host_cpuid(uint32_t function, uint32_t count, uint32_t *eax, uint32_t *ebx,
+                uint32_t *ecx, uint32_t *edx);
+
 void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
 {
     uint32_t dummy, ena_lo, ena_hi;
@@ -2410,7 +2418,12 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
 
     /* The OS must have enabled XSAVE.  */
     if (!(env->cr[4] & CR4_OSXSAVE_MASK)) {
+#if 0
         raise_exception_ra(env, EXCP06_ILLOP, GETPC());
+#else
+	__builtin_trap();
+	__builtin_unreachable();
+#endif
     }
 
     /* Only XCR0 is defined at present; the FPU may not be disabled.  */
@@ -2419,7 +2432,7 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
     }
 
     /* Disallow enabling unimplemented features.  */
-    cpu_x86_cpuid(env, 0x0d, 0, &ena_lo, &dummy, &dummy, &ena_hi);
+    host_cpuid(0x0d, 0, &ena_lo, &dummy, &dummy, &ena_hi);
     ena = ((uint64_t)ena_hi << 32) | ena_lo;
     if (mask & ~ena) {
         goto do_gpf;
@@ -2436,7 +2449,12 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
     return;
 
  do_gpf:
+#if 0
     raise_exception_ra(env, EXCP0D_GPF, GETPC());
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
 void cpu_sync_bndcs_hflags(CPUX86State *env)
