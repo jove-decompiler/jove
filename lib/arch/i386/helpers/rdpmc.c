@@ -106,6 +106,34 @@ struct CPUWatchpoint {
 
 typedef uint32_t target_ulong;
 
+enum {
+    R_EAX = 0,
+    R_ECX = 1,
+    R_EDX = 2,
+    R_EBX = 3,
+    R_ESP = 4,
+    R_EBP = 5,
+    R_ESI = 6,
+    R_EDI = 7,
+    R_R8 = 8,
+    R_R9 = 9,
+    R_R10 = 10,
+    R_R11 = 11,
+    R_R12 = 12,
+    R_R13 = 13,
+    R_R14 = 14,
+    R_R15 = 15,
+
+    R_AL = 0,
+    R_CL = 1,
+    R_DL = 2,
+    R_BL = 3,
+    R_AH = 4,
+    R_CH = 5,
+    R_DH = 6,
+    R_BH = 7,
+};
+
 #define HF_CPL_SHIFT         0
 
 #define HF_CPL_MASK          (3 << HF_CPL_SHIFT)
@@ -581,8 +609,10 @@ int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
 
 extern uintptr_t tci_tb_ptr;
 
+__attribute__((always_inline))
 void helper_rdpmc(CPUX86State *env)
 {
+#if 0
     if ((env->cr[4] & CR4_PCE_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
@@ -591,5 +621,15 @@ void helper_rdpmc(CPUX86State *env)
     /* currently unimplemented */
     qemu_log_mask(LOG_UNIMP, "x86: unimplemented rdpmc\n");
     raise_exception_err(env, EXCP06_ILLOP, 0);
+#else
+    uint32_t counter = env->regs[R_ECX];
+
+    uint32_t lo, hi;
+
+    asm volatile("rdpmc" : "=a" (lo), "=d" (hi) : "c" (counter));
+
+    env->regs[R_EAX] = lo;
+    env->regs[R_EDX] = hi;
+#endif
 }
 

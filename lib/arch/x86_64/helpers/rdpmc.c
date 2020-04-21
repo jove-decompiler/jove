@@ -590,8 +590,10 @@ void cpu_svm_check_intercept_param(CPUX86State *env, uint32_t type,
 {
 }
 
+__attribute__((always_inline))
 void helper_rdpmc(CPUX86State *env)
 {
+#if 0
     if ((env->cr[4] & CR4_PCE_MASK) && ((env->hflags & HF_CPL_MASK) != 0)) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
@@ -600,5 +602,15 @@ void helper_rdpmc(CPUX86State *env)
     /* currently unimplemented */
     qemu_log_mask(LOG_UNIMP, "x86: unimplemented rdpmc\n");
     raise_exception_err(env, EXCP06_ILLOP, 0);
+#else
+    uint32_t counter = env->regs[R_ECX];
+
+    uint32_t lo, hi;
+
+    asm volatile("rdpmc" : "=a" (lo), "=d" (hi) : "c" (counter));
+
+    env->regs[R_EAX] = lo;
+    env->regs[R_EDX] = hi;
+#endif
 }
 
