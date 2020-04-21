@@ -1254,15 +1254,27 @@ void helper_wrpkru(CPUX86State *env, uint32_t ecx, uint64_t val)
     CPUState *cs = env_cpu(env);
 
     if ((env->cr[4] & CR4_PKE_MASK) == 0) {
+#if 0
         raise_exception_err_ra(env, EXCP06_ILLOP, 0, GETPC());
+#else
+	__builtin_trap();
+	__builtin_unreachable();
+#endif
     }
     if (ecx != 0 || (val & 0xFFFFFFFF00000000ull)) {
+#if 0
         raise_exception_err_ra(env, EXCP0D_GPF, 0, GETPC());
+#else
+	__builtin_trap();
+	__builtin_unreachable();
+#endif
     }
 
     env->pkru = val;
     tlb_flush(cs);
 }
+
+#if 0
 
 #define KiB     (INT64_C(1) << 10)
 
@@ -2399,3 +2411,4 @@ void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
     }
 }
 
+#endif
