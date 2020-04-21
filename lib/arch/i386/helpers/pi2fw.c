@@ -238,7 +238,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
             inc = frac & frac_lsb ? 0 : round_mask;
             break;
         default:
-            g_assert_not_reached();
+            __builtin_trap();__builtin_unreachable();
         }
 
         exp += parm->exp_bias;
@@ -330,7 +330,7 @@ static FloatParts round_canonical(FloatParts p, float_status *s,
         break;
 
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 
     float_raise(flags, s);
