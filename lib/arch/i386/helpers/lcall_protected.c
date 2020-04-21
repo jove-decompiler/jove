@@ -1403,7 +1403,7 @@ static inline void cpu_load_eflags(CPUX86State *env, int eflags,
 
 typedef uint32_t abi_ptr;
 
-extern __thread uintptr_t helper_retaddr;
+static uintptr_t helper_retaddr;
 
 static inline void set_helper_retaddr(uintptr_t ra)
 {
