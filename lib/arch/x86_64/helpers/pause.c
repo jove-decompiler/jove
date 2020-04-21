@@ -983,6 +983,8 @@ struct X86CPU {
 
 typedef CPUX86State CPUArchState;
 
+#if 0
+
 typedef X86CPU ArchCPU;
 
 #define EXCP_INTERRUPT 	0x10000
@@ -1016,6 +1018,8 @@ static void do_pause(X86CPU *cpu)
     cs->exception_index = EXCP_INTERRUPT;
     cpu_loop_exit(cs);
 }
+
+#endif
 
 __attribute__((always_inline))
 void helper_pause(CPUX86State *env, int next_eip_addend)
