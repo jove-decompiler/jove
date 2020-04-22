@@ -21,14 +21,16 @@ constexpr int tcg_syscall_arg5_index = 13;
 constexpr int tcg_syscall_arg6_index = 11;
 constexpr int tcg_gs_base_index = 19;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+constexpr tcg_global_set_t NotArgs(68719460355);
+constexpr tcg_global_set_t NotRets(68719460355);
 constexpr tcg_global_set_t CallConvArgs(0);
 typedef std::array<unsigned, 0> CallConvArgArrayTy;
 static const CallConvArgArrayTy CallConvArgArray{};
 constexpr tcg_global_set_t CallConvRets(64);
 typedef std::array<unsigned, 1> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{6};
-static const int8_t tcg_global_by_offset_lookup_table[313] = {
-[0 ... 312] = -1,
+static const uint8_t tcg_global_by_offset_lookup_table[313] = {
+[0 ... 312] = 0xff,
 [52] = 2,
 [40] = 3,
 [44] = 4,
