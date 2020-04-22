@@ -1362,7 +1362,18 @@ enum {
 
 typedef int TCGReg;
 
+#if 0
 #define TCG_TARGET_DEFAULT_MO  (0)
+#else
+/* This defines the natural memory order supported by this
+ * architecture before guarantees made by various barrier
+ * instructions.
+ *
+ * The x86 has a pretty strong memory ordering which only really
+ * allows for some stores to be re-ordered after loads.
+ */
+#define TCG_TARGET_DEFAULT_MO (TCG_MO_ALL & ~TCG_MO_ST_LD)
+#endif
 
 #define TCG_TARGET_HAS_MEMORY_BSWAP     1
 
