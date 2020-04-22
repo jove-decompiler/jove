@@ -1467,8 +1467,10 @@ static inline uint32_t get_seg_base(uint32_t e1, uint32_t e2)
     return (e1 >> 16) | ((e2 & 0xff) << 16) | (e2 & 0xff000000);
 }
 
+__attribute__((always_inline))
 void helper_load_seg(CPUX86State *env, int seg_reg, int selector)
 {
+#if 0
     uint32_t e1, e2;
     int cpl, dpl, rpl;
     SegmentCache *dt;
@@ -1552,5 +1554,8 @@ void helper_load_seg(CPUX86State *env, int seg_reg, int selector)
                 selector, (unsigned long)sc->base, sc->limit, sc->flags);
 #endif
     }
+#else
+    __builtin_trap();
+#endif
 }
 
