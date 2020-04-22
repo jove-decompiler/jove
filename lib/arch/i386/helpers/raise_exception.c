@@ -1032,10 +1032,18 @@ int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
 
 void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 
+__attribute__((always_inline))
 void helper_raise_exception(CPUX86State *env, int exception_index)
 {
+#if 0
     raise_exception(env, exception_index);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
+
+#if 0
 
 static int check_exception(CPUX86State *env, int intno, int *error_code,
                            uintptr_t retaddr)
@@ -1104,3 +1112,4 @@ void raise_exception(CPUX86State *env, int exception_index)
     raise_interrupt2(env, exception_index, 0, 0, 0, 0);
 }
 
+#endif
