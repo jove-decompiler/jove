@@ -109,6 +109,101 @@ int main(int argc, char **argv) {
     }
   };
 
+  auto print_not_sets = [&](void) -> void {
+#if defined(__x86_64__)
+    const std::array<const char *, 16> not_arg_or_ret_regs{
+      "_frame",
+      "env",
+      "es_base",
+      "cs_base",
+      "ss_base",
+      "ds_base",
+      "fs_base",
+      "gs_base",
+      "bnd0_lb",
+      "bnd0_ub",
+      "bnd1_lb",
+      "bnd1_ub",
+      "bnd2_lb",
+      "bnd2_ub",
+      "bnd3_lb",
+      "bnd3_ub"
+    };
+#elif defined(__i386__)
+    const std::array<const char *, 24> not_arg_or_ret_regs{
+      "_frame",
+      "env",
+      "es_base",
+      "cs_base",
+      "ss_base",
+      "ds_base",
+      "fs_base",
+      "gs_base",
+      "bnd0_lb_0",
+      "bnd0_lb_1",
+      "bnd0_ub_0",
+      "bnd0_ub_1",
+      "bnd1_lb_0",
+      "bnd1_lb_1",
+      "bnd1_ub_0",
+      "bnd1_ub_1",
+      "bnd2_lb_0",
+      "bnd2_lb_1",
+      "bnd2_ub_0",
+      "bnd2_ub_1",
+      "bnd3_lb_0",
+      "bnd3_lb_1",
+      "bnd3_ub_0",
+      "bnd3_ub_1",
+    };
+#elif defined(__aarch64__)
+    const std::array<const char *, 2> not_arg_or_ret_regs{
+      "_frame",
+      "env",
+    };
+#elif defined(__mips64)
+    const std::array<const char *, 3> not_arg_or_ret_regs{
+      "_frame",
+      "env",
+      "PC",
+    };
+#elif defined(__mips__)
+    const std::array<const char *, 3> not_arg_or_ret_regs{
+      "_frame",
+      "env",
+      "PC",
+    };
+#else
+#error
+#endif
+
+    {
+      const auto &not_arg_regs = not_arg_or_ret_regs;
+
+      std::bitset<128> s;
+      for (const char *nm : not_arg_regs) {
+        int idx = tcg_index_of_named_global(nm);
+        assert(idx >= 0 && idx < s.size());
+        s.set(idx);
+      }
+
+      printf("constexpr tcg_global_set_t NotArgs(%llu);\n", s.to_ullong());
+    }
+
+    {
+      const auto &not_ret_regs = not_arg_or_ret_regs;
+
+      std::bitset<128> s;
+      for (const char *nm : not_ret_regs) {
+        int idx = tcg_index_of_named_global(nm);
+        assert(idx >= 0 && idx < s.size());
+        s.set(idx);
+      }
+
+      printf("constexpr tcg_global_set_t NotRets(%llu);\n", s.to_ullong());
+    }
+  };
+
   auto print_lookup_by_mem_offset = [&](void) -> void {
     unsigned max_offset = 0;
 
@@ -117,17 +212,17 @@ int main(int argc, char **argv) {
       max_offset = std::max<unsigned>(max_offset, ts.mem_offset);
     }
 
-    printf("static const int8_t tcg_global_by_offset_lookup_table[%u] = {\n"
-           "[0 ... %u] = -1,\n", max_offset + 1, max_offset);
+    printf("static const uint8_t tcg_global_by_offset_lookup_table[%u] = {\n"
+           "[0 ... %u] = 0xff,\n", max_offset + 1, max_offset);
 
-    for (int i = 0; i < tcg._ctx.nb_globals && i < INT8_MAX; i++) {
+    for (int i = 0; i < tcg._ctx.nb_globals; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
 
-      if (!ts.mem_base)
+      if (!ts.mem_base || strcmp(ts.mem_base->name, "env") != 0)
         continue;
 
-      if (strcmp(ts.mem_base->name, "env") != 0)
-        continue;
+      // global index must fit in a uint8_t
+      assert(i < 0xff);
 
       printf("[%u] = %d,\n", static_cast<unsigned>(ts.mem_offset), i);
     }
@@ -383,6 +478,7 @@ int main(int argc, char **argv) {
 #undef __TCG_CONST
 
   printf("typedef std::bitset<tcg_num_globals> tcg_global_set_t;\n");
+  print_not_sets();
   print_call_conv_sets();
   print_lookup_by_mem_offset();
 

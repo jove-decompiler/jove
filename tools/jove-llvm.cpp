@@ -3985,15 +3985,7 @@ void function_t::Analyze(void) {
       }
     } while (change);
 
-    this->Analysis.args = G[entryV].IN;
-    this->Analysis.args.reset(tcg_env_index);
-#if defined(__x86_64__)
-    this->Analysis.args.reset(tcg_fs_base_index);
-#elif defined(__i386__)
-    this->Analysis.args.reset(tcg_gs_base_index);
-#endif
-    if (tcg_program_counter_index >= 0)
-      this->Analysis.args.reset(tcg_program_counter_index);
+    this->Analysis.args = G[entryV].IN & ~NotArgs;
 
     //
     // reaching definitions
@@ -4029,16 +4021,7 @@ void function_t::Analyze(void) {
                           G[exitVertices.front()].OUT,
                           [&](tcg_global_set_t res, flow_vertex_t V) {
                             return res & G[V].OUT;
-                          });
-
-      this->Analysis.rets.reset(tcg_env_index);
-#if defined(__x86_64__)
-      this->Analysis.rets.reset(tcg_fs_base_index);
-#elif defined(__i386__)
-      this->Analysis.rets.reset(tcg_gs_base_index);
-#endif
-      if (tcg_program_counter_index >= 0)
-        this->Analysis.rets.reset(tcg_program_counter_index);
+                          }) & ~NotRets;
     }
   }
 
@@ -9376,7 +9359,7 @@ bool AnalyzeHelper(helper_function_t &hf) {
       unsigned off = Off.getZExtValue();
 
       if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
-          tcg_global_by_offset_lookup_table[off] < 0) {
+          tcg_global_by_offset_lookup_table[off] == 0xff) {
 
         if (opts::Verbose)
           WithColor::warning() << llvm::formatv("{0}: off={1} EnvGEP={2}\n",
