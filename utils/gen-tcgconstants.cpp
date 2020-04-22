@@ -49,7 +49,7 @@ int main(int argc, char **argv) {
 #endif
 
     {
-      std::bitset<128> s;
+      std::bitset<256> s;
       for (const char *nm : arg_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -180,7 +180,7 @@ int main(int argc, char **argv) {
     {
       const auto &not_arg_regs = not_arg_or_ret_regs;
 
-      std::bitset<128> s;
+      std::bitset<256> s;
       for (const char *nm : not_arg_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -193,7 +193,7 @@ int main(int argc, char **argv) {
     {
       const auto &not_ret_regs = not_arg_or_ret_regs;
 
-      std::bitset<128> s;
+      std::bitset<256> s;
       for (const char *nm : not_ret_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
