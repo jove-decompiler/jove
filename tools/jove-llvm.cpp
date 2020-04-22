@@ -7665,7 +7665,7 @@ int RenameFunctionLocals(void) {
     return 0;
 
   for (llvm::User *U : CPUStateGlobal->users()) {
-    int glb = -1;
+    uint8_t glb = 0xff;
 
     if (llvm::ConstantExpr *CE = llvm::dyn_cast<llvm::ConstantExpr>(U)) {
       llvm::Instruction *I = CE->getAsInstruction();
@@ -7683,7 +7683,7 @@ int RenameFunctionLocals(void) {
       I->deleteValue();
     }
 
-    if (glb < 0)
+    if (glb == 0xff)
       continue;
 
     const char *nm = TCG->_ctx.temps[glb].name;
