@@ -56,7 +56,11 @@ int main(int argc, char **argv) {
         s.set(idx);
       }
 
-      printf("constexpr tcg_global_set_t CallConvArgs(%llu);\n", s.to_ullong());
+      try {
+        printf("constexpr tcg_global_set_t CallConvArgs(%llu);\n", s.to_ullong());
+      } catch (...) {
+        printf("static const tcg_global_set_t CallConvArgs(\"%s\");\n", s.to_string().c_str());
+      }
     }
 
     {
@@ -79,14 +83,18 @@ int main(int argc, char **argv) {
     }
 
     {
-      std::bitset<64> s;
+      std::bitset<256> s;
       for (const char *nm : ret_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
         s.set(idx);
       }
 
-      printf("constexpr tcg_global_set_t CallConvRets(%llu);\n", s.to_ullong());
+      try {
+        printf("constexpr tcg_global_set_t CallConvRets(%llu);\n", s.to_ullong());
+      } catch (...) {
+        printf("static const tcg_global_set_t CallConvRets(\"%s\");\n", s.to_string().c_str());
+      }
     }
 
     {
@@ -187,7 +195,11 @@ int main(int argc, char **argv) {
         s.set(idx);
       }
 
-      printf("constexpr tcg_global_set_t NotArgs(%llu);\n", s.to_ullong());
+      try {
+        printf("constexpr tcg_global_set_t NotArgs(%llu);\n", s.to_ullong());
+      } catch (...) {
+        printf("static const tcg_global_set_t NotArgs(\"%s\");\n", s.to_string().c_str());
+      }
     }
 
     {
@@ -200,7 +212,11 @@ int main(int argc, char **argv) {
         s.set(idx);
       }
 
-      printf("constexpr tcg_global_set_t NotRets(%llu);\n", s.to_ullong());
+      try {
+        printf("constexpr tcg_global_set_t NotRets(%llu);\n", s.to_ullong());
+      } catch (...) {
+        printf("static const tcg_global_set_t NotRets(\"%s\");\n", s.to_string().c_str());
+      }
     }
   };
 
