@@ -20,14 +20,16 @@ constexpr int tcg_syscall_arg4_index = 8;
 constexpr int tcg_syscall_arg5_index = 9;
 constexpr int tcg_syscall_arg6_index = 10;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
+static const tcg_global_set_t NotArgs("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
+static const tcg_global_set_t NotRets("0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
 constexpr tcg_global_set_t CallConvArgs(480);
 typedef std::array<unsigned, 4> CallConvArgArrayTy;
 static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
 constexpr tcg_global_set_t CallConvRets(8);
 typedef std::array<unsigned, 1> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{3};
-static const int8_t tcg_global_by_offset_lookup_table[11133] = {
-[0 ... 11132] = -1,
+static const uint8_t tcg_global_by_offset_lookup_table[11133] = {
+[0 ... 11132] = 0xff,
 [4] = 2,
 [8] = 3,
 [12] = 4,
@@ -154,9 +156,7 @@ static const int8_t tcg_global_by_offset_lookup_table[11133] = {
 [532] = 125,
 [536] = 126,
 [540] = 127,
-#if 0 /* XXX I don't like this hack */
 [544] = 128,
 [548] = 129,
-#endif
 };
 }
