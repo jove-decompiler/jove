@@ -613,7 +613,7 @@ typedef uint32_t u32;
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
 
-#define JOVE_SYS_ATTR _NOINL _UNUSED
+#define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
 extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);
@@ -1306,9 +1306,9 @@ void _jove_fail2(target_ulong rdi,
   asm volatile("int3");
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
-                         target_ulong *args   /* rsi */,
-                         target_ulong *emuspp /* rdx */) {
+target_ulong _jove_thunk(target_ulong dstpc,
+                         target_ulong *args,
+                         target_ulong *emuspp) {
   asm volatile("push %%ebp\n" /* callee-saved registers */
                "push %%edi\n"
                "push %%esi\n"
