@@ -35,111 +35,128 @@
 #define __user
 #endif
 
+#define __SYSCALL_CLOBBERS "memory", "cc"
+
 #define ___SYSCALL0(nr, nm)                                                    \
   static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
-    int32_t retval;                                                            \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr)                                                     \
-                 : "memory", "cc");                                            \
+                 : "a"(_nr)                                                    \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1) {                            \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1)                                                     \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2) {                     \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
                    "c"(a2)                                                     \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {              \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
                    "c"(a2),                                                    \
                    "d"(a3)                                                     \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {       \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
+                                           long a4) {                          \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
                    "c"(a2),                                                    \
                    "d"(a3),                                                    \
                    "S"(a4)                                                     \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,         \
-                                           t5 a5) {                            \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5) {                          \
+    long retval;                                                               \
+                                                                               \
+    unsigned long _nr = nr;                                                    \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
                    "c"(a2),                                                    \
                    "d"(a3),                                                    \
                    "S"(a4),                                                    \
                    "D"(a5)                                                     \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5,  \
-                                           t6 a6) {                            \
-    int32_t retval;                                                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5, long a6) {                 \
+    long retval;                                                               \
                                                                                \
-    register t6 _a6 asm("ebp") = a6;                                           \
+    unsigned long _nr = nr;                                                    \
+                                                                               \
+    register long _a6 asm("ebp") = a6;                                         \
                                                                                \
     asm volatile("int $0x80"                                                   \
                  : "=a"(retval)                                                \
-                 : "a"(nr),                                                    \
+                 : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
                    "c"(a2),                                                    \
                    "d"(a3),                                                    \
                    "S"(a4),                                                    \
                    "D"(a5),                                                    \
                    "r"(_a6)                                                    \
-                 : "memory", "cc");                                            \
+                 : __SYSCALL_CLOBBERS);                                        \
                                                                                \
     return retval;                                                             \
   }
