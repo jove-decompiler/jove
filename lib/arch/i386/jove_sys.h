@@ -154,7 +154,8 @@
                    "d"(a3),                                                    \
                    "S"(a4),                                                    \
                    "D"(a5),                                                    \
-                   "m"(a6)                                                     \
+                   "m"(a6) /* "r" yields compiler error: "inline assembly */   \
+                           /* requires more registers than available" */       \
                  : __SYSCALL_CLOBBERS, "ebp");                                 \
                                                                                \
     return retval;                                                             \
