@@ -10282,6 +10282,39 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __CTZ_OP
 
+  case INDEX_op_deposit_i32: {
+    TCGTemp *dst = arg_temp(op->args[0]);
+    TCGTemp *src1 = arg_temp(op->args[1]);
+    TCGTemp *src2 = arg_temp(op->args[2]);
+
+    llvm::Value *arg1 = get(src1);
+    llvm::Value *arg2 = get(src2);
+    arg2 = IRB.CreateTrunc(arg2, IRB.getInt32Ty());
+
+    uint32_t ofs = op->args[3];
+    uint32_t len = op->args[4];
+
+    if (0 == ofs && 32 == len) {
+      set(arg2, dst);
+      break;
+    }
+
+    uint32_t mask = (1u << len) - 1;
+    llvm::Value *t1, *ret;
+
+    if (ofs + len < 32) {
+      t1 = IRB.CreateAnd(arg2, llvm::APInt(32, mask));
+      t1 = IRB.CreateShl(t1, llvm::APInt(32, ofs));
+    } else {
+      t1 = IRB.CreateShl(arg2, llvm::APInt(32, ofs));
+    }
+
+    ret = IRB.CreateAnd(arg1, llvm::APInt(32, ~(mask << ofs)));
+    ret = IRB.CreateOr(ret, t1);
+    set(ret, dst);
+    break;
+  }
+
   case INDEX_op_deposit_i64: {
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src1 = arg_temp(op->args[1]);
