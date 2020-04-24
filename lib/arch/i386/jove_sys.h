@@ -145,9 +145,8 @@
                                                                                \
     unsigned long _nr = nr;                                                    \
                                                                                \
-    register long _a6 asm("ebp") = a6;                                         \
-                                                                               \
-    asm volatile("int $0x80"                                                   \
+    asm volatile("movl %7, %%ebp\n"                                            \
+                 "int $0x80"                                                   \
                  : "=a"(retval)                                                \
                  : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
@@ -155,8 +154,8 @@
                    "d"(a3),                                                    \
                    "S"(a4),                                                    \
                    "D"(a5),                                                    \
-                   "r"(_a6)                                                    \
-                 : __SYSCALL_CLOBBERS);                                        \
+                   "m"(a6)                                                     \
+                 : __SYSCALL_CLOBBERS, "ebp");                                 \
                                                                                \
     return retval;                                                             \
   }
