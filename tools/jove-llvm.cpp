@@ -6992,15 +6992,14 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
         llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
         llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+        if (!GlbPtr)
+          continue;
 
-        llvm::Value *Val;
-        if (GlbPtr)
-          Val = IRB.CreateLoad(GlbPtr);
-        else
-          Val = llvm::UndefValue::get(GlbTy); // llvm::Constant::getNullValue(GlbTy);
+        llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
-        IRB.CreateStore(Val, Ptr);
+        llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
 
