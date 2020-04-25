@@ -145,8 +145,10 @@
                                                                                \
     unsigned long _nr = nr;                                                    \
                                                                                \
-    asm volatile("movl %7, %%ebp\n"                                            \
-                 "int $0x80"                                                   \
+    asm volatile("pushl %%ebp\n"                                               \
+                 "movl %7, %%ebp\n"                                            \
+                 "int $0x80\n"                                                 \
+                 "popl %%ebp\n"                                                \
                  : "=a"(retval)                                                \
                  : "a"(_nr),                                                   \
                    "b"(a1),                                                    \
