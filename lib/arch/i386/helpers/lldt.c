@@ -1318,6 +1318,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
 
 void helper_lldt(CPUX86State *env, int selector)
 {
+#if 0
     SegmentCache *dt;
     uint32_t e1, e2;
     int index, entry_limit;
@@ -1368,5 +1369,8 @@ void helper_lldt(CPUX86State *env, int selector)
         }
     }
     env->ldt.selector = selector;
+#else
+    __builtin_trap();
+#endif
 }
 

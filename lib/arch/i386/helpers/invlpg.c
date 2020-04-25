@@ -1001,9 +1001,13 @@ extern uintptr_t tci_tb_ptr;
 
 void helper_invlpg(CPUX86State *env, target_ulong addr)
 {
+#if 0
     X86CPU *cpu = env_archcpu(env);
 
     cpu_svm_check_intercept_param(env, SVM_EXIT_INVLPG, 0, GETPC());
     tlb_flush_page(CPU(cpu), addr);
+#else
+    __builtin_trap();
+#endif
 }
 

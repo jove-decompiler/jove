@@ -2172,6 +2172,7 @@ static void switch_tss_ra(CPUX86State *env, int tss_selector,
 void helper_ljmp_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
                            target_ulong next_eip)
 {
+#if 0
     int gate_cs, type;
     uint32_t e1, e2, cpl, dpl, rpl, limit;
 
@@ -2306,5 +2307,8 @@ void helper_ljmp_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
             break;
         }
     }
+#else
+    __builtin_trap();
+#endif
 }
 

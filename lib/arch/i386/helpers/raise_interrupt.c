@@ -1040,7 +1040,6 @@ void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
     raise_interrupt(env, intno, 1, 0, next_eip_addend);
 #else
     __builtin_trap();
-    __builtin_unreachable();
 #endif
 }
 

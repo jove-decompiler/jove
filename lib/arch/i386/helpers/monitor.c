@@ -574,10 +574,14 @@ extern uintptr_t tci_tb_ptr;
 
 void helper_monitor(CPUX86State *env, target_ulong ptr)
 {
+#if 0
     if ((uint32_t)env->regs[R_ECX] != 0) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
     /* XXX: store address? */
     cpu_svm_check_intercept_param(env, SVM_EXIT_MONITOR, 0, GETPC());
+#else
+    __builtin_trap();
+#endif
 }
 

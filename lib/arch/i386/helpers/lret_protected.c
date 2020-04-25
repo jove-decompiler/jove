@@ -1923,6 +1923,10 @@ static inline void helper_ret_protected(CPUX86State *env, int shift,
 
 void helper_lret_protected(CPUX86State *env, int shift, int addend)
 {
+#if 0
     helper_ret_protected(env, shift, 0, addend, GETPC());
+#else
+    __builtin_trap();
+#endif
 }
 

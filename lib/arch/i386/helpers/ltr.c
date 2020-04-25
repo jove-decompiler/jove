@@ -1360,6 +1360,7 @@ static inline void load_seg_cache_raw_dt(SegmentCache *sc, uint32_t e1,
 
 void helper_ltr(CPUX86State *env, int selector)
 {
+#if 0
     SegmentCache *dt;
     uint32_t e1, e2;
     int index, type, entry_limit;
@@ -1419,5 +1420,8 @@ void helper_ltr(CPUX86State *env, int selector)
         cpu_stl_kernel_ra(env, ptr + 4, e2, GETPC());
     }
     env->tr.selector = selector;
+#else
+    __builtin_trap();
+#endif
 }
 

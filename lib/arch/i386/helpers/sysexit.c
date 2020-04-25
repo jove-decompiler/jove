@@ -694,6 +694,7 @@ extern uintptr_t tci_tb_ptr;
 
 void helper_sysexit(CPUX86State *env, int dflag)
 {
+#if 0
     int cpl;
 
     cpl = env->hflags & HF_CPL_MASK;
@@ -729,5 +730,8 @@ void helper_sysexit(CPUX86State *env, int dflag)
     }
     env->regs[R_ESP] = env->regs[R_ECX];
     env->eip = env->regs[R_EDX];
+#else
+    __builtin_trap();
+#endif
 }
 

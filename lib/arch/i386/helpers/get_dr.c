@@ -539,6 +539,7 @@ extern uintptr_t tci_tb_ptr;
 
 target_ulong helper_get_dr(CPUX86State *env, int reg)
 {
+#if 0
     switch (reg) {
     case 0: case 1: case 2: case 3: case 6: case 7:
         return env->dr[reg];
@@ -556,5 +557,8 @@ target_ulong helper_get_dr(CPUX86State *env, int reg)
         }
     }
     raise_exception_err_ra(env, EXCP06_ILLOP, 0, GETPC());
+#else
+    __builtin_trap();
+#endif
 }
 

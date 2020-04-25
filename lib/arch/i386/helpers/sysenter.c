@@ -698,6 +698,7 @@ extern uintptr_t tci_tb_ptr;
 
 void helper_sysenter(CPUX86State *env)
 {
+#if 0
     if (env->sysenter_cs == 0) {
         raise_exception_err_ra(env, EXCP0D_GPF, 0, GETPC());
     }
@@ -727,5 +728,8 @@ void helper_sysenter(CPUX86State *env)
                            DESC_W_MASK | DESC_A_MASK);
     env->regs[R_ESP] = env->sysenter_esp;
     env->eip = env->sysenter_eip;
+#else
+    __builtin_trap();
+#endif
 }
 
