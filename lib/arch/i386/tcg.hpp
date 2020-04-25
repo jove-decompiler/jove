@@ -19419,7 +19419,12 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
                 tcg_gen_ext16u_tl(s->T0, s->T0);
             }
             next_eip = s->pc - s->cs_base;
+#if 1
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(s->T1, next_eip);
+#else
+            tcg_gen_movi_tl(s->T1, JOVE_RETADDR_COOKIE);
+#endif
             gen_push_v(s, s->T1);
             gen_op_jmp_v(s->T0);
             gen_bnd_jmp(s);
