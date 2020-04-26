@@ -138,7 +138,6 @@ struct hook_t;
 #include <llvm/IR/Metadata.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/PatternMatch.h>
-#include <llvm/IR/PatternMatch.h>
 #include <llvm/IR/Verifier.h>
 #include <llvm/IR/IntrinsicInst.h>
 #include <llvm/InitializePasses.h>
@@ -7412,6 +7411,73 @@ int FixupPCRelativeAddrs(void) {
   PCRelGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
   PCRelGlobal->setConstant(true);
   PCRelGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+#else
+
+#if 0
+  unsigned off = Addr - SectsStartAddr;
+
+  llvm::GlobalVariable *SectsGV =
+      ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
+          ? ConstSectsGlobal
+          : SectsGlobal;
+#endif
+  assert(SectsGlobal && ConstSectsGlobal);
+
+  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+
+  for (llvm::User *U_0 : SectsGlobal->users()) {
+    if (!llvm::isa<llvm::ConstantExpr>(U_0))
+      continue;
+
+    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
+    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt)
+      continue;
+
+    for (llvm::User *U_1 : CE_0->users()) {
+      if (!llvm::isa<llvm::ConstantExpr>(U_1))
+        continue;
+
+      llvm::ConstantExpr *CE_1 = llvm::cast<llvm::ConstantExpr>(U_1);
+      if (CE_1->getOpcode() != llvm::Instruction::Add)
+        continue;
+
+      assert(CE_1->getNumOperands() == 2);
+      llvm::Value *Addend = CE_1->getOperand(1);
+      if (!llvm::isa<llvm::ConstantInt>(Addend))
+        continue;
+
+      if (llvm::cast<llvm::ConstantInt>(Addend)->getValue().isStrictlyPositive()) {
+        uintptr_t off =
+            llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue();
+
+        uintptr_t FileAddr = off + SectsStartAddr;
+
+        llvm::GlobalVariable *SectsGV = ConstantRelocationLocs.find(FileAddr) !=
+                                                ConstantRelocationLocs.end()
+                                            ? ConstSectsGlobal
+                                            : SectsGlobal;
+
+        llvm::IRBuilderTy IRB(*Context);
+        llvm::SmallVector<llvm::Value *, 4> Indices;
+        llvm::Value *res = llvm::getNaturalGEPWithOffset(
+            IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
+
+        if (res && llvm::isa<llvm::Constant>(res))
+          ToReplace.push_back(
+              {(llvm::Value *)CE_1,
+               llvm::ConstantExpr::getPtrToInt(llvm::cast<llvm::Constant>(res),
+                                               WordType())});
+      }
+    }
+  }
+
+  for (auto &TR : ToReplace) {
+    llvm::Value *I;
+    llvm::Value *V;
+    std::tie(I, V) = TR;
+
+    I->replaceAllUsesWith(V);
+  }
 #endif
 
   return 0;
@@ -8561,12 +8627,12 @@ int TranslateBasicBlock(binary_t &Binary,
     if (opts::NoInline || callee.IsABI)
       Ret->setIsNoInline();
 
-#if 0
+#if !defined(__x86_64__) && defined(__i386__)
     if (!opts::NoInline &&
         callee.BasicBlocks.size() == 1 &&
-        ICFG[callee.BasicBlocks.front()].IsSingleInstruction())
-      ; /* allow this call to be inlined */
-    else
+        ICFG[callee.BasicBlocks.front()].IsSingleInstruction()) {
+      CallsToInline.push_back(Ret); /* force inline */
+    }
 #endif
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
@@ -8794,7 +8860,7 @@ int TranslateBasicBlock(binary_t &Binary,
         if (foreign)
           restore_callstack_pointers();
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
         if (foreign) // SP += 8 to "pop" the emulated return address
           IRB.CreateStore(
               IRB.CreateAdd(
@@ -9041,7 +9107,7 @@ int TranslateBasicBlock(binary_t &Binary,
             if (foreign)
               restore_callstack_pointers();
 
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
             if (foreign) // SP += 8 to "pop" the emulated return address
               IRB.CreateStore(
                   IRB.CreateAdd(
@@ -9181,7 +9247,7 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) || defined(__i386__)
     llvm::Value *Args[] = {
         IRB.CreateLoad(f.PCAlloca),
         IRB.CreatePtrToInt(
@@ -9657,7 +9723,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       llvm::Value *Env = ArgVec[hf.EnvArgNo];
 
       //
-      // store our globals to the local env
+      // store our globals to the (maybe local) env
       //
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, hf.Analysis.InGlbs | hf.Analysis.OutGlbs);
