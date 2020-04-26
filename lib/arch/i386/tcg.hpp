@@ -16314,7 +16314,12 @@ static uint64_t advance_pc(CPUX86State *env, DisasContext *s, int num_bytes)
                 cpu_ldub_code(env, (s->pc - 1) & TARGET_PAGE_MASK);
             (void) unused;
         }
+#if 0
         siglongjmp(s->jmpbuf, 1);
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 
     return pc;
