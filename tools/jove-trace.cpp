@@ -412,6 +412,10 @@ skip_uprobe:
       return ret;
   }
 
+  //
+  // TODO: read contents of /sys/kernel/debug/tracing/trace
+  //
+
   return 0;
 }
 
