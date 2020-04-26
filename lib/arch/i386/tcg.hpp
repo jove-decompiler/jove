@@ -18876,6 +18876,26 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
     rex_w = -1;
     rex_r = 0;
 
+    //
+    // (jove) hack for call dword ptr gs:[16]
+    //
+    {
+      const uint8_t needle[] = {0x65, 0xff, 0x15, 0x10, 0x00, 0x00, 0x00};
+      void *code =
+          (void *)((((unsigned long)(target_ulong)(s->pc)) - guest_base_addr) +
+                   guest_base);
+
+      if (memcmp(code, needle, sizeof(needle)) == 0) {
+        /* int 0x80 */
+        gen_interrupt(s, 0x80, pc_start - s->cs_base, s->pc - s->cs_base);
+        s->pc += sizeof(needle); /* advance pc */
+
+        s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        s->base.tb->jove.T._none.NextPC = s->pc - s->cs_base;
+        return s->pc;
+      }
+    }
+
  next_byte:
     b = x86_ldub_code(env, s);
     /* Collect prefixes.  */
