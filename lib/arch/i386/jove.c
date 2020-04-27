@@ -1292,12 +1292,12 @@ found:
   }
 }
 
-void _jove_fail1(target_ulong rdi) {
+void _jove_fail1(target_ulong x) {
   asm volatile("hlt");
 }
 
-void _jove_fail2(target_ulong rdi,
-                 target_ulong rsi) {
+void _jove_fail2(target_ulong x,
+                 target_ulong y) {
   asm volatile("hlt");
 }
 
