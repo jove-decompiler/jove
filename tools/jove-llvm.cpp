@@ -4145,6 +4145,8 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
 
+        // XXX the following is unnecessary, isn't it?
+#if 0
         void *helper_ptr =
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
 
@@ -4212,6 +4214,7 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             iglbs.set(tcg_syscall_number_index);
           }
         }
+#endif
       } else {
         const TCGOpDef &opdef = tcg_op_defs[opc];
 
@@ -4569,8 +4572,54 @@ const helper_function_t &LookupHelper(TCGOp *op) {
       hf.Analysis.Simple = true; /* XXX */
     }
 
-    WithColor::note() << llvm::formatv(
-        "[helper] {0} {1}\n", hf.Analysis.Simple ? "-" : "+", helper_nm);
+    {
+      std::string InGlbsStr;
+
+      {
+        std::vector<unsigned> iglbv;
+        explode_tcg_global_set(iglbv, hf.Analysis.InGlbs);
+
+        //InGlbsStr.push_back('{');
+        for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
+          unsigned glb = *it;
+
+          InGlbsStr.append(TCG->_ctx.temps[glb].name);
+          if (std::next(it) != iglbv.end())
+            InGlbsStr.append(", ");
+        }
+        //InGlbsStr.push_back('}');
+      }
+
+      std::string OutGlbsStr;
+
+      {
+        std::vector<unsigned> oglbv;
+        explode_tcg_global_set(oglbv, hf.Analysis.OutGlbs);
+
+        //OutGlbsStr.push_back('{');
+        for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
+          unsigned glb = *it;
+
+          OutGlbsStr.append(TCG->_ctx.temps[glb].name);
+          if (std::next(it) != oglbv.end())
+            OutGlbsStr.append(", ");
+        }
+        //OutGlbsStr.push_back('}');
+      }
+
+      const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
+
+      if (!InGlbsStr.empty() || !OutGlbsStr.empty()) {
+        WithColor::note() << llvm::formatv("[helper] ({0}) {1} : {2} -> {3}\n",
+                                           IsSimpleStr,
+                                           helper_nm,
+                                           InGlbsStr,
+                                           OutGlbsStr);
+      } else {
+        WithColor::note() << llvm::formatv("[helper] ({0}) {1}\n", IsSimpleStr,
+                                           helper_nm);
+      }
+    }
 
     return hf;
   } else {
