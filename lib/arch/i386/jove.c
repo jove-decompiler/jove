@@ -992,7 +992,7 @@ void _jove_trace_init(void) {
     __builtin_unreachable();
   }
 
-  off_t size = 1UL << 31; /* 2 GiB */
+  off_t size = 1UL << 30; /* 1 GiB */
   if (_jove_sys_ftruncate(fd, size) < 0) {
     __builtin_trap();
     __builtin_unreachable();
@@ -1002,7 +1002,7 @@ void _jove_trace_init(void) {
     long ret = _jove_sys_mmap_pgoff(0x0, size, PROT_READ | PROT_WRITE,
                                     MAP_SHARED, fd, 0);
 
-    if (ret < 0) {
+    if (ret < 0 && ret > -4096) {
       __builtin_trap();
       __builtin_unreachable();
     }
@@ -1017,6 +1017,7 @@ void _jove_trace_init(void) {
     __builtin_unreachable();
   }
 
+#if 0
   //
   // install SIGSEGV handler
   //
@@ -1032,6 +1033,7 @@ void _jove_trace_init(void) {
       __builtin_unreachable();
     }
   }
+#endif
 }
 
 static void _jove_flush_trace(void);
@@ -1488,23 +1490,19 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 target_ulong _jove_alloc_stack(void) {
-  void *ret =
-      (void *)_jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret == MAP_FAILED) {
+  long ret = _jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
     __builtin_trap();
     __builtin_unreachable();
   }
 
-  if (ret == NULL) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  unsigned long uret = (unsigned long)ret;
 
   //
   // create guard pages on both sides
   //
-  unsigned long beg = (unsigned long)ret;
+  unsigned long beg = uret;
   unsigned long end = beg + JOVE_STACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
@@ -1656,8 +1654,9 @@ void _jove_callstack_init(void) {
     return;
 
   {
-    long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+    long ret =
+        _jove_sys_mmap_pgoff(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
     if (ret < 0 && ret > -4096) {
       __builtin_trap();
       __builtin_unreachable();
