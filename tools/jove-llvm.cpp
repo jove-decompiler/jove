@@ -7283,7 +7283,7 @@ ConstantForRelativeAddress(uintptr_t Addr) {
   auto it = st.FuncMap.find(Addr);
   if (it != st.FuncMap.end()) {
     function_t &f = Binary.Analysis.Functions[(*it).second];
-    res = f.F;
+    res = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
 
     if (!f.IsABI) {
       WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
@@ -7296,8 +7296,8 @@ ConstantForRelativeAddress(uintptr_t Addr) {
     assert(res);
   }
 
-  assert(res->getType()->isPointerTy());
-  return llvm::ConstantExpr::getPtrToInt(res, WordType());
+  assert(res->getType()->isIntegerTy(WordBits()));
+  return res;
 }
 
 int FixupPCRelativeAddrs(void) {
