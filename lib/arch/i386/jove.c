@@ -592,13 +592,6 @@ struct kernel_sigaction {
   kernel_sigset_t _sa_mask;
 };
 
-typedef uint16_t old_uid_t;
-typedef uint16_t old_gid_t;
-typedef int32_t old_time32_t;
-typedef uint32_t old_sigset_t;
-typedef uint32_t qid_t;
-typedef uint32_t u32;
-
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
@@ -1300,12 +1293,12 @@ found:
 }
 
 void _jove_fail1(target_ulong rdi) {
-  asm volatile("int3");
+  asm volatile("hlt");
 }
 
 void _jove_fail2(target_ulong rdi,
                  target_ulong rsi) {
-  asm volatile("int3");
+  asm volatile("hlt");
 }
 
 target_ulong _jove_thunk(target_ulong dstpc,
