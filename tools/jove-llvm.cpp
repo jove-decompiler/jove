@@ -4147,6 +4147,12 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 
         void *helper_ptr =
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
+
+        //
+        // check to see if this helper function call is really a system call,
+        // and if so, try to get the number of parameters (if we can get the num
+        // statically)
+        //
 #if defined(__x86_64__)
         if (helper_ptr == helper_syscall) {
 #elif defined(__i386__)
