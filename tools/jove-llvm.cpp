@@ -8894,9 +8894,13 @@ int TranslateBasicBlock(binary_t &Binary,
         std::vector<unsigned> glbv;
         ExplodeFunctionRets(callee, glbv);
 
-        if (glbv.size() == 1) {
+        if (glbv.size() == 1
+            || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
           IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
         } else {
+          assert(glbv.size() > 1);
+          assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
+
           for (unsigned i = 0; i < glbv.size(); ++i) {
             unsigned glb = glbv[i];
 
@@ -9141,8 +9145,23 @@ int TranslateBasicBlock(binary_t &Binary,
             std::vector<unsigned> glbv;
             ExplodeFunctionRets(callee, glbv);
 
-            assert(glbv.size() == 1);
-            IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+            if (glbv.size() == 1
+                || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
+              IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+            } else {
+              assert(glbv.size() > 1);
+              assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
+
+              for (unsigned i = 0; i < glbv.size(); ++i) {
+                unsigned glb = glbv[i];
+
+                llvm::Value *Val = IRB.CreateExtractValue(
+                    Ret, llvm::ArrayRef<unsigned>(i),
+                    (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+
+                IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
+              }
+            }
           }
 
           if (opts::DFSan) {
