@@ -878,8 +878,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     binary_t &binary = Decompilation.Binaries[BinaryIndex];
     auto &ICFG = binary.Analysis.ICFG;
     const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
-    return llvm::ConstantExpr::getPtrToInt(
-        SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr), WordType());
+    return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
   }
 
   bool needsThunk = DynTargetNeedsThunkPred(IdxPair);
@@ -4897,7 +4896,7 @@ int CreateFunctionTable(void) {
     const function_t &f = binary.Analysis.Functions[i];
     uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
-    llvm::Constant *C1 = llvm::ConstantExpr::getPtrToInt(SectionPointer(Addr), WordType());
+    llvm::Constant *C1 = SectionPointer(Addr);
     llvm::Constant *C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
 
     constantTable[2 * i + 0] = C1;
@@ -5033,6 +5032,7 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
     return nullptr;
 
   unsigned off = Addr - SectsStartAddr;
+#if 0
 
   llvm::GlobalVariable *SectsGV =
       ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
@@ -5064,6 +5064,11 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
           llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
           llvm::ConstantInt::get(WordType(), off)),
       llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
+#else
+  return llvm::ConstantExpr::getAdd(
+      llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
+      llvm::ConstantInt::get(WordType(), off));
+#endif
 }
 
 int CreateTLSModGlobal(void) {
@@ -5191,11 +5196,16 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
+#if 0
     return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
+#if 0
     uintptr_t Addr;
     if (R.Addend) {
       Addr = R.Addend;
@@ -5219,6 +5229,9 @@ int CreateSectionGlobalVariables(void) {
 
       return llvm::PointerType::get(FTy, 0);
     }
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_irelative_relocation =
@@ -5497,10 +5510,10 @@ int CreateSectionGlobalVariables(void) {
     assert(!S.IsUndefined());
 
     //return Module->getNamedValue(S.Name);
+    llvm::Constant *C = SectionPointer(S.Addr);
+    assert(C);
 
-    return llvm::ConstantExpr::getBitCast(
-        SectionPointer(S.Addr),
-        llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
+    return C;
   };
 
   auto constant_of_relative_relocation =
@@ -5519,6 +5532,7 @@ int CreateSectionGlobalVariables(void) {
       Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
+#if 0
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       llvm::Constant *C = SectionPointer(Addr);
@@ -5529,6 +5543,11 @@ int CreateSectionGlobalVariables(void) {
       binary_t &Binary = Decompilation.Binaries[BinaryIndex];
       return Binary.Analysis.Functions[(*it).second].F;
     }
+#else
+    llvm::Constant *C = SectionPointer(Addr);
+    assert(C);
+    return C;
+#endif
   };
 
   auto constant_of_irelative_relocation =
@@ -6379,9 +6398,31 @@ int CreateSectionGlobalVariables(void) {
 
     for (const auto &pair : Sect.Stuff.Constants) {
       llvm::Constant *C = pair.second;
-      assert(llvm::isa<llvm::Function>(C));
+      llvm::Function *F = nullptr;
 
-      llvm::Function *F = llvm::cast<llvm::Function>(C);
+      llvm::ConstantInt *matched_Addend = nullptr;
+      if (llvm::PatternMatch::match(
+              C, llvm::PatternMatch::m_Add(
+                     llvm::PatternMatch::m_PtrToInt(
+                         llvm::PatternMatch::m_Specific(SectsGlobal)),
+                     llvm::PatternMatch::m_ConstantInt(matched_Addend)))) {
+        assert(matched_Addend);
+        uintptr_t off = matched_Addend->getValue().getZExtValue();
+        uintptr_t FileAddr = off + SectsStartAddr;
+
+        binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+        binary_state_t &st = BinStateVec[BinaryIndex];
+        auto it = st.FuncMap.find(FileAddr);
+        assert(it != st.FuncMap.end());
+        function_t &f = Binary.Analysis.Functions[(*it).second];
+        F = f.F;
+      } else {
+        WithColor::warning() << llvm::formatv(
+            "unable to match against constant expression in init array\n");
+        continue;
+      }
+
+      assert(F);
 
       {
         function_t &f = Decompilation.Binaries[BinaryIndex]
@@ -7512,17 +7553,18 @@ int FixupPCRelativeAddrs(void) {
 
         uintptr_t FileAddr = off + SectsStartAddr;
 
-        llvm::GlobalVariable *SectsGV = ConstantRelocationLocs.find(FileAddr) !=
-                                                ConstantRelocationLocs.end()
-                                            ? ConstSectsGlobal
-                                            : SectsGlobal;
+        bool RelocLoc = ConstantRelocationLocs.find(FileAddr) !=
+                        ConstantRelocationLocs.end();
+
+        llvm::GlobalVariable *SectsGV =
+            RelocLoc ? ConstSectsGlobal : SectsGlobal;
 
         llvm::IRBuilderTy IRB(*Context);
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *res = llvm::getNaturalGEPWithOffset(
             IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
 
-        if (res && llvm::isa<llvm::Constant>(res))
+        if (res && llvm::isa<llvm::Constant>(res) && RelocLoc)
           ToReplace.push_back(
               {(llvm::Value *)CE_1,
                llvm::ConstantExpr::getPtrToInt(llvm::cast<llvm::Constant>(res),
@@ -8802,9 +8844,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
         IRB.SetInsertPoint(IfSuccBlockVec[i]);
         llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-        llvm::Value *EQV = IRB.CreateICmpEQ(
-            PC, llvm::ConstantExpr::getPtrToInt(SectionPointer(ICFG[succ].Addr),
-                                                WordType()));
+        llvm::Value *EQV =
+            IRB.CreateICmpEQ(PC, SectionPointer(ICFG[succ].Addr));
         IRB.CreateCondBr(EQV, ICFG[succ].B,
                          i + 1 < N ? IfSuccBlockVec[i + 1] : ElseBlock);
       }
