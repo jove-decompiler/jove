@@ -4550,6 +4550,9 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 #if defined(__x86_64__)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_syscall))
+#elif defined(__i386__)
+    if (reinterpret_cast<void *>(addr) ==
+        reinterpret_cast<void *>(helper_raise_interrupt))
 #elif defined(__aarch64__)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_exception_with_syndrome))
