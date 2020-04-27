@@ -4145,8 +4145,6 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
 
-        // XXX the following is unnecessary, isn't it?
-#if 0
         void *helper_ptr =
             reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
 
@@ -4172,6 +4170,11 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 #endif
           const auto &N = constprop[tcg_syscall_number_index];
           if (N < syscalls::NR_END) {
+            //
+            // this is all for the purpose of achieving a higher-precision
+            // data-flow analysis. if we can statically determine the syscall
+            // number, we can know exactly how many parameters it takes
+            //
             iglbs.reset();
             oglbs.reset();
 
@@ -4214,7 +4217,6 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
             iglbs.set(tcg_syscall_number_index);
           }
         }
-#endif
       } else {
         const TCGOpDef &opdef = tcg_op_defs[opc];
 
