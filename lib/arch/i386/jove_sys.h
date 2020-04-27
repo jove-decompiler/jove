@@ -31,6 +31,12 @@
 #include <keyutils.h>
 #include <linux/bpf.h>
 
+typedef unsigned long old_time32_t;
+typedef unsigned long old_uid_t;
+typedef unsigned long old_gid_t;
+typedef uint32_t u32;
+typedef unsigned long old_sigset_t;
+
 #ifndef __user
 #define __user
 #endif
