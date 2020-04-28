@@ -598,7 +598,7 @@ struct kernel_sigaction {
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define _CTOR   __attribute__((constructor))
+#define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
 #define _NOINL  __attribute__((noinline))
