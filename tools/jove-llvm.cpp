@@ -664,6 +664,7 @@ static std::unordered_map<llvm::GlobalIFunc *,
 static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
 static std::vector<llvm::CallInst *> CallsToInline;
+static std::unordered_set<llvm::Function *> FunctionsToInline;
 
 static struct {
   std::unordered_map<std::string, std::unordered_set<std::string>> Table;
@@ -744,11 +745,12 @@ int llvm(void) {
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || TranslateFunctions()
-      || InlineCalls()
       || PrepareToOptimize()
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
       || DoOptimize()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
+      || InlineCalls()
+      || DoOptimize()
       || (opts::NoFixupPcrel ? 0 : FixupPCRelativeAddrs())
       || (opts::DumpPreFSBaseFixup ? (DumpModule("pre.fsbase.fixup"), 1) : 0)
       || FixupTPBaseAddrs()
@@ -5281,7 +5283,25 @@ int CreateSectionGlobalVariables(void) {
       return llvm::PointerType::get(T, 0);
     }
 
-    auto it = TLSValueToSymbolMap.find(R.Addend);
+
+#if !defined(__x86_64__) && defined(__i386__)
+    unsigned tpoff;
+    {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      tpoff = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
+    //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
+#else
+    unsigned tpoff = R.Addend;
+#endif
+
+    auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
       WithColor::error() << "no sym found for tpoff relocation\n";
       return nullptr;
@@ -5617,7 +5637,24 @@ int CreateSectionGlobalVariables(void) {
       return GV;
     }
 
-    auto it = TLSValueToSymbolMap.find(R.Addend);
+#if !defined(__x86_64__) && defined(__i386__)
+    unsigned tpoff;
+    {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      tpoff = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
+    //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
+#else
+    unsigned tpoff = R.Addend;
+#endif
+
+    auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
       WithColor::error() << "no sym found for tpoff relocation\n";
       return nullptr;
@@ -7146,6 +7183,27 @@ static int InlineCalls(void) {
     MemCpy->eraseFromParent();
   }
 #endif
+
+  assert(CallsToInline.empty());
+
+  for (llvm::Function *F : FunctionsToInline) {
+    for (llvm::User *U : F->users()) {
+      //llvm::errs() << __func__ << ": #1 [" << *U << "]\n";
+
+      if (!llvm::isa<llvm::CallInst>(U))
+        continue;
+
+      //llvm::errs() << __func__ << ": #2\n";
+
+      llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
+      if (Call->getCalledFunction() != F)
+        continue;
+
+      //llvm::errs() << __func__ << ": #3\n";
+
+      CallsToInline.push_back(Call);
+    }
+  }
 
   for (llvm::CallInst *CallInst : CallsToInline) {
     llvm::InlineFunctionInfo IFI;
@@ -8744,9 +8802,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
 #if !defined(__x86_64__) && defined(__i386__)
     if (!opts::NoInline &&
-        callee.BasicBlocks.size() == 1 &&
-        ICFG[callee.BasicBlocks.front()].IsSingleInstruction()) {
-      CallsToInline.push_back(Ret); /* force inline */
+        callee.BasicBlocks.size() == 1) {
+      FunctionsToInline.insert(callee.F); /* force inline */
     }
 #endif
 
