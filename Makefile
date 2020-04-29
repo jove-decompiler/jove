@@ -145,7 +145,7 @@ gen-tcgconstants: $(BINDIR)/gen-tcgconstants
 
 $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@echo CC $<
-	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
+	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall -I lib -I lib/arch/$(ARCH) $<
 	@ln -sf $(JOVE_RT_SO) $(BINDIR)/$(JOVE_RT_SONAME)
 
 $(JOVE_DYN_PRELOAD): lib/jove-dyn/preload.c
