@@ -118,6 +118,12 @@ static cl::opt<bool>
     CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
                                     cl::desc("Check for stack overrun"),
                                     cl::cat(JoveCategory));
+
+static cl::opt<bool> SkipLLVM(
+    "skip-llvm",
+    cl::desc("Skip running jove-llvm (careful when using this option)"),
+    cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -635,6 +641,9 @@ int recompile(void) {
     std::string mapfp(chrooted_path.string() + ".map");
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
+    if (opts::SkipLLVM)
+      goto llvm_skipped;
+
     pid = fork();
     if (!pid) {
       IgnoreCtrlC();
@@ -728,6 +737,8 @@ int recompile(void) {
     }
 
     await_process_completion(pid);
+
+llvm_skipped:
 
     std::string optbcfp = bcfp;
 
