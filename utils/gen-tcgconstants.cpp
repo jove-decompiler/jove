@@ -31,7 +31,8 @@ int main(int argc, char **argv) {
     const std::array<const char *, 1> ret_regs{"rax"};
 #elif defined(__i386__)
     const std::array<const char *, 0> arg_regs{};
-    const std::array<const char *, 2> ret_regs{"eax", "edx"};
+    //const std::array<const char *, 2> ret_regs{"eax", "edx"};
+    const std::array<const char *, 1> ret_regs{"eax"};
 #elif defined(__aarch64__)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     //const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
@@ -216,6 +217,78 @@ int main(int argc, char **argv) {
         printf("constexpr tcg_global_set_t NotRets(%llu);\n", s.to_ullong());
       } catch (...) {
         printf("static const tcg_global_set_t NotRets(\"%s\");\n", s.to_string().c_str());
+      }
+    }
+  };
+
+  auto print_callee_saved_registers = [&](void) -> void {
+#if defined(__x86_64__)
+    const std::array<const char *, 6> callee_saved_regs{
+      "rbx",
+      "rbp",
+      "r12",
+      "r13",
+      "r14",
+      "r15"
+    };
+#elif defined(__i386__)
+    const std::array<const char *, 4> callee_saved_regs{
+      "ebx",
+      "ebp",
+      "esi",
+      "edi",
+    };
+#elif defined(__aarch64__)
+    const std::array<const char *, 10> callee_saved_regs{
+      "r19",
+      "r20",
+      "r21",
+      "r22",
+      "r23",
+      "r24",
+      "r25",
+      "r26",
+      "r27",
+      "r28",
+    };
+#elif defined(__mips64)
+    const std::array<const char *, 8> callee_saved_regs{
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+    };
+#elif defined(__mips__)
+    const std::array<const char *, 8> callee_saved_regs{
+      "s0",
+      "s1",
+      "s2",
+      "s3",
+      "s4",
+      "s5",
+      "s6",
+      "s7",
+    };
+#else
+#error
+#endif
+
+    {
+      std::bitset<256> s;
+      for (const char *nm : callee_saved_regs) {
+        int idx = tcg_index_of_named_global(nm);
+        assert(idx >= 0 && idx < s.size());
+        s.set(idx);
+      }
+
+      try {
+        printf("constexpr tcg_global_set_t CalleeSavedRegs(%llu);\n", s.to_ullong());
+      } catch (...) {
+        printf("static const tcg_global_set_t CalleeSavedRegs(\"%s\");\n", s.to_string().c_str());
       }
     }
   };
@@ -496,6 +569,7 @@ int main(int argc, char **argv) {
   printf("typedef std::bitset<tcg_num_globals> tcg_global_set_t;\n");
   print_not_sets();
   print_call_conv_sets();
+  print_callee_saved_registers();
   print_lookup_by_mem_offset();
 
   printf("}\n");
