@@ -270,7 +270,7 @@ int recompile(void) {
 #if defined(__x86_64__)
   ld_path = ld_gold_path;
 #elif defined(__i386__)
-  ld_path = lld_path;
+  ld_path = ld_gold_path;
 #elif defined(__aarch64__)
   ld_path = ld_bfd_path;
 #elif defined(__mips64)
