@@ -583,15 +583,6 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/uio.h>
 #include <signal.h>
 
-typedef unsigned long kernel_sigset_t;
-
-struct kernel_sigaction {
-  void *          _sa_handler;
-  unsigned long   _sa_flags;
-  void *          _sa_restorer;
-  kernel_sigset_t _sa_mask;
-};
-
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
