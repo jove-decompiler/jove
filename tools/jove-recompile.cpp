@@ -185,8 +185,9 @@ int recompile(void) {
   // sanity checks for output path
   //
   if (fs::exists(opts::Output)) {
-    WithColor::warning() << llvm::formatv("reusing output directory {}\n",
-                                          opts::Output);
+    if (!opts::SkipLLVM)
+      WithColor::warning() << llvm::formatv("reusing output directory {}\n",
+                                            opts::Output);
   } else {
     if (!fs::create_directory(opts::Output)) {
       WithColor::error() << "failed to create directory at \"" << opts::Output
