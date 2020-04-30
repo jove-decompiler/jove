@@ -623,12 +623,15 @@ struct kernel_sigaction {
 #define _INL    __attribute__((always_inline))
 #define _UNUSED __attribute__((unused))
 #define _NAKED  __attribute__((naked))
+#define _NOINL  __attribute__((noinline))
+#define _NORET  __attribute__((noreturn))
 #define _HIDDEN __attribute__((visibility("hidden")))
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
+_NAKED static void _jove_do_rt_sigreturn(void);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -641,12 +644,14 @@ static void _jove_free_stack(target_ulong);
 //
 static _INL void *_memset(void *dst, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL size_t _strlen(const char *s);
+static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
 
 //
 // definitions
 //
 
-_NAKED static void _jove_do_rt_sigreturn(void) {
+void _jove_do_rt_sigreturn(void) {
   asm volatile("movl   $0xad,%eax\n"
                "int    $0x80\n");
 }
@@ -671,10 +676,44 @@ static _CTOR void _jove_rt_init(void) {
   }
 }
 
-void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-  _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler #1\n",
-                  sizeof("_jove_rt_signal_handler #1\n"));
+_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
 
+_INL void _jove_inverse_thunk(void) {
+  _jove_sys_write(STDOUT_FILENO, "_jove_inverse_thunk ",
+                  sizeof("_jove_inverse_thunk "));
+
+  uintptr_t emusp = __jove_env.regs[R_ESP];
+  uintptr_t retaddr = *(uintptr_t *)(emusp - 4);
+
+  {
+    char buff[65];
+    _addrtostr(emusp, buff, sizeof(buff));
+
+    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+    _jove_sys_write(STDOUT_FILENO, " ", sizeof(" "));
+  }
+
+  {
+    char buff[65];
+    _addrtostr(retaddr, buff, sizeof(buff));
+
+    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+    _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
+  }
+
+  __builtin_trap();
+
+#if 0
+  asm volatile("movl   $0xad,%eax\n"
+               "int    $0x80\n");
+#endif
+}
+
+void _jove_fail1(target_ulong x) {
+  asm volatile("hlt");
+}
+
+void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   target_ulong pc = uctx->uc_mcontext.gregs[REG_EIP];
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
@@ -687,15 +726,32 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       if (pc != fns[2 * FIdx + 0])
         continue;
 
-#define NUM_ARG_BYTES 256
-
       target_ulong sp = uctx->uc_mcontext.gregs[REG_ESP];
+
+#if 0
+      #define NUM_ARG_BYTES 256
 
       // XXX TODO freeing? why worry about that??
       target_ulong emusp =
          _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - NUM_ARG_BYTES;
 
       _memcpy(emusp, sp, NUM_ARG_BYTES);
+#else
+      uintptr_t saved_retaddr = *((uintptr_t *)sp);
+
+      target_ulong emusp = sp;
+
+      // replace return address on emulated stack
+      *((uintptr_t *)emusp) = saved_retaddr;
+
+      {
+        uintptr_t newsp =
+            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
+        *((uintptr_t *)newsp) = _jove_inverse_thunk;
+
+        uctx->uc_mcontext.gregs[REG_ESP] = newsp;
+      }
+#endif
 
       /* emu sp replacement */
       __jove_env.regs[R_ESP] = emusp;
@@ -703,8 +759,14 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       /* eip replacement */
       uctx->uc_mcontext.gregs[REG_EIP] = fns[2 * FIdx + 1];
 
-      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler #2\n",
-                      sizeof("_jove_rt_signal_handler #2\n"));
+      char buff[65];
+      _addrtostr(saved_retaddr, buff, sizeof(buff));
+
+      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler ",
+                      sizeof("_jove_rt_signal_handler "));
+
+      _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+      _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
       return;
     }
   }
@@ -768,4 +830,76 @@ void _jove_free_stack(target_ulong beg) {
     __builtin_trap();
     __builtin_unreachable();
   }
+}
+
+void _addrtostr(uintptr_t addr, char *Str, size_t n) {
+  const unsigned Radix = 16;
+  const bool formatAsCLiteral = true;
+  const bool Signed = false;
+
+#if 0
+  assert((Radix == 10 || Radix == 8 || Radix == 16 || Radix == 2 ||
+          Radix == 36) &&
+         "Radix should be 2, 8, 10, 16, or 36!");
+#endif
+
+  const char *Prefix = "";
+  if (formatAsCLiteral) {
+    switch (Radix) {
+      case 2:
+        // Binary literals are a non-standard extension added in gcc 4.3:
+        // http://gcc.gnu.org/onlinedocs/gcc-4.3.0/gcc/Binary-constants.html
+        Prefix = "0b";
+        break;
+      case 8:
+        Prefix = "0";
+        break;
+      case 10:
+        break; // No prefix
+      case 16:
+        Prefix = "0x";
+        break;
+      default: /* invalid radix */
+        __builtin_trap();
+        __builtin_unreachable();
+    }
+  }
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (addr == 0) {
+    while (*Prefix)
+      *Str++ = *Prefix++;
+
+    *Str++ = '0';
+    *Str++ = '\0'; /* null-terminate */
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = addr;
+
+  while (*Prefix)
+    *Str++ = *Prefix++;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *Ptr = BufPtr; Ptr != &Buffer[sizeof(Buffer)]; ++Ptr)
+    *Str++ = *Ptr;
+
+  *Str = '\0';
+}
+
+size_t _strlen(const char *str) {
+  const char *s;
+
+  for (s = str; *s; ++s)
+    ;
+  return (s - str);
 }
