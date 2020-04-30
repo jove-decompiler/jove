@@ -569,13 +569,40 @@ int    __jove_startup_info_argc = 0;
 char **__jove_startup_info_argv = NULL;
 char **__jove_startup_info_environ = NULL;
 
-typedef unsigned long old_sigset_t;
+#  define __user
 
-struct old_sigaction {
-  void *handler;
-  old_sigset_t sa_mask;
-  unsigned long flags;
-  void *restorer;
+#define _NSIG		64
+
+# define _NSIG_BPW	32
+
+#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
+
+typedef struct {
+	unsigned long sig[_NSIG_WORDS];
+} kernel_sigset_t;
+
+typedef void __signalfn_t(int);
+
+typedef __signalfn_t __user *__sighandler_t;
+
+typedef void __restorefn_t(void);
+
+typedef __restorefn_t __user *__sigrestore_t;
+
+#define __ARCH_HAS_SA_RESTORER
+
+struct kernel_sigaction {
+#ifndef __ARCH_HAS_IRIX_SIGACTION
+	__sighandler_t	sa_handler;
+	unsigned long	sa_flags;
+#else
+	unsigned int	sa_flags;
+	__sighandler_t	sa_handler;
+#endif
+#ifdef __ARCH_HAS_SA_RESTORER
+	__sigrestore_t sa_restorer;
+#endif
+	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
 };
 
 #define _GNU_SOURCE /* for REG_EIP */
@@ -619,21 +646,25 @@ static _INL void *_memcpy(void *dest, const void *src, size_t n);
 // definitions
 //
 
-_NAKED static void _jove_do_sigreturn(void) {
-  asm volatile("pop    %eax\n"
-               "mov    $0x77,%eax\n"
+_NAKED static void _jove_do_rt_sigreturn(void) {
+  asm volatile("movl   $0xad,%eax\n"
                "int    $0x80\n");
 }
 
 static _CTOR void _jove_rt_init(void) {
-  struct old_sigaction sa;
+  struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
 
-  sa.handler = _jove_rt_signal_handler;
-  sa.flags = SA_SIGINFO;
-  sa.restorer = _jove_do_sigreturn;
+#undef sa_handler
+#undef sa_restorer
+#undef sa_flags
 
-  long ret = _jove_sys_sigaction(SIGSEGV, &sa, NULL);
+  sa.sa_handler = _jove_rt_signal_handler;
+  sa.sa_flags = SA_SIGINFO;
+  sa.sa_restorer = _jove_do_rt_sigreturn;
+
+  long ret =
+      _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
   if (ret < 0) {
     __builtin_trap();
     __builtin_unreachable();
