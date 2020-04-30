@@ -612,6 +612,8 @@ static llvm::MDNode *AliasScopeMetadata;
 
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
+static std::map<uintptr_t, llvm::GlobalVariable *> TPOFFHack;
+
 static bool ABIChanged = false;
 
 static struct {
@@ -704,6 +706,7 @@ static int CreatePCRelGlobal(void);
 static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
+static int CreateTPOFFCtorHack(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
 static int PrepareToOptimize(void);
@@ -744,6 +747,7 @@ int llvm(void) {
       || CreateTPBaseGlobal()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
+      || CreateTPOFFCtorHack()
       || TranslateFunctions()
       || PrepareToOptimize()
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
@@ -4855,17 +4859,47 @@ int CreateFunctions(void) {
                                  Module.get());
     //f.F->addFnAttr(llvm::Attribute::UWTable);
 
+    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    unsigned off = Addr - SectsStartAddr;
+
     for (const symbol_t &sym : f.Syms) {
       if (sym.Vers.empty()) {
+#if 0
         llvm::GlobalAlias::create(sym.Name, f.F);
+#else
+        Module->appendModuleInlineAsm(
+            (fmt(".globl %s\n"
+                 ".type  %s,@function\n"
+                 ".set   %s, __jove_sections + %u")
+             % sym.Name.str()
+             % sym.Name.str()
+             % sym.Name.str() % off).str());
+#endif
       } else {
          // make sure version node is defined
         VersionScript.Table[sym.Vers.str()];
 
+#if 0
         Module->appendModuleInlineAsm(
             (llvm::Twine(".symver ") + jove_name + "," + sym.Name +
              (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
                 .str());
+#else
+        std::string dummy_name = (fmt("_dummy_%lx_%d") % Addr % rand()).str();
+
+        Module->appendModuleInlineAsm(
+            (fmt(".globl %s\n"
+                 ".type  %s,@function\n"
+                 ".set   %s, __jove_sections + %u")
+             % dummy_name
+             % dummy_name
+             % dummy_name % off).str());
+
+        Module->appendModuleInlineAsm(
+            (llvm::Twine(".symver ") + dummy_name + "," + sym.Name +
+             (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
+                .str());
+#endif
       }
     }
 
@@ -5164,8 +5198,12 @@ int CreateSectionGlobalVariables(void) {
     auto it = FuncMap.find(S.Addr);
     assert(it != FuncMap.end());
 
+#if 0
     llvm::FunctionType *FTy = DetermineFunctionType(BinaryIndex, (*it).second);
     return llvm::PointerType::get(FTy, 0);
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_addressof_undefined_data_relocation =
@@ -5311,6 +5349,8 @@ int CreateSectionGlobalVariables(void) {
     llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
     if (!GV)
       return nullptr;
+
+    TPOFFHack[R.Addr] = GV;
 
     return GV->getType();
   };
@@ -5474,9 +5514,13 @@ int CreateSectionGlobalVariables(void) {
     auto it = FuncMap.find(S.Addr);
     assert(it != FuncMap.end());
 
+#if 0
     return Decompilation.Binaries[BinaryIndex]
         .Analysis.Functions[(*it).second]
         .F;
+#else
+    return SectionPointer(S.Addr);
+#endif
   };
 
   auto constant_of_addressof_undefined_data_relocation =
@@ -6220,6 +6264,7 @@ int CreateSectionGlobalVariables(void) {
     };
 
     if (initFunctionAddr) {
+#if 0
       auto it = FuncMap.find(initFunctionAddr);
       if (it == FuncMap.end()) {
         WithColor::error() << llvm::formatv(
@@ -6310,12 +6355,14 @@ int CreateSectionGlobalVariables(void) {
             {
               llvm::Value *NewSP = IRB.CreateAdd(
                   TemporaryStack,
-                  llvm::ConstantInt::get(WordType(), JOVE_STACK_SIZE -
-                                                         JOVE_PAGE_SIZE - 16));
+                  llvm::ConstantInt::get(WordType(),
+                                         JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
 
+#if 0
               IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
                               IRB.CreateIntToPtr(NewSP, llvm::PointerType::get(
                                                             WordType(), 0)));
+#endif
 
               IRB.CreateStore(NewSP, SPPtr);
             }
@@ -6407,6 +6454,13 @@ int CreateSectionGlobalVariables(void) {
                 CallsF, VoidFunctionPointer()),
             0);
       }
+#else
+      llvm::appendToGlobalCtors(
+          *Module,
+          (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
+              SectionPointer(initFunctionAddr), VoidFunctionPointer()),
+          0);
+#endif
     }
   }
 
@@ -6452,13 +6506,39 @@ int CreateSectionGlobalVariables(void) {
         auto it = st.FuncMap.find(FileAddr);
         assert(it != st.FuncMap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
+        if (!f.IsABI) {
+          WithColor::note() << llvm::formatv("!IsABI for {0}\n", F->getName());
+          f.IsABI = true;
+
+          ABIChanged = true;
+        }
+
+        // casting to a llvm::Function* is a complete hack here. hoping the
+        // following gets merged:
+        // https://reviews.llvm.org/D64962
+        if (Sect.initArray)
+          llvm::appendToGlobalCtors(
+              *Module,
+              (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
+                  C, VoidFunctionPointer()),
+              0);
+        else
+          llvm::appendToGlobalDtors(
+              *Module,
+              (llvm::Function *)llvm::ConstantExpr::getIntToPtr(
+                  C, VoidFunctionPointer()),
+              0);
+
+#if 0
         F = f.F;
+#endif
       } else {
         WithColor::warning() << llvm::formatv(
             "unable to match against constant expression in init array\n");
         continue;
       }
 
+#if 0
       assert(F);
 
       {
@@ -6553,11 +6633,12 @@ int CreateSectionGlobalVariables(void) {
             llvm::Value *NewSP = IRB.CreateAdd(
                 TemporaryStack,
                 llvm::ConstantInt::get(WordType(),
-                                       JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16));
-
+                                       JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
+#if 0
             IRB.CreateStore(llvm::ConstantInt::get(WordType(), Cookie),
                             IRB.CreateIntToPtr(
                                 NewSP, llvm::PointerType::get(WordType(), 0)));
+#endif
 
             IRB.CreateStore(NewSP, SPPtr);
           }
@@ -6655,6 +6736,7 @@ int CreateSectionGlobalVariables(void) {
             (llvm::Function *)llvm::ConstantExpr::getBitCast(
                 CallsF, VoidFunctionPointer()),
             0);
+#endif
     }
   }
 
@@ -6666,6 +6748,66 @@ int CreateSectionGlobalVariables(void) {
     execve(cmdline.argv[0], cmdline.argv, ::environ);
     abort();
   }
+
+  return 0;
+}
+
+int CreateTPOFFCtorHack(void) {
+  llvm::Function *F = Module->getFunction("_jove_do_tpoff_hack");
+  assert(F && F->empty());
+
+#if 0
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ F->getName(),
+      /* LinkageName */ F->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+
+  F->setSubprogram(DebugInfo.Subprogram);
+#endif
+
+  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+  {
+    llvm::IRBuilderTy IRB(BB);
+#if 0
+    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+#endif
+
+    for (const auto &pair : TPOFFHack) {
+      uintptr_t off = pair.first - SectsStartAddr;
+
+      llvm::SmallVector<llvm::Value *, 4> Indices;
+      llvm::Value *gep = llvm::getNaturalGEPWithOffset(
+          IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+
+      IRB.CreateStore(pair.second, gep, true /* Volatile */);
+    }
+
+    IRB.CreateRetVoid();
+  }
+
+  F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  assert(!F->empty());
 
   return 0;
 }
@@ -8967,7 +9109,8 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
-    if (DynTargetsComplete) {
+    if (/* DynTargetsComplete */ false) {
+#if 0
       if (DynTargets.size() > 1)
         WithColor::warning() << llvm::formatv(
             "DynTargetsComplete but more than one dyn target ({0:x})\n",
@@ -9138,6 +9281,7 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.CreateCall(hook_f.PostHook, _ArgVec);
         }
       }
+#endif
     } else {
       assert(!DynTargets.empty());
 

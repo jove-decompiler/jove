@@ -568,3 +568,173 @@ uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
 int    __jove_startup_info_argc = 0;
 char **__jove_startup_info_argv = NULL;
 char **__jove_startup_info_environ = NULL;
+
+typedef unsigned long old_sigset_t;
+
+struct old_sigaction {
+  void *handler;
+  old_sigset_t sa_mask;
+  unsigned long flags;
+  void *restorer;
+};
+
+#define _GNU_SOURCE /* for REG_EIP */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <unistd.h>
+#include <inttypes.h>
+#include <sys/mman.h>
+#include <sys/uio.h>
+#include <signal.h>
+#include <ucontext.h>
+
+#define _CTOR   __attribute__((constructor(0)))
+#define _INL    __attribute__((always_inline))
+#define _UNUSED __attribute__((unused))
+#define _NAKED  __attribute__((naked))
+#define _HIDDEN __attribute__((visibility("hidden")))
+
+#define JOVE_SYS_ATTR _INL _UNUSED
+#include "jove_sys.h"
+
+static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
+static target_ulong _jove_alloc_stack(void);
+static void _jove_free_stack(target_ulong);
+
+//
+// utility functions
+//
+static _INL void *_memset(void *dst, int c, size_t n);
+static _INL void *_memcpy(void *dest, const void *src, size_t n);
+
+//
+// definitions
+//
+
+_NAKED static void _jove_do_sigreturn(void) {
+  asm volatile("pop    %eax\n"
+               "mov    $0x77,%eax\n"
+               "int    $0x80\n");
+}
+
+static _CTOR void _jove_rt_init(void) {
+  struct old_sigaction sa;
+  _memset(&sa, 0, sizeof(sa));
+
+  sa.handler = _jove_rt_signal_handler;
+  sa.flags = SA_SIGINFO;
+  sa.restorer = _jove_do_sigreturn;
+
+  long ret = _jove_sys_sigaction(SIGSEGV, &sa, NULL);
+  if (ret < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
+void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
+  _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler #1\n",
+                  sizeof("_jove_rt_signal_handler #1\n"));
+
+  target_ulong pc = uctx->uc_mcontext.gregs[REG_EIP];
+
+  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
+    uintptr_t *fns = __jove_function_tables[BIdx];
+
+    if (!fns)
+      continue;
+
+    for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
+      if (pc != fns[2 * FIdx + 0])
+        continue;
+
+#define NUM_ARG_BYTES 256
+
+      target_ulong sp = uctx->uc_mcontext.gregs[REG_ESP];
+
+      // XXX TODO freeing? why worry about that??
+      target_ulong emusp =
+         _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - NUM_ARG_BYTES;
+
+      _memcpy(emusp, sp, NUM_ARG_BYTES);
+
+      /* emu sp replacement */
+      __jove_env.regs[R_ESP] = emusp;
+
+      /* eip replacement */
+      uctx->uc_mcontext.gregs[REG_EIP] = fns[2 * FIdx + 1];
+
+      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler #2\n",
+                      sizeof("_jove_rt_signal_handler #2\n"));
+      return;
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+void *_memcpy(void *dest, const void *src, size_t n) {
+  unsigned char *d = dest;
+  const unsigned char *s = src;
+
+  for (; n; n--)
+    *d++ = *s++;
+
+  return dest;
+}
+
+void *_memset(void *dst, int c, size_t n) {
+  if (n != 0) {
+    unsigned char *d = dst;
+
+    do
+      *d++ = (unsigned char)c;
+    while (--n != 0);
+  }
+  return (dst);
+}
+
+target_ulong _jove_alloc_stack(void) {
+  long ret = _jove_sys_mmap_pgoff(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  unsigned long uret = (unsigned long)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = uret;
+  unsigned long end = beg + JOVE_STACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  return beg;
+}
+
+void _jove_free_stack(target_ulong beg) {
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}

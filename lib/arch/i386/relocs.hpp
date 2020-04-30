@@ -35,7 +35,6 @@ case llvm::ELF::R_386_TLS_LDM_POP:
 case llvm::ELF::R_386_TLS_LDO_32:
 case llvm::ELF::R_386_TLS_IE_32:
 case llvm::ELF::R_386_TLS_LE_32:
-case llvm::ELF::R_386_TLS_DTPMOD32:
 case llvm::ELF::R_386_TLS_DTPOFF32:
 case llvm::ELF::R_386_TLS_TPOFF32:
 case llvm::ELF::R_386_TLS_GOTDESC:
@@ -45,3 +44,5 @@ case llvm::ELF::R_386_GOT32X:
   return relocation_t::TYPE::NONE;
 case llvm::ELF::R_386_TLS_TPOFF:
   return relocation_t::TYPE::TPOFF;
+case llvm::ELF::R_386_TLS_DTPMOD32:
+  return relocation_t::TYPE::TPMOD;
