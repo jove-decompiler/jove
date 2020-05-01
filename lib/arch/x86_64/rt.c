@@ -98,6 +98,34 @@ struct CPUWatchpoint {
 
 typedef uint64_t target_ulong;
 
+enum {
+    R_EAX = 0,
+    R_ECX = 1,
+    R_EDX = 2,
+    R_EBX = 3,
+    R_ESP = 4,
+    R_EBP = 5,
+    R_ESI = 6,
+    R_EDI = 7,
+    R_R8 = 8,
+    R_R9 = 9,
+    R_R10 = 10,
+    R_R11 = 11,
+    R_R12 = 12,
+    R_R13 = 13,
+    R_R14 = 14,
+    R_R15 = 15,
+
+    R_AL = 0,
+    R_CL = 1,
+    R_DL = 2,
+    R_BL = 3,
+    R_AH = 4,
+    R_CH = 5,
+    R_DH = 6,
+    R_BH = 7,
+};
+
 #define MCE_BANKS_DEF   10
 
 #define MSR_MTRRcap_VCNT                8
@@ -545,3 +573,365 @@ uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
 int    __jove_startup_info_argc = 0;
 char **__jove_startup_info_argv = NULL;
 char **__jove_startup_info_environ = NULL;
+
+//
+// sigaction
+//
+
+#define _NSIG		64
+
+# define _NSIG_BPW	64
+
+#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
+
+typedef struct {
+	unsigned long sig[_NSIG_WORDS];
+} kernel_sigset_t;
+
+#  define __user
+
+typedef void __signalfn_t(int);
+
+typedef __signalfn_t __user *__sighandler_t;
+
+#define __ARCH_HAS_SA_RESTORER
+
+typedef void __restorefn_t(void);
+
+typedef __restorefn_t __user *__sigrestore_t;
+
+struct kernel_sigaction {
+#ifndef __ARCH_HAS_IRIX_SIGACTION
+	__sighandler_t	sa_handler;
+	unsigned long	sa_flags;
+#else
+	unsigned int	sa_flags;
+	__sighandler_t	sa_handler;
+#endif
+#ifdef __ARCH_HAS_SA_RESTORER
+	__sigrestore_t sa_restorer;
+#endif
+	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
+};
+
+#define _GNU_SOURCE
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <sys/syscall.h>
+#include <errno.h>
+#include <unistd.h>
+#include <inttypes.h>
+#include <sys/mman.h>
+#include <sys/uio.h>
+#include <signal.h>
+
+#define _CTOR   __attribute__((constructor(0)))
+#define _INL    __attribute__((always_inline))
+#define _UNUSED __attribute__((unused))
+#define _NAKED  __attribute__((naked))
+#define _NOINL  __attribute__((noinline))
+#define _NORET  __attribute__((noreturn))
+#define _HIDDEN __attribute__((visibility("hidden")))
+
+#define JOVE_SYS_ATTR _INL _UNUSED
+#include "jove_sys.h"
+
+static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
+_NAKED static void _jove_do_rt_sigreturn(void);
+_NAKED static void _jove_inverse_thunk(void);
+
+#define JOVE_PAGE_SIZE 4096
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+
+static target_ulong _jove_alloc_stack(void);
+static void _jove_free_stack(target_ulong);
+//
+// utility functions
+//
+static _INL void *_memset(void *dst, int c, size_t n);
+static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL size_t _strlen(const char *s);
+static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
+
+//
+// definitions
+//
+
+#if 0
+void _jove_do_rt_sigreturn(void) {
+  asm volatile("movq $0xf, %rax\n"
+               "syscall\n");
+}
+#endif
+
+extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
+
+void _jove_inverse_thunk(void) {
+  asm volatile("pushq %%r15\n" /* callee-saved registers */
+               "pushq %%r14\n"
+               "pushq %%r13\n"
+               "pushq %%r12\n"
+
+               "call 0f\n"
+               "0:\n"
+               "popq %%r15\n"
+               "addq $_GLOBAL_OFFSET_TABLE_, %%r15\n"
+               "leaq __jove_env@GOTOFF(%%r15), %%r14\n"
+               "addq %0, %%r14\n"
+               "addq $1, %%r14\n" // why?
+
+               "movq (%%r14), %%r13\n"   // r13 = emusp
+               "movq -8(%%r13), %%r12\n" // r12 = *(emusp - 8)
+
+               "ud2\n"
+               //"int3\n"
+
+               "movq %%r13, %%r10\n"
+               "movq %%r12, %%r11\n"
+
+               //"movl %0(%%r14), %%r13\n"
+
+               //"movl %[emusp], %%r13\n"
+
+               "popq %%r12\n"
+               "popq %%r13\n"
+               "popq %%r14\n"
+               "popq %%r15\n" /* callee-saved registers */
+
+               "movq %%r10, %%rsp\n"
+               "jmp *%%r11\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               "i" (offsetof(CPUX86State, regs[R_ESP]))
+
+               //[emusp] "r"(__jove_env.regs[R_ESP])
+               : /* Clobbers */);
+}
+
+static _CTOR void _jove_rt_init(void) {
+  struct kernel_sigaction sa;
+  _memset(&sa, 0, sizeof(sa));
+
+#undef sa_handler
+#undef sa_restorer
+#undef sa_flags
+
+#ifdef SA_RESTORER
+#error
+#else
+#define SA_RESTORER 0x04000000
+#endif
+
+  sa.sa_handler = _jove_rt_signal_handler;
+  sa.sa_flags = SA_SIGINFO | SA_RESTORER;
+  sa.sa_restorer = restore_rt; // _jove_do_rt_sigreturn;
+
+  long ret =
+      _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
+  if (ret < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
+void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
+  _jove_sys_write(STDOUT_FILENO,
+                  "_jove_rt_signal_handler\n",
+                  sizeof("_jove_rt_signal_handler\n"));
+
+  target_ulong pc = uctx->uc_mcontext.gregs[REG_RIP];
+
+  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
+    uintptr_t *fns = __jove_function_tables[BIdx];
+
+    if (!fns)
+      continue;
+
+    for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
+      if (pc != fns[2 * FIdx + 0])
+        continue;
+
+      target_ulong sp = uctx->uc_mcontext.gregs[REG_RSP];
+
+#if 1
+      #define NUM_ARG_BYTES 256
+
+      // XXX TODO freeing? why worry about that??
+      target_ulong emusp =
+         _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - NUM_ARG_BYTES;
+
+      _memcpy(emusp, sp, NUM_ARG_BYTES);
+#else
+      uintptr_t saved_retaddr = *((uintptr_t *)sp);
+
+      target_ulong emusp = sp;
+
+      // replace return address on emulated stack
+      *((uintptr_t *)emusp) = saved_retaddr;
+
+      {
+        uintptr_t newsp =
+            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
+        *((uintptr_t *)newsp) = _jove_inverse_thunk;
+
+        uctx->uc_mcontext.gregs[REG_RSP] = newsp;
+      }
+#endif
+
+      /* emu sp replacement */
+      __jove_env.regs[R_ESP] = emusp;
+
+      /* eip replacement */
+      uctx->uc_mcontext.gregs[REG_RIP] = fns[2 * FIdx + 1];
+
+#if 0
+      char buff[65];
+      _addrtostr(uctx->uc_mcontext.gregs[REG_RIP], buff, sizeof(buff));
+
+      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler ",
+                      sizeof("_jove_rt_signal_handler "));
+
+      _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+      _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
+#endif
+      return;
+    }
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
+}
+
+void *_memcpy(void *dest, const void *src, size_t n) {
+  unsigned char *d = dest;
+  const unsigned char *s = src;
+
+  for (; n; n--)
+    *d++ = *s++;
+
+  return dest;
+}
+
+void *_memset(void *dst, int c, size_t n) {
+  if (n != 0) {
+    unsigned char *d = dst;
+
+    do
+      *d++ = (unsigned char)c;
+    while (--n != 0);
+  }
+  return (dst);
+}
+
+target_ulong _jove_alloc_stack(void) {
+  long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  unsigned long uret = (unsigned long)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = uret;
+  unsigned long end = beg + JOVE_STACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  return beg;
+}
+
+void _jove_free_stack(target_ulong beg) {
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
+void _addrtostr(uintptr_t addr, char *Str, size_t n) {
+  const unsigned Radix = 16;
+  const bool formatAsCLiteral = true;
+  const bool Signed = false;
+
+#if 0
+  assert((Radix == 10 || Radix == 8 || Radix == 16 || Radix == 2 ||
+          Radix == 36) &&
+         "Radix should be 2, 8, 10, 16, or 36!");
+#endif
+
+  const char *Prefix = "";
+  if (formatAsCLiteral) {
+    switch (Radix) {
+      case 2:
+        // Binary literals are a non-standard extension added in gcc 4.3:
+        // http://gcc.gnu.org/onlinedocs/gcc-4.3.0/gcc/Binary-constants.html
+        Prefix = "0b";
+        break;
+      case 8:
+        Prefix = "0";
+        break;
+      case 10:
+        break; // No prefix
+      case 16:
+        Prefix = "0x";
+        break;
+      default: /* invalid radix */
+        __builtin_trap();
+        __builtin_unreachable();
+    }
+  }
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (addr == 0) {
+    while (*Prefix)
+      *Str++ = *Prefix++;
+
+    *Str++ = '0';
+    *Str++ = '\0'; /* null-terminate */
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = addr;
+
+  while (*Prefix)
+    *Str++ = *Prefix++;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *Ptr = BufPtr; Ptr != &Buffer[sizeof(Buffer)]; ++Ptr)
+    *Str++ = *Ptr;
+
+  *Str = '\0';
+}
+
+size_t _strlen(const char *str) {
+  const char *s;
+
+  for (s = str; *s; ++s)
+    ;
+  return (s - str);
+}
+
+asm ( "	nop\n" ".align 16\n" ".LSTART_" "restore_rt" ":\n" "	.type __" "restore_rt" ",@function\n" "__" "restore_rt" ":\n" "	movq $" "15" ", %rax\n" "	syscall\n" ".LEND_" "restore_rt" ":\n" ".section .eh_frame,\"a\",@progbits\n" ".LSTARTFRAME_" "restore_rt" ":\n" "	.long .LENDCIE_" "restore_rt" "-.LSTARTCIE_" "restore_rt" "\n" ".LSTARTCIE_" "restore_rt" ":\n" "	.long 0\n" "	.byte 1\n" "	.string \"zRS\"\n" "	.uleb128 1\n" "	.sleb128 -8\n" "	.uleb128 16\n" "	.uleb128 .LENDAUGMNT_" "restore_rt" "-.LSTARTAUGMNT_" "restore_rt" "\n" ".LSTARTAUGMNT_" "restore_rt" ":\n" "	.byte 0x1b\n" ".LENDAUGMNT_" "restore_rt" ":\n" "	.align " "8" "\n" ".LENDCIE_" "restore_rt" ":\n" "	.long .LENDFDE_" "restore_rt" "-.LSTARTFDE_" "restore_rt" "\n" ".LSTARTFDE_" "restore_rt" ":\n" "	.long .LSTARTFDE_" "restore_rt" "-.LSTARTFRAME_" "restore_rt" "\n" "	.long (.LSTART_" "restore_rt" "-1)-.\n" "	.long .LEND_" "restore_rt" "-(.LSTART_" "restore_rt" "-1)\n" "	.uleb128 0\n" "	.byte 0x0f\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "	.byte 0x06\n" "2:" "	.byte 0x10\n" "	.uleb128 " "8" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "40" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "9" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "48" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "10" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "56" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "11" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "64" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "12" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "72" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "13" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "80" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "14" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "88" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "15" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "96" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "5" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "104" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "4" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "112" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "6" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "120" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "3" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "128" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "1" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "136" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "0" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "144" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "2" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "152" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "7" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "16" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "168" "\n" "2:" "	.align " "8" "\n" ".LENDFDE_" "restore_rt" ":\n" "	.previous\n" );
