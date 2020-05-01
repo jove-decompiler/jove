@@ -573,6 +573,42 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
 /* -> static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
 
+#define _NSIG		64
+
+# define _NSIG_BPW	64
+
+#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
+
+typedef struct {
+	unsigned long sig[_NSIG_WORDS];
+} kernel_sigset_t;
+
+#  define __user
+
+typedef void __signalfn_t(int);
+
+typedef __signalfn_t __user *__sighandler_t;
+
+#define __ARCH_HAS_SA_RESTORER
+
+typedef void __restorefn_t(void);
+
+typedef __restorefn_t __user *__sigrestore_t;
+
+struct kernel_sigaction {
+#ifndef __ARCH_HAS_IRIX_SIGACTION
+	__sighandler_t	sa_handler;
+	unsigned long	sa_flags;
+#else
+	unsigned int	sa_flags;
+	__sighandler_t	sa_handler;
+#endif
+#ifdef __ARCH_HAS_SA_RESTORER
+	__sigrestore_t sa_restorer;
+#endif
+	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
+};
+
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -585,22 +621,13 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/uio.h>
 #include <signal.h>
 
-typedef unsigned long kernel_sigset_t;
-
-struct kernel_sigaction {
-  void *          _sa_handler;
-  unsigned long   _sa_flags;
-  void *          _sa_restorer;
-  kernel_sigset_t _sa_mask;
-};
-
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
 
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define _CTOR   __attribute__((constructor))
+#define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
 #define _NOINL  __attribute__((noinline))
@@ -1045,7 +1072,12 @@ void _jove_trace_init(void) {
   //
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
-  sa._sa_handler = (void *)_jove_sigsegv_handler;
+
+#undef sa_handler
+#undef sa_restorer
+#undef sa_flags
+
+  sa.sa_handler = (void *)_jove_sigsegv_handler;
 
   {
     long ret =
