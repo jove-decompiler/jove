@@ -674,19 +674,24 @@ void _jove_inverse_thunk(void) {
                "pushq %%r13\n"
                "pushq %%r12\n"
 
+#if 0
                "call 0f\n"
                "0:\n"
                "popq %%r15\n"
                "addq $_GLOBAL_OFFSET_TABLE_, %%r15\n"
                "leaq __jove_env@GOTOFF(%%r15), %%r14\n"
+#else
+               "movq __jove_env@GOTPCREL(%%rip), %%r15\n"
+#endif
+               "movq %%r15, %%r14\n"
                "addq %0, %%r14\n"
-               "addq $1, %%r14\n" // why?
+
+               //"int3\n"
 
                "movq (%%r14), %%r13\n"   // r13 = emusp
                "movq -8(%%r13), %%r12\n" // r12 = *(emusp - 8)
 
-               "ud2\n"
-               //"int3\n"
+               //"ud2\n"
 
                "movq %%r13, %%r10\n"
                "movq %%r12, %%r11\n"
@@ -756,7 +761,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       target_ulong sp = uctx->uc_mcontext.gregs[REG_RSP];
 
-#if 1
+#if 0
       #define NUM_ARG_BYTES 256
 
       // XXX TODO freeing? why worry about that??
