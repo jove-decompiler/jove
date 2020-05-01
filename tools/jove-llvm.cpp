@@ -8201,9 +8201,14 @@ int RecoverControlFlow(void) {
     if (CalleeCE->getOpcode() != llvm::Instruction::PtrToInt)
       continue;
 
+#if 0
     if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)) &&
         !llvm::isa<llvm::Function>(CalleeCE->getOperand(0)))
       continue;
+#else
+    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)))
+      continue;
+#endif
 
     assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
 
@@ -9109,8 +9114,7 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
-    if (/* DynTargetsComplete */ false) {
-#if 0
+    if (DynTargetsComplete) {
       if (DynTargets.size() > 1)
         WithColor::warning() << llvm::formatv(
             "DynTargetsComplete but more than one dyn target ({0:x})\n",
@@ -9281,7 +9285,6 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.CreateCall(hook_f.PostHook, _ArgVec);
         }
       }
-#endif
     } else {
       assert(!DynTargets.empty());
 
