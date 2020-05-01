@@ -632,6 +632,11 @@ struct kernel_sigaction {
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 _NAKED static void _jove_do_rt_sigreturn(void);
+#if 1
+_NAKED static void _jove_inverse_thunk(void);
+#else
+static void _jove_inverse_thunk(void);
+#endif
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -656,6 +661,80 @@ void _jove_do_rt_sigreturn(void) {
                "int    $0x80\n");
 }
 
+#if 0
+void _jove_inverse_thunk(void) {
+#if 0
+  _jove_sys_write(STDOUT_FILENO, "_jove_inverse_thunk ",
+                  sizeof("_jove_inverse_thunk "));
+#endif
+
+  uintptr_t emusp = __jove_env.regs[R_ESP];
+  uintptr_t retaddr = *(uintptr_t *)(emusp - 4);
+
+#if 0
+  {
+    char buff[65];
+    _addrtostr(emusp, buff, sizeof(buff));
+
+    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+    _jove_sys_write(STDOUT_FILENO, " ", sizeof(" "));
+  }
+
+  {
+    char buff[65];
+    _addrtostr(retaddr, buff, sizeof(buff));
+
+    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
+    _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
+  }
+#endif
+
+  return ((void (*)(void))retaddr)();
+}
+#else
+void _jove_inverse_thunk(void) {
+  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+               "pushl %%edi\n"
+               "pushl %%esi\n"
+               "pushl %%ebx\n"
+
+               "call 0f\n"
+               "0:\n"
+               "popl %%ebp\n"
+               "addl $_GLOBAL_OFFSET_TABLE_, %%ebp\n"
+               "leal __jove_env@GOTOFF(%%ebp), %%edi\n"
+               "addl %0, %%edi\n"
+               "addl $1, %%edi\n" // why?
+
+               "movl (%%edi), %%esi\n"   // esi = emusp
+               "movl -4(%%esi), %%ebx\n" // ebx = *(emusp - 4)
+
+               "movl %%esi, %%ecx\n"
+               "movl %%ebx, %%edx\n"
+
+               //"int3\n"
+
+               //"movl %0(%%edi), %%esi\n"
+
+               //"movl %[emusp], %%esi\n"
+
+               "popl %%ebx\n"
+               "popl %%esi\n"
+               "popl %%edi\n"
+               "popl %%ebp\n" /* callee-saved registers */
+
+               "movl %%ecx, %%esp\n"
+               "jmp *%%edx\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               "i" (offsetof(CPUX86State, regs[R_ESP]))
+
+               //[emusp] "r"(__jove_env.regs[R_ESP])
+               : /* Clobbers */);
+}
+#endif
+
 static _CTOR void _jove_rt_init(void) {
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
@@ -674,43 +753,6 @@ static _CTOR void _jove_rt_init(void) {
     __builtin_trap();
     __builtin_unreachable();
   }
-}
-
-_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
-
-_INL void _jove_inverse_thunk(void) {
-  _jove_sys_write(STDOUT_FILENO, "_jove_inverse_thunk ",
-                  sizeof("_jove_inverse_thunk "));
-
-  uintptr_t emusp = __jove_env.regs[R_ESP];
-  uintptr_t retaddr = *(uintptr_t *)(emusp - 4);
-
-  {
-    char buff[65];
-    _addrtostr(emusp, buff, sizeof(buff));
-
-    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-    _jove_sys_write(STDOUT_FILENO, " ", sizeof(" "));
-  }
-
-  {
-    char buff[65];
-    _addrtostr(retaddr, buff, sizeof(buff));
-
-    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-    _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
-  }
-
-  __builtin_trap();
-
-#if 0
-  asm volatile("movl   $0xad,%eax\n"
-               "int    $0x80\n");
-#endif
-}
-
-void _jove_fail1(target_ulong x) {
-  asm volatile("hlt");
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
