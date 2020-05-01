@@ -743,9 +743,11 @@ static _CTOR void _jove_rt_init(void) {
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
+#if 0
   _jove_sys_write(STDOUT_FILENO,
                   "_jove_rt_signal_handler\n",
                   sizeof("_jove_rt_signal_handler\n"));
+#endif
 
   target_ulong pc = uctx->uc_mcontext.gregs[REG_RIP];
 
