@@ -801,6 +801,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       /* eip replacement */
       uctx->uc_mcontext.gregs[REG_EIP] = fns[2 * FIdx + 1];
 
+#if 0
       char buff[65];
       _addrtostr(saved_retaddr, buff, sizeof(buff));
 
@@ -809,6 +810,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
       _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
+#endif
       return;
     }
   }
