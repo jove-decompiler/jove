@@ -698,13 +698,10 @@ void _jove_inverse_thunk(void) {
                "pushl %%esi\n"
                "pushl %%ebx\n"
 
-               "call 0f\n"
-               "0:\n"
-               "popl %%ebp\n"
+               "call 1f\n"
                "addl $_GLOBAL_OFFSET_TABLE_, %%ebp\n"
                "leal __jove_env@GOTOFF(%%ebp), %%edi\n"
                "addl %0, %%edi\n"
-               "addl $1, %%edi\n" // why?
 
                "movl (%%edi), %%esi\n"   // esi = emusp
                "movl -4(%%esi), %%ebx\n" // ebx = *(emusp - 4)
@@ -725,6 +722,10 @@ void _jove_inverse_thunk(void) {
 
                "movl %%ecx, %%esp\n"
                "jmp *%%edx\n"
+
+               "1:\n"
+               "movl (%%esp), %%ebp\n"
+               "ret\n"
 
                : /* OutputOperands */
                : /* InputOperands */
