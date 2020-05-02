@@ -709,12 +709,6 @@ void _jove_inverse_thunk(void) {
                "movl %%esi, %%ecx\n"
                "movl %%ebx, %%edx\n"
 
-               //"int3\n"
-
-               //"movl %0(%%edi), %%esi\n"
-
-               //"movl %[emusp], %%esi\n"
-
                "popl %%ebx\n"
                "popl %%esi\n"
                "popl %%edi\n"
