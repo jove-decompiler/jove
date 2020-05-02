@@ -669,43 +669,28 @@ void _jove_do_rt_sigreturn(void) {
 extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
 
 void _jove_inverse_thunk(void) {
-  asm volatile("pushq %%r15\n" /* callee-saved registers */
+  asm volatile("pushq $0xdead\n"
+               "pushq %%r15\n" /* callee-saved registers */
                "pushq %%r14\n"
                "pushq %%r13\n"
                "pushq %%r12\n"
 
-#if 0
-               "call 0f\n"
-               "0:\n"
-               "popq %%r15\n"
-               "addq $_GLOBAL_OFFSET_TABLE_, %%r15\n"
-               "leaq __jove_env@GOTOFF(%%r15), %%r14\n"
-#else
                "movq __jove_env@GOTPCREL(%%rip), %%r15\n"
-#endif
                "movq %%r15, %%r14\n"
                "addq %0, %%r14\n"
-
-               //"int3\n"
 
                "movq (%%r14), %%r13\n"   // r13 = emusp
                "movq -8(%%r13), %%r12\n" // r12 = *(emusp - 8)
 
-               //"ud2\n"
-
-               "movq %%r13, %%r10\n"
+               "movq %%r13, 32(%%rsp)\n" // stash emusp on the stack (replacing 0xdead)
                "movq %%r12, %%r11\n"
-
-               //"movl %0(%%r14), %%r13\n"
-
-               //"movl %[emusp], %%r13\n"
 
                "popq %%r12\n"
                "popq %%r13\n"
                "popq %%r14\n"
                "popq %%r15\n" /* callee-saved registers */
+               "popq %%rsp\n" // ... and make emusp the new stack pointer
 
-               "movq %%r10, %%rsp\n"
                "jmp *%%r11\n"
 
                : /* OutputOperands */
