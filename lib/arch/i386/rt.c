@@ -693,7 +693,8 @@ void _jove_inverse_thunk(void) {
 }
 #else
 void _jove_inverse_thunk(void) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+  asm volatile("pushl $0xdeadbeef\n"
+               "pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
                "pushl %%esi\n"
                "pushl %%ebx\n"
@@ -706,16 +707,16 @@ void _jove_inverse_thunk(void) {
                "movl (%%edi), %%esi\n"   // esi = emusp
                "movl -4(%%esi), %%ebx\n" // ebx = *(emusp - 4)
 
-               "movl %%esi, %%ecx\n"
-               "movl %%ebx, %%edx\n"
+               "movl %%esi, 16(%%esp)\n" // stash emusp on the stack (replacing 0xdeadbeef)
+               "movl %%ebx, %%ecx\n"
 
                "popl %%ebx\n"
                "popl %%esi\n"
                "popl %%edi\n"
                "popl %%ebp\n" /* callee-saved registers */
+               "popl %%esp\n" // ... and make emusp the new stack pointer
 
-               "movl %%ecx, %%esp\n"
-               "jmp *%%edx\n"
+               "jmp *%%ecx\n"
 
                "1:\n"
                "movl (%%esp), %%ebp\n"
