@@ -120,7 +120,7 @@ mipsel_HELPERS := raise_exception_err raise_exception raise_exception_debug swl 
 HELPERS_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 HELPERS_DFSAN_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).dfsan.bc)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
 
 helpers: $(HELPERS_BITCODE)
 
@@ -156,6 +156,10 @@ $(JOVE_DYN_PRELOAD): lib/jove-dyn/preload.c
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -c -emit-llvm -I lib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
+
+$(BINDIR)/jove.dfsan.bc: lib/arch/$(ARCH)/jove.c
+	@echo CC "(DFSAN)" $<
+	@$(_LLVM_CC) -o $@ -c -emit-llvm -I lib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $<
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
