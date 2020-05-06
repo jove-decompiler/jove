@@ -641,12 +641,15 @@ struct kernel_sigaction {
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 _NAKED static void _jove_do_rt_sigreturn(void);
 _NAKED static void _jove_inverse_thunk(void);
+static void _jove_callstack_init(void);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
 static target_ulong _jove_alloc_stack(void);
 static void _jove_free_stack(target_ulong);
+
+#define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 //
 // utility functions
 //
@@ -725,6 +728,8 @@ static _CTOR void _jove_rt_init(void) {
     __builtin_trap();
     __builtin_unreachable();
   }
+
+  _jove_callstack_init();
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
@@ -767,11 +772,16 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       {
         uintptr_t newsp =
             _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
+        newsp &= 0xfffffffffffffff0; // align the stack
+        newsp -= sizeof(uintptr_t);
+
         *((uintptr_t *)newsp) = _jove_inverse_thunk;
 
         uctx->uc_mcontext.gregs[REG_RSP] = newsp;
       }
 #endif
+
+      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE;
 
       /* emu sp replacement */
       __jove_env.regs[R_ESP] = emusp;
@@ -816,6 +826,35 @@ void *_memset(void *dst, int c, size_t n) {
     while (--n != 0);
   }
   return (dst);
+}
+
+void _jove_callstack_init(void) {
+  long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  void *ptr = (void *)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = (unsigned long)ret;
+  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
 
 target_ulong _jove_alloc_stack(void) {
