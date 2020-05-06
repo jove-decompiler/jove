@@ -1672,3 +1672,46 @@ void _jove_callstack_init(void) {
     __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
   }
 }
+
+typedef uint16_t dfsan_label;
+
+static const uint64_t DF32_ADDR_SPACE_SIZE = 0xffffffffull + 1ull;
+static const unsigned DF32_PAGE_SIZE = 4 * 1024; /* 4 KiB */
+static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_PAGE_SIZE;
+
+extern dfsan_label *__df32_shadow_page_table[DF32_NUM_PAGES];
+
+#ifdef JOVE_DFSAN
+_HIDDEN
+#else
+static
+#endif
+dfsan_label *__df32_shadow_for(uint32_t A) {
+  unsigned quot = A / DF32_PAGE_SIZE;
+  unsigned rem  = A % DF32_PAGE_SIZE;
+
+#define page_bits_ptr __df32_shadow_page_table[quot]
+
+  if (unlikely(!page_bits_ptr)) {
+    long ret = _jove_sys_mmap_pgoff(0x0,
+                                    (sizeof(dfsan_label) * DF32_PAGE_SIZE)
+				    + DF32_PAGE_SIZE /* XXX */,
+                                    PROT_READ | PROT_WRITE,
+                                    MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+    if (ret < 0 && ret > -4096) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    if (ret == 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    page_bits_ptr = (dfsan_label *)ret;
+
+    //internal_memset(&page_bits_ptr[0], 0, sizeof(dfsan_label) * _PAGE_SIZE);
+  }
+
+  return &page_bits_ptr[rem];
+}
