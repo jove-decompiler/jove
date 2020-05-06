@@ -1162,12 +1162,7 @@ int InitStateForBinaries(void) {
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
-  const char *bootstrap_mod_name =
-#if 0
-      Decompilation.Binaries[BinaryIndex].IsExecutable ? "jove_start" : "jove";
-#else
-      "jove";
-#endif
+  const char *bootstrap_mod_name = opts::DFSan ? "jove.dfsan" : "jove";
 
   std::string bootstrap_mod_path =
       (boost::dll::program_location().parent_path() /
@@ -6513,6 +6508,7 @@ int CreateSectionGlobalVariables(void) {
           ABIChanged = true;
         }
 
+#if 1
         // casting to a llvm::Function* is a complete hack here. hoping the
         // following gets merged:
         // https://reviews.llvm.org/D64962
@@ -6529,7 +6525,7 @@ int CreateSectionGlobalVariables(void) {
                   C, VoidFunctionPointer()),
               0);
 
-#if 0
+#else
         F = f.F;
 #endif
       } else {
