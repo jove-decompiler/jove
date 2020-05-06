@@ -1,3 +1,4 @@
+fun:__df32_shadow_for=skip
 fun:__jove_*=skip
 fun:_jove_*=skip
 fun:_dl_*=skip
