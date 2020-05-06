@@ -55,6 +55,7 @@ build-llvm:
 		   -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" \
 		   -D LLVM_USE_LINKER=gold \
 		   -D LLVM_ENABLE_LTO=OFF \
+		   -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
 	&& ninja install \
 	&& echo "stupid hacks that shouldn't be necessary" \
 	&& mkdir -p $(_LLVM_DIR)/$(BUILD_TYPE) \
