@@ -227,9 +227,6 @@ int recompile(void) {
     return 1;
   }
 
-#if !defined(__x86_64__) && defined(__i386__)
-  assert(!opts::DFSan);
-#else
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path() /
        "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
@@ -240,7 +237,6 @@ int recompile(void) {
                                         jove_dfsan_path);
     return 1;
   }
-#endif
 
   llc_path = (boost::dll::program_location().parent_path().parent_path() /
               "third_party" / "llvm-project" / "install" / "bin" / "llc")
