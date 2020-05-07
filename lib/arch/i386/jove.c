@@ -680,7 +680,7 @@ static _INL uintptr_t _get_stack_end(void);
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
-               "xor %%ebp, %%ebp\n"
+               "xorl %%ebp, %%ebp\n"
 
                /* save original sp */
                "movl %%esp, %%ecx\n"
@@ -689,7 +689,7 @@ void _jove_start(void) {
                "andl $0xfffffff0, %%esp\n"
 
                /* pass original sp */
-               "push %%ecx\n"
+               "pushl %%ecx\n"
                "call _jove_begin\n"
 
                "hlt\n"
@@ -980,9 +980,6 @@ void *_memset(void *dst, int c, size_t n) {
 static void _jove_sigsegv_handler(void);
 
 void _jove_trace_init(void) {
-  if (__jove_trace)
-    return;
-
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
   if (fd < 0) {
