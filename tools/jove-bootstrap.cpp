@@ -2945,6 +2945,13 @@ int ChildProc(const char *fifo_path) {
                     "-Fast_Unaligned_Load,"
                     "-ERMS,"
                     "-AVX_Fast_Unaligned_Load");
+#elif defined(__i386__)
+  // <3 glibc
+  env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                    "-SSE4_1,"
+                    "-SSE4_2,"
+                    "-SSSE3,"
+                    "-SSE2");
 #endif
 
   for (const std::string &Env : opts::Envs)
