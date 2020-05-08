@@ -31,8 +31,8 @@ int main(int argc, char **argv) {
     const std::array<const char *, 1> ret_regs{"rax"};
 #elif defined(__i386__)
     const std::array<const char *, 0> arg_regs{};
-    //const std::array<const char *, 2> ret_regs{"eax", "edx"};
-    const std::array<const char *, 1> ret_regs{"eax"};
+    //const std::array<const char *, 1> ret_regs{"eax"};
+    const std::array<const char *, 2> ret_regs{"eax", "edx"};
 #elif defined(__aarch64__)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     //const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
