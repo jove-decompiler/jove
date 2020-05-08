@@ -10027,6 +10027,14 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 	    llvm::Value *hi = get(ts);
             ++iarg_idx;
 
+#if 0
+            WithColor::note()
+                << llvm::formatv("{0}:{1} lo={2} hi={3} [{4}]\n",
+                                 __FILE__,
+                                 __LINE__,
+                                 *lo, *hi, helper_nm);
+#endif
+
             llvm::Value *combined =
                 IRB.CreateOr(IRB.CreateZExt(lo, IRB.getInt64Ty()),
                              IRB.CreateShl(IRB.CreateZExt(hi, IRB.getInt64Ty()),
