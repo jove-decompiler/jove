@@ -638,6 +638,7 @@ _NAKED static void _jove_do_rt_sigreturn(void);
 _NAKED static void _jove_inverse_thunk(void);
 static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
+static void _jove_init_cpu_state(void);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -755,6 +756,7 @@ static _CTOR void _jove_rt_init(void) {
 
   _jove_callstack_init();
   _jove_trace_init();
+  _jove_init_cpu_state();
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
@@ -989,4 +991,8 @@ void _jove_trace_init(void) {
   static const uint64_t zeros[4 * 4096] = {0};
 
   __jove_trace = &zeros[0];
+}
+
+void _jove_init_cpu_state(void) {
+  __jove_env.df = 1;
 }
