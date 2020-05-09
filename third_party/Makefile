@@ -10,6 +10,8 @@ ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86
 else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "i686-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
 else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := AArch64
 else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
