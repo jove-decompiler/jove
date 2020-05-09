@@ -20,6 +20,8 @@ ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 ARCH := x86_64
 else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
 ARCH := i386
+else ifeq "$(GCC_TARGET)" "i686-linux-gnu"
+ARCH := i386
 else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
 ARCH := aarch64
 else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
@@ -66,9 +68,11 @@ LDFLAGS := -Wl,--no-undefined \
            $(shell $(_LLVM_CONFIG) --libs $(LLVM_COMPONENTS)) \
            -Wl,--pop-state, \
            $(shell pkg-config --libs glib-2.0) \
-           $(shell $(_LLVM_CONFIG) --system-libs) \
            -ldl \
            -pthread \
+           -ltinfo \
+           -lm \
+           -lz \
            -lboost_filesystem \
            -lboost_system \
            -lboost_serialization
@@ -127,14 +131,22 @@ helpers: $(HELPERS_BITCODE)
 define build_tool_template
 $(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp
 	@echo CXX $(1)
+ifdef BUILD_STATIC
+	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -static
+else
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
+endif
 endef
 $(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool))))
 
 define build_util_template
 $(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp
 	@echo CXX $(1)
+ifdef BUILD_STATIC
+	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -static
+else
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
+endif
 endef
 $(foreach util,$(UTILS),$(eval $(call build_util_template,$(util))))
 
