@@ -28,6 +28,7 @@ static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
 constexpr tcg_global_set_t CallConvRets(8);
 typedef std::array<unsigned, 1> CallConvRetArrayTy;
 static const CallConvRetArrayTy CallConvRetArray{3};
+constexpr tcg_global_set_t CalleeSavedRegs(33423360);
 static const uint8_t tcg_global_by_offset_lookup_table[11133] = {
 [0 ... 11132] = 0xff,
 [4] = 2,
