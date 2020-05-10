@@ -7,7 +7,7 @@ ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)))
 CFLAGS := -Wall \
           -fno-stack-protector \
           -fPIC \
-          -Oz \
+          -O2 \
           -g
 
 #
@@ -34,11 +34,11 @@ multi_threaded_simple_LDFLAGS := -pthread
 define test_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	@clang -o $$@ $(CFLAGS) $$< $($(1)_LDFLAGS)
+	@gcc -o $$@ $(CFLAGS) $$< $($(1)_LDFLAGS)
 
 $(BINDIR)/$(1).S: $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	@clang -o $$@ $(CFLAGS) -S $$<
+	@gcc -o $$@ $(CFLAGS) -S $$<
 
 $(BINDIR)/$(1).bc: $(SRCDIR)/$(1).c
 	@echo BC $(1)
