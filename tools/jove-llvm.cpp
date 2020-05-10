@@ -5389,7 +5389,7 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
-      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap:\n{1}\n",
+      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap: {1}\n",
                                           tpoff,
                                           std::accumulate(
                                             TLSValueToSymbolMap.begin(),
