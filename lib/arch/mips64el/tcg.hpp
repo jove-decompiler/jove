@@ -43006,6 +43006,10 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
            or we have executed all of the allowed instructions.  */
         if (tcg_op_buf_full() || db->num_insns >= db->max_insns) {
             db->is_jmp = DISAS_TOO_MANY;
+            if (tb->jove.T.Type == jove::TERMINATOR::UNKNOWN) {
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T._none.NextPC = db->pc_next;
+            }
             break;
         }
 
@@ -43017,6 +43021,8 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
                 break;
             }
         }
+
+        tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
