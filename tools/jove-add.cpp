@@ -121,6 +121,22 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+struct section_t {
+  llvm::StringRef Name;
+  llvm::ArrayRef<uint8_t> Contents;
+  uintptr_t Addr;
+  unsigned Size;
+
+  bool initArray;
+  bool finiArray;
+
+  struct {
+    boost::icl::split_interval_set<uintptr_t> Intervals;
+    std::map<unsigned, llvm::Constant *> Constants;
+    std::map<unsigned, llvm::Type *> Types;
+  } Stuff;
+};
+
 typedef boost::format fmt;
 
 static bool verify_arch(const obj::ObjectFile &);
@@ -135,6 +151,10 @@ struct section_properties_t {
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
 
+  bool w, x;
+  bool initArray;
+  bool finiArray;
+
   bool operator==(const section_properties_t &sect) const {
     return name == sect.name;
   }
@@ -146,7 +166,7 @@ struct section_properties_t {
 
 typedef std::set<section_properties_t> section_properties_set_t;
 static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
-    sectm;
+    SectMap;
 
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
                                            disas_t &, target_ulong Addr);
@@ -347,6 +367,7 @@ int add(void) {
   typedef typename ELFT::Elf_Sym Elf_Sym;
   typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
   typedef typename ELFT::Elf_Rela Elf_Rela;
+  typedef typename ELFT::Elf_Rel Elf_Rel;
 
   //
   // build section map
@@ -409,13 +430,19 @@ int add(void) {
       sectprop.contents = *contents;
     }
 
+    sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
+    sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+
+    sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
+    sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
+
     boost::icl::interval<std::uintptr_t>::type intervl =
         boost::icl::interval<std::uintptr_t>::right_open(
             Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
     {
-      auto it = sectm.find(intervl);
-      if (it != sectm.end()) {
+      auto it = SectMap.find(intervl);
+      if (it != SectMap.end()) {
         WithColor::error() << "the following sections intersect: "
                            << (*(*it).second.begin()).name << " and "
                            << sectprop.name << '\n';
@@ -423,7 +450,7 @@ int add(void) {
       }
     }
 
-    sectm.add({intervl, {sectprop}});
+    SectMap.add({intervl, {sectprop}});
 
     if (opts::Verbose)
       llvm::outs() <<
@@ -431,6 +458,41 @@ int add(void) {
          % sectprop.name.str()
          % intervl.lower()
          % intervl.upper()).str() << '\n';
+  }
+
+  const unsigned NumSections = SectMap.iterative_size();
+
+  //
+  // create sections table and address -> section index map
+  //
+  std::vector<section_t> SectTable;
+  SectTable.resize(NumSections);
+
+  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+
+  {
+    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      section_t &Sect = SectTable[i];
+
+      minAddr = std::min(minAddr, pair.first.lower());
+      maxAddr = std::max(maxAddr, pair.first.upper());
+
+      SectIdxMap.add({pair.first, i});
+
+      const section_properties_t &prop = *pair.second.begin();
+      Sect.Addr = pair.first.lower();
+      Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.Name = prop.name;
+      Sect.Contents = prop.contents;
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+      Sect.initArray = prop.initArray;
+      Sect.finiArray = prop.finiArray;
+
+      ++i;
+    }
   }
 
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
@@ -628,19 +690,76 @@ int add(void) {
   }
 
   //
+  // translate all IFunc resolver functions
+  //
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
+    if (Sym.isUndefined())
+      continue;
+    if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
+      continue;
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+    llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
+                                  SymName, Sym.st_value);
+    translate_function(binary, tcg, dis, Sym.st_value);
+  }
+
+  //
   // translate all ifunc resolvers
   //
   auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
-    if (R.getType(E.isMips64EL()) == llvm::ELF::R_X86_64_IRELATIVE)
-      translate_function(binary, tcg, dis, R.r_addend);
+      constexpr unsigned long irelative_reloc_ty =
+#if defined(__x86_64__)
+          llvm::ELF::R_X86_64_IRELATIVE
+#elif defined(__i386__)
+          llvm::ELF::R_386_IRELATIVE
+#elif defined(__aarch64__)
+          llvm::ELF::R_AARCH64_IRELATIVE
+#elif defined(__mips64) || defined(__mips__)
+	  0 /* XXX TODO ? */
+#else
+#error
+#endif
+          ;
+
+    unsigned reloc_ty = R.getType(E.isMips64EL());
+    if (reloc_ty != irelative_reloc_ty)
+      return;
+
+    uintptr_t ifunc_resolver_addr = R.r_addend;
+    if (!ifunc_resolver_addr) {
+      // TODO refactor
+      auto it = SectIdxMap.find(R.r_offset);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.r_offset - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      ifunc_resolver_addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
+    assert(ifunc_resolver_addr);
+
+    llvm::outs() << llvm::formatv("translating ifunc resolver @ 0x{0:x}\n",
+                                  ifunc_resolver_addr);
+    translate_function(binary, tcg, dis, ifunc_resolver_addr);
   };
 
   for (const Elf_Shdr &Sec : *sections) {
-    if (Sec.sh_type != llvm::ELF::SHT_RELA)
-      continue;
+    if (Sec.sh_type == llvm::ELF::SHT_RELA) {
+      for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
+        process_elf_rela(Sec, Rela);
+    } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
+      for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec))) {
+        Elf_Rela Rela;
+        Rela.r_offset = Rel.r_offset;
+        Rela.r_info = Rel.r_info;
+        Rela.r_addend = 0;
 
-    for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
-      process_elf_rela(Sec, Rela);
+        process_elf_rela(Sec, Rela);
+      }
+    }
   }
 
   {
@@ -854,8 +973,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     }
   }
 
-  auto sectit = sectm.find(Addr);
-  if (sectit == sectm.end()) {
+  auto sectit = SectMap.find(Addr);
+  if (sectit == SectMap.end()) {
     if (opts::Verbose)
       WithColor::note() << llvm::formatv("no section @ {0:x}\n", Addr);
     return invalid_basic_block_index;
@@ -954,7 +1073,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
   auto is_invalid_terminator = [&](void) -> bool {
     if (T.Type == TERMINATOR::CALL) {
-      if (sectm.find(T._call.Target) == sectm.end())
+      if (SectMap.find(T._call.Target) == SectMap.end())
         return true;
     }
 
