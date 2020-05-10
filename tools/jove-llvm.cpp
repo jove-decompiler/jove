@@ -413,6 +413,24 @@ struct binary_state_t {
   boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 };
 
+struct section_t {
+  llvm::StringRef Name;
+  llvm::ArrayRef<uint8_t> Contents;
+  uintptr_t Addr;
+  unsigned Size;
+
+  bool initArray;
+  bool finiArray;
+
+  struct {
+    boost::icl::split_interval_set<uintptr_t> Intervals;
+    std::map<unsigned, llvm::Constant *> Constants;
+    std::map<unsigned, llvm::Type *> Types;
+  } Stuff;
+
+  llvm::StructType *T;
+};
+
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
@@ -3309,15 +3327,64 @@ int ProcessBinaryRelocations(void) {
 }
 
 int ProcessIFuncResolvers(void) {
+  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
+  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
+  const unsigned NumSections = SectMap.iterative_size();
+
+  //
+  // create sections table and address -> section index map
+  //
+  std::vector<section_t> SectTable;
+  SectTable.resize(NumSections);
+
+  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+
+  {
+    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    unsigned i = 0;
+    for (const auto &pair : SectMap) {
+      section_t &Sect = SectTable[i];
+
+      minAddr = std::min(minAddr, pair.first.lower());
+      maxAddr = std::max(maxAddr, pair.first.upper());
+
+      SectIdxMap.add({pair.first, i});
+
+      const section_properties_t &prop = *pair.second.begin();
+      Sect.Addr = pair.first.lower();
+      Sect.Size = pair.first.upper() - pair.first.lower();
+      Sect.Name = prop.name;
+      Sect.Contents = prop.contents;
+      Sect.Stuff.Intervals.insert(
+          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+      Sect.initArray = prop.initArray;
+      Sect.finiArray = prop.finiArray;
+
+      ++i;
+    }
+  }
+
   auto &binary = Decompilation.Binaries[BinaryIndex];
-  auto &st = BinStateVec[BinaryIndex];
-  auto &FuncMap = st.FuncMap;
 
   for (const relocation_t &R : RelocationTable) {
     if (R.Type != relocation_t::TYPE::IRELATIVE)
       continue;
 
-    auto it = FuncMap.find(R.Addend);
+    uintptr_t ifunc_resolver_addr = R.Addend;
+    if (!ifunc_resolver_addr) {
+      // TODO refactor
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      ifunc_resolver_addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
+    assert(ifunc_resolver_addr);
+
+    auto it = FuncMap.find(ifunc_resolver_addr);
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions[(*it).second];
@@ -3431,6 +3498,10 @@ int ProcessIFuncResolvers(void) {
       continue;
 
     auto it = FuncMap.find(Sym.st_value);
+    if (it == FuncMap.end()) {
+      WithColor::error() << llvm::formatv("Sym.st_value=0x{0:x}\n",
+                                          Sym.st_value);
+    }
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions.at((*it).second);
@@ -5040,24 +5111,6 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-struct section_t {
-  llvm::StringRef Name;
-  llvm::ArrayRef<uint8_t> Contents;
-  uintptr_t Addr;
-  unsigned Size;
-
-  bool initArray;
-  bool finiArray;
-
-  struct {
-    boost::icl::split_interval_set<uintptr_t> Intervals;
-    std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Type *> Types;
-  } Stuff;
-
-  llvm::StructType *T;
-};
-
 llvm::Constant *SectionPointer(uintptr_t Addr) {
   if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
     return nullptr;
@@ -5336,7 +5389,23 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
-      WithColor::error() << "no sym found for tpoff relocation\n";
+      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap:\n{1}\n",
+                                          tpoff,
+                                          std::accumulate(
+                                            TLSValueToSymbolMap.begin(),
+                                            TLSValueToSymbolMap.end(),
+                                            std::string(),
+                                            [](const std::string &res, const std::pair<const uintptr_t, std::set<llvm::StringRef>>& pair) -> std::string {
+                                                std::string s = std::string("{") + std::to_string(pair.first) + std::string(", {") +
+                                                  std::accumulate(pair.second.begin(),
+                                                                  pair.second.end(),
+                                                                  std::string(),
+                                                                  [](const std::string &res, llvm::StringRef Str) -> std::string {
+                                                                    return res + (res.empty() ? std::string() : std::string(", ")) + Str.str();
+                                                                  }) + std::string("}}");
+
+                                                return res + (res.empty() ? std::string() : std::string(", ")) + s;
+                                            }));
       return nullptr;
     }
 
@@ -5695,7 +5764,17 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
-      WithColor::error() << "no sym found for tpoff relocation\n";
+      WithColor::error() <<
+        llvm::formatv(
+          "no sym found for tpoff {0}; TLSValueToSymbolMap.size()={1}\n", tpoff,
+          TLSValueToSymbolMap.size());
+
+#if 0
+      for (const auto &pair : TLSValueToSymbolMap) {
+        llvm::errs() << llvm::formatv("  {0}, {1}\n", pair.first, pair.second);
+      }
+#endif
+
       return nullptr;
     }
 
