@@ -1493,14 +1493,13 @@ int ProcessBinaryTLSSymbols(void) {
   if (!tlsPhdr)
     return 0;
 
-  ThreadLocalStorage.Beg = tlsPhdr->p_vaddr;
-  ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
+  ThreadLocalStorage.Beg       = tlsPhdr->p_vaddr;
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
+  ThreadLocalStorage.End       = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
-  if (opts::Verbose)
-    llvm::outs() << llvm::formatv("TLS: [0x{0:x}, 0x{1:x})\n",
-                                  ThreadLocalStorage.Beg,
-                                  ThreadLocalStorage.End);
+  llvm::outs() << llvm::formatv("TLS Program header: [{0:x}, {1:x})\n",
+                                ThreadLocalStorage.Beg,
+                                ThreadLocalStorage.End);
 
   const Elf_Shdr *SymTab = nullptr;
   llvm::ArrayRef<Elf_Word> ShndxTable;
