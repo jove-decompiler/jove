@@ -5435,7 +5435,7 @@ int CreateSectionGlobalVariables(void) {
 
     WithColor::error() << llvm::formatv(
         "copy relocation @ 0x{0:x} specifies symbol {1} with size {2}\n"
-        "was prog compiled as a position-independant executable?\n",
+        "was prog compiled as position-independant (i.e. -fPIC)?\n",
         R.Addr, S.Name, S.Size);
     abort();
 
