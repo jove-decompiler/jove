@@ -2381,6 +2381,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
     typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
     typedef typename ELFT::Elf_Shdr Elf_Shdr;
     typedef typename ELFT::Elf_Sym Elf_Sym;
+    typedef typename ELFT::Elf_Rel Elf_Rel;
     typedef typename ELFT::Elf_Rela Elf_Rela;
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
@@ -2441,11 +2442,19 @@ static void harvest_irelative_reloc_targets(pid_t child,
     };
 
     for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      if (Sec.sh_type != llvm::ELF::SHT_RELA)
-        continue;
+      if (Sec.sh_type == llvm::ELF::SHT_RELA) {
+        for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
+          process_elf_rela(Sec, Rela);
+      } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
+        for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec))) {
+          Elf_Rela Rela;
+          Rela.r_offset = Rel.r_offset;
+          Rela.r_info = Rel.r_info;
+          Rela.r_addend = 0;
 
-      for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
-        process_elf_rela(Sec, Rela);
+          process_elf_rela(Sec, Rela);
+        }
+      }
     }
   }
 }
