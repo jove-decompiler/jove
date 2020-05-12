@@ -396,6 +396,10 @@ int run(void) {
   //
   if (pthread_cancel(recover_thd) != 0) {
     fprintf(stderr, "error: failed to cancel recover_proc thread\n");
+
+    void *retval;
+    if (pthread_join(recover_thd, &retval) != 0)
+      fprintf(stderr, "error: pthread_join failed\n");
   } else {
     void *recover_retval;
     if (pthread_join(recover_thd, &recover_retval) != 0)
