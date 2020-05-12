@@ -533,7 +533,7 @@ void *recover_proc(const char *fifo_path) {
   }
 
   auto cleanup_handler = [](void *arg) -> void {
-    if (close(reinterpret_cast<int>(arg)) < 0)
+    if (close(reinterpret_cast<long>(arg)) < 0)
       fprintf(stderr, "recover_proc: cleanup_handler: close failed (%s)\n",
               strerror(errno));
   };
