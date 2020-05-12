@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/uio.h>
 #include <fcntl.h>
+#include <pthread.h>
 
 namespace fs = boost::filesystem;
 
@@ -35,6 +36,8 @@ int main(int argc, char **argv) {
 }
 
 namespace jove {
+
+static fs::path jove_recover_path, jv_path;
 
 static void Usage(void);
 
@@ -83,7 +86,7 @@ int ParseCommandLineArguments(int argc, char **argv) {
   return 0;
 }
 
-static void recover(const char *fifo_path);
+static void *recover_proc(const char *fifo_path);
 static void IgnoreCtrlC(void);
 
 int run(void) {
@@ -281,6 +284,36 @@ int run(void) {
     return 1;
   }
 
+  //
+  // get paths to stuff
+  //
+  jove_recover_path =
+      boost::dll::program_location().parent_path() / "jove-recover";
+  if (!fs::exists(jove_recover_path)) {
+    fprintf(stderr, "couldn't find jove-recover at %s\n",
+            jove_recover_path.c_str());
+    return 1;
+  }
+
+  jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
+  if (!fs::exists(jv_path)) {
+    fprintf(stderr, "recover: no jv found\n");
+    return 1;
+  }
+
+  //
+  // create thread reading from fifo
+  //
+  pthread_t recover_thd;
+  if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
+                     (void *)recover_fifo_path.c_str()) != 0) {
+    fprintf(stderr, "failed to create recover_proc thread\n");
+    return 1;
+  }
+
+  //
+  // now actually fork and exec the given executable
+  //
   int pid = fork();
   if (!pid) {
     if (chroot(opts::sysroot) < 0) {
@@ -353,38 +386,25 @@ int run(void) {
 
   IgnoreCtrlC();
 
-  {
-    std::thread pipe_reader(recover, recover_fifo_path.c_str());
-    pipe_reader.detach(); /* go be free */
-  }
-
   //
   // wait for process to exit
   //
   int ret = await_process_completion(pid);
 
-  {
-    int recover_fd = open(recover_fifo_path.c_str(), O_WRONLY);
-    if (recover_fd < 0) {
-      fprintf(stderr, "failed to open fifo at %s (%s)\n",
-              recover_fifo_path.c_str(), strerror(errno));
-    } else {
-      char ch = 'z';
-
-      ssize_t ret = write(recover_fd, &ch, 1);
-      if (ret != 1) {
-        if (ret < 0)
-          fprintf(stderr, "failed to write to fifo at %s (%s)\n",
-                  recover_fifo_path.c_str(), strerror(errno));
-        else
-          fprintf(stderr, "write to fifo gave unexpected value (%zd)\n", ret);
-      }
-
-      close(recover_fd);
-    }
+  //
+  // cancel the thread reading the fifo
+  //
+  if (pthread_cancel(recover_thd) != 0) {
+    fprintf(stderr, "error: failed to cancel recover_proc thread\n");
+  } else {
+    void *recover_retval;
+    if (pthread_join(recover_thd, &recover_retval) != 0)
+      fprintf(stderr, "error: pthread_join failed\n");
+    else if (recover_retval != PTHREAD_CANCELED)
+      fprintf(stderr,
+              "warning: expected retval to equal PTHREAD_CANCELED, but is %p\n",
+              recover_retval);
   }
-
-  //pipe_reader.join();
 
   if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
@@ -499,50 +519,44 @@ static size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   return expected;
 }
 
-static fs::path jove_recover_path, jv_path;
-
-void recover(const char *fifo_path) {
+void *recover_proc(const char *fifo_path) {
   //
-  // get paths to stuff
+  // ATTENTION: this thread has to be cancel-able. That means no C++ objects at
+  // any time, in this function.
   //
-  jove_recover_path =
-      boost::dll::program_location().parent_path() / "jove-recover";
-  if (!fs::exists(jove_recover_path)) {
-    fprintf(stderr, "recover: couldn't find jove-recover at %s\n",
-            jove_recover_path.c_str());
-    return;
-  }
-
-  jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
-  if (!fs::exists(jv_path)) {
-    fprintf(stderr, "recover: no jv found\n");
-    return;
-  }
 
   int recover_fd = open(fifo_path, O_RDONLY);
   if (recover_fd < 0) {
     fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
             strerror(errno));
-    return;
+    return nullptr;
   }
 
-  auto process_fifo_bytes = [](int recover_fd) -> bool {
+  for (;;) {
     char ch;
 
     {
+do_1b_read:
       ssize_t ret = read(recover_fd, &ch, 1);
       if (ret != 1) {
-        if (ret < 0)
-          fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-        else
-          fprintf(stderr, "recover: read gave %zd\n", ret);
+        if (ret < 0) {
+          if (errno == EINTR)
+            goto do_1b_read;
 
-        return false;
+          fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+        } else {
+          fprintf(stderr, "recover: read gave %zd\n", ret);
+        }
+
+        break;
       }
     }
 
-    switch (ch) {
-    case 'f': {
+    //
+    // we assume ch is loaded with a byte from the fifo. it's got to be either
+    // 'f' or 'b'.
+    //
+    if (ch == 'f') {
       struct {
         uint32_t BIdx;
         uint32_t BBIdx;
@@ -562,16 +576,24 @@ void recover(const char *fifo_path) {
         };
 
         size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+do_f_read:
         ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
         if (ret != expected) {
-          if (ret < 0)
+          if (ret < 0) {
+            if (errno == EINTR)
+              goto do_f_read;
+
             fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          else
+          } else {
             fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
+          }
 
           break;
         }
       }
+
+      if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
+        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
 
       int pid = fork();
       if (!pid) {
@@ -590,11 +612,11 @@ void recover(const char *fifo_path) {
         exit(1);
       }
 
-      await_process_completion(pid);
-      return true;
-    }
+      (void)await_process_completion(pid);
 
-    case 'b': {
+      if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
+        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+    } else if (ch == 'b') {
       struct {
         uint32_t BIdx;
         uint32_t BBIdx;
@@ -610,16 +632,23 @@ void recover(const char *fifo_path) {
         };
 
         size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+do_b_read:
         ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
         if (ret != expected) {
-          if (ret < 0)
-            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          else
-            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
+          if (ret < 0) {
+            if (errno == EINTR)
+              goto do_b_read;
 
+            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+          } else {
+            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
+          }
           break;
         }
       }
+
+      if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
+        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
 
       int pid = fork();
       if (!pid) {
@@ -637,25 +666,19 @@ void recover(const char *fifo_path) {
         exit(1);
       }
 
-      await_process_completion(pid);
-      return true;
-    }
+      (void)await_process_completion(pid);
 
-    case 'z':
-      return false;
-
-    default:
+      if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
+        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+    } else {
+      fprintf(stderr, "recover: unknown character (%c)\n", ch);
       break;
     }
-
-    fprintf(stderr, "recover: unknown character (%c)\n", ch);
-    return true;
-  };
-
-  while (process_fifo_bytes(recover_fd))
-    ;
+  }
 
   close(recover_fd);
+
+  return nullptr;
 }
 
 void Usage(void) {
