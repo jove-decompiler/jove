@@ -5978,6 +5978,8 @@ int CreateSectionGlobalVariables(void) {
 
       f._resolver.IFunc = llvm::GlobalIFunc::create(
           FTy, 0, llvm::GlobalValue::ExternalLinkage, "", CallsF, Module.get());
+
+      IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
     }
 
     return f._resolver.IFunc;
