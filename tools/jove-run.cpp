@@ -532,11 +532,20 @@ void *recover_proc(const char *fifo_path) {
     return nullptr;
   }
 
+  auto cleanup_handler = [](void *arg) -> void {
+    if (close(reinterpret_cast<int>(arg)) < 0)
+      fprintf(stderr, "recover_proc: cleanup_handler: close failed (%s)\n",
+              strerror(errno));
+  };
+
+  pthread_cleanup_push(cleanup_handler, reinterpret_cast<void *>(recover_fd));
+
   for (;;) {
     char ch;
 
     {
 do_1b_read:
+      // NOTE: read is a cancellation point
       ssize_t ret = read(recover_fd, &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
@@ -676,7 +685,9 @@ do_b_read:
     }
   }
 
-  close(recover_fd);
+  // (Clean-up handlers are not called if the thread terminates by performing a
+  // return from the thread start function.)
+  pthread_cleanup_pop(1 /* execute */);
 
   return nullptr;
 }
