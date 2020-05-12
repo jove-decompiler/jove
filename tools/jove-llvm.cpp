@@ -5985,9 +5985,6 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_tpoff_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-#if 1
-    assert(!(R.SymbolIndex < SymbolTable.size()));
-#else
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
@@ -5997,7 +5994,7 @@ int CreateSectionGlobalVariables(void) {
       llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
 
       if (GV)
-        return GV;
+        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
       auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
@@ -6022,9 +6019,8 @@ int CreateSectionGlobalVariables(void) {
                                     nullptr, S.Name, nullptr,
                                     llvm::GlobalValue::GeneralDynamicTLSModel);
 
-      return GV;
+      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
-#endif
 
 #if !defined(__x86_64__) && defined(__i386__)
     unsigned tpoff;
