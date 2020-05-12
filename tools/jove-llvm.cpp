@@ -1527,10 +1527,10 @@ int ProcessBinaryTLSSymbols(void) {
       llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*SymTab));
 
       for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
-        if (Sym.isUndefined())
+        if (Sym.getType() != llvm::ELF::STT_TLS)
           continue;
 
-        if (Sym.getType() != llvm::ELF::STT_TLS)
+        if (Sym.isUndefined())
           continue;
 
         llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
@@ -1656,7 +1656,11 @@ int ProcessBinaryTLSSymbols(void) {
     if (Sym.getType() != llvm::ELF::STT_TLS)
       continue;
 
+    if (Sym.isUndefined())
+      continue;
+
     llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
     WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
                                        __LINE__);
 
