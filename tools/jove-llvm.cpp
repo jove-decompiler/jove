@@ -618,6 +618,7 @@ static llvm::Function *JoveCheckReturnAddrFunc;
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
 static uintptr_t SectsStartAddr, SectsEndAddr;
+static llvm::GlobalVariable *TLSSectsGlobal;
 
 static std::vector<function_index_t> FuncIdxAreABIVec;
 
@@ -630,7 +631,7 @@ static llvm::MDNode *AliasScopeMetadata;
 
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
-static std::map<uintptr_t, llvm::GlobalVariable *> TPOFFHack;
+static std::map<uintptr_t, llvm::Constant *> TPOFFHack;
 
 static bool ABIChanged = false;
 
@@ -642,6 +643,8 @@ static struct {
   } Data;
 
   uintptr_t Beg, End;
+
+  bool Present;
 } ThreadLocalStorage;
 
 static struct {
@@ -1490,39 +1493,172 @@ int ProcessBinaryTLSSymbols(void) {
     }
   }
 
-  if (!tlsPhdr)
+  if (!tlsPhdr) {
+    ThreadLocalStorage.Present = false;
+
+    WithColor::note() << llvm::formatv("{0}: No thread local storage\n",
+                                       __func__);
     return 0;
+  }
 
-  ThreadLocalStorage.Beg       = tlsPhdr->p_vaddr;
+  ThreadLocalStorage.Present = true;
+  ThreadLocalStorage.Beg = tlsPhdr->p_vaddr;
   ThreadLocalStorage.Data.Size = tlsPhdr->p_filesz;
-  ThreadLocalStorage.End       = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
+  ThreadLocalStorage.End = tlsPhdr->p_vaddr + tlsPhdr->p_memsz;
 
-  llvm::outs() << llvm::formatv("TLS Program header: [{0:x}, {1:x})\n",
-                                ThreadLocalStorage.Beg,
-                                ThreadLocalStorage.End);
+  WithColor::note() << llvm::formatv("Thread-local storage: [{0:x}, {1:x})\n",
+                                     ThreadLocalStorage.Beg,
+                                     ThreadLocalStorage.End);
 
-  const Elf_Shdr *SymTab = nullptr;
-  llvm::ArrayRef<Elf_Word> ShndxTable;
+  {
+    const Elf_Shdr *SymTab = nullptr;
+    llvm::ArrayRef<Elf_Word> ShndxTable;
 
-  for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
-    if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
-      assert(!SymTab);
-      SymTab = &Sect;
-    } else if (Sect.sh_type == llvm::ELF::SHT_SYMTAB_SHNDX) {
-      ShndxTable = unwrapOrError(E.getSHNDXTable(Sect));
+    for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
+      if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+        assert(!SymTab);
+        SymTab = &Sect;
+      } else if (Sect.sh_type == llvm::ELF::SHT_SYMTAB_SHNDX) {
+        ShndxTable = unwrapOrError(E.getSHNDXTable(Sect));
+      }
+    }
+
+    if (SymTab) {
+      llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*SymTab));
+
+      for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
+        if (Sym.isUndefined())
+          continue;
+
+        if (Sym.getType() != llvm::ELF::STT_TLS)
+          continue;
+
+        llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+        WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
+                                           __LINE__);
+
+        if (Sym.st_value >= tlsPhdr->p_memsz) {
+          WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
+                                              Sym.st_value, SymName)
+                             << '\n';
+          continue;
+        }
+
+        uintptr_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
+        AddrToSymbolMap[Addr].insert(SymName);
+        AddrToSizeMap[Addr] = Sym.st_size;
+
+        TLSObjects.insert(Addr);
+
+        TLSValueToSizeMap[Sym.st_value] = Sym.st_size;
+        TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+      }
     }
   }
 
-  if (!SymTab)
-    return 0;
+  //
+  // iterate dynamic symbols
+  //
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
 
-  llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*SymTab));
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
 
-  for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
+    }
+  }
+
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion;
+  llvm::StringRef DynSymtabName;
+  llvm::StringRef DynamicStringTable;
+
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+      }
+    }
+  }
+
+  //
+  // parse dynamic table
+  //
+  {
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        break;
+      case llvm::ELF::DT_STRSZ:
+        StringTableSize = Dyn.getVal();
+        break;
+      }
+    };
+
+    if (StringTableBegin)
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
     if (Sym.getType() != llvm::ELF::STT_TLS)
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
+                                       __LINE__);
 
     if (Sym.st_value >= tlsPhdr->p_memsz) {
       WithColor::error() << llvm::formatv("bad TLS offset {0} for symbol {1}",
@@ -5343,6 +5479,7 @@ int CreateSectionGlobalVariables(void) {
   };
 
   auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
+#if 0
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
@@ -5388,23 +5525,8 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
-      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap: {1}\n",
-                                          tpoff,
-                                          std::accumulate(
-                                            TLSValueToSymbolMap.begin(),
-                                            TLSValueToSymbolMap.end(),
-                                            std::string(),
-                                            [](const std::string &res, const std::pair<const uintptr_t, std::set<llvm::StringRef>>& pair) -> std::string {
-                                                std::string s = std::string("{") + std::to_string(pair.first) + std::string(", {") +
-                                                  std::accumulate(pair.second.begin(),
-                                                                  pair.second.end(),
-                                                                  std::string(),
-                                                                  [](const std::string &res, llvm::StringRef Str) -> std::string {
-                                                                    return res + (res.empty() ? std::string() : std::string(", ")) + Str.str();
-                                                                  }) + std::string("}}");
-
-                                                return res + (res.empty() ? std::string() : std::string(", ")) + s;
-                                            }));
+      if (!TLSSectsGlobal)
+        return nullptr;
       return nullptr;
     }
 
@@ -5416,6 +5538,9 @@ int CreateSectionGlobalVariables(void) {
     TPOFFHack[R.Addr] = GV;
 
     return GV->getType();
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_tpmod_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -5695,18 +5820,170 @@ int CreateSectionGlobalVariables(void) {
       IdxPair = *(*it).second.begin();
     }
 
-    auto it = FuncMap.find(R.Addend);
+    uintptr_t ResolverAddr = R.Addend;
+    if (!ResolverAddr) {
+      auto it = SectIdxMap.find(R.Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = R.Addr - Sect.Addr;
+
+      assert(!Sect.Contents.empty());
+      ResolverAddr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+    }
+    assert(ResolverAddr);
+
+    auto it = FuncMap.find(ResolverAddr);
     assert(it != FuncMap.end());
 
     function_t &f =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
 
-    assert(f._resolver.IFunc);
+    if (!f._resolver.IFunc) {
+      llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
+
+      // TODO refactor this
+      llvm::Function *CallsF = llvm::Function::Create(
+          llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
+          llvm::GlobalValue::InternalLinkage,
+          std::string(f.F->getName()) + "_ifunc", Module.get());
+
+      llvm::DIBuilder &DIB = *DIBuilder;
+      llvm::DISubprogram::DISPFlags SubProgFlags =
+          llvm::DISubprogram::SPFlagDefinition |
+          llvm::DISubprogram::SPFlagOptimized;
+
+      if (CallsF->hasPrivateLinkage() || CallsF->hasInternalLinkage())
+        SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+      llvm::DISubroutineType *SubProgType =
+          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+      struct {
+        llvm::DISubprogram *Subprogram;
+      } DebugInfo;
+
+      DebugInfo.Subprogram = DIB.createFunction(
+          /* Scope       */ DebugInformation.CompileUnit,
+          /* Name        */ CallsF->getName(),
+          /* LinkageName */ CallsF->getName(),
+          /* File        */ DebugInformation.File,
+          /* LineNo      */ 0,
+          /* Ty          */ SubProgType,
+          /* ScopeLine   */ 0,
+          /* Flags       */ llvm::DINode::FlagZero,
+          /* SPFlags     */ SubProgFlags);
+
+      CallsF->setSubprogram(DebugInfo.Subprogram);
+
+      llvm::BasicBlock *EntryB =
+          llvm::BasicBlock::Create(*Context, "", CallsF);
+
+      {
+        llvm::IRBuilderTy IRB(EntryB);
+
+        IRB.SetCurrentDebugLocation(
+            llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
+                                  DebugInfo.Subprogram));
+
+        if (DynTargetNeedsThunkPred(IdxPair)) {
+          IRB.CreateCall(JoveInstallForeignFunctionTables)
+              ->setIsNoInline();
+
+          llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
+
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Res, CallsF->getFunctionType()->getReturnType()));
+        } else if (IdxPair.first == BinaryIndex) {
+          llvm::Value *Res = Decompilation.Binaries[BinaryIndex]
+                                 .Analysis.Functions.at(IdxPair.second)
+                                 .F;
+
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Res, CallsF->getFunctionType()->getReturnType()));
+        } else {
+          llvm::Value *SPPtr =
+              CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+          llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+          SavedSP->setName("saved_sp");
+
+          {
+            constexpr unsigned StackAllocaSize = 0x10000;
+
+            llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
+                llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+
+            llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
+                StackAlloca, 0, StackAllocaSize - 4096);
+
+            IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+          }
+
+          llvm::Value *SavedTraceP = nullptr;
+          if (opts::Trace) {
+            SavedTraceP = IRB.CreateLoad(TraceGlobal);
+            SavedTraceP->setName("saved_tracep");
+
+            {
+              constexpr unsigned TraceAllocaSize = 4096;
+
+              llvm::AllocaInst *TraceAlloca =
+                  IRB.CreateAlloca(llvm::ArrayType::get(IRB.getInt64Ty(),
+                                                        TraceAllocaSize));
+
+              llvm::Value *NewTraceP =
+                  IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+              IRB.CreateStore(NewTraceP, TraceGlobal);
+            }
+          }
+
+          std::vector<llvm::Value *> ArgVec;
+          ArgVec.resize(f.F->getFunctionType()->getNumParams());
+
+          for (unsigned i = 0; i < ArgVec.size(); ++i)
+            ArgVec[i] = llvm::UndefValue::get(
+                f.F->getFunctionType()->getParamType(i));
+
+          // llvm::ValueToValueMapTy Map;
+          // ResolverF = llvm::CloneFunction(f.F, Map);
+
+          llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
+          CallsToInline.push_back(Call);
+
+          IRB.CreateStore(SavedSP, SPPtr);
+
+          if (opts::Trace)
+            IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+          if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+            WithColor::warning() << llvm::formatv(
+                "ifunc resolver {0} returns void\n", *f.F);
+
+            IRB.CreateRet(llvm::Constant::getNullValue(
+                CallsF->getFunctionType()->getReturnType()));
+          } else {
+            IRB.CreateRet(IRB.CreateIntToPtr(
+                Call, CallsF->getFunctionType()->getReturnType()));
+          }
+        }
+      }
+
+      DIB.finalizeSubprogram(DebugInfo.Subprogram);
+
+      f._resolver.IFunc = llvm::GlobalIFunc::create(
+          FTy, 0, llvm::GlobalValue::ExternalLinkage, "", CallsF, Module.get());
+    }
+
     return f._resolver.IFunc;
   };
 
   auto constant_of_tpoff_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
+#if 1
+    assert(!(R.SymbolIndex < SymbolTable.size()));
+#else
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
 
@@ -5743,6 +6020,7 @@ int CreateSectionGlobalVariables(void) {
 
       return GV;
     }
+#endif
 
 #if !defined(__x86_64__) && defined(__i386__)
     unsigned tpoff;
@@ -5763,26 +6041,65 @@ int CreateSectionGlobalVariables(void) {
 
     auto it = TLSValueToSymbolMap.find(tpoff);
     if (it == TLSValueToSymbolMap.end()) {
-      WithColor::error() <<
-        llvm::formatv(
-          "no sym found for tpoff {0}; TLSValueToSymbolMap.size()={1}\n", tpoff,
-          TLSValueToSymbolMap.size());
+      if (!TLSSectsGlobal) {
+        WithColor::warning()
+            << "constant_of_tpoff_relocation: !TLSSectsGlobal\n";
+        return nullptr;
+      }
 
 #if 0
-      for (const auto &pair : TLSValueToSymbolMap) {
-        llvm::errs() << llvm::formatv("  {0}, {1}\n", pair.first, pair.second);
-      }
+      WithColor::error() << llvm::formatv("no sym found for tpoff {0}; TLSValueToSymbolMap: {1}\n",
+                                          tpoff,
+                                          std::accumulate(
+                                            TLSValueToSymbolMap.begin(),
+                                            TLSValueToSymbolMap.end(),
+                                            std::string(),
+                                            [](const std::string &res, const std::pair<const uintptr_t, std::set<llvm::StringRef>>& pair) -> std::string {
+                                                std::string s = std::string("{") + std::to_string(pair.first) + std::string(", {") +
+                                                  std::accumulate(pair.second.begin(),
+                                                                  pair.second.end(),
+                                                                  std::string(),
+                                                                  [](const std::string &res, llvm::StringRef Str) -> std::string {
+                                                                    return res + (res.empty() ? std::string() : std::string(", ")) + Str.str();
+                                                                  }) + std::string("}}");
+
+                                                return res + (res.empty() ? std::string() : std::string(", ")) + s;
+                                            }));
 #endif
 
+#if 0
+      llvm::IRBuilderTy IRB(*Context);
+      llvm::SmallVector<llvm::Value *, 4> Indices;
+      llvm::Value *res = llvm::getNaturalGEPWithOffset(
+          IRB, DL, TLSSectsGlobal, llvm::APInt(64, tpoff), GlbTy, Indices, "");
+#endif
+
+      llvm::Constant *res = llvm::ConstantExpr::getAdd(
+          llvm::ConstantExpr::getPtrToInt(TLSSectsGlobal, WordType()),
+          llvm::ConstantInt::get(WordType(), tpoff));
+
+      TPOFFHack[R.Addr] = res;
+
+      return res;
+    }
+
+    llvm::GlobalVariable *GV = nullptr;
+    for (auto sym_it = (*it).second.begin(); sym_it != (*it).second.end(); ++sym_it) {
+      GV = Module->getGlobalVariable(*sym_it);
+      if (GV)
+        break;
+    }
+
+    if (!GV) {
+      WithColor::warning() << llvm::formatv(
+          "constant_of_tpoff_relocation: {0}:{1} [{2}]\n", __FILE__, __LINE__,
+          *(*it).second.begin());
       return nullptr;
     }
 
-    llvm::StringRef SymName = *(*it).second.begin();
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-    if (!GV)
-      return nullptr;
+    TPOFFHack[R.Addr] = GV;
 
-    return GV;
+    return llvm::ConstantExpr::getPtrToInt(GV, WordType());
   };
 
   auto constant_of_tpmod_relocation =
@@ -6089,6 +6406,8 @@ int CreateSectionGlobalVariables(void) {
     std::vector<llvm::Type *> GVFieldTys;
     std::vector<llvm::Constant *> GVFieldInits;
 
+    int Left = Size;
+
     for (const auto &_intvl : Sect.Stuff.Intervals) {
       uintptr_t lower = _intvl.lower();
       uintptr_t upper = _intvl.upper();
@@ -6104,8 +6423,6 @@ int CreateSectionGlobalVariables(void) {
       if (upper > Off + Size)
         upper = Off + Size;
 
-      ptrdiff_t len = upper - lower;
-
       auto typeit = Sect.Stuff.Types.find(lower);
       auto constit = Sect.Stuff.Constants.find(lower);
 
@@ -6114,6 +6431,8 @@ int CreateSectionGlobalVariables(void) {
 
       if (typeit == Sect.Stuff.Types.end() ||
           constit == Sect.Stuff.Constants.end()) {
+        ptrdiff_t len = upper - lower;
+
         T = llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), len);
         if (Sect.Contents.size() >= len) {
           C = llvm::ConstantDataArray::get(
@@ -6122,15 +6441,28 @@ int CreateSectionGlobalVariables(void) {
         } else {
           C = llvm::Constant::getNullValue(T);
         }
-      } else {
-        assert(constit != Sect.Stuff.Constants.end());
 
+        Left -= len;
+      } else {
         T = (*typeit).second;
         C = (*constit).second;
+
+        assert(T->isIntegerTy(WordBits()) || T->isPointerTy());
+        Left -= sizeof(target_ulong);
       }
 
       if (!T || !C)
         return nullptr;
+
+      GVFieldTys.push_back(T);
+      GVFieldInits.push_back(C);
+    }
+    assert(Left >= 0);
+
+    if (Left > 0) {
+      llvm::Type *T =
+          llvm::ArrayType::get(llvm::IntegerType::get(*Context, 8), Left);
+      llvm::Constant *C = llvm::Constant::getNullValue(T);
 
       GVFieldTys.push_back(T);
       GVFieldInits.push_back(C);
@@ -6243,6 +6575,8 @@ int CreateSectionGlobalVariables(void) {
       llvm::StringRef SymName = *Syms.begin();
       assert(!Syms.empty());
 
+      //llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
+
       if (Module->getNamedValue(SymName))
         continue;
 
@@ -6266,6 +6600,8 @@ int CreateSectionGlobalVariables(void) {
 
         llvm::outs() << "!create_global_variable(...): " << SymName << '\n';
         continue;
+      } else {
+        //WithColor::note() << llvm::formatv("new GV: {0}\n", *GV);
       }
 
       for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
@@ -6279,7 +6615,25 @@ int CreateSectionGlobalVariables(void) {
         llvm::GlobalAlias::create(*it, GV);
       }
     }
+
+    if (ThreadLocalStorage.Present) {
+      if (!TLSSectsGlobal)
+        TLSSectsGlobal = create_global_variable(
+            ThreadLocalStorage.Beg,
+            ThreadLocalStorage.End - ThreadLocalStorage.Beg,
+            "__jove_tls_sections",
+            llvm::GlobalValue::GeneralDynamicTLSModel);
+
+      if (!TLSSectsGlobal) {
+        done = false;
+
+        llvm::outs() << "!TLSSectsGlobal\n";
+      }
+    }
   } while (!done);
+
+  if (TLSSectsGlobal)
+    TLSSectsGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   //
   // Binary DT_INIT
@@ -6874,7 +7228,14 @@ int CreateTPOFFCtorHack(void) {
       llvm::Value *gep = llvm::getNaturalGEPWithOffset(
           IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
 
-      IRB.CreateStore(pair.second, gep, true /* Volatile */);
+      if (pair.second->getType()->isIntegerTy(WordBits()))
+        IRB.CreateStore(pair.second,
+                        gep, true /* Volatile */);
+      else if (pair.second->getType()->isPointerTy())
+        IRB.CreateStore(llvm::ConstantExpr::getPtrToInt(pair.second, WordType()),
+                        gep, true /* Volatile */);
+      else
+        abort();
     }
 
     IRB.CreateRetVoid();
