@@ -31,7 +31,7 @@
 #elif defined(__mips__)
 #include <jove/arch/mipsel/tcgconstants.h>
 #else
-#error "TODO"
+#error "unknown architecture"
 #endif
 
 namespace jove {
