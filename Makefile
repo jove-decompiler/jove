@@ -132,7 +132,7 @@ define build_tool_template
 $(BINDIR)/$(1): $(TOOLSRCDIR)/$(1).cpp
 	@echo CXX $(1)
 ifdef BUILD_STATIC
-	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -static
+	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -fPIC -static
 else
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endif
@@ -143,7 +143,7 @@ define build_util_template
 $(BINDIR)/$(1): $(UTILSRCDIR)/$(1).cpp
 	@echo CXX $(1)
 ifdef BUILD_STATIC
-	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -static
+	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -fPIC -static
 else
 	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS)
 endif
