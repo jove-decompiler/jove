@@ -176,6 +176,12 @@ $(BINDIR)/jove.dfsan.bc: lib/arch/$(ARCH)/jove.c
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
 
+VER := $(shell git log -n1 --format="%h")
+
+.PHONY: package
+package:
+	tar cvf jove-$(VER).tar $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
+
 .PHONY: clean
 clean:
 	rm -rf $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(TOOLDEPS) $(UTILDEPS) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
