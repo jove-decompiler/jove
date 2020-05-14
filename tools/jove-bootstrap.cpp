@@ -158,9 +158,10 @@ int main(int argc, char **argv) {
   int _argc = argc;
   char **_argv = argv;
 
+  // argc/argv replacement to handle '--'
   struct {
-    std::vector<std::vector<char>> s;
-    std::vector<char *> a;
+    std::vector<std::string> s;
+    std::vector<const char *> a;
   } arg_vec;
 
   {
@@ -174,21 +175,15 @@ int main(int argc, char **argv) {
     }
 
     if (prog_args_idx != -1) {
-      for (int i = 0; i < prog_args_idx; ++i) {
-        arg_vec.s.resize(arg_vec.s.size() + 1);
+      for (int i = 0; i < prog_args_idx; ++i)
+        arg_vec.s.push_back(argv[i]);
 
-        arg_vec.s.back().resize(strlen(argv[i]) + 1);
-        strcpy(&arg_vec.s.back()[0], argv[i]);
-      }
-
-      arg_vec.a.resize(arg_vec.s.size());
-      for (unsigned j = 0; j < arg_vec.a.size(); ++j)
-        arg_vec.a[j] = &arg_vec.s[j][0];
-
+      for (std::string &s : arg_vec.s)
+        arg_vec.a.push_back(s.c_str());
       arg_vec.a.push_back(nullptr);
 
       _argc = prog_args_idx;
-      _argv = &arg_vec.a[0];
+      _argv = const_cast<char **>(&arg_vec.a[0]);
 
       for (int i = prog_args_idx + 1; i < argc; ++i) {
         //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
@@ -331,19 +326,25 @@ struct indirect_branch_t {
 static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
 
 static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
-  assert(idx < BinStateVec.size());
-  assert(BinStateVec[idx].dyn.LoadAddr);
+  assert(BinStateVec.at(idx).dyn.LoadAddr);
 
-  return Addr + BinStateVec[idx].dyn.LoadAddr;
+  binary_t &binary = decompilation.Binaries.at(idx);
+  if (binary.IsExecutable && !binary.IsPIC) /* XXX */
+    return Addr;
+
+  return Addr + BinStateVec.at(idx).dyn.LoadAddr;
 }
 
 static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t idx) {
-  assert(idx < BinStateVec.size());
   assert(BinStateVec[idx].dyn.LoadAddr);
-  assert(Addr >= BinStateVec[idx].dyn.LoadAddr);
-  assert(Addr < BinStateVec[idx].dyn.LoadAddrEnd);
 
-  return Addr - BinStateVec[idx].dyn.LoadAddr;
+  binary_t &binary = decompilation.Binaries.at(idx);
+  if (binary.IsExecutable && !binary.IsPIC) /* XXX */
+    return Addr;
+
+  assert(Addr >= BinStateVec.at(idx).dyn.LoadAddr);
+  assert(Addr < BinStateVec.at(idx).dyn.LoadAddrEnd);
+  return Addr - BinStateVec.at(idx).dyn.LoadAddr;
 }
 
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
@@ -1954,9 +1955,6 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
 
 #elif defined(__i386__)
 
-    case llvm::X86::NoRegister:
-      return 0L;
-
     case llvm::X86::EAX:
       return gpr.eax;
     case llvm::X86::EBP:
@@ -2082,14 +2080,36 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__i386__)
 
     case llvm::X86::JMP32m: /* jmp dword ptr [ebx + 20] */
+      assert(Inst.getNumOperands() == 5);
       assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(1).isImm());
+      assert(Inst.getOperand(2).isReg());
       assert(Inst.getOperand(3).isImm());
-      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                      Inst.getOperand(3).getImm());
+      assert(Inst.getOperand(4).isReg());
 
-    case llvm::X86::JMP32r: /* jmp eax */
+      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
+        unsigned x_r = Inst.getOperand(0).getReg();
+        unsigned y_r = Inst.getOperand(2).getReg();
+
+        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
+        long A = Inst.getOperand(1).getImm();
+        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
+        long B = Inst.getOperand(3).getImm();
+
+        return LoadAddr(x + A * y + B);
+      } else {
+        /* e.g. jmp dword ptr gs:[16] */
+        return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
+                        Inst.getOperand(3).getImm());
+      }
+
+    case llvm::X86::JMP32r: { /* jmp eax */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
-      return RegValue(Inst.getOperand(0).getReg());
+      unsigned r = Inst.getOperand(0).getReg();
+      assert(r != llvm::X86::NoRegister);
+      return RegValue(r);
+    }
 
     case llvm::X86::CALL32m:
       assert(Inst.getNumOperands() == 5);
@@ -2101,10 +2121,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
         /* e.g. call dword ptr [esi + 4*edi - 280] */
+
+        unsigned x_r = Inst.getOperand(0).getReg();
+        unsigned y_r = Inst.getOperand(2).getReg();
+
+        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
+        long A = Inst.getOperand(1).getImm();
+        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
+        long B = Inst.getOperand(3).getImm();
+
+        return LoadAddr(x + A * y + B);
+#if 0
         return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
                         Inst.getOperand(1).getImm() *
                             RegValue(Inst.getOperand(2).getReg()) +
                         Inst.getOperand(3).getImm());
+#endif
       } else {
         /* e.g. call dword ptr gs:[16] */
         return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
@@ -2694,10 +2726,8 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
         uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
         uintptr_t Addr = va_of_rva(entry_rva, binary_idx);
 
-        llvm::outs()
-            << "entry point is "
-            << (fmt("%#lx") % binary.Analysis.ICFG[entry_bb].Addr).str()
-            << "\n";
+        llvm::outs() << llvm::formatv("entry_rva={0:x} Addr={1:x}\n",
+                                      entry_rva, Addr);
 
         breakpoint_t &brk = BrkMap[Addr];
         brk.callback = harvest_reloc_targets;
@@ -2874,8 +2904,8 @@ unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
   unsigned long _data = reinterpret_cast<unsigned long>(&res);
 
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
-    throw std::runtime_error(std::string("PTRACE_PEEKDATA failed : ") +
-                             std::string(strerror(errno)));
+    throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %p) failed : %s") %
+			      child % addr % strerror(errno)).str());
 
   return res;
 }
