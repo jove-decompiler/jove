@@ -209,6 +209,7 @@ struct binary_t {
        &BOOST_SERIALIZATION_NVP(IsDynamicLinker)
        &BOOST_SERIALIZATION_NVP(IsExecutable)
        &BOOST_SERIALIZATION_NVP(IsVDSO)
+       &BOOST_SERIALIZATION_NVP(IsPIC)
        &BOOST_SERIALIZATION_NVP(Analysis.EntryFunction)
        &BOOST_SERIALIZATION_NVP(Analysis.Functions)
        &BOOST_SERIALIZATION_NVP(Analysis.ICFG)
