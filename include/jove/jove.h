@@ -185,6 +185,8 @@ struct binary_t {
 
   bool IsDynamicLinker, IsExecutable, IsVDSO;
 
+  bool IsPIC;
+
   struct {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
