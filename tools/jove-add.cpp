@@ -352,11 +352,36 @@ int add(void) {
   binary.IsExecutable = false;
   binary.IsVDSO = false;
 
+  binary.IsPIC = true;
+
   binary.Path = fs::canonical(opts::Input).string();
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
 
   const ELFT &E = *O.getELFFile();
+
+  switch (E.getHeader()->e_type) {
+  case llvm::ELF::ET_NONE:
+    WithColor::error() << "given binary has unknown type\n";
+    return 1;
+
+  case llvm::ELF::ET_REL:
+    WithColor::error() << "given binary is object file?\n";
+    return 1;
+
+  case llvm::ELF::ET_EXEC:
+    binary.IsPIC = false;
+  case llvm::ELF::ET_DYN:
+    break;
+
+  case llvm::ELF::ET_CORE:
+    WithColor::error() << "given binary is core file\n";
+    return 1;
+
+  default:
+    abort();
+    break;
+  }
 
   typedef typename ELFT::Elf_Dyn Elf_Dyn;
   typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
