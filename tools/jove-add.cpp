@@ -709,7 +709,9 @@ int add(void) {
           continue;
 
         llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-        llvm::outs() << "translating " << SymName << "...\n";
+        llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
+                                      SymName,
+                                      Sym.st_value);
         translate_function(binary, tcg, dis, Sym.st_value);
       }
     }
@@ -794,7 +796,8 @@ int add(void) {
               continue;
 
             llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-            llvm::outs() << "translating " << SymName << '\n';
+            llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
+                                          SymName, Sym.st_value);
             translate_function(binary, tcg, dis, Sym.st_value);
           }
         }
@@ -820,7 +823,8 @@ int add(void) {
       continue;
 
     llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
-    llvm::outs() << "translating " << SymName << "...\n";
+    llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName,
+                                  Sym.st_value);
     translate_function(binary, tcg, dis, Sym.st_value);
   }
 
