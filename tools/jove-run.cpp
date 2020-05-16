@@ -369,8 +369,7 @@ int run(void) {
     env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
                         "-SSE4_1,"
                         "-SSE4_2,"
-                        "-SSSE3,"
-                        "-SSE2");
+                        "-SSSE3");
 #endif
 
     for (const std::string &s : env.s_vec)
