@@ -15682,6 +15682,7 @@ static void gen_exception(DisasContext *s, int trapno, target_ulong cur_eip)
 static void gen_illegal_opcode(DisasContext *s)
 {
     gen_exception(s, EXCP06_ILLOP, s->pc_start - s->cs_base);
+    s->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
 static void gen_op(DisasContext *s1, int op, MemOp ot, int d)
