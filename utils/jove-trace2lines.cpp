@@ -27,6 +27,8 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
 
+#define JOVE_TRACE2LINES_USE_ADDR2LINE
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 
@@ -211,6 +213,7 @@ int trace2lines(void) {
     }
   }
 
+#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
   int pipefd[2];
   if (pipe(pipefd) < 0) {
     int err = errno;
@@ -246,6 +249,7 @@ int trace2lines(void) {
   }
 
   close(pipefd[0]); /* close unused read end */
+#endif
 
   //
   // addr2line for every block in the trace
@@ -267,9 +271,35 @@ int trace2lines(void) {
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
+#ifdef JOVE_TRACE2LINES_USE_ADDR2LINE
+    pid_t pid = fork();
+
+    //
+    // are we the child?
+    //
+    if (!pid) {
+      char buff[0x100];
+      snprintf(buff, sizeof(buff), "0x%" PRIxPTR "\n", ICFG[bb].Addr);
+
+      const char *argv[] = {
+        "/usr/bin/addr2line",
+        "-e", binary.Path.c_str(),
+        buff,
+        nullptr
+      };
+
+      return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+    }
+
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << llvm::formatv(
+          "addr2line failed with exit status {0}\n", ret);
+      return 1;
+    }
+#else
     char buff[0x100];
     snprintf(buff, sizeof(buff), "%s 0x%" PRIxPTR "\n",
-	     binary.Path.c_str(),
+             binary.Path.c_str(),
              ICFG[bb].Addr);
 
     if (write(pipefd[1], buff, strlen(buff)) < 0) {
@@ -278,14 +308,17 @@ int trace2lines(void) {
                                           strerror(err));
       return 1;
     }
+#endif
 
 //    llvm::outs() << llvm::formatv("JV_{0}_{1}\n", BIdx, BBIdx);
   }
 
+#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
   close(pipefd[1]); /* close write end */
 
   if (int ret = await_process_completion(pid))
     return 1;
+#endif
 
   return 0;
 }
