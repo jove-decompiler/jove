@@ -223,7 +223,7 @@ typedef typename obj::ELF32LEFile ELFT;
 #endif
 
 // taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
-llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
+static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
   auto PhdrsOrErr = Obj.program_headers();
   if (!PhdrsOrErr) {
     consumeError(PhdrsOrErr.takeError());
