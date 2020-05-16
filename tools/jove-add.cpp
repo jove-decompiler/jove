@@ -222,6 +222,25 @@ typedef typename obj::ELF32LEFile ELFT;
 #error
 #endif
 
+// taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
+llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
+  auto PhdrsOrErr = Obj.program_headers();
+  if (!PhdrsOrErr) {
+    consumeError(PhdrsOrErr.takeError());
+    return {};
+  }
+  for (const auto &P : *PhdrsOrErr) {
+    if (P.p_type != llvm::ELF::PT_NOTE)
+      continue;
+    llvm::Error Err = llvm::Error::success();
+    for (auto N : Obj.notes(P, Err))
+      if (N.getType() == llvm::ELF::NT_GNU_BUILD_ID &&
+          N.getName() == llvm::ELF::ELF_NOTE_GNU)
+        return N.getDesc();
+  }
+  return {};
+}
+
 static struct {
   uintptr_t Addr;
   bool Active;
@@ -670,27 +689,116 @@ int add(void) {
   //
   // search symbols
   //
-  const Elf_Shdr *SymTab = nullptr;
+  {
+    const Elf_Shdr *SymTab = nullptr;
 
-  for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
-    if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
-      assert(!SymTab);
-      SymTab = &Sect;
+    for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
+      if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+        assert(!SymTab);
+        SymTab = &Sect;
+      }
+    }
+
+    if (SymTab) {
+      llvm::StringRef StrTable =
+          unwrapOrError(E.getStringTableForSymtab(*SymTab));
+      for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
+        if (Sym.isUndefined())
+          continue;
+        if (Sym.getType() != llvm::ELF::STT_FUNC)
+          continue;
+
+        llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+        llvm::outs() << "translating " << SymName << "...\n";
+        translate_function(binary, tcg, dis, Sym.st_value);
+      }
     }
   }
 
-  if (SymTab) {
-    llvm::StringRef StrTable =
-        unwrapOrError(E.getStringTableForSymtab(*SymTab));
-    for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
-      if (Sym.isUndefined())
-        continue;
-      if (Sym.getType() != llvm::ELF::STT_FUNC)
-        continue;
+  WithColor::note() << llvm::formatv("trying to get build id...\n");
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
-      llvm::outs() << "translating " << SymName << "...\n";
-      translate_function(binary, tcg, dis, Sym.st_value);
+  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
+  if (optionalBuildID) {
+    llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
+
+    WithColor::note() << llvm::formatv(
+        "trying to get build id... {0} {1}\n",
+        llvm::toHex(BuildID[0], /*LowerCase=*/true),
+        llvm::toHex(BuildID.slice(1), /*LowerCase=*/true));
+
+    fs::path splitDbgInfo =
+        fs::path("/usr/lib/debug") / ".build-id" /
+        llvm::toHex(BuildID[0], /*LowerCase=*/true) /
+        (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
+
+    if (fs::exists(splitDbgInfo)) {
+      WithColor::note() << llvm::formatv("found split debug info file {0}\n",
+                                         splitDbgInfo.c_str());
+
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+          llvm::MemoryBuffer::getFileOrSTDIN(splitDbgInfo.c_str());
+
+      if (std::error_code EC = FileOrErr.getError()) {
+        WithColor::error() << "failed to open debug info file " << opts::Input
+                           << '\n';
+        return 1;
+      }
+
+      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+
+      llvm::Expected<std::unique_ptr<obj::Binary>> split_BinOrErr =
+          obj::createBinary(Buffer->getMemBufferRef());
+
+      if (!split_BinOrErr) {
+        WithColor::error() << "failed to create binary from split debug info "
+                           << splitDbgInfo.c_str() << '\n';
+        return 1;
+      }
+
+      std::unique_ptr<obj::Binary> &split_Bin = split_BinOrErr.get();
+
+      if (!llvm::isa<ELFO>(split_Bin.get())) {
+        WithColor::error() << "split debug info is not ELF of expected type\n";
+        return 1;
+      }
+
+      ELFO &split_O = *llvm::cast<ELFO>(split_Bin.get());
+
+      if (!verify_arch(split_O)) {
+        WithColor::error() << "split debug info has architecture mismatch\n";
+        return 1;
+      }
+
+      const ELFT &split_E = *split_O.getELFFile();
+
+      //
+      // search symbols
+      //
+      {
+        const Elf_Shdr *SymTab = nullptr;
+
+        for (const Elf_Shdr &Sect : unwrapOrError(split_E.sections())) {
+          if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+            assert(!SymTab);
+            SymTab = &Sect;
+          }
+        }
+
+        if (SymTab) {
+          llvm::StringRef StrTable =
+              unwrapOrError(split_E.getStringTableForSymtab(*SymTab));
+          for (const Elf_Sym &Sym : unwrapOrError(split_E.symbols(SymTab))) {
+            if (Sym.isUndefined())
+              continue;
+            if (Sym.getType() != llvm::ELF::STT_FUNC)
+              continue;
+
+            llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+            llvm::outs() << "translating " << SymName << '\n';
+            translate_function(binary, tcg, dis, Sym.st_value);
+          }
+        }
+      }
     }
   }
 
@@ -699,6 +807,8 @@ int add(void) {
   //
   if (initFunctionAddr)
     translate_function(binary, tcg, dis, initFunctionAddr);
+
+  // TODO init.array
 
   //
   // translate all exported functions
