@@ -390,6 +390,8 @@ int add(void) {
 
   case llvm::ELF::ET_EXEC:
     binary.IsPIC = false;
+    break;
+
   case llvm::ELF::ET_DYN:
     break;
 
