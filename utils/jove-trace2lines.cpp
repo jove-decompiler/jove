@@ -278,12 +278,18 @@ int trace2lines(void) {
     // are we the child?
     //
     if (!pid) {
+      write(1, binary.Path.c_str(), binary.Path.size());
+      write(1, " ", strlen(" "));
+
       char buff[0x100];
       snprintf(buff, sizeof(buff), "0x%" PRIxPTR "\n", ICFG[bb].Addr);
 
       const char *argv[] = {
         "/usr/bin/addr2line",
         "-e", binary.Path.c_str(),
+        "--addresses",
+        "--pretty-print",
+        "--functions",
         buff,
         nullptr
       };
