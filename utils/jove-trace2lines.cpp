@@ -109,7 +109,24 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
+static fs::path llvm_symbolizer_path;
+
 int trace2lines(void) {
+#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
+  //
+  // find symbolizer path
+  //
+  {
+    llvm_symbolizer_path = "/usr/bin/llvm-symbolizer";
+    if (!fs::exists(llvm_symbolizer_path))
+      llvm_symbolizer_path = "/usr/bin/llvm-symbolizer-10";
+    if (!fs::exists(llvm_symbolizer_path)) {
+      WithColor::error() << "failed to find llvm-symbolizer\n";
+      return 1;
+    }
+  }
+#endif
+
   //
   // parse trace.txt
   //
@@ -237,7 +254,7 @@ int trace2lines(void) {
     }
 
     const char *argv[] = {
-      "/usr/bin/llvm-symbolizer",
+      llvm_symbolizer_path.c_str(),
       "-print-address",
       "-inlining=0",
       "-pretty-print",
