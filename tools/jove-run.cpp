@@ -371,6 +371,7 @@ int run(void) {
                         "-SSE4_2,"
                         "-SSSE3,"
                         "-Fast_Rep_String,"
+                        "-Fast_Unaligned_Load,"
                         "-SSE2");
 #endif
 
