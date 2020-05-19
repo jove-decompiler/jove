@@ -245,7 +245,13 @@ int trace2lines(void) {
       nullptr
     };
 
-    return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+    execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+
+    int err = errno;
+    WithColor::error() << llvm::formatv(
+        "failed to exec llvm-symbolizer : {0}\n", strerror(err));
+
+    return 1;
   }
 
   close(pipefd[0]); /* close unused read end */
