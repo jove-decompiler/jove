@@ -27,7 +27,7 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
 
-#define JOVE_TRACE2LINES_USE_ADDR2LINE
+//#define JOVE_TRACE2LINES_USE_ADDR2LINE
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
