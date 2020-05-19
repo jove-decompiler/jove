@@ -2989,7 +2989,9 @@ int ChildProc(const char *fifo_path) {
   env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
                     "-SSE4_1,"
                     "-SSE4_2,"
-                    "-SSSE3");
+                    "-SSSE3,"
+                    "-Fast_Rep_String,"
+                    "-SSE2");
 #endif
 
   for (const std::string &Env : opts::Envs)
