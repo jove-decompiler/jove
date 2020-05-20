@@ -64,6 +64,10 @@ static cl::opt<bool> SkipRepeated("skip-repeated",
                                   cl::desc("Skip repeated blocks"),
                                   cl::cat(JoveCategory));
 
+static cl::opt<bool> PrintSource("print-source",
+                                 cl::desc("Print actual source code"),
+                                 cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -253,16 +257,19 @@ int trace2lines(void) {
       exit(1);
     }
 
-    const char *argv[] = {
+    std::vector<const char *> arg_vec = {
       llvm_symbolizer_path.c_str(),
-      "-print-address",
-      "-inlining=0",
-      "-pretty-print",
-      "-print-source-context-lines=10",
-      nullptr
+
+      "--print-address",
+      "--pretty-print",
     };
 
-    execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+    if (opts::PrintSource)
+      arg_vec.push_back("--print-source-context-lines=10");
+
+    arg_vec.push_back(nullptr);
+
+    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
     int err = errno;
     WithColor::error() << llvm::formatv(
