@@ -763,6 +763,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   target_ulong pc = uctx->uc_mcontext.gregs[REG_EIP];
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
+    if (BIdx == 1 || BIdx == 2) /* XXX */
+      continue;
+
     uintptr_t *fns = __jove_function_tables[BIdx];
 
     if (!fns)
