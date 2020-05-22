@@ -8243,7 +8243,7 @@ int FixupTPBaseAddrs(void) {
 #if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
 #elif defined(__i386__)
-    llvm::StringRef AsmText("mov \%gs:0x0,$0");
+    llvm::StringRef AsmText("movl \%gs:0x0,$0");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
 #elif defined(__mips64) || defined(__mips__)
