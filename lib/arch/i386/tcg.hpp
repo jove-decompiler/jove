@@ -26394,8 +26394,6 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 
     plugin_enabled = plugin_gen_tb_start(cpu, tb);
 
-    tb->jove.T.Addr = db->pc_first;
-
     while (true) {
         db->num_insns++;
         ops->insn_start(db, cpu);
@@ -26468,12 +26466,12 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
         }
 
         if (__jove_end_pc) {
-	    if (db->pc_next >= __jove_end_pc) {
-		tb->jove.T.Type = jove::TERMINATOR::NONE;
-		tb->jove.T.Addr = 0; /* XXX */
-		tb->jove.T._none.NextPC = __jove_end_pc;
-		break;
-	    }
+            if (db->pc_next >= __jove_end_pc) {
+                tb->jove.T.Type = jove::TERMINATOR::NONE;
+                tb->jove.T.Addr = 0; /* XXX */
+                tb->jove.T._none.NextPC = __jove_end_pc;
+                break;
+            }
         }
 
         tb->jove.T.Addr = db->pc_next;
