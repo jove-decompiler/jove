@@ -567,19 +567,24 @@ static void QEMU_NORETURN raise_exception_ra(CPUX86State *env,
 
 extern uintptr_t tci_tb_ptr;
 
+__attribute__((always_inline))
 void helper_divw_AX(CPUX86State *env, target_ulong t0)
 {
     unsigned int num, den, q, r;
 
     num = (env->regs[R_EAX] & 0xffff) | ((env->regs[R_EDX] & 0xffff) << 16);
     den = (t0 & 0xffff);
+#if 0
     if (den == 0) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q = (num / den);
+#if 0
     if (q > 0xffff) {
         raise_exception_ra(env, EXCP00_DIVZ, GETPC());
     }
+#endif
     q &= 0xffff;
     r = (num % den) & 0xffff;
     env->regs[R_EAX] = (env->regs[R_EAX] & ~0xffff) | q;
