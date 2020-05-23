@@ -10237,6 +10237,8 @@ bool AnalyzeHelper(helper_function_t &hf) {
   return res;
 }
 
+static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
+
 static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
 
 static unsigned bits_of_memop(MemOp op) {
@@ -10338,6 +10340,15 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
   int nb_oargs = def.nb_oargs;
   int nb_iargs = def.nb_iargs;
   int nb_cargs = def.nb_cargs;
+
+  if (likely(opc < ARRAY_SIZE(seenOpTable))) {
+    bool seen = seenOpTable[opc];
+    if (!seen) {
+      WithColor::note() << llvm::formatv("[opcode] {0}\n", def.name);
+
+      seenOpTable[opc] = true;
+    }
+  }
 
   switch (opc) {
   case INDEX_op_insn_start:
