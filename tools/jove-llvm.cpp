@@ -10635,26 +10635,19 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __EXT_OP(INDEX_op_ext16s_i32, 16, 32, S)
     __EXT_OP(INDEX_op_ext16u_i32, 16, 32, Z)
 
+#if TCG_TARGET_REG_BITS == 64
     __EXT_OP(INDEX_op_ext8s_i64, 8, 64, S)
     __EXT_OP(INDEX_op_ext8u_i64, 8, 64, Z)
     __EXT_OP(INDEX_op_ext16s_i64, 16, 64, S)
     __EXT_OP(INDEX_op_ext16u_i64, 16, 64, Z)
+
+    __EXT_OP(INDEX_op_ext_i32_i64, 32, 64, S)
     __EXT_OP(INDEX_op_ext32s_i64, 32, 64, S)
+
+    __EXT_OP(INDEX_op_extu_i32_i64, 32, 64, Z)
     __EXT_OP(INDEX_op_ext32u_i64, 32, 64, Z)
-
-#undef __EXT_OP
-
-// Convert 32 bit to 64 bit and does sign/zero extension
-#define __EXT_OP(opc_name, signE)                                              \
-  case opc_name: {                                                             \
-    llvm::Value *V = get(arg_temp(op->args[1]));                               \
-    set(IRB.Create##signE##Ext(V, llvm::IntegerType::get(*Context, 64)),       \
-        arg_temp(op->args[0]));                                                \
-    break;                                                                     \
-  }
-
-    __EXT_OP(INDEX_op_extu_i32_i64, Z)
-    __EXT_OP(INDEX_op_ext_i32_i64, S)
+    __EXT_OP(INDEX_op_extrl_i64_i32, 32, 64, Z)
+#endif
 
 #undef __EXT_OP
 
