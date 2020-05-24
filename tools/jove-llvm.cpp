@@ -7937,228 +7937,8 @@ ConstantForRelativeAddress(uintptr_t Addr) {
   return res;
 }
 
+// TODO change the name of this function to accurately reflect its behavior
 int FixupPCRelativeAddrs(void) {
-  // TODO REMOVE THE FOLLOWING COMMENTED OUT CODE
-#if 0
-  if (!PCRelGlobal)
-    return 0;
-
-#define WARN(val)                                                              \
-  do {                                                                         \
-    WithColor::warning() << llvm::formatv("{0}:{1}: {2}\n", __FILE__,          \
-                                          __LINE__, val);                      \
-  } while (false)
-
-  auto handle_load_of_pcrel = [&](llvm::LoadInst *L) -> void {
-    for (llvm::User *U : L->users()) {
-      assert(llvm::isa<llvm::Instruction>(U));
-      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
-
-      switch (Inst->getOpcode()) {
-      case llvm::Instruction::Sub:
-      case llvm::Instruction::Add: {
-        llvm::Value *LHS = Inst->getOperand(0);
-        llvm::Value *RHS = Inst->getOperand(1);
-
-        assert(LHS == L || RHS == L);
-
-        llvm::Value *Other = LHS == L ? RHS : LHS;
-        unsigned OtherOperandIdx = LHS == L ? 1 : 0;
-
-        if (llvm::isa<llvm::ConstantInt>(Other)) {
-          llvm::ConstantInt *CI = llvm::cast<llvm::ConstantInt>(Other);
-
-          Inst->setOperand(OtherOperandIdx, ConstantForAddress(CI->getValue()));
-          continue;
-        }
-
-        if (llvm::isa<llvm::SelectInst>(Other)) {
-          llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(Other);
-          if (llvm::isa<llvm::ConstantInt>(SI->getTrueValue()) &&
-              llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
-            SI->setTrueValue(ConstantForAddress(
-                llvm::cast<llvm::ConstantInt>(SI->getTrueValue())->getValue()));
-            SI->setFalseValue(ConstantForAddress(
-                llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
-                    ->getValue()));
-            continue;
-          }
-        }
-
-        if (llvm::isa<llvm::PHINode>(Other)) {
-          llvm::PHINode *PI = llvm::cast<llvm::PHINode>(Other);
-
-          for (unsigned i = 0; i < PI->getNumIncomingValues(); ++i) {
-            llvm::Value *incomingValue = PI->getIncomingValue(i);
-
-            if (llvm::isa<llvm::ConstantInt>(incomingValue)) {
-              llvm::ConstantInt *CI =
-                  llvm::cast<llvm::ConstantInt>(incomingValue);
-              PI->setIncomingValue(i, ConstantForAddress(CI->getValue()));
-              continue;
-            }
-
-            if (llvm::isa<llvm::SelectInst>(incomingValue)) {
-              llvm::SelectInst *SI =
-                  llvm::cast<llvm::SelectInst>(incomingValue);
-              if (llvm::isa<llvm::ConstantInt>(SI->getTrueValue()) &&
-                  llvm::isa<llvm::ConstantInt>(SI->getFalseValue())) {
-                SI->setTrueValue(ConstantForAddress(
-                    llvm::cast<llvm::ConstantInt>(SI->getTrueValue())
-                        ->getValue()));
-                SI->setFalseValue(ConstantForAddress(
-                    llvm::cast<llvm::ConstantInt>(SI->getFalseValue())
-                        ->getValue()));
-                continue;
-              }
-            }
-
-            WithColor::error() << llvm::formatv(
-                "handle_load_of_pcrel: unknown PHI operand {0} in function {1}\n",
-                *PI->getIncomingValue(i),
-                Inst->getParent()->getParent()->getName());
-          }
-
-          continue;
-        }
-
-        //
-        //
-        //
-        assert(llvm::isa<llvm::Instruction>(Other));
-        llvm::Instruction *OtherInst = llvm::cast<llvm::Instruction>(Other);
-        switch (OtherInst->getOpcode()) {
-        case llvm::Instruction::Sub:
-        case llvm::Instruction::Add: {
-          llvm::Value *_LHS = OtherInst->getOperand(0);
-          llvm::Value *_RHS = OtherInst->getOperand(1);
-
-          if (llvm::isa<llvm::ConstantInt>(_LHS) ||
-              llvm::isa<llvm::ConstantInt>(_RHS)) {
-            assert(!(llvm::isa<llvm::ConstantInt>(_LHS) &&
-                     llvm::isa<llvm::ConstantInt>(_RHS)));
-
-            unsigned _OtherOperandIdx =
-                llvm::isa<llvm::ConstantInt>(_LHS) ? 0 : 1;
-
-            llvm::ConstantInt *CI = _OtherOperandIdx == 0
-                                        ? llvm::cast<llvm::ConstantInt>(_LHS)
-                                        : llvm::cast<llvm::ConstantInt>(_RHS);
-
-            OtherInst->setOperand(_OtherOperandIdx,
-                                  ConstantForAddress(CI->getValue()));
-            continue;
-          }
-
-          WithColor::error() << llvm::formatv(
-              "handle_load_of_pcrel: unknown _LHS={0} _RHS={1} in function {2}\n",
-              *_LHS, *_RHS,
-              Inst->getParent()->getParent()->getName());
-          break;
-        }
-
-        case llvm::Instruction::Select: {
-          llvm::SelectInst *SI = llvm::cast<llvm::SelectInst>(OtherInst);
-
-          {
-            llvm::Value *T = SI->getTrueValue();
-
-            if (llvm::isa<llvm::ConstantInt>(T)) {
-              SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(T)->getValue()));
-            } else if (llvm::isa<llvm::SelectInst>(T)) {
-              llvm::SelectInst *_SI = llvm::cast<llvm::SelectInst>(T);
-
-              {
-                llvm::Value *_T = _SI->getTrueValue();
-                if (llvm::isa<llvm::ConstantInt>(_T))
-                  _SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_T)->getValue()));
-                else
-                  WARN(*_T);
-              }
-
-              {
-                llvm::Value *_F = _SI->getFalseValue();
-                if (llvm::isa<llvm::ConstantInt>(_F))
-                  _SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_F)->getValue()));
-                else
-                  WARN(*_F);
-              }
-            } else {
-              WARN(*T);
-            }
-          }
-
-          {
-            llvm::Value *F = SI->getFalseValue();
-
-            if (llvm::isa<llvm::ConstantInt>(F)) {
-              SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(F)->getValue()));
-            } else if (llvm::isa<llvm::SelectInst>(F)) {
-              llvm::SelectInst *_SI = llvm::cast<llvm::SelectInst>(F);
-
-              {
-                llvm::Value *_T = _SI->getTrueValue();
-                if (llvm::isa<llvm::ConstantInt>(_T))
-                  _SI->setTrueValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_T)->getValue()));
-                else
-                  WARN(*_T);
-              }
-
-              {
-                llvm::Value *_F = _SI->getFalseValue();
-                if (llvm::isa<llvm::ConstantInt>(_F))
-                  _SI->setFalseValue(ConstantForAddress(llvm::cast<llvm::ConstantInt>(_F)->getValue()));
-                else
-                  WARN(*_F);
-              }
-            } else {
-              WARN(*F);
-            }
-          }
-
-          break;
-        }
-
-        default:
-          WithColor::error() << llvm::formatv(
-              "handle_load_of_pcrel: unknown OtherInst {0} in function {1}\n",
-              *OtherInst,
-              Inst->getParent()->getParent()->getName());
-          break;
-        }
-
-        break;
-      }
-
-      default:
-        WithColor::error() << llvm::formatv(
-            "handle_load_of_pcrel: unknown Inst user {0} in function {1}\n",
-            *Inst,
-            Inst->getParent()->getParent()->getName());
-        break;
-      }
-    }
-  };
-
-  for (llvm::User *U : PCRelGlobal->users()) {
-    assert(llvm::isa<llvm::LoadInst>(U));
-
-    handle_load_of_pcrel(llvm::cast<llvm::LoadInst>(U));
-  }
-
-  PCRelGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
-  PCRelGlobal->setConstant(true);
-  PCRelGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-
-#if 0
-  unsigned off = Addr - SectsStartAddr;
-
-  llvm::GlobalVariable *SectsGV =
-      ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
-          ? ConstSectsGlobal
-          : SectsGlobal;
-#endif
   assert(SectsGlobal && ConstSectsGlobal);
 
   std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
@@ -8193,19 +7973,18 @@ int FixupPCRelativeAddrs(void) {
         bool RelocLoc = ConstantRelocationLocs.find(FileAddr) !=
                         ConstantRelocationLocs.end();
 
-        llvm::GlobalVariable *SectsGV =
-            RelocLoc ? ConstSectsGlobal : SectsGlobal;
+        if (RelocLoc) {
+          llvm::IRBuilderTy IRB(*Context);
+          llvm::SmallVector<llvm::Value *, 4> Indices;
+          llvm::Value *SectionGEP = llvm::getNaturalGEPWithOffset(
+              IRB, DL, ConstSectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
 
-        llvm::IRBuilderTy IRB(*Context);
-        llvm::SmallVector<llvm::Value *, 4> Indices;
-        llvm::Value *res = llvm::getNaturalGEPWithOffset(
-            IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
-
-        if (res && llvm::isa<llvm::Constant>(res) && RelocLoc)
-          ToReplace.push_back(
-              {(llvm::Value *)CE_1,
-               llvm::ConstantExpr::getPtrToInt(llvm::cast<llvm::Constant>(res),
-                                               WordType())});
+          if (llvm::isa<llvm::Constant>(SectionGEP))
+            ToReplace.push_back(
+                {(llvm::Value *)CE_1,
+                 llvm::ConstantExpr::getPtrToInt(
+                     llvm::cast<llvm::Constant>(SectionGEP), WordType())});
+        }
       }
     }
   }
@@ -8217,7 +7996,6 @@ int FixupPCRelativeAddrs(void) {
 
     I->replaceAllUsesWith(V);
   }
-#endif
 
   return 0;
 }
