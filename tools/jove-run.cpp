@@ -567,6 +567,9 @@ do_1b_read:
       }
     }
 
+    if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
+      fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
     // 'f' or 'b'.
@@ -607,9 +610,6 @@ do_f_read:
         }
       }
 
-      if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
-
       int pid = fork();
       if (!pid) {
         char buff[256];
@@ -628,9 +628,6 @@ do_f_read:
       }
 
       (void)await_process_completion(pid);
-
-      if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
     } else if (ch == 'b') {
       struct {
         uint32_t BIdx;
@@ -662,9 +659,6 @@ do_b_read:
         }
       }
 
-      if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
-
       int pid = fork();
       if (!pid) {
         char buff[256];
@@ -682,13 +676,13 @@ do_b_read:
       }
 
       (void)await_process_completion(pid);
-
-      if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-        fprintf(stderr, "warning: pthread_setcancelstate failed\n");
     } else {
       fprintf(stderr, "recover: unknown character (%c)\n", ch);
       break;
     }
+
+    if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
+      fprintf(stderr, "warning: pthread_setcancelstate failed\n");
   }
 
   // (Clean-up handlers are not called if the thread terminates by performing a
