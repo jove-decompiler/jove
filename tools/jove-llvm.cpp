@@ -10429,7 +10429,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #undef __EXT_OP
 
-#define __OP_QEMU_LD(opc_name, bits)                                           \
+#define __OP_QEMU_LD(opc_name, regBits)                                        \
   case opc_name: {                                                             \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
     MemOp mop = get_memop(moidx);                                              \
@@ -10442,9 +10442,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     llvm::LoadInst *Li = IRB.CreateLoad(Addr);                                 \
     Li->setMetadata(llvm::LLVMContext::MD_noalias, AliasScopeMetadata);        \
     llvm::Value *Val = Li;                                                     \
-    if (bits > bits_of_memop(mop))                                             \
-      Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(bits))           \
-                          : IRB.CreateZExt(Val, IRB.getIntNTy(bits));          \
+    if (regBits > bits_of_memop(mop))                                          \
+      Val = mop & MO_SIGN ? IRB.CreateSExt(Val, IRB.getIntNTy(regBits))        \
+                          : IRB.CreateZExt(Val, IRB.getIntNTy(regBits));       \
                                                                                \
     if (nb_oargs == 1) {                                                       \
       set(Val, arg_temp(op->args[0]));                                         \
@@ -10453,7 +10453,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                                                                                \
     assert(nb_oargs == 2);                                                     \
     assert(WordBits() == 32);                                                  \
-    assert(bits == 64);                                                        \
+    assert(regBits == 64);                                                     \
                                                                                \
     llvm::Value *ValLow = IRB.CreateTrunc(Val, IRB.getInt32Ty());              \
     llvm::Value *ValHigh = IRB.CreateTrunc(                                    \
