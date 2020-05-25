@@ -462,7 +462,7 @@ static void dumpInput(const std::string &Path) {
 
   if (opts::ListBinaries) {
     for (const auto &binary : decompilation.Binaries) {
-      llvm::outs() << fs::path(binary.Path).filename().string() << '\n';
+      llvm::outs() << binary.Path << '\n';
     }
   } else if (opts::Statistics) {
     for (const binary_t &binary : decompilation.Binaries) {
