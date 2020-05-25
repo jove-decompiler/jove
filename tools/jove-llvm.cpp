@@ -10633,6 +10633,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __LD_OP(INDEX_op_ld16s_i32, 16, 32, S)
     __LD_OP(INDEX_op_ld_i32,    32, 32, Z)
 
+#if TCG_TARGET_REG_BITS == 64
     __LD_OP(INDEX_op_ld8u_i64,  8,  64, Z)
     __LD_OP(INDEX_op_ld8s_i64,  8,  64, S)
     __LD_OP(INDEX_op_ld16u_i64, 16, 64, Z)
@@ -10640,6 +10641,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     __LD_OP(INDEX_op_ld32u_i64, 32, 64, Z)
     __LD_OP(INDEX_op_ld32s_i64, 32, 64, S)
     __LD_OP(INDEX_op_ld_i64,    64, 64, Z)
+#endif
 
 #undef __LD_OP
 
@@ -10655,6 +10657,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                                                                                \
     TCGArg off = op->args[2];                                                  \
     if (off == tcg_program_counter_env_offset) {                               \
+      assert(memBits == WordBits() && regBits == WordBits());                  \
       IRB.CreateStore(Val, PCAlloca);                                          \
       break;                                                                   \
     }                                                                          \
@@ -10680,11 +10683,16 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     break;                                                                     \
   }
 
+    __ST_OP(INDEX_op_st8_i32, 8, 32)
+    __ST_OP(INDEX_op_st16_i32, 16, 32)
+    __ST_OP(INDEX_op_st_i32, 32, 32)
+
+#if TCG_TARGET_REG_BITS == 64
     __ST_OP(INDEX_op_st8_i64, 8, 64)
     __ST_OP(INDEX_op_st16_i64, 16, 64)
     __ST_OP(INDEX_op_st32_i64, 32, 64)
     __ST_OP(INDEX_op_st_i64, 64, 64)
-    __ST_OP(INDEX_op_st_i32, 32, 32)
+#endif
 
 #undef __ST_OP
 
