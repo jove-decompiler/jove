@@ -260,8 +260,11 @@ int trace2lines(void) {
     std::vector<const char *> arg_vec = {
       llvm_symbolizer_path.c_str(),
 
+#if 0
       "--print-address",
       "--pretty-print",
+#endif
+      "--functions=none",
     };
 
     if (opts::PrintSource)
