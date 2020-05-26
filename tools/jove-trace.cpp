@@ -566,7 +566,7 @@ skip_uprobe:
 
     {
       //
-      // read /sys/kernel/debug/tracing/trace
+      // parse /sys/kernel/debug/tracing/trace
       //
       // e.g.
       //
