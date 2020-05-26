@@ -42,6 +42,11 @@ static cl::list<std::string>
          cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
          cl::desc("Extra environment variables"), cl::cat(JoveCategory));
 
+static cl::opt<std::string> ExistingSysroot("existing-sysroot",
+                                            cl::desc("path to directory"),
+                                            cl::value_desc("filename"),
+                                            cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -61,6 +66,11 @@ static cl::list<std::string>
     Excludes("exclude-binaries", cl::CommaSeparated,
              cl::value_desc("binary_1,binary_2,...,binary_n"),
              cl::desc("Binaries to exclude from trace"), cl::cat(JoveCategory));
+
+static cl::list<std::string>
+    Only("only-binaries", cl::CommaSeparated,
+         cl::value_desc("binary_1,binary_2,...,binary_n"),
+         cl::desc("Binaries to include in trace"), cl::cat(JoveCategory));
 
 } // namespace opts
 
@@ -96,8 +106,6 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
-static int ChildProc(void);
-
 int trace(void) {
   bool git = fs::is_directory(opts::jv);
 
@@ -111,6 +119,7 @@ int trace(void) {
     ia >> Decompilation;
   }
 
+#if 0
   //
   // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
   // standard output, which will tell us what binaries are needed by prog.
@@ -219,20 +228,30 @@ int trace(void) {
     // (don't canonicalize)
     binary_paths.push_back(path);
   }
+#endif
 
-  //
-  // creating a unique temporary directory that will serve as a sysroot
-  //
-  if (!mkdtemp(tmpdir)) {
-    WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n",
-                                        strerror(errno));
-    return 1;
-  }
+  fs::path sysroot;
+  if (!opts::ExistingSysroot.empty()) {
+    sysroot = opts::ExistingSysroot;
+    if (!fs::exists(sysroot)) {
+      WithColor::error() << llvm::formatv(
+          "provided sysroot '{0}' does not exist\n", sysroot.c_str());
+    }
+  } else {
+    //
+    // creating a unique temporary directory that will serve as a sysroot
+    //
+    if (!mkdtemp(tmpdir)) {
+      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n",
+                                          strerror(errno));
+      return 1;
+    }
 
-  fs::path sysroot(tmpdir);
+    sysroot = tmpdir;
 
-  WithColor::note() << llvm::formatv("sysroot: {0}\n", sysroot.c_str());
+    WithColor::note() << llvm::formatv("sysroot: {0}\n", sysroot.c_str());
 
+#if 0
   //
   // copy the binaries to the sysroot, making symbolic links as necessary
   //
@@ -264,6 +283,39 @@ int trace(void) {
       fs::copy_file(p, chrooted);
     }
   }
+#endif
+
+    //
+    // build sysroot
+    //
+    for (const binary_t &binary : Decompilation.Binaries) {
+      fs::path p(binary.Path);
+      if (!fs::exists(p)) {
+        WithColor::error() << llvm::formatv("binary '{0}' doesn't exist\n",
+                                            binary.Path);
+        return 1;
+      }
+
+      fs::path chrooted(sysroot / binary.Path);
+
+      // llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
+
+      fs::create_directories(chrooted.parent_path());
+
+      if (fs::is_symlink(p)) {
+        fs::copy_symlink(p, chrooted);
+
+        fs::path _p = p.parent_path() / fs::read_symlink(p);
+        fs::path _chrooted(sysroot / _p);
+
+        fs::create_directories(_chrooted.parent_path());
+        fs::copy_file(_p, _chrooted);
+      } else {
+        assert(fs::is_regular_file(p));
+        fs::copy_file(p, chrooted);
+      }
+    }
+  }
 
   //
   // check for tracefs filesystem
@@ -291,9 +343,24 @@ int trace(void) {
   // open with O_TRUNC to clear any uprobe_events already registered
   //
   {
+clear_events:
     int fd = open(PATH_TO_TRACEFS "/uprobe_events", O_TRUNC | O_WRONLY);
     if (fd < 0) {
       int err = errno;
+      if (err == EBUSY) {
+        //
+        // try disabling any existing uprobe tracepoints
+        //
+        fd = open(PATH_TO_TRACEFS "/events/jove/enable", O_WRONLY);
+        if (!(fd < 0)) {
+          bool succeeded = write(fd, "0\n", sizeof("0\n")) == sizeof("0\n");
+          close(fd);
+          if (succeeded) {
+            goto clear_events; // if all that succeeded, try again
+          }
+        }
+      }
+
       WithColor::error() << llvm::formatv("failed to open uprobe_events: {0}\n",
                                           strerror(err));
       return 1;
@@ -312,9 +379,15 @@ int trace(void) {
         continue;
 
       std::string binaryName = fs::path(binary.Path).filename().string();
-      if (std::find(opts::Excludes.begin(),
-                    opts::Excludes.end(), binaryName) != opts::Excludes.end())
-        continue;
+      if (!opts::Only.empty()) {
+        if (std::find(opts::Only.begin(),
+                      opts::Only.end(), binaryName) == opts::Only.end())
+          continue;
+      } else {
+        if (std::find(opts::Excludes.begin(),
+                      opts::Excludes.end(), binaryName) != opts::Excludes.end())
+          continue;
+      }
 
       fs::path chrooted(sysroot / binary.Path);
       if (!fs::exists(chrooted)) {
@@ -390,63 +463,116 @@ int trace(void) {
   }
 
 skip_uprobe:
+  //
+  // clear /sys/kernel/debug/tracing/trace
+  //
+  {
+    int fd = open(PATH_TO_TRACEFS "/trace", O_TRUNC | O_WRONLY);
+    if (!(fd < 0))
+      close(fd);
+  }
+
+  if (opts::SkipExec)
+    goto skip_exec;
 
   //
   // fork, chroot, exec
   //
-  if (!opts::SkipExec) {
+  {
     pid_t child = fork();
     if (!child) {
       if (chroot(sysroot.c_str()) < 0) {
         int err = errno;
         WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
                                             strerror(err));
-        exit(1);
+        return 1;
       }
 
-      ChildProc();
-      exit(1); /* execve failed TODO */
+      if (chdir("/") < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("chdir failed : {0}\n",
+                                            strerror(err));
+        return 1;
+      }
+
+      //
+      // arguments
+      //
+      std::vector<const char *> argv;
+      argv.push_back(opts::Prog.c_str());
+
+      for (const std::string &arg : opts::Args)
+        argv.push_back(arg.c_str());
+
+      argv.push_back(nullptr);
+
+      //
+      // environment
+      //
+      std::vector<const char *> envv;
+      for (char **env = ::environ; *env; ++env)
+        envv.push_back(*env);
+
+#if defined(__x86_64__)
+      // <3 glibc
+      envv.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                     "-AVX_Usable,"
+                     "-AVX2_Usable,"
+                     "-AVX512F_Usable,"
+                     "-SSE4_1,"
+                     "-SSE4_2,"
+                     "-SSSE3,"
+                     "-Fast_Unaligned_Load,"
+                     "-ERMS,"
+                     "-AVX_Fast_Unaligned_Load");
+#elif defined(__i386__)
+      // <3 glibc
+      envv.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                     "-SSE4_1,"
+                     "-SSE4_2,"
+                     "-SSSE3,"
+                     "-Fast_Rep_String,"
+                     "-Fast_Unaligned_Load,"
+                     "-SSE2");
+#endif
+
+      //envv.push_back("LD_BIND_NOW=1");
+
+      for (const std::string &env : opts::Envs)
+        envv.push_back(env.c_str());
+
+      envv.push_back(nullptr);
+
+      execve(argv[0],
+             const_cast<char **>(&argv[0]),
+             const_cast<char **>(&envv[0]));
+
+      {
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed : {0}\n",
+                                            strerror(err));
+        return 1;
+      }
     }
 
-    if (int ret = await_process_completion(child))
-      return ret;
+    int ret = await_process_completion(child);
+
+    {
+      //
+      // read /sys/kernel/debug/tracing/trace
+      //
+      std::ifstream trace_ifs(PATH_TO_TRACEFS "/trace");
+      std::stringstream buffer;
+      buffer << trace_ifs.rdbuf();
+
+      llvm::outs() << buffer.str();
+    }
+
+    return ret;
   }
 
-  //
-  // TODO: read contents of /sys/kernel/debug/tracing/trace
-  //
-
+skip_exec:
   return 0;
-}
-
-int ChildProc(void) {
-  //
-  // arguments
-  //
-  std::vector<const char *> argv;
-  argv.push_back(opts::Prog.c_str());
-
-  for (const std::string &arg : opts::Args)
-    argv.push_back(arg.c_str());
-
-  argv.push_back(nullptr);
-
-  //
-  // environment
-  //
-  std::vector<const char *> envv;
-  for (char **env = ::environ; *env; ++env)
-    envv.push_back(*env);
-  //envv.push_back("LD_BIND_NOW=1");
-
-  for (const std::string &env : opts::Envs)
-    envv.push_back(env.c_str());
-
-  envv.push_back(nullptr);
-
-  return execve(argv[0],
-                const_cast<char **>(&argv[0]),
-                const_cast<char **>(&envv[0]));
 }
 
 int await_process_completion(pid_t pid) {
