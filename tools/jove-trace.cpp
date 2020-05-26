@@ -54,6 +54,13 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
+static cl::opt<std::string> Output("output", cl::desc("Output trace txt file"),
+                                   cl::Required, cl::value_desc("filename"),
+                                   cl::cat(JoveCategory));
+
+static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
+                             cl::aliasopt(Output), cl::cat(JoveCategory));
+
 static cl::opt<bool> SkipUProbe("skip-uprobe",
                                 cl::desc("Skip adding userspace tracepoints"),
                                 cl::cat(JoveCategory));
@@ -561,11 +568,44 @@ skip_uprobe:
       //
       // read /sys/kernel/debug/tracing/trace
       //
-      std::ifstream trace_ifs(PATH_TO_TRACEFS "/trace");
-      std::stringstream buffer;
-      buffer << trace_ifs.rdbuf();
+      // e.g.
+      //
+      // # tracer: nop
+      // #
+      // # entries-in-buffer/entries-written: 67/67   #P:8
+      // #
+      // #                              _-----=> irqs-off
+      // #                             / _----=> need-resched
+      // #                            | / _---=> hardirq/softirq
+      // #                            || / _--=> preempt-depth
+      // #                            ||| /     delay
+      // #           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION
+      // #              | |       |   ||||       |         |
+      //      returns_u64-24099 [003] d... 1045487.565114: JV_0_0: (0x40f0e0)
+      //
 
-      llvm::outs() << buffer.str();
+      std::ofstream ofs(opts::Output);
+      std::ifstream trace_ifs(PATH_TO_TRACEFS "/trace");
+
+      std::string line;
+      while (std::getline(trace_ifs, line)) {
+        if (line.empty())
+          continue;
+
+        if (line.front() == '#')
+          continue;
+
+        if (line.size() < strlen("     returns_u64-24099 [003] d... 1045487.565114: J"))
+          continue;
+
+        std::string s = line.substr(strlen("     returns_u64-24099 [003] d... 1045487.565114: "));
+        std::string::size_type pos = s.find(':');
+
+        if (pos == std::string::npos)
+          continue;
+
+        ofs << s.substr(0, pos) << '\n';
+      }
     }
 
     return ret;
