@@ -137,11 +137,11 @@ int trace2lines(void) {
   std::vector<std::pair<binary_index_t, basic_block_index_t>> trace;
 
   {
-    FILE *f = fopen(opts::TracePath.c_str(), "r");
-    if (!f) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to open trace: {0}\n",
-                                          strerror(err));
+    std::ifstream trace_ifs(opts::TracePath.c_str());
+
+    if (!trace_ifs) {
+      WithColor::error() << llvm::formatv("failed to open trace file '{0}'\n",
+                                          opts::TracePath.c_str());
       return 1;
     }
 
@@ -153,12 +153,20 @@ int trace2lines(void) {
     Last.BIdx = invalid_binary_index;
     Last.BBIdx = invalid_basic_block_index;
 
-    char *line = nullptr;
-    size_t len = 0;
-    ssize_t read;
-    while ((read = getline(&line, &len, f)) != -1) {
+    std::string line;
+    while (std::getline(trace_ifs, line)) {
+      if (line.size() < sizeof("JV_") ||
+          line[0] != 'J' ||
+          line[1] != 'V' ||
+          line[2] != '_') {
+        WithColor::error() << llvm::formatv("bad input line: '{0}'\n",
+                                            line.c_str());
+        return 1;
+      }
+
       uint32_t BIdx, BBIdx;
-      int fields = sscanf(line, "JV_%" PRIu32 "_%" PRIu32, &BIdx, &BBIdx);
+      int fields =
+          sscanf(line.c_str(), "JV_%" PRIu32 "_%" PRIu32, &BIdx, &BBIdx);
 
       if (fields != 2)
         break;
@@ -174,9 +182,6 @@ int trace2lines(void) {
       Last.BIdx = BIdx;
       Last.BBIdx = BBIdx;
     }
-
-    free(line);
-    fclose(f);
   }
 
   //
