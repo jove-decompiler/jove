@@ -276,10 +276,22 @@ int trace2lines(void) {
     if (LnInfo.FileName == llvm::DILineInfo::BadString)
       continue;
 
-    llvm::outs() << llvm::formatv("{0}:{1}:{2}\n",
-                                  LnInfo.FileName,
-                                  LnInfo.Line,
-                                  LnInfo.Column);
+    if (fs::path(LnInfo.FileName).is_relative()) {
+      fs::path FileName =
+        fs::path("/usr/src/debug") /
+        fs::path(binary.Path).stem().c_str() /
+        LnInfo.FileName;
+
+      llvm::outs() << llvm::formatv("{0}:{1}:{2}\n",
+                                    FileName.c_str(),
+                                    LnInfo.Line,
+                                    LnInfo.Column);
+    } else {
+      llvm::outs() << llvm::formatv("{0}:{1}:{2}\n",
+                                    LnInfo.FileName,
+                                    LnInfo.Line,
+                                    LnInfo.Column);
+    }
   }
 
   return 0;
