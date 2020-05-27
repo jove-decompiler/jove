@@ -26,6 +26,8 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/DebugInfo/Symbolize/DIPrinter.h>
+#include <llvm/DebugInfo/Symbolize/Symbolize.h>
 
 //#define JOVE_TRACE2LINES_USE_ADDR2LINE
 
@@ -113,24 +115,7 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
-static fs::path llvm_symbolizer_path;
-
 int trace2lines(void) {
-#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
-  //
-  // find symbolizer path
-  //
-  {
-    llvm_symbolizer_path = "/usr/bin/llvm-symbolizer";
-    if (!fs::exists(llvm_symbolizer_path))
-      llvm_symbolizer_path = "/usr/bin/llvm-symbolizer-10";
-    if (!fs::exists(llvm_symbolizer_path)) {
-      WithColor::error() << "failed to find llvm-symbolizer\n";
-      return 1;
-    }
-  }
-#endif
-
   //
   // parse trace.txt
   //
@@ -239,55 +224,24 @@ int trace2lines(void) {
     }
   }
 
-#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
-  int pipefd[2];
-  if (pipe(pipefd) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
-    return 1;
-  }
-
-  pid_t pid = fork();
-
-  //
-  // are we the child?
-  //
-  if (!pid) {
-    close(pipefd[1]); /* close unused write end */
-
-    /* make stdin be the read end of the pipe */
-    if (dup2(pipefd[0], STDIN_FILENO) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("dup2 failed: {0}\n", strerror(err));
-      exit(1);
-    }
-
-    std::vector<const char *> arg_vec = {
-      llvm_symbolizer_path.c_str(),
-
+  llvm::symbolize::LLVMSymbolizer::Options Opts;
+  Opts.PrintFunctions = llvm::symbolize::FunctionNameKind::None;
+  Opts.UseSymbolTable = false;
+  Opts.Demangle = false;
+  Opts.RelativeAddresses = true;
 #if 0
-      "--print-address",
-      "--pretty-print",
+  Opts.FallbackDebugPath = ""; // ClFallbackDebugPath
+  Opts.DebugFileDirectory = ""; // ClDebugFileDirectory;
 #endif
-      "--functions=none",
-    };
 
-    if (opts::PrintSource)
-      arg_vec.push_back("--print-source-context-lines=10");
+  llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
 
-    arg_vec.push_back(nullptr);
-
-    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-    int err = errno;
-    WithColor::error() << llvm::formatv(
-        "failed to exec llvm-symbolizer : {0}\n", strerror(err));
-
-    return 1;
-  }
-
-  close(pipefd[0]); /* close unused read end */
-#endif
+  llvm::symbolize::DIPrinter Printer(llvm::outs(), false /* PrintFunctionNames */,
+                                     false /* PrintPretty */,
+                                     0l    /* PrintSourceContext */,
+                                     false /* Verbose */,
+                                     false /* Basenames */,
+                                     llvm::symbolize::DIPrinter::OutputStyle::LLVM /* ClOutputStyle */);
 
   //
   // addr2line for every block in the trace
@@ -309,60 +263,22 @@ int trace2lines(void) {
     const auto &ICFG = binary.Analysis.ICFG;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-#ifdef JOVE_TRACE2LINES_USE_ADDR2LINE
-    pid_t pid = fork();
+    auto ResOrErr = Symbolizer.symbolizeCode(
+        binary.Path,
+        {ICFG[bb].Addr, llvm::object::SectionedAddress::UndefSection});
+    if (!ResOrErr)
+      continue;
 
-    //
-    // are we the child?
-    //
-    if (!pid) {
-      write(1, binary.Path.c_str(), binary.Path.size());
-      write(1, " ", strlen(" "));
+    llvm::DILineInfo &LnInfo = ResOrErr.get();
 
-      char buff[0x100];
-      snprintf(buff, sizeof(buff), "0x%" PRIxPTR "\n", ICFG[bb].Addr);
+    if (LnInfo.FileName == llvm::DILineInfo::BadString)
+      continue;
 
-      const char *argv[] = {
-        "/usr/bin/addr2line",
-        "-e", binary.Path.c_str(),
-        "--addresses",
-        "--pretty-print",
-        "--functions",
-        buff,
-        nullptr
-      };
-
-      return execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
-    }
-
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv(
-          "addr2line failed with exit status {0}\n", ret);
-      return 1;
-    }
-#else
-    char buff[0x100];
-    snprintf(buff, sizeof(buff), "%s 0x%" PRIxPTR "\n",
-             binary.Path.c_str(),
-             ICFG[bb].Addr);
-
-    if (write(pipefd[1], buff, strlen(buff)) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("write to pipe failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-#endif
-
-//    llvm::outs() << llvm::formatv("JV_{0}_{1}\n", BIdx, BBIdx);
+    llvm::outs() << llvm::formatv("{0}:{1}:{2}\n",
+                                  LnInfo.FileName,
+                                  LnInfo.Line,
+                                  LnInfo.Column);
   }
-
-#ifndef JOVE_TRACE2LINES_USE_ADDR2LINE
-  close(pipefd[1]); /* close write end */
-
-  if (int ret = await_process_completion(pid))
-    return 1;
-#endif
 
   return 0;
 }

@@ -12,7 +12,8 @@ LLVM_COMPONENTS := object \
                    native \
                    passes \
                    objcarcopts \
-                   coroutines
+                   coroutines \
+                   symbolize
 
 GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
 
