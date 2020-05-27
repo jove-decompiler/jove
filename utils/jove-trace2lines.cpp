@@ -26,7 +26,6 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
-#include <llvm/DebugInfo/Symbolize/DIPrinter.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
 
 //#define JOVE_TRACE2LINES_USE_ADDR2LINE
@@ -235,15 +234,6 @@ int trace2lines(void) {
 #endif
 
   llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
-
-  llvm::symbolize::DIPrinter
-    Printer(llvm::outs(),
-            false /* PrintFunctionNames */,
-            false /* PrintPretty */,
-            0l    /* PrintSourceContext */,
-            false /* Verbose */,
-            false /* Basenames */,
-            llvm::symbolize::DIPrinter::OutputStyle::LLVM /* ClOutputStyle */);
 
   //
   // addr2line for every block in the trace
