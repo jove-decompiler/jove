@@ -236,12 +236,14 @@ int trace2lines(void) {
 
   llvm::symbolize::LLVMSymbolizer Symbolizer(Opts);
 
-  llvm::symbolize::DIPrinter Printer(llvm::outs(), false /* PrintFunctionNames */,
-                                     false /* PrintPretty */,
-                                     0l    /* PrintSourceContext */,
-                                     false /* Verbose */,
-                                     false /* Basenames */,
-                                     llvm::symbolize::DIPrinter::OutputStyle::LLVM /* ClOutputStyle */);
+  llvm::symbolize::DIPrinter
+    Printer(llvm::outs(),
+            false /* PrintFunctionNames */,
+            false /* PrintPretty */,
+            0l    /* PrintSourceContext */,
+            false /* Verbose */,
+            false /* Basenames */,
+            llvm::symbolize::DIPrinter::OutputStyle::LLVM /* ClOutputStyle */);
 
   //
   // addr2line for every block in the trace
