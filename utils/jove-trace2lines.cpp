@@ -325,6 +325,7 @@ int trace2lines(void) {
 
     "--cmd", "set errorformat=%f:%l:%c",
     "-q", path_to_tmpfile.c_str(),
+
     nullptr
   };
 
