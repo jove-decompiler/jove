@@ -306,11 +306,15 @@ int trace2lines(void) {
                             fs::path(binary.Path).stem().c_str() /
                             LnInfo.FileName;
 
-        OutputStream << llvm::formatv("{0}:{1}:{2}\n", FileName.c_str(),
-                                      LnInfo.Line, LnInfo.Column);
+        OutputStream << llvm::formatv("{0}:{1}:{2}\n",
+                                      FileName.c_str(),
+                                      LnInfo.Line,
+                                      LnInfo.Column);
       } else {
-        OutputStream << llvm::formatv("{0}:{1}:{2}\n", LnInfo.FileName,
-                                      LnInfo.Line, LnInfo.Column);
+        OutputStream << llvm::formatv("{0}:{1}:{2}\n",
+                                      LnInfo.FileName,
+                                      LnInfo.Line,
+                                      LnInfo.Column);
       }
     }
   }
