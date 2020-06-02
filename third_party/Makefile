@@ -8,6 +8,8 @@ GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86
+else ifeq "$(GCC_TARGET)" "x86_64-linux-gnu"
+_LLVM_TARGETS_TO_BUILD := X86
 else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
 _LLVM_TARGETS_TO_BUILD := X86
 else ifeq "$(GCC_TARGET)" "i686-linux-gnu"

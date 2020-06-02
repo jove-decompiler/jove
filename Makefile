@@ -19,6 +19,8 @@ GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
 
 ifeq "$(GCC_TARGET)" "x86_64-pc-linux-gnu"
 ARCH := x86_64
+else ifeq "$(GCC_TARGET)" "x86_64-linux-gnu"
+ARCH := x86_64
 else ifeq "$(GCC_TARGET)" "i686-pc-linux-gnu"
 ARCH := i386
 else ifeq "$(GCC_TARGET)" "i686-linux-gnu"
