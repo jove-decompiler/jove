@@ -26,7 +26,7 @@ BCS   := $(foreach test,$(TESTS),$(BINDIR)/$(test).bc)
 LLS   := $(foreach test,$(TESTS),$(BINDIR)/$(test).ll)
 ASMS  := $(foreach test,$(TESTS),$(BINDIR)/$(test).S)
 
-all: $(BINS) $(BCS) $(LLS) $(ASMS)
+all: $(BINS) $(ASMS)
 
 multi_threaded_LDFLAGS := -pthread
 multi_threaded_simple_LDFLAGS := -pthread
