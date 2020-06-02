@@ -22,7 +22,7 @@
 #include <sys/times.h>
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
-#include <sys/capability.h>
+#include <linux/capability.h>
 #include <sys/quota.h>
 #include <sys/epoll.h>
 #include <sched.h>
