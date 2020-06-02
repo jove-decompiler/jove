@@ -1474,15 +1474,7 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
      && eol[-8]  == '-'
      && eol[-9]  == 'd'
      && eol[-10] == 'l'
-     && eol[-11] == '/'
-     && eol[-12] == 'b'
-     && eol[-13] == 'i'
-     && eol[-14] == 'l'
-     && eol[-15] == '/'
-     && eol[-16] == 'r'
-     && eol[-17] == 's'
-     && eol[-18] == 'u'
-     && eol[-19] == '/') {
+     && eol[-11] == '/') {
       char *space = _memchr(line, ' ', left);
 
       char *rp = space + 1;
