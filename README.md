@@ -1,10 +1,9 @@
 # Getting started
 ## Tested environments
+- Debian 11 (i386, x86_64, mipsel, mips64el)
 - Arch Linux (x86_64)
 - Arch Linux 32 (i386)
-- Arch Linux ARM (arm64)
-- Debian 11 (mips64el)
-- Debian 11 (mipsel)
+- ArchLinuxARM (arm64)
 ## Prerequisites
 - `gcc` (capable of building LLVM)
 - `ninja`
