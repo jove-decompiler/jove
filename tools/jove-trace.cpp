@@ -427,6 +427,23 @@ clear_events:
 
         if (write(fd, buff, strlen(buff)) < 0) {
           int err = errno;
+
+          if (err == ENODEV) {
+            WithColor::warning()
+                << "failed to write to uprobe_events: No such device\n";
+
+            if (close(fd) < 0) {
+              int err = errno;
+              WithColor::error() << llvm::formatv(
+                  "failed to close uprobe_events: {0}\n", strerror(err));
+
+              return 1;
+            }
+
+            // we hit the ceiling
+            goto enable_uprobe;
+          }
+
           WithColor::error() << llvm::formatv(
               "failed to write to uprobe_events: {0}\n", strerror(err));
           return 1;
@@ -442,6 +459,7 @@ clear_events:
     }
   }
 
+enable_uprobe:
   //
   // enable the uprobe_events we just added
   //
@@ -595,10 +613,11 @@ skip_uprobe:
         if (line.front() == '#')
           continue;
 
-        if (line.size() < strlen("     returns_u64-24099 [003] d... 1045487.565114: J"))
+        std::string::size_type jv_pos = line.find("JV_");
+        if (jv_pos == std::string::npos)
           continue;
 
-        std::string s = line.substr(strlen("     returns_u64-24099 [003] d... 1045487.565114: "));
+        std::string s = line.substr(jv_pos);
         std::string::size_type pos = s.find(':');
 
         if (pos == std::string::npos)
