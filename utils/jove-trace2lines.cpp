@@ -301,21 +301,17 @@ int trace2lines(void) {
       if (LnInfo.FileName == llvm::DILineInfo::BadString)
         continue;
 
-      if (fs::path(LnInfo.FileName).is_relative()) {
-        fs::path FileName = fs::path("/usr/src/debug") /
-                            fs::path(binary.Path).stem().c_str() /
-                            LnInfo.FileName;
+      fs::path PrefixedFileName = fs::path("/usr/src/debug") /
+                                  fs::path(binary.Path).stem().c_str() /
+                                  LnInfo.FileName;
 
-        OutputStream << llvm::formatv("{0}:{1}:{2}\n",
-                                      FileName.c_str(),
-                                      LnInfo.Line,
-                                      LnInfo.Column);
-      } else {
-        OutputStream << llvm::formatv("{0}:{1}:{2}\n",
-                                      LnInfo.FileName,
-                                      LnInfo.Line,
-                                      LnInfo.Column);
-      }
+      OutputStream << llvm::formatv("{0}:{1}:{2}:{3}+{4:x}\n",
+                                    fs::path(LnInfo.FileName).is_relative()
+                                        ? PrefixedFileName.c_str()
+                                        : LnInfo.FileName.c_str(),
+                                    LnInfo.Line, LnInfo.Column,
+                                    fs::path(binary.Path).filename().c_str(),
+                                    ICFG[bb].Addr);
     }
   }
 
@@ -327,7 +323,7 @@ int trace2lines(void) {
   const char *arg_arr[] = {
     path_to_vim.c_str(),
 
-    "--cmd", "set errorformat=%f:%l:%c",
+    "--cmd", "set errorformat=%f:%l:%c:%m",
     "-q", path_to_tmpfile.c_str(),
 
     nullptr
