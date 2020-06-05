@@ -15562,6 +15562,10 @@ static inline void gen_repz_ ## op(DisasContext *s, MemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s, s->aflag, l2);                                       \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 #define GEN_REPZ2(op)                                                         \
@@ -15580,6 +15584,10 @@ static inline void gen_repz_ ## op(DisasContext *s, MemOp ot,              \
     if (s->repz_opt)                                                          \
         gen_op_jz_ecx(s, s->aflag, l2);                                       \
     gen_jmp(s, cur_eip);                                                      \
+                                                                              \
+    s->base.tb->jove.T.Type = jove::TERMINATOR::CONDITIONAL_JUMP;             \
+    s->base.tb->jove.T._conditional_jump.Target = cur_eip;                    \
+    s->base.tb->jove.T._conditional_jump.NextPC = next_eip;                   \
 }
 
 GEN_REPZ(movs)
