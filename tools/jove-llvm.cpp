@@ -8416,14 +8416,9 @@ int RecoverControlFlow(void) {
     if (CalleeCE->getOpcode() != llvm::Instruction::PtrToInt)
       continue;
 
-#if 0
     if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)) &&
         !llvm::isa<llvm::Function>(CalleeCE->getOperand(0)))
       continue;
-#else
-    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)))
-      continue;
-#endif
 
     assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
 
@@ -8499,6 +8494,8 @@ int RecoverControlFlow(void) {
 
     basic_block_properties_t &bbprop = ICFG[boost::vertex(Caller.BBIdx, ICFG)];
 
+    // TODO assert that out_degree(bb) = 0
+
     bool isNewTarget =
         bbprop.DynTargets.insert({Callee.BIdx, Callee.FIdx}).second;
 
@@ -8508,7 +8505,8 @@ int RecoverControlFlow(void) {
     if (isNewTarget)
       InvalidateAllFunctionAnalyses();
 
-    {
+    // XXX hehe. only change DynTargetsComplete if it's an IFunc.
+    if (llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0))) {
       bool &DynTargetsComplete = bbprop.DynTargetsComplete;
 
       bool DynTargetsComplete_Changed = !DynTargetsComplete;
