@@ -8874,14 +8874,18 @@ int TranslateBasicBlock(binary_t &Binary,
     TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
   }
 
-  llvm::BasicBlock *ExitBB =
-      llvm::BasicBlock::Create(*Context, (fmt("%#lx_exit") % Addr).str(), f.F);
+  llvm::BasicBlock *ExitBB = nullptr;
 
   TCGContext *s = &TCG->_ctx;
 
   unsigned size = 0;
   jove::terminator_info_t T;
+  unsigned j = 0;
   do {
+    ExitBB = llvm::BasicBlock::Create(
+        *Context, (fmt("%#lx_%u_exit") % Addr % j).str(), f.F);
+    ++j;
+
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
 
@@ -8958,27 +8962,25 @@ int TranslateBasicBlock(binary_t &Binary,
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
       if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, TempAllocaVec,
-                                   LabelVec,
-                                   size + len < Size ? nullptr : ExitBB, IRB)) {
+                                   LabelVec, ExitBB, IRB)) {
         TCG->dump_operations();
         return ret;
       }
     }
+
+    if (!IRB.GetInsertBlock()->getTerminator()) {
+      if (opts::Verbose)
+        WithColor::warning() << "TranslateBasicBlock: no terminator in block\n";
+      IRB.CreateBr(ExitBB);
+    }
+
+    IRB.SetInsertPoint(ExitBB);
 
     size += len;
   } while (size < Size);
 
   assert(T.Type == ICFG[bb].Term.Type);
   //assert(size == ICFG[bb].Size);
-
-  if (!IRB.GetInsertBlock()->getTerminator()) {
-    if (opts::Verbose)
-      WithColor::warning() << "TranslateBasicBlock: no terminator in block\n";
-    assert(ExitBB);
-    IRB.CreateBr(ExitBB);
-  }
-
-  IRB.SetInsertPoint(ExitBB);
 
   //
   // examine terminator multiple times
@@ -10182,8 +10184,8 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
   case INDEX_op_goto_ptr:
   case INDEX_op_exit_tb:
-    if (ExitBB)
-      IRB.CreateBr(ExitBB);
+    assert(ExitBB);
+    IRB.CreateBr(ExitBB);
     break;
 
   case INDEX_op_call: {
