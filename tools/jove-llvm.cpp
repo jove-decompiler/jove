@@ -8979,6 +8979,14 @@ int TranslateBasicBlock(binary_t &Binary,
     size += len;
   } while (size < Size);
 
+  if (T.Type != ICFG[bb].Term.Type) {
+    WithColor::error() << llvm::formatv(
+        "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
+        "tcg.hpp is changed but we haven't gone through the trouble of "
+        "re-running jove-add\n",
+        __FILE__, __LINE__, Addr);
+  }
+
   assert(T.Type == ICFG[bb].Term.Type);
   //assert(size == ICFG[bb].Size);
 
