@@ -46,7 +46,7 @@ namespace opts {
 
   static cl::opt<std::string> BreakOnAddr(
       "break-on-addr",
-      cl::desc("Allow user to set a debugger breakpoint on TCGDumpBreakPoint, "
+      cl::desc("Allow user to set a debugger breakpoint on TCGDumpUserBreakPoint, "
                "and triggered when basic block address matches given address"),
       cl::cat(JoveCategory));
 
