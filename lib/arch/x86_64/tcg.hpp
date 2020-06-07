@@ -14294,6 +14294,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             gen_eob(s);
 
             s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+            s->base.tb->jove.T._none.NextPC = s->pc - s->cs_base;
         }
         break;
     case 0x9e: /* sahf */
@@ -14589,6 +14590,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
             s->base.is_jmp = DISAS_NORETURN;
 
             s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+            s->base.tb->jove.T._none.NextPC = pc_start - s->cs_base;
         }
         break;
     case 0x9b: /* fwait */
@@ -14603,6 +14605,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_interrupt(s, EXCP03_INT3, pc_start - s->cs_base, s->pc - s->cs_base);
 
         s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        s->base.tb->jove.T._none.NextPC = s->pc - s->cs_base;
         break;
     case 0xcd: /* int N */
         val = x86_ldub_code(env, s);
@@ -14613,6 +14616,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         }
 
         s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        s->base.tb->jove.T._none.NextPC = s->pc - s->cs_base;
         break;
     case 0xce: /* into */
         if (CODE64(s))
@@ -14806,6 +14810,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
         gen_eob_worker(s, false, true);
 
         s->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
+        s->base.tb->jove.T._none.NextPC = s->pc - s->cs_base;
         break;
     case 0x107: /* sysret */
         if (!s->pe) {
