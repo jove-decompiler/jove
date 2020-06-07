@@ -101,6 +101,7 @@ def jove_trace(debugger, command, result, internal_dict):
     # now all the modules are loaded in memory. at this point, parse the
     # decompilation
     #
+    print("parsing decompilation...")
     jv2xml_path = subprocess.Popen(["/usr/bin/which", "jv2xml"], stdout=subprocess.PIPE).communicate()[0].strip()
     xml = subprocess.Popen([jv2xml_path, jv_path], stdout=subprocess.PIPE).communicate()[0]
 
