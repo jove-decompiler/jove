@@ -1,6 +1,6 @@
 # This implements the "jove_trace" command, usually installed
 # in the debug session like
-#   source ~/jove/scripts/gdb/trace_insns.py
+#   source ~/jove/scripts/gdb/jove_trace.py
 # this is a ptrace-replacement for tools/jove-trace
 
 import optparse
@@ -12,7 +12,78 @@ import xml.etree.cElementTree as ET
 
 output_file = None
 decompilation = None
+seen_bin_list = []
+brkpoints = []
 
+class JoveTraceBreakpoint(gdb.Breakpoint):
+    def __init__(self, BIdx, BBIdx, Addr):
+        gdb.Breakpoint.__init__ (self, spec=("*0x%x" % (Addr)), internal=1)
+        self.silent = True
+        self.count = 0
+        self.BIdx = BIdx
+        self.BBIdx = BBIdx
+
+    def stop(self):
+        global output_file
+        if not output_file:
+            print("[ERROR] JoveTraceBreakpoint::stop: not output_file")
+            return True
+        self.count += 1
+        output_file.write("JV_%d_%d\n" % (self.BIdx, self.BBIdx))
+        output_file.flush()
+        return False
+
+def on_loaded_binary (loaded_path, start, end, offset):
+    global decompilation
+    global seen_bin_list
+    global brkpoints
+
+    #
+    # see if any binary's path is a substring of the given path (because it is
+    # probably running in a chroot)
+    #
+    e = decompilation.getroot()
+
+    l = e.findall("Decompilation")
+    if len(l) != 1:
+        print("error: malformed xml")
+        return
+    e = l[0]
+
+    l = e.findall("Binaries")
+    if len(l) != 1:
+        print("error: malformed xml")
+        return
+    e = l[0]
+
+    l = e.findall("item")
+
+    for BIdx, e in enumerate(l, 0):
+        if BIdx in seen_bin_list:
+            continue
+
+        IsVDSO = int(e.findall("IsVDSO")[0].text)
+        if IsVDSO == 1:
+            continue
+
+        IsRTLD = int(e.findall("IsDynamicLinker")[0].text)
+        if IsRTLD == 1:
+            continue
+
+        path = e.findall("Path")[0].text
+        if path in loaded_path:
+            seen_bin_list += [BIdx]
+
+            print("%s @ [0x%x, 0x%x) off=0x%x" % (path, start, end, offset))
+
+            #
+            # place breakpoints
+            #
+            icfg_e = e.findall("Analysis.ICFG")[0]
+            vert_el = icfg_e.findall("vertex_property")
+            for BBIdx, vert_e in enumerate(vert_el, 0):
+                bb_addr = int(vert_e.findall("Addr")[0].text)
+                brkpoints.append(JoveTraceBreakpoint(BIdx, BBIdx, start - offset + bb_addr))
 
 def scan_for_binaries ():
     t = gdb.selected_thread()
@@ -21,8 +92,6 @@ def scan_for_binaries ():
         return
 
     pid = t.ptid[0]
-    print(pid)
-    print("scan_for_binaries: pid=%d" % (pid))
 
     #
     # parse virtual memory mappings of process
@@ -42,7 +111,8 @@ def scan_for_binaries ():
             part = line.partition('/') # XXX this is a bit sloppy
             if part[1] == '/': # is this a file?
                 path = "/" + part[2].strip()
-                print("%s @ [0x%x, 0x%x) off=0x%x" % (path, start, end, offset))
+                on_loaded_binary (path, start, end, offset)
+
     maps_file.close()
 
 def signal_stop_handler (event):
@@ -125,7 +195,9 @@ class JoveTraceCommand(gdb.Command):
 
     def invoke(self, argument, from_tty):
         global decompilation
+        global seen_bin_list
         global output_file
+        global brkpoints
         """
         TODO explain here what this thing does
         """
@@ -194,11 +266,14 @@ class JoveTraceCommand(gdb.Command):
         #
         # this is the point of no return
         #
+        seen_bin_list.clear()
+        brkpoints.clear()
+
         gdb.events.new_objfile.connect (new_objfile_handler)
         gdb.events.clear_objfiles.connect (clear_objfiles_handler)
         gdb.events.exited.connect (exit_handler)
 
-        gdb.execute("starti", True, False)
+        gdb.execute("run", True, False)
 
         #gdb.events.stop.connect (signal_stop_handler)
         #gdb.events.stop.connect (breakpoint_stop_handler)
