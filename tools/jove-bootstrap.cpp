@@ -754,7 +754,11 @@ int ParentProc(pid_t child, const char *fifo_path) {
     return 1;
   }
 
-  int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
+#if defined(__x86_64__) || defined(__i386__)
+  int AsmPrinterVariant = 1; // Intel syntax
+#else
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+#endif
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
