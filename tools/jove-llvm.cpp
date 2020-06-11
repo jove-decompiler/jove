@@ -8,6 +8,7 @@ class Function;
 class BasicBlock;
 class AllocaInst;
 class Type;
+class Value;
 class LoadInst;
 class CallInst;
 class DISubprogram;
@@ -73,8 +74,6 @@ struct hook_t;
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
   llvm::AllocaInst *PCAlloca;                                                  \
-  llvm::LoadInst *PCRelVal;                                                    \
-  llvm::LoadInst *TPBaseVal;                                                   \
   const hook_t *hook;                                                          \
   llvm::Function *PreHook;                                                     \
   llvm::Function *PostHook;                                                    \
@@ -622,7 +621,6 @@ static llvm::GlobalVariable *TLSSectsGlobal;
 
 static std::vector<function_index_t> FuncIdxAreABIVec;
 
-static llvm::GlobalVariable *PCRelGlobal;
 static llvm::GlobalVariable *TLSModGlobal;
 
 static llvm::GlobalVariable *TPBaseGlobal;
@@ -723,7 +721,6 @@ static int ProcessDynamicSymbols(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int CreateFunctionTable(void);
-static int CreatePCRelGlobal(void);
 static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
@@ -731,8 +728,9 @@ static int CreateTPOFFCtorHack(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
 static int PrepareToOptimize(void);
-static int FixupPCRelativeAddrs(void);
+static int ConstifyRelocationSectionPointers(void);
 static int FixupTPBaseAddrs(void);
+static int MakeThreadPointerBaseNULL(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int ExpandMemoryIntrinsicCalls(void);
@@ -764,7 +762,6 @@ int llvm(void) {
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
       || CreateFunctionTable()
-      || CreatePCRelGlobal()
       || CreateTPBaseGlobal()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
@@ -774,12 +771,13 @@ int llvm(void) {
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
       || DoOptimize()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
-      || InlineCalls()
-      || DoOptimize()
-      || (opts::NoFixupPcrel ? 0 : FixupPCRelativeAddrs())
       || (opts::DumpPreFSBaseFixup ? (DumpModule("pre.fsbase.fixup"), 1) : 0)
       || FixupTPBaseAddrs()
       || (opts::DumpPostFSBaseFixup ? (DumpModule("post.fsbase.fixup"), 1) : 0)
+      || InlineCalls()
+      || DoOptimize()
+      || MakeThreadPointerBaseNULL()
+      || ConstifyRelocationSectionPointers()
       || InternalizeStaticFunctions()
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
@@ -7249,13 +7247,6 @@ int CreateTPOFFCtorHack(void) {
   return 0;
 }
 
-int CreatePCRelGlobal(void) {
-  PCRelGlobal = new llvm::GlobalVariable(*Module, WordType(), false,
-                                         llvm::GlobalValue::ExternalLinkage,
-                                         nullptr, "__jove_pcrel");
-  return 0;
-}
-
 int CreateTPBaseGlobal(void) {
   TPBaseGlobal = new llvm::GlobalVariable(
       *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage, nullptr,
@@ -7673,9 +7664,6 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
                      ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
                      : f.GlobalAllocaVec[tcg_program_counter_index];
 
-    f.PCRelVal = IRB.CreateLoad(PCRelGlobal, "pcrel");
-    f.TPBaseVal = IRB.CreateLoad(TPBaseGlobal, "tpbase");
-
     //
     // initialize the globals which are passed as parameters
     //
@@ -7839,7 +7827,6 @@ int PrepareToOptimize(void) {
 }
 
 static void ReloadGlobalVariables(void) {
-  PCRelGlobal      = Module->getGlobalVariable("__jove_pcrel",               true);
   TPBaseGlobal     = Module->getGlobalVariable("__jove_thread_pointer_base", true);
   CPUStateGlobal   = Module->getGlobalVariable("__jove_env",                 true);
   SectsGlobal      = Module->getGlobalVariable("__jove_sections",            true);
@@ -7937,8 +7924,7 @@ ConstantForRelativeAddress(uintptr_t Addr) {
   return res;
 }
 
-// TODO change the name of this function to accurately reflect its behavior
-int FixupPCRelativeAddrs(void) {
+int ConstifyRelocationSectionPointers(void) {
   assert(SectsGlobal && ConstSectsGlobal);
 
   std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
@@ -8007,7 +7993,8 @@ int FixupTPBaseAddrs(void) {
   if (!TPBaseGlobal)
     return 0;
 
-  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+  std::vector<std::tuple<llvm::Instruction *, unsigned, llvm::Value *>>
+      OperandsToReplace;
 
   llvm::InlineAsm *IA;
   {
@@ -8036,129 +8023,143 @@ int FixupTPBaseAddrs(void) {
                               false /* hasSideEffects */);
   }
 
-  llvm::GlobalVariable *ZeroGV =
-      new llvm::GlobalVariable(*Module, WordType(), true,
-                               llvm::GlobalValue::InternalLinkage,
-                               llvm::Constant::getNullValue(WordType()),
-                               "ZeroGV");
-  llvm::GlobalVariable *ZeroPGV =
-      new llvm::GlobalVariable(*Module, PointerToWordType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroGV,
-                               "ZeroPGV");
-  llvm::GlobalVariable *ZeroPPGV =
-      new llvm::GlobalVariable(*Module, PPointerType(), true,
-                               llvm::GlobalValue::InternalLinkage, ZeroPGV,
-                               "ZeroPPGV");
+  for (llvm::User *U_0 : TPBaseGlobal->users()) {
+    if (!llvm::isa<llvm::ConstantExpr>(U_0)) {
+#if 0
+      WithColor::warning() << llvm::formatv("{0}: {1}:{2} U_0={3}\n", __func__,
+                                            __FILE__, __LINE__, *U_0);
+#endif
 
-  auto handle_load_of_fsbase = [&](llvm::LoadInst *L) -> void {
-    for (llvm::User *U : L->users()) {
-      assert(llvm::isa<llvm::Instruction>(U));
-      llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
+      continue;
+    }
 
-      switch (Inst->getOpcode()) {
-      case llvm::Instruction::Add: {
-        llvm::Value *LHS = Inst->getOperand(0);
-        llvm::Value *RHS = Inst->getOperand(1);
+    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
+    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt) {
+      WithColor::warning() << llvm::formatv("{0}: {1}:{2} U_0={3}\n", __func__,
+                                            __FILE__, __LINE__, *U_0);
+      continue;
+    }
 
-        //
-        // is one of the operands a constant int?
-        //
-        if (!llvm::isa<llvm::ConstantInt>(LHS) &&
-            !llvm::isa<llvm::ConstantInt>(RHS))
-          break;
+    for (llvm::User *U_1 : CE_0->users()) {
+      if (!llvm::isa<llvm::ConstantExpr>(U_1))
+        continue;
 
-        if (llvm::isa<llvm::ConstantInt>(LHS) &&
-            llvm::isa<llvm::ConstantInt>(RHS))
-          break;
+      llvm::ConstantExpr *CE_1 = llvm::cast<llvm::ConstantExpr>(U_1);
+      if (CE_1->getOpcode() != llvm::Instruction::Add)
+        continue;
 
-        llvm::ConstantInt *CI = llvm::isa<llvm::ConstantInt>(LHS)
-                                    ? llvm::cast<llvm::ConstantInt>(LHS)
-                                    : llvm::cast<llvm::ConstantInt>(RHS);
+      assert(CE_1->getNumOperands() == 2);
+      llvm::Value *Addend = CE_1->getOperand(1);
+      if (!llvm::isa<llvm::ConstantInt>(Addend))
+        continue;
+
+      if (opts::Verbose)
+        llvm::outs() << llvm::formatv(
+            "tp+{0}\n",
+            llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue());
+
+      //
+      // we need to find instruction users, so that we can build the asm
+      // expression which gets the thread pointer
+      //
+      for (const llvm::Use &U : CE_1->uses()) {
+        llvm::User *U_3 = U.getUser();
+
+        if (!llvm::isa<llvm::Instruction>(U_3)) {
+#if 0
+          WithColor::warning() << llvm::formatv(
+              "{0}: {1}:{2} U_3={3}\n", __func__, __FILE__, __LINE__, *U_3);
+#endif
+          continue;
+        }
+
+        llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
+        unsigned OpIdx = U.getOperandNo();
 
         llvm::IRBuilderTy IRB(Inst);
-        ToReplace.push_back({Inst, IRB.CreateAdd(IRB.CreateCall(IA), CI)});
-        break;
+
+        OperandsToReplace.push_back(
+            {Inst, OpIdx,
+             IRB.CreateAdd(IRB.CreateCall(IA), Addend)});
       }
 
-      case llvm::Instruction::IntToPtr:
-        // an inttoptr(fs_base) implies something of the sort
-        //
-        // mov r15,QWORD PTR fs:0x0
-        //
-        // which is a load of tcbhead_t::tcb
-        assert(U->getType() == ZeroGV->getType());
-        ToReplace.push_back({Inst, ZeroGV});
-        break;
+      for (llvm::User *U_2 : CE_1->users()) {
+        if (!llvm::isa<llvm::ConstantExpr>(U_2)) {
+#if 0
+          WithColor::warning() << llvm::formatv(
+              "{0}: {1}:{2} U_2={3}\n", __func__, __FILE__, __LINE__, *U_2);
+#endif
 
-      default:
-        WithColor::warning() << llvm::formatv(
-            "FixupTPBaseAddrs: handle_load_of_fsbase: unknown user {0}\n", *U);
-        break;
-      }
-    }
-  };
-
-  for (llvm::User *U : TPBaseGlobal->users()) {
-    if (!llvm::isa<llvm::Instruction>(U)) {
-      for (llvm::User *_U : U->users()) {
-        assert(llvm::isa<llvm::Instruction>(_U));
-        llvm::Instruction *_Inst = llvm::cast<llvm::Instruction>(_U);
-
-        if (_Inst->getType() == ZeroGV->getType()) {
-          WithColor::note() << llvm::formatv(
-              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroGV)\n",
-              *_Inst,
-              _Inst->getParent()->getParent()->getName());
-
-          ToReplace.push_back({_Inst, ZeroGV});
-          continue;
-        }
-        if (_Inst->getType() == ZeroPGV->getType()) {
-          WithColor::note() << llvm::formatv(
-              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPGV)\n",
-              *_Inst,
-              _Inst->getParent()->getParent()->getName());
-
-          ToReplace.push_back({_Inst, ZeroPGV});
-          continue;
-        }
-        if (_Inst->getType() == ZeroPPGV->getType()) {
-          WithColor::note() << llvm::formatv(
-              "FixupTPBaseAddrs: _Inst: {0} in {1} (replacing with ZeroPPGV)\n",
-              *_Inst,
-              _Inst->getParent()->getParent()->getName());
-
-          ToReplace.push_back({_Inst, ZeroPPGV});
           continue;
         }
 
-        llvm::Function *_Func = _Inst->getParent()->getParent();
-        WithColor::error() << llvm::formatv("FixupTPBaseAddrs: unknown user!\n"
-                                            "U: {0}\n"
-                                            "_Inst: {1}\n"
-                                            "_Func: {2}\n",
-                                            *U, *_Inst, *_Func);
-        return 1;
+        llvm::ConstantExpr *CE_2 = llvm::cast<llvm::ConstantExpr>(U_2);
+        if (CE_2->getOpcode() != llvm::Instruction::IntToPtr) {
+          WithColor::warning() << llvm::formatv(
+              "{0}: {1}:{2} CE_2={3}\n", __func__, __FILE__, __LINE__, *CE_2);
+
+          continue;
+        }
+
+        for (const llvm::Use &U : CE_2->uses()) {
+          llvm::User *U_3 = U.getUser();
+
+          if (!llvm::isa<llvm::Instruction>(U_3)) {
+#if 1
+            WithColor::warning() << llvm::formatv(
+                "{0}: {1}:{2} U_3={3}\n", __func__, __FILE__, __LINE__, *U_3);
+#endif
+            continue;
+          }
+
+          llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
+          unsigned OpIdx = U.getOperandNo();
+
+          llvm::IRBuilderTy IRB(Inst);
+
+          OperandsToReplace.push_back(
+              {Inst, OpIdx,
+               IRB.CreateIntToPtr(IRB.CreateAdd(IRB.CreateCall(IA), Addend),
+                                  CE_2->getType())});
+        }
       }
-
-      continue;
     }
-
-    assert(llvm::isa<llvm::Instruction>(U));
-    llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U);
-
-    if (!llvm::isa<llvm::LoadInst>(U)) {
-      WithColor::error() << llvm::formatv(
-          "FixupTPBaseAddrs: unknown user {0} in {1}\n", *U,
-          Inst->getParent()->getParent()->getName());
-      continue;
-    }
-
-    handle_load_of_fsbase(llvm::cast<llvm::LoadInst>(U));
   }
 
-  assert(TPBaseGlobal->getType() == ZeroGV->getType());
-  ToReplace.push_back({TPBaseGlobal, ZeroGV});
+  for (auto &TR : OperandsToReplace) {
+    llvm::Instruction *I;
+    unsigned OpIdx;
+    llvm::Value *V;
+
+    std::tie(I, OpIdx, V) = TR;
+
+    I->setOperand(OpIdx, V);
+  }
+
+  TPBaseGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
+  TPBaseGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
+  TPBaseGlobal->setConstant(true);
+
+  return 0;
+}
+
+int MakeThreadPointerBaseNULL(void) {
+  if (!TPBaseGlobal)
+    return 0;
+
+  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
+
+  for (llvm::User *U_0 : TPBaseGlobal->users()) {
+    if (!llvm::isa<llvm::ConstantExpr>(U_0))
+      continue;
+
+    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
+    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt)
+      continue;
+
+    ToReplace.push_back({CE_0, llvm::Constant::getNullValue(WordType())});
+    break;
+  }
 
   for (auto &TR : ToReplace) {
     llvm::Value *I;
@@ -10068,13 +10069,12 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       switch (idx) {
       case tcg_env_index:
         return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
-
 #if defined(__x86_64__)
       case tcg_fs_base_index:
-        return f.TPBaseVal;
+        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #elif defined(__i386__)
       case tcg_gs_base_index:
-        return f.TPBaseVal;
+        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #endif
       }
     }
@@ -10593,7 +10593,7 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     if (off == tcg_tpidr_el0_env_offset) {                                     \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I64);                                       \
-      set(f.TPBaseVal, dst);                                                   \
+      set(llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType()), dst);     \
       break;                                                                   \
     }                                                                          \
   }
