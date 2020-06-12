@@ -2653,6 +2653,9 @@ static void harvest_reloc_targets(pid_t child,
   harvest_addressof_reloc_targets(child, tcg, dis);
 }
 
+static void on_binary_loaded(pid_t, disas_t &, binary_index_t,
+                             const vm_properties_t &);
+
 void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (BinFoundVec.all())
     return; /* there is no need */
@@ -2687,120 +2690,127 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     }
 
     if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
-      binary_index_t binary_idx = (*it).second;
-      BinFoundVec.set(binary_idx);
+      binary_index_t BIdx = (*it).second;
+      BinFoundVec.set(BIdx);
 
-      binary_state_t &st = BinStateVec[binary_idx];
-
-      st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
-      st.dyn.LoadAddrEnd = vm_prop.end;
-
-      llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
-                       % vm_prop.nm
-                       % st.dyn.LoadAddr
-                       % st.dyn.LoadAddrEnd).str()
-                   << '\n';
-
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
-      binary_index_set_t bin_idx_set = {binary_idx};
-      AddressSpace.add(std::make_pair(intervl, bin_idx_set));
-
-      binary_t &binary = decompilation.Binaries[binary_idx];
-
-      //
-      // if Prog has been loaded, set a breakpoint on the entry point of prog
-      //
-      if (binary.IsExecutable) {
-        assert(is_function_index_valid(binary.Analysis.EntryFunction));
-
-        basic_block_t entry_bb = boost::vertex(
-            binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
-            binary.Analysis.ICFG);
-        uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
-        uintptr_t Addr = va_of_rva(entry_rva, binary_idx);
-
-        llvm::outs() << llvm::formatv("entry_rva={0:x} Addr={1:x}\n",
-                                      entry_rva, Addr);
-
-        breakpoint_t &brk = BrkMap[Addr];
-        brk.callback = harvest_reloc_targets;
-
-        place_breakpoint(child, Addr, brk, dis);
-      }
-
-      //
-      // place breakpoints for indirect branches
-      //
-      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
-      unsigned cnt = 0;
-
-      for (basic_block_index_t bbidx = 0;
-           bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
-        basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
-
-        basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
-        if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
-            bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
-          continue;
-
-        uintptr_t Addr = va_of_rva(bbprop.Term.Addr, binary_idx);
-
-        assert(IndBrMap.find(Addr) == IndBrMap.end());
-
-        indirect_branch_t &IndBrInfo = IndBrMap[Addr];
-        IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
-        IndBrInfo.binary_idx = binary_idx;
-        IndBrInfo.bbidx = bbidx;
-        IndBrInfo.TermAddr = bbprop.Term.Addr;
-        IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-        IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
-        assert(IndBrInfo.InsnBytes.size() == sizeof(uint64_t));
-#endif
-
-        auto sectit = st.SectMap.find(bbprop.Term.Addr);
-        assert(sectit != st.SectMap.end());
-        const section_properties_t &sectprop = *(*sectit).second.begin();
-
-        memcpy(&IndBrInfo.InsnBytes[0],
-               &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-               IndBrInfo.InsnBytes.size());
-
-        //
-        // now that we have the bytes for each indirect branch, disassemble them
-        //
-        llvm::MCInst &Inst = IndBrInfo.Inst;
-
-        {
-          uint64_t InstLen;
-          bool Disassembled = DisAsm.getInstruction(
-              Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
-              llvm::nulls());
-          assert(Disassembled);
-        }
-
-#if defined(__mips64) || defined(__mips__)
-        {
-          uint64_t InstLen;
-          bool Disassembled = DisAsm.getInstruction(
-              IndBrInfo.___mips.Inst, InstLen,
-              llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
-              bbprop.Term.Addr + 4,
-	      llvm::errs());
-          assert(Disassembled);
-        }
-#endif
-
-        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
-        ++cnt;
-      }
-
-      llvm::errs() << "placed " << cnt << " breakpoints in " << binary.Path
-                   << '\n';
+      on_binary_loaded(child, dis, BIdx, vm_prop);
     }
   }
+}
+
+void on_binary_loaded(pid_t child,
+                      disas_t &dis,
+                      binary_index_t BIdx,
+                      const vm_properties_t &vm_prop) {
+  binary_state_t &st = BinStateVec[BIdx];
+
+  st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
+  st.dyn.LoadAddrEnd = vm_prop.end;
+
+  llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
+                   % vm_prop.nm
+                   % st.dyn.LoadAddr
+                   % st.dyn.LoadAddrEnd).str()
+               << '\n';
+
+  boost::icl::interval<uintptr_t>::type intervl =
+      boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
+  binary_index_set_t bin_idx_set = {BIdx};
+  AddressSpace.add(std::make_pair(intervl, bin_idx_set));
+
+  binary_t &binary = decompilation.Binaries[BIdx];
+
+  //
+  // if Prog has been loaded, set a breakpoint on the entry point of prog
+  //
+  if (binary.IsExecutable) {
+    assert(is_function_index_valid(binary.Analysis.EntryFunction));
+
+    basic_block_t entry_bb = boost::vertex(
+        binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
+        binary.Analysis.ICFG);
+    uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
+    uintptr_t Addr = va_of_rva(entry_rva, BIdx);
+
+    llvm::outs() << llvm::formatv("entry_rva={0:x} Addr={1:x}\n",
+                                  entry_rva, Addr);
+
+    breakpoint_t &brk = BrkMap[Addr];
+    brk.callback = harvest_reloc_targets;
+
+    place_breakpoint(child, Addr, brk, dis);
+  }
+
+  //
+  // place breakpoints for indirect branches
+  //
+  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+
+  unsigned cnt = 0;
+
+  for (basic_block_index_t bbidx = 0;
+       bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
+    basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
+
+    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    if (bbprop.Term.Type != TERMINATOR::INDIRECT_JUMP &&
+        bbprop.Term.Type != TERMINATOR::INDIRECT_CALL)
+      continue;
+
+    uintptr_t Addr = va_of_rva(bbprop.Term.Addr, BIdx);
+
+    assert(IndBrMap.find(Addr) == IndBrMap.end());
+
+    indirect_branch_t &IndBrInfo = IndBrMap[Addr];
+    IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
+    IndBrInfo.binary_idx = BIdx;
+    IndBrInfo.bbidx = bbidx;
+    IndBrInfo.TermAddr = bbprop.Term.Addr;
+    IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#if defined(__mips64) || defined(__mips__)
+    IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
+    assert(IndBrInfo.InsnBytes.size() == sizeof(uint64_t));
+#endif
+
+    auto sectit = st.SectMap.find(bbprop.Term.Addr);
+    assert(sectit != st.SectMap.end());
+    const section_properties_t &sectprop = *(*sectit).second.begin();
+
+    memcpy(&IndBrInfo.InsnBytes[0],
+           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+           IndBrInfo.InsnBytes.size());
+
+    //
+    // now that we have the bytes for each indirect branch, disassemble them
+    //
+    llvm::MCInst &Inst = IndBrInfo.Inst;
+
+    {
+      uint64_t InstLen;
+      bool Disassembled = DisAsm.getInstruction(
+          Inst, InstLen, IndBrInfo.InsnBytes, bbprop.Term.Addr,
+          llvm::nulls());
+      assert(Disassembled);
+    }
+
+#if defined(__mips64) || defined(__mips__)
+    {
+      uint64_t InstLen;
+      bool Disassembled = DisAsm.getInstruction(
+          IndBrInfo.___mips.Inst, InstLen,
+          llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
+          bbprop.Term.Addr + 4,
+          llvm::errs());
+      assert(Disassembled);
+    }
+#endif
+
+    place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
+    ++cnt;
+  }
+
+  llvm::errs() << "placed " << cnt << " breakpoints in " << binary.Path
+               << '\n';
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
