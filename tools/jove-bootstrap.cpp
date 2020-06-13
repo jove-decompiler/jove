@@ -248,6 +248,13 @@ static std::unordered_map<uint64_t, uintptr_t> TrampolineMap;
 
 static bool SeenExec = false;
 
+static struct {
+  bool Found;
+  uintptr_t Addr;
+
+  uintptr_t r_brk;
+} _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
+
 struct vm_properties_t {
   uintptr_t beg;
   uintptr_t end;
@@ -1852,6 +1859,27 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   const uintptr_t _pc = pc;
 
   {
+    if (_pc == _r_debug.r_brk) {
+      //
+      // we can assume that this is a 'ret'
+      //
+      auto it = BrkMap.find(_pc);
+      assert(it != BrkMap.end());
+      (*it).second.callback(child, tcg, dis);
+
+#if defined(__x86_64__)
+      pc = _ptrace_peekdata(child, gpr.rsp);
+      gpr.rsp += sizeof(uintptr_t);
+#elif defined(__i386__)
+      pc = _ptrace_peekdata(child, gpr.esp);
+      gpr.esp += sizeof(uintptr_t);
+#endif
+
+      return;
+    }
+  }
+
+  {
     auto it = BrkMap.find(_pc);
     if (it != BrkMap.end()) {
       breakpoint_t &brk = (*it).second;
@@ -2698,6 +2726,11 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   }
 }
 
+static void on_dynamic_linker_loaded(pid_t child,
+                                     disas_t &dis,
+                                     binary_index_t BIdx,
+                                     const vm_properties_t &vm_prop);
+
 void on_binary_loaded(pid_t child,
                       disas_t &dis,
                       binary_index_t BIdx,
@@ -2740,6 +2773,15 @@ void on_binary_loaded(pid_t child,
 
     place_breakpoint(child, Addr, brk, dis);
   }
+
+  //
+  // if it's the dynamic linker, we need to set a breakpoint on the address of a
+  // function internal to the run-time linker, that will always be called when
+  // the linker begins to map in a library or unmap it, and again when the
+  // mapping change is complete.
+  //
+  if (binary.IsDynamicLinker)
+    on_dynamic_linker_loaded(child, dis, BIdx, vm_prop);
 
   //
   // place breakpoints for indirect branches
@@ -3134,6 +3176,276 @@ unsigned GetVDSOSize(void) {
   fclose(fp);
 
   return res;
+}
+
+struct r_debug {
+  int r_version; /* Version number for this protocol.  */
+
+  struct link_map *r_map; /* Head of the chain of loaded objects.  */
+
+  /* This is the address of a function internal to the run-time linker,
+     that will always be called when the linker begins to map in a
+     library or unmap it, and again when the mapping change is complete.
+     The debugger can set a breakpoint at this address if it wants to
+     notice shared object mapping changes.  */
+  unsigned long r_brk;
+  enum {
+    /* This state value describes the mapping change taking place when
+       the `r_brk' address is called.  */
+    RT_CONSISTENT, /* Mapping change is complete.  */
+    RT_ADD,        /* Beginning to add a new object.  */
+    RT_DELETE      /* Beginning to remove an object mapping.  */
+  } r_state;
+
+  unsigned long r_ldbase; /* Base address the linker is loaded at.  */
+};
+
+struct link_map {
+  /* These first few members are part of the protocol with the debugger.
+     This is the same format used in SVR4.  */
+
+  unsigned long l_addr; /* Difference between the address in the ELF file and
+                           the addresses in memory.  */
+  char *l_name;         /* Absolute file name object was found in.  */
+  unsigned long *l_ld;  /* Dynamic section of the shared object.  */
+  struct link_map *l_next, *l_prev; /* Chain of loaded objects.  */
+};
+
+/// Represents a contiguous uniform range in the file. We cannot just create a
+/// range directly because when creating one of these from the .dynamic table
+/// the size, entity size and virtual address are different entries in arbitrary
+/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
+struct DynRegionInfo {
+  DynRegionInfo() = default;
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
+      : Addr(A), Size(S), EntSize(ES) {}
+
+  /// Address in current address space.
+  const void *Addr = nullptr;
+  /// Size in bytes of the region.
+  uint64_t Size = 0;
+  /// Size of each entity in the region.
+  uint64_t EntSize = 0;
+
+  template <typename Type>
+    llvm::ArrayRef<Type> getAsArrayRef() const {
+    const Type *Start = reinterpret_cast<const Type *>(Addr);
+    if (!Start)
+      return {Start, Start};
+    if (EntSize != sizeof(Type) || Size % EntSize)
+      abort();
+    return {Start, Start + (Size / EntSize)};
+  }
+};
+
+static void on_rtld_breakpoint(pid_t child,
+                               tiny_code_generator_t &tcg,
+                               disas_t &dis) {
+  //
+  // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
+  // to communicate details of shared object loading to the debugger."
+  //
+  struct r_debug r_dbg;
+
+  struct iovec local_iov[] = {
+      {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
+
+  struct iovec remote_iov[] = {
+      {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
+
+  ssize_t ret = process_vm_readv(child,
+                                 local_iov, ARRAY_SIZE(local_iov),
+                                 remote_iov, ARRAY_SIZE(remote_iov),
+                                 0);
+
+  if (ret != sizeof(struct r_debug)) {
+    WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
+    return;
+  }
+
+  WithColor::note() << llvm::formatv("{0}: r_state={1}\n", __func__,
+                                     r_dbg.r_state);
+}
+
+void on_dynamic_linker_loaded(pid_t child,
+                              disas_t &dis,
+                              binary_index_t BIdx,
+                              const vm_properties_t &vm_prop) {
+  binary_t &binary = decompilation.Binaries[BIdx];
+
+  //
+  // parse the ELF
+  //
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
+                         binary.Data.size());
+  llvm::StringRef Identifier(binary.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from " << binary.Path
+                       << '\n';
+    return;
+  }
+
+  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+  std::unique_ptr<obj::Binary> &ObjectFile = BinRef;
+
+  assert(llvm::isa<ELFO>(ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
+
+  const ELFT &E = *O.getELFFile();
+
+  typedef typename ELFT::Elf_Phdr Elf_Phdr;
+  typedef typename ELFT::Elf_Dyn Elf_Dyn;
+  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFT::Elf_Shdr Elf_Shdr;
+  typedef typename ELFT::Elf_Sym Elf_Sym;
+  typedef typename ELFT::Elf_Rela Elf_Rela;
+  typedef typename ELFT::Elf_Rel Elf_Rel;
+
+  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+    if (DRI.Addr < E.base() ||
+        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+      abort();
+    return DRI;
+  };
+
+  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+  DynRegionInfo DynamicTable;
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                         uint64_t EntSize) -> DynRegionInfo {
+      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+    };
+
+    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+        continue;
+      }
+      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+        continue;
+      LoadSegments.push_back(&Phdr);
+    }
+  }
+
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion;
+  llvm::StringRef DynSymtabName;
+  llvm::StringRef DynamicStringTable;
+
+  {
+    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+    };
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+      }
+    }
+  }
+
+  //
+  // parse dynamic table
+  //
+  {
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+      const Elf_Phdr *const *I =
+          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                             return VAddr < Phdr->p_vaddr;
+                           });
+      if (I == LoadSegments.begin())
+        abort();
+      --I;
+      const Elf_Phdr &Phdr = **I;
+      uint64_t Delta = VAddr - Phdr.p_vaddr;
+      if (Delta >= Phdr.p_filesz)
+        abort();
+      return E.base() + Phdr.p_offset + Delta;
+    };
+
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        break;
+      case llvm::ELF::DT_STRSZ:
+        StringTableSize = Dyn.getVal();
+        break;
+      }
+    };
+
+    if (StringTableBegin)
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
+    if (Sym.isUndefined())
+      continue;
+
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    if (SymName != "_r_debug")
+      continue;
+
+    _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
+
+    //
+    // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
+    // to communicate details of shared object loading to the debugger."
+    //
+    struct r_debug r_dbg;
+
+    struct iovec local_iov[] = {
+        {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
+
+    struct iovec remote_iov[] = {
+        {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
+
+    ssize_t ret = process_vm_readv(child,
+                                   local_iov, ARRAY_SIZE(local_iov),
+                                   remote_iov, ARRAY_SIZE(remote_iov),
+                                   0);
+
+    if (ret != sizeof(struct r_debug)) {
+      WithColor::error() << "couldn't read r_debug structure\n";
+      break;
+    }
+
+    _r_debug.r_brk = r_dbg.r_brk;
+    _r_debug.Found = true;
+
+    if (opts::Verbose)
+      llvm::outs() << llvm::formatv("r_debug (r_version={0}, r_map={1}, "
+                                    "r_brk={2}, r_state={3}, r_ldbase={4})\n",
+                                    r_dbg.r_version, r_dbg.r_map, r_dbg.r_brk,
+                                    r_dbg.r_state, r_dbg.r_ldbase);
+
+    breakpoint_t &brk = BrkMap[r_dbg.r_brk];
+    brk.callback = on_rtld_breakpoint;
+
+    place_breakpoint(child, r_dbg.r_brk, brk, dis);
+  }
 }
 
 std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
