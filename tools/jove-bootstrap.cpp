@@ -383,6 +383,8 @@ struct user_regs_struct {
 static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
 static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
 
+static std::string _ptrace_read_string(pid_t, uintptr_t addr);
+
 static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
 static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
@@ -3247,24 +3249,53 @@ static void on_rtld_breakpoint(pid_t child,
   //
   struct r_debug r_dbg;
 
-  struct iovec local_iov[] = {
-      {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
+  {
+    struct iovec local_iov[] = {
+        {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
 
-  struct iovec remote_iov[] = {
-      {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
+    struct iovec remote_iov[] = {
+        {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
 
-  ssize_t ret = process_vm_readv(child,
-                                 local_iov, ARRAY_SIZE(local_iov),
-                                 remote_iov, ARRAY_SIZE(remote_iov),
-                                 0);
+    ssize_t ret = process_vm_readv(child,
+                                   local_iov, ARRAY_SIZE(local_iov),
+                                   remote_iov, ARRAY_SIZE(remote_iov),
+                                   0);
 
-  if (ret != sizeof(struct r_debug)) {
-    WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
-    return;
+    if (ret != sizeof(struct r_debug)) {
+      WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
+      return;
+    }
   }
 
-  WithColor::note() << llvm::formatv("{0}: r_state={1}\n", __func__,
-                                     r_dbg.r_state);
+  struct link_map *lmp = r_dbg.r_map;
+  do {
+    struct link_map lm;
+
+    struct iovec local_iov[] = {
+        {.iov_base = &lm, .iov_len = sizeof(struct link_map)}};
+
+    struct iovec remote_iov[] = {
+        {.iov_base = lmp, .iov_len = sizeof(struct link_map)}};
+
+    ssize_t ret = process_vm_readv(child,
+                                   local_iov, ARRAY_SIZE(local_iov),
+                                   remote_iov, ARRAY_SIZE(remote_iov),
+                                   0);
+
+    if (ret != sizeof(struct link_map)) {
+      WithColor::error() << __func__ << ": couldn't read link_map structure\n";
+      return;
+    }
+
+    std::string s = _ptrace_read_string(child,
+                                        reinterpret_cast<uintptr_t>(lm.l_name));
+
+    if (opts::Verbose)
+      llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
+                                    lm.l_addr, s);
+
+    lmp = lm.l_next;
+  } while (lmp && lmp != r_dbg.r_map);
 }
 
 void on_dynamic_linker_loaded(pid_t child,
@@ -3446,6 +3477,38 @@ void on_dynamic_linker_loaded(pid_t child,
 
     place_breakpoint(child, r_dbg.r_brk, brk, dis);
   }
+}
+
+std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
+  std::string res;
+
+  char ch;
+
+  for (;;) {
+    struct iovec local_iov[] = {
+        {.iov_base = &ch, .iov_len = 1}};
+
+    struct iovec remote_iov[] = {
+        {.iov_base = (void *)Addr, .iov_len = 1}};
+
+    ssize_t ret = process_vm_readv(child,
+                                   local_iov, ARRAY_SIZE(local_iov),
+                                   remote_iov, ARRAY_SIZE(remote_iov),
+                                   0);
+    if (ret != 1) {
+      WithColor::error() << "_ptrace_read_string: failed to read string\n";
+      break;
+    }
+
+    if (ch == '\0')
+      break;
+
+    // one character at-a-time
+    res.push_back(ch);
+    ++Addr;
+  }
+
+  return res;
 }
 
 std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
