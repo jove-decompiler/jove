@@ -3482,9 +3482,9 @@ void on_dynamic_linker_loaded(pid_t child,
 std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   std::string res;
 
-  char ch;
-
   for (;;) {
+    char ch;
+
     struct iovec local_iov[] = {
         {.iov_base = &ch, .iov_len = 1}};
 
