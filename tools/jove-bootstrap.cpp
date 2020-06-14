@@ -582,18 +582,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
               bbprop.Addr, bbprop.Addr + bbprop.Size);
       assert(st.BBMap.find(intervl) == st.BBMap.end());
 
-      if (opts::Verbose)
-        llvm::errs() << "BBMap entry ["
-                     << (fmt("%#lx") % intervl.lower()).str()
-                     << ", "
-                     << (fmt("%#lx") % intervl.upper()).str()
-                     << ")" << st.BBMap.iterative_size() << "\n";
-
       st.BBMap.add({intervl, 1 + bb_idx});
-
-#if 0
-      llvm::errs() << "after=" << st.BBMap.iterative_size() << '\n';
-#endif
     }
 
     //
@@ -3429,18 +3418,7 @@ void add_binary(pid_t child, const char *path, disas_t &dis) {
               bbprop.Addr, bbprop.Addr + bbprop.Size);
       assert(st.BBMap.find(intervl) == st.BBMap.end());
 
-      if (opts::Verbose)
-        llvm::errs() << "BBMap entry ["
-                     << (fmt("%#lx") % intervl.lower()).str()
-                     << ", "
-                     << (fmt("%#lx") % intervl.upper()).str()
-                     << ")" << st.BBMap.iterative_size() << "\n";
-
       st.BBMap.add({intervl, 1 + bb_idx});
-
-#if 0
-      llvm::errs() << "after=" << st.BBMap.iterative_size() << '\n';
-#endif
     }
 
     //
