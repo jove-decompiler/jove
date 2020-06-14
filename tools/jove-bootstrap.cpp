@@ -3311,7 +3311,7 @@ static void on_rtld_breakpoint(pid_t child,
       llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
                                     lm.l_addr, s);
 
-    if (!s.empty() && fs::exists(s)) {
+    if (!s.empty() && s.front() == '/' && fs::exists(s)) {
       fs::path path = fs::canonical(s);
 
       auto it = BinPathToIdxMap.find(path.c_str());
