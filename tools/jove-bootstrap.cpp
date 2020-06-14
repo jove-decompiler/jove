@@ -415,8 +415,17 @@ static function_index_t translate_function(pid_t child,
 
 static unsigned GetVDSOSize(void);
 
+static std::string jove_add_path;
+
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
+
+  jove_add_path =
+      (boost::dll::program_location().parent_path() / std::string("jove-add"))
+          .string();
+  if (!fs::exists(jove_add_path))
+    WithColor::warning() << "could not find jove-add at " << jove_add_path
+                         << '\n';
 
 #if 0
   {
@@ -3240,6 +3249,8 @@ struct DynRegionInfo {
   }
 };
 
+static void add_binary(pid_t child, const char *path, disas_t &);
+
 static void on_rtld_breakpoint(pid_t child,
                                tiny_code_generator_t &tcg,
                                disas_t &dis) {
@@ -3266,6 +3277,12 @@ static void on_rtld_breakpoint(pid_t child,
       return;
     }
   }
+
+  if (r_dbg.r_state == r_debug::RT_ADD ||
+      r_dbg.r_state == r_debug::RT_DELETE)
+    return;
+
+  assert(r_dbg.r_state == r_debug::RT_CONSISTENT);
 
   struct link_map *lmp = r_dbg.r_map;
   do {
@@ -3294,8 +3311,266 @@ static void on_rtld_breakpoint(pid_t child,
       llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
                                     lm.l_addr, s);
 
+    if (!s.empty() && fs::exists(s)) {
+      fs::path path = fs::canonical(s);
+
+      auto it = BinPathToIdxMap.find(path.c_str());
+      if (it == BinPathToIdxMap.end()) {
+        llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
+                                      path.c_str());
+        add_binary(child, path.c_str(), dis);
+      }
+    }
+
     lmp = lm.l_next;
   } while (lmp && lmp != r_dbg.r_map);
+}
+
+static void print_command(std::vector<const char *> &arg_vec);
+
+void add_binary(pid_t child, const char *path, disas_t &dis) {
+  char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
+
+  if (!mkdtemp(tmpdir)) {
+    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
+    return;
+  }
+
+  std::string jvfp = std::string(tmpdir) + path + ".jv";
+  fs::create_directories(fs::path(jvfp).parent_path());
+
+  //
+  // run jove-add on the DSO
+  //
+  pid_t pid = fork();
+  if (!pid) {
+    std::vector<const char *> argv = {
+      jove_add_path.c_str(),
+      "-o", jvfp.c_str(),
+      "-i", path,
+      nullptr
+    };
+
+    print_command(argv);
+
+    std::string stdoutfp = std::string(tmpdir) + path + ".txt";
+    int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+    dup2(outfd, STDOUT_FILENO);
+    dup2(outfd, STDERR_FILENO);
+
+    close(STDIN_FILENO);
+    execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
+
+    int err = errno;
+    throw std::runtime_error(
+        (fmt("execve failed: %s\n") % strerror(err)).str());
+  }
+
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << __func__ << ": jove-add failed\n";
+    return;
+  }
+
+  decompilation_t new_decompilation;
+  {
+    std::ifstream ifs(jvfp);
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> new_decompilation;
+  }
+
+  if (new_decompilation.Binaries.size() != 1) {
+    WithColor::error() << "invalid intermediate result " << jvfp << '\n';
+    return;
+  }
+
+  binary_index_t BIdx = decompilation.Binaries.size();
+  decompilation.Binaries.push_back(new_decompilation.Binaries.front());
+
+  BinFoundVec.resize(BinFoundVec.size() + 1, false);
+  BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
+  BinStateVec.resize(BinStateVec.size() + 1);
+
+  //
+  // initialize state associated with every binary
+  //
+  // TODO duplicated code here
+  {
+    binary_t &binary = decompilation.Binaries[BIdx];
+    binary_state_t &st = BinStateVec[BIdx];
+
+    // add to path -> index map
+    if (binary.IsVDSO)
+      BinPathToIdxMap["[vdso]"] = BIdx;
+    else
+      BinPathToIdxMap[binary.Path] = BIdx;
+
+    //
+    // build FuncMap
+    //
+    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+         ++f_idx) {
+      function_t &f = binary.Analysis.Functions[f_idx];
+      assert(f.Entry != invalid_basic_block_index);
+      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+    }
+
+    //
+    // build BBMap
+    //
+    for (basic_block_index_t bb_idx = 0;
+         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+      const auto &bbprop = binary.Analysis.ICFG[bb];
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              bbprop.Addr, bbprop.Addr + bbprop.Size);
+      assert(st.BBMap.find(intervl) == st.BBMap.end());
+
+      if (opts::Verbose)
+        llvm::errs() << "BBMap entry ["
+                     << (fmt("%#lx") % intervl.lower()).str()
+                     << ", "
+                     << (fmt("%#lx") % intervl.upper()).str()
+                     << ")" << st.BBMap.iterative_size() << "\n";
+
+      st.BBMap.add({intervl, 1 + bb_idx});
+
+#if 0
+      llvm::errs() << "after=" << st.BBMap.iterative_size() << '\n';
+#endif
+    }
+
+    //
+    // build section map
+    //
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from " << binary.Path
+                         << '\n';
+      return;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    if (!llvm::isa<ELFO>(Bin.get())) {
+      WithColor::error() << binary.Path << " is not ELF of expected type\n";
+      return;
+    }
+
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+
+    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+    if (!sections) {
+      WithColor::error() << "could not get ELF sections for binary "
+                         << binary.Path << '\n';
+      return;
+    }
+
+    for (const Elf_Shdr &Sec : *sections) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      if (!Sec.sh_size)
+        continue;
+
+      section_properties_t sectprop;
+
+      {
+        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+        if (!name) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+          }
+
+          WithColor::note() << llvm::formatv(
+              "could not get section name ({0})\n", Buf);
+          continue;
+        }
+
+        sectprop.name = *name;
+      }
+
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+          sectprop.name == std::string(".tbss"))
+        continue;
+
+      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
+        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+            E.getSectionContents(&Sec);
+
+        if (!contents) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+          }
+
+          WithColor::note() << llvm::formatv(
+              "could not get section {0} contents ({1})\n", sectprop.name, Buf);
+          continue;
+        }
+
+        sectprop.contents = *contents;
+      }
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      {
+        auto it = st.SectMap.find(intervl);
+        if (it != st.SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          abort();
+        }
+      }
+
+      st.SectMap.add({intervl, {sectprop}});
+
+      if (opts::VeryVerbose)
+        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
+                         % std::string(sectprop.name)
+                         % intervl.lower()
+                         % intervl.upper())
+                            .str()
+                     << '\n';
+    }
+  }
+
+  // ... now we're ready to search for it in address space
+  search_address_space_for_binaries(child, dis);
+}
+
+void print_command(std::vector<const char *> &arg_vec) {
+  for (const char *s : arg_vec) {
+    if (!s)
+      continue;
+
+    llvm::outs() << s << ' ';
+  }
+
+  llvm::outs() << '\n';
 }
 
 void on_dynamic_linker_loaded(pid_t child,
