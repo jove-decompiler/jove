@@ -507,6 +507,14 @@ int ParentProc(pid_t child, const char *fifo_path) {
   }
 
   //
+  // OMG. this hack is awful. it is here because if a binary is dynamically
+  // added to the decompilation, the std::vector will resize if necessary- and
+  // if such an event occurs, pointers to the section data will be invalidated
+  // because the binary_t::Data will be recopied. TODO
+  //
+  decompilation.Binaries.reserve(2 * decompilation.Binaries.size());
+
+  //
   // verify that the binaries did not change on-disk
   //
   for (binary_t &binary : decompilation.Binaries) {
