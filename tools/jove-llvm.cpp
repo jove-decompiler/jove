@@ -10439,6 +10439,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #define __OP_QEMU_LD(opc_name, regBits)                                        \
   case opc_name: {                                                             \
+    assert(nb_iargs == 1);                                                     \
+    assert(nb_oargs == 1 || nb_oargs == 2);                                    \
+                                                                               \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
     MemOp mop = get_memop(moidx);                                              \
                                                                                \
