@@ -18890,9 +18890,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
     //
     {
       const uint8_t needle[] = {0x65, 0xff, 0x15, 0x10, 0x00, 0x00, 0x00};
-      void *code =
-          (void *)((((unsigned long)(target_ulong)(s->pc)) - guest_base_addr) +
-                   guest_base);
+      void *code = g2h(s->pc);
 
       if (memcmp(code, needle, sizeof(needle)) == 0) {
         /* int 0x80 */
