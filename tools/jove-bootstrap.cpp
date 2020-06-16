@@ -406,6 +406,9 @@ static void IgnoreCtrlC(void);
 static void fifo_reader(const char *fifo_path);
 #endif
 
+static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
+static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
+
 static function_index_t translate_function(pid_t child,
                                            binary_index_t binary_idx,
                                            tiny_code_generator_t &tcg,
@@ -509,7 +512,10 @@ int ParentProc(pid_t child, const char *fifo_path) {
   for (binary_t &binary : decompilation.Binaries) {
     if (binary.IsVDSO) {
       const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
-      assert(vdso);
+      if (!vdso) {
+        WithColor::warning() << "[vdso] not present\n";
+        continue;
+      }
 
       unsigned n = GetVDSOSize();
       assert(n);
@@ -783,6 +789,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
       if (likely(!(child < 0))) {
         if (unlikely(ptrace(SeenExec && (opts::Syscalls ||
                                          !BinFoundVec.all() ||
+                                         BrkMap.find(_r_debug.r_brk) == BrkMap.end() ||
+                                         /* TODO !(harvested relocations) || */
 #if defined(__mips64) || defined(__mips__)
                                          !ExecutableRegionAddress)
 #else
@@ -891,32 +899,17 @@ int ParentProc(pid_t child, const char *fifo_path) {
           }
 #endif
 
-#if !defined(__NR_mmap) && !defined(__NR_mmap2)
-#error "we should have at least one"
-#endif
-
-          bool does_mmap = false
-#ifdef __NR_mmap
-                           || syscallno == __NR_mmap
-#endif
-#ifdef __NR_mmap2
-                           || syscallno == __NR_mmap2
-#endif
-              ;
-
-          if (does_mmap ||
 #if defined(__mips64) || defined(__mips__)
-                true
+          if (ExecutableRegionAddress) {
 #else
-                false
+          if (true) {
 #endif
-              ) {
-#if defined(__mips64) || defined(__mips__)
-            if (!ExecutableRegionAddress) {
+            search_address_space_for_binaries(child, dis);
+            rendezvous_with_dynamic_linker(child, dis);
+            harvest_reloc_targets(child, tcg, dis);
+          } else {
+            if (opts::Verbose)
               WithColor::note() << "!ExecutableRegionAddress\n";
-            } else
-#endif
-            { search_address_space_for_binaries(child, dis); }
           }
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
@@ -2407,6 +2400,13 @@ static void harvest_irelative_reloc_targets(pid_t child,
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
+    if (!BinFoundVec[BIdx]) {
+#if 0
+      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
+#endif
+      continue;
+    }
+
     //
     // parse the ELF
     //
@@ -2465,13 +2465,23 @@ static void harvest_irelative_reloc_targets(pid_t child,
         function_index_t FIdx;
       } Resolved;
 
-      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+      try {
+        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+      } catch (const std::exception &e) {
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: exception: {1}\n",
+                               "harvest_irelative_reloc_targets", e.what());
+        return;
+      }
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                             description_of_program_counter(Resolved.Addr));
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: unknown binary for {1}\n",
+                               "harvest_irelative_reloc_targets",
+                               description_of_program_counter(Resolved.Addr));
         return;
       }
 
@@ -2520,9 +2530,15 @@ static void harvest_addressof_reloc_targets(pid_t child,
     auto &Binary = decompilation.Binaries[BIdx];
 
     if (!BinFoundVec[BIdx]) {
+#if 0
       WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
+#endif
       continue;
     }
+
+#if 0
+    llvm::outs() << "harvesting relocation targets for " << Binary.Path << '\n';
+#endif
 
     //
     // parse the ELF
@@ -2630,13 +2646,25 @@ static void harvest_addressof_reloc_targets(pid_t child,
         function_index_t FIdx;
       } Resolved;
 
-      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+      try {
+        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
+      } catch (const std::exception &e) {
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: exception: {1}\n",
+                               "harvest_addressof_reloc_targets", e.what());
+
+        return;
+      }
 
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
-        WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                             description_of_program_counter(Resolved.Addr));
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: unknown binary for {1}\n",
+                               "harvest_addressof_reloc_targets",
+                               description_of_program_counter(Resolved.Addr));
+
         return;
       }
 
@@ -2674,9 +2702,9 @@ static void harvest_addressof_reloc_targets(pid_t child,
   }
 }
 
-static void harvest_reloc_targets(pid_t child,
-                                  tiny_code_generator_t &tcg,
-                                  disas_t &dis) {
+void harvest_reloc_targets(pid_t child,
+                           tiny_code_generator_t &tcg,
+                           disas_t &dis) {
   harvest_irelative_reloc_targets(child, tcg, dis);
   harvest_addressof_reloc_targets(child, tcg, dis);
 }
@@ -2688,7 +2716,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (BinFoundVec.all())
     return; /* there is no need */
 
-  if (!update_view_of_virtual_memory(child)) {
+  if (unlikely(!update_view_of_virtual_memory(child))) {
     WithColor::error() << "failed to read virtual memory maps of child "
                        << child << '\n';
     return;
@@ -2765,8 +2793,10 @@ void on_binary_loaded(pid_t child,
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);
 
+#if 0
     llvm::outs() << llvm::formatv("entry_rva={0:x} Addr={1:x}\n",
                                   entry_rva, Addr);
+#endif
 
     breakpoint_t &brk = BrkMap[Addr];
     brk.callback = harvest_reloc_targets;
@@ -3238,15 +3268,12 @@ struct DynRegionInfo {
   }
 };
 
-static void add_binary(pid_t child, const char *path, disas_t &);
+static void add_binary(pid_t child, tiny_code_generator_t &, disas_t &,
+                       const char *path);
 
 static void on_rtld_breakpoint(pid_t child,
                                tiny_code_generator_t &tcg,
                                disas_t &dis) {
-  //
-  // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
-  // to communicate details of shared object loading to the debugger."
-  //
   struct r_debug r_dbg;
 
   {
@@ -3272,6 +3299,14 @@ static void on_rtld_breakpoint(pid_t child,
     return;
 
   assert(r_dbg.r_state == r_debug::RT_CONSISTENT);
+
+#if defined(__mips64) || defined(__mips__)
+  if (!ExecutableRegionAddress) {
+    if (opts::Verbose)
+      WithColor::note() << "!ExecutableRegionAddress\n";
+    return;
+  }
+#endif
 
   struct link_map *lmp = r_dbg.r_map;
   do {
@@ -3307,17 +3342,22 @@ static void on_rtld_breakpoint(pid_t child,
       if (it == BinPathToIdxMap.end()) {
         llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
                                       path.c_str());
-        add_binary(child, path.c_str(), dis);
+        add_binary(child, tcg, dis, path.c_str());
       }
     }
 
     lmp = lm.l_next;
   } while (lmp && lmp != r_dbg.r_map);
+
+  search_address_space_for_binaries(child, dis);
+  harvest_reloc_targets(child, tcg, dis);
+  // getting here implies we have already rendezvous with dynamic linker
 }
 
 static void print_command(std::vector<const char *> &arg_vec);
 
-void add_binary(pid_t child, const char *path, disas_t &dis) {
+void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
+                const char *path) {
   char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
 
   if (!mkdtemp(tmpdir)) {
@@ -3360,21 +3400,24 @@ void add_binary(pid_t child, const char *path, disas_t &dis) {
     return;
   }
 
-  decompilation_t new_decompilation;
   {
-    std::ifstream ifs(jvfp);
+    decompilation_t new_decompilation;
+    {
+      std::ifstream ifs(jvfp);
 
-    boost::archive::binary_iarchive ia(ifs);
-    ia >> new_decompilation;
+      boost::archive::binary_iarchive ia(ifs);
+      ia >> new_decompilation;
+    }
+
+    if (new_decompilation.Binaries.size() != 1) {
+      WithColor::error() << "invalid intermediate result " << jvfp << '\n';
+      return;
+    }
+
+    decompilation.Binaries.push_back(new_decompilation.Binaries.front());
   }
 
-  if (new_decompilation.Binaries.size() != 1) {
-    WithColor::error() << "invalid intermediate result " << jvfp << '\n';
-    return;
-  }
-
-  binary_index_t BIdx = decompilation.Binaries.size();
-  decompilation.Binaries.push_back(new_decompilation.Binaries.front());
+  binary_index_t BIdx = decompilation.Binaries.size() - 1;
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
   BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
@@ -3535,9 +3578,6 @@ void add_binary(pid_t child, const char *path, disas_t &dis) {
                      << '\n';
     }
   }
-
-  // ... now we're ready to search for it in address space
-  search_address_space_for_binaries(child, dis);
 }
 
 void print_command(std::vector<const char *> &arg_vec) {
@@ -3693,11 +3733,22 @@ void on_dynamic_linker_loaded(pid_t child,
       continue;
 
     _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
+    _r_debug.Found = true;
 
-    //
-    // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
-    // to communicate details of shared object loading to the debugger."
-    //
+    rendezvous_with_dynamic_linker(child, dis);
+    break;
+  }
+}
+
+void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
+  if (!_r_debug.Found)
+    return;
+
+  //
+  // _r_debug is the "Rendezvous structure used by the run-time dynamic linker
+  // to communicate details of shared object loading to the debugger."
+  //
+  if (!_r_debug.r_brk) {
     struct r_debug r_dbg;
 
     struct iovec local_iov[] = {
@@ -3713,22 +3764,27 @@ void on_dynamic_linker_loaded(pid_t child,
 
     if (ret != sizeof(struct r_debug)) {
       WithColor::error() << "couldn't read r_debug structure\n";
-      break;
+      return;
     }
 
     _r_debug.r_brk = r_dbg.r_brk;
-    _r_debug.Found = true;
+  }
 
-    if (opts::Verbose)
-      llvm::outs() << llvm::formatv("r_debug (r_version={0}, r_map={1}, "
-                                    "r_brk={2}, r_state={3}, r_ldbase={4})\n",
-                                    r_dbg.r_version, r_dbg.r_map, r_dbg.r_brk,
-                                    r_dbg.r_state, r_dbg.r_ldbase);
+  if (_r_debug.r_brk) {
+    if (BrkMap.find(_r_debug.r_brk) == BrkMap.end()) {
+      try {
+        breakpoint_t brk;
+        brk.callback = on_rtld_breakpoint;
 
-    breakpoint_t &brk = BrkMap[r_dbg.r_brk];
-    brk.callback = on_rtld_breakpoint;
+        place_breakpoint(child, _r_debug.r_brk, brk, dis);
 
-    place_breakpoint(child, r_dbg.r_brk, brk, dis);
+        BrkMap.insert({_r_debug.r_brk, brk});
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv(
+            "{0}: couldn't place breakpoint at r_brk ({1})\n", __func__,
+            _r_debug.r_brk);
+      }
+    }
   }
 }
 
