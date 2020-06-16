@@ -27,6 +27,7 @@
 #include <boost/icl/split_interval_map.hpp>
 
 #include "jove/jove.h"
+#include <boost/format.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
@@ -81,6 +82,8 @@ int main(int argc, char **argv) {
 }
 
 namespace jove {
+
+typedef boost::format fmt;
 
 static binary_index_t BinaryIndex = invalid_binary_index;
 
@@ -208,7 +211,7 @@ struct graphviz_label_writer {
     boost::replace_all(src, ":", "\\:");
     //boost::replace_all(src, " ", "\\ ");
 
-    out << "[label=\"\\l";
+    out << "[label=\"";
     out << src;
     out << "\"]";
   }
@@ -219,7 +222,6 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
   assert(BinaryIndex != invalid_binary_index);
 
   const binary_t &binary = Decompilation.Binaries[BinaryIndex];
-  const icfg_t &ICFG = binary.Analysis.ICFG;
 
   auto it = SectMap.find(G[V].Addr);
   if (it == SectMap.end()) {
@@ -233,7 +235,8 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
 
   TCG->set_section(SectBase, SectProp.contents.data());
 
-  std::string res;
+  std::string res = (fmt("%08x [%u]\n\n") % G[V].Addr % G[V].Size).str();
+
   uint64_t InstLen = 0;
   for (uintptr_t A = G[V].Addr; A < G[V].Addr + G[V].Size; A += InstLen) {
     llvm::MCInst Inst;
@@ -254,6 +257,7 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
     }
     boost::trim(line);
 
+    res.append((fmt("%08x ") % A).str());
     res.append(line);
     res.push_back('\n');
   }
