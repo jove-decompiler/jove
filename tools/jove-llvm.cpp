@@ -10505,9 +10505,9 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
       llvm::Value *HighVal = get(arg_temp(op->args[nb_oargs + 1]));            \
                                                                                \
       Val = IRB.CreateOr(                                                      \
-          IRB.CreateZExt(LowVal, IRB.getIntNTy(bits)),                         \
-          IRB.CreateShl(IRB.CreateZExt(HighVal, IRB.getIntNTy(bits)),          \
-                        llvm::APInt(bits, 32)));                               \
+          IRB.CreateZExt(LowVal, IRB.getInt64Ty()),                            \
+          IRB.CreateShl(IRB.CreateZExt(HighVal, IRB.getInt64Ty()),             \
+                        IRB.getInt64(32)));                                    \
     }                                                                          \
                                                                                \
     Val = IRB.CreateIntCast(Val, IRB.getIntNTy(bits_of_memop(mop)),            \
