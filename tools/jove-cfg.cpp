@@ -473,7 +473,7 @@ int cfg(void) {
   //
   // find the function of interest
   //
-  function_index_t FuncIndex = invalid_function_index;
+  function_index_t FunctionIndex = invalid_function_index;
 
   assert(!opts::FunctionAddress.empty());
   uintptr_t FuncAddr = std::stoi(opts::FunctionAddress.c_str(), 0, 16);
@@ -487,17 +487,17 @@ int cfg(void) {
     if (EntryAddr != FuncAddr)
       continue;
 
-    FuncIndex = FIdx;
+    FunctionIndex = FIdx;
     break;
   }
 
-  if (FuncIndex == invalid_function_index) {
+  if (FunctionIndex == invalid_function_index) {
     WithColor::error() << llvm::formatv(
         "failed to find function matching given address ({0:x})\n", FuncAddr);
     return 1;
   }
 
-  const function_t &f = binary.Analysis.Functions[FuncIndex];
+  const function_t &f = binary.Analysis.Functions[FunctionIndex];
 
   boost::unordered_set<basic_block_t> blocks;
 
