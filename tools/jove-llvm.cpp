@@ -10479,15 +10479,34 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
 
 #define __OP_QEMU_ST(opc_name, bits)                                           \
   case opc_name: {                                                             \
+    assert(nb_oargs == 0);                                                     \
+    assert(nb_iargs == 2 || nb_iargs == 3);                                    \
+                                                                               \
     TCGMemOpIdx moidx = op->args[nb_oargs + nb_iargs];                         \
     MemOp mop = get_memop(moidx);                                              \
                                                                                \
-    llvm::Value *Addr = get(arg_temp(op->args[1]));                            \
+    llvm::Value *Addr = get(arg_temp(op->args[nb_oargs + nb_iargs - 1]));      \
     Addr = IRB.CreateZExt(Addr, WordType());                                   \
     Addr = IRB.CreateIntToPtr(                                                 \
         Addr, llvm::PointerType::get(IRB.getIntNTy(bits_of_memop(mop)), 0));   \
                                                                                \
-    llvm::Value *Val = get(arg_temp(op->args[0]));                             \
+    llvm::Value *Val;                                                          \
+    if (nb_iargs == 2) {                                                       \
+      Val = get(arg_temp(op->args[nb_oargs + 0]));                             \
+    } else {                                                                   \
+      assert(nb_iargs == 3);                                                   \
+      assert(WordBits() == 32);                                                \
+      assert(bits == 64);                                                      \
+                                                                               \
+      llvm::Value *LowVal = get(arg_temp(op->args[nb_oargs + 0]));             \
+      llvm::Value *HighVal = get(arg_temp(op->args[nb_oargs + 1]));            \
+                                                                               \
+      Val = IRB.CreateOr(                                                      \
+          IRB.CreateZExt(LowVal, IRB.getIntNTy(bits)),                         \
+          IRB.CreateShl(IRB.CreateZExt(HighVal, IRB.getIntNTy(bits)),          \
+                        llvm::APInt(bits, 32)));                               \
+    }                                                                          \
+                                                                               \
     Val = IRB.CreateIntCast(Val, IRB.getIntNTy(bits_of_memop(mop)),            \
                             mop & MO_SIGN ? true : false);                     \
                                                                                \
