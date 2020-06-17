@@ -569,10 +569,12 @@ static uint64_t get_xinuse(CPUX86State *env)
 
 uint64_t helper_xgetbv(CPUX86State *env, uint32_t ecx)
 {
+#if 0
     /* The OS must have enabled XSAVE.  */
     if (!(env->cr[4] & CR4_OSXSAVE_MASK)) {
         raise_exception_ra(env, EXCP06_ILLOP, GETPC());
     }
+#endif
 
     switch (ecx) {
     case 0:
