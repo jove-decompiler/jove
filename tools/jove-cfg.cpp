@@ -190,8 +190,6 @@ struct graphviz_label_writer {
                   const control_flow_graph_t::vertex_descriptor &v) const {
     std::string src = disassemble_basic_block(cfg, v);
 
-    // TODO put stuff in src
-
     src.reserve(2 * src.size());
 
     boost::replace_all(src, "\\", "\\\\");
@@ -202,13 +200,13 @@ struct graphviz_label_writer {
     boost::replace_all(src, "}", "\\}");
     boost::replace_all(src, "|", "\\|");
     boost::replace_all(src, "|", "\\|");
-    boost::replace_all(src, "<", "\\<");
-    boost::replace_all(src, ">", "\\>");
+    //boost::replace_all(src, "<", "\\<");
+    //boost::replace_all(src, ">", "\\>");
     boost::replace_all(src, "(", "\\(");
     boost::replace_all(src, ")", "\\)");
     //boost::replace_all(src, ",", "\\,");
     boost::replace_all(src, ";", "\\;");
-    boost::replace_all(src, ":", "\\:");
+    //boost::replace_all(src, ":", "\\:");
     //boost::replace_all(src, " ", "\\ ");
 
     out << "[label=\"";
@@ -241,12 +239,23 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
   for (uintptr_t A = G[V].Addr; A < G[V].Addr + G[V].Size; A += InstLen) {
     llvm::MCInst Inst;
 
-    ptrdiff_t Offset = A - SectBase;
-    bool Disassembled = DisAsm->getInstruction(
-        Inst, InstLen, SectProp.contents.slice(Offset), A, llvm::nulls());
+    std::string errmsg;
+    bool Disassembled;
+    {
+      llvm::raw_string_ostream ErrorStrStream(errmsg);
+
+      ptrdiff_t Offset = A - SectBase;
+      Disassembled = DisAsm->getInstruction(
+          Inst, InstLen, SectProp.contents.slice(Offset), A, ErrorStrStream);
+    }
+
     if (!Disassembled) {
-      WithColor::error() << llvm::formatv("{0}: failed to disassemble {1:x}\n",
-                                          __func__, A);
+      res.append("failed to disassemble");
+      if (!errmsg.empty()) {
+	res.append(": ");
+        res.append(errmsg);
+      }
+      res.push_back('\n');
       break;
     }
 
@@ -257,10 +266,14 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
     }
     boost::trim(line);
 
-    res.append((fmt("%08x ") % A).str());
+    res.append((fmt("%08x   ") % A).str());
     res.append(line);
     res.push_back('\n');
   }
+
+  res.push_back('\n');
+  res.append(description_of_terminator(G[V].Term.Type));
+  res.push_back('\n');
 
   return res;
 }
