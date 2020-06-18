@@ -292,9 +292,13 @@ struct graphviz_edge_prop_writer {
         "solid", "dashed", /*"invis"*/ "dotted"
     };
 
+    const cfg_t::vertex_descriptor V = boost::source(e, cfg);
 
+    const char *edge_type_style = cfg[V].Term.Type == TERMINATOR::INDIRECT_JUMP
+                                      ? edge_type_styles[1]
+                                      : edge_type_styles[0];
 
-    out << "[style=\"" << edge_type_styles[0] << "\"]";
+    out << "[style=\"" << edge_type_style << "\"]";
   }
 };
 
