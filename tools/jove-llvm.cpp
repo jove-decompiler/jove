@@ -544,12 +544,6 @@ static const char *string_of_sym_binding(symbol_t::BINDING b) {
   __builtin_unreachable();
 }
 
-typedef boost::keep_all edge_predicate_t;
-typedef boost::is_in_subset<std::set<basic_block_t>> vertex_predicate_t;
-typedef boost::filtered_graph<interprocedural_control_flow_graph_t,
-                              edge_predicate_t, vertex_predicate_t>
-    control_flow_graph_t;
-
 //
 // Globals
 //
