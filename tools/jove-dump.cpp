@@ -476,7 +476,7 @@ static void dumpInput(const std::string &Path) {
     for (unsigned BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
       const binary_t &binary = decompilation.Binaries[BIdx];
 
-      if (fs::path(binary.Path).filename().string() != opts::ListFunctions)
+      if (binary.Path.find(opts::ListFunctions) == std::string::npos)
         continue;
 
       const auto &ICFG = binary.Analysis.ICFG;
