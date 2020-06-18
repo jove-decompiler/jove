@@ -2420,6 +2420,7 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
     uint32_t dummy, ena_lo, ena_hi;
     uint64_t ena;
 
+#if 0
     /* The OS must have enabled XSAVE.  */
     if (!(env->cr[4] & CR4_OSXSAVE_MASK)) {
 #if 0
@@ -2429,6 +2430,7 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
 	__builtin_unreachable();
 #endif
     }
+#endif
 
     /* Only XCR0 is defined at present; the FPU may not be disabled.  */
     if (ecx != 0 || (mask & XSTATE_FP_MASK) == 0) {
