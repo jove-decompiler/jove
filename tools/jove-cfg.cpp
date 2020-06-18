@@ -271,9 +271,11 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
     res.push_back('\n');
   }
 
-  res.push_back('\n');
-  res.append(description_of_terminator(G[V].Term.Type));
-  res.push_back('\n');
+  if (G[V].Term.Type != TERMINATOR::NONE) {
+    res.push_back('\n');
+    res.append(description_of_terminator(G[V].Term.Type));
+    res.push_back('\n');
+  }
 
   return res;
 }
