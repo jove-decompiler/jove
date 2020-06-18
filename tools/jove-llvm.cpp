@@ -5354,6 +5354,7 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_addressof_undefined_function_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
+#if 0
     assert(S.IsUndefined());
     llvm::FunctionType *FTy;
 
@@ -5374,6 +5375,9 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return llvm::PointerType::get(FTy, 0);
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_addressof_defined_function_relocation =
@@ -5461,6 +5465,7 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
+#if 0
     llvm::FunctionType *FTy;
 
     {
@@ -5478,6 +5483,9 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return llvm::PointerType::get(FTy, 0);
+#else
+    return WordType();
+#endif
   };
 
   auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -5661,7 +5669,7 @@ int CreateSectionGlobalVariables(void) {
     assert(S.IsUndefined());
 
     if (llvm::Function *F = Module->getFunction(S.Name))
-      return F;
+      return llvm::ConstantExpr::getPtrToInt(F, WordType());
 
     llvm::FunctionType *FTy;
     {
@@ -5694,7 +5702,7 @@ int CreateSectionGlobalVariables(void) {
               .str());
     }
 
-    return F;
+    return llvm::ConstantExpr::getPtrToInt(F, WordType());
   };
 
   auto constant_of_addressof_defined_function_relocation =
@@ -5822,6 +5830,7 @@ int CreateSectionGlobalVariables(void) {
       IdxPair = *(*it).second.begin();
     }
 
+#if 0
     uintptr_t ResolverAddr = R.Addend;
     if (!ResolverAddr) {
       auto it = SectIdxMap.find(R.Addr);
@@ -5981,6 +5990,14 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return f._resolver.IFunc;
+#else
+    binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
+    auto &ICFG = binary.Analysis.ICFG;
+    function_t &f = binary.Analysis.Functions.at(IdxPair.second);
+    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+
+    return SectionPointer(Addr);
+#endif
   };
 
   auto constant_of_tpoff_relocation =
@@ -6561,6 +6578,13 @@ int CreateSectionGlobalVariables(void) {
         }
 
         llvm::outs() << '\n';
+      } else {
+        assert(R.T);
+        if (R.T != R.C->getType()) {
+          WithColor::error()
+              << llvm::formatv("{0}: bug? [{1}] ({2}) ({3})\n", __func__,
+                               string_of_reloc_type(R.Type), *R.T, *R.C);
+        }
       }
     }
 
@@ -9338,7 +9362,7 @@ int TranslateBasicBlock(binary_t &Binary,
       return 0;
     }
 
-    if (DynTargetsComplete) {
+    if (false /* DynTargetsComplete */) {
       if (DynTargets.size() > 1)
         WithColor::warning() << llvm::formatv(
             "DynTargetsComplete but more than one dyn target ({0:x})\n",
