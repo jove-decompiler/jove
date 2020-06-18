@@ -145,8 +145,10 @@ typedef boost::filtered_graph<
     boost::is_in_subset<boost::unordered_set<basic_block_t>>>
     control_flow_graph_t;
 
-static std::string disassemble_basic_block(const control_flow_graph_t &G,
-					   control_flow_graph_t::vertex_descriptor);
+typedef control_flow_graph_t cfg_t;
+
+static std::string disassemble_basic_block(const cfg_t &,
+                                           cfg_t::vertex_descriptor);
 
 static std::unique_ptr<tiny_code_generator_t> TCG;
 
@@ -182,12 +184,12 @@ static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
     SectMap;
 
 struct graphviz_label_writer {
-  const control_flow_graph_t &cfg;
+  const cfg_t &cfg;
 
-  graphviz_label_writer(const control_flow_graph_t &cfg) : cfg(cfg) {}
+  graphviz_label_writer(const cfg_t &cfg) : cfg(cfg) {}
 
   void operator()(std::ostream &out,
-                  const control_flow_graph_t::vertex_descriptor &v) const {
+                  const cfg_t::vertex_descriptor &v) const {
     std::string src = disassemble_basic_block(cfg, v);
 
     src.reserve(2 * src.size());
@@ -215,8 +217,8 @@ struct graphviz_label_writer {
   }
 };
 
-static std::string disassemble_basic_block(const control_flow_graph_t &G,
-					   control_flow_graph_t::vertex_descriptor V) {
+static std::string disassemble_basic_block(const cfg_t &G,
+                                           cfg_t::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
   const binary_t &binary = Decompilation.Binaries[BinaryIndex];
@@ -281,14 +283,16 @@ static std::string disassemble_basic_block(const control_flow_graph_t &G,
 }
 
 struct graphviz_edge_prop_writer {
-  const control_flow_graph_t &cfg;
-  graphviz_edge_prop_writer(const control_flow_graph_t &cfg) : cfg(cfg) {}
+  const cfg_t &cfg;
+  graphviz_edge_prop_writer(const cfg_t &cfg) : cfg(cfg) {}
 
-  template <class Edge>
-  void operator()(std::ostream &out, const Edge &e) const {
+  void operator()(std::ostream &out,
+                  const cfg_t::edge_descriptor &e) const {
     static const char *edge_type_styles[] = {
         "solid", "dashed", /*"invis"*/ "dotted"
     };
+
+
 
     out << "[style=\"" << edge_type_styles[0] << "\"]";
   }
@@ -526,7 +530,7 @@ int cfg(void) {
   boost::keep_all e_filter;
   boost::is_in_subset<boost::unordered_set<basic_block_t>> v_filter(blocks);
 
-  control_flow_graph_t cfg(ICFG, e_filter, v_filter);
+  cfg_t cfg(ICFG, e_filter, v_filter);
 
   //
   // create temporary directory
@@ -546,10 +550,10 @@ int cfg(void) {
   {
     std::ofstream ofs(dot_path);
 
-    std::map<control_flow_graph_t::vertex_descriptor, int> idx_map;
+    std::map<cfg_t::vertex_descriptor, int> idx_map;
     {
       int i = 0;
-      control_flow_graph_t::vertex_iterator vi, vi_end;
+      cfg_t::vertex_iterator vi, vi_end;
       for (std::tie(vi, vi_end) = boost::vertices(cfg); vi != vi_end; ++vi)
         idx_map[*vi] = i++;
     }
@@ -559,7 +563,7 @@ int cfg(void) {
 	graphviz_label_writer(cfg),
         graphviz_edge_prop_writer(cfg),
 	graphviz_prop_writer(),
-        boost::associative_property_map<std::map<control_flow_graph_t::vertex_descriptor, int>>(idx_map));
+        boost::associative_property_map<std::map<cfg_t::vertex_descriptor, int>>(idx_map));
   }
 
   //
