@@ -678,7 +678,7 @@ static std::unordered_map<llvm::GlobalIFunc *,
 
 static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
-static std::vector<llvm::CallInst *> CallsToInline;
+static std::unordered_set<llvm::CallInst *> CallsToInline;
 static std::unordered_set<llvm::Function *> FunctionsToInline;
 
 static struct {
@@ -2779,7 +2779,7 @@ int ProcessDynamicSymbols(void) {
                 // ResolverF = llvm::CloneFunction(f.F, Map);
 
                 llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
-                CallsToInline.push_back(Call);
+                CallsToInline.insert(Call);
 
                 IRB.CreateStore(SavedSP, SPPtr);
 
@@ -7757,36 +7757,17 @@ int TranslateFunctions(void) {
 }
 
 static int InlineCalls(void) {
-#if 0
-  for (llvm::CallInst *Inst : MemCopiesToExpand) {
-    assert(llvm::isa<llvm::MemCpyInst>(Inst));
-    auto *MemCpy = llvm::cast<llvm::MemCpyInst>(Inst);
-
-    llvm::TargetTransformInfo TTI(DL);
-    llvm::expandMemCpyAsLoop(MemCpy, TTI);
-
-    MemCpy->eraseFromParent();
-  }
-#endif
-
-  assert(CallsToInline.empty());
-
   for (llvm::Function *F : FunctionsToInline) {
     for (llvm::User *U : F->users()) {
-      //llvm::errs() << __func__ << ": #1 [" << *U << "]\n";
 
       if (!llvm::isa<llvm::CallInst>(U))
         continue;
-
-      //llvm::errs() << __func__ << ": #2\n";
 
       llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
       if (Call->getCalledFunction() != F)
         continue;
 
-      //llvm::errs() << __func__ << ": #3\n";
-
-      CallsToInline.push_back(Call);
+      CallsToInline.insert(Call);
     }
   }
 
@@ -8997,11 +8978,14 @@ int TranslateBasicBlock(binary_t &Binary,
   } while (size < Size);
 
   if (T.Type != ICFG[bb].Term.Type) {
+    uintptr_t FuncAddr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+
     WithColor::error() << llvm::formatv(
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
         "tcg.hpp is changed but we haven't gone through the trouble of "
-        "re-running jove-add\n",
-        __FILE__, __LINE__, Addr);
+        "re-running jove-add\n"
+        "FuncAddr={3:x}\n",
+        __FILE__, __LINE__, Addr, FuncAddr);
   }
 
   assert(T.Type == ICFG[bb].Term.Type);
