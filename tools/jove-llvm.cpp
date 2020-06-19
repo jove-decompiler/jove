@@ -678,7 +678,6 @@ static std::unordered_map<llvm::GlobalIFunc *,
 
 static std::unordered_set<uintptr_t> ExternGlobalAddrs;
 
-static std::unordered_set<llvm::CallInst *> CallsToInline;
 static std::unordered_set<llvm::Function *> FunctionsToInline;
 
 static struct {
@@ -2779,7 +2778,6 @@ int ProcessDynamicSymbols(void) {
                 // ResolverF = llvm::CloneFunction(f.F, Map);
 
                 llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
-                CallsToInline.insert(Call);
 
                 IRB.CreateStore(SavedSP, SPPtr);
 
@@ -5956,7 +5954,6 @@ int CreateSectionGlobalVariables(void) {
           // ResolverF = llvm::CloneFunction(f.F, Map);
 
           llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
-          CallsToInline.push_back(Call);
 
           IRB.CreateStore(SavedSP, SPPtr);
 
@@ -6884,8 +6881,6 @@ int CreateSectionGlobalVariables(void) {
 
           DIB.finalizeSubprogram(DebugInfo.Subprogram);
 
-          //CallsToInline.push_back(Call);
-
           it = CtorStubMap.insert({F, CallsF}).first;
         }
 
@@ -7160,8 +7155,6 @@ int CreateSectionGlobalVariables(void) {
         }
 
         DIB.finalizeSubprogram(DebugInfo.Subprogram);
-
-        //CallsToInline.push_back(Call);
 
         it = CtorStubMap.insert({F, CallsF}).first;
       }
@@ -7758,6 +7751,8 @@ int TranslateFunctions(void) {
 }
 
 static int InlineCalls(void) {
+  std::unordered_set<llvm::CallInst *> CallsToInline;
+
   for (llvm::Function *F : FunctionsToInline) {
     for (llvm::User *U : F->users()) {
 
