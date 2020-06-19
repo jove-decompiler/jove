@@ -254,7 +254,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
     if (!Disassembled) {
       res.append("failed to disassemble");
       if (!errmsg.empty()) {
-	res.append(": ");
+        res.append(": ");
         res.append(errmsg);
       }
       res.push_back('\n');
