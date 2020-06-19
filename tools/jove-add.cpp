@@ -978,6 +978,58 @@ basic_block_index_t translate_basic_block(binary_t &binary,
         return bbidx;
       }
 
+      //
+      // before splitting the basic block, let's check to make sure that the
+      // new block doesn't start in the middle of an instruction. if that would
+      // occur, then we will assume the control-flow is invalid
+      //
+      {
+        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+        const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
+        llvm::MCInstPrinter &IP = std::get<2>(dis);
+
+        auto sectit = SectMap.find(beg);
+        assert(sectit != SectMap.end());
+        const section_properties_t &SectProp = *(*sectit).second.begin();
+
+        uint64_t InstLen = 0;
+        for (target_ulong A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
+          llvm::MCInst Inst;
+
+          std::string errmsg;
+          bool Disassembled;
+          {
+            llvm::raw_string_ostream ErrorStrStream(errmsg);
+
+            std::ptrdiff_t SectOffset = A - (*sectit).first.lower();
+            Disassembled = DisAsm.getInstruction(
+                Inst, InstLen, SectProp.contents.slice(SectOffset), A,
+                ErrorStrStream);
+          }
+
+          if (!Disassembled)
+            WithColor::error() << llvm::formatv(
+                "failed to disassemble {0:x} {1}\n", A, errmsg);
+
+          assert(Disassembled);
+
+          if (A == Addr)
+            goto on_insn_boundary;
+        }
+
+        WithColor::error() << llvm::formatv(
+            "control flow to {0:x} doesn't lie on instruction boundary\n",
+            Addr);
+
+        return invalid_basic_block_index;
+
+on_insn_boundary:
+        //
+        // proceed.
+        //
+        ;
+      }
+
       unsigned deg = boost::out_degree(bb, ICFG);
 
       std::vector<basic_block_t> out_verts;
