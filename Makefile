@@ -1083,6 +1083,8 @@ i386-cmpordss_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
 i386-cmpordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
 i386-cmpordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
 
+i386-into_EXTRICATE_ARGS := cpu_cc_compute_all
+
 #
 # I'll just put this here.
 #
