@@ -279,6 +279,8 @@ struct section_properties_t {
   llvm::StringRef name;
   llvm::ArrayRef<uint8_t> contents;
 
+  bool w, x;
+
   bool operator==(const section_properties_t &sect) const {
     return name == sect.name;
   }
@@ -690,6 +692,9 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
         sectprop.contents = *contents;
       }
+
+      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
+      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
 
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
@@ -1361,6 +1366,12 @@ basic_block_index_t translate_basic_block(pid_t child,
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
+  if (!sectprop.x) {
+    if (opts::Verbose)
+      WithColor::note() << llvm::formatv("section is not executable @ {0:x}\n",
+                                         Addr);
+    return invalid_basic_block_index;
+  }
   tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
 
   unsigned Size = 0;

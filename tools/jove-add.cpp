@@ -1121,6 +1121,13 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     return invalid_basic_block_index;
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
+  if (!sectprop.x) {
+    if (opts::Verbose)
+      WithColor::note() << llvm::formatv("section is not executable @ {0:x}\n",
+                                         Addr);
+    return invalid_basic_block_index;
+  }
+
   tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
 
   unsigned Size = 0;

@@ -4314,6 +4314,7 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   assert(sectit != SectMap.end());
 
   const section_properties_t &sectprop = *(*sectit).second.begin();
+  assert(sectprop.x);
   TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
 
   TCGContext *s = &TCG->_ctx;
@@ -8869,6 +8870,7 @@ int TranslateBasicBlock(binary_t &Binary,
     assert(sectit != st.SectMap.end());
 
     const section_properties_t &sectprop = *(*sectit).second.begin();
+    assert(sectprop.x);
     TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
   }
 
