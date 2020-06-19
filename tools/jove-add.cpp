@@ -923,12 +923,6 @@ int add(void) {
   return 0;
 }
 
-static void InvalidateAllFunctionAnalyses(void) {
-  for (binary_t &binary : decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
-}
-
 static basic_block_index_t translate_basic_block(binary_t &,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
@@ -1243,7 +1237,6 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
     bbprop.InvalidateAnalysis();
-    InvalidateAllFunctionAnalyses();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
@@ -1282,9 +1275,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
     basic_block_t succ = boost::vertex(succidx, ICFG);
     bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
 
-    // TODO only invalidate...
-    if (isNewTarget)
-      InvalidateAllFunctionAnalyses();
+    (void)isNewTarget;
   };
 
   switch (T.Type) {
