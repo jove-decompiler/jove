@@ -1327,7 +1327,12 @@ void helper_into(CPUX86State *env, int next_eip_addend)
 
     eflags = cpu_cc_compute_all(env, CC_OP);
     if (eflags & CC_O) {
+#if 0
         raise_interrupt(env, EXCP04_INTO, 1, 0, next_eip_addend);
+#else
+        __builtin_trap();
+        __builtin_unreachable();
+#endif
     }
 }
 
