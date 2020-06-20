@@ -2426,7 +2426,7 @@ void helper_xsetbv(CPUX86State *env, uint32_t ecx, uint64_t mask)
     }
 
     /* Disallow enabling unimplemented features.  */
-    cpu_x86_cpuid(env, 0x0d, 0, &ena_lo, &dummy, &dummy, &ena_hi);
+    host_cpuid(0x0d, 0, &ena_lo, &dummy, &dummy, &ena_hi);
     ena = ((uint64_t)ena_hi << 32) | ena_lo;
     if (mask & ~ena) {
         goto do_gpf;
