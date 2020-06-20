@@ -12236,6 +12236,7 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
       //
       // (jove) hack for XOP instructions
       //
+      void *code = g2h(s->pc);
       uint64_t u64 = *reinterpret_cast<uint64_t *>(code);
 
       if (xop8_map.find(u64 & 0xffffffffffffffff) != xop8_map.end()) {
