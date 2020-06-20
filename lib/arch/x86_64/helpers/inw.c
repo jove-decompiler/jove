@@ -534,12 +534,17 @@ typedef struct CPUX86State {
 
 target_ulong helper_inw(CPUX86State *env, uint32_t port)
 {
+#if 0
 #ifdef CONFIG_USER_ONLY
     fprintf(stderr, "inw: port=0x%04x\n", port);
     return 0;
 #else
     return address_space_lduw(&address_space_io, port,
                               cpu_get_mem_attrs(env), NULL);
+#endif
+#else
+    __builtin_trap();
+    __builtin_unreachable();
 #endif
 }
 
