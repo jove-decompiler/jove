@@ -485,7 +485,7 @@ static void dumpInput(const std::string &Path) {
         const function_t &function = binary.Analysis.Functions[FIdx];
         uintptr_t Addr = ICFG[boost::vertex(function.Entry, ICFG)].Addr;
 
-        llvm::outs() << llvm::formatv("{0},{1} @ {2:x}\n", BIdx, FIdx, Addr);
+        llvm::outs() << llvm::formatv("{0:x}\n", Addr);
       }
     }
   } else if (!opts::ListFunctionBBs.empty()) {
