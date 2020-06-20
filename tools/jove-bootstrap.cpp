@@ -873,14 +873,31 @@ int ParentProc(pid_t child, const char *fifo_path) {
               ;
 
 #if defined(__x86_64__)
+          auto &a1 = gpr.rdi;
+          auto &a2 = gpr.rsi;
+          auto &a3 = gpr.rdx;
+          auto &a4 = gpr.r10;
+          auto &a5 = gpr.r8;
+          auto &a6 = gpr.r9;
+#elif defined(__i386__)
+          auto &a1 = gpr.ebx;
+          auto &a2 = gpr.ecx;
+          auto &a3 = gpr.edx;
+          auto &a4 = gpr.esi;
+          auto &a5 = gpr.edi;
+          auto &a6 = gpr.ebp;
+#endif
+
           if (syscallno == __NR_rt_sigaction) {
             WithColor::note()
                 << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
-                                 gpr.rdi, gpr.rsi, gpr.rdx, gpr.r10);
+                                 a1, a2, a3, a4);
 
-            uintptr_t act = gpr.rsi;
+            uintptr_t act = a2;
             if (act) {
               uintptr_t handler = _ptrace_peekdata(child, act);
+
+              WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
               if (handler && (void *)handler != SIG_IGN) {
                 update_view_of_virtual_memory(child);
@@ -910,7 +927,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
               }
             }
           }
-#endif
 
 #if defined(__mips64) || defined(__mips__)
           if (ExecutableRegionAddress) {
