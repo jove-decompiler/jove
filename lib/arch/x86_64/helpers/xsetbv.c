@@ -1249,7 +1249,7 @@ struct X86CPU {
 
 void cpu_sync_bndcs_hflags(CPUX86State *env);
 
-void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
+static void cpu_x86_cpuid(CPUX86State *env, uint32_t index, uint32_t count,
                    uint32_t *eax, uint32_t *ebx,
                    uint32_t *ecx, uint32_t *edx);
 
