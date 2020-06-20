@@ -106,6 +106,7 @@ struct tiny_code_generator_t {
     _cpu.env.smbase = 0x30000;
     _cpu.env.features[0] = 126614525;
     _cpu.env.features[1] = 2147491841;
+    _cpu.env.features[1] |= CPUID_EXT_XSAVE;
     _cpu.env.features[5] = 563346429;
     _cpu.env.features[6] = 5;
     _cpu.env.user_features[0] = 2;
