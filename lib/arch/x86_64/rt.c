@@ -689,12 +689,18 @@ void _jove_inverse_thunk(void) {
                "movq %%r13, 32(%%rsp)\n" // stash emusp on the stack (replacing 0xdead)
                "movq %%r12, %%r11\n"
 
+               "movq 48(%%rsp), %%r13\n"  // read saved_sp off the stack
+               "movq %%r13, 32(%%rsp)\n" // replacing 0xdead
+
+               "movq 40(%%rsp), %%r11\n"  // read saved_retaddr off the stack
+
                "popq %%r12\n"
                "popq %%r13\n"
                "popq %%r14\n"
                "popq %%r15\n" /* callee-saved registers */
                "popq %%rsp\n" // ... and make emusp the new stack pointer
 
+               "addq $8, %%rsp\n" // simulate the return
                "jmp *%%r11\n"
 
                : /* OutputOperands */
