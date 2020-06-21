@@ -712,7 +712,12 @@ void _jove_inverse_thunk(void) {
                "movl -4(%%esi), %%ebx\n" // ebx = *(emusp - 4)
 
                "movl %%esi, 16(%%esp)\n" // stash emusp on the stack (replacing 0xdeadbeef)
+
+               "movl 24(%%esp), %%esi\n" // read saved_sp off the stack
+               "movl %%esi, 16(%%esp)\n" // replacing 0xdeadbeef
+
                "movl %%ebx, %%ecx\n"
+               "movl 20(%%esp), %%ecx\n" // read saved_retaddr off the stack
 
                "popl %%ebx\n"
                "popl %%esi\n"
@@ -720,6 +725,7 @@ void _jove_inverse_thunk(void) {
                "popl %%ebp\n" /* callee-saved registers */
                "popl %%esp\n" // ... and make emusp the new stack pointer
 
+               "addl $4, %%esp\n" // simulate the return
                "jmp *%%ecx\n"
 
                "1:\n"
@@ -744,14 +750,29 @@ static _CTOR void _jove_rt_init(void) {
 #undef sa_flags
 
   sa.sa_handler = _jove_rt_signal_handler;
-  sa.sa_flags = SA_SIGINFO;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
   sa.sa_restorer = _jove_do_rt_sigreturn;
 
-  long ret =
-      _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+  {
+    long ret =
+        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
+    if (ret < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+  }
+
+  target_ulong newstack = _jove_alloc_stack();
+
+  stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
+                 .ss_flags = 0,
+                 .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
+  {
+    long ret = _jove_sys_sigaltstack(&uss, NULL);
+    if (ret < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
   }
 
   _jove_callstack_init();
@@ -775,40 +796,33 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       if (pc != fns[2 * FIdx + 0])
         continue;
 
-      target_ulong sp = uctx->uc_mcontext.gregs[REG_ESP];
+#define sp    uctx->uc_mcontext.gregs[REG_ESP]
+#define emusp           __jove_env.regs[R_ESP]
 
-#if 0
-      #define NUM_ARG_BYTES 256
+      uintptr_t saved_sp = sp;
 
-      // XXX TODO freeing? why worry about that??
-      target_ulong emusp =
-         _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - NUM_ARG_BYTES;
+      //
+      // replace the emulated stack pointer with the real stack pointer
+      //
+      emusp = sp;
 
-      _memcpy(emusp, sp, NUM_ARG_BYTES);
-#else
       uintptr_t saved_retaddr = *((uintptr_t *)sp);
-
-      target_ulong emusp = sp;
-
-      // replace return address on emulated stack
-      *((uintptr_t *)emusp) = saved_retaddr;
 
       {
         uintptr_t newsp =
             _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
         newsp &= 0xfffffff0; // align the stack
+
         newsp -= sizeof(uintptr_t);
 
-        *((uintptr_t *)newsp) = _jove_inverse_thunk;
+        ((uintptr_t *)newsp)[0] = _jove_inverse_thunk;
+        ((uintptr_t *)newsp)[1] = saved_retaddr;
+        ((uintptr_t *)newsp)[2] = saved_sp;
 
-        uctx->uc_mcontext.gregs[REG_ESP] = newsp;
+        sp = newsp;
       }
-#endif
 
       __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE;
-
-      /* emu sp replacement */
-      __jove_env.regs[R_ESP] = emusp;
 
       /* eip replacement */
       uctx->uc_mcontext.gregs[REG_EIP] = fns[2 * FIdx + 1];
