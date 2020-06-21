@@ -6948,7 +6948,7 @@ int CreateSectionGlobalVariables(void) {
         assert(it != st.FuncMap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
         if (!f.IsABI) {
-          WithColor::note() << llvm::formatv("!IsABI for {0}\n", F->getName());
+          WithColor::note() << llvm::formatv("!IsABI for {0}\n", f.F->getName());
           f.IsABI = true;
 
           ABIChanged = true;
