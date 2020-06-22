@@ -689,6 +689,9 @@ void _jove_inverse_thunk(void) {
                "movq %%r13, 32(%%rsp)\n" // stash emusp on the stack (replacing 0xdead)
                "movq %%r12, %%r11\n"
 
+               "movq 56(%%rsp), %%r13\n"  // read saved_emusp off the stack
+               "movq %%r13, (%%r14)\n"  // restore emusp
+
                "movq 48(%%rsp), %%r13\n"  // read saved_sp off the stack
                "movq %%r13, 32(%%rsp)\n" // replacing 0xdead
 
@@ -779,6 +782,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define emusp           __jove_env.regs[R_ESP]
 
       uintptr_t saved_sp = sp;
+      uintptr_t saved_emusp = emusp;
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -789,13 +793,14 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       {
         uintptr_t newsp =
-            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
+            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 32;
         newsp &= 0xfffffffffffffff0; // align the stack
         newsp -= sizeof(uintptr_t);
 
         ((uintptr_t *)newsp)[0] = _jove_inverse_thunk;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
+        ((uintptr_t *)newsp)[3] = saved_emusp;
 
         sp = newsp;
       }
