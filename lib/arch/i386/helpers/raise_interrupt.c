@@ -1124,6 +1124,13 @@ void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend);
 
 #endif /* JOVE_DFSAN */
 
+#if 0
+__attribute__((naked)) static void _jove_restore_rt(void) {
+  asm volatile("movl   $0xad,%eax\n"
+               "int    $0x80\n"
+               "hlt");
+}
+#endif
 
 void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
 {
@@ -1213,7 +1220,7 @@ void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
   // hacks
   //
 #if 0
-  if (sysnum == 13 /* rt_sigaction */) {
+  if (sysnum == 174 /* rt_sigaction */) {
     unsigned long *act = (unsigned long *)env_a2;
     act[2] = (unsigned long)_jove_restore_rt;
   }
