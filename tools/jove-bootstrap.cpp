@@ -3502,6 +3502,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     }
 
     decompilation.Binaries.push_back(new_decompilation.Binaries.front());
+    decompilation.Binaries.back().IsDynamicallyLoaded = true;
   }
 
   binary_index_t BIdx = decompilation.Binaries.size() - 1;

@@ -13,6 +13,7 @@ class LoadInst;
 class CallInst;
 class DISubprogram;
 class GlobalIFunc;
+class GlobalVariable;
 namespace object {
 class Binary;
 }
@@ -108,7 +109,8 @@ struct hook_t;
   llvm::Function *F;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
+  llvm::GlobalVariable *FunctionsTable = nullptr;
 
 #include "tcgcommon.hpp"
 
@@ -892,22 +894,31 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
 
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
+  binary_t &binary = Decompilation.Binaries[DynTarget.BIdx];
+
   if (DynTarget.BIdx == BinaryIndex) {
-    binary_t &binary = Decompilation.Binaries[BinaryIndex];
     auto &ICFG = binary.Analysis.ICFG;
     const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
     return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
   }
 
-  bool needsThunk = DynTargetNeedsThunkPred(IdxPair);
+  if (DynTargetNeedsThunkPred(IdxPair)) {
+    llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+        JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
+    return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
+  }
+
+  if (!binary.IsDynamicallyLoaded) {
+    llvm::Value *FnsTbl = Decompilation.Binaries[DynTarget.BIdx].FunctionsTable;
+    assert(FnsTbl);
+
+    return IRB.CreateLoad(
+        IRB.CreateConstGEP2_64(FnsTbl, 0, 2 * DynTarget.FIdx + 0));
+  }
 
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      needsThunk ? JoveForeignFunctionTablesGlobal
-                 : JoveFunctionTablesGlobal,
-      0, DynTarget.BIdx));
-
-  return IRB.CreateLoad(IRB.CreateConstGEP1_64(
-      FnsTbl, needsThunk ? DynTarget.FIdx : 2 * DynTarget.FIdx + 0));
+      JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
+  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + 0));
 }
 
 static llvm::Value *GetDynTargetCallableAddress(
@@ -920,22 +931,31 @@ static llvm::Value *GetDynTargetCallableAddress(
 
   std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
 
+  binary_t &binary = Decompilation.Binaries[DynTarget.BIdx];
+
   if (DynTarget.BIdx == BinaryIndex) {
-    binary_t &binary = Decompilation.Binaries[BinaryIndex];
-    auto &ICFG = binary.Analysis.ICFG;
     const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
+    assert(f.F);
     return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
   }
 
-  bool needsThunk = DynTargetNeedsThunkPred(IdxPair);
+  if (DynTargetNeedsThunkPred(IdxPair)) {
+    llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+        JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
+    return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
+  }
+
+  if (!binary.IsDynamicallyLoaded) {
+    llvm::Value *FnsTbl = binary.FunctionsTable;
+    assert(FnsTbl);
+
+    return IRB.CreateLoad(
+        IRB.CreateConstGEP2_64(FnsTbl, 0, 2 * DynTarget.FIdx + 1));
+  }
 
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      needsThunk ? JoveForeignFunctionTablesGlobal
-                 : JoveFunctionTablesGlobal,
-      0, DynTarget.BIdx));
-
-  return IRB.CreateLoad(IRB.CreateConstGEP1_64(
-      FnsTbl, needsThunk ? DynTarget.FIdx : 2 * DynTarget.FIdx + 1));
+      JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
+  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + 1));
 }
 
 template <class T>
@@ -5118,14 +5138,14 @@ int CreateFunctions(void) {
 }
 
 int CreateFunctionTable(void) {
-  binary_t &binary = Decompilation.Binaries[BinaryIndex];
-  auto &ICFG = binary.Analysis.ICFG;
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &ICFG = Binary.Analysis.ICFG;
 
   std::vector<llvm::Constant *> constantTable;
-  constantTable.resize(2 * binary.Analysis.Functions.size());
+  constantTable.resize(2 * Binary.Analysis.Functions.size());
 
-  for (unsigned i = 0; i < binary.Analysis.Functions.size(); ++i) {
-    const function_t &f = binary.Analysis.Functions[i];
+  for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
+    const function_t &f = Binary.Analysis.Functions[i];
     uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     llvm::Constant *C1 = SectionPointer(Addr);
@@ -5140,8 +5160,8 @@ int CreateFunctionTable(void) {
   llvm::ArrayType *T = llvm::ArrayType::get(WordType(), constantTable.size());
   llvm::Constant *Init = llvm::ConstantArray::get(T, constantTable);
   llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
-      *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
-      "__jove_function_table");
+      *Module, T, true, llvm::GlobalValue::ExternalLinkage, Init,
+      (fmt("__jove_b%u") % BinaryIndex).str());
 
 #if 0
   {
@@ -5182,6 +5202,26 @@ int CreateFunctionTable(void) {
 
   GetFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
 #endif
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    if (BIdx == BinaryIndex)
+      continue;
+
+    binary_t &binary = Decompilation.Binaries[BIdx];
+    if (binary.IsDynamicLinker)
+      continue;
+    if (binary.IsVDSO)
+      continue;
+    if (binary.IsDynamicallyLoaded)
+      continue;
+
+    binary.FunctionsTable = new llvm::GlobalVariable(
+        *Module,
+        llvm::ArrayType::get(WordType(),
+                             2 * binary.Analysis.Functions.size() + 1),
+        false, llvm::GlobalValue::ExternalLinkage, nullptr,
+        (fmt("__jove_b%u") % BIdx).str());
+  }
 
   return 0;
 }

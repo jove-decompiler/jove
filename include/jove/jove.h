@@ -187,6 +187,8 @@ struct binary_t {
 
   bool IsPIC;
 
+  bool IsDynamicallyLoaded;
+
   struct {
     function_index_t EntryFunction;
     std::vector<function_t> Functions;
@@ -210,6 +212,7 @@ struct binary_t {
        &BOOST_SERIALIZATION_NVP(IsExecutable)
        &BOOST_SERIALIZATION_NVP(IsVDSO)
        &BOOST_SERIALIZATION_NVP(IsPIC)
+       &BOOST_SERIALIZATION_NVP(IsDynamicallyLoaded)
        &BOOST_SERIALIZATION_NVP(Analysis.EntryFunction)
        &BOOST_SERIALIZATION_NVP(Analysis.Functions)
        &BOOST_SERIALIZATION_NVP(Analysis.ICFG)

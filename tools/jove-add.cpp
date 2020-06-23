@@ -372,6 +372,7 @@ int add(void) {
   binary.IsVDSO = false;
 
   binary.IsPIC = true;
+  binary.IsDynamicallyLoaded = false;
 
   binary.Path = fs::canonical(opts::Input).string();
   binary.Data.resize(Buffer->getBufferSize());

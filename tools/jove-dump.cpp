@@ -129,6 +129,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
     Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
     Writer.printBoolean("IsExecutable", B.IsExecutable);
     Writer.printBoolean("IsVDSO", B.IsVDSO);
+    Writer.printBoolean("IsDynamicallyLoaded", B.IsDynamicallyLoaded);
 
     const auto &ICFG = B.Analysis.ICFG;
 
