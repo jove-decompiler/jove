@@ -1019,8 +1019,8 @@ basic_block_index_t translate_basic_block(binary_t &binary,
         }
 
         WithColor::error() << llvm::formatv(
-            "control flow to {0:x} doesn't lie on instruction boundary\n",
-            Addr);
+            "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
+            Addr, binary.Path);
 
         return invalid_basic_block_index;
 
