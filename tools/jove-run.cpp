@@ -559,6 +559,8 @@ do_1b_read:
             goto do_1b_read;
 
           fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+        } else if (ret == 0) {
+          goto do_1b_read;
         } else {
           fprintf(stderr, "recover: read gave %zd\n", ret);
         }
