@@ -1,4 +1,26 @@
+#include <boost/icl/interval_set.hpp>
+#include <boost/icl/split_interval_map.hpp>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/ADT/ArrayRef.h>
+#include <set>
+
+struct section_properties_t {
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+
+  bool w, x;
+  bool initArray;
+  bool finiArray;
+
+  bool operator==(const section_properties_t &sect) const {
+    return name == sect.name;
+  }
+
+  bool operator<(const section_properties_t &sect) const {
+    return name < sect.name;
+  }
+};
+typedef std::set<section_properties_t> section_properties_set_t;
 
 //
 // forward decls
@@ -110,7 +132,10 @@ struct hook_t;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
-  llvm::GlobalVariable *FunctionsTable = nullptr;
+  llvm::GlobalVariable *FunctionsTable = nullptr;                              \
+  std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
+  std::unordered_map<uintptr_t, basic_block_index_t> BBMap;                    \
+  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 
 #include "tcgcommon.hpp"
 
@@ -193,8 +218,6 @@ struct hook_t;
 #include <boost/graph/copy.hpp>
 #include <boost/graph/depth_first_search.hpp>
 #include <boost/graph/filtered_graph.hpp>
-#include <boost/icl/interval_set.hpp>
-#include <boost/icl/split_interval_map.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
@@ -213,6 +236,8 @@ namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
+
+#include "analyze.hpp"
 
 namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
@@ -390,28 +415,7 @@ namespace jove {
 
 typedef boost::format fmt;
 
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-  bool initArray;
-  bool finiArray;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
-
 struct binary_state_t {
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;
-  std::unordered_map<uintptr_t, basic_block_index_t> BBMap;
-  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 };
 
 struct section_t {
@@ -549,10 +553,7 @@ static const char *string_of_sym_binding(symbol_t::BINDING b) {
 //
 // Globals
 //
-static decompilation_t Decompilation;
 static binary_index_t BinaryIndex = invalid_binary_index;
-
-static std::vector<binary_state_t> BinStateVec;
 
 static std::unordered_map<std::string,
                           std::set<std::pair<binary_index_t, function_index_t>>>
@@ -576,13 +577,6 @@ static std::unique_ptr<llvm::MCContext> MCCtx;
 static std::unique_ptr<llvm::MCDisassembler> DisAsm;
 static std::unique_ptr<llvm::MCInstPrinter> IP;
 static std::unique_ptr<llvm::TargetMachine> TM;
-
-static std::unique_ptr<tiny_code_generator_t> TCG;
-
-static std::unique_ptr<llvm::LLVMContext> Context;
-static std::unique_ptr<llvm::Module> Module;
-
-static llvm::DataLayout DL("");
 
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
@@ -646,16 +640,6 @@ static struct {
   llvm::DICompileUnit *CompileUnit;
 } DebugInformation;
 
-struct helper_function_t {
-  llvm::Function *F;
-  int EnvArgNo;
-
-  struct {
-    bool Simple;
-    tcg_global_set_t InGlbs, OutGlbs;
-  } Analysis;
-};
-static std::unordered_map<uintptr_t, helper_function_t> HelperFuncMap;
 static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
 static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
@@ -836,6 +820,10 @@ void _qemu_log(const char *cstr) {
   llvm::errs() << cstr;
 }
 
+bool isDFSan(void) {
+  return opts::DFSan;
+}
+
 static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
@@ -972,17 +960,6 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   exit(1);
 }
 
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
-
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename llvm::object::ELF64LEObjectFile ELFO;
 typedef typename llvm::object::ELF64LEFile ELFT;
@@ -1011,12 +988,12 @@ typedef typename ELFT::Elf_Verneed Elf_Verneed;
 
 // TODO this whole function needs to be obliterated
 int InitStateForBinaries(void) {
-  BinStateVec.resize(Decompilation.Binaries.size());
-
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &st = BinStateVec[BIdx];
+    auto &FuncMap = binary.FuncMap;
+    auto &BBMap = binary.BBMap;
+    auto &SectMap = binary.SectMap;
 
     //
     // FuncMap
@@ -1027,7 +1004,7 @@ int InitStateForBinaries(void) {
       f.BIdx = BIdx;
       f.FIdx = FIdx;
 
-      st.FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = FIdx;
+      FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = FIdx;
 
       //
       // BasicBlocks (in DFS order)
@@ -1065,7 +1042,7 @@ int InitStateForBinaries(void) {
          ++BBIdx) {
       basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-      st.BBMap[ICFG[bb].Addr] = BBIdx;
+      BBMap[ICFG[bb].Addr] = BBIdx;
     }
 
     //
@@ -1147,8 +1124,8 @@ int InitStateForBinaries(void) {
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
       {
-        auto it = st.SectMap.find(intervl);
-        if (it != st.SectMap.end()) {
+        auto it = SectMap.find(intervl);
+        if (it != SectMap.end()) {
           WithColor::error() << "the following sections intersect: "
                              << (*(*it).second.begin()).name << " and "
                              << sectprop.name << '\n';
@@ -1156,12 +1133,12 @@ int InitStateForBinaries(void) {
         }
       }
 
-      st.SectMap.add({intervl, {sectprop}});
+      SectMap.add({intervl, {sectprop}});
     }
 
     if (BIdx == BinaryIndex) {
       llvm::outs() << "Address Space:\n";
-      for (const auto &pair : st.SectMap) {
+      for (const auto &pair : SectMap) {
         const section_properties_t &sect = *pair.second.begin();
 
         llvm::outs() <<
@@ -1177,7 +1154,7 @@ int InitStateForBinaries(void) {
       //
       {
         uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
-        for (const auto &pair : st.SectMap) {
+        for (const auto &pair : SectMap) {
           minAddr = std::min(minAddr, pair.first.lower());
           maxAddr = std::max(maxAddr, pair.first.upper());
         }
@@ -1730,7 +1707,7 @@ public:
 int ProcessExportedFunctions(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
-    auto &st = BinStateVec[BIdx];
+    auto &FuncMap = binary.FuncMap;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -1954,8 +1931,8 @@ int ProcessExportedFunctions(void) {
 
       function_index_t FuncIdx;
       {
-        auto it = st.FuncMap.find(Sym.st_value);
-        if (it == st.FuncMap.end()) {
+        auto it = FuncMap.find(Sym.st_value);
+        if (it == FuncMap.end()) {
           WithColor::warning() << llvm::formatv(
               "no function for {0} exists at 0x{1:x}\n", SymName, Sym.st_value);
           continue;
@@ -2110,7 +2087,7 @@ int ProcessDynamicSymbols(void) {
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
-    auto &st = BinStateVec[BIdx];
+    auto &FuncMap = binary.FuncMap;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -2606,8 +2583,8 @@ int ProcessDynamicSymbols(void) {
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
         function_index_t FuncIdx;
         {
-          auto it = st.FuncMap.find(Sym.st_value);
-          if (it == st.FuncMap.end()) {
+          auto it = FuncMap.find(Sym.st_value);
+          if (it == FuncMap.end()) {
             WithColor::warning()
                 << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
                                  SymName, Sym.st_value);
@@ -2653,8 +2630,8 @@ int ProcessDynamicSymbols(void) {
         ExportedFunctions[SymName].insert(IdxPair);
 
         if (BIdx == BinaryIndex) {
-          auto it = st.FuncMap.find(Sym.st_value);
-          assert(it != st.FuncMap.end());
+          auto it = FuncMap.find(Sym.st_value);
+          assert(it != FuncMap.end());
 
           function_t &f = binary.Analysis.Functions.at((*it).second);
 
@@ -3476,8 +3453,8 @@ int ProcessBinaryRelocations(void) {
 }
 
 int ProcessIFuncResolvers(void) {
-  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
-  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
+  auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
+  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
 
   //
@@ -3785,787 +3762,6 @@ int PrepareToTranslateCode(void) {
   return 0;
 }
 
-static bool AnalyzeHelper(helper_function_t &hf);
-
-static void explode_tcg_global_set(std::vector<unsigned> &out,
-                                   tcg_global_set_t glbs) {
-  if (glbs.none())
-    return;
-
-  out.reserve(glbs.count());
-
-  constexpr bool FitsInUnsignedLongLong =
-      tcg_num_globals <= sizeof(unsigned long long) * 8;
-
-  if (FitsInUnsignedLongLong) { /* use ffsll */
-    unsigned long long x = glbs.to_ullong();
-
-    int idx = 0;
-    do {
-      int pos = ffsll(x);
-      x >>= pos;
-      idx += pos;
-      out.push_back(idx - 1);
-    } while (x);
-  } else {
-    for (size_t glb = glbs._Find_first(); glb < glbs.size();
-         glb = glbs._Find_next(glb))
-      out.push_back(glb);
-  }
-}
-
-template <typename Graph>
-struct graphviz_label_writer {
-  const Graph &G;
-
-  graphviz_label_writer(const Graph &G) : G(G) {}
-
-  template <typename Vertex>
-  void operator()(std::ostream &out, Vertex V) const {
-    std::string str;
-
-    str += (fmt("%#lx") % G[V].Addr).str();
-
-    str.push_back('\n');
-    str.push_back('[');
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, G[V].IN);
-      bool first = true;
-      for (unsigned glb : glbv) {
-        if (!first)
-          str.push_back(' ');
-
-        str += TCG->_ctx.temps[glb].name;
-
-        first = false;
-      }
-    }
-    str.push_back(']');
-
-    str.push_back('\n');
-
-    str.push_back('[');
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, G[V].OUT);
-      bool first = true;
-      for (unsigned glb : glbv) {
-        if (!first)
-          str.push_back(' ');
-
-        str += TCG->_ctx.temps[glb].name;
-
-        first = false;
-      }
-    }
-    str.push_back(']');
-
-    boost::replace_all(str, "\\", "\\\\");
-    boost::replace_all(str, "\r\n", "\\l");
-    boost::replace_all(str, "\n", "\\l");
-    boost::replace_all(str, "\"", "\\\"");
-    boost::replace_all(str, "{", "\\{");
-    boost::replace_all(str, "}", "\\}");
-    boost::replace_all(str, "|", "\\|");
-    boost::replace_all(str, "|", "\\|");
-    boost::replace_all(str, "<", "\\<");
-    boost::replace_all(str, ">", "\\>");
-    boost::replace_all(str, "(", "\\(");
-    boost::replace_all(str, ")", "\\)");
-    boost::replace_all(str, ",", "\\,");
-    boost::replace_all(str, ";", "\\;");
-    boost::replace_all(str, ":", "\\:");
-    boost::replace_all(str, " ", "\\ ");
-
-    out << "[shape=box label=\"";
-    out << str;
-    out << "\"]";
-  }
-};
-
-struct flow_vertex_properties_t {
-  const basic_block_properties_t *bbprop;
-
-  tcg_global_set_t IN, OUT;
-};
-
-static tcg_global_set_t identity_flow(tcg_global_set_t x) {
-  return x;
-}
-
-static tcg_global_set_t mask_CallConvRets_flow(tcg_global_set_t x) {
-  tcg_global_set_t mask(CallConvRets);
-  mask.set(tcg_stack_pointer_index);
-
-  return x & mask;
-}
-
-static tcg_global_set_t mask_CallConvArgs_flow(tcg_global_set_t x) {
-  tcg_global_set_t mask(CallConvArgs);
-  mask.set(tcg_stack_pointer_index);
-
-  return x & mask;
-}
-
-struct flow_edge_properties_t {
-  struct {
-    tcg_global_set_t (*flow)(tcg_global_set_t);
-  } live;
-
-  struct {
-    tcg_global_set_t (*flow)(tcg_global_set_t);
-  } reach;
-
-  flow_edge_properties_t () {
-    live.flow = identity_flow;
-    reach.flow = identity_flow;
-  }
-};
-
-typedef boost::adjacency_list<boost::setS,              /* OutEdgeList */
-                              boost::vecS,              /* VertexList */
-                              boost::bidirectionalS,    /* Directed */
-                              flow_vertex_properties_t, /* VertexProperties */
-                              flow_edge_properties_t    /* EdgeProperties */>
-    flow_graph_t;
-
-typedef flow_graph_t::vertex_descriptor flow_vertex_t;
-typedef flow_graph_t::edge_descriptor flow_edge_t;
-
-struct vertex_copier {
-  const interprocedural_control_flow_graph_t &ICFG;
-  flow_graph_t &G;
-
-  vertex_copier(const interprocedural_control_flow_graph_t &ICFG,
-                flow_graph_t &G)
-      : ICFG(ICFG), G(G) {}
-
-  void operator()(basic_block_t bb, flow_vertex_t V) const {
-    G[V].bbprop = &ICFG[bb];
-  }
-};
-
-struct edge_copier {
-  void operator()(control_flow_t, flow_edge_t) const {}
-};
-
-struct function_flow_vertex_pair_t {
-  function_t *f;
-  flow_vertex_t entryV;
-};
-
-static bool fn_flow_vert_pair_comp(const function_flow_vertex_pair_t &lhs,
-                                   const function_flow_vertex_pair_t &rhs) {
-  return lhs.f < rhs.f;
-}
-
-static basic_block_properties_t empty_bb_prop;
-
-static flow_vertex_t copy_function_cfg(
-    bool &NeedsUpdate, flow_graph_t &G, function_t &f,
-    std::vector<flow_vertex_t> &exitVertices,
-    std::unordered_map<function_t *,
-                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
-        &memoize) {
-  //
-  // make sure basic blocks have been analyzed
-  //
-  auto &Binary = Decompilation.Binaries[f.BIdx];
-  auto &ICFG = Binary.Analysis.ICFG;
-  for (basic_block_t bb : f.BasicBlocks) {
-    NeedsUpdate = NeedsUpdate || ICFG[bb].Analysis.Stale;
-
-    ICFG[bb].Analyze(f.BIdx);
-  }
-
-  //
-  // check for back edge
-  //
-  {
-    auto it = memoize.find(&f);
-    if (it != memoize.end()) {
-      exitVertices = (*it).second.second;
-      return (*it).second.first;
-    }
-  }
-
-  assert(!f.BasicBlocks.empty());
-
-  //
-  // copy the function's CFG into the flow graph, maintaining a mapping from the
-  // CFG's basic blocks to the flow graph vertices
-  //
-  std::map<basic_block_t, flow_vertex_t> Orig2CopyMap;
-  {
-    vertex_copier vc(ICFG, G);
-    edge_copier ec;
-
-    boost::copy_component(
-        ICFG, f.BasicBlocks.front(), G,
-        boost::orig_to_copy(
-            boost::associative_property_map<
-                std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
-            .vertex_copy(vc)
-            .edge_copy(ec));
-  }
-
-  flow_vertex_t res;
-  {
-    auto it = Orig2CopyMap.find(f.BasicBlocks.front());
-    assert(it != Orig2CopyMap.end());
-    res = (*it).second;
-  }
-
-  exitVertices.resize(f.ExitBasicBlocks.size());
-  std::transform(f.ExitBasicBlocks.begin(),
-                 f.ExitBasicBlocks.end(),
-                 exitVertices.begin(),
-                 [&](basic_block_t bb) -> flow_vertex_t {
-                   auto it = Orig2CopyMap.find(bb);
-                   assert(it != Orig2CopyMap.end());
-                   return (*it).second;
-                 });
-
-  memoize.insert({&f, {res, exitVertices}});
-
-  //
-  // this recursive function's duty is also to inline calls to functions and
-  // indirect jumps
-  //
-  for (basic_block_t bb : f.BasicBlocks) {
-    function_t *callee_ptr = nullptr;
-
-    switch (ICFG[bb].Term.Type) {
-    case TERMINATOR::INDIRECT_CALL: {
-      auto &DynTargets = ICFG[bb].DynTargets;
-      if (DynTargets.empty())
-        continue;
-      auto &DynTarget = *DynTargets.begin();
-
-      callee_ptr = &Decompilation.Binaries[DynTarget.first]
-                        .Analysis.Functions[DynTarget.second];
-      /* fallthrough */
-    }
-
-    case TERMINATOR::CALL: {
-      function_t &callee =
-          callee_ptr ? *callee_ptr
-                     : Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
-
-      std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV = copy_function_cfg(
-          NeedsUpdate, G, callee, calleeExitVertices, memoize);
-
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      if (eit_pair.first == eit_pair.second)
-        break;
-
-      assert(eit_pair.first != eit_pair.second &&
-             std::next(eit_pair.first) == eit_pair.second);
-
-      flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
-
-      boost::remove_edge(Orig2CopyMap[bb], succV, G);
-
-      {
-        flow_edge_t E = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        if (callee.IsABI)
-          G[E].live.flow = mask_CallConvArgs_flow;
-      }
-
-      for (flow_vertex_t exitV : calleeExitVertices) {
-        flow_edge_t E = boost::add_edge(exitV, succV, G).first;
-        if (callee.IsABI)
-          G[E].reach.flow = mask_CallConvRets_flow;
-      }
-
-      break;
-    }
-
-    case TERMINATOR::INDIRECT_JUMP: {
-      auto it = std::find(exitVertices.begin(),
-                          exitVertices.end(),
-                          Orig2CopyMap[bb]);
-      if (it == exitVertices.end())
-        continue;
-
-      const auto &DynTargets = ICFG[bb].DynTargets;
-      if (DynTargets.empty())
-        continue;
-      auto &DynTarget = *DynTargets.begin();
-
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      assert(eit_pair.first == eit_pair.second);
-
-      function_t &callee = Decompilation.Binaries[DynTarget.first]
-                               .Analysis.Functions[DynTarget.second];
-
-      std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV = copy_function_cfg(
-          NeedsUpdate, G, callee, calleeExitVertices, memoize);
-      flow_vertex_t newExitV = boost::add_vertex(G);
-      G[newExitV].bbprop = &empty_bb_prop;
-
-      {
-        flow_edge_t E =
-            boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        assert(callee.IsABI);
-        G[E].live.flow = mask_CallConvArgs_flow;
-      }
-
-      for (flow_vertex_t V : calleeExitVertices) {
-        flow_edge_t E = boost::add_edge(V, newExitV, G).first;
-        G[E].reach.flow = mask_CallConvRets_flow;
-      }
-
-      exitVertices.erase(it);
-      exitVertices.push_back(newExitV);
-      break;
-    }
-
-    default:
-      continue;
-    }
-  }
-
-  return res;
-}
-
-void function_t::Analyze(void) {
-  if (!this->Analysis.Stale)
-    return;
-  this->Analysis.Stale = false;
-
-  {
-    flow_graph_t G;
-
-    std::unordered_map<function_t *,
-                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
-        _unused;
-
-    bool NeedsUpdate = false;
-    std::vector<flow_vertex_t> exitVertices;
-    flow_vertex_t entryV =
-        copy_function_cfg(NeedsUpdate, G, *this, exitVertices, _unused);
-
-    //
-    // build vector of vertices in DFS order
-    //
-    std::vector<flow_vertex_t> Vertices;
-    Vertices.reserve(boost::num_vertices(G));
-
-    {
-      dfs_visitor<flow_graph_t> vis(Vertices);
-
-      std::map<flow_vertex_t, boost::default_color_type> colorMap;
-#if 0
-    boost::depth_first_visit(
-        G, entryV, vis,
-        boost::associative_property_map<
-            std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#else
-      boost::depth_first_search(
-          G, vis,
-          boost::associative_property_map<
-              std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#endif
-    }
-
-    bool change;
-
-    //
-    // liveness analysis
-    //
-    for (flow_vertex_t V : Vertices) {
-      G[V].IN.reset();
-      G[V].OUT.reset();
-    }
-
-    do {
-      change = false;
-
-      for (flow_vertex_t V : boost::adaptors::reverse(Vertices)) {
-        const tcg_global_set_t _IN = G[V].IN;
-
-        auto eit_pair = boost::out_edges(V, G);
-        G[V].OUT = std::accumulate(
-            eit_pair.first, eit_pair.second, tcg_global_set_t(),
-            [&](tcg_global_set_t res, control_flow_t E) {
-              return res | G[boost::target(E, G)].IN;
-            });
-
-        tcg_global_set_t use = G[V].bbprop->Analysis.live.use;
-        tcg_global_set_t def = G[V].bbprop->Analysis.live.def;
-
-        G[V].IN = use | (G[V].OUT & ~def);
-
-        change = change || _IN != G[V].IN;
-      }
-    } while (change);
-
-    this->Analysis.args = G[entryV].IN & ~NotArgs;
-
-    //
-    // reaching definitions
-    //
-    for (flow_vertex_t V : Vertices) {
-      G[V].IN.reset();
-      G[V].OUT.reset();
-    }
-
-    do {
-      change = false;
-
-      for (flow_vertex_t V : Vertices) {
-        const tcg_global_set_t _OUT = G[V].OUT;
-
-        auto eit_pair = boost::in_edges(V, G);
-        G[V].IN = std::accumulate(
-            eit_pair.first, eit_pair.second, tcg_global_set_t(),
-            [&](tcg_global_set_t glbs, flow_edge_t E) {
-              return glbs | G[E].reach.flow(G[boost::source(E, G)].OUT);
-            });
-        G[V].OUT = G[V].bbprop->Analysis.reach.def | G[V].IN;
-
-        change = change || _OUT != G[V].OUT;
-      }
-    } while (change);
-
-    if (exitVertices.empty()) {
-      this->Analysis.rets.reset();
-    } else {
-      this->Analysis.rets =
-          std::accumulate(std::next(exitVertices.begin()), exitVertices.end(),
-                          G[exitVertices.front()].OUT,
-                          [&](tcg_global_set_t res, flow_vertex_t V) {
-                            return res & G[V].OUT;
-                          }) & ~NotRets;
-    }
-  }
-
-  if (this->IsABI) {
-    this->Analysis.rets &= CallConvRets;
-
-#if 0
-    //
-    // for ABI's, if we need a return register whose index > 0, then we will
-    // infer that all the preceeding return registers are live as well
-    //
-    std::vector<unsigned> glbv;
-    explode_tcg_global_set(glbv, this->Analysis.rets);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-             std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-    });
-
-    auto rit = std::accumulate(
-        glbv.begin(), glbv.end(), CallConvRetArray.crend(),
-        [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
-          return std::min(res, std::find(CallConvRetArray.crbegin(),
-                                         CallConvRetArray.crend(), glb));
-        });
-
-    if (rit != CallConvRetArray.crend()) {
-      unsigned idx = std::distance(CallConvRetArray.cbegin(), rit.base()) - 1;
-      for (unsigned i = 0; i <= idx; ++i)
-        this->Analysis.rets.set(CallConvRetArray[i]);
-    }
-#elif 0
-    // XXX TODO
-    assert(!CallConvRetArray.empty());
-    if (this->Analysis.rets[CallConvRetArray.front()]) {
-      this->Analysis.rets.reset();
-      this->Analysis.rets.set(CallConvRetArray.front());
-    } else {
-      this->Analysis.rets.reset();
-    }
-#endif
-  }
-
-  //
-  // for ABI's, if we need a register parameter whose index > 0, then we will
-  // infer that all the preceeding paramter registers are live as well
-  //
-  if (this->IsABI) {
-    this->Analysis.args &= CallConvArgs;
-
-    std::vector<unsigned> glbv;
-    explode_tcg_global_set(glbv, this->Analysis.args);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-    });
-
-    auto rit = std::accumulate(
-        glbv.begin(), glbv.end(), CallConvArgArray.crend(),
-        [](CallConvArgArrayTy::const_reverse_iterator res, unsigned glb) {
-          return std::min(res, std::find(CallConvArgArray.crbegin(),
-                                         CallConvArgArray.crend(), glb));
-        });
-
-    if (rit != CallConvArgArray.crend()) {
-      unsigned idx = std::distance(CallConvArgArray.cbegin(), rit.base()) - 1;
-      for (unsigned i = 0; i <= idx; ++i)
-        this->Analysis.args.set(CallConvArgArray[i]);
-    }
-  }
-}
-
-const helper_function_t &LookupHelper(TCGOp *op);
-
-static tcg_global_set_t DetermineFunctionArgs(function_t &);
-static tcg_global_set_t DetermineFunctionRets(function_t &);
-
-void basic_block_properties_t::Analyze(binary_index_t BIdx) {
-  if (!this->Analysis.Stale)
-    return;
-
-  this->Analysis.Stale = false;
-
-  auto &SectMap = BinStateVec[BIdx].SectMap;
-
-  const uintptr_t Addr = this->Addr;
-  const unsigned Size = this->Size;
-
-  auto sectit = SectMap.find(Addr);
-  assert(sectit != SectMap.end());
-
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  assert(sectprop.x);
-  TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
-
-  TCGContext *s = &TCG->_ctx;
-
-  unsigned size = 0;
-  jove::terminator_info_t T;
-  do {
-    do_tcg_optimization = true; /* XXX */
-
-    unsigned len;
-    std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
-
-    do_tcg_optimization = false; /* XXX */
-
-    TCGArg constprop[tcg_max_temps];
-    constprop[tcg_syscall_number_index] = std::numeric_limits<TCGArg>::max();
-
-    TCGOp *op, *op_next;
-    QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      TCGOpcode opc = op->opc;
-
-      tcg_global_set_t iglbs, oglbs;
-
-      int nb_oargs, nb_iargs;
-      if (opc == INDEX_op_call) {
-        nb_oargs = TCGOP_CALLO(op);
-        nb_iargs = TCGOP_CALLI(op);
-
-        const helper_function_t &hf = LookupHelper(op);
-
-        iglbs = hf.Analysis.InGlbs;
-        oglbs = hf.Analysis.OutGlbs;
-
-        void *helper_ptr =
-            reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
-
-        //
-        // check to see if this helper function call is really a system call,
-        // and if so, try to get the number of parameters (if we can get the num
-        // statically)
-        //
-#if defined(__x86_64__)
-        if (helper_ptr == helper_syscall) {
-#elif defined(__i386__)
-        if (helper_ptr == helper_raise_interrupt &&
-            constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == 0x80) {
-#elif defined(__aarch64__)
-        if (helper_ptr == helper_exception_with_syndrome &&
-	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
-#elif defined(__mips64)
-        if (helper_ptr && false /* TODO */) {
-#elif defined(__mips__)
-        if (helper_ptr && false /* TODO */) {
-#else
-#error
-#endif
-          const auto &N = constprop[tcg_syscall_number_index];
-          if (N < syscalls::NR_END) {
-            //
-            // this is all for the purpose of achieving a higher-precision
-            // data-flow analysis. if we can statically determine the syscall
-            // number, we can know exactly how many parameters it takes
-            //
-            iglbs.reset();
-            oglbs.reset();
-
-            unsigned M = syscalls::nparams_tbl[N];
-            assert(M < 7);
-            switch (M) {
-              case 6:
-                if (tcg_syscall_arg6_index >= 0)
-                  iglbs.set(tcg_syscall_arg6_index);
-                /* fallthrough */
-              case 5:
-                if (tcg_syscall_arg5_index >= 0)
-                  iglbs.set(tcg_syscall_arg5_index);
-                /* fallthrough */
-              case 4:
-                if (tcg_syscall_arg4_index >= 0)
-                  iglbs.set(tcg_syscall_arg4_index);
-                /* fallthrough */
-              case 3:
-                if (tcg_syscall_arg3_index >= 0)
-                  iglbs.set(tcg_syscall_arg3_index);
-                /* fallthrough */
-              case 2:
-                if (tcg_syscall_arg2_index >= 0)
-                  iglbs.set(tcg_syscall_arg2_index);
-                /* fallthrough */
-              case 1:
-                if (tcg_syscall_arg1_index >= 0)
-                  iglbs.set(tcg_syscall_arg1_index);
-                /* fallthrough */
-              case 0:
-                break;
-
-              default:
-                __builtin_trap();
-                __builtin_unreachable();
-            }
-
-            oglbs.set(tcg_syscall_return_index);
-            iglbs.set(tcg_syscall_number_index);
-          }
-        }
-      } else {
-        const TCGOpDef &opdef = tcg_op_defs[opc];
-
-        nb_iargs = opdef.nb_iargs;
-        nb_oargs = opdef.nb_oargs;
-      }
-
-      if (opc == INDEX_op_movi_i64 ||
-          opc == INDEX_op_movi_i32) {
-        TCGTemp *ts = arg_temp(op->args[0]);
-        unsigned glb_idx = temp_idx(ts);
-
-        constprop[glb_idx] = op->args[1];
-      }
-
-      if (opc == INDEX_op_mov_i64 ||
-          opc == INDEX_op_mov_i32) {
-        TCGTemp *dst = arg_temp(op->args[0]);
-        TCGTemp *src = arg_temp(op->args[1]);
-
-        unsigned dst_idx = temp_idx(dst);
-        unsigned src_idx = temp_idx(src);
-
-        constprop[dst_idx] = constprop[src_idx];
-      }
-
-      for (int i = 0; i < nb_iargs; ++i) {
-        TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-        if (!ts->temp_global)
-          continue;
-
-        unsigned glb_idx = temp_idx(ts);
-        if (glb_idx == tcg_env_index)
-          continue;
-
-        iglbs.set(glb_idx);
-      }
-
-      for (int i = 0; i < nb_oargs; ++i) {
-        TCGTemp *ts = arg_temp(op->args[i]);
-        if (!ts->temp_global)
-          continue;
-
-        unsigned glb_idx = temp_idx(ts);
-        if (glb_idx == tcg_env_index)
-          continue;
-
-        oglbs.set(glb_idx);
-      }
-
-      this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
-      this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
-
-      this->Analysis.reach.def |= oglbs;
-    }
-
-    size += len;
-  } while (size < Size);
-
-  switch (this->Term.Type) {
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::INDIRECT_CALL: {
-    tcg_global_set_t iglbs, oglbs;
-    iglbs.set(tcg_stack_pointer_index);
-    oglbs.set(tcg_stack_pointer_index);
-
-    this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
-    this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
-
-    this->Analysis.reach.def |= oglbs;
-    break;
-  }
-
-  default:
-    break;
-  }
-
-  if (opts::PrintDefAndUse) {
-    llvm::outs() << (fmt("%#lx") % Addr).str() << '\n';
-
-    uint64_t InstLen;
-    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - (*sectit).first.lower();
-
-      llvm::MCInst Inst;
-      bool Disassembled = DisAsm->getInstruction(
-          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
-      if (!Disassembled) {
-        WithColor::error() << "failed to disassemble "
-                           << (fmt("%#lx") % Addr).str() << '\n';
-        break;
-      }
-
-      IP->printInst(&Inst, A, "", *STI, llvm::outs());
-      llvm::outs() << '\n';
-    }
-
-    llvm::outs() << '\n';
-
-    llvm::outs() << "live.def:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, this->Analysis.live.def);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-
-    llvm::outs() << "live.use:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, this->Analysis.live.use);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-
-    llvm::outs() << "reach.def:";
-    {
-      std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, this->Analysis.reach.def);
-      for (unsigned glb : glbv)
-        llvm::outs() << ' ' << s->temps[glb].name;
-    }
-    llvm::outs() << '\n';
-  }
-}
-
 static bool shouldExpandOperationWithSize(llvm::Value *Size) {
 #if 0
   ConstantInt *CI = dyn_cast<ConstantInt>(Size);
@@ -4628,226 +3824,6 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
   }
 
   return Changed;
-}
-
-const helper_function_t &LookupHelper(TCGOp *op) {
-  int nb_oargs = TCGOP_CALLO(op);
-  int nb_iargs = TCGOP_CALLI(op);
-  int nb_cargs;
-
-  {
-    const TCGOpcode opc = op->opc;
-    const TCGOpDef &def = tcg_op_defs[opc];
-
-    nb_cargs = def.nb_cargs;
-  }
-
-  uintptr_t addr = op->args[nb_oargs + nb_iargs];
-
-  auto it = HelperFuncMap.find(addr);
-  if (it == HelperFuncMap.end()) {
-    TCGContext *s = &TCG->_ctx;
-    const char *helper_nm = tcg_find_helper(s, addr);
-    assert(helper_nm);
-
-    if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
-      if (F->user_begin() == F->user_end()) {
-        F->eraseFromParent();
-      } else {
-        static int i = 0;
-        F->setName(std::string("helper_") + helper_nm + std::string("_") +
-                   std::to_string(i++));
-      }
-    }
-
-    assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
-           "helper function already exists");
-
-    std::string suffix = opts::DFSan ? ".dfsan.bc" : ".bc";
-
-    std::string helperModulePath =
-        (boost::dll::program_location().parent_path() /
-         (std::string(helper_nm) + suffix))
-            .string();
-
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-        llvm::MemoryBuffer::getFile(helperModulePath);
-    if (!BufferOr) {
-      WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                         << " (" << BufferOr.getError().message() << ")\n";
-      exit(1);
-    }
-
-    llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
-        llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
-    if (!helperModuleOr) {
-      llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
-                                  "could not parse helper bitcode: ");
-      exit(1);
-    }
-
-    std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
-
-    //
-    // process helper bitcode
-    //
-    {
-      llvm::Module &helperM = *helperModule;
-
-      //
-      // internalize all functions except the desired helper
-      //
-      for (llvm::Function &F : helperM.functions()) {
-        if (F.isIntrinsic())
-          continue;
-
-        // is declaration?
-        if (F.empty())
-          continue;
-
-        // is helper function?
-        if (F.getName() == std::string("helper_") + helper_nm) {
-          assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
-          continue;
-        }
-
-#if 1
-        F.setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-        F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
-        F.setVisibility(llvm::GlobalValue::HiddenVisibility);
-#endif
-      }
-
-      //
-      // internalize global variables
-      //
-      for (llvm::GlobalVariable &GV : helperM.globals()) {
-        if (!GV.hasInitializer())
-          continue;
-
-#if 1
-        GV.setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-        GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
-#endif
-      }
-    }
-
-    llvm::Linker::linkModules(*Module, std::move(helperModule));
-
-    llvm::Function *helperF =
-        Module->getFunction(std::string("helper_") + helper_nm);
-
-    if (!helperF) {
-      WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
-                                          helper_nm);
-      abort();
-    }
-
-#if 0
-    if (helperF->arg_size() != nb_iargs) {
-      WithColor::error() << llvm::formatv(
-          "helper {0} takes {1} args but nb_iargs={2}\n", helper_nm,
-          helperF->arg_size(), nb_iargs);
-      exit(1);
-    }
-#else
-    assert(nb_iargs >= helperF->arg_size());
-#endif
-
-    assert(helperF->getLinkage() == llvm::GlobalValue::ExternalLinkage);
-    helperF->setVisibility(llvm::GlobalValue::HiddenVisibility);
-
-    //
-    // analyze helper
-    //
-    int EnvArgNo = -1;
-    {
-      TCGArg *const inputs_beg = &op->args[nb_oargs + 0];
-      TCGArg *const inputs_end = &op->args[nb_oargs + nb_iargs];
-      TCGArg *it =
-          std::find(inputs_beg, inputs_end,
-                    reinterpret_cast<TCGArg>(&s->temps[tcg_env_index]));
-
-      if (it != inputs_end)
-        EnvArgNo = std::distance(inputs_beg, it);
-    }
-
-    helper_function_t &hf = HelperFuncMap[addr];
-    hf.F = helperF;
-    hf.EnvArgNo = EnvArgNo;
-    hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
-
-#if defined(__x86_64__)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_syscall))
-#elif defined(__i386__)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_raise_interrupt))
-#elif defined(__aarch64__)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_exception_with_syndrome))
-#else
-    if (false)
-#endif
-    {
-      hf.Analysis.Simple = true; /* XXX */
-    }
-
-    {
-      std::string InGlbsStr;
-
-      {
-        std::vector<unsigned> iglbv;
-        explode_tcg_global_set(iglbv, hf.Analysis.InGlbs);
-
-        //InGlbsStr.push_back('{');
-        for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
-          unsigned glb = *it;
-
-          InGlbsStr.append(TCG->_ctx.temps[glb].name);
-          if (std::next(it) != iglbv.end())
-            InGlbsStr.append(", ");
-        }
-        //InGlbsStr.push_back('}');
-      }
-
-      std::string OutGlbsStr;
-
-      {
-        std::vector<unsigned> oglbv;
-        explode_tcg_global_set(oglbv, hf.Analysis.OutGlbs);
-
-        //OutGlbsStr.push_back('{');
-        for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
-          unsigned glb = *it;
-
-          OutGlbsStr.append(TCG->_ctx.temps[glb].name);
-          if (std::next(it) != oglbv.end())
-            OutGlbsStr.append(", ");
-        }
-        //OutGlbsStr.push_back('}');
-      }
-
-      const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
-
-      if (!InGlbsStr.empty() || !OutGlbsStr.empty()) {
-        WithColor::note() << llvm::formatv("[helper] ({0}) {1} : {2} -> {3}\n",
-                                           IsSimpleStr,
-                                           helper_nm,
-                                           InGlbsStr,
-                                           OutGlbsStr);
-      } else {
-        WithColor::note() << llvm::formatv("[helper] ({0}) {1}\n", IsSimpleStr,
-                                           helper_nm);
-      }
-    }
-
-    return hf;
-  } else {
-    return (*it).second;
-  }
 }
 
 tcg_global_set_t DetermineFunctionArgs(function_t &f) {
@@ -5333,8 +4309,8 @@ int CreateTLSModGlobal(void) {
 }
 
 int CreateSectionGlobalVariables(void) {
-  const auto &SectMap = BinStateVec[BinaryIndex].SectMap;
-  const auto &FuncMap = BinStateVec[BinaryIndex].FuncMap;
+  auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
+  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
 
   //
@@ -6697,8 +5673,7 @@ int CreateSectionGlobalVariables(void) {
   // XXX this should go somewhere else
   {
     auto &binary = Decompilation.Binaries[BinaryIndex];
-    auto &st = BinStateVec[BinaryIndex];
-    auto &FuncMap = st.FuncMap;
+    auto &FuncMap = binary.FuncMap;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -6983,9 +5958,9 @@ int CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-        binary_state_t &st = BinStateVec[BinaryIndex];
-        auto it = st.FuncMap.find(FileAddr);
-        assert(it != st.FuncMap.end());
+        auto &FuncMap = Binary.FuncMap;
+        auto it = FuncMap.find(FileAddr);
+        assert(it != FuncMap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
         if (!f.IsABI) {
           WithColor::note() << llvm::formatv("!IsABI for {0}\n", f.F->getName());
@@ -7934,13 +6909,13 @@ ConstantForRelativeAddress(uintptr_t Addr) {
   if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
     return nullptr;
 
-  binary_state_t &st = BinStateVec[BinaryIndex];
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &FuncMap = Binary.FuncMap;
 
   llvm::Constant *res;
 
-  auto it = st.FuncMap.find(Addr);
-  if (it != st.FuncMap.end()) {
+  auto it = FuncMap.find(Addr);
+  if (it != FuncMap.end()) {
     function_t &f = Binary.Analysis.Functions[(*it).second];
     res = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
 
@@ -8898,11 +7873,9 @@ int TranslateBasicBlock(binary_t &Binary,
     }
   }
 
-  binary_state_t &st = BinStateVec[BinaryIndex];
-
   {
-    auto sectit = st.SectMap.find(Addr);
-    assert(sectit != st.SectMap.end());
+    auto sectit = Binary.SectMap.find(Addr);
+    assert(sectit != Binary.SectMap.end());
 
     const section_properties_t &sectprop = *(*sectit).second.begin();
     assert(sectprop.x);
@@ -9996,71 +8969,6 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
       b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
-}
-
-bool AnalyzeHelper(helper_function_t &hf) {
-  if (hf.EnvArgNo < 0)
-    return true; /* doesn't take CPUState* parameter */
-
-  bool res = true;
-
-  llvm::Function::arg_iterator arg_it = hf.F->arg_begin();
-  std::advance(arg_it, hf.EnvArgNo);
-  llvm::Argument &A = *arg_it;
-
-  for (llvm::User *EnvU : A.users()) {
-    if (llvm::isa<llvm::GetElementPtrInst>(EnvU)) {
-      llvm::GetElementPtrInst *EnvGEP =
-          llvm::cast<llvm::GetElementPtrInst>(EnvU);
-
-      if (!llvm::cast<llvm::GEPOperator>(EnvGEP)->hasAllConstantIndices()) {
-        res = false;
-        continue;
-      }
-
-      llvm::APInt Off(DL.getIndexSizeInBits(EnvGEP->getPointerAddressSpace()), 0);
-      llvm::cast<llvm::GEPOperator>(EnvGEP)->accumulateConstantOffset(DL, Off);
-      unsigned off = Off.getZExtValue();
-
-      if (!(off < sizeof(tcg_global_by_offset_lookup_table)) ||
-          tcg_global_by_offset_lookup_table[off] == 0xff) {
-
-        if (opts::Verbose)
-          WithColor::warning() << llvm::formatv("{0}: off={1} EnvGEP={2}\n",
-                                                __func__, off, *EnvGEP);
-
-        res = false;
-        continue;
-      }
-
-      unsigned glb =
-          static_cast<unsigned>(tcg_global_by_offset_lookup_table[off]);
-
-      for (llvm::User *GEPU : EnvGEP->users()) {
-        if (llvm::isa<llvm::LoadInst>(GEPU)) {
-          hf.Analysis.InGlbs.set(glb);
-        } else if (llvm::isa<llvm::StoreInst>(GEPU)) {
-          hf.Analysis.OutGlbs.set(glb);
-        } else {
-          assert(llvm::isa<llvm::Instruction>(GEPU));
-          if (!llvm::Instruction::isCast(
-                  llvm::cast<llvm::Instruction>(GEPU)->getOpcode())) {
-            WithColor::warning() << llvm::formatv(
-                "{0}: unknown global GEP user {1}\n", __func__, *GEPU);
-          }
-
-          res = false;
-        }
-      }
-    } else {
-      WithColor::warning() << llvm::formatv(
-          "{0}: unknown env user {1}\n", __func__, *EnvU);
-
-      res = false;
-    }
-  }
-
-  return res;
 }
 
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
