@@ -872,6 +872,7 @@ DynTargetNeedsThunkPred(std::pair<binary_index_t, function_index_t> DynTarget) {
 
 static llvm::Constant *SectionPointer(uintptr_t Addr);
 
+template <bool Callable>
 static llvm::Value *
 GetDynTargetAddress(llvm::IRBuilderTy &IRB,
                     std::pair<binary_index_t, function_index_t> IdxPair) {
@@ -885,9 +886,14 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
   binary_t &binary = Decompilation.Binaries[DynTarget.BIdx];
 
   if (DynTarget.BIdx == BinaryIndex) {
-    auto &ICFG = binary.Analysis.ICFG;
     const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
-    return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+    if (Callable) {
+      assert(f.F);
+      return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+    } else {
+      auto &ICFG = binary.Analysis.ICFG;
+      return SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+    }
   }
 
   if (DynTargetNeedsThunkPred(IdxPair)) {
@@ -900,50 +906,14 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     llvm::Value *FnsTbl = Decompilation.Binaries[DynTarget.BIdx].FunctionsTable;
     assert(FnsTbl);
 
-    return IRB.CreateLoad(
-        IRB.CreateConstGEP2_64(FnsTbl, 0, 2 * DynTarget.FIdx + 0));
+    return IRB.CreateLoad(IRB.CreateConstGEP2_64(
+        FnsTbl, 0, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
   }
 
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
       JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
-  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + 0));
-}
-
-static llvm::Value *GetDynTargetCallableAddress(
-    llvm::IRBuilderTy &IRB,
-    std::pair<binary_index_t, function_index_t> IdxPair) {
-  struct {
-    binary_index_t BIdx;
-    function_index_t FIdx;
-  } DynTarget;
-
-  std::tie(DynTarget.BIdx, DynTarget.FIdx) = IdxPair;
-
-  binary_t &binary = Decompilation.Binaries[DynTarget.BIdx];
-
-  if (DynTarget.BIdx == BinaryIndex) {
-    const function_t &f = binary.Analysis.Functions[DynTarget.FIdx];
-    assert(f.F);
-    return llvm::ConstantExpr::getPtrToInt(f.F, WordType());
-  }
-
-  if (DynTargetNeedsThunkPred(IdxPair)) {
-    llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-        JoveForeignFunctionTablesGlobal, 0, DynTarget.BIdx));
-    return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
-  }
-
-  if (!binary.IsDynamicallyLoaded) {
-    llvm::Value *FnsTbl = binary.FunctionsTable;
-    assert(FnsTbl);
-
-    return IRB.CreateLoad(
-        IRB.CreateConstGEP2_64(FnsTbl, 0, 2 * DynTarget.FIdx + 1));
-  }
-
-  llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
-  return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + 1));
+  return IRB.CreateLoad(
+      IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
 }
 
 template <class T>
@@ -2715,7 +2685,7 @@ int ProcessDynamicSymbols(void) {
                 IRB.CreateCall(JoveInstallForeignFunctionTables)
                     ->setIsNoInline();
 
-                llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
+                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
 
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
@@ -4910,7 +4880,7 @@ int CreateSectionGlobalVariables(void) {
           IRB.CreateCall(JoveInstallForeignFunctionTables)
               ->setIsNoInline();
 
-          llvm::Value *Res = GetDynTargetAddress(IRB, IdxPair);
+          llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
 
           IRB.CreateRet(IRB.CreateIntToPtr(
               Res, CallsF->getFunctionType()->getReturnType()));
@@ -5673,7 +5643,6 @@ int CreateSectionGlobalVariables(void) {
   // XXX this should go somewhere else
   {
     auto &binary = Decompilation.Binaries[BinaryIndex];
-    auto &FuncMap = binary.FuncMap;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -8555,12 +8524,11 @@ int TranslateBasicBlock(binary_t &Binary,
           IRB.SetInsertPoint(B);
 
           llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
-          llvm::Value *EQV_1 =
-              IRB.CreateICmpEQ(PC,
-                               GetDynTargetAddress(IRB, DynTargetsVec[i]));
-          llvm::Value *EQV_2 =
-              IRB.CreateICmpEQ(PC,
-                               GetDynTargetCallableAddress(IRB, DynTargetsVec[i]));
+
+          llvm::Value *EQV_1 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i]));
+          llvm::Value *EQV_2 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
@@ -8645,7 +8613,7 @@ int TranslateBasicBlock(binary_t &Binary,
             }
 
             llvm::Value *CallArgs[] = {
-                GetDynTargetCallableAddress(IRB, DynTargetsVec[i]),
+                GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                 IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                 CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
@@ -8658,7 +8626,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
-                    GetDynTargetCallableAddress(IRB, DynTargetsVec[i]),
+                    GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
