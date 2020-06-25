@@ -875,7 +875,8 @@ static llvm::Constant *SectionPointer(uintptr_t Addr);
 template <bool Callable>
 static llvm::Value *
 GetDynTargetAddress(llvm::IRBuilderTy &IRB,
-                    std::pair<binary_index_t, function_index_t> IdxPair) {
+                    std::pair<binary_index_t, function_index_t> IdxPair,
+                    llvm::BasicBlock *FailBlock = nullptr) {
   struct {
     binary_index_t BIdx;
     function_index_t FIdx;
@@ -910,8 +911,24 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
         FnsTbl, 0, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
   }
 
+  //
+  // check if the functions table pointer is NULL. this can happen if a DSO
+  // hasn't been loaded yet
+  //
   llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
       JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
+  if (FailBlock) {
+    assert(IRB.GetInsertBlock()->getParent());
+    llvm::BasicBlock *fallthroughB = llvm::BasicBlock::Create(
+        IRB.getContext(), "", IRB.GetInsertBlock()->getParent());
+
+    llvm::Value *EQNullV = IRB.CreateICmpEQ(
+        FnsTbl, llvm::Constant::getNullValue(FnsTbl->getType()));
+    IRB.CreateCondBr(EQNullV, FailBlock, fallthroughB);
+
+    IRB.SetInsertPoint(fallthroughB);
+  }
+
   return IRB.CreateLoad(
       IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
 }
@@ -8525,11 +8542,6 @@ int TranslateBasicBlock(binary_t &Binary,
 
           llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
 
-          llvm::Value *EQV_1 = IRB.CreateICmpEQ(
-              PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i]));
-          llvm::Value *EQV_2 = IRB.CreateICmpEQ(
-              PC, GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
-
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
             B = llvm::BasicBlock::Create(*Context, "else", f.F);
@@ -8538,6 +8550,11 @@ int TranslateBasicBlock(binary_t &Binary,
                 *Context,
                 (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 f.F);
+
+          llvm::Value *EQV_1 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
+          llvm::Value *EQV_2 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<true>(IRB, DynTargetsVec[i], B));
 
           IRB.CreateCondBr(IRB.CreateOr(EQV_1, EQV_2), DynTargetsDoCallBVec[i], B);
         } while (++i != DynTargetsVec.size());
