@@ -552,9 +552,6 @@ void function_t::Analyze(void) {
 
 const helper_function_t &LookupHelper(TCGOp *op);
 
-static tcg_global_set_t DetermineFunctionArgs(function_t &);
-static tcg_global_set_t DetermineFunctionRets(function_t &);
-
 void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   if (!this->Analysis.Stale)
     return;
