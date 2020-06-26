@@ -168,11 +168,6 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
-static cl::opt<unsigned> Threads("num-threads",
-                                 cl::desc("Number of CPU threads to use"),
-                                 cl::init(jove::num_cpus()),
-                                 cl::value_desc("int"), cl::cat(JoveCategory));
-
 } // namespace opts
 
 namespace jove {
@@ -512,6 +507,8 @@ static std::mutex Q_mtx;
 
 static void worker(void);
 
+static int GuessParallelism();
+
 int AnalyzeFunctions(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     binary_t &binary = Decompilation.Binaries[BIdx];
@@ -527,7 +524,7 @@ int AnalyzeFunctions(void) {
 
   std::vector<std::thread> workers;
 
-  unsigned N = opts::Threads;
+  unsigned N = GuessParallelism();
 
   workers.reserve(N);
   for (unsigned i = 0; i < N; ++i)
@@ -593,6 +590,18 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
+}
+
+int GuessParallelism() {
+  switch (int processors = num_cpus()) {
+  case 0:
+  case 1:
+    return 2;
+  case 2:
+    return 3;
+  default:
+    return processors + 2;
+  }
 }
 
 static void IgnoreCtrlC(void) {
