@@ -503,9 +503,8 @@ int AnalyzeBlocks(void) {
 }
 
 static std::vector<std::pair<binary_index_t, function_index_t>> Q;
-static std::mutex Q_mtx;
 
-static void worker(void);
+static void worker(std::atomic<std::pair<binary_index_t, function_index_t> *>&);
 
 static int GuessParallelism();
 
@@ -520,38 +519,40 @@ int AnalyzeFunctions(void) {
     }
   }
 
+  if (Q.empty())
+    return 0;
+
+  // initialize Q ptr
+  std::atomic<std::pair<binary_index_t, function_index_t> *> Q_ptr(Q.data());
+
   WithColor::note() << llvm::formatv("Analyzing {0} functions...\n", Q.size());
 
-  std::vector<std::thread> workers;
+  {
+    std::vector<std::thread> workers;
 
-  unsigned N = GuessParallelism();
+    unsigned N = GuessParallelism();
 
-  workers.reserve(N);
-  for (unsigned i = 0; i < N; ++i)
-    workers.push_back(std::thread(worker));
+    workers.reserve(N);
+    for (unsigned i = 0; i < N; ++i)
+      workers.push_back(std::thread(worker, std::ref(Q_ptr)));
 
-  for (std::thread &t : workers)
-    t.join();
+    for (std::thread &t : workers)
+      t.join();
+  }
 
   return 0;
 }
 
-void worker(void) {
-  auto pop_idx_pair =
-      [](std::pair<binary_index_t, function_index_t> &out) -> bool {
-    std::lock_guard<std::mutex> lck(Q_mtx);
+void worker(std::atomic<std::pair<binary_index_t, function_index_t> *>& Q_ptr) {
+  assert(!Q.empty());
 
-    if (Q.empty()) {
-      return false;
-    } else {
-      out = Q.back();
-      Q.resize(Q.size() - 1);
-      return true;
-    }
-  };
+  for (;;) {
+    std::pair<binary_index_t, function_index_t> *p = Q_ptr++;
 
-  std::pair<binary_index_t, function_index_t> IdxPair;
-  while (pop_idx_pair(IdxPair)) {
+    if (p >= Q.data() + Q.size())
+      break;
+
+    auto IdxPair = *p;
     Decompilation.Binaries.at(IdxPair.first)
         .Analysis.Functions.at(IdxPair.second)
         .Analyze();
