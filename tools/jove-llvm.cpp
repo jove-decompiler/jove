@@ -621,7 +621,7 @@ static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
 static std::map<uintptr_t, llvm::Constant *> TPOFFHack;
 
-static bool ABIChanged = false;
+//static bool ABIChanged = false;
 
 static struct {
   struct {
@@ -763,11 +763,16 @@ int llvm(void) {
       || DoOptimize()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
+#if 0
       || RecoverControlFlow()
+#endif
+
       || (opts::DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
 
+#if 0
       || WriteDecompilation()
+#endif
 
       || (!opts::VersionScript.empty() ? WriteVersionScript() : 0)
       || WriteModule();
@@ -5948,12 +5953,16 @@ int CreateSectionGlobalVariables(void) {
         auto it = FuncMap.find(FileAddr);
         assert(it != FuncMap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
+#if 1
+        assert(f.IsABI);
+#else
         if (!f.IsABI) {
           WithColor::note() << llvm::formatv("!IsABI for {0}\n", f.F->getName());
           f.IsABI = true;
 
           ABIChanged = true;
         }
+#endif
 
 #if 1
         // casting to a llvm::Function* is a complete hack here. hoping the
@@ -6183,12 +6192,14 @@ int CreateSectionGlobalVariables(void) {
 
   SectsGlobal->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
+#if 0
   if (ABIChanged) {
     WriteDecompilation();
 
     execve(cmdline.argv[0], cmdline.argv, ::environ);
     abort();
   }
+#endif
 
   return 0;
 }
@@ -6902,15 +6913,18 @@ ConstantForRelativeAddress(uintptr_t Addr) {
 
   auto it = FuncMap.find(Addr);
   if (it != FuncMap.end()) {
-    function_t &f = Binary.Analysis.Functions[(*it).second];
+    function_t &f = Binary.Analysis.Functions.at((*it).second);
+    assert(f.F);
     res = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
 
+#if 0
     if (!f.IsABI) {
       WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
 
       FuncIdxAreABIVec.push_back((*it).second);
       ABIChanged = true;
     }
+#endif
   } else {
     res = SectionPointer(Addr);
     assert(res);
@@ -7517,6 +7531,7 @@ int RecoverControlFlow(void) {
     }
   }
 
+#if 0
   if (!Changed && !ABIChanged)
     return 0;
 
@@ -7528,6 +7543,9 @@ int RecoverControlFlow(void) {
 
   execve(cmdline.argv[0], cmdline.argv, ::environ);
   abort();
+#else
+  return 0;
+#endif
 }
 
 int await_process_completion(pid_t pid) {

@@ -95,7 +95,7 @@ static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
 
 static cl::opt<unsigned> Threads("num-threads",
                                  cl::desc("Number of CPU threads to use (hack)"),
-                                 cl::init(1 /* jove::num_cpus() */),
+                                 cl::init(jove::num_cpus()),
                                  cl::cat(JoveCategory));
 
 static cl::opt<bool>
@@ -165,6 +165,11 @@ static bool dynamic_linking_info_of_binary(binary_t &,
 static void IgnoreCtrlC(void);
 
 static void write_dso_graphviz(std::ostream &out, const dso_graph_t &);
+
+static std::vector<dso_t> Q;
+static std::mutex Q_mtx;
+
+static void worker(const dso_graph_t &dso_graph);
 
 int recompile(void) {
   compiler_runtime_afp =
@@ -597,13 +602,32 @@ int recompile(void) {
     return 1;
   }
 
+  Q.reserve(top_sorted.size());
   for (dso_t dso : top_sorted) {
+    Q.push_back(dso);
+
     WithColor::note() << llvm::formatv(
         "{0}\n", Decompilation.Binaries.at(dso_graph[dso].BIdx).Path);
   }
 
   //
-  // process each binary in the appropriate order
+  // run jove-llvm and llc on all DSOs
+  //
+  {
+    std::vector<std::thread> workers;
+
+    unsigned N = opts::Threads;
+
+    workers.reserve(N);
+    for (unsigned i = 0; i < N; ++i)
+      workers.push_back(std::thread(worker, std::cref(dso_graph)));
+
+    for (std::thread &t : workers)
+      t.join();
+  }
+
+  //
+  // run ld on all the object files
   //
   for (dso_t dso : top_sorted) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -625,228 +649,13 @@ int recompile(void) {
 
     std::string binary_filename = fs::path(b.Path).filename().string();
 
-    //
-    // run jove-llvm
-    //
-    if (Cancel) {
-      WithColor::note() << "Canceled.\n";
-      return 1;
-    }
-
-    std::string bcfp(chrooted_path.string() + ".bc");
-    std::string llfp(chrooted_path.string() + ".ll");
-    std::string mapfp(chrooted_path.string() + ".map");
-    std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
-
-    if (opts::SkipLLVM)
-      goto llvm_skipped;
-
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
-
-      std::vector<const char *> arg_vec = {
-        jove_llvm_path.c_str(),
-
-        "-o", bcfp.c_str(),
-        "--version-script", mapfp.c_str(),
-
-        "-b", binary_filename.c_str(),
-
-        "-d", opts::jv.c_str(),
-      };
-
-      std::string output_module_id_file_arg =
-          "--dfsan-output-module-id=" + dfsan_modid_fp;
-
-      if (opts::DFSan) {
-        arg_vec.push_back("--dfsan");
-        arg_vec.push_back(output_module_id_file_arg.c_str());
-      }
-
-      if (opts::CheckEmulatedStackReturnAddress)
-        arg_vec.push_back("--check-emulated-stack-return-address");
-      if (opts::Trace)
-        arg_vec.push_back("-trace");
-
-      arg_vec.push_back(nullptr);
-
-      print_command(&arg_vec[0]);
-
-      std::string stdoutfp = bcfp + ".txt";
-      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-      dup2(stdoutfd, STDOUT_FILENO);
-
-      close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
-      return ret;
-    }
-
-    if (opts::DFSan) {
-      std::ifstream ifs(dfsan_modid_fp);
-      std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
-                              std::istreambuf_iterator<char>());
-
-      WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
-                                         dfsan_modid);
-
-      fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid,
-                    fs::copy_option::overwrite_if_exists);
-    }
-
-    //
-    // run llvm-dis on bitcode
-    //
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
-
-      const char *arg_arr[] = {
-        llvm_dis_path.c_str(),
-
-        "-o", llfp.c_str(),
-        bcfp.c_str(),
-
-        nullptr
-      };
-
-      print_command(&arg_arr[0]);
-
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    await_process_completion(pid);
-
-llvm_skipped:
-
-    std::string optbcfp = bcfp;
-
-#if 0
-    //
-    // run opt
-    //
-    if (Cancel) {
-      WithColor::note() << "Canceled.\n";
-      return 1;
-    }
-
-    std::string optbcfp(chrooted_path.string() + ".opt.bc");
-    if (!opts::DFSan) {
-      optbcfp = bcfp;
-      goto skip_dfsan;
-    }
-
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
-
-      const char *arg_vec[] = {
-        opt_path.c_str(),
-#if 0
-        "-dfsan-abilist=dfsan_abilist.txt",
-        "-dfsan-args-abi",
-#endif
-        "-dfsan",
-        "-o", optbcfp.c_str(),
-        bcfp.c_str(),
-        nullptr
-      };
-
-      print_command(&arg_vec[0]);
-
-      close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-      return;
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("opt -dfsan failed for {0}\n",
-                                          binary_filename);
-      continue;
-    }
-
-    if (Cancel)
-      return;
-
-skip_dfsan:
-#endif
-
-    if (Cancel) {
-      WithColor::note() << "Canceled.\n";
-      return 1;
-    }
-
-    //
-    // run llc
-    //
     std::string objfp(chrooted_path.string() + ".o");
+    std::string mapfp(chrooted_path.string() + ".map");
 
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
-
-      std::vector<const char *> arg_vec = {
-        llc_path.c_str(),
-
-        "-o", objfp.c_str(),
-        optbcfp.c_str(),
-
-        "--filetype=obj",
-        "--relocation-model=pic",
-        "--frame-pointer=all",
-
-        "--disable-simplify-libcalls",
-#if 0
-        "--emulated-tls"
-#endif
-      };
-
-      arg_vec.push_back(nullptr);
-
-      print_command(&arg_vec[0]);
-
-      close(STDIN_FILENO);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    //
-    // check exit code
-    //
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("llc failed for {0}\n",
-                                          binary_filename);
-      return ret;
-    }
-
-    if (Cancel) {
-      WithColor::note() << "Canceled.\n";
-      return 1;
+    if (!fs::exists(objfp)) {
+      WithColor::warning() << llvm::formatv("{0} doesn't exist; skipping {1}\n",
+                                            objfp, binary_filename);
+      continue;
     }
 
     //
@@ -997,12 +806,197 @@ skip_dfsan:
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
-      WithColor::error() << "ld failed for " << binary_filename << '\n';
-      return ret;
+      WithColor::error() << llvm::formatv("ld failed for {0}; skipping {1}\n",
+                                          objfp, binary_filename);
+      continue;
     }
   }
 
   return 0;
+}
+
+void worker(const dso_graph_t &dso_graph) {
+  auto pop_dso = [](dso_t &out) -> bool {
+    std::lock_guard<std::mutex> lck(Q_mtx);
+
+    if (Q.empty()) {
+      return false;
+    } else {
+      out = Q.back();
+      Q.resize(Q.size() - 1);
+      return true;
+    }
+  };
+
+  dso_t dso;
+  while (pop_dso(dso)) {
+    binary_index_t BIdx = dso_graph[dso].BIdx;
+
+    binary_t &b = Decompilation.Binaries.at(BIdx);
+
+    if (b.IsDynamicLinker)
+      continue;
+    if (b.IsVDSO)
+      continue;
+
+    // make sure the path is absolute
+    assert(b.Path.at(0) == '/');
+
+    const fs::path chrooted_path(opts::Output + b.Path);
+    fs::create_directories(chrooted_path.parent_path());
+
+    std::string binary_filename = fs::path(b.Path).filename().string();
+
+    std::string bcfp(chrooted_path.string() + ".bc");
+    std::string llfp(chrooted_path.string() + ".ll");
+    std::string objfp(chrooted_path.string() + ".o");
+    std::string mapfp(chrooted_path.string() + ".map");
+    std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
+
+    //
+    // run jove-llvm
+    //
+    pid_t pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
+
+      std::vector<const char *> arg_vec = {
+        jove_llvm_path.c_str(),
+
+        "-o", bcfp.c_str(),
+        "--version-script", mapfp.c_str(),
+
+        "-b", binary_filename.c_str(),
+
+        "-d", opts::jv.c_str(),
+      };
+
+      std::string output_module_id_file_arg =
+          "--dfsan-output-module-id=" + dfsan_modid_fp;
+
+      if (opts::DFSan) {
+        arg_vec.push_back("--dfsan");
+        arg_vec.push_back(output_module_id_file_arg.c_str());
+      }
+
+      if (opts::CheckEmulatedStackReturnAddress)
+        arg_vec.push_back("--check-emulated-stack-return-address");
+      if (opts::Trace)
+        arg_vec.push_back("-trace");
+
+      arg_vec.push_back(nullptr);
+
+      print_command(&arg_vec[0]);
+
+      std::string stdoutfp = bcfp + ".txt";
+      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+      dup2(stdoutfd, STDOUT_FILENO);
+
+      close(STDIN_FILENO);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      exit(1);
+    }
+
+    //
+    // check exit code
+    //
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
+      continue;
+    }
+
+    if (opts::DFSan) {
+      std::ifstream ifs(dfsan_modid_fp);
+      std::string dfsan_modid((std::istreambuf_iterator<char>(ifs)),
+                              std::istreambuf_iterator<char>());
+
+      WithColor::note() << llvm::formatv("ModuleID for {0} is {1}\n", bcfp,
+                                         dfsan_modid);
+
+      fs::copy_file(bcfp, opts::Output + "/dfsan/" + dfsan_modid,
+                    fs::copy_option::overwrite_if_exists);
+    }
+
+    //
+    // run llvm-dis on bitcode
+    //
+    pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
+
+      const char *arg_arr[] = {
+        llvm_dis_path.c_str(),
+
+        "-o", llfp.c_str(),
+        bcfp.c_str(),
+
+        nullptr
+      };
+
+      print_command(&arg_arr[0]);
+
+      close(STDIN_FILENO);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      exit(1);
+    }
+
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << "llvm-dis failed for " << binary_filename << '\n';
+      continue;
+    }
+
+    //
+    // run llc
+    //
+    pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
+
+      const char *arg_arr[] = {
+        llc_path.c_str(),
+
+        "-o", objfp.c_str(),
+        bcfp.c_str(),
+
+        "--filetype=obj",
+        "--relocation-model=pic",
+        "--frame-pointer=all",
+
+        "--disable-simplify-libcalls",
+#if 0
+        "--emulated-tls,"
+#endif
+        nullptr
+      };
+
+      print_command(&arg_arr[0]);
+
+      close(STDIN_FILENO);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      exit(1);
+    }
+
+    //
+    // check exit code
+    //
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << llvm::formatv("llc failed for {0}\n",
+                                          binary_filename);
+      continue;
+    }
+  }
 }
 
 struct graphviz_label_writer {
@@ -1345,6 +1339,17 @@ void IgnoreCtrlC(void) {
     WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
                                         __func__, strerror(err));
   }
+}
+
+unsigned num_cpus(void) {
+  cpu_set_t cpu_mask;
+  if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
+    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
+                       << '\n';
+    abort();
+  }
+
+  return CPU_COUNT(&cpu_mask);
 }
 
 }
