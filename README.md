@@ -36,5 +36,5 @@ jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- --version
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- --help
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- /
 
-jove-loop -d $HOME/.jove/ls --sysroot ls.recompiled /usr/bin/ls -- -la /
+sudo jove-loop -d $HOME/.jove/ls --sysroot ls.recompiled /usr/bin/ls -- -la /
 ```
