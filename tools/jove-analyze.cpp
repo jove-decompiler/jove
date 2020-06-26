@@ -595,7 +595,23 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
+static void IgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_IGN;
+
+  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
+  }
+}
+
 int WriteDecompilation(void) {
+  IgnoreCtrlC();
+
   {
     std::ofstream ofs(fs::is_directory(opts::jv)
                           ? (opts::jv + "/decompilation.jv")
