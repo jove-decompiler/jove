@@ -3818,7 +3818,7 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
   return Changed;
 }
 
-tcg_global_set_t DetermineFunctionArgs(function_t &f) {
+static tcg_global_set_t DetermineFunctionArgs(function_t &f) {
   f.Analyze();
 
   tcg_global_set_t res = f.Analysis.args;
@@ -3829,7 +3829,7 @@ tcg_global_set_t DetermineFunctionArgs(function_t &f) {
   return res;
 }
 
-tcg_global_set_t DetermineFunctionRets(function_t &f) {
+static tcg_global_set_t DetermineFunctionRets(function_t &f) {
   f.Analyze();
 
   tcg_global_set_t res = f.Analysis.rets;
