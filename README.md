@@ -34,7 +34,7 @@ jove-init -o $HOME/.jove/ls -git /usr/bin/ls
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- -la /
 sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
-Tip: On debian systems run the following to install debug symbols
+Tip: On debian systems run the following to install debug symbols (optional)
 ```bash
 for f in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $f ; done
 ```
