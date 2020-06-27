@@ -138,6 +138,12 @@ int loop(void) {
     }
   }
 
+  if (!fs::exists(opts::sysroot) || !fs::is_directory(opts::sysroot)) {
+    WithColor::error() << llvm::formatv(
+        "provided sysroot {0} is not directory\n", opts::sysroot);
+    return 1;
+  }
+
   jove_recompile_path = (boost::dll::program_location().parent_path() /
                          std::string("jove-recompile"))
                             .string();
@@ -260,6 +266,7 @@ skip_run:
 
       arg_vec.push_back(nullptr);
 
+      print_command(&arg_vec[0]);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
