@@ -31,10 +31,14 @@ make
 cd jove/bin
 
 jove-init -o $HOME/.jove/ls -git /usr/bin/ls
-
-jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- --version
-jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- --help
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- -la /
-
-sudo jove-loop -d $HOME/.jove/ls --sysroot ls.recompiled /usr/bin/ls -- -la /
+sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
+```
+Tip: On debian systems run the following to install debug symbols
+```bash
+for f in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $f ; done
+```
+After installing `easy-graph`, try this
+```bash
+for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/dnsmasq -b libc $f ; sleep 10s ; done
 ```
