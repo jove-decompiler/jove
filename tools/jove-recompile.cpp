@@ -888,9 +888,19 @@ void worker(const dso_graph_t &dso_graph) {
 
       print_command(&arg_vec[0]);
 
-      std::string stdoutfp = bcfp + ".txt";
-      int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
-      dup2(stdoutfd, STDOUT_FILENO);
+      {
+        std::string stdoutfp = bcfp + ".stdout.txt";
+        int stdoutfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        dup2(stdoutfd, STDOUT_FILENO);
+        close(stdoutfd);
+      }
+
+      {
+        std::string stderrfp = bcfp + ".stderr.txt";
+        int stderrfd = open(stderrfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+        dup2(stderrfd, STDERR_FILENO);
+        close(stderrfd);
+      }
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
