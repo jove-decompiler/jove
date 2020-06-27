@@ -603,12 +603,8 @@ int recompile(void) {
   }
 
   Q.reserve(top_sorted.size());
-  for (dso_t dso : top_sorted) {
+  for (dso_t dso : top_sorted)
     Q.push_back(dso);
-
-    WithColor::note() << llvm::formatv(
-        "{0}\n", Decompilation.Binaries.at(dso_graph[dso].BIdx).Path);
-  }
 
   //
   // run jove-llvm and llc on all DSOs
