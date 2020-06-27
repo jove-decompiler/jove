@@ -114,7 +114,30 @@ static void IgnoreCtrlC(void);
 
 static void print_command(const char **argv);
 
+static std::atomic<bool> Cancelled(false);
+
+static void handle_sigint(int no) {
+  Cancelled = true;
+}
+
 int loop(void) {
+  //
+  // install signal handler for Ctrl-C to gracefully cancel
+  //
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = handle_sigint;
+
+    if (sigaction(SIGINT, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
   jove_recompile_path = (boost::dll::program_location().parent_path() /
                          std::string("jove-recompile"))
                             .string();
@@ -145,7 +168,7 @@ int loop(void) {
     return 1;
   }
 
-  for (;;) {
+  while (!Cancelled) {
     pid_t pid;
 
     {
