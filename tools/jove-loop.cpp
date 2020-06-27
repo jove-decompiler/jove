@@ -153,7 +153,7 @@ int loop(void) {
           .string();
   if (!fs::exists(jove_run_path)) {
     WithColor::error() << llvm::formatv(
-        "could not find jove-recompile at {0}\n", jove_run_path.c_str());
+        "could not find jove-run at {0}\n", jove_run_path.c_str());
 
     return 1;
   }
@@ -163,7 +163,7 @@ int loop(void) {
                           .string();
   if (!fs::exists(jove_analyze_path)) {
     WithColor::error() << llvm::formatv(
-        "could not find jove-recompile at {0}\n", jove_analyze_path.c_str());
+        "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
 
     return 1;
   }
