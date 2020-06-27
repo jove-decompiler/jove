@@ -40,5 +40,5 @@ for f in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $
 ```
 After installing `easy-graph`, try this
 ```bash
-for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/dnsmasq -b libc $f ; sleep 10s ; done
+for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
 ```
