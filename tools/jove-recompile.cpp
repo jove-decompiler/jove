@@ -640,7 +640,7 @@ int recompile(void) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path(opts::Output + b.Path);
+    const fs::path chrooted_path = fs::canonical(fs::path(opts::Output) / b.Path);
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(b.Path).filename().string();
@@ -838,7 +838,7 @@ void worker(const dso_graph_t &dso_graph) {
     // make sure the path is absolute
     assert(b.Path.at(0) == '/');
 
-    const fs::path chrooted_path(opts::Output + b.Path);
+    const fs::path chrooted_path = fs::canonical(fs::path(opts::Output) / b.Path);
     fs::create_directories(chrooted_path.parent_path());
 
     std::string binary_filename = fs::path(b.Path).filename().string();
@@ -1104,10 +1104,19 @@ int await_process_completion(pid_t pid) {
 }
 
 void print_command(const char **argv) {
-  for (const char **s = argv; *s; ++s)
-    llvm::outs() << *s << ' ';
+  std::string msg;
 
-  llvm::outs() << '\n';
+  for (const char **s = argv; *s; ++s) {
+    msg.append(*s);
+    msg.push_back(' ');
+  }
+
+  if (msg.empty())
+    return;
+
+  msg[msg.size() - 1] = '\n';
+
+  llvm::outs() << msg;
 }
 
 /// Represents a contiguous uniform range in the file. We cannot just create a
