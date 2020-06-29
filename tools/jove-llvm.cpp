@@ -4701,6 +4701,8 @@ int CreateSectionGlobalVariables(void) {
           (llvm::Twine(".symver ") + S.Name + "," + S.Name +
            (S.Visibility.IsDefault ? "@@" : "@") + S.Vers)
               .str());
+
+      VersionScript.Table[S.Vers];
     }
 
     return llvm::ConstantExpr::getPtrToInt(F, WordType());
