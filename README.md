@@ -32,6 +32,7 @@ cd jove/bin
 
 jove-init -o $HOME/.jove/ls -git /usr/bin/ls
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- -la /
+mkdir ls.sysroot
 sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
 Tip: On debian systems run the following to install debug symbols (optional)
