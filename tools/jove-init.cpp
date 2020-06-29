@@ -102,7 +102,7 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 
 static int await_process_completion(pid_t);
 
-static void print_command(std::vector<const char *> &arg_vec);
+static void print_command(const char **argv);
 
 static std::string jove_add_path;
 
@@ -225,7 +225,7 @@ int init(void) {
       return 1;
     }
 
-    llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+    //llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
     binary_paths.push_back(fs::canonical(path).string());
   }
 
@@ -360,7 +360,7 @@ int init(void) {
 
       std::vector<const char *> arg_vec = {"/usr/bin/git", "init", nullptr};
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
       return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
@@ -396,7 +396,7 @@ int init(void) {
       std::vector<const char *> arg_vec = {"/usr/bin/git", "add",
                                            "decompilation.jv", nullptr};
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
       return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
@@ -419,7 +419,7 @@ int init(void) {
         nullptr
       };
 
-      print_command(arg_vec);
+      print_command(&arg_vec[0]);
       return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
     }
 
@@ -488,8 +488,6 @@ static void worker(void) {
 
   std::string path;
   while (pop_path(path)) {
-    llvm::outs() << path << '\n';
-
     std::string jvfp = tmpdir + path + ".jv";
     fs::create_directories(fs::path(jvfp).parent_path());
 
@@ -502,7 +500,7 @@ static void worker(void) {
         nullptr
       };
 
-      print_command(argv);
+      print_command(&argv[0]);
 
       std::string stdoutfp = tmpdir + path + ".txt";
       int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
@@ -571,15 +569,20 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
-void print_command(std::vector<const char *> &arg_vec) {
-  for (const char *s : arg_vec) {
-    if (!s)
-      continue;
+void print_command(const char **argv) {
+  std::string msg;
 
-    llvm::outs() << s << ' ';
+  for (const char **s = argv; *s; ++s) {
+    msg.append(*s);
+    msg.push_back(' ');
   }
 
-  llvm::outs() << '\n';
+  if (msg.empty())
+    return;
+
+  msg[msg.size() - 1] = '\n';
+
+  llvm::outs() << msg;
 }
 
 }
