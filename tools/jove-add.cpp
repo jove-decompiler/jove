@@ -720,16 +720,9 @@ int add(void) {
     }
   }
 
-  WithColor::note() << llvm::formatv("trying to get build id...\n");
-
   llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
   if (optionalBuildID) {
     llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
-
-    WithColor::note() << llvm::formatv(
-        "trying to get build id... {0} {1}\n",
-        llvm::toHex(BuildID[0], /*LowerCase=*/true),
-        llvm::toHex(BuildID.slice(1), /*LowerCase=*/true));
 
     fs::path splitDbgInfo =
         fs::path("/usr/lib/debug") / ".build-id" /
