@@ -171,6 +171,8 @@ static std::mutex Q_mtx;
 
 static void worker(const dso_graph_t &dso_graph);
 
+static bool worker_failed = false;
+
 int recompile(void) {
   compiler_runtime_afp =
       (boost::dll::program_location().parent_path().parent_path() /
@@ -369,12 +371,24 @@ int recompile(void) {
     if (!b.IsDynamicLinker)
       continue;
 
+#if 0
     assert(fs::exists(b.Path) && fs::is_regular_file(b.Path));
+#else
+    //
+    // we have the binary data in the decompilation. let's use it
+    //
+    fs::path ldso_path = fs::path(tmpdir) / "ld.so";
+    {
+      std::ofstream ofs(ldso_path.c_str());
+
+      ofs.write(reinterpret_cast<char *>(&b.Data[0]), b.Data.size());
+    }
+#endif
 
     fs::path chrooted_path(opts::Output + b.Path);
     fs::create_directories(chrooted_path.parent_path());
 
-    fs::copy_file(b.Path, chrooted_path, fs::copy_option::overwrite_if_exists);
+    fs::copy_file(ldso_path, chrooted_path, fs::copy_option::overwrite_if_exists);
 
     if (!b.dynl.soname.empty()) {
       rtld_soname = b.dynl.soname;
@@ -622,6 +636,9 @@ int recompile(void) {
       t.join();
   }
 
+  if (worker_failed)
+    return 1;
+
   //
   // run ld on all the object files
   //
@@ -651,7 +668,7 @@ int recompile(void) {
     if (!fs::exists(objfp)) {
       WithColor::warning() << llvm::formatv("{0} doesn't exist; skipping {1}\n",
                                             objfp, binary_filename);
-      continue;
+      return 1;
     }
 
     //
@@ -804,7 +821,7 @@ int recompile(void) {
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << llvm::formatv("ld failed for {0}; skipping {1}\n",
                                           objfp, binary_filename);
-      continue;
+      return 1;
     }
   }
 
@@ -911,6 +928,7 @@ void worker(const dso_graph_t &dso_graph) {
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
+      worker_failed = true;
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
       continue;
     }
@@ -955,6 +973,7 @@ void worker(const dso_graph_t &dso_graph) {
     }
 
     if (int ret = await_process_completion(pid)) {
+      worker_failed = true;
       WithColor::error() << "llvm-dis failed for " << binary_filename << '\n';
       continue;
     }
@@ -998,6 +1017,7 @@ void worker(const dso_graph_t &dso_graph) {
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
+      worker_failed = true;
       WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                           binary_filename);
       continue;
