@@ -242,7 +242,10 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
   return {};
 }
 
-static std::map<uintptr_t, std::vector<basic_block_index_t>> FunctionCallsToFixup;
+static std::map<uintptr_t, std::vector<uintptr_t>> FunctionCallsToFixup;
+
+static boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
+static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
 static struct {
   uintptr_t Addr;
@@ -683,7 +686,7 @@ int add(void) {
   uintptr_t EntryAddr = 0;
 
   {
-    uintptr_t EntryAddr = E.getHeader()->e_entry;
+    EntryAddr = E.getHeader()->e_entry;
     if (EntryAddr && (Interp.Found || IsStaticallyLinked)) {
       llvm::outs() << "translating entry point @ "
                    << (fmt("%#lx") % EntryAddr).str() << '\n';
@@ -926,15 +929,46 @@ int add(void) {
   }
 
   do {
-    std::map<uintptr_t, std::vector<basic_block_index_t>>
+    std::map<uintptr_t, std::vector<uintptr_t>>
         LocalFunctionCallsToFixup = FunctionCallsToFixup;
     FunctionCallsToFixup.clear();
 
-    auto ICFG = binary.Analysis.ICFG;
-    for (const auto &pair : boost::adaptors::reverse(LocalFunctionCallsToFixup))
-      for (basic_block_index_t bbidx : pair.second)
-        ICFG[boost::vertex(bbidx, ICFG)].Term._call.Target =
-          translate_function(binary, tcg, dis, pair.first);
+    auto &ICFG = binary.Analysis.ICFG;
+    for (const auto &pair : boost::adaptors::reverse(LocalFunctionCallsToFixup)) {
+      for (uintptr_t CallSiteAddr : pair.second) {
+        auto it = BBMap.find(CallSiteAddr);
+        assert(it != BBMap.end());
+
+        basic_block_index_t bbidx = (*it).second - 1;
+
+        if (!(bbidx < boost::num_vertices(ICFG))) {
+          WithColor::note() << llvm::formatv("bbidx is {0} but num verts is {1}\n",
+                                             bbidx,
+                                             boost::num_vertices(ICFG));
+          continue;
+        }
+
+        //assert(bbidx < boost::num_vertices(ICFG));
+
+        basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+        if (ICFG[bb].Term.Type != TERMINATOR::CALL) {
+          WithColor::note() << llvm::formatv(
+              "{0:x} should be call but is {1} [{2:x}, {3:x}) TA={4:x}\n",
+              CallSiteAddr,
+              description_of_terminator(ICFG[bb].Term.Type),
+              (*it).first.lower(),
+              (*it).first.upper(),
+              ICFG[bb].Term.Addr);
+          continue;
+        }
+
+        assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
+        assert(ICFG[bb].Term._call.Target == invalid_function_index);
+        ICFG[bb].Term._call.Target =
+            translate_function(binary, tcg, dis, pair.first);
+      }
+    }
   } while (!FunctionCallsToFixup.empty());
 
   if (EntryAddr)
@@ -965,9 +999,6 @@ static basic_block_index_t translate_basic_block(binary_t &,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
-
-static boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
 
 static function_index_t translate_function(binary_t &binary,
                                            tiny_code_generator_t &tcg,
@@ -1383,7 +1414,8 @@ on_insn_boundary:
     ICFG[bb].Term._call.Target =
         translate_function(binary, tcg, dis, T._call.Target);
 #else
-    FunctionCallsToFixup[T._call.Target].push_back(bbidx);
+    ICFG[bb].Term._call.Target = invalid_function_index;
+    FunctionCallsToFixup[T._call.Target].push_back(T.Addr);
 #endif
 
     control_flow(T._call.NextPC);
