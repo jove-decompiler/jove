@@ -30,6 +30,7 @@
 #include <llvm/Support/FormatVariadic.h>
 
 #include "jove/jove.h"
+#include <boost/range/adaptor/reversed.hpp>
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
@@ -240,6 +241,8 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
   }
   return {};
 }
+
+static std::map<uintptr_t, std::vector<basic_block_index_t>> FunctionCallsToFixup;
 
 static struct {
   uintptr_t Addr;
@@ -676,14 +679,16 @@ int add(void) {
     }
   }
 
+  std::set<uintptr_t> FunctionEntrypoints;
+  uintptr_t EntryAddr = 0;
+
   {
     uintptr_t EntryAddr = E.getHeader()->e_entry;
     if (EntryAddr && (Interp.Found || IsStaticallyLinked)) {
       llvm::outs() << "translating entry point @ "
                    << (fmt("%#lx") % EntryAddr).str() << '\n';
 
-      binary.Analysis.EntryFunction =
-          translate_function(binary, tcg, dis, EntryAddr);
+      FunctionEntrypoints.insert(EntryAddr);
     } else {
       binary.Analysis.EntryFunction = invalid_function_index;
     }
@@ -715,7 +720,7 @@ int add(void) {
         llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
                                       SymName,
                                       Sym.st_value);
-        translate_function(binary, tcg, dis, Sym.st_value);
+        FunctionEntrypoints.insert(Sym.st_value);
       }
     }
   }
@@ -794,7 +799,7 @@ int add(void) {
             llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
             llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
-            translate_function(binary, tcg, dis, Sym.st_value);
+            FunctionEntrypoints.insert(Sym.st_value);
           }
         }
       }
@@ -805,7 +810,7 @@ int add(void) {
   // translate constructors
   //
   if (initFunctionAddr)
-    translate_function(binary, tcg, dis, initFunctionAddr);
+    FunctionEntrypoints.insert(initFunctionAddr);
 
   // TODO init.array
 
@@ -821,7 +826,7 @@ int add(void) {
     llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
     llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName,
                                   Sym.st_value);
-    translate_function(binary, tcg, dis, Sym.st_value);
+    FunctionEntrypoints.insert(Sym.st_value);
   }
 
   //
@@ -837,7 +842,7 @@ int add(void) {
 
     llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
                                   SymName, Sym.st_value);
-    translate_function(binary, tcg, dis, Sym.st_value);
+    FunctionEntrypoints.insert(Sym.st_value);
   }
 
   //
@@ -878,7 +883,8 @@ int add(void) {
 
     llvm::outs() << llvm::formatv("translating ifunc resolver @ 0x{0:x}\n",
                                   ifunc_resolver_addr);
-    translate_function(binary, tcg, dis, ifunc_resolver_addr);
+
+    FunctionEntrypoints.insert(ifunc_resolver_addr);
   };
 
   for (const Elf_Shdr &Sec : *sections) {
@@ -896,6 +902,44 @@ int add(void) {
       }
     }
   }
+
+  //
+  // process the functions in the higher addresses before the preceeding code.
+  // this heuristic can resolve situations like the following:
+  //
+  // error: control flow to 0x10a330 in
+  // /lib/i386-linux-gnu/libc-2.27.so doesn't lie on instruction boundary
+  //
+  //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
+  //  10a32d:       ff d2                   call   *%edx <-- this is actually noreturn
+  //  10a32f:       00                      add    %dl,-0x77(%ebp) <-- this is garbage
+  //
+  //0010a330 <__nss_next@@GLIBC_2.0>:
+  //  10a330:       55                      push   %ebp
+  //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
+  //
+
+  for (uintptr_t Entrypoint : boost::adaptors::reverse(FunctionEntrypoints)) {
+    //llvm::outs() << llvm::formatv("{0:x}\n", Entrypoint);
+
+    translate_function(binary, tcg, dis, Entrypoint);
+  }
+
+  do {
+    std::map<uintptr_t, std::vector<basic_block_index_t>>
+        LocalFunctionCallsToFixup = FunctionCallsToFixup;
+    FunctionCallsToFixup.clear();
+
+    auto ICFG = binary.Analysis.ICFG;
+    for (const auto &pair : boost::adaptors::reverse(LocalFunctionCallsToFixup))
+      for (basic_block_index_t bbidx : pair.second)
+        ICFG[boost::vertex(bbidx, ICFG)].Term._call.Target =
+          translate_function(binary, tcg, dis, pair.first);
+  } while (!FunctionCallsToFixup.empty());
+
+  if (EntryAddr)
+    binary.Analysis.EntryFunction =
+        translate_function(binary, tcg, dis, EntryAddr);
 
   {
     struct sigaction sa;
@@ -1335,8 +1379,12 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL:
+#if 0
     ICFG[bb].Term._call.Target =
         translate_function(binary, tcg, dis, T._call.Target);
+#else
+    FunctionCallsToFixup[T._call.Target].push_back(bbidx);
+#endif
 
     control_flow(T._call.NextPC);
     break;
