@@ -3851,7 +3851,14 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
                                    0);
 
     if (ret != sizeof(struct r_debug)) {
-      WithColor::error() << "couldn't read r_debug structure\n";
+      if (ret < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("couldn't read r_debug structure ({0})\n",
+                                            strerror(err));
+      } else {
+        WithColor::error() << llvm::formatv("couldn't read r_debug structure [{0}]\n",
+                                            ret);
+      }
       return;
     }
 
