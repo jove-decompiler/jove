@@ -211,7 +211,21 @@ struct graphviz_label_writer {
     //boost::replace_all(src, ":", "\\:");
     //boost::replace_all(src, " ", "\\ ");
 
-    out << "[label=\"";
+    out << "[";
+    if (true /* ForGraphviz */) {
+#if 0
+      out << "shape=plain, ";
+      out << "style=filled, ";
+      out << "fillcolor=grey, ";
+#else
+      out << "shape=box, ";
+      out << "width=0, ";
+      out << "height=0, ";
+      out << "margin=0, ";
+#endif
+    }
+
+    out << "label=\"";
     out << src;
     out << "\"]";
   }
