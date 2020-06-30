@@ -312,7 +312,6 @@ static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
 
 struct indirect_branch_t {
   binary_index_t binary_idx;
-  basic_block_index_t bbidx;
 
   uintptr_t TermAddr;
 
@@ -1576,7 +1575,6 @@ on_insn_boundary:
       indirect_branch_t &indbr = IndBrMap[termpc];
       indbr.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
       indbr.binary_idx = binary_idx;
-      indbr.bbidx = bbidx;
       indbr.TermAddr = bbprop.Term.Addr;
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
@@ -1764,7 +1762,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
            "%s")
        % Addr
        % Binary.Path
-       % ICFG[boost::vertex(indbr.bbidx, ICFG)].Addr
+       % indbr.TermAddr
        % StringOfMCInst(Inst, dis)).str());
   }
 
@@ -1993,35 +1991,15 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   // shorthand-functions for reading the tracee's memory and registers
   //
   basic_block_index_t bbidx;
-  {
-    assert(IndBrInfo.TermAddr);
-    auto it = BBMap.find(IndBrInfo.TermAddr);
+  basic_block_t bb;
 
-    if (it == BBMap.end()) {
-      WithColor::error() << "WTF? BBMap has no entry for "
-                         << (fmt("%#lx") % IndBrInfo.TermAddr).str()
-                         << " @ "
-                         << fs::path(binary.Path).filename().string()
-                         << '\n';
-      llvm::errs() << "dumping BBMap (iterative_size=" << BBMap.iterative_size()
-                   << ")\n";
-      for (const auto &pair : BBMap) {
-        llvm::errs()
-          << "["
-          << (fmt("%#lx") % pair.first.lower()).str()
-          << ", "
-          << (fmt("%#lx") % pair.first.upper()).str()
-          << ")\n";
-      }
-      abort();
-    }
+  {
+    auto it = BBMap.find(IndBrInfo.TermAddr);
+    assert(it != BBMap.end());
 
     bbidx = (*it).second - 1;
+    bb = boost::vertex(bbidx, ICFG);
   }
-
-  basic_block_t bb = boost::vertex(bbidx, ICFG);
-
-  assert(ICFG[bb].Term.Type != TERMINATOR::NONE);
 
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
@@ -2390,17 +2368,20 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   // update the decompilation based on the target
   //
-  auto it = AddressSpace.find(target);
-  if (it == AddressSpace.end()) {
-    update_view_of_virtual_memory(child);
+  binary_index_t binary_idx = invalid_binary_index;
+  {
+    auto it = AddressSpace.find(target);
+    if (it == AddressSpace.end()) {
+      update_view_of_virtual_memory(child);
 
-    WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                          description_of_program_counter(_pc),
-                                          description_of_program_counter(target));
-    return;
+      WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
+                                            description_of_program_counter(_pc),
+                                            description_of_program_counter(target));
+      return;
+    }
+
+    binary_idx = *(*it).second.begin();
   }
-
-  binary_index_t binary_idx = *(*it).second.begin();
 
   bool isNewTarget = false;
 
@@ -2434,12 +2415,36 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           translate_function(child, binary_idx, tcg, dis,
                              rva_of_va(target, binary_idx), brkpt_count);
 
+      //
+      // the block containing the terminator may have been split underneath us
+      //
+      {
+        auto it = BBMap.find(IndBrInfo.TermAddr);
+        assert(it != BBMap.end());
+
+        bbidx = (*it).second - 1;
+        bb = boost::vertex(bbidx, ICFG);
+      }
+
       isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
     } else {
       basic_block_index_t target_bb_idx =
           translate_basic_block(child, binary_idx, tcg, dis,
                                 rva_of_va(target, binary_idx), brkpt_count);
       basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
+
+      //
+      // the block containing the terminator may have been split underneath us
+      //
+      {
+        auto it = BBMap.find(IndBrInfo.TermAddr);
+        assert(it != BBMap.end());
+
+        bbidx = (*it).second - 1;
+        bb = boost::vertex(bbidx, ICFG);
+      }
+
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
       isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
       if (isNewTarget)
@@ -2923,7 +2928,6 @@ void on_binary_loaded(pid_t child,
     indirect_branch_t &IndBrInfo = IndBrMap[Addr];
     IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
     IndBrInfo.binary_idx = BIdx;
-    IndBrInfo.bbidx = bbidx;
     IndBrInfo.TermAddr = bbprop.Term.Addr;
     IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
