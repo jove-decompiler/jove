@@ -705,6 +705,8 @@ int recompile(void) {
 
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
+
+          "-init", "_jove_install_function_table"
       };
 
 #if 1 /* __tls_get_addr... */
