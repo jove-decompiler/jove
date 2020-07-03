@@ -49,6 +49,11 @@ static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
 static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                            cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    ForceRecompile("force-recompile",
+                   cl::desc("Skip running the prog the first time"),
+                   cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -181,7 +186,7 @@ int loop(void) {
       fs::path chrooted_path(opts::sysroot);
       chrooted_path /= opts::Prog;
 
-      if (!fs::exists(chrooted_path))
+      if (!fs::exists(chrooted_path) || opts::ForceRecompile)
         goto skip_run;
     }
 
