@@ -683,11 +683,13 @@ void _jove_inverse_thunk(void) {
                "movq %%r15, %%r14\n"
                "addq %0, %%r14\n"
 
+#if 0
                "movq (%%r14), %%r13\n"   // r13 = emusp
                "movq -8(%%r13), %%r12\n" // r12 = *(emusp - 8)
 
                "movq %%r13, 32(%%rsp)\n" // stash emusp on the stack (replacing 0xdead)
                "movq %%r12, %%r11\n"
+#endif
 
                "movq 56(%%rsp), %%r13\n"  // read saved_emusp off the stack
                "movq %%r13, (%%r14)\n"  // restore emusp
@@ -710,7 +712,6 @@ void _jove_inverse_thunk(void) {
                : /* InputOperands */
                "i" (offsetof(CPUX86State, regs[R_ESP]))
 
-               //[emusp] "r"(__jove_env.regs[R_ESP])
                : /* Clobbers */);
 }
 
