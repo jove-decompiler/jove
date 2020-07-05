@@ -54,6 +54,10 @@ static cl::opt<bool>
                    cl::desc("Skip running the prog the first time"),
                    cl::cat(JoveCategory));
 
+static cl::opt<bool> JustRecompile("just-recompile",
+                                   cl::desc("Just recompile, nothing else"),
+                                   cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -182,12 +186,16 @@ int loop(void) {
   while (!Cancelled) {
     pid_t pid;
 
+    if (opts::ForceRecompile || opts::JustRecompile)
+      goto skip_run;
+
     {
       fs::path chrooted_path(opts::sysroot);
       chrooted_path /= opts::Prog;
 
-      if (!fs::exists(chrooted_path) || opts::ForceRecompile)
+      if (!fs::exists(chrooted_path))
         goto skip_run;
+
     }
 
     //
@@ -284,6 +292,9 @@ skip_run:
       WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
       return ret;
     }
+
+    if (opts::JustRecompile)
+      break;
   }
 
   return 0;
