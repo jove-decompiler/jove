@@ -64,6 +64,7 @@ struct dynamic_linking_info_t {
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/range/adaptor/reversed.hpp>
 #include <boost/graph/topological_sort.hpp>
+#include <boost/format.hpp>
 
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
@@ -141,6 +142,8 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+typedef boost::format fmt;
+
 static decompilation_t Decompilation;
 
 static void spawn_workers(void);
@@ -172,6 +175,8 @@ static std::mutex Q_mtx;
 static void worker(const dso_graph_t &dso_graph);
 
 static bool worker_failed = false;
+
+static std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &);
 
 int recompile(void) {
   compiler_runtime_afp =
@@ -697,9 +702,6 @@ int recompile(void) {
 #else
 #error
 #endif
-          b.IsExecutable ?
-            "-pie" :
-            "-shared",
 
           "-nostdlib",
 
@@ -708,6 +710,42 @@ int recompile(void) {
 
           "-init", "_jove_install_function_table"
       };
+
+      std::string _arg1, _arg2;
+
+      if (b.IsExecutable) {
+        if (b.IsPIC) {
+          arg_vec.push_back("-pie");
+        } else {
+          //
+          // the following has only been tested to work with the BFD linker.
+          //
+          arg_vec[0] = ld_bfd_path.c_str();
+
+          //arg_vec.push_back("-z");
+          //arg_vec.push_back("nocopyreloc");
+
+          uintptr_t Base, End;
+          std::tie(Base, End) = base_of_executable(b);
+
+          arg_vec.push_back("--section-start");
+          _arg1 = (fmt(".jove=0x%lx") % Base).str();
+          arg_vec.push_back(_arg1.c_str());
+
+#define ALIGN_DOWN(n, m) ((n) / (m) * (m))
+#define ALIGN_UP(n, m) ALIGN_DOWN((n) + (m) - 1, (m))
+
+          arg_vec.push_back("-Ttext-segment");
+          _arg2 = (fmt("0x%lx") % (ALIGN_UP(End, 4096))).str();
+          arg_vec.push_back(_arg2.c_str());
+
+#undef ALIGN_UP
+#undef ALIGN_DOWN
+        }
+      } else {
+        assert(b.IsPIC);
+        arg_vec.push_back("-shared");
+      }
 
 #if 1 /* __tls_get_addr... */
       if (b.IsExecutable)
@@ -987,27 +1025,34 @@ void worker(const dso_graph_t &dso_graph) {
     if (!pid) {
       IgnoreCtrlC();
 
-      const char *arg_arr[] = {
+      std::vector<const char *> arg_vec = {
         llc_path.c_str(),
 
         "-o", objfp.c_str(),
         bcfp.c_str(),
 
         "--filetype=obj",
-        "--relocation-model=pic",
         "--frame-pointer=all",
 
         "--disable-simplify-libcalls",
 #if 0
         "--emulated-tls,"
 #endif
-        nullptr
       };
 
-      print_command(&arg_arr[0]);
+      if (b.IsPIC) {
+        arg_vec.push_back("--relocation-model=pic");
+      } else {
+        assert(b.IsExecutable);
+        arg_vec.push_back("--relocation-model=static");
+      }
+
+      arg_vec.push_back(nullptr);
+
+      print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -1192,6 +1237,16 @@ typedef typename obj::ELF32LEFile ELFT;
 #error
 #endif
 
+typedef typename ELFT::Elf_Dyn Elf_Dyn;
+typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFT::Elf_Phdr Elf_Phdr;
+typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFT::Elf_Shdr Elf_Shdr;
+typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFT::Elf_Sym Elf_Sym;
+typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+typedef typename ELFT::Elf_Rela Elf_Rela;
+
 static bool verify_arch(const obj::ObjectFile &);
 
 bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
@@ -1226,16 +1281,6 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   }
 
   const ELFT &E = *O.getELFFile();
-
-  typedef typename ELFT::Elf_Dyn Elf_Dyn;
-  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFT::Elf_Phdr Elf_Phdr;
-  typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-  typedef typename ELFT::Elf_Sym Elf_Sym;
-  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Rela Elf_Rela;
 
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||
@@ -1387,6 +1432,74 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
+}
+
+std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
+  //
+  // parse the ELF
+  //
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
+                         binary.Data.size());
+  llvm::StringRef Identifier(binary.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from " << binary.Path
+                       << '\n';
+    abort();
+  }
+
+  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+  assert(llvm::isa<ELFO>(BinRef.get()));
+  ELFO &O = *llvm::cast<ELFO>(BinRef.get());
+
+  // TheTriple = O.makeTriple();
+  // Features = O.getFeatures();
+
+  const ELFT &E = *O.getELFFile();
+
+  //
+  // build section map
+  //
+  llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+  if (!sections) {
+    WithColor::error() << "error: could not get ELF sections for binary "
+                       << binary.Path << '\n';
+    abort();
+  }
+
+  if (opts::Verbose)
+    llvm::outs() << binary.Path << '\n';
+
+  //
+  // compute SectsStartAddr, SectsEndAddr
+  //
+  uintptr_t SectsStartAddr = std::numeric_limits<uintptr_t>::max();
+  uintptr_t SectsEndAddr = 0;
+
+  for (const Elf_Shdr &Sec : *sections) {
+    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+      continue;
+
+    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+    if (!name)
+      continue;
+
+    if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
+      continue;
+
+    if (!Sec.sh_size)
+      continue;
+
+    SectsStartAddr = std::min<uintptr_t>(SectsStartAddr, Sec.sh_addr);
+    SectsEndAddr = std::max<uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
+  }
+
+  return {SectsStartAddr, SectsEndAddr};
 }
 
 }

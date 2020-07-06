@@ -133,6 +133,7 @@ struct hook_t;
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
+  llvm::Function *SectsF = nullptr;                                            \
   std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
   std::unordered_map<uintptr_t, basic_block_index_t> BBMap;                    \
   boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
@@ -670,6 +671,11 @@ static struct {
   std::unordered_map<std::string, std::unordered_set<std::string>> Table;
 } VersionScript;
 
+// set {int}0x08053ebc = 0xf7fa83f0
+static std::map<std::pair<uintptr_t, unsigned>,
+                std::pair<binary_index_t, unsigned>>
+    CopyRelocMap;
+
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
 #elif defined(__i386__) || defined(__mips__)
@@ -704,6 +710,7 @@ static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
 static int CreateTPOFFCtorHack(void);
+static int CreateCopyRelocationHack(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
 static int PrepareToOptimize(void);
@@ -745,6 +752,7 @@ int llvm(void) {
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || CreateTPOFFCtorHack()
+      || CreateCopyRelocationHack()
       || TranslateFunctions()
       || PrepareToOptimize()
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
@@ -4172,9 +4180,6 @@ int CreateFunctionTable(void) {
 #endif
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    if (BIdx == BinaryIndex)
-      continue;
-
     binary_t &binary = Decompilation.Binaries[BIdx];
     if (binary.IsDynamicLinker)
       continue;
@@ -4182,6 +4187,58 @@ int CreateFunctionTable(void) {
       continue;
     if (binary.IsDynamicallyLoaded)
       continue;
+
+    binary.SectsF = llvm::Function::Create(
+        llvm::FunctionType::get(WordType(), false),
+        llvm::GlobalValue::ExternalLinkage,
+        (fmt("__jove_b%u_sects") % BIdx).str(), Module.get());
+
+    if (BIdx == BinaryIndex) {
+      //
+      // define SectsF
+      //
+#if 1
+      llvm::DIBuilder &DIB = *DIBuilder;
+      llvm::DISubprogram::DISPFlags SubProgFlags =
+          llvm::DISubprogram::SPFlagDefinition |
+          llvm::DISubprogram::SPFlagOptimized;
+
+      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+      llvm::DISubroutineType *SubProgType =
+          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+      struct {
+        llvm::DISubprogram *Subprogram;
+      } DebugInfo;
+
+      DebugInfo.Subprogram = DIB.createFunction(
+          /* Scope       */ DebugInformation.CompileUnit,
+          /* Name        */ binary.SectsF->getName(),
+          /* LinkageName */ binary.SectsF->getName(),
+          /* File        */ DebugInformation.File,
+          /* LineNo      */ 0,
+          /* Ty          */ SubProgType,
+          /* ScopeLine   */ 0,
+          /* Flags       */ llvm::DINode::FlagZero,
+          /* SPFlags     */ SubProgFlags);
+#endif
+      binary.SectsF->setSubprogram(DebugInfo.Subprogram);
+
+      llvm::BasicBlock *BB =
+          llvm::BasicBlock::Create(*Context, "", binary.SectsF);
+      {
+        llvm::IRBuilderTy IRB(BB);
+#if 1
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+#endif
+
+        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+      }
+
+      continue;
+    }
 
     binary.FunctionsTable = new llvm::GlobalVariable(
         *Module,
@@ -4299,6 +4356,9 @@ int CreateTLSModGlobal(void) {
       llvm::ConstantInt::get(WordType(), 0x12345678), "__jove_tpmod");
   return 0;
 }
+
+static std::pair<binary_index_t, unsigned>
+decipher_copy_relocation(const symbol_t &S);
 
 int CreateSectionGlobalVariables(void) {
   auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
@@ -4562,6 +4622,18 @@ int CreateSectionGlobalVariables(void) {
                                      const symbol_t &S) -> llvm::Type * {
     assert(R.Addr == S.Addr);
 
+#if defined(__x86_64__)
+    const char *CopyRelocName = "R_X86_64_COPY";
+#elif defined(__i386__)
+    const char *CopyRelocName = "R_386_COPY";
+#elif defined(__aarch64__)
+    const char *CopyRelocName = "R_AARCH64_COPY";
+#elif defined(__mips64) || defined(__mips__)
+    const char *CopyRelocName = "R_MIPS_COPY";
+#else
+#error
+#endif
+
     if (!S.Size) {
       WithColor::error() << llvm::formatv(
           "copy relocation @ 0x{0:x} specifies symbol {1} with size 0\n",
@@ -4573,27 +4645,32 @@ int CreateSectionGlobalVariables(void) {
         "copy relocation @ 0x{0:x} specifies symbol {1} with size {2}\n"
         "was prog compiled as position-independant (i.e. -fPIC)?\n",
         R.Addr, S.Name, S.Size);
-    abort();
+    //abort();
 
-#if 0
-    unsigned off = R.Addr - SectsStartAddr;
+    if (CopyRelocMap.find(std::pair<uintptr_t, unsigned>(S.Addr, S.Size)) !=
+        CopyRelocMap.end())
+      return VoidType();
 
-    Module->appendModuleInlineAsm(
-        (fmt(".reloc __jove_sections+%u, R_X86_64_COPY, %s")
-         % off
-         % S.Name.str()).str());
-#elif 1
-    Module->appendModuleInlineAsm(
-        (fmt(".reloc __jove_sections, R_X86_64_COPY, %s") % S.Name.str()).str());
-#elif 0
-    unsigned off = R.Addr - SectsStartAddr;
+    //
+    // the dreaded copy relocation. we have to figure out who really defines
+    // the given symbol, and then insert an entry into a map we will read later
+    // to generate code that copies bytes from said symbol located in shared
+    // library to said symbol in executable
+    //
+    struct {
+      binary_index_t BIdx;
+      unsigned SectsOffset;
+    } CopyFrom;
 
-    Module->appendModuleInlineAsm(
-        (fmt("lbl%u:\n.8byte 0\n.reloc lbl%u, R_X86_64_COPY, %s")
-         % off
-         % off
-         % S.Name.str()).str());
-#endif
+    //
+    // find out who to copy from
+    //
+    std::tie(CopyFrom.BIdx, CopyFrom.SectsOffset) = decipher_copy_relocation(S);
+
+    if (is_binary_index_valid(CopyFrom.BIdx))
+      CopyRelocMap.emplace(std::pair<uintptr_t, unsigned>(S.Addr, S.Size),
+                           std::pair<binary_index_t, unsigned>(
+                               CopyFrom.BIdx, CopyFrom.SectsOffset));
 
     return VoidType();
   };
@@ -5236,12 +5313,12 @@ int CreateSectionGlobalVariables(void) {
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
                                            nullptr, "__jove_sections");
-    SectsGlobal->setAlignment(llvm::MaybeAlign(4096));
+    SectsGlobal->setAlignment(llvm::MaybeAlign(1));
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
         nullptr, "__jove_sections_const");
-    ConstSectsGlobal->setAlignment(llvm::MaybeAlign(4096));
+    ConstSectsGlobal->setAlignment(llvm::MaybeAlign(1));
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
       return;
@@ -6203,14 +6280,381 @@ int CreateSectionGlobalVariables(void) {
   }
 #endif
 
+  SectsGlobal->setSection(".jove");
+
   return 0;
+}
+
+std::pair<binary_index_t, unsigned>
+decipher_copy_relocation(const symbol_t &S) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+  assert(Binary.IsExecutable);
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    if (BIdx == BinaryIndex)
+      continue;
+
+    auto &binary = Decompilation.Binaries[BIdx];
+    if (binary.IsVDSO)
+      continue;
+    if (binary.IsDynamicLinker)
+      continue;
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    const ELFT &E = *O.getELFFile();
+
+    auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+      if (DRI.Addr < E.base() ||
+          (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+        abort();
+      return DRI;
+    };
+
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+    DynRegionInfo DynamicTable;
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                           uint64_t EntSize) -> DynRegionInfo {
+        return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+      };
+
+      for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
+          DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+
+        if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
+          LoadSegments.push_back(&Phdr);
+      }
+    }
+
+    assert(DynamicTable.Addr);
+
+    DynRegionInfo DynSymRegion;
+    llvm::StringRef DynSymtabName;
+    llvm::StringRef DynamicStringTable;
+
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+        return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+      };
+
+      for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+        switch (Sec.sh_type) {
+        case llvm::ELF::SHT_DYNSYM:
+          DynSymRegion = createDRIFrom(&Sec);
+          DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+          DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+          break;
+        }
+      }
+    }
+
+    //
+    // parse dynamic table
+    //
+    {
+      auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+        return DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+
+      auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+        const Elf_Phdr *const *I =
+            std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                             [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                               return VAddr < Phdr->p_vaddr;
+                             });
+        if (I == LoadSegments.begin())
+          abort();
+        --I;
+        const Elf_Phdr &Phdr = **I;
+        uint64_t Delta = VAddr - Phdr.p_vaddr;
+        if (Delta >= Phdr.p_filesz)
+          abort();
+        return E.base() + Phdr.p_offset + Delta;
+      };
+
+      const char *StringTableBegin = nullptr;
+      uint64_t StringTableSize = 0;
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        switch (Dyn.d_tag) {
+        case llvm::ELF::DT_STRTAB:
+          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          break;
+        case llvm::ELF::DT_STRSZ:
+          StringTableSize = Dyn.getVal();
+          break;
+        }
+      };
+
+      if (StringTableBegin)
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
+    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_GNU_versym:
+        if (!SymbolVersionSection)
+          SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        if (!SymbolVersionDefSection)
+          SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        if (!SymbolVersionNeedSection)
+          SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+
+    auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+      const uint8_t *VerdefStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+      // The first Verdef entry is at the start of the section.
+      const uint8_t *VerdefBuf = VerdefStart;
+      for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries;
+           ++VerdefIndex) {
+        if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+      report_fatal_error("Section ended unexpectedly while scanning "
+                         "version definitions.");
+#else
+          abort();
+#endif
+        }
+
+        const Elf_Verdef *Verdef =
+            reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+        if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+      report_fatal_error("Unexpected verdef version");
+#else
+          abort();
+#endif
+        }
+
+        size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Verdef);
+        VerdefBuf += Verdef->vd_next;
+      }
+    };
+
+    auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+      const uint8_t *VerneedStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+      // The first Verneed entry is at the start of the section.
+      const uint8_t *VerneedBuf = VerneedStart;
+      for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+           ++VerneedIndex) {
+        if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Verneed *Verneed =
+            reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+        if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+          abort();
+#endif
+        }
+        // Iterate through the Vernaux entries
+        const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+        for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+             ++VernauxIndex) {
+          if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+            abort();
+#endif
+          }
+          const Elf_Vernaux *Vernaux =
+              reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+          size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+          if (Index >= VersionMap.size())
+            VersionMap.resize(Index + 1);
+          VersionMap[Index] = VersionMapEntry(Vernaux);
+          VernauxBuf += Vernaux->vna_next;
+        }
+        VerneedBuf += Verneed->vn_next;
+      }
+    };
+
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined())
+        continue;
+
+      if (Sym.getType() != llvm::ELF::STT_OBJECT)
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+
+      symbol_t sym;
+
+      sym.Name = SymName;
+
+      //
+      // symbol versioning
+      //
+      if (!SymbolVersionSection) {
+        sym.Visibility.IsDefault = false;
+      } else {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                            sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        const Elf_Versym *Versym = unwrapOrError(
+            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+
+        auto getSymbolVersionByIndex = [&](llvm::StringRef StrTab,
+                                           uint32_t SymbolVersionIndex,
+                                           bool &IsDefault) -> llvm::StringRef {
+          size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+          // Special markers for unversioned symbols.
+          if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+              VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+            IsDefault = false;
+            return "";
+          }
+
+          auto LoadVersionMap = [&](void) -> void {
+            // If there is no dynamic symtab or version table, there is nothing to
+            // do.
+            if (!DynSymRegion.Addr || !SymbolVersionSection)
+              return;
+
+            // Has the VersionMap already been loaded?
+            if (!VersionMap.empty())
+              return;
+
+            // The first two version indexes are reserved.
+            // Index 0 is LOCAL, index 1 is GLOBAL.
+            VersionMap.push_back(VersionMapEntry());
+            VersionMap.push_back(VersionMapEntry());
+
+            if (SymbolVersionDefSection)
+              LoadVersionDefs(SymbolVersionDefSection);
+
+            if (SymbolVersionNeedSection)
+              LoadVersionNeeds(SymbolVersionNeedSection);
+          };
+
+          // Lookup this symbol in the version table.
+          LoadVersionMap();
+          if (VersionIndex >= VersionMap.size() ||
+              VersionMap[VersionIndex].isNull()) {
+            WithColor::error() << "Invalid version entry\n";
+            exit(1);
+          }
+
+          const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+          // Get the version name string.
+          size_t NameOffset;
+          if (Entry.isVerdef()) {
+            // The first Verdaux entry holds the name.
+            NameOffset = Entry.getVerdef()->getAux()->vda_name;
+            IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+          } else {
+            NameOffset = Entry.getVernaux()->vna_name;
+            IsDefault = false;
+          }
+
+          if (NameOffset >= StrTab.size()) {
+            WithColor::error() << "Invalid string offset\n";
+            return "";
+          }
+
+          return StrTab.data() + NameOffset;
+        };
+
+        sym.Vers = getSymbolVersionByIndex(DynamicStringTable, Versym->vs_index,
+                                           sym.Visibility.IsDefault);
+      }
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+
+      if ((sym.Name == S.Name &&
+           sym.Vers == S.Vers)) {
+        //
+        // we have a match.
+        //
+        uintptr_t _SectsStartAddr = std::numeric_limits<uintptr_t>::max();
+
+        for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+          if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+            continue;
+
+          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+          if (!name)
+            continue;
+
+          if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
+            continue;
+
+          if (!Sec.sh_size)
+            continue;
+
+          _SectsStartAddr = std::min<uintptr_t>(_SectsStartAddr, Sec.sh_addr);
+        }
+
+        assert(Sym.st_value > _SectsStartAddr);
+
+        return {BIdx, Sym.st_value - _SectsStartAddr};
+      }
+    }
+  }
+
+  WithColor::warning() << llvm::formatv(
+      "failed to decipher copy relocation {0} {1}\n", S.Name, S.Vers);
+
+  return {invalid_binary_index, 0};
 }
 
 int CreateTPOFFCtorHack(void) {
   llvm::Function *F = Module->getFunction("_jove_do_tpoff_hack");
   assert(F && F->empty());
 
-#if 0
+#if 1
   llvm::DIBuilder &DIB = *DIBuilder;
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
@@ -6235,14 +6679,14 @@ int CreateTPOFFCtorHack(void) {
       /* ScopeLine   */ 0,
       /* Flags       */ llvm::DINode::FlagZero,
       /* SPFlags     */ SubProgFlags);
+#endif
 
   F->setSubprogram(DebugInfo.Subprogram);
-#endif
 
   llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
   {
     llvm::IRBuilderTy IRB(BB);
-#if 0
+#if 1
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
         *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 #endif
@@ -6262,6 +6706,84 @@ int CreateTPOFFCtorHack(void) {
                         gep, true /* Volatile */);
       else
         abort();
+    }
+
+    IRB.CreateRetVoid();
+  }
+
+  F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  assert(!F->empty());
+
+  return 0;
+}
+
+int CreateCopyRelocationHack(void) {
+  llvm::Function *F = Module->getFunction("_jove_do_emulate_copy_relocations");
+  assert(F && F->empty());
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+#if 1
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ F->getName(),
+      /* LinkageName */ F->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+#endif
+
+  F->setSubprogram(DebugInfo.Subprogram);
+
+  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+  {
+    llvm::IRBuilderTy IRB(BB);
+#if 1
+    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+#endif
+
+    if (!Binary.IsExecutable) {
+      assert(CopyRelocMap.empty());
+    }
+
+    for (const auto &pair : CopyRelocMap) {
+      auto &binary_from = Decompilation.Binaries.at(pair.second.first);
+
+      assert(binary_from.SectsF);
+
+      IRB.CreateMemCpy(
+          IRB.CreateIntToPtr(SectionPointer(pair.first.first),
+                             IRB.getInt8PtrTy()),
+          llvm::MaybeAlign(),
+          IRB.CreateIntToPtr(
+              IRB.CreateAdd(IRB.CreateCall(binary_from.SectsF),
+                            IRB.getIntN(WordBits(), pair.second.second)),
+              IRB.getInt8PtrTy()),
+          llvm::MaybeAlign(), pair.first.second);
+
+      WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
+                                         pair.first.first,
+                                         pair.first.second,
+                                         pair.second.first,
+                                         pair.second.second);
     }
 
     IRB.CreateRetVoid();

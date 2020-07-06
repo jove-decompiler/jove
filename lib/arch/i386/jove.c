@@ -611,14 +611,31 @@ extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ void _jove_do_tpoff_hack(void);
+extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
 
 _CTOR static void _jove_tpoff_hack(void) {
   _jove_do_tpoff_hack();
 }
 
+static bool __jove_did_emu_copy_reloc = false;
+
+_CTOR static void _jove_emulate_copy_relocations(void) {
+  if (!__jove_did_emu_copy_reloc) {
+    __jove_did_emu_copy_reloc = true;
+
+    _jove_do_emulate_copy_relocations();
+  }
+}
+
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
   _jove_do_tpoff_hack(); /* for good measure */
+
+  if (!__jove_did_emu_copy_reloc) {
+    __jove_did_emu_copy_reloc = true;
+
+    _jove_do_emulate_copy_relocations();
+  }
 }
 
 _CTOR static void _jove_install_foreign_function_tables(void);
