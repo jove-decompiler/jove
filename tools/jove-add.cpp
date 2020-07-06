@@ -683,18 +683,14 @@ int add(void) {
   }
 
   std::set<uintptr_t> FunctionEntrypoints;
-  uintptr_t EntryAddr = 0;
+  uintptr_t EntryAddr = E.getHeader()->e_entry;
+  if (EntryAddr) {
+    llvm::outs() << "translating entry point @ "
+                 << (fmt("%#lx") % EntryAddr).str() << '\n';
 
-  {
-    EntryAddr = E.getHeader()->e_entry;
-    if (EntryAddr && (Interp.Found || IsStaticallyLinked)) {
-      llvm::outs() << "translating entry point @ "
-                   << (fmt("%#lx") % EntryAddr).str() << '\n';
-
-      FunctionEntrypoints.insert(EntryAddr);
-    } else {
-      binary.Analysis.EntryFunction = invalid_function_index;
-    }
+    FunctionEntrypoints.insert(EntryAddr);
+  } else {
+    binary.Analysis.EntryFunction = invalid_function_index;
   }
 
   //
@@ -967,13 +963,18 @@ int add(void) {
         assert(ICFG[bb].Term._call.Target == invalid_function_index);
         ICFG[bb].Term._call.Target =
             translate_function(binary, tcg, dis, pair.first);
+        assert(is_function_index_valid(ICFG[bb].Term._call.Target));
       }
     }
   } while (!FunctionCallsToFixup.empty());
 
-  if (EntryAddr)
+  if (EntryAddr) {
+    assert(FunctionCallsToFixup.empty());
     binary.Analysis.EntryFunction =
         translate_function(binary, tcg, dis, EntryAddr);
+    assert(is_function_index_valid(binary.Analysis.EntryFunction));
+    assert(FunctionCallsToFixup.empty());
+  }
 
   {
     struct sigaction sa;
@@ -1080,7 +1081,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
             WithColor::error() << llvm::formatv(
                 "failed to disassemble {0:x} {1}\n", A, errmsg);
 
-          assert(Disassembled);
+          //assert(Disassembled);
 
           if (A == Addr)
             goto on_insn_boundary;
