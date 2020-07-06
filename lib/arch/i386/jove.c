@@ -618,6 +618,7 @@ _CTOR static void _jove_tpoff_hack(void) {
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
+  _jove_do_tpoff_hack(); /* for good measure */
 }
 
 _CTOR static void _jove_install_foreign_function_tables(void);
