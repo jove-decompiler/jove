@@ -254,6 +254,7 @@ skip_run:
           nullptr
       };
 
+      print_command(&arg_arr[0]);
       execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
       int err = errno;
@@ -306,10 +307,19 @@ skip_run:
 }
 
 void print_command(const char **argv) {
-  for (const char **s = argv; *s; ++s)
-    llvm::outs() << *s << ' ';
+  std::string msg;
 
-  llvm::outs() << '\n';
+  for (const char **s = argv; *s; ++s) {
+    msg.append(*s);
+    msg.push_back(' ');
+  }
+
+  if (msg.empty())
+    return;
+
+  msg[msg.size() - 1] = '\n';
+
+  llvm::outs() << msg;
 }
 
 int await_process_completion(pid_t pid) {
