@@ -198,7 +198,7 @@ static flow_vertex_t copy_function_cfg(
   //
   // make sure basic blocks have been analyzed
   //
-  auto &Binary = Decompilation.Binaries[f.BIdx];
+  auto &Binary = Decompilation.Binaries.at(f.BIdx);
   auto &ICFG = Binary.Analysis.ICFG;
   for (basic_block_t bb : f.BasicBlocks) {
     NeedsUpdate = NeedsUpdate || ICFG[bb].Analysis.Stale;
@@ -278,7 +278,7 @@ static flow_vertex_t copy_function_cfg(
     case TERMINATOR::CALL: {
       function_t &callee =
           callee_ptr ? *callee_ptr
-                     : Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
+                     : Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
       std::vector<flow_vertex_t> calleeExitVertices;
       flow_vertex_t calleeEntryV = copy_function_cfg(
