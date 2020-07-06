@@ -186,8 +186,13 @@ int loop(void) {
   while (!Cancelled) {
     pid_t pid;
 
-    if (opts::ForceRecompile || opts::JustRecompile)
+    if (opts::JustRecompile)
       goto skip_run;
+
+    if (opts::ForceRecompile) {
+      opts::ForceRecompile = false; /* XXX just the first time */
+      goto skip_run;
+    }
 
     {
       fs::path chrooted_path(opts::sysroot);
