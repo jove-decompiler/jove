@@ -5313,12 +5313,16 @@ int CreateSectionGlobalVariables(void) {
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
                                            nullptr, "__jove_sections");
-    SectsGlobal->setAlignment(llvm::MaybeAlign(1));
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
         nullptr, "__jove_sections_const");
-    ConstSectsGlobal->setAlignment(llvm::MaybeAlign(1));
+
+    if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
+        !Decompilation.Binaries[BinaryIndex].IsPIC) {
+      SectsGlobal->setAlignment(llvm::MaybeAlign(1));
+      ConstSectsGlobal->setAlignment(llvm::MaybeAlign(1));
+    }
 
     if (!Old.SectsGlobal || !Old.ConstSectsGlobal)
       return;
@@ -6280,7 +6284,9 @@ int CreateSectionGlobalVariables(void) {
   }
 #endif
 
-  SectsGlobal->setSection(".jove");
+  if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
+      !Decompilation.Binaries[BinaryIndex].IsPIC)
+    SectsGlobal->setSection(".jove");
 
   return 0;
 }
