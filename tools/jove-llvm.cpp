@@ -7425,39 +7425,6 @@ int DoOptimize(void) {
   return 0;
 }
 
-static llvm::Constant *
-ConstantForRelativeAddress(uintptr_t Addr) {
-  if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
-    return nullptr;
-
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  auto &FuncMap = Binary.FuncMap;
-
-  llvm::Constant *res;
-
-  auto it = FuncMap.find(Addr);
-  if (it != FuncMap.end()) {
-    function_t &f = Binary.Analysis.Functions.at((*it).second);
-    assert(f.F);
-    res = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
-
-#if 0
-    if (!f.IsABI) {
-      WithColor::note() << llvm::formatv("!IsABI for function @ {0:x}\n", Addr);
-
-      FuncIdxAreABIVec.push_back((*it).second);
-      ABIChanged = true;
-    }
-#endif
-  } else {
-    res = SectionPointer(Addr);
-    assert(res);
-  }
-
-  assert(res->getType()->isIntegerTy(WordBits()));
-  return res;
-}
-
 int ConstifyRelocationSectionPointers(void) {
   assert(SectsGlobal && ConstSectsGlobal);
 
@@ -9571,27 +9538,11 @@ int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
     pcrel_flag = false; /* reset pcrel flag */
     assert(bits == WordBits());
 
-    //
-    // on x86_64, PC-relative accesses are easy to handle. But on other
-    // architectures, the program counter register cannot be directly
-    // referenced, and so it is not as simple.
-    //
-    // on aarch64, adrp retrives address of 4KB page at a PC-relative offset.
-    //
-    // on i386, a call instruction is often followed immediately by a pop
-    // instruction which retrives the PC-relative address.
-    //
-#ifdef __x86_64__ /* we can get away with this on x86_64 */
-    llvm::Value *res = ConstantForRelativeAddress(A);
-    assert(res);
-    return res;
-#else
     return llvm::ConstantExpr::getAdd(
         llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
             llvm::ConstantInt::get(WordType(), SectsStartAddr)));
-#endif
   };
 
   const TCGOpcode opc = op->opc;
