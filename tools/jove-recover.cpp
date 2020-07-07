@@ -494,6 +494,12 @@ int recover(void) {
 
     basic_block_index_t target_bb_idx =
         translate_basic_block(IndBr.BIdx, tcg, dis, IndBr.Target);
+    if (!is_basic_block_index_valid(target_bb_idx)) {
+      WithColor::error() << llvm::formatv(
+          "failed to recover control flow -> {0:x}\n", IndBr.Target);
+      return 1;
+    }
+
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
     bool isNewTarget = boost::add_edge(IndBr.bb, target_bb, ICFG).second;
