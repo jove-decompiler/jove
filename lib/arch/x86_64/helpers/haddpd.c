@@ -333,7 +333,7 @@ float64_gen2(float64 xa, float64 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f64_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabs(ur.h) <= DBL_MIN)) {
+    } else if (unlikely(__builtin_fabs(ur.h) <= DBL_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }

@@ -369,7 +369,7 @@ float32_gen2(float32 xa, float32 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f32_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabsf(ur.h) <= FLT_MIN)) {
+    } else if (unlikely(__builtin_fabsf(ur.h) <= FLT_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }
@@ -406,7 +406,7 @@ float64_gen2(float64 xa, float64 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f64_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabs(ur.h) <= DBL_MIN)) {
+    } else if (unlikely(__builtin_fabs(ur.h) <= DBL_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }

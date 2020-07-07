@@ -1187,7 +1187,7 @@ void helper_fprem1(CPUX86State *env)
         fpsrcop = (st0 / st1) / fptemp;
         /* fpsrcop = integer obtained by chopping */
         fpsrcop = (fpsrcop < 0.0) ?
-                  -(floor(fabs(fpsrcop))) : floor(fpsrcop);
+                  -(floor(__builtin_fabs(fpsrcop))) : floor(fpsrcop);
         st0 -= (st1 * fpsrcop * fptemp);
     }
     ST0 = double_to_floatx80(env, st0);
@@ -1248,7 +1248,7 @@ void helper_fprem(CPUX86State *env)
         fpsrcop = (st0 / st1) / fptemp;
         /* fpsrcop = integer obtained by chopping */
         fpsrcop = (fpsrcop < 0.0) ?
-                  -(floor(fabs(fpsrcop))) : floor(fpsrcop);
+                  -(floor(__builtin_fabs(fpsrcop))) : floor(fpsrcop);
         st0 -= (st1 * fpsrcop * fptemp);
     }
     ST0 = double_to_floatx80(env, st0);
