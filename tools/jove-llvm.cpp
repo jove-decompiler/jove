@@ -6783,7 +6783,7 @@ int CreateCopyRelocationHack(void) {
               IRB.CreateAdd(IRB.CreateCall(binary_from.SectsF),
                             IRB.getIntN(WordBits(), pair.second.second)),
               IRB.getInt8PtrTy()),
-          llvm::MaybeAlign(), pair.first.second);
+          llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
 
       WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
                                          pair.first.first,
