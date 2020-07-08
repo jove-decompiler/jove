@@ -388,6 +388,19 @@ int recompile(void) {
 
       ofs.write(reinterpret_cast<char *>(&b.Data[0]), b.Data.size());
     }
+
+    //
+    // make rtld executable (chmod)
+    //
+    fs::permissions(ldso_path, fs::others_read |
+                               fs::others_exe |
+
+                               fs::group_read |
+                               fs::group_exe |
+
+                               fs::owner_read |
+                               fs::owner_write |
+                               fs::owner_exe);
 #endif
 
     fs::path chrooted_path(opts::Output + b.Path);
