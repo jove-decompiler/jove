@@ -5089,8 +5089,10 @@ int CreateSectionGlobalVariables(void) {
 
       llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, true);
 
-      if (GV)
+      if (GV) {
+        assert(TPOFFHack.find(R.Addr) != TPOFFHack.end());
         return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+      }
 
       auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
       if (it == GlobalSymbolDefinedSizeMap.end()) {
@@ -5114,6 +5116,8 @@ int CreateSectionGlobalVariables(void) {
                                         : llvm::GlobalValue::ExternalLinkage,
                                     nullptr, S.Name, nullptr,
                                     llvm::GlobalValue::GeneralDynamicTLSModel);
+
+      TPOFFHack[R.Addr] = res;
 
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
