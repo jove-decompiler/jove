@@ -782,6 +782,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define sp    uctx->uc_mcontext.gregs[REG_RSP]
 #define emusp           __jove_env.regs[R_ESP]
 
+      uintptr_t saved_retaddr = *((uintptr_t *)sp);
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
 
@@ -789,8 +790,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       // replace the emulated stack pointer with the real stack pointer
       //
       emusp = sp;
-
-      uintptr_t saved_retaddr = *((uintptr_t *)sp);
 
       {
         uintptr_t newsp =
