@@ -331,7 +331,14 @@ struct indirect_branch_t {
   bool IsCall;
 };
 
+struct return_t {
+  binary_index_t binary_idx;
+
+  uintptr_t TermAddr;
+};
+
 static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
+static std::unordered_map<uintptr_t, return_t> RetMap;
 
 static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
   assert(BinStateVec.at(idx).dyn.LoadAddr);
@@ -1316,6 +1323,10 @@ on_insn_boundary:
         newbbprop.Term.Type = TERMINATOR::NONE;
         newbbprop.Term.Addr = 0; /* XXX? */
         newbbprop.DynTargetsComplete = false;
+        newbbprop.Term._call.Target = invalid_function_index;
+        newbbprop.Term._call.Returns = false;
+        newbbprop.Term._indirect_call.Returns = false;
+        newbbprop.Term._return.Returns = false;
         newbbprop.InvalidateAnalysis();
       }
 
@@ -1553,6 +1564,10 @@ on_insn_boundary:
     bbprop.Term.Type = T.Type;
     bbprop.Term.Addr = T.Addr;
     bbprop.DynTargetsComplete = false;
+    bbprop.Term._call.Target = invalid_function_index;
+    bbprop.Term._call.Returns = false;
+    bbprop.Term._indirect_call.Returns = false;
+    bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
     InvalidateAllFunctionAnalyses();
 
@@ -1889,7 +1904,31 @@ void place_breakpoint(pid_t child,
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
+void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret) {
+  // read a word of the instruction
+  unsigned long word = _ptrace_peekdata(child, Addr);
+
+  // insert breakpoint
+#if defined(__x86_64__) || defined(__i386__)
+  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
+#elif defined(__aarch64__)
+  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
+#elif defined(__mips64) || defined(__mips__)
+  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
+#else
+#error
+#endif
+
+  // write the word back
+  _ptrace_pokedata(child, Addr, word);
+
+  if (opts::VeryVerbose)
+    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
+}
+
 static std::string description_of_program_counter(uintptr_t);
+
+static void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr);
 
 struct ScopedGPR {
   pid_t child;
@@ -1939,20 +1978,46 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   {
     if (_pc == _r_debug.r_brk) {
       //
-      // we can assume that this is a 'ret'
+      // we assume that this is a 'ret' TODO verify this assumption
       //
       auto it = BrkMap.find(_pc);
       assert(it != BrkMap.end());
       (*it).second.callback(child, tcg, dis);
 
+      //
+      // emulate the return
+      //
 #if defined(__x86_64__)
       pc = _ptrace_peekdata(child, gpr.rsp);
       gpr.rsp += sizeof(uintptr_t);
 #elif defined(__i386__)
       pc = _ptrace_peekdata(child, gpr.esp);
       gpr.esp += sizeof(uintptr_t);
+#else
+#error
 #endif
 
+      return;
+    }
+  }
+
+  {
+    auto it = RetMap.find(_pc);
+    if (it != RetMap.end()) {
+      //
+      // emulate the return
+      //
+#if defined(__x86_64__)
+      pc = _ptrace_peekdata(child, gpr.rsp);
+      gpr.rsp += sizeof(uintptr_t);
+#elif defined(__i386__)
+      pc = _ptrace_peekdata(child, gpr.esp);
+      gpr.esp += sizeof(uintptr_t);
+#else
+#error
+#endif
+
+      on_return(child, _pc, pc);
       return;
     }
   }
@@ -2972,6 +3037,29 @@ void on_binary_loaded(pid_t child,
     ++cnt;
   }
 
+  //
+  // place breakpoints for returns
+  //
+  for (basic_block_index_t bbidx = 0;
+       bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
+    basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
+
+    basic_block_properties_t &bbprop = binary.Analysis.ICFG[bb];
+    if (bbprop.Term.Type != TERMINATOR::RETURN)
+      continue;
+
+    uintptr_t Addr = va_of_rva(bbprop.Term.Addr, BIdx);
+
+    assert(RetMap.find(Addr) == RetMap.end());
+
+    auto &RetInfo = RetMap[Addr];
+    RetInfo.binary_idx = BIdx;
+    RetInfo.TermAddr = bbprop.Term.Addr;
+
+    place_breakpoint_at_return(child, Addr, RetInfo);
+    ++cnt;
+  }
+
   llvm::errs() << "placed " << cnt << " breakpoints in " << binary.Path
                << '\n';
 }
@@ -3883,6 +3971,83 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
             "{0}: couldn't place breakpoint at r_brk ({1})\n", __func__,
             _r_debug.r_brk);
       }
+    }
+  }
+}
+
+void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr) {
+  //
+  // examine AddrOfRet
+  //
+  {
+    uintptr_t pc = AddrOfRet;
+    binary_index_t BIdx = invalid_binary_index;
+    {
+      auto it = AddressSpace.find(pc);
+      if (it == AddressSpace.end()) {
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(pc));
+        return;
+      }
+
+      BIdx = *(*it).second.begin();
+    }
+
+    {
+      auto &BBMap = BinStateVec[BIdx].BBMap;
+
+      binary_t &binary = decompilation.Binaries.at(BIdx);
+      auto &ICFG = binary.Analysis.ICFG;
+
+      uintptr_t rva = rva_of_va(pc, BIdx);
+
+      auto it = BBMap.find(rva);
+      assert(it != BBMap.end());
+      basic_block_index_t bbidx = (*it).second - 1;
+      basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+      assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
+      ICFG[bb].Term._return.Returns = true;
+    }
+  }
+
+  //
+  // examine RetAddr
+  //
+  {
+    uintptr_t pc = RetAddr - 1;
+    binary_index_t BIdx = invalid_binary_index;
+    {
+      auto it = AddressSpace.find(pc);
+      if (it == AddressSpace.end()) {
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(pc));
+        return;
+      }
+
+      BIdx = *(*it).second.begin();
+    }
+
+    {
+      auto &BBMap = BinStateVec[BIdx].BBMap;
+
+      binary_t &binary = decompilation.Binaries.at(BIdx);
+      auto &ICFG = binary.Analysis.ICFG;
+
+      uintptr_t rva = rva_of_va(pc, BIdx);
+
+      auto it = BBMap.find(rva);
+      assert(it != BBMap.end());
+      basic_block_index_t bbidx = (*it).second - 1;
+      basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+      if (ICFG[bb].Term.Type == TERMINATOR::CALL)
+        ICFG[bb].Term._call.Returns = true;
+
+      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
+        ICFG[bb].Term._indirect_call.Returns = true;
     }
   }
 }

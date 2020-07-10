@@ -139,18 +139,14 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
       Writer.printHex("Entry", ICFG[boost::vertex(entryFunc.Entry, ICFG)].Addr);
     }
 
-    auto it_pair = boost::vertices(ICFG);
-
-    std::vector<basic_block_t> blocks;
-    blocks.resize(boost::num_vertices(ICFG));
-
-    std::transform(it_pair.first, it_pair.second, blocks.begin(),
-                   [](basic_block_t bb) -> basic_block_t { return bb; });
-
     {
-      llvm::ListScope ___(Writer, (fmt("Basic Blocks (%u)") % blocks.size()).str());
+      llvm::ListScope ___(
+          Writer, (fmt("Basic Blocks (%u)") % boost::num_vertices(ICFG)).str());
 
-      for (basic_block_t bb : blocks) {
+      icfg_t::vertex_iterator vi, vi_end;
+      for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
+        basic_block_t bb = *vi;
+
         llvm::DictScope ____(Writer, (fmt("0x%lX") % ICFG[bb].Addr).str());
 
         {
@@ -178,6 +174,17 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
           //Writer.printHex("Address", ICFG[bb].Term.Addr);
           Writer.printString("Type", description_of_terminator(ICFG[bb].Term.Type));
+
+          if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
+            Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
+            Writer.printNumber("Target", ICFG[bb].Term._call.Target);
+          }
+
+          if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
+            Writer.printBoolean("Returns", ICFG[bb].Term._indirect_call.Returns);
+
+          if (ICFG[bb].Term.Type == TERMINATOR::RETURN)
+            Writer.printBoolean("Returns", ICFG[bb].Term._return.Returns);
         }
 
 #if 0
@@ -347,6 +354,7 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
         Writer.printBoolean("IsABI", f.IsABI);
         Writer.printBoolean("IsSignalHandler", f.IsSignalHandler);
+        Writer.printBoolean("Returns", f.Returns);
       }
     }
 

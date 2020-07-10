@@ -79,7 +79,17 @@ struct basic_block_properties_t {
 
     struct {
       function_index_t Target;
+
+      bool Returns;
     } _call;
+
+    struct {
+      bool Returns;
+    } _indirect_call;
+
+    struct {
+      bool Returns;
+    } _return;
   } Term;
 
   std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
@@ -119,6 +129,9 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term.Addr)
        &BOOST_SERIALIZATION_NVP(Term.Type)
        &BOOST_SERIALIZATION_NVP(Term._call.Target)
+       &BOOST_SERIALIZATION_NVP(Term._call.Returns)
+       &BOOST_SERIALIZATION_NVP(Term._indirect_call.Returns)
+       &BOOST_SERIALIZATION_NVP(Term._return.Returns)
        &BOOST_SERIALIZATION_NVP(DynTargets)
        &BOOST_SERIALIZATION_NVP(DynTargetsComplete)
        &BOOST_SERIALIZATION_NVP(Analysis.live.def)
@@ -160,7 +173,7 @@ struct function_t {
     bool Stale;
   } Analysis;
 
-  bool IsABI, IsSignalHandler;
+  bool IsABI, IsSignalHandler, Returns;
 
   void InvalidateAnalysis(void) {
     this->Analysis.Stale = true;
@@ -175,7 +188,8 @@ struct function_t {
        &BOOST_SERIALIZATION_NVP(Analysis.rets)
        &BOOST_SERIALIZATION_NVP(Analysis.Stale)
        &BOOST_SERIALIZATION_NVP(IsABI)
-       &BOOST_SERIALIZATION_NVP(IsSignalHandler);
+       &BOOST_SERIALIZATION_NVP(IsSignalHandler)
+       &BOOST_SERIALIZATION_NVP(Returns);
   }
 };
 
