@@ -5117,7 +5117,7 @@ int CreateSectionGlobalVariables(void) {
                                     nullptr, S.Name, nullptr,
                                     llvm::GlobalValue::GeneralDynamicTLSModel);
 
-      TPOFFHack[R.Addr] = res;
+      TPOFFHack[R.Addr] = GV;
 
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
