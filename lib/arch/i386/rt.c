@@ -665,37 +665,6 @@ void _jove_do_rt_sigreturn(void) {
                "int    $0x80\n");
 }
 
-#if 0
-void _jove_inverse_thunk(void) {
-#if 0
-  _jove_sys_write(STDOUT_FILENO, "_jove_inverse_thunk ",
-                  sizeof("_jove_inverse_thunk "));
-#endif
-
-  uintptr_t emusp = __jove_env.regs[R_ESP];
-  uintptr_t retaddr = *(uintptr_t *)(emusp - 4);
-
-#if 0
-  {
-    char buff[65];
-    _addrtostr(emusp, buff, sizeof(buff));
-
-    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-    _jove_sys_write(STDOUT_FILENO, " ", sizeof(" "));
-  }
-
-  {
-    char buff[65];
-    _addrtostr(retaddr, buff, sizeof(buff));
-
-    _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-    _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
-  }
-#endif
-
-  return ((void (*)(void))retaddr)();
-}
-#else
 void _jove_inverse_thunk(void) {
   asm volatile("pushl $0xdeadbeef\n"
                "pushl %%ebp\n" /* callee-saved registers */
@@ -743,7 +712,6 @@ void _jove_inverse_thunk(void) {
 
                : /* Clobbers */);
 }
-#endif
 
 static _CTOR void _jove_rt_init(void) {
   struct kernel_sigaction sa;
