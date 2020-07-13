@@ -58,6 +58,10 @@ static cl::opt<bool> JustRecompile("just-recompile",
                                    cl::desc("Just recompile, nothing else"),
                                    cl::cat(JoveCategory));
 
+static cl::opt<bool> JustRun("just-run",
+                             cl::desc("Just run, nothing else"),
+                             cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -186,6 +190,9 @@ int loop(void) {
   while (!Cancelled) {
     pid_t pid;
 
+    if (opts::JustRun)
+      goto run;
+
     if (opts::JustRecompile)
       goto skip_run;
 
@@ -206,6 +213,7 @@ int loop(void) {
     //
     // run
     //
+run:
     pid = fork();
     if (!pid) {
       std::vector<const char *> arg_vec = {
@@ -240,6 +248,9 @@ int loop(void) {
           ret != 'r')
         break;
     }
+
+    if (opts::JustRun)
+      break;
 
 skip_run:
     //
