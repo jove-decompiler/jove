@@ -355,7 +355,7 @@ int InitStateForBinaries(void) {
                             IsDefinitelyTailCall(ICFG, bb);
                    });
 
-      f.Returns = !f.ExitBasicBlocks.empty();
+      f.Returns = f.Returns || !f.ExitBasicBlocks.empty();
     }
 
     //
