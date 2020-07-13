@@ -594,6 +594,7 @@ static llvm::GlobalVariable *JoveFunctionTablesGlobal;
 static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
+static llvm::Function *JoveRecoverReturnedFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
@@ -1241,6 +1242,9 @@ int CreateModule(void) {
 
   JoveRecoverBasicBlockFunc = Module->getFunction("_jove_recover_basic_block");
   assert(JoveRecoverBasicBlockFunc && !JoveRecoverBasicBlockFunc->empty());
+
+  JoveRecoverReturnedFunc = Module->getFunction("_jove_recover_returned");
+  assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
@@ -9378,6 +9382,13 @@ int TranslateBasicBlock(binary_t &Binary,
   case TERMINATOR::INDIRECT_CALL: {
     auto eit_pair = boost::out_edges(bb, ICFG);
     if (eit_pair.first == eit_pair.second) { /* otherwise fallthrough */
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
+
+      basic_block_index_t BBIdx = bb_idx_map[bb];
+
+      IRB.CreateCall(JoveRecoverReturnedFunc, IRB.getInt32(BBIdx));
       IRB.CreateCall(
           llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
       IRB.CreateUnreachable();

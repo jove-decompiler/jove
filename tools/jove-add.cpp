@@ -38,6 +38,7 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/format.hpp>
 
@@ -682,16 +683,17 @@ int add(void) {
     }
   }
 
-  std::set<uintptr_t> FunctionEntrypoints;
-  uintptr_t EntryAddr = E.getHeader()->e_entry;
-  if (EntryAddr) {
+  if (uintptr_t EntryAddr = E.getHeader()->e_entry) {
     llvm::outs() << "translating entry point @ "
                  << (fmt("%#lx") % EntryAddr).str() << '\n';
 
-    FunctionEntrypoints.insert(EntryAddr);
+    binary.Analysis.EntryFunction =
+        translate_function(binary, tcg, dis, EntryAddr);
   } else {
     binary.Analysis.EntryFunction = invalid_function_index;
   }
+
+  std::set<uintptr_t> FunctionEntrypoints;
 
   //
   // search symbols
@@ -968,6 +970,7 @@ int add(void) {
     }
   } while (!FunctionCallsToFixup.empty());
 
+#if 0
   if (EntryAddr) {
     assert(FunctionCallsToFixup.empty());
     binary.Analysis.EntryFunction =
@@ -975,6 +978,7 @@ int add(void) {
     assert(is_function_index_valid(binary.Analysis.EntryFunction));
     assert(FunctionCallsToFixup.empty());
   }
+#endif
 
   {
     struct sigaction sa;
@@ -1022,6 +1026,9 @@ static function_index_t translate_function(binary_t &binary,
 
   return res;
 }
+
+static bool does_function_definitely_return(binary_index_t BIdx,
+                                            function_index_t FIdx);
 
 basic_block_index_t translate_basic_block(binary_t &binary,
                                           tiny_code_generator_t &tcg,
@@ -1418,20 +1425,28 @@ on_insn_boundary:
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL:
-#if 0
-    ICFG[bb].Term._call.Target =
+  case TERMINATOR::CALL: {
+    function_index_t FIdx =
         translate_function(binary, tcg, dis, T._call.Target);
-#else
+
+    ICFG[bb].Term._call.Target = FIdx;
+
+#if 0
     ICFG[bb].Term._call.Target = invalid_function_index;
     FunctionCallsToFixup[T._call.Target].push_back(T.Addr);
 #endif
 
-    control_flow(T._call.NextPC);
+    //control_flow(T._call.NextPC);
+
+    if (is_function_index_valid(FIdx) &&
+        does_function_definitely_return(0, FIdx))
+      control_flow(T._call.NextPC);
+
     break;
+  }
 
   case TERMINATOR::INDIRECT_CALL:
-    control_flow(T._indirect_call.NextPC);
+    //control_flow(T._indirect_call.NextPC);
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
@@ -1448,6 +1463,52 @@ on_insn_boundary:
   }
 
   return bbidx;
+}
+
+template <typename GraphTy>
+struct dfs_visitor : public boost::default_dfs_visitor {
+  typedef typename GraphTy::vertex_descriptor VertTy;
+
+  std::vector<VertTy> &out;
+
+  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
+
+  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
+};
+
+bool does_function_definitely_return(binary_index_t BIdx,
+                                     function_index_t FIdx) {
+  assert(is_binary_index_valid(BIdx));
+  assert(is_function_index_valid(FIdx));
+
+  binary_t &b = decompilation.Binaries.at(BIdx);
+  function_t &f = b.Analysis.Functions.at(FIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
+  assert(is_basic_block_index_valid(f.Entry));
+
+  std::vector<basic_block_t> BasicBlocks;
+  std::vector<basic_block_t> ExitBasicBlocks;
+
+  std::map<basic_block_t, boost::default_color_type> color;
+  dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
+  boost::depth_first_visit(
+      ICFG, boost::vertex(f.Entry, ICFG), vis,
+      boost::associative_property_map<
+          std::map<basic_block_t, boost::default_color_type>>(color));
+
+  //
+  // ExitBasicBlocks
+  //
+  std::copy_if(BasicBlocks.begin(),
+               BasicBlocks.end(),
+               std::back_inserter(ExitBasicBlocks),
+               [&](basic_block_t bb) -> bool {
+                 return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
+                        IsDefinitelyTailCall(ICFG, bb);
+               });
+
+  return !ExitBasicBlocks.empty();
 }
 
 bool verify_arch(const obj::ObjectFile &Obj) {

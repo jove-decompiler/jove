@@ -233,10 +233,11 @@ int loop(void) {
 
       //
       // XXX currently the only way to know that jove-recover was run is by
-      // looking at the exit status ('b' or 'f')
+      // looking at the exit status
       //
       if (ret != 'b' &&
-          ret != 'f')
+          ret != 'f' &&
+          ret != 'r')
         break;
     }
 

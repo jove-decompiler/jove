@@ -354,6 +354,8 @@ int InitStateForBinaries(void) {
                      return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
                             IsDefinitelyTailCall(ICFG, bb);
                    });
+
+      f.Returns = !f.ExitBasicBlocks.empty();
     }
 
     //

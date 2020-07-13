@@ -53,6 +53,7 @@
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/preprocessor/cat.hpp>
@@ -90,6 +91,11 @@ static cl::list<std::string>
                cl::value_desc("IndBrBIdx,IndBrBBIdx,FileAddr"),
                cl::desc("New target for indirect branch"),
                cl::cat(JoveCategory));
+
+static cl::list<std::string> Returns("returns", cl::CommaSeparated,
+                                     cl::value_desc("CallBIdx,CallBBIdx"),
+                                     cl::desc("A call has returned"),
+                                     cl::cat(JoveCategory));
 
 } // namespace opts
 
@@ -207,6 +213,232 @@ int recover(void) {
     ia >> Decompilation;
   }
 
+  tiny_code_generator_t tcg;
+
+  // Initialize targets and assembly printers/parsers.
+  llvm::InitializeNativeTarget();
+  llvm::InitializeNativeTargetDisassembler();
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
+
+  //
+  // initialize state associated with every binary
+  //
+  BinStateVec.resize(Decompilation.Binaries.size());
+  for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
+    binary_t &binary = Decompilation.Binaries[i];
+    binary_state_t &st = BinStateVec[i];
+
+    //
+    // build FuncMap
+    //
+    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+         ++f_idx) {
+      function_t &f = binary.Analysis.Functions[f_idx];
+      assert(f.Entry != invalid_basic_block_index);
+      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+    }
+
+    //
+    // build BBMap
+    //
+    for (basic_block_index_t bb_idx = 0;
+         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+      const auto &bbprop = binary.Analysis.ICFG[bb];
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              bbprop.Addr, bbprop.Addr + bbprop.Size);
+      assert(st.BBMap.find(intervl) == st.BBMap.end());
+
+      st.BBMap.add({intervl, 1 + bb_idx});
+    }
+
+    //
+    // build section map
+    //
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      WithColor::error() << "failed to create binary from " << binary.Path
+                         << '\n';
+      return 1;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    if (!llvm::isa<ELFO>(Bin.get())) {
+      WithColor::error() << binary.Path << " is not ELF of expected type\n";
+      return 1;
+    }
+
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+    TheTriple = O.makeTriple();
+    Features = O.getFeatures();
+
+    const ELFT &E = *O.getELFFile();
+
+    typedef typename ELFT::Elf_Shdr Elf_Shdr;
+    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+
+    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+    if (!sections) {
+      WithColor::error() << "could not get ELF sections for binary "
+                         << binary.Path << '\n';
+      return 1;
+    }
+
+    for (const Elf_Shdr &Sec : *sections) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      if (!Sec.sh_size)
+        continue;
+
+      section_properties_t sectprop;
+
+      {
+        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+        if (!name) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+          }
+
+          WithColor::note()
+              << llvm::formatv("could not get section name ({0})\n", Buf);
+          continue;
+        }
+
+        sectprop.name = *name;
+      }
+
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+          sectprop.name == std::string(".tbss"))
+        continue;
+
+      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
+        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+            E.getSectionContents(&Sec);
+
+        if (!contents) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+          }
+
+          WithColor::note()
+              << llvm::formatv("could not get section {0} contents ({1})\n",
+                               sectprop.name, Buf);
+          continue;
+        }
+
+        sectprop.contents = *contents;
+      }
+
+      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
+      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      {
+        auto it = st.SectMap.find(intervl);
+        if (it != st.SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          return 1;
+        }
+      }
+
+      st.SectMap.add({intervl, {sectprop}});
+    }
+  }
+
+  //
+  // initialize the LLVM objects necessary for disassembling instructions
+  //
+  std::string ArchName;
+  std::string Error;
+
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  if (!TheTarget) {
+    WithColor::error() << "failed to lookup target: " << Error << '\n';
+    return 1;
+  }
+
+  std::string TripleName = TheTriple.getTriple();
+  std::string MCPU;
+
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
+      TheTarget->createMCRegInfo(TripleName));
+  if (!MRI) {
+    WithColor::error() << "no register info for target\n";
+    return 1;
+  }
+
+  llvm::MCTargetOptions Options;
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
+  if (!AsmInfo) {
+    WithColor::error() << "no assembly info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU,
+                                       Features.getString()));
+  if (!STI) {
+    WithColor::error() << "no subtarget info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCInstrInfo> MII(
+      TheTarget->createMCInstrInfo());
+  if (!MII) {
+    WithColor::error() << "no instruction info\n";
+    return 1;
+  }
+
+  llvm::MCObjectFileInfo MOFI;
+  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
+
+  std::unique_ptr<llvm::MCDisassembler> DisAsm(
+      TheTarget->createMCDisassembler(*STI, Ctx));
+  if (!DisAsm) {
+    WithColor::error() << "no disassembler for target\n";
+    return 1;
+  }
+
+  int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
+  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP) {
+    WithColor::error() << "no instruction printer\n";
+    return 1;
+  }
+
+  disas_t dis(*DisAsm, std::cref(*STI), *IP);
+
   std::string msg;
 
   if (opts::DynTarget.size() > 0) {
@@ -265,233 +497,6 @@ int recover(void) {
     IndBr.bb = boost::vertex(IndBr.BBIdx, ICFG);
 
     assert(ICFG[IndBr.bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-    tiny_code_generator_t tcg;
-
-    // Initialize targets and assembly printers/parsers.
-    llvm::InitializeNativeTarget();
-    llvm::InitializeNativeTargetDisassembler();
-
-    llvm::Triple TheTriple;
-    llvm::SubtargetFeatures Features;
-
-    //
-    // initialize state associated with every binary
-    //
-    BinStateVec.resize(Decompilation.Binaries.size());
-    for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
-      binary_t &binary = Decompilation.Binaries[i];
-      binary_state_t &st = BinStateVec[i];
-
-      //
-      // build FuncMap
-      //
-      for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-           ++f_idx) {
-        function_t &f = binary.Analysis.Functions[f_idx];
-        assert(f.Entry != invalid_basic_block_index);
-        basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-        st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
-      }
-
-      //
-      // build BBMap
-      //
-      for (basic_block_index_t bb_idx = 0;
-           bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-        basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-        const auto &bbprop = binary.Analysis.ICFG[bb];
-
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
-                bbprop.Addr, bbprop.Addr + bbprop.Size);
-        assert(st.BBMap.find(intervl) == st.BBMap.end());
-
-        st.BBMap.add({intervl, 1 + bb_idx});
-      }
-
-      //
-      // build section map
-      //
-      llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                             binary.Data.size());
-      llvm::StringRef Identifier(binary.Path);
-      llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-      llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-          obj::createBinary(MemBuffRef);
-      if (!BinOrErr) {
-        WithColor::error() << "failed to create binary from " << binary.Path
-                           << '\n';
-        return 1;
-      }
-
-      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-      if (!llvm::isa<ELFO>(Bin.get())) {
-        WithColor::error() << binary.Path << " is not ELF of expected type\n";
-        return 1;
-      }
-
-      ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-
-      const ELFT &E = *O.getELFFile();
-
-      typedef typename ELFT::Elf_Shdr Elf_Shdr;
-      typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return 1;
-      }
-
-      for (const Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        section_properties_t sectprop;
-
-        {
-          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-          if (!name) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section name ({0})\n", Buf);
-            continue;
-          }
-
-          sectprop.name = *name;
-        }
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            sectprop.name == std::string(".tbss"))
-          continue;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-
-          if (!contents) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section {0} contents ({1})\n",
-                                 sectprop.name, Buf);
-            continue;
-          }
-
-          sectprop.contents = *contents;
-        }
-
-        sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-        sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = st.SectMap.find(intervl);
-          if (it != st.SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            return 1;
-          }
-        }
-
-        st.SectMap.add({intervl, {sectprop}});
-      }
-    }
-
-    //
-    // initialize the LLVM objects necessary for disassembling instructions
-    //
-    std::string ArchName;
-    std::string Error;
-
-    const llvm::Target *TheTarget =
-        llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-    if (!TheTarget) {
-      WithColor::error() << "failed to lookup target: " << Error << '\n';
-      return 1;
-    }
-
-    std::string TripleName = TheTriple.getTriple();
-    std::string MCPU;
-
-    std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-        TheTarget->createMCRegInfo(TripleName));
-    if (!MRI) {
-      WithColor::error() << "no register info for target\n";
-      return 1;
-    }
-
-    llvm::MCTargetOptions Options;
-    std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-        TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-    if (!AsmInfo) {
-      WithColor::error() << "no assembly info\n";
-      return 1;
-    }
-
-    std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-        TheTarget->createMCSubtargetInfo(TripleName, MCPU,
-                                         Features.getString()));
-    if (!STI) {
-      WithColor::error() << "no subtarget info\n";
-      return 1;
-    }
-
-    std::unique_ptr<const llvm::MCInstrInfo> MII(
-        TheTarget->createMCInstrInfo());
-    if (!MII) {
-      WithColor::error() << "no instruction info\n";
-      return 1;
-    }
-
-    llvm::MCObjectFileInfo MOFI;
-    llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-    // FIXME: for now initialize MCObjectFileInfo with default values
-    MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-    std::unique_ptr<llvm::MCDisassembler> DisAsm(
-        TheTarget->createMCDisassembler(*STI, Ctx));
-    if (!DisAsm) {
-      WithColor::error() << "no disassembler for target\n";
-      return 1;
-    }
-
-    int AsmPrinterVariant = 1 /* AsmInfo->getAssemblerDialect() */; // Intel
-    std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-        llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-    if (!IP) {
-      WithColor::error() << "no instruction printer\n";
-      return 1;
-    }
-
-    disas_t dis(*DisAsm, std::cref(*STI), *IP);
-
     basic_block_index_t target_bb_idx =
         translate_basic_block(IndBr.BIdx, tcg, dis, IndBr.Target);
     if (!is_basic_block_index_valid(target_bb_idx)) {
@@ -511,6 +516,67 @@ int recover(void) {
     msg = (fmt("[jove-recover] (goto) %s -> %s") %
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
+              .str();
+  } else if (opts::Returns.size() > 0) {
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+    } Call;
+
+    Call.BIdx = strtoul(opts::Returns[0].c_str(), nullptr, 10);
+    Call.BBIdx = strtoul(opts::Returns[1].c_str(), nullptr, 10);
+
+    auto &ICFG = Decompilation.Binaries.at(Call.BIdx).Analysis.ICFG;
+
+    basic_block_t bb = boost::vertex(Call.BBIdx, ICFG);
+
+    uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
+
+    bool isCall =
+      ICFG[bb].Term.Type == TERMINATOR::CALL;
+    bool isIndirectCall =
+      ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+
+    assert(isCall || isIndirectCall);
+
+    if (isCall)
+      ICFG[bb].Term._call.Returns = true;
+    if (isIndirectCall)
+      ICFG[bb].Term._indirect_call.Returns = true;
+
+    unsigned deg = boost::out_degree(bb, ICFG);
+    if (deg != 0) {
+      WithColor::warning() << llvm::formatv("unexpected out degree {0}\n", deg);
+      return 1;
+    }
+
+#if 0
+    {
+      binary_state_t &st = BinStateVec[Call.BIdx];
+      auto it = st.BBMap.find(NextAddr);
+      assert(it == st.BBMap.end());
+    }
+#endif
+
+    basic_block_index_t next_bb_idx =
+        translate_basic_block(Call.BIdx, tcg, dis, NextAddr);
+
+    if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
+        is_function_index_valid(ICFG[bb].Term._call.Target)) {
+      function_t &f =
+          Decompilation.Binaries.at(Call.BIdx).Analysis.Functions.at(
+              ICFG[bb].Term._call.Target);
+      f.Returns = true;
+    }
+
+    assert(is_basic_block_index_valid(next_bb_idx));
+    basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+
+    assert(boost::out_degree(bb, ICFG) == 0);
+    boost::add_edge(bb, next_bb, ICFG);
+
+    msg = (fmt("[jove-recover] (returned) %s") %
+           DescribeBasicBlock(Call.BIdx, next_bb_idx))
               .str();
   } else {
     WithColor::error() << "no command provided\n";
@@ -598,6 +664,8 @@ static function_index_t translate_function(binary_index_t binary_idx,
 
   return res;
 }
+
+static bool does_function_definitely_return(binary_index_t, function_index_t);
 
 basic_block_index_t translate_basic_block(binary_index_t binary_idx,
                                           tiny_code_generator_t &tcg,
@@ -922,15 +990,21 @@ on_insn_boundary:
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL:
-    ICFG[bb].Term._call.Target =
+  case TERMINATOR::CALL: {
+    function_index_t FIdx =
         translate_function(binary_idx, tcg, dis, T._call.Target);
 
-    control_flow(T._call.NextPC);
+    ICFG[bb].Term._call.Target = FIdx;
+
+    if (is_function_index_valid(FIdx) &&
+        does_function_definitely_return(binary_idx, FIdx))
+      control_flow(T._call.NextPC);
+
     break;
+  }
 
   case TERMINATOR::INDIRECT_CALL:
-    control_flow(T._indirect_call.NextPC);
+    //control_flow(T._indirect_call.NextPC);
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
@@ -947,6 +1021,52 @@ on_insn_boundary:
   }
 
   return bbidx;
+}
+
+template <typename GraphTy>
+struct dfs_visitor : public boost::default_dfs_visitor {
+  typedef typename GraphTy::vertex_descriptor VertTy;
+
+  std::vector<VertTy> &out;
+
+  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
+
+  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
+};
+
+bool does_function_definitely_return(binary_index_t BIdx,
+                                     function_index_t FIdx) {
+  assert(is_binary_index_valid(BIdx));
+  assert(is_function_index_valid(FIdx));
+
+  binary_t &b = Decompilation.Binaries.at(BIdx);
+  function_t &f = b.Analysis.Functions.at(FIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
+  assert(is_basic_block_index_valid(f.Entry));
+
+  std::vector<basic_block_t> BasicBlocks;
+  std::vector<basic_block_t> ExitBasicBlocks;
+
+  std::map<basic_block_t, boost::default_color_type> color;
+  dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
+  boost::depth_first_visit(
+      ICFG, boost::vertex(f.Entry, ICFG), vis,
+      boost::associative_property_map<
+          std::map<basic_block_t, boost::default_color_type>>(color));
+
+  //
+  // ExitBasicBlocks
+  //
+  std::copy_if(BasicBlocks.begin(),
+               BasicBlocks.end(),
+               std::back_inserter(ExitBasicBlocks),
+               [&](basic_block_t bb) -> bool {
+                 return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
+                        IsDefinitelyTailCall(ICFG, bb);
+               });
+
+  return !ExitBasicBlocks.empty();
 }
 
 template <class T>

@@ -56,6 +56,7 @@
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/preprocessor/cat.hpp>
@@ -186,7 +187,7 @@ int main(int argc, char **argv) {
       _argv = const_cast<char **>(&arg_vec.a[0]);
 
       for (int i = prog_args_idx + 1; i < argc; ++i) {
-        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
+        llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
 
         opts::Args.push_back(argv[i]);
       }
@@ -699,8 +700,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
         sectprop.contents = *contents;
       }
 
-      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+      sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
+      sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
 
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
@@ -1216,6 +1217,11 @@ function_index_t translate_function(pid_t child,
   return res;
 }
 
+static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
+                                       return_t &Ret);
+
+static bool does_function_definitely_return(binary_index_t, function_index_t);
+
 basic_block_index_t translate_basic_block(pid_t child,
                                           binary_index_t binary_idx,
                                           tiny_code_generator_t &tcg,
@@ -1445,7 +1451,7 @@ on_insn_boundary:
   }
   const section_properties_t &sectprop = *(*sectit).second.begin();
   if (!sectprop.x) {
-    if (opts::Verbose)
+    if (true /* opts::Verbose */)
       WithColor::note() << llvm::formatv("section is not executable @ {0:x}\n",
                                          Addr);
     return invalid_basic_block_index;
@@ -1628,6 +1634,23 @@ on_insn_boundary:
       ++brkpt_count;
       place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
     }
+
+    //
+    // if it's a return, we need to (1) add it to the return map and (2) install
+    // a breakpoint at the correct pc
+    //
+    if (bbprop.Term.Type == TERMINATOR::RETURN) {
+      uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
+
+      assert(RetMap.find(termpc) == RetMap.end());
+
+      auto &RetInfo = RetMap[termpc];
+      RetInfo.binary_idx = binary_idx;
+      RetInfo.TermAddr = bbprop.Term.Addr;
+
+      place_breakpoint_at_return(child, termpc, RetInfo);
+      ++brkpt_count;
+    }
   }
 
   //
@@ -1668,15 +1691,21 @@ on_insn_boundary:
     control_flow(T._conditional_jump.NextPC);
     break;
 
-  case TERMINATOR::CALL:
-    ICFG[bb].Term._call.Target = translate_function(
-        child, binary_idx, tcg, dis, T._call.Target, brkpt_count);
+  case TERMINATOR::CALL: {
+    function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
+                                               T._call.Target, brkpt_count);
 
-    control_flow(T._call.NextPC);
+    ICFG[bb].Term._call.Target = FIdx;
+
+    if (is_function_index_valid(FIdx) &&
+        does_function_definitely_return(binary_idx, FIdx))
+      control_flow(T._call.NextPC);
+
     break;
+  }
 
   case TERMINATOR::INDIRECT_CALL:
-    control_flow(T._indirect_call.NextPC);
+    //control_flow(T._indirect_call.NextPC);
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
@@ -1693,6 +1722,52 @@ on_insn_boundary:
   }
 
   return bbidx;
+}
+
+template <typename GraphTy>
+struct dfs_visitor : public boost::default_dfs_visitor {
+  typedef typename GraphTy::vertex_descriptor VertTy;
+
+  std::vector<VertTy> &out;
+
+  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
+
+  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
+};
+
+bool does_function_definitely_return(binary_index_t BIdx,
+                                     function_index_t FIdx) {
+  assert(is_binary_index_valid(BIdx));
+  assert(is_function_index_valid(FIdx));
+
+  binary_t &b = decompilation.Binaries.at(BIdx);
+  function_t &f = b.Analysis.Functions.at(FIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
+  assert(is_basic_block_index_valid(f.Entry));
+
+  std::vector<basic_block_t> BasicBlocks;
+  std::vector<basic_block_t> ExitBasicBlocks;
+
+  std::map<basic_block_t, boost::default_color_type> color;
+  dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
+  boost::depth_first_visit(
+      ICFG, boost::vertex(f.Entry, ICFG), vis,
+      boost::associative_property_map<
+          std::map<basic_block_t, boost::default_color_type>>(color));
+
+  //
+  // ExitBasicBlocks
+  //
+  std::copy_if(BasicBlocks.begin(),
+               BasicBlocks.end(),
+               std::back_inserter(ExitBasicBlocks),
+               [&](basic_block_t bb) -> bool {
+                 return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
+                        IsDefinitelyTailCall(ICFG, bb);
+               });
+
+  return !ExitBasicBlocks.empty();
 }
 
 static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
@@ -1928,7 +2003,8 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret) {
 
 static std::string description_of_program_counter(uintptr_t);
 
-static void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr);
+static void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
+                      tiny_code_generator_t &, disas_t &);
 
 struct ScopedGPR {
   pid_t child;
@@ -2017,7 +2093,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #error
 #endif
 
-      on_return(child, _pc, pc);
+      on_return(child, _pc, pc, tcg, dis);
       return;
     }
   }
@@ -3060,8 +3136,9 @@ void on_binary_loaded(pid_t child,
     ++cnt;
   }
 
-  llvm::errs() << "placed " << cnt << " breakpoints in " << binary.Path
-               << '\n';
+  if (cnt > 0)
+    llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n", cnt,
+                                  binary.Path);
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
@@ -3733,6 +3810,9 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
         sectprop.contents = *contents;
       }
 
+      sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
+      sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
               Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
@@ -3975,7 +4055,8 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   }
 }
 
-void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr) {
+void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
+               tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // examine AddrOfRet
   //
@@ -4009,6 +4090,10 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr) {
 
       assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
       ICFG[bb].Term._return.Returns = true;
+
+      //
+      //
+      //
     }
   }
 
@@ -4016,7 +4101,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr) {
   // examine RetAddr
   //
   {
-    uintptr_t pc = RetAddr - 1;
+    uintptr_t pc = RetAddr;
     binary_index_t BIdx = invalid_binary_index;
     {
       auto it = AddressSpace.find(pc);
@@ -4038,16 +4123,87 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr) {
 
       uintptr_t rva = rva_of_va(pc, BIdx);
 
-      auto it = BBMap.find(rva);
-      assert(it != BBMap.end());
-      basic_block_index_t bbidx = (*it).second - 1;
-      basic_block_t bb = boost::vertex(bbidx, ICFG);
+      basic_block_t bb;
 
-      if (ICFG[bb].Term.Type == TERMINATOR::CALL)
+      {
+        {
+          auto it = BBMap.find(rva);
+          if (it != BBMap.end()) {
+            //
+            // we've already translated at RetAddr
+            //
+            return;
+          }
+        }
+
+        auto it = BBMap.find(rva - 1);
+        if (it == BBMap.end()) {
+          //
+          // nowhere land.
+          //
+          return;
+        }
+
+        basic_block_index_t bbidx = (*it).second - 1;
+        bb = boost::vertex(bbidx, ICFG);
+      }
+
+      bool isCall =
+        ICFG[bb].Term.Type == TERMINATOR::CALL;
+      bool isIndirectCall =
+        ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+
+      if (isCall)
         ICFG[bb].Term._call.Returns = true;
 
-      if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
+      if (isIndirectCall)
         ICFG[bb].Term._indirect_call.Returns = true;
+
+      if ((isCall || isIndirectCall) &&
+          boost::out_degree(bb, ICFG) == 0) {
+        unsigned brkpt_count = 0;
+        basic_block_index_t next_bb_idx =
+            translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
+        if (brkpt_count > 0)
+          llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
+                                        brkpt_count, binary.Path);
+
+        if (!is_basic_block_index_valid(next_bb_idx)) {
+          WithColor::warning() << llvm::formatv(
+              "failed to translate_basic_block @ {0:x} in {1}\n", rva,
+              binary.Path);
+          return;
+        }
+        assert(is_basic_block_index_valid(next_bb_idx));
+        basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+
+        {
+          auto it = BBMap.find(rva - 1);
+          assert(it != BBMap.end());
+
+          basic_block_index_t bbidx = (*it).second - 1;
+          bb = boost::vertex(bbidx, ICFG);
+        }
+
+        assert(boost::out_degree(bb, ICFG) == 0);
+
+#if 0
+        if (boost::out_degree(bb, ICFG) != 1) {
+          WithColor::note() << llvm::formatv(
+              "boost::out_degree(bb, ICFG)={0}\n", boost::out_degree(bb, ICFG));
+        }
+#endif
+
+        boost::add_edge(bb, next_bb, ICFG);
+
+#if 0
+        if (boost::out_degree(bb, ICFG) != 1) {
+          WithColor::note() << llvm::formatv(
+              "boost::out_degree(bb, ICFG)={0}\n", boost::out_degree(bb, ICFG));
+        }
+#endif
+        assert(boost::out_degree(bb, ICFG) == 1);
+      }
     }
   }
 }

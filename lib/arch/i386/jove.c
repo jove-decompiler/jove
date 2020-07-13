@@ -656,6 +656,8 @@ _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                               target_ulong BBAddr);
 
+_NOINL _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx);
+
 _NAKED _NOINL _NORET void _jove_fail1(target_ulong);
 _NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
@@ -1309,6 +1311,52 @@ found:
           _IOV_ENTRY(IndBr.BIdx),
           _IOV_ENTRY(IndBr.BBIdx),
           _IOV_ENTRY(FileAddr)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
+    }
+  }
+}
+
+void _jove_recover_returned(uint32_t CallerBBIdx) {
+#if 0
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
+    return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
+
+  struct {
+    uint32_t BIdx;
+    uint32_t BBIdx;
+  } Call;
+
+  Call.BIdx = _jove_binary_index();
+  Call.BBIdx = CallerBBIdx;
+
+found:
+  {
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    {
+      char ch = 'r';
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(Call.BIdx),
+          _IOV_ENTRY(Call.BBIdx)
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
