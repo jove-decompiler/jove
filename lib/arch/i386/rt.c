@@ -666,7 +666,7 @@ void _jove_do_rt_sigreturn(void) {
 }
 
 void _jove_inverse_thunk(void) {
-  asm volatile("pushl $0xdeadbeef\n"
+  asm volatile("pushl $0xdead\n"
                "pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
                "pushl %%esi\n"
@@ -677,19 +677,16 @@ void _jove_inverse_thunk(void) {
                "leal __jove_env@GOTOFF(%%ebp), %%edi\n"
                "addl %0, %%edi\n"
 
-#if 0
                "movl (%%edi), %%esi\n"   // esi = emusp
-               "movl -4(%%esi), %%ebx\n" // ebx = *(emusp - 4)
-
-               "movl %%esi, 16(%%esp)\n" // stash emusp on the stack (replacing 0xdeadbeef)
-               "movl %%ebx, %%ecx\n"
-#endif
+               "movl %%esi, 16(%%esp)\n" // replace 0xdead with emusp
 
                "movl 28(%%esp), %%esi\n" // read saved_emusp off the stack
                "movl %%esi, (%%edi)\n"   // restore emusp
 
+#if 0
                "movl 24(%%esp), %%esi\n" // read saved_sp off the stack
-               "movl %%esi, 16(%%esp)\n" // replacing 0xdeadbeef
+               "movl %%esi, 16(%%esp)\n" // replacing 0xdead
+#endif
 
                "movl 20(%%esp), %%ecx\n" // read saved_retaddr off the stack
 
@@ -697,9 +694,8 @@ void _jove_inverse_thunk(void) {
                "popl %%esi\n"
                "popl %%edi\n"
                "popl %%ebp\n" /* callee-saved registers */
-               "popl %%esp\n" // ... and make emusp the new stack pointer
+               "popl %%esp\n"
 
-               "addl $4, %%esp\n" // simulate the return
                "jmp *%%ecx\n"
 
                "1:\n"
