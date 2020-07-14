@@ -4161,6 +4161,12 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       bool isIndirectCall =
         ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
+#if !defined(__x86_64__) && defined(__i386__)
+      if (!isCall && !isIndirectCall) /* this can occur on i386 because of hack
+                                         in tcg.hpp */
+        return;
+#endif
+
       assert(isCall || isIndirectCall);
       assert(boost::out_degree(bb, ICFG) == 0 ||
              boost::out_degree(bb, ICFG) == 1);
