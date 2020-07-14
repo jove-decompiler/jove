@@ -30,9 +30,9 @@ constexpr tcg_global_set_t NotRets(68715282435);
 constexpr tcg_global_set_t CallConvArgs(61824);
 typedef std::array<unsigned, 6> CallConvArgArrayTy;
 static const CallConvArgArrayTy CallConvArgArray{13, 12, 8, 7, 14, 15};
-constexpr tcg_global_set_t CallConvRets(64);
-typedef std::array<unsigned, 1> CallConvRetArrayTy;
-static const CallConvRetArrayTy CallConvRetArray{6};
+constexpr tcg_global_set_t CallConvRets(320);
+typedef std::array<unsigned, 2> CallConvRetArrayTy;
+static const CallConvRetArrayTy CallConvRetArray{6, 8};
 constexpr tcg_global_set_t CalleeSavedRegs(3934720);
 static const uint8_t tcg_global_by_offset_lookup_table[529] = {
 [0 ... 528] = 0xff,
