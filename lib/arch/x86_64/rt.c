@@ -700,7 +700,7 @@ void _jove_inverse_thunk(void) {
                "popq %%r13\n"
                "popq %%r14\n"
                "popq %%r15\n" /* callee-saved registers */
-               "popq %%rsp\n" // ... and make emusp the new stack pointer
+               "popq %%rsp\n"
 
                "jmp *%%r11\n"
 
