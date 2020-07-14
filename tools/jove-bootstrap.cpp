@@ -1695,7 +1695,16 @@ on_insn_boundary:
     function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
                                                T._call.Target, brkpt_count);
 
-    ICFG[bb].Term._call.Target = FIdx;
+    basic_block_t _bb;
+    {
+      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
+      assert(it != BBMap.end());
+      basic_block_index_t _bbidx = (*it).second - 1;
+      _bb = boost::vertex(_bbidx, ICFG);
+    }
+
+    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
+    ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
         does_function_definitely_return(binary_idx, FIdx))
@@ -4098,7 +4107,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   }
 
   //
-  // examine RetAddr
+  // examine RetAddr; we know this is the start of a block
   //
   {
     uintptr_t pc = RetAddr;
@@ -4123,23 +4132,22 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
       uintptr_t rva = rva_of_va(pc, BIdx);
 
+      unsigned brkpt_count = 0;
+      basic_block_index_t next_bb_idx =
+        translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
+      assert(is_basic_block_index_valid(next_bb_idx));
+
+      if (brkpt_count > 0)
+        llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
+                                      brkpt_count, binary.Path);
+
       basic_block_t bb;
 
       {
-        {
-          auto it = BBMap.find(rva);
-          if (it != BBMap.end()) {
-            //
-            // we've already translated at RetAddr
-            //
-            return;
-          }
-        }
-
         auto it = BBMap.find(rva - 1);
         if (it == BBMap.end()) {
           //
-          // nowhere land.
+          // we have no preceeding call
           //
           return;
         }
@@ -4153,57 +4161,22 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       bool isIndirectCall =
         ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
-      if (isCall)
+      assert(isCall || isIndirectCall);
+      assert(boost::out_degree(bb, ICFG) == 0 ||
+             boost::out_degree(bb, ICFG) == 1);
+
+      if (isCall) {
         ICFG[bb].Term._call.Returns = true;
+        if (is_function_index_valid(ICFG[bb].Term._call.Target))
+          binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns = true;
+      }
 
       if (isIndirectCall)
         ICFG[bb].Term._indirect_call.Returns = true;
 
-      if ((isCall || isIndirectCall) &&
-          boost::out_degree(bb, ICFG) == 0) {
-        unsigned brkpt_count = 0;
-        basic_block_index_t next_bb_idx =
-            translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
-        if (brkpt_count > 0)
-          llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
-                                        brkpt_count, binary.Path);
-
-        if (!is_basic_block_index_valid(next_bb_idx)) {
-          WithColor::warning() << llvm::formatv(
-              "failed to translate_basic_block @ {0:x} in {1}\n", rva,
-              binary.Path);
-          return;
-        }
-        assert(is_basic_block_index_valid(next_bb_idx));
-        basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
-
-        {
-          auto it = BBMap.find(rva - 1);
-          assert(it != BBMap.end());
-
-          basic_block_index_t bbidx = (*it).second - 1;
-          bb = boost::vertex(bbidx, ICFG);
-        }
-
-        assert(boost::out_degree(bb, ICFG) == 0);
-
-#if 0
-        if (boost::out_degree(bb, ICFG) != 1) {
-          WithColor::note() << llvm::formatv(
-              "boost::out_degree(bb, ICFG)={0}\n", boost::out_degree(bb, ICFG));
-        }
-#endif
-
-        boost::add_edge(bb, next_bb, ICFG);
-
-#if 0
-        if (boost::out_degree(bb, ICFG) != 1) {
-          WithColor::note() << llvm::formatv(
-              "boost::out_degree(bb, ICFG)={0}\n", boost::out_degree(bb, ICFG));
-        }
-#endif
-        assert(boost::out_degree(bb, ICFG) == 1);
-      }
+      basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+      if (boost::add_edge(bb, next_bb, ICFG).second)
+        InvalidateAllFunctionAnalyses();
     }
   }
 }

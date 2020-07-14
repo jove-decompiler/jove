@@ -484,7 +484,6 @@ int recover(void) {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
 
-      basic_block_t bb;
       uint64_t Target;
     } IndBr;
 
@@ -494,9 +493,12 @@ int recover(void) {
     IndBr.Target = strtoul(opts::BasicBlock[2].c_str(), nullptr, 10);
 
     auto &ICFG = Decompilation.Binaries.at(IndBr.BIdx).Analysis.ICFG;
-    IndBr.bb = boost::vertex(IndBr.BBIdx, ICFG);
 
-    assert(ICFG[IndBr.bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+    basic_block_t bb = boost::vertex(IndBr.BBIdx, ICFG);
+
+    uintptr_t TermAddr = ICFG[bb].Term.Addr;
+
+    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
     basic_block_index_t target_bb_idx =
         translate_basic_block(IndBr.BIdx, tcg, dis, IndBr.Target);
     if (!is_basic_block_index_valid(target_bb_idx)) {
@@ -507,7 +509,19 @@ int recover(void) {
 
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
-    bool isNewTarget = boost::add_edge(IndBr.bb, target_bb, ICFG).second;
+    binary_state_t &st = BinStateVec.at(IndBr.BIdx);
+    auto &BBMap = st.BBMap;
+    {
+      auto it = BBMap.find(TermAddr);
+      assert(it != BBMap.end());
+
+      basic_block_index_t bbidx = (*it).second - 1;
+      bb = boost::vertex(bbidx, ICFG);
+    }
+
+    assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+    bool isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
 
     // TODO invalidate only the functions who are affected...
     if (isNewTarget)
@@ -532,12 +546,15 @@ int recover(void) {
 
     uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
 
+    uintptr_t TermAddr = ICFG[bb].Term.Addr;
+
     bool isCall =
       ICFG[bb].Term.Type == TERMINATOR::CALL;
     bool isIndirectCall =
       ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
     assert(isCall || isIndirectCall);
+    assert(TermAddr);
 
     if (isCall)
       ICFG[bb].Term._call.Returns = true;
@@ -561,6 +578,16 @@ int recover(void) {
     basic_block_index_t next_bb_idx =
         translate_basic_block(Call.BIdx, tcg, dis, NextAddr);
 
+    binary_state_t &st = BinStateVec.at(Call.BIdx);
+    auto &BBMap = st.BBMap;
+    {
+      auto it = BBMap.find(TermAddr);
+      assert(it != BBMap.end());
+
+      basic_block_index_t bbidx = (*it).second - 1;
+      bb = boost::vertex(bbidx, ICFG);
+    }
+
     if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
         is_function_index_valid(ICFG[bb].Term._call.Target)) {
       function_t &f =
@@ -572,8 +599,11 @@ int recover(void) {
     assert(is_basic_block_index_valid(next_bb_idx));
     basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
 
-    assert(boost::out_degree(bb, ICFG) == 0);
-    boost::add_edge(bb, next_bb, ICFG);
+    //assert(boost::out_degree(bb, ICFG) == 0);
+    bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
+
+    if (isNewTarget)
+      InvalidateAllFunctionAnalyses();
 
     msg = (fmt("[jove-recover] (returned) %s") %
            DescribeBasicBlock(Call.BIdx, next_bb_idx))
@@ -994,7 +1024,16 @@ on_insn_boundary:
     function_index_t FIdx =
         translate_function(binary_idx, tcg, dis, T._call.Target);
 
-    ICFG[bb].Term._call.Target = FIdx;
+    basic_block_t _bb;
+    {
+      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
+      assert(it != BBMap.end());
+      basic_block_index_t _bbidx = (*it).second - 1;
+      _bb = boost::vertex(_bbidx, ICFG);
+    }
+
+    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
+    ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
         does_function_definitely_return(binary_idx, FIdx))
