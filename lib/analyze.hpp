@@ -284,6 +284,12 @@ static flow_vertex_t copy_function_cfg(
       flow_vertex_t calleeEntryV = copy_function_cfg(
           NeedsUpdate, G, callee, calleeExitVertices, memoize);
 
+      {
+        flow_edge_t E = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
+        if (callee.IsABI)
+          G[E].live.flow = mask_CallConvArgs_flow;
+      }
+
       auto eit_pair = boost::out_edges(bb, ICFG);
       if (eit_pair.first == eit_pair.second)
         break;
@@ -294,12 +300,6 @@ static flow_vertex_t copy_function_cfg(
       flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
 
       boost::remove_edge(Orig2CopyMap[bb], succV, G);
-
-      {
-        flow_edge_t E = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        if (callee.IsABI)
-          G[E].live.flow = mask_CallConvArgs_flow;
-      }
 
       for (flow_vertex_t exitV : calleeExitVertices) {
         flow_edge_t E = boost::add_edge(exitV, succV, G).first;
