@@ -679,12 +679,7 @@ void _jove_inverse_thunk(void) {
                "movl 20(%%esp), %%edx\n" // edx = saved_emusp
                "movl %%edx, (%%eax)\n"   // restore emusp
 
-#if 0
-               "movl 16(%%esp), %%esi\n" // read saved_sp off the stack
-               "movl %%esi, 8(%%esp)\n" // replacing 0xdead
-#endif
-
-               "movl 12(%%esp), %%ecx\n" // read saved_retaddr off the stack
+               "movl 12(%%esp), %%ecx\n" // ecx = saved_retaddr
 
                "popl %%edx\n"
                "popl %%eax\n"
