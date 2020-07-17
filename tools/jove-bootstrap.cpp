@@ -335,6 +335,9 @@ struct indirect_branch_t {
 struct return_t {
   binary_index_t binary_idx;
 
+  std::vector<uint8_t> InsnBytes;
+  llvm::MCInst Inst;
+
   uintptr_t TermAddr;
 };
 
@@ -1648,6 +1651,26 @@ on_insn_boundary:
       RetInfo.binary_idx = binary_idx;
       RetInfo.TermAddr = bbprop.Term.Addr;
 
+      auto sectit = SectMap.find(bbprop.Term.Addr);
+      assert(sectit != SectMap.end());
+      const section_properties_t &sectprop = *(*sectit).second.begin();
+
+      RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+      memcpy(&RetInfo.InsnBytes[0],
+             &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+             RetInfo.InsnBytes.size());
+
+      {
+        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+
+        uint64_t InstLen;
+        bool Disassembled =
+            DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+                                  bbprop.Term.Addr, llvm::nulls());
+        assert(Disassembled);
+        assert(InstLen == RetInfo.InsnBytes.size());
+      }
+
       place_breakpoint_at_return(child, termpc, RetInfo);
       ++brkpt_count;
     }
@@ -2089,6 +2112,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   {
     auto it = RetMap.find(_pc);
     if (it != RetMap.end()) {
+      return_t &ret = (*it).second;
+
       //
       // emulate the return
       //
@@ -2101,6 +2126,18 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #else
 #error
 #endif
+      if (ret.Inst.getNumOperands() > 0) {
+        assert(ret.Inst.getNumOperands() == 1);
+        assert(ret.Inst.getOperand(0).isImm());
+
+#if defined(__x86_64__)
+        gpr.rsp += ret.Inst.getOperand(0).getImm();
+#elif defined(__i386__)
+        gpr.esp += ret.Inst.getOperand(0).getImm();
+#else
+#error
+#endif
+      }
 
       on_return(child, _pc, pc, tcg, dis);
       return;
@@ -3140,6 +3177,27 @@ void on_binary_loaded(pid_t child,
     auto &RetInfo = RetMap[Addr];
     RetInfo.binary_idx = BIdx;
     RetInfo.TermAddr = bbprop.Term.Addr;
+
+    auto sectit = st.SectMap.find(bbprop.Term.Addr);
+    assert(sectit != st.SectMap.end());
+    const section_properties_t &sectprop = *(*sectit).second.begin();
+
+    RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+    memcpy(&RetInfo.InsnBytes[0],
+           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
+           RetInfo.InsnBytes.size());
+
+    {
+      uint64_t InstLen;
+      bool Disassembled =
+          DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+                                bbprop.Term.Addr, llvm::nulls());
+      assert(Disassembled);
+      assert(InstLen == RetInfo.InsnBytes.size());
+    }
+
+    //llvm::outs() << "return: " << StringOfMCInst(RetInfo.Inst, dis) << '\n';
+    llvm::outs() << llvm::formatv("return: {0}\n", RetInfo.Inst);
 
     place_breakpoint_at_return(child, Addr, RetInfo);
     ++cnt;
