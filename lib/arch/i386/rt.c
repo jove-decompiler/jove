@@ -645,6 +645,7 @@ static void _jove_init_cpu_state(void);
 
 static target_ulong _jove_alloc_stack(void);
 static void _jove_free_stack(target_ulong);
+_HIDDEN uintptr_t _jove_emusp_location(void);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
@@ -667,45 +668,32 @@ void _jove_do_rt_sigreturn(void) {
 
 void _jove_inverse_thunk(void) {
   asm volatile("pushl $0xdead\n"
-               "pushl %%ebp\n" /* callee-saved registers */
-               "pushl %%edi\n"
-               "pushl %%esi\n"
-               "pushl %%ebx\n"
+               "pushl %%eax\n" /* preserve return registers */
+               "pushl %%edx\n"
 
-               "call 1f\n"
-               "addl $_GLOBAL_OFFSET_TABLE_, %%ebp\n"
-               "leal __jove_env@GOTOFF(%%ebp), %%edi\n"
-               "addl %0, %%edi\n"
+               "call _jove_emusp_location\n" // eax = emuspp
 
-               "movl (%%edi), %%esi\n"   // esi = emusp
-               "movl %%esi, 16(%%esp)\n" // replace 0xdead with emusp
+               "movl (%%eax), %%edx\n"   // edx = emusp
+               "movl %%edx, 8(%%esp)\n" // replace 0xdead with emusp
 
-               "movl 28(%%esp), %%esi\n" // read saved_emusp off the stack
-               "movl %%esi, (%%edi)\n"   // restore emusp
+               "movl 20(%%esp), %%edx\n" // edx = saved_emusp
+               "movl %%edx, (%%eax)\n"   // restore emusp
 
 #if 0
-               "movl 24(%%esp), %%esi\n" // read saved_sp off the stack
-               "movl %%esi, 16(%%esp)\n" // replacing 0xdead
+               "movl 16(%%esp), %%esi\n" // read saved_sp off the stack
+               "movl %%esi, 8(%%esp)\n" // replacing 0xdead
 #endif
 
-               "movl 20(%%esp), %%ecx\n" // read saved_retaddr off the stack
+               "movl 12(%%esp), %%ecx\n" // read saved_retaddr off the stack
 
-               "popl %%ebx\n"
-               "popl %%esi\n"
-               "popl %%edi\n"
-               "popl %%ebp\n" /* callee-saved registers */
+               "popl %%edx\n"
+               "popl %%eax\n"
                "popl %%esp\n"
 
                "jmp *%%ecx\n"
 
-               "1:\n"
-               "movl (%%esp), %%ebp\n"
-               "ret\n"
-
                : /* OutputOperands */
                : /* InputOperands */
-               "i" (offsetof(CPUX86State, regs[R_ESP]))
-
                : /* Clobbers */);
 }
 
@@ -981,4 +969,8 @@ void _jove_trace_init(void) {
 
 void _jove_init_cpu_state(void) {
   __jove_env.df = 1;
+}
+
+uintptr_t _jove_emusp_location(void) {
+  return &__jove_env.regs[R_ESP];
 }
