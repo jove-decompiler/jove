@@ -3196,8 +3196,8 @@ void on_binary_loaded(pid_t child,
       assert(InstLen == RetInfo.InsnBytes.size());
     }
 
-    //llvm::outs() << "return: " << StringOfMCInst(RetInfo.Inst, dis) << '\n';
-    llvm::outs() << llvm::formatv("return: {0}\n", RetInfo.Inst);
+    if (opts::VeryVerbose)
+      llvm::outs() << llvm::formatv("return: {0}\n", RetInfo.Inst);
 
     place_breakpoint_at_return(child, Addr, RetInfo);
     ++cnt;
