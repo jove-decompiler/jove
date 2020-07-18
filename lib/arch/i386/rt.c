@@ -747,12 +747,13 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       if (pc != fns[2 * FIdx + 0])
         continue;
 
+#define pc    uctx->uc_mcontext.gregs[REG_EIP]
 #define sp    uctx->uc_mcontext.gregs[REG_ESP]
 #define emusp           __jove_env.regs[R_ESP]
 
-      uintptr_t saved_retaddr = *((uintptr_t *)sp);
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
+      uintptr_t saved_retaddr = *((uintptr_t *)saved_sp);
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -774,22 +775,15 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         sp = newsp;
       }
 
-      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE;
+      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE; /* XXX */
 
-      /* eip replacement */
-      uctx->uc_mcontext.gregs[REG_EIP] = fns[2 * FIdx + 1];
+      pc = fns[2 * FIdx + 1];
 
-#if 0
-      char buff[65];
-      _addrtostr(saved_retaddr, buff, sizeof(buff));
-
-      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler ",
-                      sizeof("_jove_rt_signal_handler "));
-
-      _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-      _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
-#endif
       return;
+
+#undef emusp
+#undef sp
+#undef pc
     }
   }
 
