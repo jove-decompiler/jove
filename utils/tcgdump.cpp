@@ -27,8 +27,6 @@ namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
-#define SPLIT_DEBUG_INFO_DIR_PATH "/usr/lib/debug/.build-id"
-
 namespace opts {
   static cl::OptionCategory JoveCategory("Specific Options");
 
@@ -39,18 +37,11 @@ namespace opts {
                                 cl::desc("Run QEMU TCG optimizations"),
                                 cl::cat(JoveCategory));
 
-  static cl::opt<bool> SplitDebugInfo(
-      "split-dbg-info",
-      cl::desc("Read debug info from object in " SPLIT_DEBUG_INFO_DIR_PATH),
-      cl::cat(JoveCategory));
-
   static cl::opt<std::string> BreakOnAddr(
       "break-on-addr",
       cl::desc("Allow user to set a debugger breakpoint on TCGDumpUserBreakPoint, "
                "and triggered when basic block address matches given address"),
       cl::cat(JoveCategory));
-
-  static fs::path split_dso_path;
 }
 
 namespace jove {
@@ -66,100 +57,6 @@ int main(int argc, char **argv) {
 
   if (opts::DoTCGOpt)
     jove::do_tcg_optimization = true;
-
-  if (opts::SplitDebugInfo) {
-    if (!fs::exists(SPLIT_DEBUG_INFO_DIR_PATH) ||
-        !fs::is_directory(SPLIT_DEBUG_INFO_DIR_PATH)) {
-      fprintf(stderr, "%s does not exist\n", SPLIT_DEBUG_INFO_DIR_PATH);
-      return 1;
-    }
-
-    // we require file XXX TODO
-    if (!fs::exists("/usr/bin/file")) {
-      fprintf(stderr, "error: /usr/bin/file is needed to get build ID\n");
-      return 1;
-    }
-
-    int pipefd[2];
-    if (pipe(pipefd) < 0) {
-      fprintf(stderr, "error: pipe failed (%s)\n", strerror(errno));
-      return 1;
-    }
-
-    const pid_t pid = fork();
-    if (!pid) {
-      close(pipefd[0]); /* close unused read end */
-
-      /* make stdout be the write end of the pipe */
-      if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
-        fprintf(stderr, "dup2 failed (%s)\n", strerror(errno));
-        exit(1);
-      }
-
-      const char *arg_arr[] = {"/usr/bin/file", opts::Binary.c_str(), nullptr};
-
-      std::vector<const char *> env_vec;
-      for (char **env = ::environ; *env; ++env)
-        env_vec.push_back(*env);
-      env_vec.push_back(nullptr);
-
-      execve(arg_arr[0],
-             const_cast<char **>(&arg_arr[0]),
-             const_cast<char **>(&env_vec[0]));
-
-      fprintf(stderr, "execve failed (%s)\n", strerror(errno));
-      return 1;
-    }
-
-    close(pipefd[1]); /* close unused write end */
-
-    //
-    // slurp up the result of executing the binary
-    //
-    std::string dynlink_stdout;
-    {
-      char buf;
-      while (read(pipefd[0], &buf, 1) > 0)
-        dynlink_stdout += buf;
-    }
-
-    close(pipefd[0]); /* close read end */
-
-    //
-    // check exit code
-    //
-    if (int ret = jove::await_process_completion(pid)) {
-      fprintf(stderr, "/usr/bin/file returned nonzero exit code %d\n", ret);
-      return 1;
-    }
-
-    std::string::size_type pos = dynlink_stdout.find("BuildID[sha1]=");
-    if (pos == std::string::npos ||
-        pos + 40 >= dynlink_stdout.size() ||
-        dynlink_stdout[pos + strlen("BuildID[sha1]=") + 40] != ',') {
-      fprintf(stderr, "given binary doesn't have build ID? got %s from file\n",
-              dynlink_stdout.c_str());
-      return 1;
-    }
-
-    std::string build_id =
-        dynlink_stdout.substr(pos + strlen("BuildID[sha1]="), 40);
-
-    // e.g. /usr/lib/debug/.build-id/37/614a87164c3acd6b5fe1653600b3ff64c5e9ef.debug
-    opts::split_dso_path = fs::path(SPLIT_DEBUG_INFO_DIR_PATH) /
-                                    build_id.substr(0, 2) /
-                                    (build_id.substr(2, (40 - 2)) + ".debug");
-
-    if (fs::exists(opts::split_dso_path)) {
-      printf("found split DSO at \"%s\"\n",
-             opts::split_dso_path.c_str());
-    } else {
-      printf("split_dso not found (tried \"%s\")\n",
-             opts::split_dso_path.c_str());
-
-      return 1;
-    }
-  }
 
   return jove::tcgdump();
 }
@@ -217,6 +114,25 @@ typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
 typedef typename ELFT::Elf_Sym Elf_Sym;
 typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
 
+// taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
+static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
+  auto PhdrsOrErr = Obj.program_headers();
+  if (!PhdrsOrErr) {
+    consumeError(PhdrsOrErr.takeError());
+    return {};
+  }
+  for (const auto &P : *PhdrsOrErr) {
+    if (P.p_type != llvm::ELF::PT_NOTE)
+      continue;
+    llvm::Error Err = llvm::Error::success();
+    for (auto N : Obj.notes(P, Err))
+      if (N.getType() == llvm::ELF::NT_GNU_BUILD_ID &&
+          N.getName() == llvm::ELF::ELF_NOTE_GNU)
+        return N.getDesc();
+  }
+  return {};
+}
+
 template <class T>
 static T unwrapOrError(llvm::Expected<T> EO) {
   if (EO)
@@ -273,23 +189,41 @@ int tcgdump(void) {
   const ELFO *split_O = nullptr;
   const ELFT *split_E = nullptr;
 
-  llvm::Expected<obj::OwningBinary<obj::Binary>> SplitBinaryOrErr =
-      obj::createBinary(opts::split_dso_path.c_str());
+  std::unique_ptr<llvm::MemoryBuffer> SplitBuf;
+  std::unique_ptr<obj::Binary> SplitBinary;
 
-  if (opts::SplitDebugInfo) {
-    if (!SplitBinaryOrErr) {
-      fprintf(stderr, "failed to open %s\n", opts::split_dso_path.c_str());
-      return 1;
+  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
+  if (optionalBuildID) {
+    llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
+
+    fs::path splitDbgInfo =
+        fs::path("/usr/lib/debug") / ".build-id" /
+        llvm::toHex(BuildID[0], /*LowerCase=*/true) /
+        (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
+    if (fs::exists(splitDbgInfo)) {
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> SplitBufOrErr =
+          llvm::MemoryBuffer::getFileOrSTDIN(splitDbgInfo.c_str());
+      if (std::error_code EC = SplitBufOrErr.getError()) {
+        fprintf(stderr, "invalid split binary\n");
+        return 1;
+      }
+
+      SplitBuf = std::move(SplitBufOrErr.get());
+
+      llvm::Expected<std::unique_ptr<obj::Binary>> SplitBinaryOrErr =
+          obj::createBinary(SplitBuf->getMemBufferRef());
+
+      obj::Binary *split_B = SplitBinaryOrErr.get().get();
+      if (!llvm::isa<ELFO>(split_B)) {
+        fprintf(stderr, "invalid binary\n");
+        return 1;
+      }
+
+      SplitBinary = std::move(SplitBinaryOrErr.get());
+
+      split_O = llvm::cast<ELFO>(split_B);
+      split_E = split_O->getELFFile();
     }
-
-    obj::Binary *split_B = SplitBinaryOrErr.get().getBinary();
-    if (!llvm::isa<ELFO>(split_B)) {
-      fprintf(stderr, "invalid binary\n");
-      return 1;
-    }
-
-    split_O = llvm::cast<ELFO>(split_B);
-    split_E = split_O->getELFFile();
   }
 
   std::string ArchName;
