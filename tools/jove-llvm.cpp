@@ -4753,7 +4753,7 @@ int CreateSectionGlobalVariables(void) {
     if (llvm::Function *F = Module->getFunction(S.Name))
       return llvm::ConstantExpr::getPtrToInt(F, WordType());
 
-    llvm::FunctionType *FTy;
+    llvm::FunctionType *FTy = nullptr;
     {
       auto &RelocDynTargets =
           Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
