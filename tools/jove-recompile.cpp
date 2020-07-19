@@ -810,11 +810,11 @@ int recompile(void) {
       if (opts::DFSan)
         arg_vec.push_back("-lclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME);
 
-      std::string so_interp_canon = fs::canonical(b.dynl.interp).string();
+      const std::string &so_interp = b.dynl.interp;
 
       if (!b.dynl.interp.empty()) {
         arg_vec.push_back("-dynamic-linker");
-        arg_vec.push_back(so_interp_canon.c_str());
+        arg_vec.push_back(so_interp.c_str());
       }
 
       std::string soname_arg = std::string("-soname=") + b.dynl.soname;
