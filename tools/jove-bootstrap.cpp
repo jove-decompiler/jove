@@ -2081,14 +2081,14 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // lookup indirect branch info
   //
-  const uintptr_t _pc = pc;
+  const uintptr_t saved_pc = pc;
 
   {
-    if (unlikely(_pc == _r_debug.r_brk)) {
+    if (unlikely(saved_pc == _r_debug.r_brk)) {
       //
       // we assume that this is a 'ret' TODO verify this assumption
       //
-      auto it = BrkMap.find(_pc);
+      auto it = BrkMap.find(saved_pc);
       assert(it != BrkMap.end());
       (*it).second.callback(child, tcg, dis);
 
@@ -2110,7 +2110,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   }
 
   {
-    auto it = RetMap.find(_pc);
+    auto it = RetMap.find(saved_pc);
     if (it != RetMap.end()) {
       return_t &ret = (*it).second;
 
@@ -2139,18 +2139,18 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #endif
       }
 
-      on_return(child, _pc, pc, tcg, dis);
+      on_return(child, saved_pc, pc, tcg, dis);
       return;
     }
   }
 
   {
-    auto it = BrkMap.find(_pc);
+    auto it = BrkMap.find(saved_pc);
     if (it != BrkMap.end()) {
       breakpoint_t &brk = (*it).second;
       brk.callback(child, tcg, dis);
 
-      _ptrace_pokedata(child, _pc, brk.word);
+      _ptrace_pokedata(child, saved_pc, brk.word);
       return;
     }
   }
@@ -2163,7 +2163,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     return (*it).second;
   };
 
-  indirect_branch_t &IndBrInfo = indirect_branch_of_address(_pc);
+  indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
   auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
   auto &ICFG = binary.Analysis.ICFG;
@@ -2562,7 +2562,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       update_view_of_virtual_memory(child);
 
       WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                            description_of_program_counter(_pc),
+                                            description_of_program_counter(saved_pc),
                                             description_of_program_counter(target));
       return;
     }
@@ -2651,7 +2651,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   if (!opts::Quiet || isNewTarget)
     llvm::errs() << print_prefix
-                 << description_of_program_counter(_pc) << " -> "
+                 << description_of_program_counter(saved_pc) << " -> "
                  << description_of_program_counter(target) << '\n';
 }
 
