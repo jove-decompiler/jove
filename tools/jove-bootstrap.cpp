@@ -2084,7 +2084,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   const uintptr_t _pc = pc;
 
   {
-    if (_pc == _r_debug.r_brk) {
+    if (unlikely(_pc == _r_debug.r_brk)) {
       //
       // we assume that this is a 'ret' TODO verify this assumption
       //
