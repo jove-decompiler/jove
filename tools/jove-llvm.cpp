@@ -4766,7 +4766,18 @@ int CreateSectionGlobalVariables(void) {
 
         FTy = llvm::FunctionType::get(VoidType(), false);
       } else {
-        FTy = DetermineFunctionType(*(*it).second.begin());
+        auto &DynTargets = (*it).second;
+
+        for (std::pair<binary_index_t, function_index_t> pair : DynTargets) {
+          if (pair.first == BinaryIndex)
+            continue;
+
+          FTy = DetermineFunctionType(pair);
+          break;
+        }
+
+        if (!FTy)
+          FTy = DetermineFunctionType(*DynTargets.begin());
       }
     }
 
