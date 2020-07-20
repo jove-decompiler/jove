@@ -211,11 +211,10 @@ int recompile(void) {
   //
   // create symlink back to jv
   //
-  try {
-    fs::create_symlink(fs::canonical(opts::jv), fs::path(opts::Output) / ".jv");
-  } catch (...) {
-    ;
-  }
+  if (fs::exists(fs::path(opts::Output) / ".jv")) // delete any stale symlinks
+    fs::remove(fs::path(opts::Output) / ".jv");
+
+  fs::create_symlink(fs::canonical(opts::jv), fs::path(opts::Output) / ".jv");
 
   //
   // get paths to stuff
