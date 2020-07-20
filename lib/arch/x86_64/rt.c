@@ -747,12 +747,6 @@ static _CTOR void _jove_rt_init(void) {
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-#if 0
-  _jove_sys_write(STDOUT_FILENO,
-                  "_jove_rt_signal_handler\n",
-                  sizeof("_jove_rt_signal_handler\n"));
-#endif
-
   target_ulong pc = uctx->uc_mcontext.gregs[REG_RIP];
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
@@ -795,7 +789,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         sp = newsp;
       }
 
-      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE;
+      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE; /* XXX */
 
       pc = fns[2 * FIdx + 1];
 
