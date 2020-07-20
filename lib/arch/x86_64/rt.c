@@ -649,6 +649,7 @@ static void _jove_init_cpu_state(void);
 
 static target_ulong _jove_alloc_stack(void);
 static void _jove_free_stack(target_ulong);
+_HIDDEN uintptr_t _jove_emusp_location(void);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 //
@@ -674,40 +675,32 @@ extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("
 
 void _jove_inverse_thunk(void) {
   asm volatile("pushq $0xdead\n"
-               "pushq %%r15\n" /* callee-saved registers */
-               "pushq %%r14\n"
-               "pushq %%r13\n"
-               "pushq %%r12\n"
+               "pushq %%rax\n" /* preserve return registers */
+               "pushq %%rdx\n"
 
-               "movq __jove_env@GOTPCREL(%%rip), %%r15\n"
-               "movq %%r15, %%r14\n"
-               "addq %0, %%r14\n"
+               "call _jove_emusp_location\n"
 
-               "movq (%%r14), %%r13\n"   // r13 = emusp
-               "movq %%r13, 32(%%rsp)\n" // replace 0xdead with emusp
+               "movq (%%rax), %%rdx\n"   // rdx = emusp
+               "movq %%rdx, 16(%%rsp)\n" // replace 0xdead with emusp
 
-               "movq 56(%%rsp), %%r13\n"  // read saved_emusp off the stack
-               "movq %%r13, (%%r14)\n"    // restore emusp
+               "movq 40(%%rsp), %%rdx\n"  // read saved_emusp off the stack
+               "movq %%rdx, (%%rax)\n"    // restore emusp
 
 #if 0
-               "movq 48(%%rsp), %%r13\n"  // read saved_sp off the stack
-               "movq %%r13, 32(%%rsp)\n" // replacing 0xdead
+               "movq 32(%%rsp), %%rdx\n"  // read saved_sp off the stack
+               "movq %%rdx, 16(%%rsp)\n" // replacing 0xdead
 #endif
 
-               "movq 40(%%rsp), %%r11\n"  // read saved_retaddr off the stack
+               "movq 24(%%rsp), %%r11\n"  // read saved_retaddr off the stack
 
-               "popq %%r12\n"
-               "popq %%r13\n"
-               "popq %%r14\n"
-               "popq %%r15\n" /* callee-saved registers */
+               "popq %%rdx\n"
+               "popq %%rax\n"
                "popq %%rsp\n"
 
                "jmp *%%r11\n"
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i" (offsetof(CPUX86State, regs[R_ESP]))
-
                : /* Clobbers */);
 }
 
@@ -775,12 +768,13 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       if (pc != fns[2 * FIdx + 0])
         continue;
 
+#define pc    uctx->uc_mcontext.gregs[REG_RIP]
 #define sp    uctx->uc_mcontext.gregs[REG_RSP]
 #define emusp           __jove_env.regs[R_ESP]
 
-      uintptr_t saved_retaddr = *((uintptr_t *)sp);
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
+      uintptr_t saved_retaddr = *((uintptr_t *)saved_sp);
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -803,20 +797,13 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE;
 
-      /* eip replacement */
-      uctx->uc_mcontext.gregs[REG_RIP] = fns[2 * FIdx + 1];
+      pc = fns[2 * FIdx + 1];
 
-#if 0
-      char buff[65];
-      _addrtostr(uctx->uc_mcontext.gregs[REG_RIP], buff, sizeof(buff));
-
-      _jove_sys_write(STDOUT_FILENO, "_jove_rt_signal_handler ",
-                      sizeof("_jove_rt_signal_handler "));
-
-      _jove_sys_write(STDOUT_FILENO, buff, _strlen(buff));
-      _jove_sys_write(STDOUT_FILENO, "\n", sizeof("\n"));
-#endif
       return;
+
+#undef emusp
+#undef sp
+#undef pc
     }
   }
 
@@ -984,6 +971,10 @@ size_t _strlen(const char *str) {
 
 void _jove_init_cpu_state(void) {
   __jove_env.df = 1;
+}
+
+uintptr_t _jove_emusp_location(void) {
+  return (uintptr_t)&__jove_env.regs[R_ESP];
 }
 
 asm ( "	nop\n" ".align 16\n" ".LSTART_" "restore_rt" ":\n" "	.type __" "restore_rt" ",@function\n" "__" "restore_rt" ":\n" "	movq $" "15" ", %rax\n" "	syscall\n" ".LEND_" "restore_rt" ":\n" ".section .eh_frame,\"a\",@progbits\n" ".LSTARTFRAME_" "restore_rt" ":\n" "	.long .LENDCIE_" "restore_rt" "-.LSTARTCIE_" "restore_rt" "\n" ".LSTARTCIE_" "restore_rt" ":\n" "	.long 0\n" "	.byte 1\n" "	.string \"zRS\"\n" "	.uleb128 1\n" "	.sleb128 -8\n" "	.uleb128 16\n" "	.uleb128 .LENDAUGMNT_" "restore_rt" "-.LSTARTAUGMNT_" "restore_rt" "\n" ".LSTARTAUGMNT_" "restore_rt" ":\n" "	.byte 0x1b\n" ".LENDAUGMNT_" "restore_rt" ":\n" "	.align " "8" "\n" ".LENDCIE_" "restore_rt" ":\n" "	.long .LENDFDE_" "restore_rt" "-.LSTARTFDE_" "restore_rt" "\n" ".LSTARTFDE_" "restore_rt" ":\n" "	.long .LSTARTFDE_" "restore_rt" "-.LSTARTFRAME_" "restore_rt" "\n" "	.long (.LSTART_" "restore_rt" "-1)-.\n" "	.long .LEND_" "restore_rt" "-(.LSTART_" "restore_rt" "-1)\n" "	.uleb128 0\n" "	.byte 0x0f\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "	.byte 0x06\n" "2:" "	.byte 0x10\n" "	.uleb128 " "8" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "40" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "9" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "48" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "10" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "56" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "11" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "64" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "12" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "72" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "13" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "80" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "14" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "88" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "15" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "96" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "5" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "104" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "4" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "112" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "6" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "120" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "3" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "128" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "1" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "136" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "0" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "144" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "2" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "152" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "7" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "16" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "168" "\n" "2:" "	.align " "8" "\n" ".LENDFDE_" "restore_rt" ":\n" "	.previous\n" );
