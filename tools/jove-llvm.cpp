@@ -107,7 +107,6 @@ struct hook_t;
                                                                                \
   struct {                                                                     \
     llvm::AllocaInst *SavedCPUState;                                           \
-    llvm::CallInst *SignalStack;                                               \
   } _signal_handler;                                                           \
                                                                                \
   struct {                                                                     \
@@ -123,7 +122,7 @@ struct hook_t;
   function_t()                                                                 \
       : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
         _resolver({.IFunc = nullptr}),                                         \
-        _signal_handler({.SavedCPUState = nullptr, .SignalStack = nullptr}),   \
+        _signal_handler({.SavedCPUState = nullptr}),                           \
         IsNamed(false), Analyzed(false) {}                                     \
                                                                                \
   void Analyze(void);                                                          \
@@ -7206,25 +7205,13 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
           llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
                                 f.DebugInformation.Subprogram));
 
-      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
-
+      //
+      // save the emulated CPU state
+      //
       f._signal_handler.SavedCPUState = IRB.CreateAlloca(CPUStateType);
-      llvm::CallInst *MemCpyCall =
-        IRB.CreateMemCpy(f._signal_handler.SavedCPUState,
-                         llvm::MaybeAlign(),
-                         CPUStateGlobal,
-                         llvm::MaybeAlign(),
-                         sizeof(CPUArchState));
-      //MemCopiesToExpand.push_back(MemCpyCall);
-
-      f._signal_handler.SignalStack = IRB.CreateCall(JoveAllocStackFunc);
-
-      llvm::Value *NewSP =
-          IRB.CreateAdd(f._signal_handler.SignalStack,
-                        llvm::ConstantInt::get(
-                            WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16));
-
-      IRB.CreateStore(NewSP, SPPtr);
+      llvm::CallInst *MemCpyCall = IRB.CreateMemCpy(
+          f._signal_handler.SavedCPUState, llvm::MaybeAlign(), CPUStateGlobal,
+          llvm::MaybeAlign(), sizeof(CPUArchState));
     }
 
     for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
@@ -8605,6 +8592,17 @@ int TranslateBasicBlock(binary_t &Binary,
   }
 
   case TERMINATOR::RETURN:
+    if (f.IsSignalHandler) {
+      assert(f._signal_handler.SavedCPUState);
+
+      //
+      // undo changes to the emulated CPU state (this will not affect emusp)
+      //
+      IRB.CreateMemCpy(CPUStateGlobal, llvm::MaybeAlign(),
+                       f._signal_handler.SavedCPUState, llvm::MaybeAlign(),
+                       sizeof(CPUArchState));
+    }
+
     if (f.IsABI)
       store_stack_pointers();
     break;
@@ -9422,21 +9420,6 @@ int TranslateBasicBlock(binary_t &Binary,
       break;
 
   case TERMINATOR::RETURN: {
-    if (f.IsSignalHandler) {
-      assert(f._signal_handler.SavedCPUState);
-      assert(f._signal_handler.SignalStack);
-
-      llvm::CallInst *MemCpyCall =
-        IRB.CreateMemCpy(CPUStateGlobal,
-                         llvm::MaybeAlign(),
-                         f._signal_handler.SavedCPUState,
-                         llvm::MaybeAlign(),
-                         sizeof(CPUArchState));
-      //MemCopiesToExpand.push_back(MemCpyCall);
-
-      IRB.CreateCall(JoveFreeStackFunc, {f._signal_handler.SignalStack});
-    }
-
     if (DetermineFunctionType(f)->getReturnType()->isVoidTy()) {
       IRB.CreateRetVoid();
       break;
