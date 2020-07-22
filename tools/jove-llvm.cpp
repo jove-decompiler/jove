@@ -95,7 +95,6 @@ struct hook_t;
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::set<basic_block_t> BasicBlocksSet;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
-  std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec;             \
   llvm::AllocaInst *PCAlloca;                                                  \
   const hook_t *hook;                                                          \
   llvm::Function *PreHook;                                                     \
@@ -7093,6 +7092,7 @@ int CreateNoAliasMetadata(void) {
 }
 
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
+                               std::vector<llvm::AllocaInst *> &,
                                llvm::IRBuilderTy &);
 
 llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
@@ -7168,8 +7168,6 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     IRB.CreateBr(ICFG[entry_bb].B);
   }
 
-  std::fill(f.GlobalAllocaVec.begin(), f.GlobalAllocaVec.end(), nullptr);
-
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
       llvm::DISubprogram::SPFlagOptimized;
@@ -7193,6 +7191,8 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
   F->setSubprogram(f.DebugInformation.Subprogram);
 
+  std::vector<llvm::AllocaInst *> GlobalAllocaVec(tcg_num_globals, nullptr);
+
   //
   // create the AllocaInst's for each global referenced at the start of the
   // entry basic block of the function
@@ -7214,15 +7214,15 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
           llvm::MaybeAlign(), sizeof(CPUArchState));
     }
 
-    for (unsigned glb = 0; glb < f.GlobalAllocaVec.size(); ++glb) {
-      f.GlobalAllocaVec[glb] = IRB.CreateAlloca(
+    for (unsigned glb = 0; glb < GlobalAllocaVec.size(); ++glb) {
+      GlobalAllocaVec[glb] = IRB.CreateAlloca(
           IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
           std::string(TCG->_ctx.temps[glb].name) + "_ptr");
     }
 
     f.PCAlloca = tcg_program_counter_index < 0
                      ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
-                     : f.GlobalAllocaVec[tcg_program_counter_index];
+                     : GlobalAllocaVec[tcg_program_counter_index];
 
     //
     // initialize the globals which are passed as parameters
@@ -7235,7 +7235,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
       for (unsigned glb : glbv) {
         assert(arg_it != F->arg_end());
         llvm::Argument *Val = &*arg_it++;
-        llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+        llvm::Value *Ptr = GlobalAllocaVec[glb];
         IRB.CreateStore(Val, Ptr);
       }
     }
@@ -7263,12 +7263,12 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
         llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-        llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
+        llvm::StoreInst *SI = IRB.CreateStore(LI, GlobalAllocaVec[glb]);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
 
-    if (int ret = TranslateBasicBlock(Binary, f, entry_bb, IRB))
+    if (int ret = TranslateBasicBlock(Binary, f, entry_bb, GlobalAllocaVec, IRB))
       return ret;
   }
 
@@ -7276,7 +7276,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
     basic_block_t bb = f.BasicBlocks[i];
     llvm::IRBuilderTy IRB(ICFG[bb].B);
 
-    if (int ret = TranslateBasicBlock(Binary, f, bb, IRB))
+    if (int ret = TranslateBasicBlock(Binary, f, bb, GlobalAllocaVec, IRB))
       return ret;
   }
 
@@ -8329,6 +8329,7 @@ namespace jove {
 static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
                           binary_t &, function_t &, basic_block_t,
                           std::vector<llvm::AllocaInst *> &,
+                          std::vector<llvm::AllocaInst *> &,
                           std::vector<llvm::BasicBlock *> &,
                           llvm::BasicBlock *,
                           llvm::IRBuilderTy &);
@@ -8339,6 +8340,7 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
 int TranslateBasicBlock(binary_t &Binary,
                         function_t &f,
                         basic_block_t bb,
+                        std::vector<llvm::AllocaInst *> &GlobalAllocaVec,
                         llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
@@ -8476,8 +8478,8 @@ int TranslateBasicBlock(binary_t &Binary,
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, TempAllocaVec,
-                                   LabelVec, ExitBB, IRB)) {
+      if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, GlobalAllocaVec,
+                                   TempAllocaVec, LabelVec, ExitBB, IRB)) {
         TCG->dump_operations();
         return ret;
       }
@@ -8530,7 +8532,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
   auto store_stack_pointers = [&](void) -> void {
     auto store = [&](unsigned glb) -> void {
-      llvm::LoadInst *LI = IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+      llvm::LoadInst *LI = IRB.CreateLoad(GlobalAllocaVec[glb]);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
       llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
@@ -8692,7 +8694,7 @@ int TranslateBasicBlock(binary_t &Binary,
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
-                       return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+                       return IRB.CreateLoad(GlobalAllocaVec[glb]);
                      });
     }
 
@@ -8714,7 +8716,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
       if (glbv.size() == 1) {
         assert(DetermineFunctionType(callee)->getReturnType()->isIntegerTy());
-        IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+        IRB.CreateStore(Ret, GlobalAllocaVec[glbv.front()]);
       } else {
         for (unsigned i = 0; i < glbv.size(); ++i) {
           unsigned glb = glbv[i];
@@ -8725,7 +8727,7 @@ int TranslateBasicBlock(binary_t &Binary,
                % TCG->_ctx.temps[glb].name
                % callee.F->getName().str()).str());
 
-          IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
+          IRB.CreateStore(Val, GlobalAllocaVec[glb]);
         }
       }
     }
@@ -8894,7 +8896,7 @@ int TranslateBasicBlock(binary_t &Binary,
         ArgVec.resize(glbv.size());
         std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                        [&](unsigned glb) -> llvm::Value * {
-                         return IRB.CreateLoad(f.GlobalAllocaVec[glb]);
+                         return IRB.CreateLoad(GlobalAllocaVec[glb]);
                        });
       }
 
@@ -8936,7 +8938,7 @@ int TranslateBasicBlock(binary_t &Binary,
         if (foreign) // SP += 8 to "pop" the emulated return address
           IRB.CreateStore(
               IRB.CreateAdd(
-                  IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]),
+                  IRB.CreateLoad(GlobalAllocaVec[tcg_stack_pointer_index]),
                   llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
               CPUStateGlobalPointer(tcg_stack_pointer_index));
 #endif
@@ -8955,7 +8957,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
         if (glbv.size() == 1
             || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
-          IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+          IRB.CreateStore(Ret, GlobalAllocaVec[glbv.front()]);
         } else {
           assert(glbv.size() > 1);
           assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
@@ -8967,7 +8969,7 @@ int TranslateBasicBlock(binary_t &Binary,
                 Ret, llvm::ArrayRef<unsigned>(i),
                 (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
 
-            IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
+            IRB.CreateStore(Val, GlobalAllocaVec[glb]);
           }
         }
       }
@@ -9142,7 +9144,7 @@ int TranslateBasicBlock(binary_t &Binary,
             ArgVec.resize(glbv.size());
             std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                            [&](unsigned glb) -> llvm::Value * {
-                             llvm::Value *Ptr = f.GlobalAllocaVec[glb];
+                             llvm::Value *Ptr = GlobalAllocaVec[glb];
                              assert(Ptr);
                              return IRB.CreateLoad(Ptr);
                            });
@@ -9186,7 +9188,7 @@ int TranslateBasicBlock(binary_t &Binary,
             if (foreign) // SP += 8 to "pop" the emulated return address
               IRB.CreateStore(
                   IRB.CreateAdd(
-                      IRB.CreateLoad(f.GlobalAllocaVec[tcg_stack_pointer_index]),
+                      IRB.CreateLoad(GlobalAllocaVec[tcg_stack_pointer_index]),
                       llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
                   CPUStateGlobalPointer(tcg_stack_pointer_index));
 #endif
@@ -9205,7 +9207,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
             if (glbv.size() == 1
                 || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
-              IRB.CreateStore(Ret, f.GlobalAllocaVec[glbv.front()]);
+              IRB.CreateStore(Ret, GlobalAllocaVec[glbv.front()]);
             } else {
               assert(glbv.size() > 1);
               assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
@@ -9217,7 +9219,7 @@ int TranslateBasicBlock(binary_t &Binary,
                     Ret, llvm::ArrayRef<unsigned>(i),
                     (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
 
-                IRB.CreateStore(Val, f.GlobalAllocaVec[glb]);
+                IRB.CreateStore(Val, GlobalAllocaVec[glb]);
               }
             }
           }
@@ -9309,7 +9311,7 @@ int TranslateBasicBlock(binary_t &Binary,
       llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-      llvm::StoreInst *SI = IRB.CreateStore(LI, f.GlobalAllocaVec[glb]);
+      llvm::StoreInst *SI = IRB.CreateStore(LI, GlobalAllocaVec[glb]);
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     };
 
@@ -9430,9 +9432,9 @@ int TranslateBasicBlock(binary_t &Binary,
 
     if (DetermineFunctionType(f)->getReturnType()->isIntegerTy()) {
       assert(glbv.size() == 1);
-      assert(f.GlobalAllocaVec[glbv.front()]);
+      assert(GlobalAllocaVec[glbv.front()]);
 
-      IRB.CreateRet(IRB.CreateLoad(f.GlobalAllocaVec[glbv.front()]));
+      IRB.CreateRet(IRB.CreateLoad(GlobalAllocaVec[glbv.front()]));
       break;
     }
 
@@ -9447,7 +9449,7 @@ int TranslateBasicBlock(binary_t &Binary,
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
             return IRB.CreateInsertValue(res,
-                                         IRB.CreateLoad(f.GlobalAllocaVec[glb]),
+                                         IRB.CreateLoad(GlobalAllocaVec[glb]),
                                          llvm::ArrayRef<unsigned>(idx++));
           });
       IRB.CreateRet(retVal);
@@ -9490,11 +9492,11 @@ static unsigned bits_of_memop(MemOp op) {
 
 int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                    binary_t &Binary, function_t &f, basic_block_t bb,
+                   std::vector<llvm::AllocaInst *> &GlobalAllocaVec,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
                    std::vector<llvm::BasicBlock *> &LabelVec,
                    llvm::BasicBlock *ExitBB, llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
-  auto &GlobalAllocaVec = f.GlobalAllocaVec;
   auto &PCAlloca = f.PCAlloca;
   TCGContext *s = &TCG->_ctx;
 
