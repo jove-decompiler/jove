@@ -87,7 +87,7 @@ struct hook_t;
                                                                                \
   void Analyze(binary_index_t);                                                \
                                                                                \
-  llvm::BasicBlock *B;
+  llvm::BasicBlock *B = nullptr;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
   binary_index_t BIdx;                                                         \
@@ -96,35 +96,29 @@ struct hook_t;
   std::set<basic_block_t> BasicBlocksSet;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
   llvm::AllocaInst *PCAlloca;                                                  \
-  const hook_t *hook;                                                          \
-  llvm::Function *PreHook;                                                     \
-  llvm::Function *PostHook;                                                    \
+  const hook_t *hook = nullptr;                                                \
+  llvm::Function *PreHook = nullptr;                                           \
+  llvm::Function *PostHook = nullptr;                                          \
                                                                                \
   struct {                                                                     \
-    llvm::GlobalIFunc *IFunc;                                                  \
+    llvm::GlobalIFunc *IFunc = nullptr;                                        \
   } _resolver;                                                                 \
                                                                                \
   struct {                                                                     \
-    llvm::AllocaInst *SavedCPUState;                                           \
+    llvm::AllocaInst *SavedCPUState = nullptr;                                 \
   } _signal_handler;                                                           \
                                                                                \
   struct {                                                                     \
-    llvm::DISubprogram *Subprogram;                                            \
+    llvm::DISubprogram *Subprogram = nullptr;                                  \
   } DebugInformation;                                                          \
                                                                                \
-  bool IsNamed;                                                                \
+  bool IsNamed = false;                                                        \
                                                                                \
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
-  function_t()                                                                 \
-      : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
-        _resolver({.IFunc = nullptr}),                                         \
-        _signal_handler({.SavedCPUState = nullptr}),                           \
-        IsNamed(false) {}                                                      \
-                                                                               \
   void Analyze(void);                                                          \
                                                                                \
-  llvm::Function *F;
+  llvm::Function *F = nullptr;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
