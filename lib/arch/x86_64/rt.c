@@ -742,11 +742,16 @@ static _CTOR void _jove_rt_init(void) {
 }
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-  target_ulong pc = uctx->uc_mcontext.gregs[REG_RIP];
+#define pc    uctx->uc_mcontext.gregs[REG_RIP]
+#define sp    uctx->uc_mcontext.gregs[REG_RSP]
+#define emusp           __jove_env.regs[R_ESP]
+
+  uintptr_t saved_pc = pc;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
-    if (BIdx == 1 || BIdx == 2) /* XXX */
-      continue;
+    if (BIdx == 1 ||
+        BIdx == 2)
+      continue; /* rtld or vdso */
 
     uintptr_t *fns = __jove_function_tables[BIdx];
 
@@ -754,12 +759,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       continue;
 
     for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
-      if (pc != fns[2 * FIdx + 0])
+      if (saved_pc != fns[2 * FIdx + 0])
         continue;
-
-#define pc    uctx->uc_mcontext.gregs[REG_RIP]
-#define sp    uctx->uc_mcontext.gregs[REG_RSP]
-#define emusp           __jove_env.regs[R_ESP]
 
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
@@ -768,7 +769,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       //
       // replace the emulated stack pointer with the real stack pointer
       //
-      emusp = sp;
+      emusp = saved_sp;
 
       {
         uintptr_t newsp =
@@ -789,13 +790,16 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       pc = fns[2 * FIdx + 1];
 
       return;
+    }
+  }
 
 #undef emusp
 #undef sp
 #undef pc
-    }
-  }
 
+  //
+  // if we get here, this is most likely a real crash.
+  //
   __builtin_trap();
   __builtin_unreachable();
 }
