@@ -133,7 +133,6 @@ struct hook_t;
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::Function *SectsF = nullptr;                                            \
   std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
-  std::unordered_map<uintptr_t, basic_block_index_t> BBMap;                    \
   boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 
 #include "tcgcommon.hpp"
@@ -991,7 +990,6 @@ int InitStateForBinaries(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &FuncMap = binary.FuncMap;
-    auto &BBMap = binary.BBMap;
     auto &SectMap = binary.SectMap;
 
     //
@@ -1032,16 +1030,6 @@ int InitStateForBinaries(void) {
                      return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
                             IsDefinitelyTailCall(ICFG, bb);
                    });
-    }
-
-    //
-    // BBMap
-    //
-    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
-         ++BBIdx) {
-      basic_block_t bb = boost::vertex(BBIdx, ICFG);
-
-      BBMap[ICFG[bb].Addr] = BBIdx;
     }
 
     //
