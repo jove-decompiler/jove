@@ -114,15 +114,13 @@ struct hook_t;
                                                                                \
   bool IsNamed;                                                                \
                                                                                \
-  bool Analyzed;                                                               \
-                                                                               \
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
   function_t()                                                                 \
       : hook(nullptr), PreHook(nullptr), PostHook(nullptr),                    \
         _resolver({.IFunc = nullptr}),                                         \
         _signal_handler({.SavedCPUState = nullptr}),                           \
-        IsNamed(false), Analyzed(false) {}                                     \
+        IsNamed(false) {}                                                      \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -1932,7 +1930,6 @@ int ProcessExportedFunctions(void) {
       }
 
       function_t &f = binary.Analysis.Functions[FuncIdx];
-      assert(!f.Analyzed);
       f.IsABI = true;
 
       f.Syms.resize(f.Syms.size() + 1);
@@ -2846,7 +2843,6 @@ int ProcessDynamicTargets(void) {
         function_t &callee = Decompilation.Binaries[dyn_targ.first]
                                  .Analysis.Functions[dyn_targ.second];
 
-        assert(!callee.Analyzed);
         callee.IsABI = true;
       }
     }
@@ -2881,7 +2877,6 @@ int ProcessDynamicTargets(void) {
         function_t &f =
             Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 
-        assert(!f.Analyzed);
         f.IsABI = true;
       }
     }
@@ -2900,7 +2895,6 @@ int ProcessDynamicTargets(void) {
         function_t &f =
             Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 
-        assert(!f.Analyzed);
         f.IsABI = true;
       }
     }
@@ -3504,7 +3498,6 @@ int ProcessIFuncResolvers(void) {
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions[(*it).second];
-    assert(!resolver.Analyzed);
     resolver.IsABI = true;
 
     // TODO we know function type is i64 (*)(void)
@@ -3621,7 +3614,6 @@ int ProcessIFuncResolvers(void) {
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions.at((*it).second);
-    assert(!resolver.Analyzed);
     resolver.IsABI = true;
   }
 
@@ -3644,7 +3636,6 @@ int ProcessIFuncResolvers(void) {
 
     function_t &f =
         Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
-    assert(!f.Analyzed);
     f.IsABI = true;
   }
 
