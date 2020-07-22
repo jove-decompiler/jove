@@ -706,7 +706,6 @@ static int InlineCalls(void);
 static int PrepareToOptimize(void);
 static int ConstifyRelocationSectionPointers(void);
 static int FixupTPBaseAddrs(void);
-static int MakeThreadPointerBaseNULL(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int ExpandMemoryIntrinsicCalls(void);
@@ -751,27 +750,27 @@ int llvm(void) {
       || (opts::DumpPreFSBaseFixup ? (DumpModule("pre.fsbase.fixup"), 1) : 0)
       || FixupTPBaseAddrs()
       || (opts::DumpPostFSBaseFixup ? (DumpModule("post.fsbase.fixup"), 1) : 0)
+
+#if 0
       || InlineCalls()
       || DoOptimize()
-      || MakeThreadPointerBaseNULL()
+#endif
+
       || ConstifyRelocationSectionPointers()
-      || InternalizeStaticFunctions()
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
+
       || DoOptimize()
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
+
 #if 0
       || RecoverControlFlow()
+      || WriteDecompilation()
 #endif
 
       || (opts::DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
-
-#if 0
-      || WriteDecompilation()
-#endif
-
       || (!opts::VersionScript.empty() ? WriteVersionScript() : 0)
       || WriteModule();
 }
@@ -6263,20 +6262,11 @@ int CreateSectionGlobalVariables(void) {
     }
   }
 
-  SectsGlobal->setVisibility(llvm::GlobalValue::HiddenVisibility);
-
-#if 0
-  if (ABIChanged) {
-    WriteDecompilation();
-
-    execve(cmdline.argv[0], cmdline.argv, ::environ);
-    abort();
-  }
-#endif
-
   if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
       !Decompilation.Binaries[BinaryIndex].IsPIC)
-    SectsGlobal->setSection(".jove");
+    SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
+                                       * placing the section at the executable's
+                                       * original base address in memory */
 
   return 0;
 }
@@ -7472,6 +7462,8 @@ int ConstifyRelocationSectionPointers(void) {
   return 0;
 }
 
+static int MakeThreadPointerBaseNULL(void);
+
 int FixupTPBaseAddrs(void) {
   if (opts::NoFixupFSBase)
     return 0;
@@ -7626,7 +7618,7 @@ int FixupTPBaseAddrs(void) {
   TPBaseGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
   TPBaseGlobal->setConstant(true);
 
-  return 0;
+  return MakeThreadPointerBaseNULL();
 }
 
 int MakeThreadPointerBaseNULL(void) {
@@ -7653,28 +7645,6 @@ int MakeThreadPointerBaseNULL(void) {
     std::tie(I, V) = TR;
 
     I->replaceAllUsesWith(V);
-  }
-
-  return 0;
-}
-
-int InternalizeStaticFunctions(void) {
-  return 0;
-
-  binary_t &b = Decompilation.Binaries[BinaryIndex];
-
-  for (function_t &f : b.Analysis.Functions) {
-    if (f.IsABI)
-      continue;
-
-    if (!f.F->empty())
-      f.F->setLinkage(llvm::GlobalValue::InternalLinkage);
-  }
-
-  JoveThunkFunc = Module->getFunction("_jove_thunk");
-  if (JoveThunkFunc) {
-    JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
-    JoveThunkFunc->setCallingConv(llvm::CallingConv::C);
   }
 
   return 0;
