@@ -841,8 +841,6 @@ void _jove_begin(target_ulong rdi,
   _jove_install_function_table();
   _jove_install_foreign_function_tables();
 
-  _jove_do_emulate_copy_relocations();
-
   return _jove_call_entry();
 }
 
