@@ -695,6 +695,7 @@ static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
+static int ProcessDynamicSymbols2(void);
 static int CreateFunctionTable(void);
 static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
@@ -736,6 +737,7 @@ int llvm(void) {
       || ProcessDynamicSymbols()
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
+      || ProcessDynamicSymbols2()
       || CreateFunctionTable()
       || CreateTPBaseGlobal()
       || FixupHelperStubs()
@@ -2518,6 +2520,9 @@ int ProcessDynamicSymbols(void) {
               VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
 
 #elif 1
+
+
+#if 0
             unsigned off = Sym.st_value - SectsStartAddr;
 
             if (sym.Vers.empty()) {
@@ -2557,6 +2562,9 @@ int ProcessDynamicSymbols(void) {
               // make sure version node is defined
               VersionScript.Table[sym.Vers.str()];
             }
+#else
+            ;
+#endif
 #endif
           }
         }
@@ -4836,11 +4844,13 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    //return Module->getNamedValue(S.Name);
-    llvm::Constant *C = SectionPointer(S.Addr);
-    assert(C);
+    if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
+      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
-    return C;
+    AddrToSymbolMap[S.Addr].insert(S.Name);
+    AddrToSizeMap[S.Addr] = S.Size;
+
+    return nullptr;
   };
 
   auto constant_of_relative_relocation =
@@ -5540,7 +5550,7 @@ int CreateSectionGlobalVariables(void) {
         Left -= sizeof(target_ulong);
       }
 
-      if (!T || !C)
+      if (!T)
         return nullptr;
 
       GVFieldTys.push_back(T);
@@ -5557,12 +5567,44 @@ int CreateSectionGlobalVariables(void) {
       GVFieldInits.push_back(C);
     }
 
+    assert(std::all_of(GVFieldTys.cbegin(),
+                       GVFieldTys.cend(),
+                       [](llvm::Type *T) -> bool { return T != nullptr; }));
+
     llvm::StructType *ST = llvm::StructType::create(
         *Context, GVFieldTys, "struct." + SymName.str(), true /* isPacked */);
 
-    return new llvm::GlobalVariable(
-        *Module, ST, false, llvm::GlobalValue::ExternalLinkage,
-        llvm::ConstantStruct::get(ST, GVFieldInits), SymName, nullptr, tlsMode);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
+    if (GV) {
+      assert(!GV->hasInitializer());
+      assert(std::all_of(GVFieldInits.cbegin(),
+                         GVFieldInits.cend(),
+                         [](llvm::Constant *C) -> bool { return C != nullptr; }));
+
+      assert(llvm::isa<llvm::PointerType>(GV->getType()));
+
+      llvm::Type *Ty =
+          llvm::cast<llvm::PointerType>(GV->getType())->getElementType();
+
+      assert(llvm::isa<llvm::StructType>(Ty));
+
+      GV->setInitializer(llvm::ConstantStruct::get(
+          llvm::cast<llvm::StructType>(Ty), GVFieldInits));
+
+      return GV;
+    } else {
+      if (std::all_of(GVFieldInits.cbegin(),
+                      GVFieldInits.cend(),
+                      [](llvm::Constant *C) -> bool { return C != nullptr; }))
+        return new llvm::GlobalVariable(
+            *Module, ST, false, llvm::GlobalValue::ExternalLinkage,
+            llvm::ConstantStruct::get(ST, GVFieldInits), SymName, nullptr,
+            tlsMode);
+      else
+        return new llvm::GlobalVariable(*Module, ST, false,
+                                        llvm::GlobalValue::ExternalLinkage,
+                                        nullptr, SymName, nullptr, tlsMode);
+    }
   };
 
   auto clear_section_stuff = [&](void) -> void {
@@ -5671,10 +5713,12 @@ int CreateSectionGlobalVariables(void) {
       llvm::StringRef SymName = *Syms.begin();
       assert(!Syms.empty());
 
-      //llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
+      llvm::errs() << llvm::formatv("iterating AddrToSymbolMap ({0})\n", SymName);
 
-      if (Module->getNamedValue(SymName))
-        continue;
+      if (llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true)) {
+        if (GV->hasInitializer())
+          continue;
+      }
 
       uintptr_t Addr = pair.first;
 
@@ -5697,7 +5741,7 @@ int CreateSectionGlobalVariables(void) {
         llvm::outs() << "!create_global_variable(...): " << SymName << '\n';
         continue;
       } else {
-        //WithColor::note() << llvm::formatv("new GV: {0}\n", *GV);
+        WithColor::note() << llvm::formatv("new GV: {0}\n", *GV);
       }
 
       for (auto it = std::next(Syms.begin()); it != Syms.end(); ++it) {
@@ -5713,7 +5757,7 @@ int CreateSectionGlobalVariables(void) {
     }
 
     if (ThreadLocalStorage.Present) {
-      if (!TLSSectsGlobal)
+      if (!TLSSectsGlobal || !TLSSectsGlobal->hasInitializer())
         TLSSectsGlobal = create_global_variable(
             ThreadLocalStorage.Beg,
             ThreadLocalStorage.End - ThreadLocalStorage.Beg,
@@ -6267,6 +6311,496 @@ int CreateSectionGlobalVariables(void) {
     SectsGlobal->setSection(".jove"); /* we will refer to this later with ld,
                                        * placing the section at the executable's
                                        * original base address in memory */
+
+  return 0;
+}
+
+int ProcessDynamicSymbols2(void) {
+  std::set<std::pair<uintptr_t, unsigned>> gdefs;
+
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &binary = Decompilation.Binaries[BIdx];
+    auto &FuncMap = binary.FuncMap;
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    const ELFT &E = *O.getELFFile();
+
+    auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
+      if (DRI.Addr < E.base() ||
+          (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
+        abort();
+      return DRI;
+    };
+
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+    DynRegionInfo DynamicTable;
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
+                                           uint64_t EntSize) -> DynRegionInfo {
+        return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
+      };
+
+      for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+        if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
+          DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
+
+        if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
+          LoadSegments.push_back(&Phdr);
+      }
+    }
+
+    assert(DynamicTable.Addr);
+
+    DynRegionInfo DynSymRegion;
+    llvm::StringRef DynSymtabName;
+    llvm::StringRef DynamicStringTable;
+
+    {
+      auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
+        return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
+      };
+
+      for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+        switch (Sec.sh_type) {
+        case llvm::ELF::SHT_DYNSYM:
+          DynSymRegion = createDRIFrom(&Sec);
+          DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+          DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+          break;
+        }
+      }
+    }
+
+    //
+    // parse dynamic table
+    //
+    {
+      auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+        return DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
+
+      auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
+        const Elf_Phdr *const *I =
+            std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
+                             [](uint64_t VAddr, const Elf_Phdr *Phdr) {
+                               return VAddr < Phdr->p_vaddr;
+                             });
+        if (I == LoadSegments.begin())
+          abort();
+        --I;
+        const Elf_Phdr &Phdr = **I;
+        uint64_t Delta = VAddr - Phdr.p_vaddr;
+        if (Delta >= Phdr.p_filesz)
+          abort();
+        return E.base() + Phdr.p_offset + Delta;
+      };
+
+      const char *StringTableBegin = nullptr;
+      uint64_t StringTableSize = 0;
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        switch (Dyn.d_tag) {
+        case llvm::ELF::DT_STRTAB:
+          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          break;
+        case llvm::ELF::DT_STRSZ:
+          StringTableSize = Dyn.getVal();
+          break;
+        }
+      };
+
+      if (StringTableBegin)
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
+    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_GNU_versym:
+        if (!SymbolVersionSection)
+          SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        if (!SymbolVersionDefSection)
+          SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        if (!SymbolVersionNeedSection)
+          SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+
+    auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+      const uint8_t *VerdefStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+      // The first Verdef entry is at the start of the section.
+      const uint8_t *VerdefBuf = VerdefStart;
+      for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries;
+           ++VerdefIndex) {
+        if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+      report_fatal_error("Section ended unexpectedly while scanning "
+                         "version definitions.");
+#else
+          abort();
+#endif
+        }
+
+        const Elf_Verdef *Verdef =
+            reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+        if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+      report_fatal_error("Unexpected verdef version");
+#else
+          abort();
+#endif
+        }
+
+        size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Verdef);
+        VerdefBuf += Verdef->vd_next;
+      }
+    };
+
+    auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+      unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+      unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+      const uint8_t *VerneedStart =
+          reinterpret_cast<const uint8_t *>(E.base() + Sec->sh_offset);
+      const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+      // The first Verneed entry is at the start of the section.
+      const uint8_t *VerneedBuf = VerneedStart;
+      for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+           ++VerneedIndex) {
+        if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Verneed *Verneed =
+            reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+        if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+          abort();
+#endif
+        }
+        // Iterate through the Vernaux entries
+        const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+        for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+             ++VernauxIndex) {
+          if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+            abort();
+#endif
+          }
+          const Elf_Vernaux *Vernaux =
+              reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+          size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+          if (Index >= VersionMap.size())
+            VersionMap.resize(Index + 1);
+          VersionMap[Index] = VersionMapEntry(Vernaux);
+          VernauxBuf += Vernaux->vna_next;
+        }
+        VerneedBuf += Verneed->vn_next;
+      }
+    };
+
+
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined()) /* defined */
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+
+      symbol_t sym;
+
+      sym.Name = SymName;
+
+      //
+      // symbol versioning
+      //
+      if (!SymbolVersionSection) {
+        sym.Visibility.IsDefault = false;
+      } else {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
+                            sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        const Elf_Versym *Versym = unwrapOrError(
+            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+
+        auto getSymbolVersionByIndex = [&](llvm::StringRef StrTab,
+                                           uint32_t SymbolVersionIndex,
+                                           bool &IsDefault) -> llvm::StringRef {
+          size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+          // Special markers for unversioned symbols.
+          if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+              VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+            IsDefault = false;
+            return "";
+          }
+
+          auto LoadVersionMap = [&](void) -> void {
+            // If there is no dynamic symtab or version table, there is nothing to
+            // do.
+            if (!DynSymRegion.Addr || !SymbolVersionSection)
+              return;
+
+            // Has the VersionMap already been loaded?
+            if (!VersionMap.empty())
+              return;
+
+            // The first two version indexes are reserved.
+            // Index 0 is LOCAL, index 1 is GLOBAL.
+            VersionMap.push_back(VersionMapEntry());
+            VersionMap.push_back(VersionMapEntry());
+
+            if (SymbolVersionDefSection)
+              LoadVersionDefs(SymbolVersionDefSection);
+
+            if (SymbolVersionNeedSection)
+              LoadVersionNeeds(SymbolVersionNeedSection);
+          };
+
+          // Lookup this symbol in the version table.
+          LoadVersionMap();
+          if (VersionIndex >= VersionMap.size() ||
+              VersionMap[VersionIndex].isNull()) {
+            WithColor::error() << "Invalid version entry\n";
+            exit(1);
+          }
+
+          const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+          // Get the version name string.
+          size_t NameOffset;
+          if (Entry.isVerdef()) {
+            // The first Verdaux entry holds the name.
+            NameOffset = Entry.getVerdef()->getAux()->vda_name;
+            IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+          } else {
+            NameOffset = Entry.getVernaux()->vna_name;
+            IsDefault = false;
+          }
+
+          if (NameOffset >= StrTab.size()) {
+            WithColor::error() << "Invalid string offset\n";
+            return "";
+          }
+
+          return StrTab.data() + NameOffset;
+        };
+
+        sym.Vers = getSymbolVersionByIndex(DynamicStringTable, Versym->vs_index,
+                                           sym.Visibility.IsDefault);
+      }
+
+      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
+          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
+          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
+          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
+          symbol_t::TYPE::DATA,     // STT_FILE                = 4
+          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
+          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
+          symbol_t::TYPE::NONE,     // N/A                     = 7
+          symbol_t::TYPE::NONE,     // N/A                     = 8
+          symbol_t::TYPE::NONE,     // N/A                     = 9
+          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
+          symbol_t::TYPE::NONE,     // N/A                     = 11
+          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
+          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
+          symbol_t::TYPE::NONE,     // N/A                     = 14
+          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
+      };
+
+      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
+          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
+          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
+          symbol_t::BINDING::NONE,      // N/A            = 3
+          symbol_t::BINDING::NONE,      // N/A            = 4
+          symbol_t::BINDING::NONE,      // N/A            = 5
+          symbol_t::BINDING::NONE,      // N/A            = 6
+          symbol_t::BINDING::NONE,      // N/A            = 7
+          symbol_t::BINDING::NONE,      // N/A            = 8
+          symbol_t::BINDING::NONE,      // N/A            = 9
+          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
+          symbol_t::BINDING::NONE,      // N/A            = 11
+          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
+          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
+          symbol_t::BINDING::NONE,      // N/A            = 14
+          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
+      };
+
+      sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
+      sym.Type = elf_symbol_type_mapping[Sym.getType()];
+      sym.Size = Sym.st_size;
+      sym.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+      //////////////////////////////////////////////////////
+
+      if (Sym.getType() == llvm::ELF::STT_OBJECT ||
+          Sym.getType() == llvm::ELF::STT_TLS) {
+        if (!Sym.st_size) {
+          if (opts::Verbose)
+            WithColor::warning() << "symbol '" << SymName
+                                 << "' defined but size is unknown; ignoring\n";
+          continue;
+        }
+
+        if (BIdx == BinaryIndex) {
+          //
+          // if this symbol is TLS, update the TLSValueToSymbolMap
+          //
+          if (Sym.getType() == llvm::ELF::STT_TLS) {
+            ;
+          } else {
+#if 0
+            AddrToSymbolMap[Sym.st_value].insert(SymName);
+
+            {
+              auto it = AddrToSizeMap.find(Sym.st_value);
+              if (it == AddrToSizeMap.end()) {
+                AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
+              } else {
+                if ((*it).second != Sym.st_size) {
+                  // TODO symbol versions
+                  if (opts::Verbose)
+                    WithColor::warning()
+                        << llvm::formatv("binary symbol {0} is defined with "
+                                         "multiple distinct sizes: {1}, {2}\n",
+                                         SymName, Sym.st_size, (*it).second);
+
+                  (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
+                }
+              }
+            }
+
+            boost::icl::interval<uintptr_t>::type intervl =
+                boost::icl::interval<uintptr_t>::right_open(
+                    Sym.st_value, Sym.st_value + Sym.st_size);
+
+            auto it = AddressSpaceObjects.find(intervl);
+            if (it != AddressSpaceObjects.end()) {
+              if (boost::icl::contains(intervl, *it)) {
+                intervl = boost::icl::hull(*it, intervl);
+                AddressSpaceObjects.erase(it);
+              }
+            }
+
+            AddressSpaceObjects.insert({intervl});
+#elif 0
+            unsigned off = Sym.st_value - SectsStartAddr;
+
+            Module->appendModuleInlineAsm(
+                (fmt(".globl %s\n"
+                     ".type  %s,@object\n"
+                     ".size  %s, %u\n" 
+                     ".set   %s, __jove_sections + %u")
+                 % sym.Name.str()
+                 % sym.Name.str()
+                 % sym.Name.str() % Sym.st_size
+                 % sym.Name.str() % off).str());
+
+            if (!sym.Vers.empty())
+              VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+
+#elif 1
+            if (Module->getNamedValue(sym.Name)) {
+              //
+              // if sym has version, we need to symver
+              //
+              if (!sym.Vers.empty())
+                VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+
+              continue;
+            }
+
+            unsigned off = Sym.st_value - SectsStartAddr;
+
+            if (sym.Vers.empty()) {
+              Module->appendModuleInlineAsm(
+                  (fmt(".globl %s\n"
+                       ".type  %s,@object\n"
+                       ".size  %s, %u\n" 
+                       ".set   %s, __jove_sections + %u")
+                   % sym.Name.str()
+                   % sym.Name.str()
+                   % sym.Name.str() % Sym.st_size
+                   % sym.Name.str() % off).str());
+            } else {
+              if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
+                Module->appendModuleInlineAsm(
+                    (fmt(".hidden g%lx_%u\n"
+                         ".globl  g%lx_%u\n"
+                         ".type   g%lx_%u,@object\n"
+                         ".size   g%lx_%u, %u\n" 
+                         ".set    g%lx_%u, __jove_sections + %u")
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % Sym.st_size
+                     % Sym.st_value % Sym.st_size % Sym.st_size
+                     % Sym.st_value % Sym.st_size % off).str());
+
+                gdefs.insert({Sym.st_value, Sym.st_size});
+              }
+
+              Module->appendModuleInlineAsm(
+                  (fmt(".symver g%lx_%u, %s%s%s")
+                   % Sym.st_value % Sym.st_size
+                   % sym.Name.str()
+                   % (sym.Visibility.IsDefault ? "@@" : "@")
+                   % sym.Vers.str()).str());
+
+              // make sure version node is defined
+              VersionScript.Table[sym.Vers.str()];
+            }
+#endif
+          }
+        }
+      } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
+        ;
+      } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
+        ;
+      }
+    }
+  }
 
   return 0;
 }
