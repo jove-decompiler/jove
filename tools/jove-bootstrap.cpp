@@ -2169,8 +2169,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   auto &ICFG = binary.Analysis.ICFG;
 
   //
-  // push program counter past instruction in preparation for producing a
-  // return address
+  // push program counter past instruction (on x86_64 this is necessary to make
+  // EIP-relative expressions correct)
   //
   pc += IndBrInfo.InsnBytes.size();
 
@@ -2206,7 +2206,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     case llvm::X86::RDX:
       return gpr.rdx;
     case llvm::X86::RIP:
-      return gpr.rip; /* (this is not saved_pc) */
+      return gpr.rip;
     case llvm::X86::RSI:
       return gpr.rsi;
     case llvm::X86::RSP:
