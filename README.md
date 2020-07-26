@@ -70,6 +70,39 @@ cp mydnsmasq.conf dnsmasq.sysroot/
 sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
+## `miniupnpd`
+```bash
+cd jove/bin
+
+cat > myminiupnpd.conf <<EOF
+listening_ip=0.0.0.0
+port=5555
+enable_natpmp=yes
+bitrate_up=1000000
+bitrate_down=10000000
+secure_mode=yes
+system_uptime=yes
+notify_interval=60
+clean_ruleset_interval=600
+uuid=fc4ec57e-b051-11db-88f8-0060085db3f6
+serial=12345678
+model_number=1
+allow 1024-65535 192.168.0.0/24 1024-65535
+allow 1024-65535 192.168.1.0/24 1024-65535
+allow 1024-65535 192.168.0.0/23 22
+allow 12345 192.168.7.113/32 54321
+allow 0-65535 0.0.0.0/0 0-65535
+EOF
+
+sudo jove-init -o $HOME/.jove/miniupnpd --git /usr/sbin/miniupnpd
+sudo jove-bootstrap -d $HOME/.jove/miniupnpd -q --syscalls /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+
+mkdir miniupnpd.sysroot
+cp myminiupnpd.conf miniupnpd.sysroot/
+
+sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+```
+
 ## `nginx`
 ```bash
 cd jove/bin
