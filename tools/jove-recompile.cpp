@@ -810,8 +810,17 @@ int recompile(void) {
       const std::string &so_interp = b.dynl.interp;
 
       if (!b.dynl.interp.empty()) {
+        const char *rtld_path = nullptr;
+        for (binary_t &b : Decompilation.Binaries) {
+          if (b.IsDynamicLinker) {
+            rtld_path = b.Path.c_str();
+            break;
+          }
+        }
+        assert(rtld_path);
+
         arg_vec.push_back("-dynamic-linker");
-        arg_vec.push_back(so_interp.c_str());
+        arg_vec.push_back(rtld_path);
       }
 
       std::string soname_arg = std::string("-soname=") + b.dynl.soname;
