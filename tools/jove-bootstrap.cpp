@@ -2447,6 +2447,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
 
     case llvm::X86::CALL32r: /* call edx */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
