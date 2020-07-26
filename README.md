@@ -49,15 +49,7 @@ for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-c
 ```bash
 cd jove/bin
 
-sudo jove-init -o $HOME/.jove/nginx --git /usr/sbin/nginx
-sudo jove-bootstrap -d $HOME/.jove/nginx -q --syscalls /usr/sbin/nginx -- -c /nginx.conf
-
-mkdir -p nginx.sysroot/usr/share/
-mkdir -p nginx.sysroot/var/lib/nginx
-mkdir -p nginx.sysroot/var/log/nginx
-cp -r /usr/share/nginx nginx.sysroot/usr/share/
-
-cat > nginx.sysroot/mynginx.conf <<EOF
+cat > mynginx.conf <<EOF
 worker_processes  1;
 
 daemon off;
@@ -88,6 +80,15 @@ http {
     }
 }
 EOF
+
+sudo jove-init -o $HOME/.jove/nginx --git /usr/sbin/nginx
+sudo jove-bootstrap -d $HOME/.jove/nginx -q --syscalls /usr/sbin/nginx -- -c mynginx.conf
+
+mkdir -p nginx.sysroot/usr/share/
+mkdir -p nginx.sysroot/var/lib/nginx
+mkdir -p nginx.sysroot/var/log/nginx
+cp -r /usr/share/nginx nginx.sysroot/usr/share/
+cp mynginx.conf nginx.sysroot/
 
 sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
