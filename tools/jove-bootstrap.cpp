@@ -2206,7 +2206,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     case llvm::X86::RDX:
       return gpr.rdx;
     case llvm::X86::RIP:
-      return gpr.rip;
+      return gpr.rip; /* (this is not saved_pc) */
     case llvm::X86::RSI:
       return gpr.rsi;
     case llvm::X86::RSP:
@@ -2325,23 +2325,59 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #if defined(__x86_64__)
 
     case llvm::X86::JMP64m: /* jmp qword ptr [reg0 + imm3] */
+      assert(Inst.getNumOperands() == 5);
       assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(1).isImm());
+      assert(Inst.getOperand(2).isReg());
       assert(Inst.getOperand(3).isImm());
-      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                      Inst.getOperand(3).getImm());
+      assert(Inst.getOperand(4).isReg());
+
+      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
+        unsigned x_r = Inst.getOperand(0).getReg();
+        unsigned y_r = Inst.getOperand(2).getReg();
+
+        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
+        long A = Inst.getOperand(1).getImm();
+        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
+        long B = Inst.getOperand(3).getImm();
+
+        return LoadAddr(x + A * y + B);
+      } else {
+        abort();
+      }
 
     case llvm::X86::JMP64r: /* jmp reg0 */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
+
       return RegValue(Inst.getOperand(0).getReg());
 
     case llvm::X86::CALL64m: /* call qword ptr [rip + 3071542] */
+      assert(Inst.getNumOperands() == 5);
       assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(1).isImm());
+      assert(Inst.getOperand(2).isReg());
       assert(Inst.getOperand(3).isImm());
-      return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                      Inst.getOperand(3).getImm());
+      assert(Inst.getOperand(4).isReg());
+
+      if (Inst.getOperand(4).getReg() == llvm::X86::NoRegister) {
+        unsigned x_r = Inst.getOperand(0).getReg();
+        unsigned y_r = Inst.getOperand(2).getReg();
+
+        long x = x_r == llvm::X86::NoRegister ? 0L : RegValue(x_r);
+        long A = Inst.getOperand(1).getImm();
+        long y = y_r == llvm::X86::NoRegister ? 0L : RegValue(y_r);
+        long B = Inst.getOperand(3).getImm();
+
+        return LoadAddr(x + A * y + B);
+      } else {
+        abort();
+      }
 
     case llvm::X86::CALL64r: /* call rax */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
+
       return RegValue(Inst.getOperand(0).getReg());
 
 #elif defined(__i386__)
@@ -2417,10 +2453,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__aarch64__)
 
     case llvm::AArch64::BLR: /* blr x3 */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
     case llvm::AArch64::BR: /* br x17 */
+      assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isReg());
       return RegValue(Inst.getOperand(0).getReg());
 
