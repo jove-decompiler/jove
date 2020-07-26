@@ -807,8 +807,6 @@ int recompile(void) {
       if (opts::DFSan)
         arg_vec.push_back("-lclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME);
 
-      const std::string &so_interp = b.dynl.interp;
-
       if (!b.dynl.interp.empty()) {
         const char *rtld_path = nullptr;
         for (binary_t &b : Decompilation.Binaries) {
