@@ -26,7 +26,7 @@ cd jove/
 make
 ```
 # Examples
-## `ls` (coreutils)
+## `ls`
 ```bash
 cd jove/bin
 
@@ -43,6 +43,31 @@ for b in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $
 After installing `easy-graph`, try this
 ```bash
 for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
+```
+
+## `dnsmasq`
+```bash
+cd jove/bin
+
+cat > mydnsmasq.conf <<EOF
+domain-needed
+bogus-priv
+enable-ra
+port=0
+dhcp-range=::2,::500, constructor:localhost, 64, 12h
+interface=localhost
+listen-address=127.0.0.1
+dhcp-range=localhost,172.0.0.3,172.0.0.150,100h
+dhcp-leasefile=/tmp/dnsmasq.leases
+EOF
+
+sudo jove-init -o $HOME/.jove/dnsmasq --git /usr/sbin/dnsmasq
+sudo jove-bootstrap -d $HOME/.jove/dnsmasq -q --syscalls /usr/sbin/dnsmasq -- -C mydnsmasq.conf -d -q -k --dhcp-alternate-port
+
+mkdir dnsmasq.sysroot
+cp mydnsmasq.conf dnsmasq.sysroot/
+
+sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
 ## `nginx`
