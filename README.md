@@ -30,16 +30,64 @@ make
 ```bash
 cd jove/bin
 
-jove-init -o $HOME/.jove/ls -git /usr/bin/ls
-jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q -- -la /
+jove-init -o $HOME/.jove/ls --git /usr/bin/ls
+jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q --syscalls -- -la /
+
 mkdir ls.sysroot
 sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
-Tip: On debian systems run the following to install debug symbols (optional)
+Tip: For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
 for b in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $b ; done
 ```
 After installing `easy-graph`, try this
 ```bash
 for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
+```
+
+## `nginx`
+```bash
+cd jove/bin
+
+sudo jove-init -o $HOME/.jove/nginx --git /usr/sbin/nginx
+sudo jove-bootstrap -d $HOME/.jove/nginx -q --syscalls /usr/sbin/nginx -- -c /nginx.conf
+
+mkdir -p nginx.sysroot/usr/share/
+mkdir -p nginx.sysroot/var/lib/nginx
+mkdir -p nginx.sysroot/var/log/nginx
+cp -r /usr/share/nginx nginx.sysroot/usr/share/
+
+cat > nginx.sysroot/mynginx.conf <<EOF
+worker_processes  1;
+
+daemon off;
+master_process off;
+
+events {
+    worker_connections  1024;
+}
+
+http {
+    include       mime.types;
+    default_type  application/octet-stream;
+    sendfile        on;
+    keepalive_timeout  65;
+    server {
+        listen       5000;
+        server_name  localhost;
+
+        location / {
+            root   html;
+            index  index.html index.htm;
+        }
+
+        error_page   500 502 503 504  /50x.html;
+        location = /50x.html {
+            root   html;
+        }
+    }
+}
+EOF
+
+sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
