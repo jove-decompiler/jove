@@ -146,8 +146,6 @@ typedef boost::format fmt;
 
 static decompilation_t Decompilation;
 
-static void spawn_workers(void);
-
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
 
@@ -880,19 +878,9 @@ int recompile(void) {
   return 0;
 }
 
+static bool pop_dso(dso_t &out);
+
 void worker(const dso_graph_t &dso_graph) {
-  auto pop_dso = [](dso_t &out) -> bool {
-    std::lock_guard<std::mutex> lck(Q_mtx);
-
-    if (Q.empty()) {
-      return false;
-    } else {
-      out = Q.back();
-      Q.resize(Q.size() - 1);
-      return true;
-    }
-  };
-
   dso_t dso;
   while (pop_dso(dso)) {
     binary_index_t BIdx = dso_graph[dso].BIdx;
@@ -1081,6 +1069,18 @@ void worker(const dso_graph_t &dso_graph) {
                                           binary_filename);
       continue;
     }
+  }
+}
+
+bool pop_dso(dso_t &out) {
+  std::lock_guard<std::mutex> lck(Q_mtx);
+
+  if (Q.empty()) {
+    return false;
+  } else {
+    out = Q.back();
+    Q.resize(Q.size() - 1);
+    return true;
   }
 }
 
