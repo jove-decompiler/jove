@@ -13,7 +13,8 @@
 - `z3`
 - `python` `yaml` module
 ## Optional
-- `easy-graph` ([debian](https://packages.debian.org/testing/libgraph-easy-perl), [AUR](https://aur.archlinux.org/packages/perl-graph-easy/))
+- `easy-graph` ([debian](https://packages.debian.org/testing/libgraph-easy-perl), [Arch (AUR)](https://aur.archlinux.org/packages/perl-graph-easy/))
+- `dot` ([debian](https://packages.debian.org/testing/graphviz), [Arch](https://www.archlinux.org/packages/extra/x86_64/graphviz/))
 ## Building llvm
 ```bash
 cd jove/
@@ -23,7 +24,7 @@ make -C third_party/ build-llvm
 ## Building jove
 ```bash
 cd jove/
-make
+make -j$(nproc)
 ```
 # Examples
 ## `ls`
@@ -36,13 +37,13 @@ jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q --syscalls -- -la /
 mkdir ls.sysroot
 sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
-Tip: For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
+For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
 for b in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $b ; done
 ```
-After installing `easy-graph`, try this
+If you installed `easy-graph`, do this to view control-flow-graphs of every function in libc:
 ```bash
-for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do echo $f ; jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
+for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
 ```
 
 ## `dnsmasq`
