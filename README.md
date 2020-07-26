@@ -76,6 +76,7 @@ sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsm
 cd jove/bin
 
 cat > myminiupnpd.conf <<EOF
+ext_ifname=xl1
 listening_ip=0.0.0.0
 port=5555
 enable_natpmp=yes
@@ -100,6 +101,7 @@ sudo jove-bootstrap -d $HOME/.jove/miniupnpd -q --syscalls /usr/sbin/miniupnpd -
 
 mkdir miniupnpd.sysroot
 cp myminiupnpd.conf miniupnpd.sysroot/
+mkdir -p miniupnpd.sysroot/var/run
 
 sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 ```
