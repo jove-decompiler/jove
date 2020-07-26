@@ -6742,54 +6742,62 @@ int ProcessDynamicSymbols2(void) {
               VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
 
 #elif 1
-            if (Module->getNamedValue(sym.Name)) {
-              //
-              // if sym has version, we need to symver
-              //
-              if (!sym.Vers.empty())
-                VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+            auto it = AddrToSymbolMap.find(Sym.st_value);
+            if (it == AddrToSymbolMap.end()) {
+              unsigned off = Sym.st_value - SectsStartAddr;
 
-              continue;
-            }
-
-            unsigned off = Sym.st_value - SectsStartAddr;
-
-            if (sym.Vers.empty()) {
-              Module->appendModuleInlineAsm(
-                  (fmt(".globl %s\n"
-                       ".type  %s,@object\n"
-                       ".size  %s, %u\n" 
-                       ".set   %s, __jove_sections + %u")
-                   % sym.Name.str()
-                   % sym.Name.str()
-                   % sym.Name.str() % Sym.st_size
-                   % sym.Name.str() % off).str());
-            } else {
-              if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
+              if (sym.Vers.empty()) {
                 Module->appendModuleInlineAsm(
-                    (fmt(".hidden g%lx_%u\n"
-                         ".globl  g%lx_%u\n"
-                         ".type   g%lx_%u,@object\n"
-                         ".size   g%lx_%u, %u\n" 
-                         ".set    g%lx_%u, __jove_sections + %u")
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size % Sym.st_size
-                     % Sym.st_value % Sym.st_size % off).str());
+                    (fmt(".globl %s\n"
+                         ".type  %s,@object\n"
+                         ".size  %s, %u\n" 
+                         ".set   %s, __jove_sections + %u")
+                     % sym.Name.str()
+                     % sym.Name.str()
+                     % sym.Name.str() % Sym.st_size
+                     % sym.Name.str() % off).str());
+              } else {
+                if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
+                  Module->appendModuleInlineAsm(
+                      (fmt(".hidden g%lx_%u\n"
+                           ".globl  g%lx_%u\n"
+                           ".type   g%lx_%u,@object\n"
+                           ".size   g%lx_%u, %u\n" 
+                           ".set    g%lx_%u, __jove_sections + %u")
+                       % Sym.st_value % Sym.st_size
+                       % Sym.st_value % Sym.st_size
+                       % Sym.st_value % Sym.st_size
+                       % Sym.st_value % Sym.st_size % Sym.st_size
+                       % Sym.st_value % Sym.st_size % off).str());
 
-                gdefs.insert({Sym.st_value, Sym.st_size});
+                  gdefs.insert({Sym.st_value, Sym.st_size});
+                }
+
+                Module->appendModuleInlineAsm(
+                    (fmt(".symver g%lx_%u, %s%s%s")
+                     % Sym.st_value % Sym.st_size
+                     % sym.Name.str()
+                     % (sym.Visibility.IsDefault ? "@@" : "@")
+                     % sym.Vers.str()).str());
+
+                // make sure version node is defined
+                VersionScript.Table[sym.Vers.str()];
+              }
+            } else {
+              if (Module->getNamedValue(sym.Name)) {
+                if (!sym.Vers.empty())
+                  VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+
+                continue;
               }
 
-              Module->appendModuleInlineAsm(
-                  (fmt(".symver g%lx_%u, %s%s%s")
-                   % Sym.st_value % Sym.st_size
-                   % sym.Name.str()
-                   % (sym.Visibility.IsDefault ? "@@" : "@")
-                   % sym.Vers.str()).str());
+              llvm::GlobalVariable *GV =
+                  Module->getGlobalVariable(*(*it).second.begin(), true);
+              assert(GV);
 
-              // make sure version node is defined
-              VersionScript.Table[sym.Vers.str()];
+              llvm::GlobalAlias::create(sym.Name, GV);
+              if (!sym.Vers.empty())
+                VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
             }
 #endif
           }
