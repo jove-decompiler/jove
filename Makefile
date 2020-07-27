@@ -78,7 +78,8 @@ LDFLAGS := -Wl,--no-undefined \
            -lz \
            -lboost_filesystem \
            -lboost_system \
-           -lboost_serialization
+           -lboost_serialization \
+           -fuse-ld=gold
 
 #
 # important directories
