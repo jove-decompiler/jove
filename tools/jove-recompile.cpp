@@ -410,16 +410,17 @@ int recompile(void) {
 
       std::string binary_filename = fs::path(b.Path).filename().string();
 
-      try {
-        if (binary_filename != b.dynl.soname)
-          fs::create_symlink(binary_filename,
-                             chrooted_path.parent_path() / b.dynl.soname);
-      } catch (...) {
-        ;
-      }
-    }
+      if (binary_filename != b.dynl.soname) {
+        fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
 
-    break;
+        if (fs::exists(dst))
+          fs::remove(dst);
+
+        fs::create_symlink(binary_filename, dst);
+      }
+
+      break;
+    }
   }
 
   //
@@ -441,11 +442,10 @@ int recompile(void) {
 
       fs::create_directories(chrooted_path.parent_path());
 
-      try {
-        fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
-      } catch (...) {
-        ;
-      }
+      if (fs::exists(chrooted_path))
+        fs::remove(chrooted_path);
+
+      fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
     }
   }
 
@@ -826,12 +826,12 @@ int recompile(void) {
       if (!b.dynl.soname.empty()) {
         arg_vec.push_back(soname_arg.c_str());
 
-        try {
-          if (binary_filename != b.dynl.soname)
-            fs::create_symlink(binary_filename,
-                               chrooted_path.parent_path() / b.dynl.soname);
-        } catch (...) {
-          ;
+        if (binary_filename != b.dynl.soname) {
+          fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
+          if (fs::exists(dst))
+            fs::remove(dst);
+
+          fs::create_symlink(binary_filename, dst);
         }
       }
 
