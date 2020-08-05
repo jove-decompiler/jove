@@ -39989,7 +39989,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             }
         }
 
-        tb->jove.T.Addr = db->pc_next;
+        //tb->jove.T.Addr = db->pc_next;
     }
 
     /* Emit code to exit the TB, as indicated by db->is_jmp.  */
