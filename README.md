@@ -11,6 +11,8 @@ sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
 For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
+sudo apt-get install debian-goodies
+
 for b in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $b ; done
 ```
 If you installed `easy-graph`, do this to view control-flow-graphs of every function in libc:
