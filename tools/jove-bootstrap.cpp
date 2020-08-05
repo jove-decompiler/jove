@@ -320,12 +320,8 @@ struct indirect_branch_t {
   llvm::MCInst Inst;
 
 #if defined(__mips64) || defined(__mips__)
-#ifdef ___mips
-#error "lol"
-#endif
-
   struct {
-    llvm::MCInst Inst;
+    llvm::MCInst DelaySlotInst;
   } ___mips;
 #endif
 
@@ -372,6 +368,8 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
 
 struct breakpoint_t {
   unsigned long word;
+  llvm::MCInst Inst;
+
   void (*callback)(pid_t, tiny_code_generator_t &, disas_t &);
 };
 static std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
@@ -896,6 +894,15 @@ int ParentProc(pid_t child, const char *fifo_path) {
           auto &a4 = gpr.esi;
           auto &a5 = gpr.edi;
           auto &a6 = gpr.ebp;
+#elif defined(__mips__)
+          auto &a1 = gpr.regs[4];
+          auto &a2 = gpr.regs[5];
+          auto &a3 = gpr.regs[6];
+          auto &a4 = gpr.regs[7];
+          auto &a5 = gpr.regs[8];
+          auto &a6 = gpr.regs[9];
+#else
+#error
 #endif
 
           if (syscallno == __NR_rt_sigaction) {
@@ -1626,10 +1633,9 @@ on_insn_boundary:
       {
         uint64_t InstLen;
         bool Disassembled = DisAsm.getInstruction(
-            indbr.___mips.Inst, InstLen,
+            indbr.___mips.DelaySlotInst, InstLen,
             llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
-            bbprop.Term.Addr + 4,
-            llvm::nulls());
+            bbprop.Term.Addr + 4, llvm::nulls());
         assert(Disassembled);
       }
 #endif
@@ -1915,7 +1921,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
          % static_cast<unsigned>(indbr.InsnBytes.size())
          % Addr
          % Binary.Path
-         % ICFG[boost::vertex(indbr.bbidx, ICFG)].Addr
+         % indbr.TermAddr
          % StringOfMCInst(Inst, dis)).str());
     }
 
@@ -1992,6 +1998,18 @@ void place_breakpoint(pid_t child,
   unsigned long word = _ptrace_peekdata(child, Addr);
 
   brk.word = word;
+
+  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+  {
+    std::vector<uint8_t> InsnBytes;
+    InsnBytes.resize(sizeof(word));
+    memcpy(&InsnBytes[0], &word, sizeof(word));
+
+    uint64_t InstLen;
+    bool Disassembled =
+        DisAsm.getInstruction(brk.Inst, InstLen, InsnBytes, 0x0, llvm::nulls());
+    assert(Disassembled);
+  }
 
   // insert breakpoint
 #if defined(__x86_64__) || defined(__i386__)
@@ -2083,6 +2101,38 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   const uintptr_t saved_pc = pc;
 
+  //
+  // helper function to emulate the semantics of a return instruction
+  //
+  auto emulate_return = [&](llvm::MCInst &Inst) -> void {
+#if defined(__x86_64__)
+    pc = _ptrace_peekdata(child, gpr.rsp);
+    gpr.rsp += sizeof(uint64_t);
+#elif defined(__i386__)
+    pc = _ptrace_peekdata(child, gpr.esp);
+    gpr.esp += sizeof(uint32_t);
+#elif defined(__mips64) || defined(__mips__)
+    pc = gpr.regs[31 /* ra */];
+#else
+#error
+#endif
+
+#if defined(__x86_64__) || defined(__i386__)
+    if (Inst.getNumOperands() > 0) {
+      assert(Inst.getNumOperands() == 1);
+      assert(Inst.getOperand(0).isImm());
+
+#if defined(__x86_64__)
+      gpr.rsp += Inst.getOperand(0).getImm();
+#elif defined(__i386__)
+      gpr.esp += Inst.getOperand(0).getImm();
+#else
+#error
+#endif
+    }
+#endif
+  };
+
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
       //
@@ -2092,19 +2142,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       assert(it != BrkMap.end());
       (*it).second.callback(child, tcg, dis);
 
-      //
-      // emulate the return
-      //
-#if defined(__x86_64__)
-      pc = _ptrace_peekdata(child, gpr.rsp);
-      gpr.rsp += sizeof(uintptr_t);
-#elif defined(__i386__)
-      pc = _ptrace_peekdata(child, gpr.esp);
-      gpr.esp += sizeof(uintptr_t);
-#else
-#error
-#endif
-
+      emulate_return((*it).second.Inst);
       return;
     }
   }
@@ -2114,31 +2152,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     if (it != RetMap.end()) {
       return_t &ret = (*it).second;
 
-      //
-      // emulate the return
-      //
-#if defined(__x86_64__)
-      pc = _ptrace_peekdata(child, gpr.rsp);
-      gpr.rsp += sizeof(uintptr_t);
-#elif defined(__i386__)
-      pc = _ptrace_peekdata(child, gpr.esp);
-      gpr.esp += sizeof(uintptr_t);
-#else
-#error
-#endif
-      if (ret.Inst.getNumOperands() > 0) {
-        assert(ret.Inst.getNumOperands() == 1);
-        assert(ret.Inst.getOperand(0).isImm());
-
-#if defined(__x86_64__)
-        gpr.rsp += ret.Inst.getOperand(0).getImm();
-#elif defined(__i386__)
-        gpr.esp += ret.Inst.getOperand(0).getImm();
-#else
-#error
-#endif
-      }
-
+      emulate_return(ret.Inst);
       on_return(child, saved_pc, pc, tcg, dis);
       return;
     }
@@ -2543,10 +2557,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = TrampolineMap.find(key);
     if (it == TrampolineMap.end()) {
       WithColor::error() << llvm::formatv(
-          "no trampoline for breakpoint @ {0:x}\n", _pc);
+          "no trampoline for breakpoint @ {0:x}\n", saved_pc);
 
       throw std::runtime_error(
-          (fmt("no trampoline for breakpoint @ %#lx\n") % _pc).str());
+          (fmt("no trampoline for breakpoint @ %#lx\n") % saved_pc).str());
     } else {
       pc = (*it).second;
     }
@@ -2565,8 +2579,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   Inst,
                                   StringOfMCInst(Inst, dis),
 #if defined(__mips64) || defined(__mips__)
-                                  IndBrInfo.___mips.Inst,
-                                  StringOfMCInst(IndBrInfo.___mips.Inst, dis),
+                                  IndBrInfo.___mips.DelaySlotInst,
+                                  StringOfMCInst(IndBrInfo.___mips.DelaySlotInst, dis),
 #endif
                                   0 /* XXX unused */
                                   );
@@ -3186,7 +3200,7 @@ void on_binary_loaded(pid_t child,
     {
       uint64_t InstLen;
       bool Disassembled = DisAsm.getInstruction(
-          IndBrInfo.___mips.Inst, InstLen,
+          IndBrInfo.___mips.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
           bbprop.Term.Addr + 4,
           llvm::errs());
