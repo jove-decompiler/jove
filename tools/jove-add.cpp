@@ -858,7 +858,7 @@ int add(void) {
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_IRELATIVE
 #elif defined(__mips64) || defined(__mips__)
-	  0 /* XXX TODO ? */
+          std::numeric_limits<unsigned long>::max()
 #else
 #error
 #endif
