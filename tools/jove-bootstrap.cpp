@@ -1853,6 +1853,8 @@ uint32_t encoding_of_jump_to_reg(unsigned r) {
 }
 #endif
 
+static void arch_put_breakpoint(void *code);
+
 void place_breakpoint_at_indirect_branch(pid_t child,
                                          uintptr_t Addr,
                                          indirect_branch_t &indbr,
@@ -1898,15 +1900,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   unsigned long word = _ptrace_peekdata(child, Addr);
 
   // insert breakpoint
-#if defined(__x86_64__) || defined(__i386__)
-  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(__aarch64__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
-#elif defined(__mips64) || defined(__mips__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
-#else
-#error
-#endif
+  arch_put_breakpoint(&word);
 
 #if defined(__mips64) || defined(__mips__)
   {
@@ -2011,16 +2005,7 @@ void place_breakpoint(pid_t child,
     assert(Disassembled);
   }
 
-  // insert breakpoint
-#if defined(__x86_64__) || defined(__i386__)
-  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(__aarch64__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
-#elif defined(__mips64) || defined(__mips__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
-#else
-#error
-#endif
+  arch_put_breakpoint(&word);
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
@@ -2033,16 +2018,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret) {
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
-  // insert breakpoint
-#if defined(__x86_64__) || defined(__i386__)
-  reinterpret_cast<uint8_t *>(&word)[0] = 0xcc; /* int3 */
-#elif defined(__aarch64__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0xd4200000; /* brk */
-#elif defined(__mips64) || defined(__mips__)
-  reinterpret_cast<uint32_t *>(&word)[0] = 0x0000000d; /* break */
-#else
-#error
-#endif
+  arch_put_breakpoint(&word);
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
@@ -2084,16 +2060,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       ;
 
   //
-  // rewind before the breakpoint instruction
+  // rewind before the breakpoint instruction (why is this x86-specific?)
   //
 #if defined(__x86_64__) || defined(__i386__)
   pc -= 1; /* int3 */
-#elif defined(__aarch64__)
-  //pc -= 4; /* brk */
-#elif defined(__mips64) || defined(__mips__)
-  //pc -= 4; /* break */
-#else
-#error
 #endif
 
   //
@@ -4370,6 +4340,18 @@ ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
   }
 
   return n;
+}
+
+void arch_put_breakpoint(void *code) {
+#if defined(__x86_64__) || defined(__i386__)
+  reinterpret_cast<uint8_t *>(code)[0] = 0xcc; /* int3 */
+#elif defined(__aarch64__)
+  reinterpret_cast<uint32_t *>(code)[0] = 0xd4200000; /* brk */
+#elif defined(__mips64) || defined(__mips__)
+  reinterpret_cast<uint32_t *>(code)[0] = 0x0000000d; /* break */
+#else
+#error
+#endif
 }
 
 }
