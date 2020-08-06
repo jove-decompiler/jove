@@ -866,21 +866,11 @@ int ParentProc(pid_t child, const char *fifo_path) {
           struct user_regs_struct gpr;
           _ptrace_get_gpr(child, gpr);
 
-          unsigned syscallno =
+          //
+          // syscall # and arguments
+          //
 #if defined(__x86_64__)
-              gpr.orig_rax
-#elif defined(__i386__)
-              gpr.orig_eax
-#elif defined(__aarch64__)
-              gpr.regs[8]
-#elif defined(__mips64) || defined(__mips__)
-              gpr.regs[2]
-#else
-#error
-#endif
-              ;
-
-#if defined(__x86_64__)
+          auto &no = gpr.orig_rax;
           auto &a1 = gpr.rdi;
           auto &a2 = gpr.rsi;
           auto &a3 = gpr.rdx;
@@ -888,13 +878,23 @@ int ParentProc(pid_t child, const char *fifo_path) {
           auto &a5 = gpr.r8;
           auto &a6 = gpr.r9;
 #elif defined(__i386__)
+          auto &no = gpr.orig_eax;
           auto &a1 = gpr.ebx;
           auto &a2 = gpr.ecx;
           auto &a3 = gpr.edx;
           auto &a4 = gpr.esi;
           auto &a5 = gpr.edi;
           auto &a6 = gpr.ebp;
-#elif defined(__mips__)
+#elif defined(__aarch64__)
+          auto &no = gpr.regs[8];
+          auto &a1 = gpr.regs[0];
+          auto &a2 = gpr.regs[1];
+          auto &a3 = gpr.regs[2];
+          auto &a4 = gpr.regs[3];
+          auto &a5 = gpr.regs[4];
+          auto &a6 = gpr.regs[5];
+#elif defined(__mips64) || defined(__mips__)
+          auto &no = gpr.regs[2];
           auto &a1 = gpr.regs[4];
           auto &a2 = gpr.regs[5];
           auto &a3 = gpr.regs[6];
@@ -905,7 +905,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
 #error
 #endif
 
-          if (syscallno == __NR_rt_sigaction) {
+          if (no == __NR_rt_sigaction) {
             WithColor::note()
                 << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
                                  a1, a2, a3, a4);
