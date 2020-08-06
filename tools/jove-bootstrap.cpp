@@ -2780,7 +2780,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
 #elif defined(__aarch64__)
           llvm::ELF::R_AARCH64_IRELATIVE
 #elif defined(__mips64) || defined(__mips__)
-	  0 /* XXX TODO ? */
+          std::numeric_limits<unsigned long>::max()
 #else
 #error
 #endif
@@ -3647,22 +3647,18 @@ struct DynRegionInfo {
 static void add_binary(pid_t child, tiny_code_generator_t &, disas_t &,
                        const char *path);
 
+static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
+
 static void on_rtld_breakpoint(pid_t child,
                                tiny_code_generator_t &tcg,
                                disas_t &dis) {
   struct r_debug r_dbg;
 
   {
-    struct iovec local_iov[] = {
-        {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
-
-    struct iovec remote_iov[] = {
-        {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
-
-    ssize_t ret = process_vm_readv(child,
-                                   local_iov, ARRAY_SIZE(local_iov),
-                                   remote_iov, ARRAY_SIZE(remote_iov),
-                                   0);
+    ssize_t ret = _ptrace_memcpy(child,
+                                 &r_dbg,
+                                 (void *)_r_debug.Addr,
+                                 sizeof(struct r_debug));
 
     if (ret != sizeof(struct r_debug)) {
       WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
@@ -3688,16 +3684,7 @@ static void on_rtld_breakpoint(pid_t child,
   do {
     struct link_map lm;
 
-    struct iovec local_iov[] = {
-        {.iov_base = &lm, .iov_len = sizeof(struct link_map)}};
-
-    struct iovec remote_iov[] = {
-        {.iov_base = lmp, .iov_len = sizeof(struct link_map)}};
-
-    ssize_t ret = process_vm_readv(child,
-                                   local_iov, ARRAY_SIZE(local_iov),
-                                   remote_iov, ARRAY_SIZE(remote_iov),
-                                   0);
+    ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
 
     if (ret != sizeof(struct link_map)) {
       WithColor::error() << __func__ << ": couldn't read link_map structure\n";
@@ -4131,16 +4118,9 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   if (!_r_debug.r_brk) {
     struct r_debug r_dbg;
 
-    struct iovec local_iov[] = {
-        {.iov_base = &r_dbg, .iov_len = sizeof(struct r_debug)}};
-
-    struct iovec remote_iov[] = {
-        {.iov_base = (void *)_r_debug.Addr, .iov_len = sizeof(struct r_debug)}};
-
-    ssize_t ret = process_vm_readv(child,
-                                   local_iov, ARRAY_SIZE(local_iov),
-                                   remote_iov, ARRAY_SIZE(remote_iov),
-                                   0);
+    ssize_t ret = _ptrace_memcpy(child, &r_dbg,
+                                 (void *)_r_debug.Addr,
+                                 sizeof(struct r_debug));
 
     if (ret != sizeof(struct r_debug)) {
       if (ret < 0) {
@@ -4302,22 +4282,9 @@ std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   std::string res;
 
   for (;;) {
-    char ch;
+    unsigned long word = _ptrace_peekdata(child, Addr);
 
-    struct iovec local_iov[] = {
-        {.iov_base = &ch, .iov_len = 1}};
-
-    struct iovec remote_iov[] = {
-        {.iov_base = (void *)Addr, .iov_len = 1}};
-
-    ssize_t ret = process_vm_readv(child,
-                                   local_iov, ARRAY_SIZE(local_iov),
-                                   remote_iov, ARRAY_SIZE(remote_iov),
-                                   0);
-    if (ret != 1) {
-      WithColor::error() << "_ptrace_read_string: failed to read string\n";
-      break;
-    }
+    char ch = *reinterpret_cast<char *>(&word);
 
     if (ch == '\0')
       break;
@@ -4393,5 +4360,16 @@ std::string description_of_program_counter(uintptr_t pc) {
 }
 
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
+
+ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
+  for (unsigned i = 0; i < n; ++i) {
+    unsigned long word =
+        _ptrace_peekdata(child, reinterpret_cast<uintptr_t>(src) + i);
+
+    ((uint8_t *)dest)[i] = *((uint8_t *)&word);
+  }
+
+  return n;
+}
 
 }
