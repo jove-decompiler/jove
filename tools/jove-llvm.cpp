@@ -612,8 +612,6 @@ static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
 static std::map<uintptr_t, llvm::Constant *> TPOFFHack;
 
-//static bool ABIChanged = false;
-
 static struct {
   struct {
     // in memory, the .tbss section is allocated directly following the .tdata
@@ -836,12 +834,48 @@ static llvm::Type *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
 
-int ParseDecompilation(void) {
-  std::ifstream ifs(
-      fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
+static std::error_code lockFile(int FD) {
+  struct flock Lock;
+  memset(&Lock, 0, sizeof(Lock));
+  Lock.l_type = F_WRLCK;
+  Lock.l_whence = SEEK_SET;
+  Lock.l_start = 0;
+  Lock.l_len = 0;
+  if (::fcntl(FD, F_SETLKW, &Lock) != -1)
+    return std::error_code();
+  int Error = errno;
+  return std::error_code(Error, std::generic_category());
+}
 
-  boost::archive::binary_iarchive ia(ifs);
-  ia >> Decompilation;
+static std::error_code unlockFile(int FD) {
+  struct flock Lock;
+  Lock.l_type = F_UNLCK;
+  Lock.l_whence = SEEK_SET;
+  Lock.l_start = 0;
+  Lock.l_len = 0;
+  if (::fcntl(FD, F_SETLK, &Lock) != -1)
+    return std::error_code();
+  return std::error_code(errno, std::generic_category());
+}
+
+int ParseDecompilation(void) {
+  std::string path = fs::is_directory(opts::jv)
+                         ? (opts::jv + "/decompilation.jv")
+                         : opts::jv;
+
+  int fd = ::open(path.c_str(), O_RDONLY);
+  assert(!(fd < 0));
+  lockFile(fd);
+
+  {
+    std::ifstream ifs(path);
+
+    boost::archive::binary_iarchive ia(ifs);
+    ia >> Decompilation;
+  }
+
+  unlockFile(fd);
+  close(fd);
 
   return 0;
 }
@@ -6040,6 +6074,8 @@ int CreateSectionGlobalVariables(void) {
     }
   }
 
+  bool ABIChanged = false;
+
   //
   // Global Ctors/Dtors
   //
@@ -6069,16 +6105,13 @@ int CreateSectionGlobalVariables(void) {
         auto it = FuncMap.find(FileAddr);
         assert(it != FuncMap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
-#if 1
-        assert(f.IsABI);
-#else
+
         if (!f.IsABI) {
           WithColor::note() << llvm::formatv("!IsABI for {0}\n", f.F->getName());
           f.IsABI = true;
 
           ABIChanged = true;
         }
-#endif
 
 #if 1
         // casting to a llvm::Function* is a complete hack here. hoping the
@@ -6304,6 +6337,13 @@ int CreateSectionGlobalVariables(void) {
             0);
 #endif
     }
+  }
+
+  if (ABIChanged) {
+    WriteDecompilation();
+
+    execve(cmdline.argv[0], cmdline.argv, ::environ);
+    abort();
   }
 
   if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
@@ -8561,12 +8601,24 @@ int await_process_completion(pid_t pid) {
 
 int WriteDecompilation(void) {
   {
-    std::ofstream ofs(fs::is_directory(opts::jv)
-                          ? (opts::jv + "/decompilation.jv")
-                          : opts::jv);
+    std::string path = fs::is_directory(opts::jv)
+                           ? (opts::jv + "/decompilation.jv")
+                           : opts::jv;
 
-    boost::archive::binary_oarchive oa(ofs);
-    oa << Decompilation;
+    int fd = ::open(path.c_str(), O_RDONLY);
+    assert(!(fd < 0));
+
+    lockFile(fd);
+
+    {
+      std::ofstream ofs(path);
+
+      boost::archive::binary_oarchive oa(ofs);
+      oa << Decompilation;
+    }
+
+    unlockFile(fd);
+    close(fd);
   }
 
   //
