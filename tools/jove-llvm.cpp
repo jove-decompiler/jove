@@ -2742,9 +2742,11 @@ int ProcessDynamicSymbols(void) {
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
               } else if (IdxPair.first == BinaryIndex) {
-                llvm::Value *Res = Decompilation.Binaries[BinaryIndex]
-                                       .Analysis.Functions.at(IdxPair.second)
-                                       .F;
+                llvm::Constant *Res = llvm::ConstantExpr::getPtrToInt(
+                    Decompilation.Binaries[BinaryIndex]
+                        .Analysis.Functions.at(IdxPair.second)
+                        .F,
+                    WordType());
 
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
@@ -2810,8 +2812,18 @@ int ProcessDynamicSymbols(void) {
                   IRB.CreateRet(llvm::Constant::getNullValue(
                       CallsF->getFunctionType()->getReturnType()));
                 } else {
-                  IRB.CreateRet(IRB.CreateIntToPtr(
-                      Call, CallsF->getFunctionType()->getReturnType()));
+                  if (f.F->getFunctionType()->getReturnType()->isIntegerTy()) {
+                    IRB.CreateRet(IRB.CreateIntToPtr(
+                        Call, CallsF->getFunctionType()->getReturnType()));
+                  } else {
+                    assert(f.F->getFunctionType()->getReturnType()->isStructTy());
+
+                    llvm::Value *Val = IRB.CreateExtractValue(
+                        Call, llvm::ArrayRef<unsigned>(0), "");
+
+                    IRB.CreateRet(IRB.CreateIntToPtr(
+                        Val, CallsF->getFunctionType()->getReturnType()));
+                  }
                 }
               }
             }
