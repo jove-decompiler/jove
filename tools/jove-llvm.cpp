@@ -2751,6 +2751,8 @@ int ProcessDynamicSymbols(void) {
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
               } else {
+                IRB.CreateCall(JoveInstallForeignFunctionTables)->setIsNoInline();
+
                 llvm::Value *SPPtr =
                     CPUStateGlobalPointer(tcg_stack_pointer_index);
 
