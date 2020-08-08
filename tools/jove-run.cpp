@@ -598,7 +598,7 @@ do_1b_read:
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f' or 'b'.
+    // 'f', 'b', or 'r'.
     //
     if (ch == 'f') {
       struct {
