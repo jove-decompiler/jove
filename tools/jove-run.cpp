@@ -270,6 +270,29 @@ int run(void) {
               strerror(errno));
   }
 
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "hosts";
+
+    //
+    // ensure file exists to bind mount over
+    //
+    if (!fs::exists(chrooted_path)) {
+      int fd = open(chrooted_path.c_str(),
+                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
+      if (fd < 0) {
+        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
+                strerror(errno));
+      }
+      close(fd);
+    }
+
+    fs::path path = fs::canonical("/etc/hosts");
+
+    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+              strerror(errno));
+  }
+
 #if 0
   {
     std::string input;
@@ -414,6 +437,14 @@ int run(void) {
 
   if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
+
+  {
+    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "hosts";
+
+    if (umount2(chrooted_path.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
+              strerror(errno));
+  }
 
   {
     fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
