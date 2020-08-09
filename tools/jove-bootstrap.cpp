@@ -368,6 +368,8 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
 
 struct breakpoint_t {
   unsigned long word;
+
+  std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
 
   void (*callback)(pid_t, tiny_code_generator_t &, disas_t &);
@@ -1653,7 +1655,7 @@ on_insn_boundary:
 
       assert(RetMap.find(termpc) == RetMap.end());
 
-      auto &RetInfo = RetMap[termpc];
+      return_t &RetInfo = RetMap[termpc];
       RetInfo.binary_idx = binary_idx;
       RetInfo.TermAddr = bbprop.Term.Addr;
 
@@ -1662,6 +1664,10 @@ on_insn_boundary:
       const section_properties_t &sectprop = *(*sectit).second.begin();
 
       RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#if defined(__mips64) || defined(__mips__)
+      RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
+      assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
+#endif
       memcpy(&RetInfo.InsnBytes[0],
              &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
              RetInfo.InsnBytes.size());
@@ -2014,11 +2020,51 @@ void place_breakpoint(pid_t child,
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
-void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &Ret) {
+void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
   arch_put_breakpoint(&word);
+
+#if defined(__mips64) || defined(__mips__)
+  {
+    /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
+    assert(r.InsnBytes.size() == sizeof(uint64_t));
+    uint64_t key = *((uint64_t *)r.InsnBytes.data());
+
+    auto it = TrampolineMap.find(key);
+    if (it == TrampolineMap.end()) {
+      assert(ExecutableRegionAddress);
+
+      uint64_t val = key;
+      if (sizeof(long) == sizeof(val)) { /* we can do it with one poke */
+        _ptrace_pokedata(child, ExecutableRegionAddress, val);
+      } else if (sizeof(long) == sizeof(uint32_t)) { /* two pokes will suffice */
+        uint32_t val0 = ((uint32_t *)&val)[0];
+        uint32_t val1 = ((uint32_t *)&val)[1];
+
+        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
+        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
+      } else {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      TrampolineMap.insert({key, ExecutableRegionAddress});
+
+      ExecutableRegionAddress += sizeof(key);
+      ExecutableRegionUsed += sizeof(key);
+
+#define EXECUTABLE_REGION_SIZE (4096 * 16)
+
+      if (opts::VeryVerbose)
+        WithColor::note() << llvm::formatv(
+            "executable region in tracee has {0} bytes left (used {1} bytes)\n",
+            EXECUTABLE_REGION_SIZE - ExecutableRegionUsed,
+            ExecutableRegionUsed);
+    }
+  }
+#endif
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
@@ -2074,7 +2120,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   //
   // helper function to emulate the semantics of a return instruction
   //
-  auto emulate_return = [&](llvm::MCInst &Inst) -> void {
+  auto emulate_return = [&](llvm::MCInst &Inst,
+                            const std::vector<uint8_t> &InsnBytes) -> void {
 #if defined(__x86_64__)
     pc = _ptrace_peekdata(child, gpr.rsp);
     gpr.rsp += sizeof(uint64_t);
@@ -2082,7 +2129,21 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
 #elif defined(__mips64) || defined(__mips__)
-    pc = gpr.regs[31 /* ra */];
+    {
+      assert(InsnBytes.size() == sizeof(uint64_t));
+      uint64_t key = *((uint64_t *)InsnBytes.data());
+
+      auto it = TrampolineMap.find(key);
+      if (it == TrampolineMap.end()) {
+        WithColor::error() << llvm::formatv(
+            "no trampoline for breakpoint @ {0:x}\n", saved_pc);
+
+        throw std::runtime_error(
+            (fmt("no trampoline for breakpoint @ %#lx\n") % saved_pc).str());
+      } else {
+        pc = (*it).second;
+      }
+    }
 #else
 #error
 #endif
@@ -2110,9 +2171,11 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       //
       auto it = BrkMap.find(saved_pc);
       assert(it != BrkMap.end());
-      (*it).second.callback(child, tcg, dis);
+      breakpoint_t &brk = (*it).second;
 
-      emulate_return((*it).second.Inst);
+      brk.callback(child, tcg, dis);
+
+      emulate_return(brk.Inst, brk.InsnBytes);
       return;
     }
   }
@@ -2122,7 +2185,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     if (it != RetMap.end()) {
       return_t &ret = (*it).second;
 
-      emulate_return(ret.Inst);
+      emulate_return(ret.Inst, ret.InsnBytes);
       on_return(child, saved_pc, pc, tcg, dis);
       return;
     }
@@ -3206,6 +3269,10 @@ void on_binary_loaded(pid_t child,
     const section_properties_t &sectprop = *(*sectit).second.begin();
 
     RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#if defined(__mips64) || defined(__mips__)
+    RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
+    assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
+#endif
     memcpy(&RetInfo.InsnBytes[0],
            &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
            RetInfo.InsnBytes.size());
@@ -3216,7 +3283,7 @@ void on_binary_loaded(pid_t child,
           DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
                                 bbprop.Term.Addr, llvm::nulls());
       assert(Disassembled);
-      assert(InstLen == RetInfo.InsnBytes.size());
+      assert(InstLen <= RetInfo.InsnBytes.size());
     }
 
     if (opts::VeryVerbose)
