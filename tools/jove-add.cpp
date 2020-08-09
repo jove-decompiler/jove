@@ -279,7 +279,8 @@ int add(void) {
       obj::createBinary(Buffer->getMemBufferRef());
 
   if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from" << opts::Input << '\n';
+    WithColor::error() << llvm::formatv("failed to create binary from {0}\n",
+                                        opts::Input);
     return 1;
   }
 
