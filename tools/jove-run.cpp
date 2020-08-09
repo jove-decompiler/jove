@@ -569,7 +569,7 @@ void *recover_proc(const char *fifo_path) {
     return nullptr;
   }
 
-  auto cleanup_handler = [](void *arg) -> void {
+  void (*cleanup_handler)(void *) = [](void *arg) -> void {
     if (close(reinterpret_cast<long>(arg)) < 0)
       fprintf(stderr, "recover_proc: cleanup_handler: close failed (%s)\n",
               strerror(errno));
@@ -581,13 +581,12 @@ void *recover_proc(const char *fifo_path) {
     char ch;
 
     {
-do_1b_read:
       // NOTE: read is a cancellation point
       ssize_t ret = read(recover_fd, &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
           if (errno == EINTR)
-            goto do_1b_read;
+            continue;
 
           fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
         } else if (ret == 0) {
@@ -616,7 +615,7 @@ do_1b_read:
           if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
             fprintf(stderr, "warning: pthread_setcancelstate failed\n");
 
-          goto do_1b_read;
+          continue;
         } else {
           fprintf(stderr, "recover: read gave %zd\n", ret);
         }
