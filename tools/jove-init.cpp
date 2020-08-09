@@ -108,7 +108,8 @@ static std::string jove_add_path;
 
 static int null_fd;
 
-static unsigned GetVDSOSize(void);
+static bool HasVDSO(void);
+static std::pair<void *, unsigned> GetVDSO(void);
 
 int init(void) {
   null_fd = open("/dev/null", O_WRONLY);
@@ -232,11 +233,11 @@ int init(void) {
   //
   // vdso
   //
-  const void *vdso = reinterpret_cast<void *>(getauxval(AT_SYSINFO_EHDR));
-  bool haveVDSO = vdso != nullptr;
-  if (haveVDSO) {
-    unsigned n = GetVDSOSize();
-    assert(n);
+  if (HasVDSO()) {
+    void *vdso;
+    unsigned n;
+
+    std::tie(vdso, n) = GetVDSO();
 
     char path[0x100];
     snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir);
@@ -320,7 +321,7 @@ int init(void) {
 
   final_decompilation.Binaries.at(0).IsExecutable = true;
   final_decompilation.Binaries.at(1).IsDynamicLinker = true;
-  if (haveVDSO)
+  if (HasVDSO())
     final_decompilation.Binaries.at(2).IsVDSO = true;
 
   if (fs::exists(opts::Output)) {
@@ -430,6 +431,89 @@ int init(void) {
   return 0;
 }
 
+bool HasVDSO(void) {
+  bool res = false;
+
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  fp = fopen("/proc/self/maps", "r");
+  assert(fp);
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    int fields, dev_maj, dev_min, inode;
+    uint64_t min, max, offset;
+    char flag_r, flag_w, flag_x, flag_p;
+    char path[512] = "";
+    fields = sscanf(line,
+                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
+                    " %512s",
+                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &dev_maj, &dev_min, &inode, path);
+
+    if ((fields < 10) || (fields > 11)) {
+      continue;
+    }
+
+    if (strcmp(path, "[vdso]") == 0) {
+      res = true;
+      break;
+    }
+  }
+
+  free(line);
+  fclose(fp);
+
+  return res;
+}
+
+std::pair<void *, unsigned> GetVDSO(void) {
+  struct {
+    void *first;
+    unsigned second;
+  } res;
+
+  res.first = nullptr;
+  res.second = 0;
+
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+
+  fp = fopen("/proc/self/maps", "r");
+  assert(fp);
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    int fields, dev_maj, dev_min, inode;
+    uint64_t min, max, offset;
+    char flag_r, flag_w, flag_x, flag_p;
+    char path[512] = "";
+    fields = sscanf(line,
+                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
+                    " %512s",
+                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &dev_maj, &dev_min, &inode, path);
+
+    if ((fields < 10) || (fields > 11)) {
+      continue;
+    }
+
+    if (strcmp(path, "[vdso]") == 0) {
+      res.first = (void *)min;
+      res.second = max - min;
+      break;
+    }
+  }
+
+  free(line);
+  fclose(fp);
+
+  return std::make_pair(res.first, res.second);
+}
+
 unsigned GetVDSOSize(void) {
   FILE *fp;
   char *line = NULL;
@@ -437,10 +521,7 @@ unsigned GetVDSOSize(void) {
   ssize_t read;
 
   fp = fopen("/proc/self/maps", "r");
-
-  if (fp == NULL) {
-    return 0;
-  }
+  assert(fp);
 
   unsigned res = 0;
 
