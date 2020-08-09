@@ -560,15 +560,15 @@ do_1b_read:
 
           fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
         } else if (ret == 0) {
-          if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-            fprintf(stderr, "warning: pthread_setcancelstate failed\n");
-
           int new_recover_fd = open(fifo_path, O_RDONLY);
           if (new_recover_fd < 0) {
             fprintf(stderr, "recover: failed to open fifo at %s (%s)\n",
                     fifo_path, strerror(errno));
             return nullptr;
           }
+
+          if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
+            fprintf(stderr, "warning: pthread_setcancelstate failed\n");
 
           assert(new_recover_fd != recover_fd);
 
