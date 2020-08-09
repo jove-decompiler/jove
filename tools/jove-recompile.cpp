@@ -264,10 +264,14 @@ int recompile(void) {
     return 1;
   }
 
+#if 0
   std::string lld_path =
       (boost::dll::program_location().parent_path().parent_path() /
        "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
           .string();
+#else
+  std::string lld_path = "/usr/bin/ld.lld";
+#endif
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
@@ -728,9 +732,9 @@ int recompile(void) {
           arg_vec.push_back("-pie");
         } else {
           //
-          // the following has only been tested to work with the BFD linker.
+          // the following has only been tested to work with the lld linker.
           //
-          arg_vec[0] = ld_bfd_path.c_str();
+          arg_vec[0] = lld_path.c_str();
 
           //arg_vec.push_back("-z");
           //arg_vec.push_back("nocopyreloc");
