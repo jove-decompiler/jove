@@ -622,113 +622,126 @@ int ParentProc(pid_t child, const char *fifo_path) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
-                         << '\n';
-      return 1;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      WithColor::error() << binary.Path << " is not ELF of expected type\n";
-      return 1;
-    }
-
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
-
-    const ELFT &E = *O.getELFFile();
-
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
-    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-    if (!sections) {
-      WithColor::error() << "could not get ELF sections for binary "
-                         << binary.Path << '\n';
-      return 1;
-    }
-
-    for (const Elf_Shdr &Sec : *sections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      section_properties_t sectprop;
-
-      {
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-        if (!name) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-          }
-
-          WithColor::note() << llvm::formatv(
-              "could not get section name ({0})\n", Buf);
-          continue;
-        }
-
-        sectprop.name = *name;
-      }
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-          sectprop.name == std::string(".tbss"))
-        continue;
-
-      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
-
-        if (!contents) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-          }
-
-          WithColor::note() << llvm::formatv(
-              "could not get section {0} contents ({1})\n", sectprop.name, Buf);
-          continue;
-        }
-
-        sectprop.contents = *contents;
-      }
-
-      sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
-      sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
       boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
 
-      {
-        auto it = st.SectMap.find(intervl);
-        if (it != st.SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
-          return 1;
-        }
+      assert(st.SectMap.find(intervl) == st.SectMap.end());
+
+      section_properties_t sectprop;
+      sectprop.name = ".text";
+      sectprop.contents = binary.Data;
+      sectprop.w = false;
+      sectprop.x = true;
+      st.SectMap.add({intervl, {sectprop}});
+    } else {
+      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+      if (!llvm::isa<ELFO>(Bin.get())) {
+        WithColor::error() << binary.Path << " is not ELF of expected type\n";
+        return 1;
       }
 
-      st.SectMap.add({intervl, {sectprop}});
+      ELFO &O = *llvm::cast<ELFO>(Bin.get());
 
-      if (opts::VeryVerbose)
-        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
-                         % std::string(sectprop.name)
-                         % intervl.lower()
-                         % intervl.upper())
-                            .str()
-                     << '\n';
+      TheTriple = O.makeTriple();
+      Features = O.getFeatures();
+
+      const ELFT &E = *O.getELFFile();
+
+      typedef typename ELFT::Elf_Shdr Elf_Shdr;
+      typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+
+      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+      if (!sections) {
+        WithColor::error() << "could not get ELF sections for binary "
+                           << binary.Path << '\n';
+        return 1;
+      }
+
+      for (const Elf_Shdr &Sec : *sections) {
+        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+          continue;
+
+        if (!Sec.sh_size)
+          continue;
+
+        section_properties_t sectprop;
+
+        {
+          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+          if (!name) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section name ({0})\n", Buf);
+            continue;
+          }
+
+          sectprop.name = *name;
+        }
+
+        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+            sectprop.name == std::string(".tbss"))
+          continue;
+
+        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+          sectprop.contents = llvm::ArrayRef<uint8_t>();
+        } else {
+          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+              E.getSectionContents(&Sec);
+
+          if (!contents) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section {0} contents ({1})\n",
+                                 sectprop.name, Buf);
+            continue;
+          }
+
+          sectprop.contents = *contents;
+        }
+
+        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
+        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+
+        boost::icl::interval<uintptr_t>::type intervl =
+            boost::icl::interval<uintptr_t>::right_open(
+                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+        {
+          auto it = st.SectMap.find(intervl);
+          if (it != st.SectMap.end()) {
+            WithColor::error() << "the following sections intersect: "
+                               << (*(*it).second.begin()).name << " and "
+                               << sectprop.name << '\n';
+            return 1;
+          }
+        }
+
+        st.SectMap.add({intervl, {sectprop}});
+
+        if (opts::VeryVerbose)
+          llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
+                           % std::string(sectprop.name)
+                           % intervl.lower()
+                           % intervl.upper())
+                              .str()
+                       << '\n';
+      }
     }
   }
 
@@ -1117,7 +1130,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
 #if defined(__mips64) || defined(__mips)
 void fifo_reader(const char *fifo_path) {
-  int fd = open(fifo_path, O_RDONLY);
+  int fd = open(fifo_path, O_RDWR);
   if (fd < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("failed to open fifo \"{0}\" ({1})\n",
@@ -1138,6 +1151,12 @@ void fifo_reader(const char *fifo_path) {
       assert(!ExecutableRegionAddress);
 
       ExecutableRegionAddress = reinterpret_cast<uintptr_t>(addr);
+      /* mb? */
+
+      char confirmation = 'c';
+      do
+        ret = write(fd, &confirmation, sizeof(confirmation));
+      while (ret < 0 && errno == EINTR);
     } else {
       WithColor::error() << llvm::formatv("{0}: read gave {1}\n",
                                           __func__, ret);
@@ -2783,9 +2802,10 @@ static void harvest_irelative_reloc_targets(pid_t child,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << Binary.Path
-                         << '\n';
-      return;
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
+      continue;
     }
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
@@ -2916,9 +2936,10 @@ static void harvest_addressof_reloc_targets(pid_t child,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << Binary.Path
-                         << '\n';
-      return;
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
+      continue;
     }
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
@@ -3876,110 +3897,121 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
-                         << '\n';
-      return;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-    if (!llvm::isa<ELFO>(Bin.get())) {
-      WithColor::error() << binary.Path << " is not ELF of expected type\n";
-      return;
-    }
-
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-    const ELFT &E = *O.getELFFile();
-
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-
-    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-    if (!sections) {
-      WithColor::error() << "could not get ELF sections for binary "
-                         << binary.Path << '\n';
-      return;
-    }
-
-    for (const Elf_Shdr &Sec : *sections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      section_properties_t sectprop;
-
-      {
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-        if (!name) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-          }
-
-          WithColor::note() << llvm::formatv(
-              "could not get section name ({0})\n", Buf);
-          continue;
-        }
-
-        sectprop.name = *name;
-      }
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-          sectprop.name == std::string(".tbss"))
-        continue;
-
-      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
-
-        if (!contents) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-          }
-
-          WithColor::note() << llvm::formatv(
-              "could not get section {0} contents ({1})\n", sectprop.name, Buf);
-          continue;
-        }
-
-        sectprop.contents = *contents;
-      }
-
-      sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
-      sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
       boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
 
-      {
-        auto it = st.SectMap.find(intervl);
-        if (it != st.SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
-          abort();
-        }
+      assert(st.SectMap.find(intervl) == st.SectMap.end());
+
+      section_properties_t sectprop;
+      sectprop.name = ".text";
+      sectprop.contents = binary.Data;
+      sectprop.w = false;
+      sectprop.x = true;
+      st.SectMap.add({intervl, {sectprop}});
+    } else {
+      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+      if (!llvm::isa<ELFO>(Bin.get())) {
+        WithColor::error() << binary.Path << " is not ELF of expected type\n";
+        return;
       }
 
-      st.SectMap.add({intervl, {sectprop}});
+      ELFO &O = *llvm::cast<ELFO>(Bin.get());
 
-      if (opts::VeryVerbose)
-        llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
-                         % std::string(sectprop.name)
-                         % intervl.lower()
-                         % intervl.upper())
-                            .str()
-                     << '\n';
+      const ELFT &E = *O.getELFFile();
+
+      typedef typename ELFT::Elf_Shdr Elf_Shdr;
+      typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+
+      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+      if (!sections) {
+        WithColor::error() << "could not get ELF sections for binary "
+                           << binary.Path << '\n';
+        return;
+      }
+
+      for (const Elf_Shdr &Sec : *sections) {
+        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+          continue;
+
+        if (!Sec.sh_size)
+          continue;
+
+        section_properties_t sectprop;
+
+        {
+          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+          if (!name) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section name ({0})\n", Buf);
+            continue;
+          }
+
+          sectprop.name = *name;
+        }
+
+        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+            sectprop.name == std::string(".tbss"))
+          continue;
+
+        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+          sectprop.contents = llvm::ArrayRef<uint8_t>();
+        } else {
+          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+              E.getSectionContents(&Sec);
+
+          if (!contents) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section {0} contents ({1})\n",
+                                 sectprop.name, Buf);
+            continue;
+          }
+
+          sectprop.contents = *contents;
+        }
+
+        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
+        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+
+        boost::icl::interval<uintptr_t>::type intervl =
+            boost::icl::interval<uintptr_t>::right_open(
+                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+        {
+          auto it = st.SectMap.find(intervl);
+          if (it != st.SectMap.end()) {
+            WithColor::error() << "the following sections intersect: "
+                               << (*(*it).second.begin()).name << " and "
+                               << sectprop.name << '\n';
+            abort();
+          }
+        }
+
+        st.SectMap.add({intervl, {sectprop}});
+
+        if (opts::VeryVerbose)
+          llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)\n")
+                           % std::string(sectprop.name)
+                           % intervl.lower()
+                           % intervl.upper()).str();
+      }
     }
   }
 }
@@ -4012,8 +4044,8 @@ void on_dynamic_linker_loaded(pid_t child,
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(MemBuffRef);
   if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from " << binary.Path
-                       << '\n';
+    WithColor::error() << llvm::formatv(
+        "{0}: failed to create binary from {1}\n", __func__, binary.Path);
     return;
   }
 
@@ -4203,34 +4235,30 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                             description_of_program_counter(pc));
-        return;
+        update_view_of_virtual_memory(child);
+
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                               description_of_program_counter(pc));
+      } else {
+        BIdx = *(*it).second.begin();
+
+        auto &BBMap = BinStateVec[BIdx].BBMap;
+
+        binary_t &binary = decompilation.Binaries.at(BIdx);
+        auto &ICFG = binary.Analysis.ICFG;
+
+        uintptr_t rva = rva_of_va(pc, BIdx);
+
+        auto it = BBMap.find(rva);
+        assert(it != BBMap.end());
+        basic_block_index_t bbidx = (*it).second - 1;
+        basic_block_t bb = boost::vertex(bbidx, ICFG);
+
+        assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
+        ICFG[bb].Term._return.Returns = true;
       }
-
-      BIdx = *(*it).second.begin();
-    }
-
-    {
-      auto &BBMap = BinStateVec[BIdx].BBMap;
-
-      binary_t &binary = decompilation.Binaries.at(BIdx);
-      auto &ICFG = binary.Analysis.ICFG;
-
-      uintptr_t rva = rva_of_va(pc, BIdx);
-
-      auto it = BBMap.find(rva);
-      assert(it != BBMap.end());
-      basic_block_index_t bbidx = (*it).second - 1;
-      basic_block_t bb = boost::vertex(bbidx, ICFG);
-
-      assert(ICFG[bb].Term.Type == TERMINATOR::RETURN);
-      ICFG[bb].Term._return.Returns = true;
-
-      //
-      //
-      //
     }
   }
 
@@ -4243,74 +4271,73 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                             description_of_program_counter(pc));
-        return;
-      }
+        update_view_of_virtual_memory(child);
 
-      BIdx = *(*it).second.begin();
-    }
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                               description_of_program_counter(pc));
+      } else {
+        BIdx = *(*it).second.begin();
 
-    {
-      auto &BBMap = BinStateVec[BIdx].BBMap;
+        auto &BBMap = BinStateVec[BIdx].BBMap;
 
-      binary_t &binary = decompilation.Binaries.at(BIdx);
-      auto &ICFG = binary.Analysis.ICFG;
+        binary_t &binary = decompilation.Binaries.at(BIdx);
+        auto &ICFG = binary.Analysis.ICFG;
 
-      uintptr_t rva = rva_of_va(pc, BIdx);
+        uintptr_t rva = rva_of_va(pc, BIdx);
 
-      unsigned brkpt_count = 0;
-      basic_block_index_t next_bb_idx =
-        translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
-      assert(is_basic_block_index_valid(next_bb_idx));
+        unsigned brkpt_count = 0;
+        basic_block_index_t next_bb_idx =
+            translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
+        assert(is_basic_block_index_valid(next_bb_idx));
 
-      if (brkpt_count > 0)
-        llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
-                                      brkpt_count, binary.Path);
+        if (brkpt_count > 0)
+          llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
+                                        brkpt_count, binary.Path);
 
-      basic_block_t bb;
+        basic_block_t bb;
 
-      {
-        auto it = BBMap.find(rva - 1);
-        if (it == BBMap.end()) {
-          //
-          // we have no preceeding call
-          //
-          return;
+        {
+          auto it = BBMap.find(rva - 1);
+          if (it == BBMap.end()) {
+            //
+            // we have no preceeding call
+            //
+            return;
+          }
+
+          basic_block_index_t bbidx = (*it).second - 1;
+          bb = boost::vertex(bbidx, ICFG);
         }
 
-        basic_block_index_t bbidx = (*it).second - 1;
-        bb = boost::vertex(bbidx, ICFG);
-      }
-
-      bool isCall =
-        ICFG[bb].Term.Type == TERMINATOR::CALL;
-      bool isIndirectCall =
-        ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+        bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
+        bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
 #if !defined(__x86_64__) && defined(__i386__)
-      if (!isCall && !isIndirectCall) /* this can occur on i386 because of hack
-                                         in tcg.hpp */
-        return;
+        if (!isCall && !isIndirectCall) /* this can occur on i386 because of
+                                           hack in tcg.hpp */
+          return;
 #endif
 
-      assert(isCall || isIndirectCall);
-      assert(boost::out_degree(bb, ICFG) == 0 ||
-             boost::out_degree(bb, ICFG) == 1);
+        assert(isCall || isIndirectCall);
+        assert(boost::out_degree(bb, ICFG) == 0 ||
+               boost::out_degree(bb, ICFG) == 1);
 
-      if (isCall) {
-        ICFG[bb].Term._call.Returns = true;
-        if (is_function_index_valid(ICFG[bb].Term._call.Target))
-          binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns = true;
+        if (isCall) {
+          ICFG[bb].Term._call.Returns = true;
+          if (is_function_index_valid(ICFG[bb].Term._call.Target))
+            binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns =
+                true;
+        }
+
+        if (isIndirectCall)
+          ICFG[bb].Term._indirect_call.Returns = true;
+
+        basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+        if (boost::add_edge(bb, next_bb, ICFG).second)
+          InvalidateAllFunctionAnalyses();
       }
-
-      if (isIndirectCall)
-        ICFG[bb].Term._indirect_call.Returns = true;
-
-      basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
-      if (boost::add_edge(bb, next_bb, ICFG).second)
-        InvalidateAllFunctionAnalyses();
     }
   }
 }
@@ -4376,6 +4403,15 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
 }
 
 std::string description_of_program_counter(uintptr_t pc) {
+#if defined(__mips64) || defined(__mips__)
+  if (ExecutableRegionAddress &&
+      pc >= (ExecutableRegionAddress - ExecutableRegionUsed) &&
+      pc < (ExecutableRegionAddress - ExecutableRegionUsed) + EXECUTABLE_REGION_SIZE) {
+    uintptr_t off = pc - (ExecutableRegionAddress - ExecutableRegionUsed);
+    return (fmt("[exeregion]+%#lx") % off).str();
+  }
+#endif
+
   auto simple_desc = [=](void) -> std::string {
     return (fmt("%#lx") % pc).str();
   };

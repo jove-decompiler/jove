@@ -281,7 +281,47 @@ int add(void) {
   if (!BinOrErr) {
     WithColor::error() << llvm::formatv("failed to create binary from {0}\n",
                                         opts::Input);
-    return 1;
+    //
+    // if this happens, we assume the given bytes do not constitute an object
+    // file, and treat them as data mmapped into memory; they have no symbol
+    // information.
+    //
+    decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
+
+    binary_t &binary = decompilation.Binaries.back();
+
+    //
+    // initialize fields
+    //
+    binary.IsDynamicLinker = false;
+    binary.IsExecutable = false;
+    binary.IsVDSO = false;
+
+    binary.IsPIC = true;
+    binary.IsDynamicallyLoaded = false;
+
+    binary.Path = fs::canonical(opts::Input).string();
+    binary.Data.resize(Buffer->getBufferSize());
+    memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = 0;
+      sa.sa_handler = SIG_IGN;
+
+      sigaction(SIGINT, &sa, nullptr);
+    }
+
+    {
+      std::ofstream ofs(opts::Output);
+
+      boost::archive::binary_oarchive oa(ofs);
+      oa << decompilation;
+    }
+
+    return 0;
   }
 
   std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();

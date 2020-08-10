@@ -371,76 +371,90 @@ int InitStateForBinaries(void) {
     if (!BinOrErr) {
       WithColor::error() << "failed to create binary from " << binary.Path
                          << '\n';
-      return 1;
-    }
-
-    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-    binary.ObjectFile = std::move(BinRef);
-
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
-
-    const ELFT &E = *O.getELFFile();
-
-    //
-    // build section map
-    //
-    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-    if (!sections) {
-      WithColor::error() << "error: could not get ELF sections for binary "
-                         << binary.Path << '\n';
-      return 1;
-    }
-
-    for (const Elf_Shdr &Sec : *sections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-      if (!name)
-        continue;
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) && *name == std::string(".tbss"))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      section_properties_t sectprop;
-      sectprop.name = *name;
-
-      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
-        assert(contents);
-        sectprop.contents = *contents;
-      }
-
-      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-      sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
-      sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
       boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
 
-      {
-        auto it = SectMap.find(intervl);
-        if (it != SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
-          return 1;
-        }
+      assert(SectMap.find(intervl) == SectMap.end());
+
+      section_properties_t sectprop;
+      sectprop.name = ".text";
+      sectprop.contents = binary.Data;
+      sectprop.w = false;
+      sectprop.x = true;
+      sectprop.initArray = false;
+      sectprop.finiArray = false;
+      SectMap.add({intervl, {sectprop}});
+    } else {
+      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+      binary.ObjectFile = std::move(BinRef);
+
+      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+
+      const ELFT &E = *O.getELFFile();
+
+      //
+      // build section map
+      //
+      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+      if (!sections) {
+        WithColor::error() << "error: could not get ELF sections for binary "
+                           << binary.Path << '\n';
+        return 1;
       }
 
-      SectMap.add({intervl, {sectprop}});
+      for (const Elf_Shdr &Sec : *sections) {
+        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+          continue;
+
+        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+        if (!name)
+          continue;
+
+        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+            *name == std::string(".tbss"))
+          continue;
+
+        if (!Sec.sh_size)
+          continue;
+
+        section_properties_t sectprop;
+        sectprop.name = *name;
+
+        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+          sectprop.contents = llvm::ArrayRef<uint8_t>();
+        } else {
+          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+              E.getSectionContents(&Sec);
+          assert(contents);
+          sectprop.contents = *contents;
+        }
+
+        sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
+        sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+
+        sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
+        sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
+
+        boost::icl::interval<uintptr_t>::type intervl =
+            boost::icl::interval<uintptr_t>::right_open(
+                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+        {
+          auto it = SectMap.find(intervl);
+          if (it != SectMap.end()) {
+            WithColor::error() << "the following sections intersect: "
+                               << (*(*it).second.begin()).name << " and "
+                               << sectprop.name << '\n';
+            return 1;
+          }
+        }
+
+        SectMap.add({intervl, {sectprop}});
+      }
     }
   }
 
