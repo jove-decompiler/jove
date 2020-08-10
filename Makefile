@@ -164,7 +164,7 @@ $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall -I lib -I lib/arch/$(ARCH) $<
 	@ln -sf $(JOVE_RT_SO) $(BINDIR)/$(JOVE_RT_SONAME)
 
-$(JOVE_DYN_PRELOAD): lib/jove-dyn/preload.c
+$(JOVE_DYN_PRELOAD): lib/jove-bootstrap/preload.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_DYN_PRELOAD_SONAME) -Ofast -fno-stack-protector -fPIC -g -Wall $<
 	@ln -sf $(JOVE_DYN_PRELOAD_SO) $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME)
