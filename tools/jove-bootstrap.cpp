@@ -187,7 +187,7 @@ int main(int argc, char **argv) {
       _argv = const_cast<char **>(&arg_vec.a[0]);
 
       for (int i = prog_args_idx + 1; i < argc; ++i) {
-        llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
+        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
 
         opts::Args.push_back(argv[i]);
       }
