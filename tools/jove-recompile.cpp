@@ -357,6 +357,9 @@ int recompile(void) {
   // gather dynamic linking information
   //
   for (binary_t &b : Decompilation.Binaries) {
+    if (b.IsVDSO)
+      continue;
+
     if (!dynamic_linking_info_of_binary(b, b.dynl)) {
       WithColor::error() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
