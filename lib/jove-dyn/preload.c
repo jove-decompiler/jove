@@ -34,7 +34,7 @@ _CTOR static void preload_init(void) {
 
   memset(addr, 0, EXECUTABLE_REGION_SIZE);
 
-  int fd = open(fifo_path, O_WRONLY);
+  int fd = open(fifo_path, O_RDWR);
   if (fd < 0) {
     PrintMessageOrDie("%s: open failed (%s)\n", __func__, strerror(errno));
     goto failure;
@@ -49,9 +49,27 @@ _CTOR static void preload_init(void) {
     while (ret < 0 && errno == EINTR);
 
     if (ret == sizeof(addr))
-      goto success;
+      goto success1;
 
     PrintMessageOrDie("%s: write failed (gave %zd)\n", __func__, ret);
+    goto failure;
+  }
+
+success1:
+  /* read confirmation */
+
+  {
+    char ch;
+
+    ssize_t ret;
+    do
+      ret = read(fd, &ch, sizeof(ch));
+    while (ret < 0 && errno == EINTR);
+
+    if (ret == sizeof(ch) && ch == 'c')
+      goto success2;
+
+    PrintMessageOrDie("%s: read failed (gave %zd)\n", __func__, ret);
     goto failure;
   }
 
@@ -62,7 +80,7 @@ failure:
   if (munmap(addr, EXECUTABLE_REGION_SIZE) < 0)
     PrintMessageOrDie("%s: munmap failed (%s)\n", __func__, strerror(errno));
 
-success:
+success2:
   if (!(fd < 0) && close(fd) < 0)
     PrintMessageOrDie("%s: close failed (%s)\n", __func__, strerror(errno));
 }
