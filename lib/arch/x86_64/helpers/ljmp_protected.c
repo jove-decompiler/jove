@@ -1374,7 +1374,7 @@ static inline void cpu_x86_load_seg_cache(CPUX86State *env,
     }
 }
 
-void cpu_x86_update_cr3(CPUX86State *env, target_ulong new_cr3);
+static void cpu_x86_update_cr3(CPUX86State *env, target_ulong new_cr3);
 
 #define MMU_USER_IDX    1
 
@@ -2280,6 +2280,7 @@ static void switch_tss_ra(CPUX86State *env, int tss_selector,
 void helper_ljmp_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
                            target_ulong next_eip)
 {
+#if 0
     int gate_cs, type;
     uint32_t e1, e2, cpl, dpl, rpl, limit;
 
@@ -2414,6 +2415,10 @@ void helper_ljmp_protected(CPUX86State *env, int new_cs, target_ulong new_eip,
             break;
         }
     }
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
 #define SHIFT 0

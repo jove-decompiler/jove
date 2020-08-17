@@ -2526,6 +2526,7 @@ static inline void helper_ret_protected(CPUX86State *env, int shift,
 
 void helper_iret_protected(CPUX86State *env, int shift, int next_eip)
 {
+#if 0
     int tss_selector, type;
     uint32_t e1, e2;
 
@@ -2553,5 +2554,9 @@ void helper_iret_protected(CPUX86State *env, int shift, int next_eip)
         helper_ret_protected(env, shift, 1, 0, GETPC());
     }
     env->hflags2 &= ~HF2_NMI_MASK;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
