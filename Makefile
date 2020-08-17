@@ -902,6 +902,12 @@ x86_64-roundsd_xmm_EXTRICATE_ARGS := float64_round_to_int
 x86_64-dpps_xmm_EXTRICATE_ARGS := float32_mul float32_add
 x86_64-dppd_xmm_EXTRICATE_ARGS := float64_mul float64_add
 x86_64-rdrand_EXTRICATE_ARGS := error_get_pretty error_free qemu_guest_getrandom qemu_log
+x86_64-aesdec_xmm_EXTRICATE_ARGS := AES_Td3 AES_Td2 AES_Td1 AES_ishifts AES_Td0
+x86_64-aesdeclast_xmm_EXTRICATE_ARGS := AES_ishifts AES_isbox
+x86_64-aesenc_xmm_EXTRICATE_ARGS := AES_Te3 AES_Te2 AES_Te1 AES_shifts AES_Te0
+x86_64-aesenclast_xmm_EXTRICATE_ARGS := AES_shifts AES_sbox
+x86_64-aesimc_xmm_EXTRICATE_ARGS := AES_imc
+x86_64-aeskeygenassist_xmm_EXTRICATE_ARGS := AES_sbox
 
 i386-aaa_EXTRICATE_ARGS := cpu_cc_compute_all
 i386-aas_EXTRICATE_ARGS := cpu_cc_compute_all
