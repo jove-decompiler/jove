@@ -5,6 +5,7 @@ _LLVM_DIR         := $(JOVE_ROOT_DIR)/third_party/llvm-project
 _LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
 
 _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
+_LLVM_DIS    := $(_LLVM_INSTALL_DIR)/bin/llvm-dis
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
 _LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
 
@@ -128,7 +129,10 @@ mipsel_HELPERS := raise_exception_err raise_exception raise_exception_debug swl 
 HELPERS_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).bc)
 HELPERS_DFSAN_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).dfsan.bc)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE)
+HELPERS_ASSEMBLY := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).ll)
+HELPERS_DFSAN_ASSEMBLY := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).dfsan.ll)
+
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY)
 
 helpers: $(HELPERS_BITCODE)
 
@@ -1105,6 +1109,10 @@ endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
 define build_helper_template
+$(BINDIR)/$(1).ll: $(BINDIR)/$(1).bc
+	@echo DIS $$<
+	@$(_LLVM_DIS) -o $$@ $$<
+
 $(BINDIR)/$(1).bc: lib/arch/$(ARCH)/helpers/$(1).c
 	@echo BC $$<
 	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG $($(ARCH)_HELPER_CFLAGS) $$<
@@ -1112,6 +1120,10 @@ endef
 $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call build_helper_template,$(helper))))
 
 define build_helper_dfsan_template
+$(BINDIR)/$(1).dfsan.ll: $(BINDIR)/$(1).dfsan.bc
+	@echo DIS $$<
+	@$(_LLVM_DIS) -o $$@ $$<
+
 $(BINDIR)/$(1).dfsan.bc: lib/arch/$(ARCH)/helpers/$(1).c
 	@echo BC "(DFSAN)" $$<
 	@$(_LLVM_CC) -o $$@ -c -I lib -I lib/arch/$(ARCH) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG -DJOVE_DFSAN $($(ARCH)_HELPER_CFLAGS) $$<
