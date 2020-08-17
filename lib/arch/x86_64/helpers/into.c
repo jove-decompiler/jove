@@ -1115,6 +1115,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 
 #define SVM_EXIT_SWINT		0x075
 
+static
 void QEMU_NORETURN raise_interrupt(CPUX86State *nenv, int intno, int is_int,
                                    int error_code, int next_eip_addend);
 
