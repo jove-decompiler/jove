@@ -581,7 +581,11 @@ void helper_monitor(CPUX86State *env, target_ulong ptr)
     /* XXX: store address? */
     cpu_svm_check_intercept_param(env, SVM_EXIT_MONITOR, 0, GETPC());
 #else
-    __builtin_trap();
+    target_ulong addr       = env->regs[R_EAX];
+    target_ulong extensions = env->regs[R_ECX];
+    target_ulong hints      = env->regs[R_EDX];
+
+    asm volatile("monitor" : : "a"(addr), "c"(extensions), "d"(hints));
 #endif
 }
 

@@ -1137,6 +1137,7 @@ static void do_hlt(X86CPU *cpu)
 
 void helper_mwait(CPUX86State *env, int next_eip_addend)
 {
+#if 0
     CPUState *cs = env_cpu(env);
     X86CPU *cpu = env_archcpu(env);
 
@@ -1152,5 +1153,11 @@ void helper_mwait(CPUX86State *env, int next_eip_addend)
     } else {
         do_hlt(cpu);
     }
+#else
+    target_ulong hints      = env->regs[R_EAX];
+    target_ulong extensions = env->regs[R_ECX];
+
+    asm volatile("mwait" : : "a"(hints), "c"(extensions));
+#endif
 }
 

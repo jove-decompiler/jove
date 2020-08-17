@@ -580,10 +580,18 @@ void cpu_svm_check_intercept_param(CPUX86State *env, uint32_t type,
 
 void helper_monitor(CPUX86State *env, target_ulong ptr)
 {
+#if 0
     if ((uint32_t)env->regs[R_ECX] != 0) {
         raise_exception_ra(env, EXCP0D_GPF, GETPC());
     }
     /* XXX: store address? */
     cpu_svm_check_intercept_param(env, SVM_EXIT_MONITOR, 0, GETPC());
+#else
+    target_ulong addr       = env->regs[R_EAX];
+    target_ulong extensions = env->regs[R_ECX];
+    target_ulong hints      = env->regs[R_EDX];
+
+    asm volatile("monitor" : : "a"(addr), "c"(extensions), "d"(hints));
+#endif
 }
 
