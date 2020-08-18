@@ -7666,7 +7666,7 @@ int CreateNoAliasMetadata(void) {
 }
 
 static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
-                               std::vector<llvm::AllocaInst *> &,
+                               std::array<llvm::AllocaInst *, tcg_num_globals> &,
                                llvm::IRBuilderTy &);
 
 llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
@@ -7765,7 +7765,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 
   F->setSubprogram(f.DebugInformation.Subprogram);
 
-  std::vector<llvm::AllocaInst *> GlobalAllocaVec(tcg_num_globals, nullptr);
+  std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaVec{};
 
   //
   // create the AllocaInst's for each global referenced at the start of the
@@ -8894,7 +8894,7 @@ namespace jove {
 
 static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
                           binary_t &, function_t &, basic_block_t,
-                          std::vector<llvm::AllocaInst *> &,
+                          std::array<llvm::AllocaInst *, tcg_num_globals> &,
                           std::vector<llvm::AllocaInst *> &,
                           std::vector<llvm::BasicBlock *> &,
                           llvm::BasicBlock *,
@@ -8906,7 +8906,7 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
 int TranslateBasicBlock(binary_t &Binary,
                         function_t &f,
                         basic_block_t bb,
-                        std::vector<llvm::AllocaInst *> &GlobalAllocaVec,
+                        std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                         llvm::IRBuilderTy &IRB) {
   const auto &ICFG = Binary.Analysis.ICFG;
 
@@ -10058,7 +10058,7 @@ static unsigned bits_of_memop(MemOp op) {
 
 int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
                    binary_t &Binary, function_t &f, basic_block_t bb,
-                   std::vector<llvm::AllocaInst *> &GlobalAllocaVec,
+                   std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
                    std::vector<llvm::BasicBlock *> &LabelVec,
                    llvm::BasicBlock *ExitBB, llvm::IRBuilderTy &IRB) {
