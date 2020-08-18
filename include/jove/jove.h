@@ -333,3 +333,7 @@ struct terminator_info_t {
 };
 
 }
+
+#undef JOVE_EXTRA_BIN_PROPERTIES
+#undef JOVE_EXTRA_FN_PROPERTIES
+#undef JOVE_EXTRA_BB_PROPERTIES
