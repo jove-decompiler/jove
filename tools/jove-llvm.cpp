@@ -7725,7 +7725,8 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
       llvm::PointerType::get(GlbTy, 0));
 }
 
-static int TranslateFunction(binary_t &Binary, function_t &f) {
+static int TranslateFunction(function_t &f) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -7862,7 +7863,7 @@ static int TranslateFunction(binary_t &Binary, function_t &f) {
 int TranslateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
-    if (int ret = TranslateFunction(Binary, f))
+    if (int ret = TranslateFunction(f))
       return ret;
   }
 
@@ -8893,7 +8894,8 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 static int TranslateTCGOp(TCGOp *op,
-                          binary_t &, function_t &, basic_block_t,
+                          function_t &,
+                          basic_block_t,
                           std::array<llvm::AllocaInst *, tcg_num_globals> &,
                           std::vector<llvm::AllocaInst *> &,
                           std::vector<llvm::BasicBlock *> &,
@@ -9044,8 +9046,12 @@ int TranslateBasicBlock(binary_t &Binary,
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      if (int ret = TranslateTCGOp(op, Binary, f, bb, GlobalAllocaVec,
-                                   TempAllocaVec, LabelVec, ExitBB, IRB)) {
+      if (int ret = TranslateTCGOp(op, f, bb,
+                                   GlobalAllocaVec,
+                                   TempAllocaVec,
+                                   LabelVec,
+                                   ExitBB,
+                                   IRB)) {
         TCG->dump_operations();
         return ret;
       }
@@ -10057,11 +10063,14 @@ static unsigned bits_of_memop(MemOp op) {
 }
 
 int TranslateTCGOp(TCGOp *op,
-                   binary_t &Binary, function_t &f, basic_block_t bb,
+                   function_t &f,
+                   basic_block_t bb,
                    std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
                    std::vector<llvm::BasicBlock *> &LabelVec,
-                   llvm::BasicBlock *ExitBB, llvm::IRBuilderTy &IRB) {
+                   llvm::BasicBlock *ExitBB,
+                   llvm::IRBuilderTy &IRB) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = f.PCAlloca;
   TCGContext *s = &TCG->_ctx;
