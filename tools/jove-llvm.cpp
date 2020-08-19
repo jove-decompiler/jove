@@ -7665,7 +7665,8 @@ int CreateNoAliasMetadata(void) {
   return 0;
 }
 
-static int TranslateBasicBlock(binary_t &, function_t &, basic_block_t,
+static int TranslateBasicBlock(basic_block_t,
+                               function_t &,
                                std::array<llvm::AllocaInst *, tcg_num_globals> &,
                                llvm::IRBuilderTy &);
 
@@ -7843,7 +7844,7 @@ static int TranslateFunction(function_t &f) {
       }
     }
 
-    if (int ret = TranslateBasicBlock(Binary, f, entry_bb, GlobalAllocaVec, IRB))
+    if (int ret = TranslateBasicBlock(entry_bb, f, GlobalAllocaVec, IRB))
       return ret;
   }
 
@@ -7851,7 +7852,7 @@ static int TranslateFunction(function_t &f) {
     basic_block_t bb = f.BasicBlocks[i];
     llvm::IRBuilderTy IRB(ICFG[bb].B);
 
-    if (int ret = TranslateBasicBlock(Binary, f, bb, GlobalAllocaVec, IRB))
+    if (int ret = TranslateBasicBlock(bb, f, GlobalAllocaVec, IRB))
       return ret;
   }
 
@@ -8905,11 +8906,11 @@ static int TranslateTCGOp(TCGOp *op,
 static std::string
 dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
 
-int TranslateBasicBlock(binary_t &Binary,
+int TranslateBasicBlock(basic_block_t bb,
                         function_t &f,
-                        basic_block_t bb,
                         std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                         llvm::IRBuilderTy &IRB) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
 
   const uintptr_t Addr = ICFG[bb].Addr;
