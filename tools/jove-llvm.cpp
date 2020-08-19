@@ -8892,7 +8892,7 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-static int TranslateTCGOp(TCGOp *op, TCGOp *op_next,
+static int TranslateTCGOp(TCGOp *op,
                           binary_t &, function_t &, basic_block_t,
                           std::array<llvm::AllocaInst *, tcg_num_globals> &,
                           std::vector<llvm::AllocaInst *> &,
@@ -9044,7 +9044,7 @@ int TranslateBasicBlock(binary_t &Binary,
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      if (int ret = TranslateTCGOp(op, op_next, Binary, f, bb, GlobalAllocaVec,
+      if (int ret = TranslateTCGOp(op, Binary, f, bb, GlobalAllocaVec,
                                    TempAllocaVec, LabelVec, ExitBB, IRB)) {
         TCG->dump_operations();
         return ret;
@@ -10056,7 +10056,7 @@ static unsigned bits_of_memop(MemOp op) {
   return bits_of_memop_lookup_table[op & MO_SIZE];
 }
 
-int TranslateTCGOp(TCGOp *op, TCGOp *next_op,
+int TranslateTCGOp(TCGOp *op,
                    binary_t &Binary, function_t &f, basic_block_t bb,
                    std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                    std::vector<llvm::AllocaInst *> &TempAllocaVec,
