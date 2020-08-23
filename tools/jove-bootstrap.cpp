@@ -567,6 +567,33 @@ int ParentProc(pid_t child, const char *fifo_path) {
     }
   }
 
+  //
+  // verify that the given executable is identical to the one found in the
+  // decompilation
+  //
+  for (binary_t &binary : decompilation.Binaries) {
+    if (!binary.IsExecutable)
+      continue;
+
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(opts::Prog);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      WithColor::error() << "failed to open given path " << opts::Prog << '\n';
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+    if (binary.Data.size() != Buffer->getBufferSize() ||
+        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+      WithColor::error()
+          << "given binary does not match binary in decompilation\n";
+      return 1;
+    }
+
+    break;
+  }
+
   llvm::Triple TheTriple;
   llvm::SubtargetFeatures Features;
 
