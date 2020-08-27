@@ -218,8 +218,13 @@ run:
     if (!pid) {
       std::vector<const char *> arg_vec = {
           jove_run_path.c_str(),
+
+          "--sysroot",
           opts::sysroot.c_str(),
+
           opts::Prog.c_str(),
+
+          "--",
       };
 
       for (std::string &s : opts::Args)

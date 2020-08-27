@@ -14,23 +14,83 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <llvm/Support/CommandLine.h>
+#include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/WithColor.h>
 
 namespace fs = boost::filesystem;
+namespace cl = llvm::cl;
 
-namespace jove {
 namespace opts {
-static const char *sysroot;
-static char **prog_argv;
+static cl::OptionCategory JoveCategory("Specific Options");
+
+static cl::opt<std::string> Prog(cl::Positional, cl::desc("prog"), cl::Required,
+                                 cl::value_desc("filename"),
+                                 cl::cat(JoveCategory));
+
+static cl::list<std::string> Args("args", cl::CommaSeparated,
+                                  cl::value_desc("arg_1,arg_2,...,arg_n"),
+                                  cl::desc("Program arguments"),
+                                  cl::cat(JoveCategory));
+
+static cl::list<std::string>
+    Envs("env", cl::CommaSeparated,
+         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
+
+static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
+                                    cl::Required, cl::cat(JoveCategory));
 }
 
-static int ParseCommandLineArguments(int argc, char **argv);
+namespace jove {
+
 static int run(void);
 
 } // namespace jove
 
 int main(int argc, char **argv) {
-  if (int ret = jove::ParseCommandLineArguments(argc, argv))
-    return ret;
+  int _argc = argc;
+  char **_argv = argv;
+
+  // argc/argv replacement to handle '--'
+  struct {
+    std::vector<std::string> s;
+    std::vector<const char *> a;
+  } arg_vec;
+
+  {
+    int prog_args_idx = -1;
+
+    for (int i = 0; i < argc; ++i) {
+      if (strcmp(argv[i], "--") == 0) {
+        prog_args_idx = i;
+        break;
+      }
+    }
+
+    if (prog_args_idx != -1) {
+      for (int i = 0; i < prog_args_idx; ++i)
+        arg_vec.s.push_back(argv[i]);
+
+      for (std::string &s : arg_vec.s)
+        arg_vec.a.push_back(s.c_str());
+      arg_vec.a.push_back(nullptr);
+
+      _argc = prog_args_idx;
+      _argv = const_cast<char **>(&arg_vec.a[0]);
+
+      for (int i = prog_args_idx + 1; i < argc; ++i) {
+        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
+
+        opts::Args.push_back(argv[i]);
+      }
+    }
+  }
+
+  llvm::InitLLVM X(_argc, _argv);
+
+  cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
+  cl::ParseCommandLineOptions(_argc, _argv, "jove-run\n");
 
   return jove::run();
 }
@@ -39,52 +99,7 @@ namespace jove {
 
 static fs::path jove_recover_path, jv_path;
 
-static void Usage(void);
-
 static int await_process_completion(pid_t);
-
-int ParseCommandLineArguments(int argc, char **argv) {
-  if (argc < 3) {
-    Usage();
-    return 1;
-  }
-
-  {
-    const char *arg = argv[1];
-    if (!fs::exists(arg)) {
-      fprintf(stderr, "supplied path does not exist\n");
-      return 1;
-    }
-
-    if (!fs::is_directory(arg)) {
-      fprintf(stderr, "supplied path is not directory\n");
-      return 1;
-    }
-
-    opts::sysroot = arg;
-  }
-
-  {
-    const char *arg = argv[2];
-
-    fs::path chrooted_path(opts::sysroot);
-    chrooted_path /= arg;
-
-    if (!fs::exists(chrooted_path)) {
-      fprintf(stderr, "supplied path to prog does not exist\n");
-      return 1;
-    }
-
-    if (!fs::exists(chrooted_path)) {
-      fprintf(stderr, "supplied path to prog does not exist under sysroot\n");
-      return 1;
-    }
-
-    opts::prog_argv = &argv[2];
-  }
-
-  return 0;
-}
 
 static void *recover_proc(const char *fifo_path);
 static void IgnoreCtrlC(void);
@@ -339,7 +354,7 @@ int run(void) {
   //
   int pid = fork();
   if (!pid) {
-    if (chroot(opts::sysroot) < 0) {
+    if (chroot(opts::sysroot.c_str()) < 0) {
       fprintf(stderr, "chroot failed : %s\n", strerror(errno));
       return 1;
     }
@@ -398,11 +413,24 @@ int run(void) {
                         "-SSE2");
 #endif
 
+    for (std::string &s : opts::Envs)
+      env.s_vec.push_back(s);
+
     for (const std::string &s : env.s_vec)
       env.a_vec.push_back(s.c_str());
     env.a_vec.push_back(nullptr);
 
-    execve(opts::prog_argv[0], opts::prog_argv,
+    std::vector<const char *> arg_vec = {
+        opts::Prog.c_str(),
+    };
+
+    for (std::string &s : opts::Args)
+      arg_vec.push_back(s.c_str());
+
+    arg_vec.push_back(nullptr);
+
+    execve(arg_vec[0],
+           const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env.a_vec[0]));
 
     fprintf(stderr, "execve failed : %s\n", strerror(errno));
@@ -791,10 +819,6 @@ do_r_read:
   pthread_cleanup_pop(1 /* execute */);
 
   return nullptr;
-}
-
-void Usage(void) {
-  puts("jove-run sysroot/ /path/to/prog [ARG]...");
 }
 
 int await_process_completion(pid_t pid) {
