@@ -270,7 +270,8 @@ int recompile(void) {
        "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
           .string();
 #else
-  std::string lld_path = "/usr/bin/ld.lld";
+  // lld 9.0.1
+  std::string lld_path = "/usr/local/bin/ld.lld";
 #endif
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
