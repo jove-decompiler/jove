@@ -44,7 +44,7 @@ $(info ARCH       $(ARCH))
 #
 # build flags
 #
-CXXFLAGS := -std=gnu++14 \
+CXXFLAGS := -std=gnu++17 \
             -Wall \
             -Wno-macro-redefined \
             -Wno-shift-count-negative \
