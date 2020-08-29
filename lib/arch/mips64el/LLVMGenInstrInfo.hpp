@@ -1,1 +1,1 @@
-../../../third_party/llvm-project/lib/Target/Mips/MipsGenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc

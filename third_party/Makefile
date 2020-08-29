@@ -39,6 +39,9 @@ nothing:
 .PHONY: build-llvm
 build-llvm:
 	cd $(_LLVM_DIR) && \
+	rm -rf build && \
+	mkdir build && \
+	cd build && \
 	cmake -G Ninja \
 	      -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" \
@@ -50,6 +53,8 @@ build-llvm:
 	      -D LLVM_BUILD_TESTS=OFF \
 	      -D LLVM_INCLUDE_TESTS=OFF \
 	      -D LLVM_INCLUDE_EXAMPLES=OFF \
+	      -D CMAKE_CXX_COMPILER=$(shell which clang++-10) \
+	      -D CMAKE_C_COMPILER=$(shell which clang-10) \
 	      -D LLVM_BUILD_DOCS=OFF \
 	      -D "LLVM_BINUTILS_INCDIR=/usr/include" \
 	      -D LLVM_ENABLE_BINDINGS=OFF \
@@ -58,10 +63,10 @@ build-llvm:
 	      -D "LLVM_HOST_TRIPLE=$(GCC_TARGET)" \
 	      -D "LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET)" \
 	      -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" \
-	      -D LLVM_USE_LINKER=gold \
 	      -D LLVM_ENABLE_LTO=OFF \
+	      -D LLVM_USE_LINKER=lld \
 	      -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
-	      llvm \
+	      ../llvm \
 	&& ninja install \
 	&& echo "stupid hacks that shouldn't be necessary" \
 	&& mkdir -p $(_LLVM_DIR)/$(BUILD_TYPE) \
