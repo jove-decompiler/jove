@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     const std::array<const char *, 6> arg_regs{"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     const std::array<const char *, 2> ret_regs{"rax", "rdx"};
 #elif defined(__i386__)
-    const std::array<const char *, 0> arg_regs{};
+    const std::array<const char *, 3> arg_regs{"eax", "edx", "ecx"};
     //const std::array<const char *, 1> ret_regs{"eax"};
     const std::array<const char *, 2> ret_regs{"eax", "edx"};
 #elif defined(__aarch64__)
