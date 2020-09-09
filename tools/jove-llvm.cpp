@@ -9724,13 +9724,14 @@ int TranslateBasicBlock(basic_block_t bb,
           }
 
           llvm::CallInst *Ret;
-          if (DynTargetNeedsThunkPred(DynTargetsVec[i]) &&
-              ArgVec.size() >= CallConvArgArray.size()) {
+          if (foreign) {
             llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
                 llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
 
-            for (unsigned i = 0; i < ArgVec.size(); ++i) {
-              llvm::Value *Val = ArgVec[i];
+            for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
+              unsigned glb = CallConvArgArray[i];
+
+              llvm::Value *Val = IRB.CreateLoad(GlobalAllocaVec[glb]);
               llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
 
               IRB.CreateStore(Val, Ptr);
@@ -9744,33 +9745,18 @@ int TranslateBasicBlock(basic_block_t bb,
             save_callstack_pointers();
             Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
             restore_callstack_pointers();
-          } else {
-            if (foreign)
-              save_callstack_pointers();
 
+            if (opts::CallStack)
+              IRB.CreateStore(
+                  IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
+                  CallStackGlobal);
+          } else {
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
                     GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
-
-            if (foreign)
-              restore_callstack_pointers();
-
-#if defined(__x86_64__) || defined(__i386__)
-            if (foreign) // SP += 8 to "pop" the emulated return address
-              IRB.CreateStore(
-                  IRB.CreateAdd(
-                      IRB.CreateLoad(GlobalAllocaVec[tcg_stack_pointer_index]),
-                      llvm::ConstantInt::get(WordType(), sizeof(uintptr_t))),
-                  CPUStateGlobalPointer(tcg_stack_pointer_index));
-#endif
           }
-
-          if (opts::CallStack && foreign)
-            IRB.CreateStore(
-                IRB.CreateConstGEP1_64(IRB.CreateLoad(CallStackGlobal), -1),
-                CallStackGlobal);
 
           Ret->setCallingConv(llvm::CallingConv::C);
 
