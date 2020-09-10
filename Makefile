@@ -1095,7 +1095,6 @@ i386-cmpordpd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
 i386-cmpordsd_EXTRICATE_ARGS := float64_unordered_quiet float32_unordered_quiet
 
 i386-into_EXTRICATE_ARGS := cpu_cc_compute_all
-i386-cpuid_EXTRICATE_ARGS := cpu_x86_cpuid find_last_bit sev_get_reduced_phys_bits sev_get_cbit_position
 
 #
 # I'll just put this here.
