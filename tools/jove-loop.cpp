@@ -151,6 +151,9 @@ int loop(void) {
     }
   }
 
+  if (!fs::exists(opts::sysroot))
+    fs::create_directory(opts::sysroot);
+
   if (!fs::exists(opts::sysroot) || !fs::is_directory(opts::sysroot)) {
     WithColor::error() << llvm::formatv(
         "provided sysroot {0} is not directory\n", opts::sysroot);
