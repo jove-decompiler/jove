@@ -9798,6 +9798,9 @@ int TranslateBasicBlock(basic_block_t bb,
               assert(hook_f.hook);
               const hook_t &hook = *hook_f.hook;
 
+              //
+              // prepare arguments for post hook
+              //
               std::vector<llvm::Value *> ArgVec;
               ArgVec.resize(hook.Args.size());
 
@@ -9834,29 +9837,28 @@ int TranslateBasicBlock(basic_block_t bb,
                   }
 
                   ArgVec[j] = [&](void) -> llvm::Value * {
-                    llvm::Type *DstTy = type_of_arg_info(info);
                     if (info.isPointer)
                       return IRB.CreateIntToPtr(ArgVal, DstTy);
 
-                    assert(DstTy->isIntegerTy());
-                    unsigned dstBits =
-                        llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth();
+                    assert(ArgVal->getType()->isIntegerTy());
+                    unsigned srcBits =
+                        llvm::cast<llvm::IntegerType>(ArgVal->getType())
+                            ->getBitWidth();
 
-                    if (dstBits == WordBits())
+                    if (dstBits == srcBits)
                       return ArgVal;
 
-                    assert(dstBits < WordBits());
+                    assert(dstBits < srcBits);
 
                     return IRB.CreateTrunc(ArgVal, DstTy);
                   }();
                 }
               }
 
-              assert(Ret->getType() != VoidType());
+              assert(!Ret->getType()->isVoidTy());
 
-              llvm::Value *_Ret =
-                  [Ret, &IRB](const hook_t::arg_info_t &info) -> llvm::Value * {
-                llvm::Type *DstTy = type_of_arg_info(info);
+              llvm::Value *_Ret = [&](void) -> llvm::Value * {
+                llvm::Type *DstTy = type_of_arg_info(hook.Ret);
 
                 llvm::Value* _Ret = Ret;
                 if (!Ret->getType()->isIntegerTy()) {
@@ -9866,25 +9868,33 @@ int TranslateBasicBlock(basic_block_t bb,
                 }
 
                 assert(_Ret->getType()->isIntegerTy());
+                unsigned srcBits =
+                    llvm::cast<llvm::IntegerType>(_Ret->getType())
+                        ->getBitWidth();
 
-                if (info.isPointer) {
+                if (hook.Ret.isPointer)
                   return IRB.CreateIntToPtr(_Ret, DstTy);
-                }
 
                 assert(DstTy->isIntegerTy());
                 unsigned dstBits =
                     llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth();
 
-                if (dstBits == WordBits())
+                if (dstBits == srcBits)
                   return _Ret;
 
-                assert(dstBits < WordBits());
+                assert(dstBits < srcBits);
 
                 return IRB.CreateTrunc(_Ret, DstTy);
-              }(hook.Ret);
+              }();
 
+              //
+              // return value is first argument
+              //
               ArgVec.insert(ArgVec.begin(), _Ret);
 
+              //
+              // make the call
+              //
               IRB.CreateCall(hook_f.PostHook, ArgVec);
             }
           }
