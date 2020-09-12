@@ -339,7 +339,8 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  llvm::outs() << msg;
+  llvm::errs() << msg;
+  llvm::errs().flush();
 }
 
 int await_process_completion(pid_t pid) {

@@ -1210,7 +1210,8 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  llvm::outs() << msg;
+  llvm::errs() << msg;
+  llvm::errs().flush();
 }
 
 /// Represents a contiguous uniform range in the file. We cannot just create a
