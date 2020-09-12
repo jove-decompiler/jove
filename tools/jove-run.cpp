@@ -590,7 +590,11 @@ void *recover_proc(const char *fifo_path) {
   // any time, in this function.
   //
 
-  int recover_fd = open(fifo_path, O_RDONLY);
+  int recover_fd;
+  do
+    recover_fd = open(fifo_path, O_RDONLY);
+  while (recover_fd < 0 && errno == EINTR);
+
   if (recover_fd < 0) {
     fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
             strerror(errno));
