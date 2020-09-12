@@ -7955,6 +7955,10 @@ static void ReloadGlobalVariables(void) {
 int DoOptimize(void) {
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
+
+    WithColor::error() << "Dumping module...\n";
+    DumpModule("pre.opt1.fail");
+
     //llvm::errs() << *Module << '\n';
     return 1;
   }
