@@ -196,8 +196,8 @@ int recompile(void) {
   //
   if (fs::exists(opts::Output)) {
     if (!opts::SkipLLVM)
-      WithColor::warning() << llvm::formatv("reusing output directory {}\n",
-                                            opts::Output);
+      WithColor::note() << llvm::formatv("reusing output directory {}\n",
+                                         opts::Output);
   } else {
     if (!fs::create_directory(opts::Output)) {
       WithColor::error() << "failed to create directory at \"" << opts::Output
@@ -815,8 +815,8 @@ int recompile(void) {
       if (opts::DFSan)
         arg_vec.push_back("-lclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME);
 
+      const char *rtld_path = nullptr;
       if (!b.dynl.interp.empty()) {
-        const char *rtld_path = nullptr;
         for (binary_t &b : Decompilation.Binaries) {
           if (b.IsDynamicLinker) {
             rtld_path = b.Path.c_str();
@@ -866,6 +866,8 @@ int recompile(void) {
         arg_vec.push_back("-l");
         arg_vec.push_back(needed_arg.c_str());
       }
+
+      arg_vec.push_back(rtld_path);
 
       arg_vec.push_back(nullptr);
 
