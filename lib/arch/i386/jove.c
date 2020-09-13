@@ -1372,7 +1372,8 @@ found:
 }
 
 void _jove_fail1(target_ulong x) {
-  asm volatile("hlt");
+  asm volatile("mov 0x4(%esp), %eax\n" /* x in eax */
+               "hlt");
 }
 
 void _jove_fail2(target_ulong x,
