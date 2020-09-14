@@ -689,6 +689,7 @@ static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int ProcessExportedFunctions(void);
 static int CreateFunctions(void);
+static int CreateFunctionTables(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
 static int CreateTLSModGlobal(void);
@@ -731,6 +732,7 @@ int llvm(void) {
       || ProcessIFuncResolvers()
       || ProcessExportedFunctions()
       || CreateFunctions()
+      || CreateFunctionTables()
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
       || CreateTLSModGlobal()
@@ -2706,8 +2708,9 @@ int ProcessDynamicSymbols(void) {
             // TODO refactor this
             llvm::Function *CallsF = llvm::Function::Create(
                 llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-                llvm::GlobalValue::InternalLinkage,
+                llvm::GlobalValue::ExternalLinkage,
                 std::string(f.F->getName()) + "_ifunc", Module.get());
+            CallsF->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
             llvm::DIBuilder &DIB = *DIBuilder;
             llvm::DISubprogram::DISPFlags SubProgFlags =
@@ -2747,15 +2750,7 @@ int ProcessDynamicSymbols(void) {
                   llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
                                         DebugInfo.Subprogram));
 
-              if (DynTargetNeedsThunkPred(IdxPair)) {
-                IRB.CreateCall(JoveInstallForeignFunctionTables)
-                    ->setIsNoInline();
-
-                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
-
-                IRB.CreateRet(IRB.CreateIntToPtr(
-                    Res, CallsF->getFunctionType()->getReturnType()));
-              } else if (IdxPair.first == BinaryIndex) {
+              if (IdxPair.first == BinaryIndex) {
                 llvm::Constant *Res = llvm::ConstantExpr::getPtrToInt(
                     Decompilation.Binaries[BinaryIndex]
                         .Analysis.Functions.at(IdxPair.second)
@@ -2764,8 +2759,27 @@ int ProcessDynamicSymbols(void) {
 
                 IRB.CreateRet(IRB.CreateIntToPtr(
                     Res, CallsF->getFunctionType()->getReturnType()));
+              } else if (DynTargetNeedsThunkPred(IdxPair)) {
+                IRB.CreateCall(JoveInstallForeignFunctionTables)
+                    ->setIsNoInline();
+                IRB.CreateCall(
+                       Module->getFunction("_jove_install_function_table"))
+                    ->setIsNoInline();
+
+                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+
+                IRB.CreateRet(IRB.CreateIntToPtr(
+                    Res, CallsF->getFunctionType()->getReturnType()));
+              } else if (!Decompilation.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
+                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+
+                IRB.CreateRet(IRB.CreateIntToPtr(
+                    Res, CallsF->getFunctionType()->getReturnType()));
               } else {
                 IRB.CreateCall(JoveInstallForeignFunctionTables)
+                    ->setIsNoInline();
+                IRB.CreateCall(
+                       Module->getFunction("_jove_install_function_table"))
                     ->setIsNoInline();
 
                 llvm::Value *SPPtr =
@@ -2774,16 +2788,22 @@ int ProcessDynamicSymbols(void) {
                 llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
                 SavedSP->setName("saved_sp");
 
+                llvm::Value *TemporaryStack = nullptr;
                 {
-                  constexpr unsigned StackAllocaSize = 0x10000;
+                  TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+                  llvm::Value *NewSP = IRB.CreateAdd(
+                      TemporaryStack,
+                      llvm::ConstantInt::get(WordType(),
+                                             JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
 
-                  llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
-                      llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
+                  llvm::Value *AlignedNewSP = IRB.CreateAnd(
+                      IRB.CreatePtrToInt(NewSP, WordType()),
+                      IRB.getIntN(sizeof(target_ulong) * 8,
+                                  sizeof(target_ulong) == sizeof(uint32_t)
+                                      ? 0xfffffff0
+                                      : 0xfffffffffffffff0));
 
-                  llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
-                      StackAlloca, 0, StackAllocaSize - 4096);
-
-                  IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
+                  IRB.CreateStore(AlignedNewSP, SPPtr);
                 }
 
                 llvm::Value *SavedTraceP = nullptr;
@@ -2818,6 +2838,8 @@ int ProcessDynamicSymbols(void) {
                 llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
 
                 IRB.CreateStore(SavedSP, SPPtr);
+
+                IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
 
                 if (opts::Trace)
                   IRB.CreateStore(SavedTraceP, TraceGlobal);
@@ -4160,9 +4182,83 @@ int CreateFunctions(void) {
   return 0;
 }
 
+int CreateFunctionTables(void) {
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    binary_t &binary = Decompilation.Binaries[BIdx];
+    if (binary.IsDynamicLinker)
+      continue;
+    if (binary.IsVDSO)
+      continue;
+    if (binary.IsDynamicallyLoaded)
+      continue;
+
+    binary.SectsF = llvm::Function::Create(
+        llvm::FunctionType::get(WordType(), false),
+        llvm::GlobalValue::ExternalLinkage,
+        (fmt("__jove_b%u_sects") % BIdx).str(), Module.get());
+
+    if (BIdx == BinaryIndex)
+      continue;
+
+    binary.FunctionsTable = new llvm::GlobalVariable(
+        *Module,
+        llvm::ArrayType::get(WordType(),
+                             2 * binary.Analysis.Functions.size() + 1),
+        false, llvm::GlobalValue::ExternalLinkage, nullptr,
+        (fmt("__jove_b%u") % BIdx).str());
+  }
+
+  return 0;
+}
+
 int CreateFunctionTable(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   auto &ICFG = Binary.Analysis.ICFG;
+
+  if (Binary.SectsF) {
+    //
+    // define SectsF
+    //
+#if 1
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ Binary.SectsF->getName(),
+        /* LinkageName */ Binary.SectsF->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+#endif
+    Binary.SectsF->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB =
+        llvm::BasicBlock::Create(*Context, "", Binary.SectsF);
+    {
+      llvm::IRBuilderTy IRB(BB);
+#if 1
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+#endif
+
+      IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
+    }
+  }
 
   std::vector<llvm::Constant *> constantTable;
   constantTable.resize(2 * Binary.Analysis.Functions.size());
@@ -4225,75 +4321,6 @@ int CreateFunctionTable(void) {
 
   GetFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
 #endif
-
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &binary = Decompilation.Binaries[BIdx];
-    if (binary.IsDynamicLinker)
-      continue;
-    if (binary.IsVDSO)
-      continue;
-    if (binary.IsDynamicallyLoaded)
-      continue;
-
-    binary.SectsF = llvm::Function::Create(
-        llvm::FunctionType::get(WordType(), false),
-        llvm::GlobalValue::ExternalLinkage,
-        (fmt("__jove_b%u_sects") % BIdx).str(), Module.get());
-
-    if (BIdx == BinaryIndex) {
-      //
-      // define SectsF
-      //
-#if 1
-      llvm::DIBuilder &DIB = *DIBuilder;
-      llvm::DISubprogram::DISPFlags SubProgFlags =
-          llvm::DISubprogram::SPFlagDefinition |
-          llvm::DISubprogram::SPFlagOptimized;
-
-      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-      llvm::DISubroutineType *SubProgType =
-          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-      struct {
-        llvm::DISubprogram *Subprogram;
-      } DebugInfo;
-
-      DebugInfo.Subprogram = DIB.createFunction(
-          /* Scope       */ DebugInformation.CompileUnit,
-          /* Name        */ binary.SectsF->getName(),
-          /* LinkageName */ binary.SectsF->getName(),
-          /* File        */ DebugInformation.File,
-          /* LineNo      */ 0,
-          /* Ty          */ SubProgType,
-          /* ScopeLine   */ 0,
-          /* Flags       */ llvm::DINode::FlagZero,
-          /* SPFlags     */ SubProgFlags);
-#endif
-      binary.SectsF->setSubprogram(DebugInfo.Subprogram);
-
-      llvm::BasicBlock *BB =
-          llvm::BasicBlock::Create(*Context, "", binary.SectsF);
-      {
-        llvm::IRBuilderTy IRB(BB);
-#if 1
-        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-#endif
-
-        IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
-      }
-
-      continue;
-    }
-
-    binary.FunctionsTable = new llvm::GlobalVariable(
-        *Module,
-        llvm::ArrayType::get(WordType(),
-                             2 * binary.Analysis.Functions.size() + 1),
-        false, llvm::GlobalValue::ExternalLinkage, nullptr,
-        (fmt("__jove_b%u") % BIdx).str());
-  }
 
   return 0;
 }
