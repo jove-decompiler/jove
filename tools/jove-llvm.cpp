@@ -4126,8 +4126,10 @@ int CreateFunctions(void) {
 
         Module->appendModuleInlineAsm(
             (fmt(".globl %s\n"
+                 ".hidden %s\n"
                  ".type  %s,@function\n"
                  ".set   %s, __jove_sections + %u")
+             % dummy_name
              % dummy_name
              % dummy_name
              % dummy_name % off).str());
