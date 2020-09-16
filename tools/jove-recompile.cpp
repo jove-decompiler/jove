@@ -1064,6 +1064,11 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--relocation-model=static");
       }
 
+      if (opts::DFSan) {
+        arg_vec.push_back("--stack-alignment=16");
+        arg_vec.push_back("--stackrealign");
+      }
+
       arg_vec.push_back(nullptr);
 
       print_command(&arg_vec[0]);
