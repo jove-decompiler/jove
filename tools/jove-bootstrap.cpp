@@ -3083,17 +3083,20 @@ static void harvest_addressof_reloc_targets(pid_t child,
 
       Resolved.BIdx = *(*it).second.begin();
 
+      if (Resolved.BIdx == BIdx) /* _dl_fixup... */
+        return;
+
       unsigned brkpt_count = 0;
       Resolved.FIdx = translate_function(
           child, Resolved.BIdx, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
       if (is_function_index_valid(Resolved.FIdx)) {
-        Binary.Analysis.SymDynTargets[SymName].insert(
-            {Resolved.BIdx, Resolved.FIdx});
+        auto &SymDynTargets = Binary.Analysis.SymDynTargets[SymName];
+        auto &RelocDynTargets = Binary.Analysis.RelocDynTargets[R.r_offset];
 
-        Binary.Analysis.RelocDynTargets[R.r_offset].insert(
-            {Resolved.BIdx, Resolved.FIdx});
+        RelocDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
+        SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
     };
 
