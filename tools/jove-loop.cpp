@@ -36,6 +36,11 @@ static cl::list<std::string> Args("args", cl::CommaSeparated,
                                   cl::desc("Program arguments"),
                                   cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    Envs("env", cl::CommaSeparated,
+         cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
+         cl::desc("Extra environment variables"), cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -224,12 +229,26 @@ run:
 
           "--sysroot",
           opts::sysroot.c_str(),
-
-          opts::Prog.c_str(),
-
-          "--",
       };
 
+      std::string env_arg;
+
+      if (!opts::Envs.empty()) {
+        for (std::string &s : opts::Envs) {
+          env_arg.append(s);
+          env_arg.push_back(',');
+        }
+        env_arg.resize(env_arg.size() - 1);
+
+        arg_vec.push_back("--env");
+        arg_vec.push_back(env_arg.c_str());
+      }
+
+      //
+      // program + args
+      //
+      arg_vec.push_back(opts::Prog.c_str());
+      arg_vec.push_back("--");
       for (std::string &s : opts::Args)
         arg_vec.push_back(s.c_str());
 
