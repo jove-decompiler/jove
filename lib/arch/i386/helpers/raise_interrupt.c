@@ -1062,7 +1062,9 @@ int GCC_FMT_ATTR(1, 2) qemu_log(const char *fmt, ...);
 void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 
 #define _HIDDEN __attribute__((visibility("hidden")))
+#define _NOINL  __attribute__((noinline))
 #define _INL    __attribute__((always_inline))
+#define _REGPARM __attribute__((regparm(3)))
 
 //
 // Some syscalls like clone do not tolerate a return instruction after
@@ -1070,8 +1072,71 @@ void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 // `always_inline` attribute accommodates such syscalls as inlining
 // eliminates the return instruction.
 //
-#define JOVE_SYS_ATTR _INL
-#include "jove_sys.h"
+#define JOVE_SYS_ATTR _NOINL _HIDDEN
+
+#define ___SYSCALL0(nr, nm)                                                    \
+  JOVE_SYS_ATTR long _jove_sys_##nm(void);
+
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1);
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2);
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3);
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4);
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
+                                    long a5);
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
+                                    long a5, long a6);
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <sys/vfs.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/uio.h>
+#include <sys/ipc.h>
+#include <sys/msg.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <sys/times.h>
+#include <sys/utsname.h>
+#include <sys/sysinfo.h>
+#include <linux/capability.h>
+#include <sys/quota.h>
+#include <sys/epoll.h>
+#include <sched.h>
+#include <linux/aio_abi.h>
+#include <mqueue.h>
+#include <keyutils.h>
+#include <linux/bpf.h>
+
+typedef unsigned long old_time32_t;
+typedef unsigned long old_uid_t;
+typedef unsigned long old_gid_t;
+typedef uint32_t u32;
+typedef unsigned long old_sigset_t;
+
+#ifndef __user
+#define __user
+#endif
+
+#include "syscalls.inc.h"
 
 __attribute__((always_inline))
 void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend);
@@ -1157,7 +1222,7 @@ void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
 #ifdef JOVE_DFSAN
 
   //
-  // call pre hooks
+  // call sysenter procedure
   //
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
@@ -1302,7 +1367,7 @@ void helper_raise_interrupt(CPUX86State *env, int intno, int next_eip_addend)
 #ifdef JOVE_DFSAN
 
   //
-  // call post hooks
+  // call sysexit procedures
   //
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \

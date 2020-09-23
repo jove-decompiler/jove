@@ -589,15 +589,16 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define _CTOR   __attribute__((constructor(0)))
-#define _INL    __attribute__((always_inline))
-#define _NAKED  __attribute__((naked))
-#define _NOINL  __attribute__((noinline))
-#define _NORET  __attribute__((noreturn))
-#define _UNUSED __attribute__((unused))
-#define _HIDDEN __attribute__((visibility("hidden")))
+#define _CTOR    __attribute__((constructor(0)))
+#define _INL     __attribute__((always_inline))
+#define _NAKED   __attribute__((naked))
+#define _NOINL   __attribute__((noinline))
+#define _NORET   __attribute__((noreturn))
+#define _UNUSED  __attribute__((unused))
+#define _HIDDEN  __attribute__((visibility("hidden")))
+#define _REGPARM __attribute__((regparm(3)))
 
-#define JOVE_SYS_ATTR _INL _UNUSED
+#define JOVE_SYS_ATTR _NOINL _HIDDEN
 #include "jove_sys.h"
 
 extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);

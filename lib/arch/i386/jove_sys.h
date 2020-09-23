@@ -44,7 +44,7 @@ typedef unsigned long old_sigset_t;
 #define __SYSCALL_CLOBBERS "memory", "cc"
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(void) {                             \
+  JOVE_SYS_ATTR long _jove_sys_##nm(void) {                                    \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -58,7 +58,7 @@ typedef unsigned long old_sigset_t;
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                                 \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -73,7 +73,7 @@ typedef unsigned long old_sigset_t;
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                        \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -89,7 +89,7 @@ typedef unsigned long old_sigset_t;
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {               \
     long retval;                                                               \
                                                                                \
     unsigned long _nr = nr;                                                    \
@@ -106,7 +106,7 @@ typedef unsigned long old_sigset_t;
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,                 \
                                            long a4) {                          \
     long retval;                                                               \
                                                                                \
@@ -125,7 +125,7 @@ typedef unsigned long old_sigset_t;
   }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
                                            long a5) {                          \
     long retval;                                                               \
                                                                                \
@@ -144,29 +144,38 @@ typedef unsigned long old_sigset_t;
     return retval;                                                             \
   }
 
+//
+// we can't do system calls requiring six arguments with inline assembly. this
+// is because the sixth argument is in ebp.
+//
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
-                                           long a5, long a6) {                 \
-    long retval;                                                               \
-                                                                               \
-    unsigned long _nr = nr;                                                    \
-                                                                               \
+  JOVE_SYS_ATTR __attribute__((naked)) long _jove_sys_##nm(                    \
+      long a1, long a2, long a3, long a4, long a5, long a6) {                  \
     asm volatile("pushl %%ebp\n"                                               \
-                 "movl %7, %%ebp\n"                                            \
-                 "int $0x80\n"                                                 \
-                 "popl %%ebp\n"                                                \
-                 : "=a"(retval)                                                \
-                 : "a"(_nr),                                                   \
-                   "b"(a1),                                                    \
-                   "c"(a2),                                                    \
-                   "d"(a3),                                                    \
-                   "S"(a4),                                                    \
-                   "D"(a5),                                                    \
-                   "m"(a6) /* "r" yields compiler error: "inline assembly */   \
-                           /* requires more registers than available" */       \
-                 : __SYSCALL_CLOBBERS, "ebp");                                 \
+                 "pushl %%ebx\n"                                               \
+                 "pushl %%edi\n"                                               \
+                 "pushl %%esi\n"                                               \
                                                                                \
-    return retval;                                                             \
+                 "movl 0x14(%%esp), %%ebx\n"                                   \
+                 "movl 0x18(%%esp), %%ecx\n"                                   \
+                 "movl 0x1c(%%esp), %%edx\n"                                   \
+                 "movl 0x20(%%esp), %%esi\n"                                   \
+                 "movl 0x24(%%esp), %%edi\n"                                   \
+                 "movl 0x28(%%esp), %%ebp\n"                                   \
+                                                                               \
+                 "movl   $" #nr ",%%eax\n"                                     \
+                                                                               \
+                 "int    $0x80\n"                                              \
+                                                                               \
+                 "popl   %%esi\n"                                              \
+                 "popl   %%edi\n"                                              \
+                 "popl   %%ebx\n"                                              \
+                 "popl   %%ebp\n"                                              \
+                                                                               \
+                 "ret\n"                                                       \
+                 : /* OutputOperands */                                        \
+                 : /* InputOperands */                                         \
+                 : /* Clobbers */);                                            \
   }
 
 #include "syscalls.inc.h"
