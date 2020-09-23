@@ -4116,6 +4116,14 @@ int CreateFunctions(void) {
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  llvm::GlobalValue::ExternalLinkage, jove_name,
                                  Module.get());
+#if !defined(__x86_64__) && defined(__i386__)
+    if (f.IsABI) {
+      for (unsigned i = 0; i < f.F->arg_size(); ++i) {
+        f.F->addParamAttr(i, llvm::Attribute::InReg);
+      }
+    }
+#endif
+
     //f.F->addFnAttr(llvm::Attribute::UWTable);
 
     uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
