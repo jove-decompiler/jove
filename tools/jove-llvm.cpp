@@ -9314,15 +9314,17 @@ int TranslateBasicBlock(basic_block_t bb,
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
 
-    if (opts::NoInline || callee.IsABI)
+    if (callee.IsABI) {
       Ret->setIsNoInline();
 
 #if !defined(__x86_64__) && defined(__i386__)
-    if (!opts::NoInline &&
-        callee.BasicBlocks.size() == 1) {
-      FunctionsToInline.insert(callee.F); /* force inline */
-    }
+      //
+      // on i386 ABIs have first three registers
+      //
+      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+        Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
+    }
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
       std::vector<unsigned> glbv;
@@ -9797,6 +9799,14 @@ int TranslateBasicBlock(basic_block_t bb,
                     GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
+
+#if !defined(__x86_64__) && defined(__i386__)
+            //
+            // on i386 ABIs have first three registers
+            //
+            for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+              Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
           }
 
           Ret->setCallingConv(llvm::CallingConv::C);
