@@ -919,6 +919,7 @@ void worker(const dso_graph_t &dso_graph) {
 
     std::string bcfp(chrooted_path.string() + ".bc");
     std::string llfp(chrooted_path.string() + ".ll");
+    std::string ll_strip_fp(chrooted_path.string() + ".strip.ll");
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
@@ -1032,6 +1033,40 @@ void worker(const dso_graph_t &dso_graph) {
     if (int ret = await_process_completion(pid)) {
       worker_failed = true;
       WithColor::error() << "llvm-dis failed for " << binary_filename << '\n';
+      continue;
+    }
+
+    //
+    // run llvm-dis on bitcode (stripped)
+    //
+    pid = fork();
+    if (!pid) {
+      IgnoreCtrlC();
+
+      const char *arg_arr[] = {
+        opt_path.c_str(),
+
+        "-o", ll_strip_fp.c_str(),
+        "-S", "--strip-debug",
+        bcfp.c_str(),
+
+        nullptr
+      };
+
+      print_command(&arg_arr[0]);
+
+      close(STDIN_FILENO);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      exit(1);
+    }
+
+    if (int ret = await_process_completion(pid)) {
+      worker_failed = true;
+      WithColor::error() << "opt failed for " << binary_filename << '\n';
       continue;
     }
 
