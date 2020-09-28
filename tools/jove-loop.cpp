@@ -134,8 +134,30 @@ static void print_command(const char **argv);
 
 static std::atomic<bool> Cancelled(false);
 
-static void handle_sigint(int no) {
-  Cancelled = true;
+static std::atomic<pid_t> app_pid;
+
+static void sighandler(int no) {
+  switch (no) {
+  case SIGTERM:
+    if (pid_t pid = app_pid.load()) {
+      // what we really want to do is terminate the child.
+      if (kill(pid, SIGTERM) < 0) {
+        int err = errno;
+        WithColor::warning() << llvm::formatv(
+            "failed to redirect SIGTERM: {0}\n", strerror(err));
+      }
+    } else {
+      WithColor::warning() << "received SIGTERM but no app to redirect to!\n";
+    }
+    break;
+
+  case SIGINT:
+    Cancelled.store(true);
+    break;
+
+  default:
+    abort();
+  }
 }
 
 int loop(void) {
@@ -147,9 +169,23 @@ int loop(void) {
 
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
-    sa.sa_handler = handle_sigint;
+    sa.sa_handler = sighandler;
 
     if (sigaction(SIGINT, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = sighandler;
+
+    if (sigaction(SIGTERM, &sa, nullptr) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
                                           __func__, strerror(err));
@@ -222,58 +258,113 @@ int loop(void) {
     // run
     //
 run:
-    pid = fork();
-    if (!pid) {
-      std::vector<const char *> arg_vec = {
-          jove_run_path.c_str(),
+    {
+      int pipefd[2];
+      if (pipe(pipefd) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
+        return 1;
+      }
 
-          "--sysroot",
-          opts::sysroot.c_str(),
-      };
+      int &rdFd = pipefd[0];
+      int &wrFd = pipefd[1];
 
-      std::string env_arg;
-
-      if (!opts::Envs.empty()) {
-        for (std::string &s : opts::Envs) {
-          env_arg.append(s);
-          env_arg.push_back(',');
+      pid = fork();
+      if (!pid) {
+        if (close(rdFd) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("failed to close rdFd: {0}\n",
+                                              strerror(err));
         }
-        env_arg.resize(env_arg.size() - 1);
+        std::string wrFdStr = std::to_string(wrFd);
 
-        arg_vec.push_back("--env");
-        arg_vec.push_back(env_arg.c_str());
+        std::vector<const char *> arg_vec = {
+            jove_run_path.c_str(),
+
+            "--pipefd",
+            wrFdStr.c_str(),
+
+            "--sysroot",
+            opts::sysroot.c_str(),
+        };
+
+        std::string env_arg;
+
+        if (!opts::Envs.empty()) {
+          for (std::string &s : opts::Envs) {
+            env_arg.append(s);
+            env_arg.push_back(',');
+          }
+          env_arg.resize(env_arg.size() - 1);
+
+          arg_vec.push_back("--env");
+          arg_vec.push_back(env_arg.c_str());
+        }
+
+        //
+        // program + args
+        //
+        arg_vec.push_back(opts::Prog.c_str());
+        arg_vec.push_back("--");
+        for (std::string &s : opts::Args)
+          arg_vec.push_back(s.c_str());
+
+        arg_vec.push_back(nullptr);
+
+        print_command(&arg_vec[0]);
+        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                            strerror(err));
+        return 1;
+      }
+
+      if (close(wrFd) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("failed to close wrFd: {0}\n",
+                                            strerror(err));
       }
 
       //
-      // program + args
+      // read app pid from pipe
       //
-      arg_vec.push_back(opts::Prog.c_str());
-      arg_vec.push_back("--");
-      for (std::string &s : opts::Args)
-        arg_vec.push_back(s.c_str());
+      {
+        uint64_t uint64;
 
-      arg_vec.push_back(nullptr);
+        ssize_t ret;
+        do
+          ret = read(rdFd, &uint64, sizeof(uint64));
+        while (ret < 0 && errno == EINTR);
 
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+        if (ret != sizeof(uint64)) {
+          WithColor::warning() << llvm::formatv(
+              "failed to read pid from pipe: got {0}\n", ret);
+        } else {
+          app_pid.store(uint64);
+        }
+      }
 
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
+      if (close(rdFd) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("failed to close rdFd: {0}\n",
+                                            strerror(err));
+      }
 
-    {
-      int ret = await_process_completion(pid);
+      {
+        int ret = await_process_completion(pid);
 
-      //
-      // XXX currently the only way to know that jove-recover was run is by
-      // looking at the exit status
-      //
-      if (ret != 'b' &&
-          ret != 'f' &&
-          ret != 'r')
-        break;
+        //
+        // XXX currently the only way to know that jove-recover was run is by
+        // looking at the exit status
+        //
+        if (ret != 'b' &&
+            ret != 'f' &&
+            ret != 'r')
+          break;
+      }
+
+      app_pid.store(0); /* reset */
     }
 
     if (opts::JustRun)
