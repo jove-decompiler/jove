@@ -14,12 +14,15 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+
+using llvm::WithColor;
 
 namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
@@ -40,6 +43,11 @@ static cl::list<std::string>
 
 static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
                                     cl::Required, cl::cat(JoveCategory));
+
+static cl::opt<unsigned>
+    pipefd("pipefd", cl::value_desc("file descriptor"),
+           cl::desc("Write-end of a pipe used to communicate app pid"),
+           cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -435,6 +443,29 @@ int run(void) {
 
     fprintf(stderr, "execve failed : %s\n", strerror(errno));
     return 1;
+  }
+
+  //
+  // if we were given a pipefd, then communicate the app child's PID
+  //
+  if (int pipefd = opts::pipefd) {
+    ssize_t ret;
+    do {
+      uint64_t uint64 = pid;
+      ret = write(pipefd, &uint64, sizeof(uint64_t));
+    } while (ret < 0 && errno == EINTR);
+
+    if (ret != sizeof(uint64_t)) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
+                                          strerror(err));
+    }
+
+    if (close(pipefd) < 0) {
+      int err = errno;
+      WithColor::warning() << llvm::formatv("failed to close pipefd: {0}\n",
+                                            strerror(err));
+    }
   }
 
   IgnoreCtrlC();
