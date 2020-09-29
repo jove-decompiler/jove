@@ -629,8 +629,9 @@ struct kernel_sigaction {
 #define _NOINL  __attribute__((noinline))
 #define _NORET  __attribute__((noreturn))
 #define _HIDDEN __attribute__((visibility("hidden")))
+#define _REGPARM __attribute__((regparm(3)))
 
-#define JOVE_SYS_ATTR _INL _UNUSED
+#define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
@@ -643,9 +644,15 @@ static void _jove_init_cpu_state(void);
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
+static target_ulong _jove_alloc_callstack(void);
+_REGPARM _HIDDEN void _jove_free_callstack(target_ulong);
+
 static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_REGPARM _HIDDEN void _jove_free_stack(target_ulong);
+
 _HIDDEN uintptr_t _jove_emusp_location(void);
+_HIDDEN uintptr_t _jove_callstack_location(void);
+_HIDDEN uintptr_t _jove_callstack_begin_location(void);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
@@ -671,6 +678,9 @@ void _jove_inverse_thunk(void) {
                "pushl %%eax\n" /* preserve return registers */
                "pushl %%edx\n"
 
+               //
+               // restore emulated stack pointer
+               //
                "call _jove_emusp_location\n" // eax = emuspp
 
                "movl (%%eax), %%edx\n"   // edx = emusp
@@ -679,6 +689,32 @@ void _jove_inverse_thunk(void) {
                "movl 20(%%esp), %%edx\n" // edx = saved_emusp
                "movl %%edx, (%%eax)\n"   // restore emusp
 
+               //
+               // free the callstack we allocated in sighandler
+               //
+               "call _jove_callstack_begin_location\n"
+               "movl (%%eax), %%eax\n"
+               "call _jove_free_callstack\n"
+
+               //
+               // restore __jove_callstack
+               //
+               "call _jove_callstack_location\n" // eax = &__jove_callstack
+
+               "movl 24(%%esp), %%edx\n" // edx = saved_callstack
+               "movl %%edx, (%%eax)\n"   // restore callstack
+
+               //
+               // restore __jove_callstack_begin
+               //
+               "call _jove_callstack_begin_location\n" // eax = &__jove_callstack_begin
+
+               "movl 28(%%esp), %%edx\n" // edx = saved_callstack_begin
+               "movl %%edx, (%%eax)\n"   // restore callstack_begin
+
+               //
+               // ecx is the *only* register we can clobber
+               //
                "movl 12(%%esp), %%ecx\n" // ecx = saved_retaddr
 
                "popl %%edx\n"
@@ -755,6 +791,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
       uintptr_t saved_retaddr = *((uintptr_t *)saved_sp);
+      uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
+      uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -762,8 +800,11 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       emusp = saved_sp;
 
       {
+        const uintptr_t newstack = _jove_alloc_stack();
+
         uintptr_t newsp =
-            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16;
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 6 * sizeof(uintptr_t);
+
         newsp &= 0xfffffff0; // align the stack
 
         newsp -= sizeof(uintptr_t);
@@ -772,11 +813,17 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
         ((uintptr_t *)newsp)[3] = saved_emusp;
+        ((uintptr_t *)newsp)[4] = saved_callstack;
+        ((uintptr_t *)newsp)[5] = saved_callstack_begin;
 
         sp = newsp;
       }
 
-      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE; /* XXX */
+      {
+        const uintptr_t new_callsp = _jove_alloc_callstack();
+
+        __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
+      }
 
       pc = fns[2 * FIdx + 1];
 
@@ -847,6 +894,42 @@ target_ulong _jove_alloc_stack(void) {
 
 void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
+target_ulong _jove_alloc_callstack(void) {
+  long ret = _jove_sys_mmap_pgoff(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  unsigned long uret = (unsigned long)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = uret;
+  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  return beg;
+}
+
+void _jove_free_callstack(target_ulong start) {
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
   }
@@ -925,31 +1008,7 @@ size_t _strlen(const char *str) {
 }
 
 void _jove_callstack_init(void) {
-  long ret =
-      _jove_sys_mmap_pgoff(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                           MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  void *ptr = (void *)ret;
-
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = (unsigned long)ret;
-  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  target_ulong ptr = _jove_alloc_callstack();
 
   __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
@@ -966,4 +1025,12 @@ void _jove_init_cpu_state(void) {
 
 uintptr_t _jove_emusp_location(void) {
   return &__jove_env.regs[R_ESP];
+}
+
+uintptr_t _jove_callstack_location(void) {
+  return &__jove_callstack;
+}
+
+uintptr_t _jove_callstack_begin_location(void) {
+  return &__jove_callstack_begin;
 }
