@@ -104,6 +104,12 @@ static cl::opt<bool>
           cl::desc("Instrument code to output basic block execution trace"),
           cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    UseLd("use-ld",
+          cl::desc("Force using particular linker (lld,bfd,gold)"),
+          cl::cat(JoveCategory));
+
+
 static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
@@ -290,6 +296,20 @@ int recompile(void) {
 #else
 #error
 #endif
+
+  if (!opts::UseLd.empty()) {
+    if (opts::UseLd.compare("gold") == 0) {
+      ld_path = ld_gold_path;
+    }
+
+    if (opts::UseLd.compare("bfd") == 0) {
+      ld_path = ld_bfd_path;
+    }
+
+    if (opts::UseLd.compare("lld") == 0) {
+      ld_path = lld_path;
+    }
+  }
 
   if (!fs::exists(ld_path)) {
     WithColor::error() << llvm::formatv("could not find linker at {0}\n",
@@ -866,6 +886,9 @@ int recompile(void) {
         arg_vec.push_back("-l");
         arg_vec.push_back(needed_arg.c_str());
       }
+
+      if (opts::UseLd.compare("lld") == 0)
+        arg_vec.push_back("--allow-shlib-undefined");
 
       arg_vec.push_back(rtld_path);
 
