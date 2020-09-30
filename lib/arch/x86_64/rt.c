@@ -647,9 +647,15 @@ static void _jove_init_cpu_state(void);
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
+static target_ulong _jove_alloc_callstack(void);
+_HIDDEN void _jove_free_callstack(target_ulong);
+
 static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_HIDDEN void _jove_free_stack(target_ulong);
+
 _HIDDEN uintptr_t _jove_emusp_location(void);
+_HIDDEN uintptr_t _jove_callstack_location(void);
+_HIDDEN uintptr_t _jove_callstack_begin_location(void);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 //
@@ -678,13 +684,43 @@ void _jove_inverse_thunk(void) {
                "pushq %%rax\n" /* preserve return registers */
                "pushq %%rdx\n"
 
-               "call _jove_emusp_location\n"
+               //
+               // restore emulated stack pointer
+               //
+               "call _jove_emusp_location\n" // rax = emuspp
 
                "movq (%%rax), %%rdx\n"   // rdx = emusp
                "movq %%rdx, 16(%%rsp)\n" // replace 0xdead with emusp
 
                "movq 40(%%rsp), %%rdx\n"  // read saved_emusp off the stack
                "movq %%rdx, (%%rax)\n"    // restore emusp
+
+               //
+               // free the callstack we allocated in sighandler
+               //
+               "call _jove_callstack_begin_location\n"
+               "movq (%%rax), %%rdi\n"
+               "call _jove_free_callstack\n"
+
+               //
+               // restore __jove_callstack
+               //
+               "call _jove_callstack_location\n" // eax = &__jove_callstack
+
+               "movq 48(%%rsp), %%rdx\n" // edx = saved_callstack
+               "movq %%rdx, (%%rax)\n"   // restore callstack
+
+               //
+               // restore __jove_callstack_begin
+               //
+               "call _jove_callstack_begin_location\n" // eax = &__jove_callstack_begin
+
+               "movq 56(%%rsp), %%rdx\n" // edx = saved_callstack_begin
+               "movq %%rdx, (%%rax)\n"   // restore callstack_begin
+
+               //
+               // r11 is the *only* register we can clobber
+               //
 
                "movq 24(%%rsp), %%r11\n"  // read saved_retaddr off the stack
 
@@ -765,6 +801,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
       uintptr_t saved_retaddr = *((uintptr_t *)saved_sp);
+      uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
+      uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -772,20 +810,30 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       emusp = saved_sp;
 
       {
+        const uintptr_t newstack = _jove_alloc_stack();
+
         uintptr_t newsp =
-            _jove_alloc_stack() + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 32;
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 6 * sizeof(uintptr_t);
+
         newsp &= 0xfffffffffffffff0; // align the stack
+
         newsp -= sizeof(uintptr_t);
 
         ((uintptr_t *)newsp)[0] = _jove_inverse_thunk;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
         ((uintptr_t *)newsp)[3] = saved_emusp;
+        ((uintptr_t *)newsp)[4] = saved_callstack;
+        ((uintptr_t *)newsp)[5] = saved_callstack_begin;
 
         sp = newsp;
       }
 
-      __jove_callstack = __jove_callstack_begin + JOVE_PAGE_SIZE; /* XXX */
+      {
+        const uintptr_t new_callsp = _jove_alloc_callstack();
+
+        __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
+      }
 
       pc = fns[2 * FIdx + 1];
 
@@ -825,35 +873,6 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
-void _jove_callstack_init(void) {
-  long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  void *ptr = (void *)ret;
-
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = (unsigned long)ret;
-  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
-}
-
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
@@ -885,6 +904,42 @@ target_ulong _jove_alloc_stack(void) {
 
 void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
+target_ulong _jove_alloc_callstack(void) {
+  long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  void *ptr = (void *)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = (unsigned long)ret;
+  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  return beg;
+}
+
+void _jove_free_callstack(target_ulong start) {
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
   }
@@ -966,8 +1021,22 @@ void _jove_init_cpu_state(void) {
   __jove_env.df = 1;
 }
 
+void _jove_callstack_init(void) {
+  target_ulong ptr = _jove_alloc_callstack();
+
+  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
+}
+
 uintptr_t _jove_emusp_location(void) {
-  return (uintptr_t)&__jove_env.regs[R_ESP];
+  return &__jove_env.regs[R_ESP];
+}
+
+uintptr_t _jove_callstack_location(void) {
+  return &__jove_callstack;
+}
+
+uintptr_t _jove_callstack_begin_location(void) {
+  return &__jove_callstack_begin;
 }
 
 asm ( "	nop\n" ".align 16\n" ".LSTART_" "restore_rt" ":\n" "	.type __" "restore_rt" ",@function\n" "__" "restore_rt" ":\n" "	movq $" "15" ", %rax\n" "	syscall\n" ".LEND_" "restore_rt" ":\n" ".section .eh_frame,\"a\",@progbits\n" ".LSTARTFRAME_" "restore_rt" ":\n" "	.long .LENDCIE_" "restore_rt" "-.LSTARTCIE_" "restore_rt" "\n" ".LSTARTCIE_" "restore_rt" ":\n" "	.long 0\n" "	.byte 1\n" "	.string \"zRS\"\n" "	.uleb128 1\n" "	.sleb128 -8\n" "	.uleb128 16\n" "	.uleb128 .LENDAUGMNT_" "restore_rt" "-.LSTARTAUGMNT_" "restore_rt" "\n" ".LSTARTAUGMNT_" "restore_rt" ":\n" "	.byte 0x1b\n" ".LENDAUGMNT_" "restore_rt" ":\n" "	.align " "8" "\n" ".LENDCIE_" "restore_rt" ":\n" "	.long .LENDFDE_" "restore_rt" "-.LSTARTFDE_" "restore_rt" "\n" ".LSTARTFDE_" "restore_rt" ":\n" "	.long .LSTARTFDE_" "restore_rt" "-.LSTARTFRAME_" "restore_rt" "\n" "	.long (.LSTART_" "restore_rt" "-1)-.\n" "	.long .LEND_" "restore_rt" "-(.LSTART_" "restore_rt" "-1)\n" "	.uleb128 0\n" "	.byte 0x0f\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "	.byte 0x06\n" "2:" "	.byte 0x10\n" "	.uleb128 " "8" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "40" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "9" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "48" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "10" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "56" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "11" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "64" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "12" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "72" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "13" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "80" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "14" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "88" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "15" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "96" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "5" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "104" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "4" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "112" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "6" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "120" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "3" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "128" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "1" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "136" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "0" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "144" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "2" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "152" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "7" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "16" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "168" "\n" "2:" "	.align " "8" "\n" ".LENDFDE_" "restore_rt" ":\n" "	.previous\n" );
