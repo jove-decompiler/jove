@@ -67,6 +67,11 @@ static cl::opt<bool> JustRun("just-run",
                              cl::desc("Just run, nothing else"),
                              cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    UseLd("use-ld",
+          cl::desc("Force using particular linker (lld,bfd,gold)"),
+          cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -409,6 +414,12 @@ skip_run:
           "-d", opts::jv.c_str(),
           "-o", opts::sysroot.c_str(),
       };
+
+      std::string use_ld_arg;
+      if (!opts::UseLd.empty()) {
+        use_ld_arg = "--use-ld=" + opts::UseLd;
+        arg_vec.push_back(use_ld_arg.c_str());
+      }
 
       if (opts::DFSan)
         arg_vec.push_back("--dfsan");
