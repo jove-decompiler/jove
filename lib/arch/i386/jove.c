@@ -1396,13 +1396,12 @@ target_ulong _jove_thunk(target_ulong dstpc,
                "mov 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
                "mov 0x18(%%esp), %%esi\n" /* args in esi */
                "mov 0x1c(%%esp), %%edi\n" /* emuspp in edi */
-               "mov %%esp, %%ebp\n" /* save sp in ebp */
 
                "call _jove_alloc_stack\n"
-#if 0
-               "mov %%ebx, %%ecx\n" /* dstpc in ecx */
-               "mov %%eax, %%ebx\n" /* allocated stack in ebx */
-#endif
+               "pushl %%eax\n"
+
+               "mov %%esp, %%ebp\n" /* save sp in ebp */
+
                "add $0x80000, %%eax\n"
 
                "mov (%%edi), %%esp\n" /* sp=*emusp */
@@ -1416,19 +1415,23 @@ target_ulong _jove_thunk(target_ulong dstpc,
                "add $4, %%esp\n" /* replace return address on the stack */
                "call *%%ebx\n"   /* call dstpc */
 
+               "movl %%eax, %%esi\n" /* save return value in esi */
+               "movl %%edx, %%ebx\n" /* save return value in ebx */
+
                "mov %%esp, (%%edi)\n" /* store modified emusp */
                "mov %%ebp, %%esp\n"   /* restore stack pointer */
 
-               /* TODO free stack */
-#if 0
-               "mov %%eax, %%ebp\n" /* save return value */
-
-               "push %%ebx\n" /* pass allocated stack */
+               //
+               // free stack
+               //
                "call _jove_free_stack\n"
-               "add $0x4, %%esp\n"
+               "add $4, %%esp\n"
 
-               "mov %%ebp, %%eax\n" /* restore return value */
-#endif
+               //
+               // restore return values
+               //
+               "movl %%esi, %%eax\n"
+               "movl %%ebx, %%edx\n"
 
                "pop %%ebx\n"
                "pop %%esi\n"
