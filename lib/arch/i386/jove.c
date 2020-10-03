@@ -1791,7 +1791,8 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
   if (unlikely(!page_bits_ptr)) {
     long ret = _jove_sys_mmap_pgoff(0x0,
                                     (sizeof(dfsan_label) * DF32_PAGE_SIZE)
-				    + DF32_PAGE_SIZE /* XXX */,
+                                    + 2 * DF32_PAGE_SIZE /* extra space */
+                                    + 2 * DF32_PAGE_SIZE /* guard pages */,
                                     PROT_READ | PROT_WRITE,
                                     MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
     if (ret < 0 && ret > -4096) {
@@ -1804,7 +1805,24 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
       __builtin_unreachable();
     }
 
-    page_bits_ptr = (dfsan_label *)ret;
+    //
+    // create guard pages on both sides
+    //
+    if (_jove_sys_mprotect(ret, DF32_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    if (_jove_sys_mprotect(
+            ret + DF32_PAGE_SIZE + /* guard page */
+                (sizeof(dfsan_label) * DF32_PAGE_SIZE) /* labels */ +
+                2 * DF32_PAGE_SIZE /* extra space */,
+            DF32_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    page_bits_ptr = (dfsan_label *)(ret + DF32_PAGE_SIZE);
 
     //internal_memset(&page_bits_ptr[0], 0, sizeof(dfsan_label) * _PAGE_SIZE);
   }
