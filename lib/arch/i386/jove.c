@@ -1393,39 +1393,39 @@ target_ulong _jove_thunk(target_ulong dstpc,
                "push %%esi\n"
                "push %%ebx\n"
 
-               "mov 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
-               "mov 0x18(%%esp), %%esi\n" /* args in esi */
-               "mov 0x1c(%%esp), %%edi\n" /* emuspp in edi */
+               "movl 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
+               "movl 0x18(%%esp), %%esi\n" /* args in esi */
+               "movl 0x1c(%%esp), %%edi\n" /* emuspp in edi */
 
                "call _jove_alloc_stack\n"
                "pushl %%eax\n"
 
-               "mov %%esp, %%ebp\n" /* save sp in ebp */
+               "movl %%esp, %%ebp\n" /* save sp in ebp */
 
-               "add $0x80000, %%eax\n"
+               "addl $0x80000, %%eax\n"
 
-               "mov (%%edi), %%esp\n" /* sp=*emusp */
-               "mov %%eax, (%%edi)\n" /* *emusp=stack storage */
+               "movl (%%edi), %%esp\n" /* sp=*emusp */
+               "movl %%eax, (%%edi)\n" /* *emusp=stack storage */
 
                /* -- unpack args -- */
-               "mov 0x0(%%esi), %%eax\n"
-               "mov 0x4(%%esi), %%edx\n"
-               "mov 0x8(%%esi), %%ecx\n"
+               "movl 0x0(%%esi), %%eax\n"
+               "movl 0x4(%%esi), %%edx\n"
+               "movl 0x8(%%esi), %%ecx\n"
 
-               "add $4, %%esp\n" /* replace return address on the stack */
+               "addl $4, %%esp\n" /* replace return address on the stack */
                "call *%%ebx\n"   /* call dstpc */
 
                "movl %%eax, %%esi\n" /* save return value in esi */
                "movl %%edx, %%ebx\n" /* save return value in ebx */
 
-               "mov %%esp, (%%edi)\n" /* store modified emusp */
-               "mov %%ebp, %%esp\n"   /* restore stack pointer */
+               "movl %%esp, (%%edi)\n" /* store modified emusp */
+               "movl %%ebp, %%esp\n"   /* restore stack pointer */
 
                //
                // free stack
                //
                "call _jove_free_stack\n"
-               "add $4, %%esp\n"
+               "addl $4, %%esp\n"
 
                //
                // restore return values
@@ -1433,10 +1433,10 @@ target_ulong _jove_thunk(target_ulong dstpc,
                "movl %%esi, %%eax\n"
                "movl %%ebx, %%edx\n"
 
-               "pop %%ebx\n"
-               "pop %%esi\n"
-               "pop %%edi\n"
-               "pop %%ebp\n" /* callee-saved registers */
+               "popl %%ebx\n"
+               "popl %%esi\n"
+               "popl %%edi\n"
+               "popl %%ebp\n" /* callee-saved registers */
 
                "ret\n"
 
