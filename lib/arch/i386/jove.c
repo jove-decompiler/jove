@@ -1773,7 +1773,8 @@ typedef uint16_t dfsan_label;
 
 static const uint64_t DF32_ADDR_SPACE_SIZE = 0xffffffffull + 1ull;
 static const unsigned DF32_PAGE_SIZE = 4 * 1024; /* 4 KiB */
-static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_PAGE_SIZE;
+static const unsigned DF32_SHADOW_PAGE_SIZE = 16 * 1024; /* 16 KiB */
+static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_SHADOW_PAGE_SIZE;
 
 extern dfsan_label *__df32_shadow_page_table[DF32_NUM_PAGES];
 
@@ -1783,14 +1784,14 @@ _HIDDEN
 static
 #endif
 dfsan_label *__df32_shadow_for(uint32_t A) {
-  unsigned quot = A / DF32_PAGE_SIZE;
-  unsigned rem  = A % DF32_PAGE_SIZE;
+  unsigned quot = A / DF32_SHADOW_PAGE_SIZE;
+  unsigned rem  = A % DF32_SHADOW_PAGE_SIZE;
 
 #define page_bits_ptr __df32_shadow_page_table[quot]
 
   if (unlikely(!page_bits_ptr)) {
     long ret = _jove_sys_mmap_pgoff(0x0,
-                                    (sizeof(dfsan_label) * DF32_PAGE_SIZE)
+                                    (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE)
                                     + 2 * DF32_PAGE_SIZE /* extra space */
                                     + 2 * DF32_PAGE_SIZE /* guard pages */,
                                     PROT_READ | PROT_WRITE,
@@ -1815,7 +1816,7 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
 
     if (_jove_sys_mprotect(
             ret + DF32_PAGE_SIZE + /* guard page */
-                (sizeof(dfsan_label) * DF32_PAGE_SIZE) /* labels */ +
+                (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE) /* labels */ +
                 2 * DF32_PAGE_SIZE /* extra space */,
             DF32_PAGE_SIZE, PROT_NONE) < 0) {
       __builtin_trap();
