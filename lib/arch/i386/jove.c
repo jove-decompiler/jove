@@ -1776,7 +1776,7 @@ typedef uint16_t dfsan_label;
 
 static const uint64_t DF32_ADDR_SPACE_SIZE = 0xffffffffull + 1ull;
 static const unsigned DF32_PAGE_SIZE = 4 * 1024; /* 4 KiB */
-static const unsigned DF32_SHADOW_PAGE_SIZE = 16 * 1024; /* 16 KiB */
+static const unsigned DF32_SHADOW_PAGE_SIZE = 16 * DF32_PAGE_SIZE; /* 64 KiB */
 static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_SHADOW_PAGE_SIZE;
 
 extern dfsan_label *__df32_shadow_page_table[DF32_NUM_PAGES];
