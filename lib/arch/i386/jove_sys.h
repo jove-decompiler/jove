@@ -163,14 +163,14 @@ typedef unsigned long old_sigset_t;
                  "movl 0x24(%%esp), %%edi\n"                                   \
                  "movl 0x28(%%esp), %%ebp\n"                                   \
                                                                                \
-                 "movl   $" #nr ",%%eax\n"                                     \
+                 "movl $" #nr ",%%eax\n"                                       \
                                                                                \
-                 "int    $0x80\n"                                              \
+                 "int $0x80\n"                                                 \
                                                                                \
-                 "popl   %%esi\n"                                              \
-                 "popl   %%edi\n"                                              \
-                 "popl   %%ebx\n"                                              \
-                 "popl   %%ebp\n"                                              \
+                 "popl %%esi\n"                                                \
+                 "popl %%edi\n"                                                \
+                 "popl %%ebx\n"                                                \
+                 "popl %%ebp\n"                                                \
                                                                                \
                  "ret\n"                                                       \
                  : /* OutputOperands */                                        \
