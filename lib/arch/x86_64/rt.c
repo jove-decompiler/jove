@@ -627,6 +627,8 @@ struct kernel_sigaction {
 #include <sys/uio.h>
 #include <signal.h>
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _UNUSED __attribute__((unused))
@@ -656,6 +658,7 @@ _HIDDEN void _jove_free_stack(target_ulong);
 _HIDDEN uintptr_t _jove_emusp_location(void);
 _HIDDEN uintptr_t _jove_callstack_location(void);
 _HIDDEN uintptr_t _jove_callstack_begin_location(void);
+_HIDDEN void _jove_free_stack_later(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 //
@@ -705,7 +708,7 @@ void _jove_inverse_thunk(void) {
                //
                // restore __jove_callstack
                //
-               "call _jove_callstack_location\n" // eax = &__jove_callstack
+               "call _jove_callstack_location\n" // rax = &__jove_callstack
 
                "movq 48(%%rsp), %%rdx\n" // edx = saved_callstack
                "movq %%rdx, (%%rax)\n"   // restore callstack
@@ -713,10 +716,16 @@ void _jove_inverse_thunk(void) {
                //
                // restore __jove_callstack_begin
                //
-               "call _jove_callstack_begin_location\n" // eax = &__jove_callstack_begin
+               "call _jove_callstack_begin_location\n" // rax = &__jove_callstack_begin
 
                "movq 56(%%rsp), %%rdx\n" // edx = saved_callstack_begin
                "movq %%rdx, (%%rax)\n"   // restore callstack_begin
+
+               //
+               // mark newstack as to be freed
+               //
+               "movq 64(%%rsp), %%rdi\n" // rdi = newstack
+               "call _jove_free_stack_later\n"
 
                //
                // r11 is the *only* register we can clobber
@@ -777,10 +786,23 @@ static _CTOR void _jove_rt_init(void) {
   _jove_init_cpu_state();
 }
 
+static target_ulong to_free[16];
+
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.gregs[REG_RIP]
 #define sp    uctx->uc_mcontext.gregs[REG_RSP]
 #define emusp           __jove_env.regs[R_ESP]
+
+  //
+  // no time like the present
+  //
+  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
+    if (to_free[i] == 0)
+      continue;
+
+    _jove_free_stack(to_free[i]);
+    to_free[i] = 0;
+  }
 
   uintptr_t saved_pc = pc;
 
@@ -813,7 +835,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         const uintptr_t newstack = _jove_alloc_stack();
 
         uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 6 * sizeof(uintptr_t);
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 7 * sizeof(uintptr_t);
 
         newsp &= 0xfffffffffffffff0; // align the stack
 
@@ -825,6 +847,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[3] = saved_emusp;
         ((uintptr_t *)newsp)[4] = saved_callstack;
         ((uintptr_t *)newsp)[5] = saved_callstack_begin;
+        ((uintptr_t *)newsp)[6] = newstack;
 
         sp = newsp;
       }
@@ -943,6 +966,19 @@ void _jove_free_callstack(target_ulong start) {
     __builtin_trap();
     __builtin_unreachable();
   }
+}
+
+void _jove_free_stack_later(target_ulong stack) {
+  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
+    if (to_free[i] != 0)
+      continue;
+
+    to_free[i] = stack;
+    return;
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 void _addrtostr(uintptr_t addr, char *Str, size_t n) {
