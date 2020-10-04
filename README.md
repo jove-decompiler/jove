@@ -22,6 +22,8 @@ for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do jove-cfg -d $HOM
 
 ## `dnsmasq`
 ```bash
+sudo apt-get install dnsmasq
+
 cd jove/bin
 
 cat > mydnsmasq.conf <<EOF
@@ -47,6 +49,8 @@ sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsm
 
 ## `miniupnpd`
 ```bash
+sudo apt-get install miniupnpd
+
 cd jove/bin
 
 cat > myminiupnpd.conf <<EOF
@@ -82,6 +86,7 @@ sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot /usr/sbin/
 
 ## `nginx`
 ```bash
+sudo apt-get install nginx-light
 cd jove/bin
 
 cat > mynginx.conf <<EOF
@@ -115,6 +120,8 @@ http {
     }
 }
 EOF
+
+sudo apt-get install nginx-light
 
 sudo jove-init -o $HOME/.jove/nginx --git /usr/sbin/nginx
 sudo jove-bootstrap -d $HOME/.jove/nginx -q --syscalls /usr/sbin/nginx -- -c mynginx.conf
