@@ -6,8 +6,13 @@ These binaries are statically linked; they are essentially distroless.
 
 ## Usage
 ```bash
+# 64-bit x86
 mkdir /opt/jove
-sudo tar -xvf /home/aeden/jove.4b18f5ab-i386.tar -C /opt/jove
+sudo tar -xvf /home/aeden/jove.1e205848-x86_64.tar.xz -C /opt/jove
+
+# 32-bit x86
+mkdir /opt/jove32
+sudo tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 ```
 
 # Examples
