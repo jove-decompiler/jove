@@ -1,3 +1,15 @@
+# Download
+
+https://images.aarno-labs.com/jove/
+
+These binaries are statically linked; they are essentially distroless.
+
+## Usage
+```bash
+mkdir /opt/jove
+sudo tar -xvf /home/aeden/jove.4b18f5ab-i386.tar -C /opt/jove
+```
+
 # Examples
 ## `ls`
 ```bash
