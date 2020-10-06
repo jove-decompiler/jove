@@ -189,7 +189,9 @@ VER := $(shell git log -n1 --format="%h")
 .PHONY: package
 package:
 	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt
+ifndef PACKAGE_TARBALL
 	xz --threads=0 jove.$(VER)-$(ARCH).tar
+endif
 
 .PHONY: clean
 clean:
