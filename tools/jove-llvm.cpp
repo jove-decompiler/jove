@@ -1497,6 +1497,7 @@ int ProcessBinaryTLSSymbols(void) {
   binary_index_t BIdx = BinaryIndex;
   auto &binary = Decompilation.Binaries[BIdx];
 
+  assert(binary.ObjectFile);
   assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
   const ELFT &E = *O.getELFFile();
@@ -1741,6 +1742,9 @@ int ProcessExportedFunctions(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &FuncMap = binary.FuncMap;
+
+    if (!binary.ObjectFile)
+      continue;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -2120,6 +2124,9 @@ int ProcessDynamicSymbols(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &FuncMap = binary.FuncMap;
+
+    if (!binary.ObjectFile)
+      continue;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
@@ -6428,6 +6435,9 @@ int ProcessDynamicSymbols2(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &FuncMap = binary.FuncMap;
 
+    if (!binary.ObjectFile)
+      continue;
+
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
     const ELFT &E = *O.getELFFile();
@@ -6932,6 +6942,8 @@ decipher_copy_relocation(const symbol_t &S) {
     if (binary.IsVDSO)
       continue;
     if (binary.IsDynamicLinker)
+      continue;
+    if (!binary.ObjectFile)
       continue;
 
     assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
@@ -9117,8 +9129,13 @@ int TranslateBasicBlock(basic_block_t bb,
         "{0}:{1} @ {2:x} (try jove-init'ing over again? this can happen when "
         "tcg.hpp is changed but we haven't gone through the trouble of "
         "re-running jove-add\n"
-        "FuncAddr={3:x}\n",
-        __FILE__, __LINE__, Addr, FuncAddr);
+        "FuncAddr={3:x}\n"
+        "T.Type={4}\n"
+        "ICFG[bb].Term.Type={5}\n",
+        __FILE__, __LINE__,
+        Addr, FuncAddr,
+        description_of_terminator(T.Type),
+        description_of_terminator(ICFG[bb].Term.Type));
   }
 
   assert(T.Type == ICFG[bb].Term.Type);
