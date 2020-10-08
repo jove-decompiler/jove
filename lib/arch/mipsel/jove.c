@@ -1864,7 +1864,9 @@ static _INL uintptr_t _get_stack_end(void);
 //
 
 void _jove_start(void) {
-  asm volatile(/* The return address register is set to zero so that programs that search backword through stack frames recognize the last stack frame. */
+  asm volatile(/* The return address register is set to zero so that programs
+                  that search backword through stack frames recognize the last
+                  stack frame. */
                "move $31, $0\n"
 
                "move $6, $2\n"  /* a2=v0 */
