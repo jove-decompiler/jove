@@ -35,6 +35,14 @@
 #define __user
 #endif
 
+typedef uint64_t u64;
+typedef uint32_t u32;
+typedef unsigned int qid_t;
+typedef int rwf_t;
+typedef unsigned long old_sigset_t;
+typedef int32_t s32;
+typedef s32 old_time32_t;
+
 #define __SYSCALL_CLOBBERS "$1", "$3", "$8", "$9", "$10", "$11", "$12", "$13", \
                            "$14", "$15", "$24", "$25", "hi", "lo", "memory"
 
