@@ -2,7 +2,7 @@
 
 https://images.aarno-labs.com/jove/
 
-These binaries are statically linked; they are essentially distroless.
+These linux binaries are statically linked; they are essentially distroless.
 
 ## Usage
 ```bash
