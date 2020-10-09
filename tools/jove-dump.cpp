@@ -133,7 +133,8 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
     const auto &ICFG = B.Analysis.ICFG;
 
-    if (is_function_index_valid(B.Analysis.EntryFunction)) {
+    if (is_function_index_valid(B.Analysis.EntryFunction) &&
+        B.Analysis.EntryFunction < B.Analysis.Functions.size()) {
       const function_t &entryFunc =
           B.Analysis.Functions.at(B.Analysis.EntryFunction);
       Writer.printHex("Entry", ICFG[boost::vertex(entryFunc.Entry, ICFG)].Addr);
