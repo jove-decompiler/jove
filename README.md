@@ -18,6 +18,10 @@ sudo tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 # Examples
 ## `ls`
 ```bash
+export PATH=$PATH:/opt/jove/bin
+# or
+export PATH=$PATH:/opt/jove32/bin
+
 cd jove/bin
 
 jove-init -o $HOME/.jove/ls --git /usr/bin/ls
