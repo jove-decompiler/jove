@@ -187,6 +187,7 @@ union __mips_syscall_return {
 };
 
 static uint64_t __attribute__((noinline))
+__attribute__((naked))
 __mips_syscall5(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
                 uint32_t arg5, uint32_t number) {
   asm volatile(".set\tnoreorder\n"
@@ -196,10 +197,10 @@ __mips_syscall5(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
                "jr $ra\n"
                "nop\n"
                ".set\treorder");
-  __builtin_unreachable();
 }
 
 static uint64_t __attribute__((noinline))
+__attribute__((naked))
 __mips_syscall6(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
                 uint32_t arg5, uint32_t arg6, uint32_t number) {
   asm volatile(".set\tnoreorder\n"
@@ -209,7 +210,6 @@ __mips_syscall6(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
                "jr $ra\n"
                "nop\n"
                ".set\treorder");
-  __builtin_unreachable();
 }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \

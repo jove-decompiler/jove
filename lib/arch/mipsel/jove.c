@@ -1799,20 +1799,41 @@ extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ void _jove_do_tpoff_hack(void);
+extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
+
+_CTOR static void _jove_tpoff_hack(void) {
+  _jove_do_tpoff_hack();
+}
+
+static bool __jove_did_emu_copy_reloc = false;
+
+_CTOR static void _jove_emulate_copy_relocations(void) {
+  if (!__jove_did_emu_copy_reloc) {
+    __jove_did_emu_copy_reloc = true;
+
+    _jove_do_emulate_copy_relocations();
+  }
+}
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
   _jove_do_tpoff_hack(); /* for good measure */
+
+  if (!__jove_did_emu_copy_reloc) {
+    __jove_did_emu_copy_reloc = true;
+
+    _jove_do_emulate_copy_relocations();
+  }
 }
 
 _CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong a0,
-                        target_ulong a1,
-                        target_ulong v0,     /* formerly a2 */
-                        target_ulong sp_addr /* formerly a3 */);
+_HIDDEN void _jove_begin(target_ulong a0,
+                         target_ulong a1,
+                         target_ulong v0,     /* formerly a2 */
+                         target_ulong sp_addr /* formerly a3 */);
 
 _NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
                                        target_ulong *args,
@@ -1823,6 +1844,8 @@ _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 
 _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                               target_ulong BBAddr);
+
+_NOINL _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx);
 
 _NAKED _NOINL _NORET void _jove_fail1(target_ulong);
 _NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
@@ -1872,12 +1895,11 @@ void _jove_start(void) {
                "move $6, $2\n"  /* a2=v0 */
                "move $7, $29\n" /* a3=sp */
 
-               "jalr %P0\n"
+               "jalr _jove_begin\n"
                "hlt: b hlt\n" /* Crash if somehow it does return. */
 
                : /* OutputOperands */
                : /* InputOperands */
-               "i"(_jove_begin)
                : /* Clobbers */);
 }
 
@@ -2166,7 +2188,7 @@ void _jove_trace_init(void) {
 
   {
     long ret =
-        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        _jove_sys_mips_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
     if (ret < 0 && ret > -4096) {
       __builtin_trap();
@@ -2205,8 +2227,9 @@ void _jove_callstack_init(void) {
     return;
 
   {
-    long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+    long ret =
+        _jove_sys_mips_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
     if (ret < 0 && ret > -4096) {
       __builtin_trap();
       __builtin_unreachable();
@@ -2497,6 +2520,53 @@ found:
   }
 }
 
+void _jove_recover_returned(uint32_t CallerBBIdx) {
+#if 0
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
+    return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
+
+  struct {
+    uint32_t BIdx;
+    uint32_t BBIdx;
+  } Call;
+
+  Call.BIdx = _jove_binary_index();
+  Call.BBIdx = CallerBBIdx;
+
+found:
+  {
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    {
+      char ch = 'r';
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(Call.BIdx),
+          _IOV_ENTRY(Call.BBIdx)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
+    }
+  }
+}
+
+
 void _jove_fail1(target_ulong rdi) {
   asm volatile("hlt");
 }
@@ -2695,8 +2765,8 @@ void _jove_install_foreign_function_tables(void) {
 }
 
 target_ulong _jove_alloc_stack(void) {
-  long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  long ret = _jove_sys_mips_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
+                                 MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096) {
     __builtin_trap();
     __builtin_unreachable();
