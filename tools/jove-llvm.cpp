@@ -4811,6 +4811,9 @@ int CreateSectionGlobalVariables(void) {
       return type_of_copy_relocation(R, S);
     }
 
+    case relocation_t::TYPE::NONE:
+      return VoidType();
+
     default:
       WithColor::error() << llvm::formatv(
           "type_of_relocation: unhandled relocation type {0}\n",
@@ -4962,6 +4965,21 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
+#ifdef __mips__
+    if (R.SymbolIndex < SymbolTable.size()) {
+      const symbol_t &S = SymbolTable[R.SymbolIndex];
+      assert(!S.IsUndefined());
+
+      if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
+        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+
+      AddrToSymbolMap[S.Addr].insert(S.Name);
+      AddrToSizeMap[S.Addr] = S.Size;
+
+      return nullptr;
+    }
+#endif
+
     uintptr_t Addr;
     if (R.Addend) {
       Addr = R.Addend;
@@ -4977,6 +4995,9 @@ int CreateSectionGlobalVariables(void) {
     }
 
 #if 0
+    WithColor::note() << llvm::formatv(
+        "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
+
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       llvm::Constant *C = SectionPointer(Addr);
@@ -5224,7 +5245,8 @@ int CreateSectionGlobalVariables(void) {
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if (!defined(__x86_64__) && defined(__i386__)) ||                             \
+    (!defined(__mips64) && defined(__mips__))
     unsigned tpoff;
     {
       auto it = SectIdxMap.find(R.Addr);
@@ -5347,6 +5369,9 @@ int CreateSectionGlobalVariables(void) {
 
     case relocation_t::TYPE::TPMOD:
       return constant_of_tpmod_relocation(R);
+
+    case relocation_t::TYPE::NONE:
+      return nullptr;
 
     default:
       WithColor::error() << "constant_of_relocation: unhandled relocation type "
@@ -9131,11 +9156,19 @@ int TranslateBasicBlock(basic_block_t bb,
         "re-running jove-add\n"
         "FuncAddr={3:x}\n"
         "T.Type={4}\n"
-        "ICFG[bb].Term.Type={5}\n",
+        "ICFG[bb].Term.Type={5}\n"
+        "size={6}\n"
+        "Size={7}\n",
         __FILE__, __LINE__,
         Addr, FuncAddr,
         description_of_terminator(T.Type),
-        description_of_terminator(ICFG[bb].Term.Type));
+        description_of_terminator(ICFG[bb].Term.Type),
+        size,
+        Size);
+
+    if (T.Type == TERMINATOR::NONE)
+      WithColor::error() << llvm::formatv("T._none.NextPC={0:x}\n",
+                                          T._none.NextPC);
   }
 
   assert(T.Type == ICFG[bb].Term.Type);
@@ -10496,19 +10529,34 @@ int TranslateTCGOp(TCGOp *op,
     break;
 
   case INDEX_op_mov_i32: {
+    assert(nb_iargs == 1);
+    assert(nb_oargs == 1);
+
     TCGTemp *dst = arg_temp(op->args[0]);
     TCGTemp *src = arg_temp(op->args[1]);
 
-    assert(dst->type == TCG_TYPE_I32);
+    if (likely(src->type == dst->type)) {
+      set(get(src), dst);
+    } else {
+      unsigned dst_ty = dst->type;
+      unsigned src_ty = src->type;
 
-    llvm::Value *Val = get(src);
+      if (dst_ty == TCG_TYPE_I64) {
+        assert(src_ty == TCG_TYPE_I32);
 
-    if (src->type == TCG_TYPE_I64)
-      Val = IRB.CreateTrunc(Val, IRB.getInt32Ty());
-    else
-      assert(src->type == TCG_TYPE_I32);
+        // XXX TODO is this right?
+        set(IRB.CreateZExt(get(src), IRB.getInt64Ty()), dst);
 
-    set(Val, dst);
+        WithColor::warning() <<
+          "TODO: INDEX_op_mov_i32 i64 <- i32\n";
+      } else if (dst_ty == TCG_TYPE_I32) {
+        assert(src_ty == TCG_TYPE_I64);
+
+        set(IRB.CreateTrunc(get(src), IRB.getInt32Ty()), dst);
+      } else {
+        abort();
+      }
+    }
     break;
   }
 
@@ -11172,7 +11220,7 @@ int TranslateTCGOp(TCGOp *op,
     break;
   }
 
-#define __ADD2(opc_name, bits)                                                 \
+#define __ADD2_OR_SUB2(opc_name, bits, isAdd)                                  \
   case opc_name: {                                                             \
     assert(nb_oargs == 2);                                                     \
                                                                                \
@@ -11210,7 +11258,7 @@ int TranslateTCGOp(TCGOp *op,
         IRB.CreateShl(IRB.CreateZExt(t2_high_v, IRB.getIntNTy(2 * bits)),      \
                       llvm::APInt(2 * bits, bits)));                           \
                                                                                \
-    llvm::Value *t0 = IRB.CreateAdd(t1, t2);                                   \
+    llvm::Value *t0 = (isAdd) ? IRB.CreateAdd(t1, t2) : IRB.CreateSub(t1, t2); \
                                                                                \
     llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getIntNTy(bits));          \
     llvm::Value *t0_high_v = IRB.CreateTrunc(                                  \
@@ -11222,10 +11270,13 @@ int TranslateTCGOp(TCGOp *op,
     break;                                                                     \
   }
 
-    __ADD2(INDEX_op_add2_i32, 32)
-    __ADD2(INDEX_op_add2_i64, 64)
+    __ADD2_OR_SUB2(INDEX_op_add2_i32, 32, true)
+    __ADD2_OR_SUB2(INDEX_op_add2_i64, 64, true)
 
-#undef __ADD2
+    __ADD2_OR_SUB2(INDEX_op_sub2_i32, 32, false)
+    __ADD2_OR_SUB2(INDEX_op_sub2_i64, 64, false)
+
+#undef __ADD2_OR_SUB2
 
 #define __ORC_OP(opc_name, bits)                                               \
   case opc_name: {                                                             \
@@ -11333,7 +11384,7 @@ int TranslateTCGOp(TCGOp *op,
     llvm::StringRef AsmText("dmb ish");
     llvm::StringRef Constraints("~{memory}");
 #elif defined(__mips64) || defined(__mips__)
-    llvm::StringRef AsmText("thiswontassemble"); /* TODO XXX */
+    llvm::StringRef AsmText("sync");
     llvm::StringRef Constraints("~{memory}");
 #else
 #error

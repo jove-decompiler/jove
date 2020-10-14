@@ -1,10 +1,10 @@
 case llvm::ELF::R_MIPS_JUMP_SLOT:
 case llvm::ELF::R_MIPS_GLOB_DAT:
-case llvm::ELF::R_MIPS_64:
+case llvm::ELF::R_MIPS_32:
   return relocation_t::TYPE::ADDRESSOF;
 case llvm::ELF::R_MIPS_COPY:
   return relocation_t::TYPE::COPY;
-case llvm::ELF::R_MIPS_TLS_TPREL64:
+case llvm::ELF::R_MIPS_TLS_TPREL32:
   return relocation_t::TYPE::TPOFF;
 case llvm::ELF::R_MIPS_TLS_DTPMOD64:
   return relocation_t::TYPE::TPMOD;
@@ -12,7 +12,7 @@ case llvm::ELF::R_MIPS_REL32:
   return relocation_t::TYPE::RELATIVE;
 case llvm::ELF::R_MIPS_NONE:
 case llvm::ELF::R_MIPS_16:
-case llvm::ELF::R_MIPS_32:
+case llvm::ELF::R_MIPS_64:
 case llvm::ELF::R_MIPS_26:
 case llvm::ELF::R_MIPS_HI16:
 case llvm::ELF::R_MIPS_LO16:
@@ -54,7 +54,7 @@ case llvm::ELF::R_MIPS_TLS_LDM:
 case llvm::ELF::R_MIPS_TLS_DTPREL_HI16:
 case llvm::ELF::R_MIPS_TLS_DTPREL_LO16:
 case llvm::ELF::R_MIPS_TLS_GOTTPREL:
-case llvm::ELF::R_MIPS_TLS_TPREL32:
+case llvm::ELF::R_MIPS_TLS_TPREL64:
 case llvm::ELF::R_MIPS_TLS_TPREL_HI16:
 case llvm::ELF::R_MIPS_TLS_TPREL_LO16:
 case llvm::ELF::R_MIPS_PC21_S2:

@@ -39980,12 +39980,17 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
             break;
         }
 
-        if (__jove_end_pc) {
-            if (db->pc_next >= __jove_end_pc) {
-                tb->jove.T.Type = jove::TERMINATOR::NONE;
-                tb->jove.T.Addr = 0; /* XXX */
-                tb->jove.T._none.NextPC = __jove_end_pc;
-                break;
+        DisasContext *ctx = container_of(db, DisasContext, base);
+        if (ctx->hflags & MIPS_HFLAG_BMASK) {
+          ; // delay slot, don't check
+        } else {
+            if (__jove_end_pc) {
+                if (db->pc_next >= __jove_end_pc) {
+                    tb->jove.T.Type = jove::TERMINATOR::NONE;
+                    tb->jove.T.Addr = 0; /* XXX */
+                    tb->jove.T._none.NextPC = __jove_end_pc;
+                    break;
+                }
             }
         }
 

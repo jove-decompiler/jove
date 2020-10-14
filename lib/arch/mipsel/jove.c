@@ -1847,8 +1847,8 @@ _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 
 _NOINL _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx);
 
-_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
-_NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
+_NOINL _NORET void _jove_fail1(target_ulong);
+_NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
 _NOINL void _jove_check_return_address(target_ulong RetAddr,
                                        target_ulong NativeRetAddr);
@@ -1856,8 +1856,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
-static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_HIDDEN target_ulong _jove_alloc_stack(void);
+_HIDDEN void _jove_free_stack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
@@ -1887,7 +1887,20 @@ static _INL uintptr_t _get_stack_end(void);
 //
 
 void _jove_start(void) {
-  asm volatile(/* The return address register is set to zero so that programs
+  asm volatile(
+#if 0
+               "li      $3, %%hi(_gp_disp)\n"
+               "addiu   $4, $pc, %%lo(_gp_disp)\n"
+               "sll     $3, 16\n"
+               "addu    $3, $4\n"
+               "move    $gp, $3\n" /* set up gp... */
+#else
+               ".set noreorder\n"
+               ".cpload $25\n"
+               ".set reorder\n"
+#endif
+
+               /* The return address register is set to zero so that programs
                   that search backword through stack frames recognize the last
                   stack frame. */
                "move $31, $0\n"
@@ -1895,7 +1908,10 @@ void _jove_start(void) {
                "move $6, $2\n"  /* a2=v0 */
                "move $7, $29\n" /* a3=sp */
 
-               "jalr _jove_begin\n"
+               "la $25, _jove_begin\n"
+               "jalr $25\n"
+               "nop\n"
+
                "hlt: b hlt\n" /* Crash if somehow it does return. */
 
                : /* OutputOperands */
@@ -2567,68 +2583,23 @@ found:
 }
 
 
-void _jove_fail1(target_ulong rdi) {
-  asm volatile("hlt");
+void _jove_fail1(target_ulong a0) {
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
-void _jove_fail2(target_ulong rdi,
-                 target_ulong rsi) {
-  asm volatile("hlt");
+void _jove_fail2(target_ulong a0,
+                 target_ulong a1) {
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
-                         target_ulong *args   /* rsi */,
-                         target_ulong *emuspp /* rdx */) {
-  asm volatile("pushq %%r15\n" /* callee-saved registers */
-               "pushq %%r14\n"
-               "pushq %%r13\n"
-               "pushq %%r12\n"
-
-               "movq %%rdi, %%r12\n" /* dstpc in r12 */
-               "movq %%rsi, %%r13\n" /* args in r13 */
-               "movq %%rdx, %%r14\n" /* emuspp in r14 */
-               "movq %%rsp, %%r15\n" /* save sp in r15 */
-
-               "call %P[jove_alloc_stack]\n"
-               "movq %%r12, %%r10\n" /* dstpc in r10 */
-               "movq %%rax, %%r12\n" /* allocated stack in r12 */
-               "addq $0x80000, %%rax\n"
-
-               "movq (%%r14), %%rsp\n" /* sp=*emusp */
-               "movq %%rax, (%%r14)\n" /* *emusp=stack storage */
-
-               /* unpack args */
-               "movq 40(%%r13), %%r9\n"
-               "movq 32(%%r13), %%r8\n"
-               "movq 24(%%r13), %%rcx\n"
-               "movq 16(%%r13), %%rdx\n"
-               "movq  8(%%r13), %%rsi\n"
-               "movq  0(%%r13), %%rdi\n"
-
-               "addq $8, %%rsp\n" /* replace return address on the stack */
-               "callq *%%r10\n"   /* call dstpc */
-
-               "movq %%rsp, (%%r14)\n" /* store modified emusp */
-               "movq %%r15, %%rsp\n"   /* restore stack pointer */
-
-               "movq %%rax, %%r15\n" /* save return value */
-
-               "movq %%r12, %%rdi\n" /* pass allocated stack */
-               "call %P[jove_free_stack]\n"
-
-               "movq %%r15, %%rax\n" /* restore return value */
-
-               "popq %%r12\n"
-               "popq %%r13\n"
-               "popq %%r14\n"
-               "popq %%r15\n" /* callee-saved registers */
-
-               "retq\n"
-
+target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
+                         target_ulong *args   /* a1 ($5) */,
+                         target_ulong *emuspp /* a2 ($6) */) {
+  asm volatile("hltt: b hltt\n"
                : /* OutputOperands */
                : /* InputOperands */
-               [jove_alloc_stack] "i"(_jove_alloc_stack),
-               [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
 
