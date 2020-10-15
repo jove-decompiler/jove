@@ -1,3 +1,5 @@
+#define TARGET_MIPS 1
+
 #define CONFIG_USER_ONLY 1
 
 #define QEMU_NORETURN __attribute__ ((__noreturn__))
@@ -76,37 +78,17 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
-#define QLIST_HEAD(name, type)                                          \
-struct name {                                                           \
-        struct type *lh_first;  /* first element */                     \
-}
-
-#define QLIST_ENTRY(type)                                               \
-struct {                                                                \
-        struct type *le_next;   /* next element */                      \
-        struct type **le_prev;  /* address of previous next element */  \
-}
-
-#define QTAILQ_HEAD(name, type)                                         \
-union name {                                                            \
-        struct type *tqh_first;       /* first element */               \
-        QTailQLink tqh_circ;          /* link for circular backwards list */ \
-}
-
-#define QTAILQ_ENTRY(type)                                              \
-union {                                                                 \
-        struct type *tqe_next;        /* next element */                \
-        QTailQLink tqe_circ;          /* link for circular backwards list */ \
-}
-
-typedef struct QTailQLink {
-    void *tql_next;
-    struct QTailQLink *tql_prev;
-} QTailQLink;
-
 typedef uint8_t flag;
 
 typedef uint32_t float32;
+
+#define float32_val(x) (x)
+
+#define float64_val(x) (x)
+
+#define make_float32(x) (x)
+
+#define make_float64(x) (x)
 
 typedef uint64_t float64;
 
@@ -138,20 +120,641 @@ typedef struct float_status {
 
 #define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
-#define DECLARE_BITMAP(name,bits)                  \
-        unsigned long name[BITS_TO_LONGS(bits)]
+static inline uint64_t extract64(uint64_t value, int start, int length)
+{
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    return (value >> start) & (~0ULL >> (64 - length));
+}
+
+static inline uint64_t deposit64(uint64_t value, int start, int length,
+                                 uint64_t fieldval)
+{
+    uint64_t mask;
+    assert(start >= 0 && length > 0 && length <= 64 - start);
+    mask = (~0ULL >> (64 - length)) << start;
+    return (value & ~mask) | ((fieldval << start) & mask);
+}
+
+static inline void set_float_exception_flags(int val, float_status *status)
+{
+    status->float_exception_flags = val;
+}
+
+static inline int get_float_exception_flags(float_status *status)
+{
+    return status->float_exception_flags;
+}
+
+int float32_le(float32, float32, float_status *status);
+
+int float32_unordered(float32, float32, float_status *status);
+
+int float32_le_quiet(float32, float32, float_status *status);
+
+int float32_unordered_quiet(float32, float32, float_status *status);
+
+#define float32_zero make_float32(0)
+
+static inline float32 float32_set_sign(float32 a, int sign)
+{
+    return make_float32((float32_val(a) & 0x7fffffff) | (sign << 31));
+}
+
+float32 float32_default_nan(float_status *status);
+
+int float64_le(float64, float64, float_status *status);
+
+int float64_unordered(float64, float64, float_status *status);
+
+int float64_le_quiet(float64, float64, float_status *status);
+
+int float64_unordered_quiet(float64, float64, float_status *status);
+
+#define float64_zero make_float64(0)
+
+static inline float64 float64_set_sign(float64 a, int sign)
+{
+    return make_float64((float64_val(a) & 0x7fffffffffffffffULL)
+                        | ((int64_t)sign << 63));
+}
+
+float64 float64_default_nan(float_status *status);
+
+static inline uint32_t extractFloat32Frac(float32 a)
+{
+    return float32_val(a) & 0x007FFFFF;
+}
+
+static inline int extractFloat32Exp(float32 a)
+{
+    return (float32_val(a) >> 23) & 0xFF;
+}
+
+static inline flag extractFloat32Sign(float32 a)
+{
+    return float32_val(a) >> 31;
+}
+
+static inline uint64_t extractFloat64Frac(float64 a)
+{
+    return float64_val(a) & UINT64_C(0x000FFFFFFFFFFFFF);
+}
+
+static inline int extractFloat64Exp(float64 a)
+{
+    return (float64_val(a) >> 52) & 0x7FF;
+}
+
+static inline flag extractFloat64Sign(float64 a)
+{
+    return float64_val(a) >> 63;
+}
+
+typedef enum __attribute__ ((__packed__)) {
+    float_class_unclassified,
+    float_class_zero,
+    float_class_normal,
+    float_class_inf,
+    float_class_qnan,  /* all NaNs from here */
+    float_class_snan,
+} FloatClass;
+
+#define DECOMPOSED_BINARY_POINT    (64 - 2)
+
+typedef struct {
+    uint64_t frac;
+    int32_t  exp;
+    FloatClass cls;
+    bool sign;
+} FloatParts;
+
+#define FLOAT_PARAMS(E, F)                                           \
+    .exp_size       = E,                                             \
+    .exp_bias       = ((1 << E) - 1) >> 1,                           \
+    .exp_max        = (1 << E) - 1,                                  \
+    .frac_size      = F,                                             \
+    .frac_shift     = DECOMPOSED_BINARY_POINT - F,                   \
+    .frac_lsb       = 1ull << (DECOMPOSED_BINARY_POINT - F),         \
+    .frac_lsbm1     = 1ull << ((DECOMPOSED_BINARY_POINT - F) - 1),   \
+    .round_mask     = (1ull << (DECOMPOSED_BINARY_POINT - F)) - 1,   \
+    .roundeven_mask = (2ull << (DECOMPOSED_BINARY_POINT - F)) - 1
+
+typedef struct {
+    int exp_size;
+    int exp_bias;
+    int exp_max;
+    int frac_size;
+    int frac_shift;
+    uint64_t frac_lsb;
+    uint64_t frac_lsbm1;
+    uint64_t round_mask;
+    uint64_t roundeven_mask;
+    bool arm_althp;
+} FloatFmt;
+
+static const FloatFmt float32_params = {
+    FLOAT_PARAMS(8, 23)
+};
+
+static const FloatFmt float64_params = {
+    FLOAT_PARAMS(11, 52)
+};
+
+static inline FloatParts unpack_raw(FloatFmt fmt, uint64_t raw)
+{
+    const int sign_pos = fmt.frac_size + fmt.exp_size;
+
+    return (FloatParts) {
+        .cls = float_class_unclassified,
+        .sign = extract64(raw, sign_pos, 1),
+        .exp = extract64(raw, fmt.frac_size, fmt.exp_size),
+        .frac = extract64(raw, 0, fmt.frac_size),
+    };
+}
+
+static inline FloatParts float32_unpack_raw(float32 f)
+{
+    return unpack_raw(float32_params, f);
+}
+
+static inline FloatParts float64_unpack_raw(float64 f)
+{
+    return unpack_raw(float64_params, f);
+}
+
+static inline uint64_t pack_raw(FloatFmt fmt, FloatParts p)
+{
+    const int sign_pos = fmt.frac_size + fmt.exp_size;
+    uint64_t ret = deposit64(p.frac, fmt.frac_size, fmt.exp_size, p.exp);
+    return deposit64(ret, sign_pos, 1, p.sign);
+}
+
+static inline float32 float32_pack_raw(FloatParts p)
+{
+    return make_float32(pack_raw(float32_params, p));
+}
+
+static inline float64 float64_pack_raw(FloatParts p)
+{
+    return make_float64(pack_raw(float64_params, p));
+}
+
+static inline flag snan_bit_is_one(float_status *status)
+{
+#if defined(TARGET_MIPS)
+    return status->snan_bit_is_one;
+#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+static FloatParts parts_default_nan(float_status *status)
+{
+    bool sign = 0;
+    uint64_t frac;
+
+#if defined(TARGET_SPARC) || defined(TARGET_M68K)
+    /* !snan_bit_is_one, set all bits */
+    frac = (1ULL << DECOMPOSED_BINARY_POINT) - 1;
+#elif defined(TARGET_I386) || defined(TARGET_X86_64) \
+    || defined(TARGET_MICROBLAZE)
+    /* !snan_bit_is_one, set sign and msb */
+    frac = 1ULL << (DECOMPOSED_BINARY_POINT - 1);
+    sign = 1;
+#elif defined(TARGET_HPPA)
+    /* snan_bit_is_one, set msb-1.  */
+    frac = 1ULL << (DECOMPOSED_BINARY_POINT - 2);
+#else
+    /* This case is true for Alpha, ARM, MIPS, OpenRISC, PPC, RISC-V,
+     * S390, SH4, TriCore, and Xtensa.  I cannot find documentation
+     * for Unicore32; the choice from the original commit is unchanged.
+     * Our other supported targets, CRIS, LM32, Moxie, Nios2, and Tile,
+     * do not have floating-point.
+     */
+    if (snan_bit_is_one(status)) {
+        /* set all bits other than msb */
+        frac = (1ULL << (DECOMPOSED_BINARY_POINT - 1)) - 1;
+    } else {
+        /* set msb */
+        frac = 1ULL << (DECOMPOSED_BINARY_POINT - 1);
+    }
+#endif
+
+    return (FloatParts) {
+        .cls = float_class_qnan,
+        .sign = sign,
+        .exp = INT_MAX,
+        .frac = frac
+    };
+}
+
+void float_raise(uint8_t flags, float_status *status)
+{
+    status->float_exception_flags |= flags;
+}
+
+int float32_is_signaling_nan(float32 a_, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return 0;
+#else
+    uint32_t a = float32_val(a_);
+    if (snan_bit_is_one(status)) {
+        return ((uint32_t)(a << 1) >= 0xFF800000);
+    } else {
+        return (((a >> 22) & 0x1FF) == 0x1FE) && (a & 0x003FFFFF);
+    }
+#endif
+}
+
+int float64_is_signaling_nan(float64 a_, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return 0;
+#else
+    uint64_t a = float64_val(a_);
+    if (snan_bit_is_one(status)) {
+        return ((a << 1) >= 0xFFF0000000000000ULL);
+    } else {
+        return (((a >> 51) & 0xFFF) == 0xFFE)
+            && (a & UINT64_C(0x0007FFFFFFFFFFFF));
+    }
+#endif
+}
+
+float32 float32_default_nan(float_status *status)
+{
+    FloatParts p = parts_default_nan(status);
+    p.frac >>= float32_params.frac_shift;
+    return float32_pack_raw(p);
+}
+
+float64 float64_default_nan(float_status *status)
+{
+    FloatParts p = parts_default_nan(status);
+    p.frac >>= float64_params.frac_shift;
+    return float64_pack_raw(p);
+}
+
+static bool parts_squash_denormal(FloatParts p, float_status *status)
+{
+    if (p.exp == 0 && p.frac != 0) {
+        float_raise(float_flag_input_denormal, status);
+        return true;
+    }
+
+    return false;
+}
+
+float32 float32_squash_input_denormal(float32 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        FloatParts p = float32_unpack_raw(a);
+        if (parts_squash_denormal(p, status)) {
+            return float32_set_sign(float32_zero, p.sign);
+        }
+    }
+    return a;
+}
+
+float64 float64_squash_input_denormal(float64 a, float_status *status)
+{
+    if (status->flush_inputs_to_zero) {
+        FloatParts p = float64_unpack_raw(a);
+        if (parts_squash_denormal(p, status)) {
+            return float64_set_sign(float64_zero, p.sign);
+        }
+    }
+    return a;
+}
+
+int float32_le(float32 a, float32 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint32_t av, bv;
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 0;
+    }
+    aSign = extractFloat32Sign( a );
+    bSign = extractFloat32Sign( b );
+    av = float32_val(a);
+    bv = float32_val(b);
+    if ( aSign != bSign ) return aSign || ( (uint32_t) ( ( av | bv )<<1 ) == 0 );
+    return ( av == bv ) || ( aSign ^ ( av < bv ) );
+
+}
+
+int float32_unordered(float32 a, float32 b, float_status *status)
+{
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 1;
+    }
+    return 0;
+}
+
+int float32_le_quiet(float32 a, float32 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint32_t av, bv;
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        if (float32_is_signaling_nan(a, status)
+         || float32_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return 0;
+    }
+    aSign = extractFloat32Sign( a );
+    bSign = extractFloat32Sign( b );
+    av = float32_val(a);
+    bv = float32_val(b);
+    if ( aSign != bSign ) return aSign || ( (uint32_t) ( ( av | bv )<<1 ) == 0 );
+    return ( av == bv ) || ( aSign ^ ( av < bv ) );
+
+}
+
+int float32_unordered_quiet(float32 a, float32 b, float_status *status)
+{
+    a = float32_squash_input_denormal(a, status);
+    b = float32_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat32Exp( a ) == 0xFF ) && extractFloat32Frac( a ) )
+         || ( ( extractFloat32Exp( b ) == 0xFF ) && extractFloat32Frac( b ) )
+       ) {
+        if (float32_is_signaling_nan(a, status)
+         || float32_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+int float64_le(float64 a, float64 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint64_t av, bv;
+    a = float64_squash_input_denormal(a, status);
+    b = float64_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
+         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 0;
+    }
+    aSign = extractFloat64Sign( a );
+    bSign = extractFloat64Sign( b );
+    av = float64_val(a);
+    bv = float64_val(b);
+    if ( aSign != bSign ) return aSign || ( (uint64_t) ( ( av | bv )<<1 ) == 0 );
+    return ( av == bv ) || ( aSign ^ ( av < bv ) );
+
+}
+
+int float64_unordered(float64 a, float64 b, float_status *status)
+{
+    a = float64_squash_input_denormal(a, status);
+    b = float64_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
+         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
+       ) {
+        float_raise(float_flag_invalid, status);
+        return 1;
+    }
+    return 0;
+}
+
+int float64_le_quiet(float64 a, float64 b, float_status *status)
+{
+    flag aSign, bSign;
+    uint64_t av, bv;
+    a = float64_squash_input_denormal(a, status);
+    b = float64_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
+         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
+       ) {
+        if (float64_is_signaling_nan(a, status)
+         || float64_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return 0;
+    }
+    aSign = extractFloat64Sign( a );
+    bSign = extractFloat64Sign( b );
+    av = float64_val(a);
+    bv = float64_val(b);
+    if ( aSign != bSign ) return aSign || ( (uint64_t) ( ( av | bv )<<1 ) == 0 );
+    return ( av == bv ) || ( aSign ^ ( av < bv ) );
+
+}
+
+int float64_unordered_quiet(float64 a, float64 b, float_status *status)
+{
+    a = float64_squash_input_denormal(a, status);
+    b = float64_squash_input_denormal(b, status);
+
+    if (    ( ( extractFloat64Exp( a ) == 0x7FF ) && extractFloat64Frac( a ) )
+         || ( ( extractFloat64Exp( b ) == 0x7FF ) && extractFloat64Frac( b ) )
+       ) {
+        if (float64_is_signaling_nan(a, status)
+         || float64_is_signaling_nan(b, status)) {
+            float_raise(float_flag_invalid, status);
+        }
+        return 1;
+    }
+    return 0;
+}
+
+#define QLIST_HEAD(name, type)                                          \
+struct name {                                                           \
+        struct type *lh_first;  /* first element */                     \
+}
+
+#define QLIST_ENTRY(type)                                               \
+struct {                                                                \
+        struct type *le_next;   /* next element */                      \
+        struct type **le_prev;  /* address of previous next element */  \
+}
+
+#define QTAILQ_HEAD(name, type)                                         \
+union name {                                                            \
+        struct type *tqh_first;       /* first element */               \
+        QTailQLink tqh_circ;          /* link for circular backwards list */ \
+}
+
+#define QTAILQ_ENTRY(type)                                              \
+union {                                                                 \
+        struct type *tqe_next;        /* next element */                \
+        QTailQLink tqe_circ;          /* link for circular backwards list */ \
+}
+
+typedef struct QTailQLink {
+    void *tql_next;
+    struct QTailQLink *tql_prev;
+} QTailQLink;
+
+struct QemuMutex {
+    pthread_mutex_t lock;
+#ifdef CONFIG_DEBUG_MUTEX
+    const char *file;
+    int line;
+#endif
+    bool initialized;
+};
+
+struct QemuCond {
+    pthread_cond_t cond;
+    bool initialized;
+};
+
+struct QemuThread {
+    pthread_t thread;
+};
+
+typedef struct QEMUTimerList QEMUTimerList;
+
+typedef void QEMUTimerCB(void *opaque);
+
+struct QEMUTimer {
+    int64_t expire_time;        /* in nanoseconds */
+    QEMUTimerList *timer_list;
+    QEMUTimerCB *cb;
+    void *opaque;
+    QEMUTimer *next;
+    int attributes;
+    int scale;
+};
+
+typedef struct CPUWatchpoint CPUWatchpoint;
+
+struct TranslationBlock;
+
+typedef union IcountDecr {
+    uint32_t u32;
+    struct {
+#ifdef HOST_WORDS_BIGENDIAN
+        uint16_t high;
+        uint16_t low;
+#else
+        uint16_t low;
+        uint16_t high;
+#endif
+    } u16;
+} IcountDecr;
+
+typedef uint64_t vaddr;
+
+typedef struct CPUBreakpoint {
+    vaddr pc;
+    int flags; /* BP_* */
+    QTAILQ_ENTRY(CPUBreakpoint) entry;
+} CPUBreakpoint;
+
+typedef struct MemTxAttrs {
+    /* Bus masters which don't specify any attributes will get this
+     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
+     * distinguish "all attributes deliberately clear" from
+     * "didn't specify" if necessary.
+     */
+    unsigned int unspecified:1;
+    /* ARM/AMBA: TrustZone Secure access
+     * x86: System Management Mode access
+     */
+    unsigned int secure:1;
+    /* Memory access is usermode (unprivileged) */
+    unsigned int user:1;
+    /* Requester ID (for MSI for example) */
+    unsigned int requester_id:16;
+    /* Invert endianness for this page */
+    unsigned int byte_swap:1;
+    /*
+     * The following are target-specific page-table bits.  These are not
+     * related to actual memory transactions at all.  However, this structure
+     * is part of the tlb_fill interface, cached in the cputlb structure,
+     * and has unused bits.  These fields will be read by target-specific
+     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
+     */
+    unsigned int target_tlb_bit0 : 1;
+    unsigned int target_tlb_bit1 : 1;
+    unsigned int target_tlb_bit2 : 1;
+} MemTxAttrs;
+
+struct CPUWatchpoint {
+    vaddr vaddr;
+    vaddr len;
+    vaddr hitaddr;
+    MemTxAttrs hitattrs;
+    int flags; /* BP_* */
+    QTAILQ_ENTRY(CPUWatchpoint) entry;
+};
+
+struct KVMState;
+
+struct kvm_run;
+
+#define TB_JMP_CACHE_BITS 12
+
+#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
+
+struct hax_vcpu_state;
+
+#define CPU_TRACE_DSTATE_MAX_EVENTS 32
+
+struct qemu_work_item;
+
+enum qemu_plugin_event {
+    QEMU_PLUGIN_EV_VCPU_INIT,
+    QEMU_PLUGIN_EV_VCPU_EXIT,
+    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
+    QEMU_PLUGIN_EV_VCPU_IDLE,
+    QEMU_PLUGIN_EV_VCPU_RESUME,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL,
+    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
+    QEMU_PLUGIN_EV_FLUSH,
+    QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
+};
+
+struct NamedGPIOList {
+    char *name;
+    qemu_irq *in;
+    int num_in;
+    int num_out;
+    QLIST_ENTRY(NamedGPIOList) node;
+};
+
+typedef struct Object Object;
+
+typedef void (ObjectFree)(void *obj);
 
 struct TypeImpl;
 
 typedef struct TypeImpl *Type;
 
-typedef struct Object Object;
-
 typedef void (ObjectUnparent)(Object *obj);
 
 #define OBJECT_CLASS_CAST_CACHE 4
-
-typedef void (ObjectFree)(void *obj);
 
 struct ObjectClass
 {
@@ -175,6 +778,130 @@ struct Object
     GHashTable *properties;
     uint32_t ref;
     Object *parent;
+};
+
+struct DeviceState {
+    /*< private >*/
+    Object parent_obj;
+    /*< public >*/
+
+    const char *id;
+    char *canonical_path;
+    bool realized;
+    bool pending_deleted_event;
+    QemuOpts *opts;
+    int hotplugged;
+    bool allow_unplug_during_migration;
+    BusState *parent_bus;
+    QLIST_HEAD(, NamedGPIOList) gpios;
+    QLIST_HEAD(, BusState) child_bus;
+    int num_child_bus;
+    int instance_id_alias;
+    int alias_required_for_version;
+};
+
+#define DECLARE_BITMAP(name,bits)                  \
+        unsigned long name[BITS_TO_LONGS(bits)]
+
+struct CPUState {
+    /*< private >*/
+    DeviceState parent_obj;
+    /*< public >*/
+
+    int nr_cores;
+    int nr_threads;
+
+    struct QemuThread *thread;
+#ifdef _WIN32
+    HANDLE hThread;
+#endif
+    int thread_id;
+    bool running, has_waiter;
+    struct QemuCond *halt_cond;
+    bool thread_kicked;
+    bool created;
+    bool stop;
+    bool stopped;
+    bool unplug;
+    bool crash_occurred;
+    bool exit_request;
+    bool in_exclusive_context;
+    uint32_t cflags_next_tb;
+    /* updates protected by BQL */
+    uint32_t interrupt_request;
+    int singlestep_enabled;
+    int64_t icount_budget;
+    int64_t icount_extra;
+    uint64_t random_seed;
+    sigjmp_buf jmp_env;
+
+    QemuMutex work_mutex;
+    struct qemu_work_item *queued_work_first, *queued_work_last;
+
+    CPUAddressSpace *cpu_ases;
+    int num_ases;
+    AddressSpace *as;
+    MemoryRegion *memory;
+
+    void *env_ptr; /* CPUArchState */
+    IcountDecr *icount_decr_ptr;
+
+    /* Accessed in parallel; all accesses must be atomic */
+    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
+
+    struct GDBRegisterState *gdb_regs;
+    int gdb_num_regs;
+    int gdb_num_g_regs;
+    QTAILQ_ENTRY(CPUState) node;
+
+    /* ice debug support */
+    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
+
+    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
+    CPUWatchpoint *watchpoint_hit;
+
+    void *opaque;
+
+    /* In order to avoid passing too many arguments to the MMIO helpers,
+     * we store some rarely used information in the CPU context.
+     */
+    uintptr_t mem_io_pc;
+
+    int kvm_fd;
+    struct KVMState *kvm_state;
+    struct kvm_run *kvm_run;
+
+    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
+    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
+    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
+
+    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
+
+    GArray *plugin_mem_cbs;
+
+    /* TODO Move common fields from CPUArchState here. */
+    int cpu_index;
+    int cluster_index;
+    uint32_t halted;
+    uint32_t can_do_io;
+    int32_t exception_index;
+
+    /* shared by kvm, hax and hvf */
+    bool vcpu_dirty;
+
+    /* Used to keep track of an outstanding cpu throttle thread for migration
+     * autoconverge
+     */
+    bool throttle_thread_scheduled;
+
+    bool ignore_memory_transaction_failures;
+
+    struct hax_vcpu_state *hax_vcpu;
+
+    int hvf_fd;
+
+    /* track IOMMUs whose translations we've cached in the TCG TLB */
+    GArray *iommu_notifiers;
 };
 
 typedef enum DeviceCategory {
@@ -231,34 +958,6 @@ typedef struct DeviceClass {
     /* Private to qdev / bus.  */
     const char *bus_type;
 } DeviceClass;
-
-struct NamedGPIOList {
-    char *name;
-    qemu_irq *in;
-    int num_in;
-    int num_out;
-    QLIST_ENTRY(NamedGPIOList) node;
-};
-
-struct DeviceState {
-    /*< private >*/
-    Object parent_obj;
-    /*< public >*/
-
-    const char *id;
-    char *canonical_path;
-    bool realized;
-    bool pending_deleted_event;
-    QemuOpts *opts;
-    int hotplugged;
-    bool allow_unplug_during_migration;
-    BusState *parent_bus;
-    QLIST_HEAD(, NamedGPIOList) gpios;
-    QLIST_HEAD(, BusState) child_bus;
-    int num_child_bus;
-    int instance_id_alias;
-    int alias_required_for_version;
-};
 
 typedef void *PTR;
 
@@ -618,35 +1317,6 @@ typedef struct disassemble_info {
 
 typedef uint64_t hwaddr;
 
-typedef struct MemTxAttrs {
-    /* Bus masters which don't specify any attributes will get this
-     * (via the MEMTXATTRS_UNSPECIFIED constant), so that we can
-     * distinguish "all attributes deliberately clear" from
-     * "didn't specify" if necessary.
-     */
-    unsigned int unspecified:1;
-    /* ARM/AMBA: TrustZone Secure access
-     * x86: System Management Mode access
-     */
-    unsigned int secure:1;
-    /* Memory access is usermode (unprivileged) */
-    unsigned int user:1;
-    /* Requester ID (for MSI for example) */
-    unsigned int requester_id:16;
-    /* Invert endianness for this page */
-    unsigned int byte_swap:1;
-    /*
-     * The following are target-specific page-table bits.  These are not
-     * related to actual memory transactions at all.  However, this structure
-     * is part of the tlb_fill interface, cached in the cputlb structure,
-     * and has unused bits.  These fields will be read by target-specific
-     * helpers using env->iotlb[mmu_idx][tlb_index()].attrs.target_tlb_bitN.
-     */
-    unsigned int target_tlb_bit0 : 1;
-    unsigned int target_tlb_bit1 : 1;
-    unsigned int target_tlb_bit2 : 1;
-} MemTxAttrs;
-
 typedef uint32_t MemTxResult;
 
 typedef enum GuestPanicInformationType {
@@ -693,51 +1363,14 @@ struct GuestPanicInformation {
     } u;
 };
 
-struct QemuMutex {
-    pthread_mutex_t lock;
-#ifdef CONFIG_DEBUG_MUTEX
-    const char *file;
-    int line;
-#endif
-    bool initialized;
-};
-
-struct QemuCond {
-    pthread_cond_t cond;
-    bool initialized;
-};
-
-struct QemuThread {
-    pthread_t thread;
-};
-
-enum qemu_plugin_event {
-    QEMU_PLUGIN_EV_VCPU_INIT,
-    QEMU_PLUGIN_EV_VCPU_EXIT,
-    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
-    QEMU_PLUGIN_EV_VCPU_IDLE,
-    QEMU_PLUGIN_EV_VCPU_RESUME,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
-    QEMU_PLUGIN_EV_FLUSH,
-    QEMU_PLUGIN_EV_ATEXIT,
-    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
-};
-
 typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
                                      void *opaque);
-
-typedef uint64_t vaddr;
 
 typedef enum MMUAccessType {
     MMU_DATA_LOAD  = 0,
     MMU_DATA_STORE = 1,
     MMU_INST_FETCH = 2
 } MMUAccessType;
-
-typedef struct CPUWatchpoint CPUWatchpoint;
-
-struct TranslationBlock;
 
 typedef struct CPUClass {
     /*< private >*/
@@ -807,149 +1440,6 @@ typedef struct CPUClass {
     int gdb_num_core_regs;
     bool gdb_stop_before_watchpoint;
 } CPUClass;
-
-typedef union IcountDecr {
-    uint32_t u32;
-    struct {
-#ifdef HOST_WORDS_BIGENDIAN
-        uint16_t high;
-        uint16_t low;
-#else
-        uint16_t low;
-        uint16_t high;
-#endif
-    } u16;
-} IcountDecr;
-
-typedef struct CPUBreakpoint {
-    vaddr pc;
-    int flags; /* BP_* */
-    QTAILQ_ENTRY(CPUBreakpoint) entry;
-} CPUBreakpoint;
-
-struct CPUWatchpoint {
-    vaddr vaddr;
-    vaddr len;
-    vaddr hitaddr;
-    MemTxAttrs hitattrs;
-    int flags; /* BP_* */
-    QTAILQ_ENTRY(CPUWatchpoint) entry;
-};
-
-struct KVMState;
-
-struct kvm_run;
-
-#define TB_JMP_CACHE_BITS 12
-
-#define TB_JMP_CACHE_SIZE (1 << TB_JMP_CACHE_BITS)
-
-struct hax_vcpu_state;
-
-#define CPU_TRACE_DSTATE_MAX_EVENTS 32
-
-struct qemu_work_item;
-
-struct CPUState {
-    /*< private >*/
-    DeviceState parent_obj;
-    /*< public >*/
-
-    int nr_cores;
-    int nr_threads;
-
-    struct QemuThread *thread;
-#ifdef _WIN32
-    HANDLE hThread;
-#endif
-    int thread_id;
-    bool running, has_waiter;
-    struct QemuCond *halt_cond;
-    bool thread_kicked;
-    bool created;
-    bool stop;
-    bool stopped;
-    bool unplug;
-    bool crash_occurred;
-    bool exit_request;
-    bool in_exclusive_context;
-    uint32_t cflags_next_tb;
-    /* updates protected by BQL */
-    uint32_t interrupt_request;
-    int singlestep_enabled;
-    int64_t icount_budget;
-    int64_t icount_extra;
-    uint64_t random_seed;
-    sigjmp_buf jmp_env;
-
-    QemuMutex work_mutex;
-    struct qemu_work_item *queued_work_first, *queued_work_last;
-
-    CPUAddressSpace *cpu_ases;
-    int num_ases;
-    AddressSpace *as;
-    MemoryRegion *memory;
-
-    void *env_ptr; /* CPUArchState */
-    IcountDecr *icount_decr_ptr;
-
-    /* Accessed in parallel; all accesses must be atomic */
-    struct TranslationBlock *tb_jmp_cache[TB_JMP_CACHE_SIZE];
-
-    struct GDBRegisterState *gdb_regs;
-    int gdb_num_regs;
-    int gdb_num_g_regs;
-    QTAILQ_ENTRY(CPUState) node;
-
-    /* ice debug support */
-    QTAILQ_HEAD(, CPUBreakpoint) breakpoints;
-
-    QTAILQ_HEAD(, CPUWatchpoint) watchpoints;
-    CPUWatchpoint *watchpoint_hit;
-
-    void *opaque;
-
-    /* In order to avoid passing too many arguments to the MMIO helpers,
-     * we store some rarely used information in the CPU context.
-     */
-    uintptr_t mem_io_pc;
-
-    int kvm_fd;
-    struct KVMState *kvm_state;
-    struct kvm_run *kvm_run;
-
-    /* Used for events with 'vcpu' and *without* the 'disabled' properties */
-    DECLARE_BITMAP(trace_dstate_delayed, CPU_TRACE_DSTATE_MAX_EVENTS);
-    DECLARE_BITMAP(trace_dstate, CPU_TRACE_DSTATE_MAX_EVENTS);
-
-    DECLARE_BITMAP(plugin_mask, QEMU_PLUGIN_EV_MAX);
-
-    GArray *plugin_mem_cbs;
-
-    /* TODO Move common fields from CPUArchState here. */
-    int cpu_index;
-    int cluster_index;
-    uint32_t halted;
-    uint32_t can_do_io;
-    int32_t exception_index;
-
-    /* shared by kvm, hax and hvf */
-    bool vcpu_dirty;
-
-    /* Used to keep track of an outstanding cpu throttle thread for migration
-     * autoconverge
-     */
-    bool throttle_thread_scheduled;
-
-    bool ignore_memory_transaction_failures;
-
-    struct hax_vcpu_state *hax_vcpu;
-
-    int hvf_fd;
-
-    /* track IOMMUs whose translations we've cached in the TCG TLB */
-    GArray *iommu_notifiers;
-};
 
 typedef struct MIPSCPUClass {
     /*< private >*/
@@ -1789,16 +2279,6 @@ enum {
     EXCP_LAST = EXCP_TLBRI,
 };
 
-static inline void set_float_exception_flags(int val, float_status *status)
-{
-    status->float_exception_flags = val;
-}
-
-static inline int get_float_exception_flags(float_status *status)
-{
-    return status->float_exception_flags;
-}
-
 enum CPUMIPSMSADataFormat {
     DF_BYTE = 0,
     DF_HALF,
@@ -1822,25 +2302,28 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
 
 extern uintptr_t tci_tb_ptr;
 
-int float32_le(float32, float32, float_status *status);
-
-int float32_unordered(float32, float32, float_status *status);
-
-int float32_le_quiet(float32, float32, float_status *status);
-
-int float32_unordered_quiet(float32, float32, float_status *status);
-
-float32 float32_default_nan(float_status *status);
-
-int float64_le(float64, float64, float_status *status);
-
-int float64_unordered(float64, float64, float_status *status);
-
-int float64_le_quiet(float64, float64, float_status *status);
-
-int float64_unordered_quiet(float64, float64, float_status *status);
-
-float64 float64_default_nan(float_status *status);
+int ieee_ex_to_mips(int xcpt)
+{
+    int ret = 0;
+    if (xcpt) {
+        if (xcpt & float_flag_invalid) {
+            ret |= FP_INVALID;
+        }
+        if (xcpt & float_flag_overflow) {
+            ret |= FP_OVERFLOW;
+        }
+        if (xcpt & float_flag_underflow) {
+            ret |= FP_UNDERFLOW;
+        }
+        if (xcpt & float_flag_divbyzero) {
+            ret |= FP_DIV0;
+        }
+        if (xcpt & float_flag_inexact) {
+            ret |= FP_INEXACT;
+        }
+    }
+    return ret;
+}
 
 #define DF_BITS(df) (1 << ((df) + 3))
 
