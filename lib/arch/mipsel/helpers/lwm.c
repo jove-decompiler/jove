@@ -2075,7 +2075,7 @@ glue(glue(glue(cpu_ld, USUFFIX), MEMSUFFIX), _ra)(CPUArchState *env,
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 #define HELPER_LD(name, insn, type)                                     \
 static inline type do_##name(CPUMIPSState *env, target_ulong addr,      \

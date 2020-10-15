@@ -3010,7 +3010,7 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 #define FLOAT_TWO32 make_float32(1 << 30)
 

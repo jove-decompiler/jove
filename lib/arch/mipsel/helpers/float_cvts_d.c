@@ -2323,7 +2323,7 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 int ieee_ex_to_mips(int xcpt)
 {

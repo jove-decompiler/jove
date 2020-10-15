@@ -1907,7 +1907,7 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 float16 float32_to_float16(float32, bool ieee, float_status *status);
 

@@ -2041,7 +2041,7 @@ static inline void *probe_write(CPUArchState *env, target_ulong addr, int size,
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 #define MEMOP_IDX(DF)
 
