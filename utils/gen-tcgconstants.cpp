@@ -42,8 +42,7 @@ int main(int argc, char **argv) {
     const std::array<const char *, 1> ret_regs = {"v0"};
 #elif defined(__mips__)
     const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
-    //const std::array<const char *, 2> ret_regs = {"v0", "v1"};
-    const std::array<const char *, 1> ret_regs = {"v0"};
+    const std::array<const char *, 2> ret_regs = {"v0", "v1"};
 #else
 #error
 #endif
