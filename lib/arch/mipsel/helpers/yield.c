@@ -1794,7 +1794,10 @@ enum {
 };
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                          int error_code, uintptr_t pc);
+                                          int error_code, uintptr_t pc) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
                                                     uint32_t exception,
@@ -1809,6 +1812,7 @@ static uintptr_t tci_tb_ptr;
 
 target_ulong helper_yield(CPUMIPSState *env, target_ulong arg)
 {
+#if 0
     target_long arg1 = arg;
 
     if (arg1 < 0) {
@@ -1836,5 +1840,8 @@ target_ulong helper_yield(CPUMIPSState *env, target_ulong arg)
         do_raise_exception(env, EXCP_THREAD, GETPC());
     }
     return env->CP0_YQMask;
+#else
+    __builtin_trap();
+#endif
 }
 

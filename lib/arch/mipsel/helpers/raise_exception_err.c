@@ -1752,82 +1752,14 @@ struct CPUMIPSState {
 #define _INL    __attribute__((always_inline))
 #define _REGPARM __attribute__((regparm(3)))
 
-//
-// Some syscalls like clone do not tolerate a return instruction after
-// the syscall instruction. Marking the syscall functions with the
-// `always_inline` attribute accommodates such syscalls as inlining
-// eliminates the return instruction.
-//
 #define JOVE_SYS_ATTR _NOINL _HIDDEN
-
-#define ___SYSCALL0(nr, nm)                                                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(void);
-
-#define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1);
-
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2);
-
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3);
-
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4);
-
-#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
-                                    long a5);
-
-#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4,        \
-                                    long a5, long a6);
-
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/vfs.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <poll.h>
-#include <signal.h>
-#include <sys/uio.h>
-#include <sys/ipc.h>
-#include <sys/msg.h>
-#include <sys/sem.h>
-#include <sys/shm.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/resource.h>
-#include <sys/wait.h>
-#include <time.h>
-#include <sys/times.h>
-#include <sys/utsname.h>
-#include <sys/sysinfo.h>
-#include <linux/capability.h>
-#include <sys/quota.h>
-#include <sys/epoll.h>
-#include <sched.h>
-#include <linux/aio_abi.h>
-#include <mqueue.h>
-#include <keyutils.h>
-#include <linux/bpf.h>
-
-typedef uint64_t u64;
-typedef uint32_t u32;
-typedef unsigned int qid_t;
-typedef int rwf_t;
-typedef unsigned long old_sigset_t;
-typedef int32_t s32;
-typedef s32 old_time32_t;
-
-#ifndef __user
-#define __user
-#endif
-
-#include "syscalls.inc.h"
+#include "jove_sys.h"
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                          int error_code, uintptr_t pc);
+                                          int error_code, uintptr_t pc) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 #ifdef JOVE_DFSAN
 
