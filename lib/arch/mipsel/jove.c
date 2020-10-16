@@ -1785,7 +1785,7 @@ struct kernel_sigaction {
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
 
-#define JOVE_SYS_ATTR _INL _UNUSED
+#define JOVE_SYS_ATTR _NOINL _HIDDEN _UNUSED
 #include "jove_sys.h"
 
 extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);
