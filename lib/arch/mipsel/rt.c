@@ -1816,6 +1816,10 @@ struct kernel_sigaction {
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 _NAKED static void _jove_inverse_thunk(void);
 
+static void _jove_callstack_init(void);
+static void _jove_trace_init(void);
+static void _jove_init_cpu_state(void);
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
@@ -1878,6 +1882,7 @@ static target_ulong to_free[16];
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.pc
 #define sp    uctx->uc_mcontext.gregs[29]
+#define ra    uctx->uc_mcontext.gregs[31]
 #define emusp __jove_env.active_tc.gpr[29]
 
   //
@@ -1909,7 +1914,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
-      uintptr_t saved_retaddr = *((uintptr_t *)saved_sp);
+      uintptr_t saved_retaddr = ra;
       uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
       uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
@@ -1928,7 +1933,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
         newsp -= sizeof(uintptr_t);
 
-        ((uintptr_t *)newsp)[0] = _jove_inverse_thunk;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
         ((uintptr_t *)newsp)[3] = saved_emusp;
@@ -1937,6 +1941,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[6] = newstack;
 
         sp = newsp;
+        ra = _jove_inverse_thunk;
       }
 
       {
@@ -1952,6 +1957,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   }
 
 #undef emusp
+#undef ra
 #undef sp
 #undef pc
 
@@ -2033,3 +2039,18 @@ void _jove_free_callstack(target_ulong start) {
   }
 }
 
+void _jove_callstack_init(void) {
+  target_ulong ptr = _jove_alloc_callstack();
+
+  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
+}
+
+void _jove_trace_init(void) {
+  static uint64_t zeros[4 * 4096] = {0};
+
+  __jove_trace = &zeros[0];
+}
+
+void _jove_init_cpu_state(void) {
+  // TODO
+}
