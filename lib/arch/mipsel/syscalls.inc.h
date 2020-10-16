@@ -1,5 +1,7 @@
 #include "syscalls.inc.macros_begin.h"
 
+#if !defined(___DFSAN)
+
 ___SYSCALL6(4000, syscall, long, arg1, long, arg2, long, arg3, long, arg4, long, arg5, long, arg6)
 ___SYSCALL1(4001, exit, int, exit_code)
 ___SYSCALL0(4002, fork)
@@ -382,5 +384,7 @@ ___SYSCALL2(4434, pidfd_open, pid_t, pid, unsigned int, flags)
 ___SYSCALL2(4435, clone3, struct clone_args *, uargs, size_t, size)
 ___SYSCALL4(4437, openat2, int, dfd, const char *, filename, struct open_how *, how, size_t, usize)
 ___SYSCALL3(4438, pidfd_getfd, int, pidfd, int, fd, unsigned int, flags)
+
+#endif
 
 #include "syscalls.inc.macros_end.h"
