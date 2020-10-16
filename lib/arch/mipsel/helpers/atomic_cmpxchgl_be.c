@@ -175,7 +175,7 @@ static inline uint32_t bswap32(uint32_t x)
         (unsigned short)1,                                                         \
       (expr)+0))))))
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define atomic_cmpxchg__nocheck(ptr, old, new)    ({                    \
     typeof_strip_qual(*ptr) _old = (old);                               \

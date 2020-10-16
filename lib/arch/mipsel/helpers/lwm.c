@@ -126,7 +126,7 @@ typedef struct QTailQLink {
     struct QTailQLink *tql_prev;
 } QTailQLink;
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 struct QemuMutex {
     pthread_mutex_t lock;

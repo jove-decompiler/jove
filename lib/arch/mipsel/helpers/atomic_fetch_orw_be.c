@@ -141,7 +141,7 @@ static inline uint16_t bswap16(uint16_t x)
     return bswap_16(x);
 }
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define atomic_fetch_or(ptr, n)  __atomic_fetch_or(ptr, n, __ATOMIC_SEQ_CST)
 

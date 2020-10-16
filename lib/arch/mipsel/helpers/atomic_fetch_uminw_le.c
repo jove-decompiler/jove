@@ -178,7 +178,7 @@ typedef struct float_status {
 
 #define smp_mb()                     ({ barrier(); __atomic_thread_fence(__ATOMIC_SEQ_CST); })
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 # define ATOMIC_REG_SIZE  sizeof(void *)
 
