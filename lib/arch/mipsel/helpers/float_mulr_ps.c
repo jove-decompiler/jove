@@ -1,3 +1,17 @@
+static double internal_fabs(double x)
+{
+        double r;
+        __asm__("abs.d %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
+static float internal_fabsf(float x)
+{
+        float r;
+        __asm__("abs.s %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
 #define TARGET_MIPS 1
 
 #define CONFIG_USER_ONLY 1
@@ -411,7 +425,7 @@ float32_gen2(float32 xa, float32 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f32_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabsf(ur.h) <= FLT_MIN)) {
+    } else if (unlikely(internal_fabsf(ur.h) <= FLT_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }
@@ -2737,4 +2751,3 @@ uint64_t helper_float_mulr_ps(CPUMIPSState *env, uint64_t fdt0, uint64_t fdt1)
     update_fcr31(env, GETPC());
     return ((uint64_t)fsth2 << 32) | fst2;
 }
-
