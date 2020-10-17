@@ -277,7 +277,9 @@ int recompile(void) {
           .string();
 #else
   // lld 9.0.1
-  std::string lld_path = "/usr/local/bin/ld.lld";
+  std::string lld_path = fs::exists("/usr/bin/ld.lld-9")
+                             ? "/usr/bin/ld.lld-9"
+                             : "/usr/local/bin/ld.lld";
 #endif
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
@@ -859,7 +861,12 @@ int recompile(void) {
           if (fs::exists(dst))
             fs::remove(dst);
 
-          fs::create_symlink(binary_filename, dst);
+          try {
+            fs::create_symlink(binary_filename, dst);
+          } catch (...) {
+            WithColor::warning()
+                << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
+          }
         }
       }
 
