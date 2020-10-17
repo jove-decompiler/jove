@@ -10548,7 +10548,9 @@ int TranslateTCGOp(TCGOp *op,
         set(IRB.CreateZExt(get(src), IRB.getInt64Ty()), dst);
 
         WithColor::warning() <<
-          "TODO: INDEX_op_mov_i32 i64 <- i32\n";
+          llvm::formatv("TODO: INDEX_op_mov_i32 i64 ({0}) <- i32 ({1})\n",
+                        TCG->_ctx.temps[temp_idx(dst)].name,
+                        TCG->_ctx.temps[temp_idx(src)].name);
       } else if (dst_ty == TCG_TYPE_I32) {
         assert(src_ty == TCG_TYPE_I64);
 
