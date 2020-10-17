@@ -1831,8 +1831,14 @@ _HIDDEN void _jove_free_stack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
+//
+// utility functions
+//
+static _INL void *_memset(void *dst, int c, size_t n);
+
 void _jove_inverse_thunk(void) {
   asm volatile("sync\n"
+               "break\n"
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -2053,4 +2059,15 @@ void _jove_trace_init(void) {
 
 void _jove_init_cpu_state(void) {
   // TODO
+}
+
+void *_memset(void *dst, int c, size_t n) {
+  if (n != 0) {
+    unsigned char *d = dst;
+
+    do
+      *d++ = (unsigned char)c;
+    while (--n != 0);
+  }
+  return (dst);
 }
