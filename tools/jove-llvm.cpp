@@ -8247,7 +8247,7 @@ int FixupTPBaseAddrs(void) {
         llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
         unsigned OpIdx = U.getOperandNo();
 
-        llvm::IRBuilderTy IRB(Inst);
+        llvm::IRBuilderTy IRB(&Inst->getFunction()->getEntryBlock().front());
 
         OperandsToReplace.push_back(
             {Inst, OpIdx,
@@ -8286,7 +8286,7 @@ int FixupTPBaseAddrs(void) {
           llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
           unsigned OpIdx = U.getOperandNo();
 
-          llvm::IRBuilderTy IRB(Inst);
+          llvm::IRBuilderTy IRB(&Inst->getFunction()->getEntryBlock().front());
 
           OperandsToReplace.push_back(
               {Inst, OpIdx,
