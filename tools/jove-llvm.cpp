@@ -8176,17 +8176,19 @@ int FixupTPBaseAddrs(void) {
     // TODO replace with thread pointer intrinsic
 #if defined(__x86_64__)
     llvm::StringRef AsmText("movq \%fs:0x0,$0");
+    llvm::StringRef Constraints("=r");
 #elif defined(__i386__)
     llvm::StringRef AsmText("movl \%gs:0x0,$0");
+    llvm::StringRef Constraints("=r");
 #elif defined(__aarch64__)
     llvm::StringRef AsmText("mrs $0, tpidr_el0");
+    llvm::StringRef Constraints("=r");
 #elif defined(__mips64) || defined(__mips__)
-    llvm::StringRef AsmText("thiswontassemble");
+    llvm::StringRef AsmText("rdhwr $0, $$29");
+    llvm::StringRef Constraints("=r,~{$1}");
 #else
 #error
 #endif
-
-    llvm::StringRef Constraints("=r");
 
     IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
                               false /* hasSideEffects */);
@@ -10781,6 +10783,16 @@ int TranslateTCGOp(TCGOp *op,
     if (off == tcg_tpidr_el0_env_offset) {                                     \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I64);                                       \
+      set(llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType()), dst);     \
+      break;                                                                   \
+    }                                                                          \
+  }
+#elif defined(__mips__)
+#define __ARCH_LD_OP(off)                                                      \
+  {                                                                            \
+    if (off == offsetof(CPUMIPSState, active_tc.CP0_UserLocal)) {              \
+      TCGTemp *dst = arg_temp(op->args[0]);                                    \
+      assert(dst->type == TCG_TYPE_I32);                                       \
       set(llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType()), dst);     \
       break;                                                                   \
     }                                                                          \
