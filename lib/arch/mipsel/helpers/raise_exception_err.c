@@ -1809,6 +1809,7 @@ void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #endif /* JOVE_DFSAN */
 
+__attribute__((always_inline))
 void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                 int error_code)
 {
