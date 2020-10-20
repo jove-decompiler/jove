@@ -1777,7 +1777,7 @@ struct kernel_sigaction {
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
-#define _CTOR   __attribute__((constructor))
+#define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
 #define _NOINL  __attribute__((noinline))
@@ -2630,16 +2630,7 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
      && _isDigit(eol[-7])
      && eol[-8]  == '-'
      && eol[-9]  == 'd'
-     && eol[-10] == 'l'
-     && eol[-11] == '/'
-     && eol[-12] == 'b'
-     && eol[-13] == 'i'
-     && eol[-14] == 'l'
-     && eol[-15] == '/'
-     && eol[-16] == 'r'
-     && eol[-17] == 's'
-     && eol[-18] == 'u'
-     && eol[-19] == '/') {
+     && eol[-10] == 'l') {
       char *space = _memchr(line, ' ', left);
 
       char *rp = space + 1;
