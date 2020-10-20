@@ -523,6 +523,12 @@ int main(int argc, char **argv) {
   };
 #endif
 
+#if defined(__mips__)
+  auto t9_index = [&](void) -> int {
+    return tcg_index_of_named_global("t9");
+  };
+#endif
+
   printf("#pragma once\n"
          "#include <bitset>\n"
          "#include <array>\n"
@@ -560,6 +566,10 @@ int main(int argc, char **argv) {
 
 #if defined(__aarch64__)
   __TCG_CONST(tpidr_el0_env_offset);
+#endif
+
+#if defined(__mips__)
+  __TCG_CONST(t9_index);
 #endif
 
 #undef __TCG_CONST
