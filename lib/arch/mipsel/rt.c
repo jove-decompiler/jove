@@ -1889,7 +1889,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.pc
 #define sp    uctx->uc_mcontext.gregs[29]
 #define ra    uctx->uc_mcontext.gregs[31]
+#define t9    uctx->uc_mcontext.gregs[25]
 #define emusp __jove_env.active_tc.gpr[29]
+#define emut9 __jove_env.active_tc.gpr[25]
 
   //
   // no time like the present
@@ -1956,16 +1958,24 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
       }
 
-      pc = fns[2 * FIdx + 1];
+      if (t9 != fns[2 * FIdx + 0]) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      emut9 = t9;
+
+      pc = t9 = fns[2 * FIdx + 1];
 
       return;
     }
   }
 
-#undef emusp
-#undef ra
-#undef sp
 #undef pc
+#undef sp
+#undef ra
+#undef t9
+#undef emusp
 
   //
   // if we get here, this is most likely a real crash.

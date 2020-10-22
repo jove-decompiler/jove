@@ -619,10 +619,9 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 #elif defined(__aarch64__)
         if (helper_ptr == helper_exception_with_syndrome &&
 	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
-#elif defined(__mips64)
-        if (helper_ptr && false /* TODO */) {
-#elif defined(__mips__)
-        if (helper_ptr && false /* TODO */) {
+#elif defined(__mips64) || defined(__mips__)
+        if (helper_ptr == helper_raise_exception_err &&
+            constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SYSCALL) {
 #else
 #error
 #endif
@@ -1023,6 +1022,9 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     hf.EnvArgNo = EnvArgNo;
     hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
 
+    //
+    // force Analysis.Simple=1 for system calls
+    //
 #if defined(__x86_64__)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_syscall))
@@ -1032,8 +1034,11 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 #elif defined(__aarch64__)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_exception_with_syndrome))
+#elif defined(__mips64) || defined(__mips__)
+    if (reinterpret_cast<void *>(addr) ==
+        reinterpret_cast<void *>(helper_raise_exception_err))
 #else
-    if (false)
+#error
 #endif
     {
       hf.Analysis.Simple = true; /* XXX */
