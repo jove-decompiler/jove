@@ -1191,6 +1191,9 @@ int InitStateForBinaries(void) {
 
         SectsStartAddr = minAddr;
         SectsEndAddr = maxAddr;
+
+        WithColor::note() << llvm::formatv("SectsStartAddr is {0:x}\n",
+                                           SectsStartAddr);
       }
     }
   }
@@ -4396,6 +4399,9 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 llvm::Constant *SectionPointer(uintptr_t Addr) {
+  assert(SectsStartAddr);
+  assert(SectsEndAddr);
+
   if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
     return nullptr;
 
@@ -4829,8 +4835,14 @@ int CreateSectionGlobalVariables(void) {
     section_t &Sect = SectTable[(*it).second];
     unsigned Off = Addr - Sect.Addr;
 
+#if 0
     Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
         Off, Off + sizeof(uintptr_t)));
+#endif
+
+    if (Sect.Stuff.Types.find(Off) == Sect.Stuff.Types.end())
+      WithColor::warning() << llvm::formatv("%s:%d\n", __FILE__, __LINE__);
+
     Sect.Stuff.Constants[Off] = C;
   };
 
@@ -5792,6 +5804,33 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
+#ifdef __mips__
+    {
+      auto it = std::find_if(
+          std::begin(SectTable),
+          std::end(SectTable),
+          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
+      if (it != SectTable.end()) {
+        section_t &GOTSect = *it;
+
+        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
+                                           GOTSect.Addr);
+
+        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
+
+        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
+          if (GOTSect.Stuff.Types.find(Off) !=
+              GOTSect.Stuff.Types.end()) /* XXX */
+            continue;
+
+          GOTSect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
+              Off, Off + sizeof(uintptr_t)));
+          GOTSect.Stuff.Types[Off] = WordType();
+        }
+      }
+    }
+#endif
+
     declare_sections();
 
     for (relocation_t &R : RelocationTable) {
@@ -5833,6 +5872,48 @@ int CreateSectionGlobalVariables(void) {
         }
       }
     }
+
+#ifdef __mips__
+    {
+      auto it = std::find_if(
+          std::begin(SectTable),
+          std::end(SectTable),
+          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
+      if (it != SectTable.end()) {
+        section_t &GOTSect = *it;
+
+        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
+                                           GOTSect.Addr);
+
+        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
+
+        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
+          if (GOTSect.Stuff.Constants.find(Off) !=
+              GOTSect.Stuff.Constants.end()) /* XXX */
+            continue;
+          if (GOTSect.Stuff.Types.find(Off) ==
+              GOTSect.Stuff.Types.end())
+            continue;
+
+          if (!(*GOTSect.Stuff.Types.find(Off)).second->isIntegerTy(WordBits())) {
+            WithColor::warning() << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
+            continue;
+          }
+
+          uintptr_t Addr = *reinterpret_cast<const uintptr_t *>(&GOTSect.Contents[Off]);
+
+          if (Addr) {
+            if (llvm::Constant *C = SectionPointer(Addr))
+              GOTSect.Stuff.Constants[Off] = C;
+            else
+              GOTSect.Stuff.Constants[Off] = llvm::Constant::getNullValue(WordType());
+          } else {
+              GOTSect.Stuff.Constants[Off] = llvm::Constant::getNullValue(WordType());
+          }
+        }
+      }
+    }
+#endif
 
     define_sections();
 
@@ -7917,6 +7998,14 @@ static int TranslateFunction(function_t &f) {
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
+
+#ifdef __mips__
+    if (false /* f.IsABI */) {
+      llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
+                                            GlobalAllocaVec[tcg_t9_index]);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    }
+#endif
 
     if (int ret = TranslateBasicBlock(entry_bb, f, GlobalAllocaVec, IRB))
       return ret;
