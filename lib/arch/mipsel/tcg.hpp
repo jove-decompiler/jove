@@ -17489,12 +17489,14 @@ static inline void gen_pcrel(DisasContext *ctx, int opc, target_ulong pc,
         if (rs != 0) {
             offset = sextract32(ctx->opcode << 2, 0, 21);
             addr = addr_add(ctx, pc, offset);
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_gpr[rs], addr);
         }
         break;
     case R6_OPC_LWPC:
         offset = sextract32(ctx->opcode << 2, 0, 21);
         addr = addr_add(ctx, pc, offset);
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         gen_r6_ld(addr, rs, ctx->mem_idx, MO_TESL);
         break;
 #if defined(TARGET_MIPS64)
@@ -17511,6 +17513,7 @@ static inline void gen_pcrel(DisasContext *ctx, int opc, target_ulong pc,
             if (rs != 0) {
                 offset = sextract32(ctx->opcode, 0, 16) << 16;
                 addr = addr_add(ctx, pc, offset);
+                tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 tcg_gen_movi_tl(cpu_gpr[rs], addr);
             }
             break;
@@ -17518,6 +17521,7 @@ static inline void gen_pcrel(DisasContext *ctx, int opc, target_ulong pc,
             if (rs != 0) {
                 offset = sextract32(ctx->opcode, 0, 16) << 16;
                 addr = ~0xFFFF & addr_add(ctx, pc, offset);
+                tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 tcg_gen_movi_tl(cpu_gpr[rs], addr);
             }
             break;
@@ -18997,6 +19001,7 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             ctx->hflags |= MIPS_HFLAG_B;
             break;
         case OPC_BLTZALL: /* 0 < 0 likely */
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_gpr[31], ctx->base.pc_next + 8);
             /* Skip the instruction in the delay slot */
             ctx->base.pc_next += 4;
@@ -19126,6 +19131,7 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
                 ctx->base.tb->jove.T._call.NextPC = NextPC;
         }
 
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         tcg_gen_movi_tl(cpu_gpr[blink],
                         ctx->base.pc_next + post_delay + lowbit);
     }
@@ -19214,6 +19220,7 @@ static void gen_compute_branch_nm(DisasContext *ctx, uint32_t opc,
             break;
         case OPC_JALR:
             if (rt > 0) {
+                tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
                 tcg_gen_movi_tl(cpu_gpr[rt],
                                 ctx->base.pc_next + insn_bytes);
             }
@@ -19234,6 +19241,7 @@ static void gen_compute_branch_nm(DisasContext *ctx, uint32_t opc,
             goto not_likely;
         case OPC_BGEZAL:
             tcg_gen_setcondi_tl(TCG_COND_GE, bcond, t0, 0);
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_gpr[31],
                             ctx->base.pc_next + insn_bytes);
             goto not_likely;
@@ -22107,6 +22115,7 @@ static void gen_compute_compact_branch(DisasContext *ctx, uint32_t opc,
         ctx->btarget = addr_add(ctx, ctx->base.pc_next + 4, offset);
         if (rs <= rt && rs == 0) {
             /* OPC_BEQZALC, OPC_BNEZALC */
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_tl(cpu_gpr[31], ctx->base.pc_next + 4 + m16_lowbit);
         }
         break;
