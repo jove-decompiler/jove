@@ -1816,7 +1816,7 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #if 0
     do_raise_exception_err(env, exception, error_code, 0);
 #else
-    if (error_code != 17 /* EXCP_SYSCALL */) {
+    if (exception != 17 /* EXCP_SYSCALL */) {
       __builtin_trap();
       __builtin_unreachable();
     }
