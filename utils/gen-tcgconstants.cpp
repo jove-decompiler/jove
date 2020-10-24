@@ -30,17 +30,11 @@ int main(int argc, char **argv) {
     const std::array<const char *, 2> ret_regs{"rax", "rdx"};
 #elif defined(__i386__)
     const std::array<const char *, 3> arg_regs{"eax", "edx", "ecx"};
-    //const std::array<const char *, 1> ret_regs{"eax"};
     const std::array<const char *, 2> ret_regs{"eax", "edx"};
 #elif defined(__aarch64__)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-    //const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-    const std::array<const char *, 1> ret_regs = {"x0"};
-#elif defined(__mips64)
-    const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
-    //const std::array<const char *, 2> ret_regs = {"v0", "v1"};
-    const std::array<const char *, 1> ret_regs = {"v0"};
-#elif defined(__mips__)
+    const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
+#elif defined(__mips64) || defined(__mips__)
     const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
     const std::array<const char *, 2> ret_regs = {"v0", "v1"};
 #else
