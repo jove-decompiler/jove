@@ -1764,6 +1764,7 @@ static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
 
 static uintptr_t tci_tb_ptr;
 
+__attribute__((always_inline))
 void helper_raise_exception(CPUMIPSState *env, uint32_t exception)
 {
     do_raise_exception(env, exception, GETPC());
