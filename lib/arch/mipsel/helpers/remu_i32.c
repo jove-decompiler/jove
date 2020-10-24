@@ -6,6 +6,7 @@
 
 #define HELPER(name) glue(helper_, name)
 
+__attribute__((always_inline))
 uint32_t HELPER(remu_i32)(uint32_t arg1, uint32_t arg2)
 {
     return arg1 % arg2;

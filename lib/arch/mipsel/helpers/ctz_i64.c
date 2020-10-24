@@ -11,6 +11,7 @@ static inline int ctz64(uint64_t val)
 
 #define HELPER(name) glue(helper_, name)
 
+__attribute__((always_inline))
 uint64_t HELPER(ctz_i64)(uint64_t arg, uint64_t zero_val)
 {
     return arg ? ctz64(arg) : zero_val;
