@@ -7999,7 +7999,7 @@ static int TranslateFunction(function_t &f) {
       }
     }
 
-#ifdef __mips__
+#if 0 /* defined(__mips__) */
     if (false /* f.IsABI */) {
       llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
                                             GlobalAllocaVec[tcg_t9_index]);
@@ -9295,6 +9295,11 @@ int TranslateBasicBlock(basic_block_t bb,
     };
 
     store(tcg_stack_pointer_index);
+
+#if defined(__mips__)
+    store(tcg_t9_index);
+    store(tcg_ra_index);
+#endif
   };
 
   struct {
@@ -10111,6 +10116,11 @@ int TranslateBasicBlock(basic_block_t bb,
     };
 
     reload(tcg_stack_pointer_index);
+
+#if defined(__mips__)
+    reload(tcg_t9_index);
+    reload(tcg_ra_index);
+#endif
   };
 
   switch (T.Type) {
