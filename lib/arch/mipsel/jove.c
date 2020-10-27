@@ -1912,7 +1912,7 @@ void _jove_start(void) {
                "jalr $25\n"
                "nop\n"
 
-               "hlt: b hlt\n" /* Crash if somehow it does return. */
+               "break\n" /* if _jove_begin returns, we should trap */
 
                : /* OutputOperands */
                : /* InputOperands */
