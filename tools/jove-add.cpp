@@ -215,17 +215,18 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 }
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #else
 #error
 #endif
 
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
+
 // taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
-static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
+static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   auto PhdrsOrErr = Obj.program_headers();
   if (!PhdrsOrErr) {
     consumeError(PhdrsOrErr.takeError());
@@ -426,7 +427,7 @@ int add(void) {
   binary.Data.resize(Buffer->getBufferSize());
   memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
 
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
   switch (E.getHeader()->e_type) {
   case llvm::ELF::ET_NONE:
@@ -453,16 +454,16 @@ int add(void) {
     break;
   }
 
-  typedef typename ELFT::Elf_Dyn Elf_Dyn;
-  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFT::Elf_Phdr Elf_Phdr;
-  typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-  typedef typename ELFT::Elf_Sym Elf_Sym;
-  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Rela Elf_Rela;
-  typedef typename ELFT::Elf_Rel Elf_Rel;
+  typedef typename ELFF::Elf_Dyn Elf_Dyn;
+  typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFF::Elf_Phdr Elf_Phdr;
+  typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
+  typedef typename ELFF::Elf_Shdr Elf_Shdr;
+  typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+  typedef typename ELFF::Elf_Sym Elf_Sym;
+  typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFF::Elf_Rela Elf_Rela;
+  typedef typename ELFF::Elf_Rel Elf_Rel;
 
   //
   // build section map
@@ -814,7 +815,7 @@ int add(void) {
         return 1;
       }
 
-      const ELFT &split_E = *split_O.getELFFile();
+      const ELFF &split_E = *split_O.getELFFile();
 
       //
       // search symbols
