@@ -975,7 +975,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
 
 template <class T>
 static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
+  if (likely(EO))
     return *EO;
 
   std::string Buf;
@@ -984,7 +984,7 @@ static T unwrapOrError(llvm::Expected<T> EO) {
     llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
   }
   WithColor::error() << Buf << '\n';
-  exit(1);
+  abort();
 }
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
