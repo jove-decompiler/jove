@@ -1328,24 +1328,25 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 }
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #else
 #error
 #endif
 
-typedef typename ELFT::Elf_Dyn Elf_Dyn;
-typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFT::Elf_Phdr Elf_Phdr;
-typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFT::Elf_Shdr Elf_Shdr;
-typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFT::Elf_Sym Elf_Sym;
-typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-typedef typename ELFT::Elf_Rela Elf_Rela;
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
+
+typedef typename ELFF::Elf_Dyn Elf_Dyn;
+typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFF::Elf_Phdr Elf_Phdr;
+typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFF::Elf_Shdr Elf_Shdr;
+typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFF::Elf_Sym Elf_Sym;
+typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+typedef typename ELFF::Elf_Rela Elf_Rela;
 
 static bool verify_arch(const obj::ObjectFile &);
 
@@ -1380,7 +1381,7 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
     return false;
   }
 
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||
@@ -1559,7 +1560,7 @@ std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
   // TheTriple = O.makeTriple();
   // Features = O.getFeatures();
 
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
   //
   // build section map

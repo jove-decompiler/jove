@@ -403,14 +403,15 @@ static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 static int await_process_completion(pid_t);
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #else
 #error
 #endif
+
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
 
 static void IgnoreCtrlC(void);
 
@@ -677,10 +678,10 @@ int ParentProc(pid_t child, const char *fifo_path) {
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
 
-      const ELFT &E = *O.getELFFile();
+      const ELFF &E = *O.getELFFile();
 
-      typedef typename ELFT::Elf_Shdr Elf_Shdr;
-      typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+      typedef typename ELFF::Elf_Shdr Elf_Shdr;
+      typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
 
       llvm::Expected<Elf_Shdr_Range> sections = E.sections();
       if (!sections) {
@@ -2839,16 +2840,16 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFT &E = *O.getELFFile();
+    const ELFF &E = *O.getELFFile();
 
-    typedef typename ELFT::Elf_Phdr Elf_Phdr;
-    typedef typename ELFT::Elf_Dyn Elf_Dyn;
-    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Sym Elf_Sym;
-    typedef typename ELFT::Elf_Rel Elf_Rel;
-    typedef typename ELFT::Elf_Rela Elf_Rela;
+    typedef typename ELFF::Elf_Phdr Elf_Phdr;
+    typedef typename ELFF::Elf_Dyn Elf_Dyn;
+    typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFF::Elf_Shdr Elf_Shdr;
+    typedef typename ELFF::Elf_Sym Elf_Sym;
+    typedef typename ELFF::Elf_Rel Elf_Rel;
+    typedef typename ELFF::Elf_Rela Elf_Rela;
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
                                 const Elf_Rela &R) -> void {
@@ -2973,16 +2974,16 @@ static void harvest_addressof_reloc_targets(pid_t child,
 
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
-    const ELFT &E = *O.getELFFile();
+    const ELFF &E = *O.getELFFile();
 
-    typedef typename ELFT::Elf_Phdr Elf_Phdr;
-    typedef typename ELFT::Elf_Dyn Elf_Dyn;
-    typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-    typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Sym Elf_Sym;
-    typedef typename ELFT::Elf_Rela Elf_Rela;
-    typedef typename ELFT::Elf_Rel Elf_Rel;
+    typedef typename ELFF::Elf_Phdr Elf_Phdr;
+    typedef typename ELFF::Elf_Dyn Elf_Dyn;
+    typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFF::Elf_Shdr Elf_Shdr;
+    typedef typename ELFF::Elf_Sym Elf_Sym;
+    typedef typename ELFF::Elf_Rela Elf_Rela;
+    typedef typename ELFF::Elf_Rel Elf_Rel;
 
     auto process_elf_rela = [&](const Elf_Shdr &Sec,
                                 const Elf_Rela &R) -> void {
@@ -3913,10 +3914,10 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
 
       ELFO &O = *llvm::cast<ELFO>(Bin.get());
 
-      const ELFT &E = *O.getELFFile();
+      const ELFF &E = *O.getELFFile();
 
-      typedef typename ELFT::Elf_Shdr Elf_Shdr;
-      typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+      typedef typename ELFF::Elf_Shdr Elf_Shdr;
+      typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
 
       llvm::Expected<Elf_Shdr_Range> sections = E.sections();
       if (!sections) {
@@ -4047,16 +4048,16 @@ void on_dynamic_linker_loaded(pid_t child,
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
 
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
-  typedef typename ELFT::Elf_Phdr Elf_Phdr;
-  typedef typename ELFT::Elf_Dyn Elf_Dyn;
-  typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFT::Elf_Shdr Elf_Shdr;
-  typedef typename ELFT::Elf_Sym Elf_Sym;
-  typedef typename ELFT::Elf_Rela Elf_Rela;
-  typedef typename ELFT::Elf_Rel Elf_Rel;
+  typedef typename ELFF::Elf_Phdr Elf_Phdr;
+  typedef typename ELFF::Elf_Dyn Elf_Dyn;
+  typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+  typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+  typedef typename ELFF::Elf_Shdr Elf_Shdr;
+  typedef typename ELFF::Elf_Sym Elf_Sym;
+  typedef typename ELFF::Elf_Rela Elf_Rela;
+  typedef typename ELFF::Elf_Rel Elf_Rel;
 
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||

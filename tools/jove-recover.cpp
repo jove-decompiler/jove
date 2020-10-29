@@ -186,14 +186,15 @@ static basic_block_index_t translate_basic_block(binary_index_t,
                                                  const target_ulong Addr);
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #else
 #error
 #endif
+
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
 
 static std::string DescribeFunction(binary_index_t, function_index_t);
 static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
@@ -323,10 +324,10 @@ int recover(void) {
     TheTriple = O.makeTriple();
     Features = O.getFeatures();
 
-    const ELFT &E = *O.getELFFile();
+    const ELFF &E = *O.getELFFile();
 
-    typedef typename ELFT::Elf_Shdr Elf_Shdr;
-    typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
+    typedef typename ELFF::Elf_Shdr Elf_Shdr;
+    typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
 
     llvm::Expected<Elf_Shdr_Range> sections = E.sections();
     if (!sections) {

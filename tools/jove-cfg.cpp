@@ -88,24 +88,25 @@ typedef boost::format fmt;
 static binary_index_t BinaryIndex = invalid_binary_index;
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
 #elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF32LE ELFT;
 #else
 #error
 #endif
 
-typedef typename ELFT::Elf_Dyn Elf_Dyn;
-typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFT::Elf_Phdr Elf_Phdr;
-typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFT::Elf_Rela Elf_Rela;
-typedef typename ELFT::Elf_Shdr Elf_Shdr;
-typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFT::Elf_Sym Elf_Sym;
-typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
+
+typedef typename ELFF::Elf_Dyn Elf_Dyn;
+typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFF::Elf_Phdr Elf_Phdr;
+typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFF::Elf_Rela Elf_Rela;
+typedef typename ELFF::Elf_Shdr Elf_Shdr;
+typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFF::Elf_Sym Elf_Sym;
+typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
 
 template <class T>
 static T unwrapOrError(llvm::Expected<T> EO) {
@@ -411,7 +412,7 @@ int cfg(void) {
   }
 
   const ELFO &O = *llvm::cast<ELFO>(B);
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
