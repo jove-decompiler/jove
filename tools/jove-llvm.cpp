@@ -1014,6 +1014,317 @@ typedef typename ELFF::Elf_Verdef Elf_Verdef;
 typedef typename ELFF::Elf_Vernaux Elf_Vernaux;
 typedef typename ELFF::Elf_Verneed Elf_Verneed;
 
+#ifdef __mips__
+
+static const typename ELFF::Elf_Shdr *
+findNotEmptySectionByAddress(const ELFF *Obj, llvm::StringRef FileName,
+                             uint64_t Addr) {
+  for (const auto &Shdr : unwrapOrError(Obj->sections()))
+    if (Shdr.sh_addr == Addr && Shdr.sh_size > 0)
+      return &Shdr;
+  return nullptr;
+}
+
+static const typename ELFF::Elf_Shdr *
+findSectionByName(const ELFF &Obj, llvm::StringRef FileName, llvm::StringRef Name) {
+  for (const auto &Shdr : unwrapOrError(Obj.sections()))
+    if (Name == unwrapOrError(Obj.getSectionName(&Shdr)))
+      return &Shdr;
+  return nullptr;
+}
+
+#define TYPEDEF_ELF_TYPES(ELFT)                                                \
+  using ELFO = obj::ELFFile<ELFT>;                                                  \
+  using Elf_Addr = typename ELFT::Addr;                                        \
+  using Elf_Shdr = typename ELFT::Shdr;                                        \
+  using Elf_Sym = typename ELFT::Sym;                                          \
+  using Elf_Dyn = typename ELFT::Dyn;                                          \
+  using Elf_Dyn_Range = typename ELFT::DynRange;                               \
+  using Elf_Rel = typename ELFT::Rel;                                          \
+  using Elf_Rela = typename ELFT::Rela;                                        \
+  using Elf_Relr = typename ELFT::Relr;                                        \
+  using Elf_Rel_Range = typename ELFT::RelRange;                               \
+  using Elf_Rela_Range = typename ELFT::RelaRange;                             \
+  using Elf_Relr_Range = typename ELFT::RelrRange;                             \
+  using Elf_Phdr = typename ELFT::Phdr;                                        \
+  using Elf_Half = typename ELFT::Half;                                        \
+  using Elf_Ehdr = typename ELFT::Ehdr;                                        \
+  using Elf_Word = typename ELFT::Word;                                        \
+  using Elf_Hash = typename ELFT::Hash;                                        \
+  using Elf_GnuHash = typename ELFT::GnuHash;                                  \
+  using Elf_Note  = typename ELFT::Note;                                       \
+  using Elf_Sym_Range = typename ELFT::SymRange;                               \
+  using Elf_Versym = typename ELFT::Versym;                                    \
+  using Elf_Verneed = typename ELFT::Verneed;                                  \
+  using Elf_Vernaux = typename ELFT::Vernaux;                                  \
+  using Elf_Verdef = typename ELFT::Verdef;                                    \
+  using Elf_Verdaux = typename ELFT::Verdaux;                                  \
+  using Elf_CGProfile = typename ELFT::CGProfile;                              \
+  using uintX_t = typename ELFT::uint;
+
+class MipsGOTParser {
+public:
+  TYPEDEF_ELF_TYPES(ELFT)
+  using Entry = typename ELFO::Elf_Addr;
+  using Entries = llvm::ArrayRef<Entry>;
+
+  const bool IsStatic;
+  const ELFO * const Obj;
+
+  MipsGOTParser(const ELFO *Obj, llvm::StringRef FileName,
+                Elf_Dyn_Range DynTable, Elf_Sym_Range DynSyms)
+      : IsStatic(DynTable.empty()), Obj(Obj), GotSec(nullptr), LocalNum(0),
+        GlobalNum(0), PltSec(nullptr), PltRelSec(nullptr), PltSymTable(nullptr),
+        FileName(FileName) {
+    // See "Global Offset Table" in Chapter 5 in the following document
+    // for detailed GOT description.
+    // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
+
+    // Find static GOT secton.
+    if (IsStatic) {
+      GotSec = findSectionByName(*Obj, FileName, ".got");
+      if (!GotSec)
+        return;
+
+      llvm::ArrayRef<uint8_t> Content =
+          unwrapOrError(Obj->getSectionContents(GotSec));
+      GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
+                           Content.size() / sizeof(Entry));
+      LocalNum = GotEntries.size();
+      return;
+    }
+
+    // Lookup dynamic table tags which define GOT/PLT layouts.
+    llvm::Optional<uint64_t> DtPltGot;
+    llvm::Optional<uint64_t> DtLocalGotNum;
+    llvm::Optional<uint64_t> DtGotSym;
+    llvm::Optional<uint64_t> DtMipsPltGot;
+    llvm::Optional<uint64_t> DtJmpRel;
+    for (const auto &Entry : DynTable) {
+      switch (Entry.getTag()) {
+      case llvm::ELF::DT_PLTGOT:
+        DtPltGot = Entry.getVal();
+        break;
+      case llvm::ELF::DT_MIPS_LOCAL_GOTNO:
+        DtLocalGotNum = Entry.getVal();
+        break;
+      case llvm::ELF::DT_MIPS_GOTSYM:
+        DtGotSym = Entry.getVal();
+        break;
+      case llvm::ELF::DT_MIPS_PLTGOT:
+        DtMipsPltGot = Entry.getVal();
+        break;
+      case llvm::ELF::DT_JMPREL:
+        DtJmpRel = Entry.getVal();
+        break;
+      }
+    }
+
+    // Find dynamic GOT section.
+    if (DtPltGot || DtLocalGotNum || DtGotSym) {
+      if (!DtPltGot) {
+#if 0
+        report_fatal_error("Cannot find PLTGOT dynamic table tag.");
+#else
+        abort();
+#endif
+      }
+      if (!DtLocalGotNum) {
+#if 0
+        report_fatal_error("Cannot find MIPS_LOCAL_GOTNO dynamic table tag.");
+#else
+        abort();
+#endif
+      }
+      if (!DtGotSym) {
+#if 0
+        report_fatal_error("Cannot find MIPS_GOTSYM dynamic table tag.");
+#else
+        abort();
+#endif
+      }
+
+      size_t DynSymTotal = DynSyms.size();
+      if (*DtGotSym > DynSymTotal) {
+#if 0
+        reportError(
+            createError("MIPS_GOTSYM exceeds a number of dynamic symbols"),
+            FileName);
+#else
+        abort();
+#endif
+      }
+
+      GotSec = findNotEmptySectionByAddress(Obj, FileName, *DtPltGot);
+      if (!GotSec) {
+#if 0
+        reportError(createError("There is no not empty GOT section at 0x" +
+                                Twine::utohexstr(*DtPltGot)),
+                    FileName);
+#else
+        abort();
+#endif
+      }
+
+      LocalNum = *DtLocalGotNum;
+      GlobalNum = DynSymTotal - *DtGotSym;
+
+      llvm::ArrayRef<uint8_t> Content =
+          unwrapOrError(Obj->getSectionContents(GotSec));
+      GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
+                           Content.size() / sizeof(Entry));
+      GotDynSyms = DynSyms.drop_front(*DtGotSym);
+    }
+
+    // Find PLT section.
+    if (DtMipsPltGot || DtJmpRel) {
+      if (!DtMipsPltGot) {
+#if 0
+        report_fatal_error("Cannot find MIPS_PLTGOT dynamic table tag.");
+#else
+        abort();
+#endif
+      }
+
+      if (!DtJmpRel) {
+#if 0
+        report_fatal_error("Cannot find JMPREL dynamic table tag.");
+#else
+        abort();
+#endif
+      }
+
+      PltSec = findNotEmptySectionByAddress(Obj, FileName, *DtMipsPltGot);
+      if (!PltSec) {
+#if 0
+        report_fatal_error("There is no not empty PLTGOT section at 0x " +
+                           Twine::utohexstr(*DtMipsPltGot));
+#else
+        abort();
+#endif
+      }
+
+      PltRelSec = findNotEmptySectionByAddress(Obj, FileName, *DtJmpRel);
+      if (!PltRelSec) {
+#if 0
+        report_fatal_error("There is no not empty RELPLT section at 0x" +
+                           Twine::utohexstr(*DtJmpRel));
+#else
+        abort();
+#endif
+      }
+
+      llvm::ArrayRef<uint8_t> PltContent =
+          unwrapOrError(Obj->getSectionContents(PltSec));
+      PltEntries = Entries(reinterpret_cast<const Entry *>(PltContent.data()),
+                           PltContent.size() / sizeof(Entry));
+
+      PltSymTable =
+          unwrapOrError(Obj->getSection(PltRelSec->sh_link));
+      PltStrTable =
+          unwrapOrError(Obj->getStringTableForSymtab(*PltSymTable));
+    }
+  }
+
+  bool hasGot() const { return !GotEntries.empty(); }
+  bool hasPlt() const { return !PltEntries.empty(); }
+
+  uint64_t getGp() const {
+    return GotSec->sh_addr + 0x7ff0;
+  }
+
+  const Entry *getGotLazyResolver() const {
+    return LocalNum > 0 ? &GotEntries[0] : nullptr;
+  }
+  const Entry *getGotModulePointer() const {
+    if (LocalNum < 2)
+      return nullptr;
+    const Entry &E = GotEntries[1];
+    if ((E >> (sizeof(Entry) * 8 - 1)) == 0)
+      return nullptr;
+    return &E;
+  }
+  const Entry *getPltLazyResolver() const {
+    return PltEntries.empty() ? nullptr : &PltEntries[0];
+  }
+  const Entry *getPltModulePointer() const {
+    return PltEntries.size() < 2 ? nullptr : &PltEntries[1];
+  }
+
+  Entries getLocalEntries() const {
+    size_t Skip = getGotModulePointer() ? 2 : 1;
+    if (LocalNum - Skip <= 0)
+      return Entries();
+    return GotEntries.slice(Skip, LocalNum - Skip);
+  }
+
+  Entries getGlobalEntries() const {
+    if (GlobalNum == 0)
+      return Entries();
+    return GotEntries.slice(LocalNum, GlobalNum);
+  }
+  Entries getOtherEntries() const {
+    size_t OtherNum = GotEntries.size() - LocalNum - GlobalNum;
+    if (OtherNum == 0)
+      return Entries();
+    return GotEntries.slice(LocalNum + GlobalNum, OtherNum);
+  }
+  Entries getPltEntries() const {
+    if (PltEntries.size() <= 2)
+      return Entries();
+    return PltEntries.slice(2, PltEntries.size() - 2);
+  }
+
+  uint64_t getGotAddress(const Entry * E) const {
+    int64_t Offset = std::distance(GotEntries.data(), E) * sizeof(Entry);
+    return GotSec->sh_addr + Offset;
+  }
+
+  int64_t getGotOffset(const Entry * E) const {
+    int64_t Offset = std::distance(GotEntries.data(), E) * sizeof(Entry);
+    return Offset - 0x7ff0;
+  }
+  const Elf_Sym *getGotSym(const Entry *E) const {
+    int64_t Offset = std::distance(GotEntries.data(), E);
+    return &GotDynSyms[Offset - LocalNum];
+  }
+
+  uint64_t getPltAddress(const Entry * E) const {
+    int64_t Offset = std::distance(PltEntries.data(), E) * sizeof(Entry);
+    return PltSec->sh_addr + Offset;
+  }
+  const Elf_Sym *getPltSym(const Entry *E) const {
+    int64_t Offset = std::distance(getPltEntries().data(), E);
+    if (PltRelSec->sh_type == llvm::ELF::SHT_REL) {
+      Elf_Rel_Range Rels = unwrapOrError(Obj->rels(PltRelSec));
+      return unwrapOrError(Obj->getRelocationSymbol(&Rels[Offset], PltSymTable));
+    } else {
+      Elf_Rela_Range Rels = unwrapOrError(Obj->relas(PltRelSec));
+      return unwrapOrError(Obj->getRelocationSymbol(&Rels[Offset], PltSymTable));
+    }
+  }
+
+  llvm::StringRef getPltStrTable() const { return PltStrTable; }
+
+private:
+  const Elf_Shdr *GotSec;
+  size_t LocalNum;
+  size_t GlobalNum;
+
+  const Elf_Shdr *PltSec;
+  const Elf_Shdr *PltRelSec;
+  const Elf_Shdr *PltSymTable;
+  llvm::StringRef FileName;
+
+  Elf_Sym_Range GotDynSyms;
+  llvm::StringRef PltStrTable;
+
+  Entries GotEntries;
+  Entries PltEntries;
+};
+
+#endif
+
 // TODO this whole function needs to be obliterated
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
