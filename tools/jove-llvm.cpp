@@ -1017,8 +1017,7 @@ typedef typename ELFF::Elf_Verneed Elf_Verneed;
 #ifdef __mips__
 
 static const typename ELFF::Elf_Shdr *
-findNotEmptySectionByAddress(const ELFF *Obj, llvm::StringRef FileName,
-                             uint64_t Addr) {
+findNotEmptySectionByAddress(const ELFF *Obj, uint64_t Addr) {
   for (const auto &Shdr : unwrapOrError(Obj->sections()))
     if (Shdr.sh_addr == Addr && Shdr.sh_size > 0)
       return &Shdr;
@@ -1026,7 +1025,7 @@ findNotEmptySectionByAddress(const ELFF *Obj, llvm::StringRef FileName,
 }
 
 static const typename ELFF::Elf_Shdr *
-findSectionByName(const ELFF &Obj, llvm::StringRef FileName, llvm::StringRef Name) {
+findSectionByName(const ELFF &Obj, llvm::StringRef Name) {
   for (const auto &Shdr : unwrapOrError(Obj.sections()))
     if (Name == unwrapOrError(Obj.getSectionName(&Shdr)))
       return &Shdr;
@@ -1068,18 +1067,17 @@ public:
   const bool IsStatic;
   const ELFF * const Obj;
 
-  MipsGOTParser(const ELFF *Obj, llvm::StringRef FileName,
+  MipsGOTParser(const ELFF *Obj,
                 Elf_Dyn_Range DynTable, Elf_Sym_Range DynSyms)
       : IsStatic(DynTable.empty()), Obj(Obj), GotSec(nullptr), LocalNum(0),
-        GlobalNum(0), PltSec(nullptr), PltRelSec(nullptr), PltSymTable(nullptr),
-        FileName(FileName) {
+        GlobalNum(0), PltSec(nullptr), PltRelSec(nullptr), PltSymTable(nullptr) {
     // See "Global Offset Table" in Chapter 5 in the following document
     // for detailed GOT description.
     // ftp://www.linux-mips.org/pub/linux/mips/doc/ABI/mipsabi.pdf
 
     // Find static GOT secton.
     if (IsStatic) {
-      GotSec = findSectionByName(*Obj, FileName, ".got");
+      GotSec = findSectionByName(*Obj, ".got");
       if (!GotSec)
         return;
 
@@ -1152,7 +1150,7 @@ public:
 #endif
       }
 
-      GotSec = findNotEmptySectionByAddress(Obj, FileName, *DtPltGot);
+      GotSec = findNotEmptySectionByAddress(Obj, *DtPltGot);
       if (!GotSec) {
 #if 0
         reportError(createError("There is no not empty GOT section at 0x" +
@@ -1191,7 +1189,7 @@ public:
 #endif
       }
 
-      PltSec = findNotEmptySectionByAddress(Obj, FileName, *DtMipsPltGot);
+      PltSec = findNotEmptySectionByAddress(Obj, *DtMipsPltGot);
       if (!PltSec) {
 #if 0
         report_fatal_error("There is no not empty PLTGOT section at 0x " +
@@ -1201,7 +1199,7 @@ public:
 #endif
       }
 
-      PltRelSec = findNotEmptySectionByAddress(Obj, FileName, *DtJmpRel);
+      PltRelSec = findNotEmptySectionByAddress(Obj, *DtJmpRel);
       if (!PltRelSec) {
 #if 0
         report_fatal_error("There is no not empty RELPLT section at 0x" +
@@ -1311,7 +1309,6 @@ private:
   const Elf_Shdr *PltSec;
   const Elf_Shdr *PltRelSec;
   const Elf_Shdr *PltSymTable;
-  llvm::StringRef FileName;
 
   Elf_Sym_Range GotDynSyms;
   llvm::StringRef PltStrTable;
@@ -3795,6 +3792,16 @@ int ProcessBinaryRelocations(void) {
         process_elf_rela(Sec, Rela);
     }
   }
+
+#ifdef __mips__
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  MipsGOTParser Parser(&E,
+                       dynamic_table(),
+                       dynamic_symbols());
+#endif
 
   //
   // print relocations & symbols
