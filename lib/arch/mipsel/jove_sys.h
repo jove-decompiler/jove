@@ -74,7 +74,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1) {                          \
     register long __s0 asm("$16") __attribute__((unused)) = (nr);              \
                                                                                \
     register long __v0 asm("$2");                                              \
@@ -97,7 +97,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2) {                     \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2) {                 \
     register long __s0 asm("$16") __attribute__((unused)) = (nr);              \
                                                                                \
     register long __v0 asm("$2");                                              \
@@ -121,7 +121,7 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3) {              \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3) {        \
     register long __s0 asm("$16") __attribute__((unused)) = (nr);              \
                                                                                \
     register long __v0 asm("$2");                                              \
@@ -146,7 +146,8 @@ typedef s32 old_time32_t;
   }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4) {       \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3,          \
+                                           long a4) {                          \
     register long __s0 asm("$16") __attribute__((unused)) = (nr);              \
                                                                                \
     register long __v0 asm("$2");                                              \
@@ -213,15 +214,15 @@ __mips_syscall6(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
 }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4,         \
-                                           t5 a5) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5) {                          \
     union __mips_syscall_return _sc_ret;                                       \
     _sc_ret.val = __mips_syscall5(a1, a2, a3, a4, a5, nr);                     \
                                                                                \
-    int res = _sc_ret.reg.v0;                                                  \
+    long res = _sc_ret.reg.v0;                                                 \
                                                                                \
     {                                                                          \
-      int _sc_err = _sc_ret.reg.v1;                                            \
+      long _sc_err = _sc_ret.reg.v1;                                           \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
@@ -230,15 +231,15 @@ __mips_syscall6(uint32_t arg1, uint32_t arg2, uint32_t arg3, uint32_t arg4,
   }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  static JOVE_SYS_ATTR long _jove_sys_##nm(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5,  \
-                                           t6 a6) {                            \
+  static JOVE_SYS_ATTR long _jove_sys_##nm(long a1, long a2, long a3, long a4, \
+                                           long a5, long a6) {                 \
     union __mips_syscall_return _sc_ret;                                       \
     _sc_ret.val = __mips_syscall6(a1, a2, a3, a4, a5, a6, nr);                 \
                                                                                \
-    int res = _sc_ret.reg.v0;                                                  \
+    long res = _sc_ret.reg.v0;                                                 \
                                                                                \
     {                                                                          \
-      int _sc_err = _sc_ret.reg.v1;                                            \
+      long _sc_err = _sc_ret.reg.v1;                                           \
       if (_sc_err)                                                             \
         res = -res;                                                            \
     }                                                                          \
