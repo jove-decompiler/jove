@@ -3801,6 +3801,110 @@ int ProcessBinaryRelocations(void) {
   MipsGOTParser Parser(&E,
                        dynamic_table(),
                        dynamic_symbols());
+
+  for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
+    const target_ulong Addr = Parser.getGotAddress(&Ent);
+
+    if (!Ent)
+      continue;
+
+    llvm::outs() << llvm::formatv("LocalEntry: {0:x}\n", Addr);
+
+    relocation_t res;
+    res.Type = relocation_t::TYPE::RELATIVE;
+    res.Addr = Addr;
+    res.Addend = 0;
+    res.SymbolIndex = std::numeric_limits<unsigned>::max();
+    res.T = nullptr;
+    res.C = nullptr;
+    res.RelocationTypeName = "LocalGOTEntry";
+
+    RelocationTable.push_back(res);
+  }
+
+  for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+    const target_ulong Addr = Parser.getGotAddress(&Ent);
+
+    const Elf_Sym *Sym = Parser.getGotSym(&Ent);
+
+    assert(Sym);
+
+    if (!Ent)
+      assert(Sym->isUndefined());
+
+    if (!Sym->isUndefined()) {
+      assert(Sym->st_size);
+      assert(Sym->st_value);
+      assert(Ent);
+    }
+
+    llvm::outs() << llvm::formatv("GlobalEntry: {0} {1}\n", Ent,
+                                  unwrapOrError(Sym->getName(DynamicStringTable)));
+
+    relocation_t res;
+    res.Type = relocation_t::TYPE::ADDRESSOF;
+    res.Addr = Addr;
+    res.Addend = 0;
+    res.SymbolIndex = SymbolTable.size();
+    {
+      symbol_t sym;
+
+      sym.Name = unwrapOrError(Sym->getName(DynamicStringTable));
+      sym.Addr = Sym->st_value;
+      sym.Visibility.IsDefault = false;
+
+      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
+          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
+          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
+          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
+          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
+          symbol_t::TYPE::DATA,     // STT_FILE                = 4
+          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
+          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
+          symbol_t::TYPE::NONE,     // N/A                     = 7
+          symbol_t::TYPE::NONE,     // N/A                     = 8
+          symbol_t::TYPE::NONE,     // N/A                     = 9
+          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
+          symbol_t::TYPE::NONE,     // N/A                     = 11
+          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
+          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
+          symbol_t::TYPE::NONE,     // N/A                     = 14
+          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
+      };
+
+      sym.Type = elf_symbol_type_mapping[Sym->getType()];
+      sym.Size = Sym->st_size;
+
+      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
+          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
+          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
+          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
+          symbol_t::BINDING::NONE,      // N/A            = 3
+          symbol_t::BINDING::NONE,      // N/A            = 4
+          symbol_t::BINDING::NONE,      // N/A            = 5
+          symbol_t::BINDING::NONE,      // N/A            = 6
+          symbol_t::BINDING::NONE,      // N/A            = 7
+          symbol_t::BINDING::NONE,      // N/A            = 8
+          symbol_t::BINDING::NONE,      // N/A            = 9
+          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
+          symbol_t::BINDING::NONE,      // N/A            = 11
+          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
+          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
+          symbol_t::BINDING::NONE,      // N/A            = 14
+          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
+      };
+
+      sym.Bind = elf_symbol_binding_mapping[Sym->getBinding()];
+
+      SymbolTable.push_back(sym);
+    }
+
+    res.T = nullptr;
+    res.C = nullptr;
+    res.RelocationTypeName = "GlobalGOTEntry";
+
+    RelocationTable.push_back(res);
+  }
 #endif
 
   //
@@ -4718,7 +4822,7 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(SectsStartAddr);
   assert(SectsEndAddr);
 
-  if (!(Addr >= SectsStartAddr && Addr <= SectsEndAddr))
+  if (!(Addr >= SectsStartAddr))
     return nullptr;
 
   unsigned off = Addr - SectsStartAddr;
@@ -4856,8 +4960,8 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    auto it = FuncMap.find(S.Addr);
-    assert(it != FuncMap.end());
+    //auto it = FuncMap.find(S.Addr);
+    //assert(it != FuncMap.end());
 
 #if 0
     llvm::FunctionType *FTy = DetermineFunctionType(BinaryIndex, (*it).second);
@@ -5220,8 +5324,8 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    auto it = FuncMap.find(S.Addr);
-    assert(it != FuncMap.end());
+    //auto it = FuncMap.find(S.Addr);
+    //assert(it != FuncMap.end());
 
 #if 0
     return Decompilation.Binaries[BinaryIndex]
@@ -5322,10 +5426,10 @@ int CreateSectionGlobalVariables(void) {
       Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
-#if 0
     WithColor::note() << llvm::formatv(
         "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
 
+#if 0
     auto it = FuncMap.find(Addr);
     if (it == FuncMap.end()) {
       llvm::Constant *C = SectionPointer(Addr);
@@ -6120,7 +6224,7 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
-#ifdef __mips__
+#if 0 /* defined(__mips__) */
     {
       auto it = std::find_if(
           std::begin(SectTable),
@@ -6189,7 +6293,7 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
-#ifdef __mips__
+#if 0 /* defined(__mips__) */
     {
       auto it = std::find_if(
           std::begin(SectTable),
