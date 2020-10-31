@@ -1847,8 +1847,8 @@ _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 
 _NOINL _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx);
 
-_NOINL _NORET void _jove_fail1(target_ulong);
-_NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
+_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
+_NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
 _NOINL void _jove_check_return_address(target_ulong RetAddr,
                                        target_ulong NativeRetAddr);
@@ -2584,14 +2584,12 @@ found:
 
 
 void _jove_fail1(target_ulong a0) {
-  __builtin_trap();
-  __builtin_unreachable();
+  asm volatile("break");
 }
 
 void _jove_fail2(target_ulong a0,
                  target_ulong a1) {
-  __builtin_trap();
-  __builtin_unreachable();
+  asm volatile("break");
 }
 
 target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
