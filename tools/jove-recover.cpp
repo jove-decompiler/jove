@@ -307,9 +307,9 @@ int recover(void) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
-                         << '\n';
-      return 1;
+      WithColor::warning() << "failed to create binary from " << binary.Path
+                           << '\n';
+      continue; /* XXX TODO */
     }
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
