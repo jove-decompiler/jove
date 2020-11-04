@@ -112,6 +112,8 @@ static int await_process_completion(pid_t);
 static void *recover_proc(const char *fifo_path);
 static void IgnoreCtrlC(void);
 
+static void print_command(const char **argv);
+
 int run(void) {
 #if 0
   if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
@@ -437,6 +439,7 @@ int run(void) {
 
     arg_vec.push_back(nullptr);
 
+    print_command(&arg_vec[0]);
     execve(arg_vec[0],
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env.a_vec[0]));
@@ -742,6 +745,7 @@ do_f_read:
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
+        print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
         exit(1);
@@ -790,6 +794,7 @@ do_b_read:
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
+        print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
         exit(1);
@@ -834,6 +839,7 @@ do_r_read:
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
+        print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
         exit(1);
@@ -887,6 +893,23 @@ void IgnoreCtrlC(void) {
   sa.sa_handler = SIG_IGN;
 
   sigaction(SIGINT, &sa, nullptr);
+}
+
+void print_command(const char **argv) {
+  std::string msg;
+
+  for (const char **s = argv; *s; ++s) {
+    msg.append(*s);
+    msg.push_back(' ');
+  }
+
+  if (msg.empty())
+    return;
+
+  msg[msg.size() - 1] = '\n';
+
+  llvm::errs() << msg;
+  llvm::errs().flush();
 }
 
 }
