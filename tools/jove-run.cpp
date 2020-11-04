@@ -709,28 +709,31 @@ void *recover_proc(const char *fifo_path) {
       } Callee;
 
       {
-        struct iovec iov_arr[] = {
-            _IOV_ENTRY(Caller.BIdx),
-            _IOV_ENTRY(Caller.BBIdx),
-            _IOV_ENTRY(Callee.BIdx),
-            _IOV_ENTRY(Callee.FIdx)
-        };
+        ssize_t ret;
 
-        size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-do_f_read:
-        ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
-        if (ret != expected) {
-          if (ret < 0) {
-            if (errno == EINTR)
-              goto do_f_read;
+        do
+          ret = read(recover_fd, &Caller.BIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
 
-            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          } else {
-            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
-          }
+        assert(ret == sizeof(uint32_t));
 
-          break;
-        }
+        do
+          ret = read(recover_fd, &Caller.BBIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &Callee.FIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
       }
 
       int pid = fork();
@@ -761,26 +764,25 @@ do_f_read:
       uintptr_t FileAddr;
 
       {
-        struct iovec iov_arr[] = {
-            _IOV_ENTRY(IndBr.BIdx),
-            _IOV_ENTRY(IndBr.BBIdx),
-            _IOV_ENTRY(FileAddr)
-        };
+        ssize_t ret;
 
-        size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-do_b_read:
-        ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
-        if (ret != expected) {
-          if (ret < 0) {
-            if (errno == EINTR)
-              goto do_b_read;
+        do
+          ret = read(recover_fd, &IndBr.BIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
 
-            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          } else {
-            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
-          }
-          break;
-        }
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &IndBr.BBIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &FileAddr, sizeof(uintptr_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uintptr_t));
       }
 
       int pid = fork();
@@ -808,25 +810,19 @@ do_b_read:
       } Call;
 
       {
-        struct iovec iov_arr[] = {
-            _IOV_ENTRY(Call.BIdx),
-            _IOV_ENTRY(Call.BBIdx)
-        };
+        ssize_t ret;
 
-        size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-do_r_read:
-        ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
-        if (ret != expected) {
-          if (ret < 0) {
-            if (errno == EINTR)
-              goto do_r_read;
+        do
+          ret = read(recover_fd, &Call.BIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
 
-            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          } else {
-            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
-          }
-          break;
-        }
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &Call.BBIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
       }
 
       int pid = fork();
