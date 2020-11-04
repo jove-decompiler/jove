@@ -1881,6 +1881,7 @@ static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
+static _INL void uint_to_string(uint32_t x, char *Str);
 
 //
 // definitions
@@ -2451,6 +2452,28 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 
 found:
   {
+    char buff[65];
+    uint_to_string(Callee.BIdx, &buff[0]);
+    _jove_sys_write(2, buff, _strlen(buff));
+  }
+
+  {
+    char newl = '\n';
+    _jove_sys_write(2, &newl, 1);
+  }
+
+  {
+    char buff[65];
+    uint_to_string(Callee.FIdx, &buff[0]);
+    _jove_sys_write(2, buff, _strlen(buff));
+  }
+
+  {
+    char newl = '\n';
+    _jove_sys_write(2, &newl, 1);
+  }
+
+  {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0) {
       __builtin_trap();
@@ -2560,6 +2583,28 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
 
   Call.BIdx = _jove_binary_index();
   Call.BBIdx = CallerBBIdx;
+
+  {
+    char buff[65];
+    uint_to_string(Call.BIdx, &buff[0]);
+    _jove_sys_write(2, buff, _strlen(buff));
+  }
+
+  {
+    char newl = '\n';
+    _jove_sys_write(2, &newl, 1);
+  }
+
+  {
+    char buff[65];
+    uint_to_string(Call.BBIdx, &buff[0]);
+    _jove_sys_write(2, buff, _strlen(buff));
+  }
+
+  {
+    char newl = '\n';
+    _jove_sys_write(2, &newl, 1);
+  }
 
 found:
   {
@@ -2915,4 +2960,36 @@ bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
 
   __builtin_trap();
   __builtin_unreachable();
+}
+
+void uint_to_string(uint32_t x, char *Str) {
+  const unsigned Radix = 10;
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
 }
