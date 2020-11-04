@@ -2483,18 +2483,19 @@ found:
     {
       char ch = 'f';
 
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(CallerBIdx),
-          _IOV_ENTRY(CallerBBIdx),
-          _IOV_ENTRY(Callee.BIdx),
-          _IOV_ENTRY(Callee.FIdx)
-      };
+      {
+        char buff[sizeof(char) + 4 * sizeof(uint32_t)];
 
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = CallerBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = CallerBBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FIdx;
+
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
       }
 
       _jove_sys_close(recover_fd);
@@ -2548,17 +2549,18 @@ found:
     {
       char ch = 'b';
 
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(IndBr.BIdx),
-          _IOV_ENTRY(IndBr.BBIdx),
-          _IOV_ENTRY(FileAddr)
-      };
+      {
+        char buff[sizeof(char) + 2 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndBr.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndBr.BBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
       }
 
       _jove_sys_close(recover_fd);
@@ -2617,16 +2619,17 @@ found:
     {
       char ch = 'r';
 
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(Call.BIdx),
-          _IOV_ENTRY(Call.BBIdx)
-      };
+      {
+        char buff[sizeof(char) + 2 * sizeof(uint32_t)];
 
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = Call.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = Call.BBIdx;
+
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
       }
 
       _jove_sys_close(recover_fd);
