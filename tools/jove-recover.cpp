@@ -585,6 +585,10 @@ int recover(void) {
 
     uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
 
+#ifdef __mips__
+    NextAddr += 4; /* delay slot */
+#endif
+
     uintptr_t TermAddr = ICFG[bb].Term.Addr;
 
     bool isCall =
