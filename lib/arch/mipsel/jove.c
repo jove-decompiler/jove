@@ -2552,17 +2552,18 @@ found:
     {
       char ch = 'F';
 
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(IndCall.BIdx),
-          _IOV_ENTRY(IndCall.BBIdx),
-          _IOV_ENTRY(FileAddr)
-      };
+      {
+        char buff[sizeof(char) + 2 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
       }
 
       _jove_sys_close(recover_fd);

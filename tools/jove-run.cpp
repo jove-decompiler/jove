@@ -812,26 +812,25 @@ void *recover_proc(const char *fifo_path) {
       uintptr_t FileAddr;
 
       {
-        struct iovec iov_arr[] = {
-            _IOV_ENTRY(IndCall.BIdx),
-            _IOV_ENTRY(IndCall.BBIdx),
-            _IOV_ENTRY(FileAddr)
-        };
+        ssize_t ret;
 
-        size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-do_F_read:
-        ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
-        if (ret != expected) {
-          if (ret < 0) {
-            if (errno == EINTR)
-              goto do_F_read;
+        do
+          ret = read(recover_fd, &IndCall.BIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
 
-            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
-          } else {
-            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
-          }
-          break;
-        }
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uint32_t));
+
+        do
+          ret = read(recover_fd, &FileAddr, sizeof(uintptr_t));
+        while (ret < 0 && errno == EINTR);
+
+        assert(ret == sizeof(uintptr_t));
       }
 
       int pid = fork();
