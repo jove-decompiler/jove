@@ -1752,7 +1752,7 @@ struct CPUMIPSState {
 #define _INL    __attribute__((always_inline))
 #define _REGPARM __attribute__((regparm(3)))
 
-#define JOVE_SYS_ATTR _NOINL _HIDDEN
+#define JOVE_SYS_ATTR _INL
 #include "jove_sys.h"
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
