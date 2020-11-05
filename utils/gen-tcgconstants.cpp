@@ -464,7 +464,7 @@ int main(int argc, char **argv) {
 #elif defined(__mips64)
     return tcg_index_of_named_global("t0");
 #elif defined(__mips__)
-    return tcg_index_of_named_global("t0");
+    return -1; /* on stack */
 #else
 #error
 #endif
@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
 #elif defined(__mips64)
     return tcg_index_of_named_global("t1");
 #elif defined(__mips__)
-    return tcg_index_of_named_global("t1");
+    return -1; /* on stack */
 #else
 #error
 #endif
