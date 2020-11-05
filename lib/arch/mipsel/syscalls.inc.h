@@ -38,7 +38,7 @@ ___SYSCALL2(4038, rename, const char *, oldname, const char *, newname)
 ___SYSCALL2(4039, mkdir, const char *, pathname, mode_t, mode)
 ___SYSCALL1(4040, rmdir, const char *, pathname)
 ___SYSCALL1(4041, dup, unsigned int, fildes)
-___SYSCALL0(4042, sysm_pipe) /* XXX TODO For historic reasons the pipe(2) syscall on MIPS has an unusual calling convention.  It returns results in registers $v0 / $v1*/
+___SYSCALL0(4042, sysm_pipe)
 ___SYSCALL1(4043, times, struct tms *, tbuf)
 ___SYSCALL1(4045, brk, unsigned long, brk)
 ___SYSCALL1(4046, setgid, gid_t, gid)

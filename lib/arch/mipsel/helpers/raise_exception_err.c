@@ -1750,10 +1750,10 @@ struct CPUMIPSState {
 #define _HIDDEN __attribute__((visibility("hidden")))
 #define _NOINL  __attribute__((noinline))
 #define _INL    __attribute__((always_inline))
-#define _REGPARM __attribute__((regparm(3)))
+#define _UNUSED __attribute__((unused))
 
-#define JOVE_SYS_ATTR _INL
-#include "jove_sys.h"
+#define JOVE_SYS_ATTR _INL _UNUSED
+#include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                           int error_code, uintptr_t pc) {
@@ -1826,12 +1826,14 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     //
     unsigned long sysnum = env->active_tc.gpr[2];
 
+#define env_sp env->active_tc.gpr[29]
+
 #define env_a1 env->active_tc.gpr[4]
 #define env_a2 env->active_tc.gpr[5]
 #define env_a3 env->active_tc.gpr[6]
 #define env_a4 env->active_tc.gpr[7]
-#define env_a5 env->active_tc.gpr[8]
-#define env_a6 env->active_tc.gpr[9]
+#define env_a5 (*((uint32_t *)(env_sp + 16)))
+#define env_a6 (*((uint32_t *)(env_sp + 20)))
 
 #ifdef JOVE_DFSAN
 
@@ -1908,57 +1910,136 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
   //
   // perform the call
   //
-  long sysret;
+
+  /* For historic reasons the pipe(2) syscall on MIPS returns results in
+   * registers $v0 and $v1 */
+  if (sysnum == 4042 /* sysm_pipe */) {
+    register long r7 asm("$7");
+    register long r2 asm("$2");
+    register long r3 asm("$3");
+    asm volatile("addu $2,$0,%2 ; syscall"
+                 : "=&r"(r2), "=r"(r3), "=r"(r7)
+                 : "ir"(4042), "0"(r2)
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");
+    env->active_tc.gpr[7] = r7;
+    env->active_tc.gpr[2] = r2;
+    env->active_tc.gpr[3] = r3;
+    return;
+  }
+
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm();                                                 \
-    break;
+  case nr: {                                                                   \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2)                                           \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1);                                           \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4)                                  \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1,                                            \
-                            env_a2);                                           \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r5 asm("$5") = env_a2;                                       \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5)                         \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1,                                            \
-                            env_a2,                                            \
-                            env_a3);                                           \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r5 asm("$5") = env_a2;                                       \
+    register long r6 asm("$6") = env_a3;                                       \
+    register long r7 asm("$7");                                                \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "=r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1,                                            \
-                            env_a2,                                            \
-                            env_a3,                                            \
-                            env_a4);                                           \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r5 asm("$5") = env_a2;                                       \
+    register long r6 asm("$6") = env_a3;                                       \
+    register long r7 asm("$7") = env_a4;                                       \
+    register long r2 asm("$2");                                                \
+    asm volatile("addu $2,$0,%2 ; syscall"                                     \
+                 : "=&r"(r2), "+r"(r7)                                         \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$8", "$9", "$10");                     \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1,                                            \
-                            env_a2,                                            \
-                            env_a3,                                            \
-                            env_a4,                                            \
-                            env_a5);                                           \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r5 asm("$5") = env_a2;                                       \
+    register long r6 asm("$6") = env_a3;                                       \
+    register long r7 asm("$7") = env_a4;                                       \
+    register long r8 asm("$8") = env_a5;                                       \
+    register long r2 asm("$2");                                                \
+    asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; "                          \
+                 "addu $2,$0,%3 ; syscall ;"                                   \
+                 "addu $sp,$sp,32"                                             \
+                 : "=&r"(r2), "+r"(r7), "+r"(r8)                               \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$9", "$10");                           \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  case nr:                                                                     \
-    sysret = _jove_sys_##nm(env_a1,                                           \
-                            env_a2,                                           \
-                            env_a3,                                           \
-                            env_a4,                                           \
-                            env_a5,                                           \
-                            env_a6);                                          \
-    break;
+  case nr: {                                                                   \
+    register long r4 asm("$4") = env_a1;                                       \
+    register long r5 asm("$5") = env_a2;                                       \
+    register long r6 asm("$6") = env_a3;                                       \
+    register long r7 asm("$7") = env_a4;                                       \
+    register long r8 asm("$8") = env_a5;                                       \
+    register long r9 asm("$9") = env_a6;                                       \
+    register long r2 asm("$2");                                                \
+    asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; sw $9,20($sp) ; "          \
+                 "addu $2,$0,%4 ; syscall ;"                                   \
+                 "addu $sp,$sp,32"                                             \
+                 : "=&r"(r2), "+r"(r7), "+r"(r8), "+r"(r9)                     \
+                 : "ir"(nr), "0"(r2), "r"(r4), "r"(r5), "r"(r6)                \
+                 : __SYSCALL_CLOBBERS, "$10");                                 \
+    env->active_tc.gpr[7] = r7;                                                \
+    env->active_tc.gpr[2] = r2;                                                \
+    break;                                                                     \
+  }
 
 #include "syscalls.inc.h"
 
@@ -2040,9 +2121,7 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     break;
   }
 
-#endif
-
-  env->active_tc.gpr[2] = sysret;
+#endif /* JOVE_DFSAN */
 
 #endif
 }
