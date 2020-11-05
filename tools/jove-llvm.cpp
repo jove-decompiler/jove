@@ -10035,24 +10035,12 @@ int TranslateBasicBlock(basic_block_t bb,
       //
       // if this is an indirect jump, then it's possible this is a goto
       //
-      if (T.Type == TERMINATOR::INDIRECT_JUMP) {
-        assert(boost::out_degree(bb, ICFG) == 0);
-
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                      IRB.CreateLoad(f.PCAlloca)};
-
+      if (T.Type == TERMINATOR::INDIRECT_JUMP)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
-      }
 
       if (T.Type == TERMINATOR::INDIRECT_CALL &&
-          JoveRecoverFunctionFunc) {
-        assert(boost::out_degree(bb, ICFG) == 0);
-
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                      IRB.CreateLoad(f.PCAlloca)};
-
+          JoveRecoverFunctionFunc)
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs);
-      }
 
       if (JoveFail1Func) {
         llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
@@ -10300,11 +10288,14 @@ int TranslateBasicBlock(basic_block_t bb,
         boost::property_map<interprocedural_control_flow_graph_t,
                             boost::vertex_index_t>::type bb_idx_map =
             boost::get(boost::vertex_index, ICFG);
-
         llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                       IRB.CreateLoad(f.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
+
+        if (JoveRecoverFunctionFunc)
+          IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs);
+
         if (JoveFail1Func) {
           llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
           IRB.CreateCall(JoveFail1Func, FailArgs);
