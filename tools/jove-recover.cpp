@@ -97,6 +97,12 @@ static cl::list<std::string> Returns("returns", cl::CommaSeparated,
                                      cl::desc("A call has returned"),
                                      cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    Function("function", cl::CommaSeparated,
+               cl::value_desc("IndCallBIdx,IndCallBBIdx,FileAddr"),
+               cl::desc("New target for indirect branch that is a function"),
+               cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -133,6 +139,11 @@ int main(int argc, char **argv) {
 
   if (opts::BasicBlock.size() > 0 && opts::BasicBlock.size() != 3) {
     WithColor::error() << "-basic-block: invalid tuple\n";
+    return 1;
+  }
+
+  if (opts::Function.size() > 0 && opts::Function.size() != 3) {
+    WithColor::error() << "-function: invalid tuple\n";
     return 1;
   }
 
@@ -184,6 +195,11 @@ static basic_block_index_t translate_basic_block(binary_index_t,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
+
+static function_index_t translate_function(binary_index_t binary_idx,
+                                           tiny_code_generator_t &tcg,
+                                           disas_t &dis,
+                                           target_ulong Addr);
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LE ELFT;
@@ -307,9 +323,11 @@ int recover(void) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::warning() << "failed to create binary from " << binary.Path
-                           << '\n';
-      continue; /* XXX TODO */
+      if (!binary.IsVDSO)
+        WithColor::warning()
+            << llvm::formatv("failed to create binary from {0}\n", binary.Path);
+
+      continue;
     }
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
@@ -570,6 +588,47 @@ int recover(void) {
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
               .str();
+  } else if (opts::Function.size() > 0) {
+    struct {
+      binary_index_t BIdx;
+      basic_block_index_t BBIdx;
+
+      uint64_t Target;
+    } IndCall;
+
+    IndCall.BIdx = strtoul(opts::Function[0].c_str(), nullptr, 10);
+    IndCall.BBIdx = strtoul(opts::Function[1].c_str(), nullptr, 10);
+
+    IndCall.Target = strtoul(opts::Function[2].c_str(), nullptr, 10);
+
+    auto &ICFG = Decompilation.Binaries.at(IndCall.BIdx).Analysis.ICFG;
+
+    function_index_t TargetFIdx =
+        translate_function(IndCall.BIdx, tcg, dis, IndCall.Target);
+    if (!is_function_index_valid(TargetFIdx)) {
+      WithColor::error() << llvm::formatv(
+          "failed to translate indirect call target {0:x}\n", IndCall.Target);
+      return 1;
+    }
+
+    basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
+
+    bool wasDynTargetsEmpty =
+        ICFG[boost::vertex(IndCall.BBIdx, ICFG)].DynTargets.empty();
+
+
+    bool isNewTarget = ICFG[boost::vertex(IndCall.BBIdx, ICFG)]
+                           .DynTargets.insert({IndCall.BIdx, TargetFIdx})
+                           .second;
+
+    // TODO only invalidate the functions which contain...
+    if (wasDynTargetsEmpty && isNewTarget)
+      InvalidateAllFunctionAnalyses();
+
+    msg = (fmt("[jove-recover] *(call) %s -> %s") %
+           DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
+           DescribeFunction(IndCall.BIdx, TargetFIdx))
+              .str();
   } else if (opts::Returns.size() > 0) {
     struct {
       binary_index_t BIdx;
@@ -727,10 +786,10 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
-static function_index_t translate_function(binary_index_t binary_idx,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           target_ulong Addr) {
+function_index_t translate_function(binary_index_t binary_idx,
+                                    tiny_code_generator_t &tcg,
+                                    disas_t &dis,
+                                    target_ulong Addr) {
   binary_t &binary = Decompilation.Binaries.at(binary_idx);
   auto &FuncMap = BinStateVec.at(binary_idx).FuncMap;
 

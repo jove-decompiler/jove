@@ -803,6 +803,55 @@ void *recover_proc(const char *fifo_path) {
       }
 
       (void)await_process_completion(pid);
+    } else if (ch == 'F') {
+      struct {
+        uint32_t BIdx;
+        uint32_t BBIdx;
+      } IndCall;
+
+      uintptr_t FileAddr;
+
+      {
+        struct iovec iov_arr[] = {
+            _IOV_ENTRY(IndCall.BIdx),
+            _IOV_ENTRY(IndCall.BBIdx),
+            _IOV_ENTRY(FileAddr)
+        };
+
+        size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+do_F_read:
+        ssize_t ret = readv(recover_fd, iov_arr, ARRAY_SIZE(iov_arr));
+        if (ret != expected) {
+          if (ret < 0) {
+            if (errno == EINTR)
+              goto do_F_read;
+
+            fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+          } else {
+            fprintf(stderr, "recover: read gave (%zd != %zu)\n", ret, expected);
+          }
+          break;
+        }
+      }
+
+      int pid = fork();
+      if (!pid) {
+        char buff[256];
+        snprintf(buff, sizeof(buff),
+                 "--function=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
+                 IndCall.BIdx,
+                 IndCall.BBIdx,
+                 FileAddr);
+
+        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                              buff, nullptr};
+        print_command(argv);
+        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        exit(1);
+      }
+
+      (void)await_process_completion(pid);
     } else if (ch == 'r') {
       struct {
         uint32_t BIdx;

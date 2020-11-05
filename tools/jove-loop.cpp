@@ -365,6 +365,7 @@ run:
         //
         if (ret != 'b' &&
             ret != 'f' &&
+            ret != 'F' &&
             ret != 'r')
           break;
       }

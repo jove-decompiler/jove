@@ -584,6 +584,7 @@ static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 static llvm::Function *JoveRecoverReturnedFunc;
+static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
@@ -1583,6 +1584,9 @@ int CreateModule(void) {
 
   JoveRecoverReturnedFunc = Module->getFunction("_jove_recover_returned");
   assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
+
+  JoveRecoverFunctionFunc = Module->getFunction("_jove_recover_function");
+  //assert(JoveRecoverFunctionFunc && !JoveRecoverFunctionFunc->empty());
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
@@ -10038,6 +10042,16 @@ int TranslateBasicBlock(basic_block_t bb,
                                       IRB.CreateLoad(f.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
+      }
+
+      if (T.Type == TERMINATOR::INDIRECT_CALL &&
+          JoveRecoverFunctionFunc) {
+        assert(boost::out_degree(bb, ICFG) == 0);
+
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
+                                      IRB.CreateLoad(f.PCAlloca)};
+
+        IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs);
       }
 
       if (JoveFail1Func) {
