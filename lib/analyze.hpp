@@ -619,9 +619,8 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 #elif defined(__aarch64__)
         if (helper_ptr == helper_exception_with_syndrome &&
 	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
-#elif defined(__mips64) || defined(__mips__)
-        if (helper_ptr == helper_raise_exception_err &&
-            constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SYSCALL) {
+#elif defined(__mips__)
+        if (false) {
 #else
 #error
 #endif
