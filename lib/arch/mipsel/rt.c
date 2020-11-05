@@ -1837,8 +1837,34 @@ _HIDDEN void _jove_free_stack(target_ulong);
 static _INL void *_memset(void *dst, int c, size_t n);
 
 void _jove_inverse_thunk(void) {
-  asm volatile("sync\n"
-               "break\n"
+  asm volatile(
+#if 0
+               "lw $t0,0($sp) ;"
+               "lw $t1,4($sp) ;"
+               "lw $t2,8($sp) ;"
+               "lw $t3,12($sp) ;"
+               "lw $t4,16($sp) ;"
+               "lw $t5,20($sp) ;"
+               "lw $t6,24($sp) ;"
+               "lw $t7,28($sp) ;"
+               "lw $t8,32($sp) ;"
+               "lw $t9,36($sp) ;"
+               "break ;"
+#endif
+
+               "lw $t7,28($sp) ;" // t7 = emuspp
+               "lw $t6,0($t7) ;"  // t6 = emusp
+
+               "lw $at,12($sp) ;" // saved_emusp in $at
+               "sw $at,0($t7) ;"  // restore emusp
+
+               "lw $at,4($sp) ;"  // saved_retaddr in $at
+
+               "move $sp, $t6 ;"  // sp = emusp
+
+               "jr $at ;"         // pc = saved_retaddr
+               "nop"
+
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -1935,18 +1961,22 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         const uintptr_t newstack = _jove_alloc_stack();
 
         uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 7 * sizeof(uintptr_t);
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 10 * sizeof(uintptr_t);
 
         newsp &= 0xfffffff0; // align the stack
 
         newsp -= sizeof(uintptr_t);
 
+        ((uintptr_t *)newsp)[0] = 0xdeadbeef;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
         ((uintptr_t *)newsp)[3] = saved_emusp;
         ((uintptr_t *)newsp)[4] = saved_callstack;
         ((uintptr_t *)newsp)[5] = saved_callstack_begin;
         ((uintptr_t *)newsp)[6] = newstack;
+        ((uintptr_t *)newsp)[7] = &emusp;
+        ((uintptr_t *)newsp)[8] = &__jove_callstack_begin;
+        ((uintptr_t *)newsp)[9] = &__jove_callstack;
 
         sp = newsp;
         ra = _jove_inverse_thunk;
