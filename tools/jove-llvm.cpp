@@ -9723,6 +9723,7 @@ int TranslateBasicBlock(basic_block_t bb,
 #if defined(__mips__)
     store(tcg_t9_index);
     store(tcg_ra_index);
+    store(tcg_gp_index);
 #endif
   };
 
@@ -10545,6 +10546,7 @@ int TranslateBasicBlock(basic_block_t bb,
 #if defined(__mips__)
     reload(tcg_t9_index);
     reload(tcg_ra_index);
+    reload(tcg_gp_index);
 #endif
   };
 
