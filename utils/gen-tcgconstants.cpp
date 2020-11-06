@@ -525,6 +525,10 @@ int main(int argc, char **argv) {
   auto ra_index = [&](void) -> int {
     return tcg_index_of_named_global("ra");
   };
+
+  auto gp_index = [&](void) -> int {
+    return tcg_index_of_named_global("gp");
+  };
 #endif
 
   printf("#pragma once\n"
@@ -569,6 +573,7 @@ int main(int argc, char **argv) {
 #if defined(__mips__)
   __TCG_CONST(t9_index);
   __TCG_CONST(ra_index);
+  __TCG_CONST(gp_index);
 #endif
 
 #undef __TCG_CONST
