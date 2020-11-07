@@ -11382,6 +11382,33 @@ int TranslateTCGOp(TCGOp *op,
 
 #undef __LD_OP
 
+#if defined(__mips__)
+#define __ARCH_ST_OP(off)                                                      \
+  {                                                                            \
+    if (off == offsetof(CPUMIPSState, lladdr)) {                               \
+      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(112 /* lladdr */);            \
+      assert(Ptr);                                                             \
+                                                                               \
+      llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);  \
+      break;                                                                   \
+    }                                                                          \
+                                                                               \
+    if (off == offsetof(CPUMIPSState, llval)) {                                \
+      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(113 /* llval */);             \
+      assert(Ptr);                                                             \
+                                                                               \
+      llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);  \
+      break;                                                                   \
+    }                                                                          \
+  }
+#else
+#define __ARCH_ST_OP(off)                                                      \
+  { ; }
+#endif
+
+
 //
 // store to host memory
 //
@@ -11398,6 +11425,8 @@ int TranslateTCGOp(TCGOp *op,
       IRB.CreateStore(Val, PCAlloca);                                          \
       break;                                                                   \
     }                                                                          \
+                                                                               \
+    __ARCH_ST_OP(off)                                                          \
                                                                                \
     if (regBits > memBits)                                                     \
       Val = IRB.CreateTrunc(Val, IRB.getIntNTy(memBits));                      \
