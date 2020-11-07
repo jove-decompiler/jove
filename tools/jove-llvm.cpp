@@ -3833,10 +3833,13 @@ int ProcessBinaryRelocations(void) {
 
     assert(Sym);
 
-    if (!Ent)
-      assert(Sym->isUndefined());
+    bool is_undefined =
+        Sym->isUndefined() || Sym->st_shndx == llvm::ELF::SHN_UNDEF;
 
-    if (!Sym->isUndefined()) {
+    if (!Ent)
+      assert(is_undefined);
+
+    if (!is_undefined) {
       assert(Sym->st_size);
       assert(Sym->st_value);
       assert(Ent);
@@ -3854,7 +3857,7 @@ int ProcessBinaryRelocations(void) {
       symbol_t sym;
 
       sym.Name = unwrapOrError(Sym->getName(DynamicStringTable));
-      sym.Addr = Sym->st_value;
+      sym.Addr = is_undefined ? 0 : Sym->st_value;
       sym.Visibility.IsDefault = false;
 
       constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
@@ -3909,7 +3912,7 @@ int ProcessBinaryRelocations(void) {
 
     RelocationTable.push_back(res);
   }
-#endif
+#endif /* __mips__ */
 
   //
   // print relocations & symbols
@@ -8423,7 +8426,7 @@ static int TranslateFunction(function_t &f) {
       }
     }
 
-#if 0 /* defined(__mips__) */
+#if defined(__mips__)
     if (false /* f.IsABI */) {
       llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
                                             GlobalAllocaVec[tcg_t9_index]);
