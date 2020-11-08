@@ -529,6 +529,14 @@ int main(int argc, char **argv) {
   auto gp_index = [&](void) -> int {
     return tcg_index_of_named_global("gp");
   };
+
+  auto lladdr_index = [&](void) -> int {
+    return tcg_index_of_named_global("lladdr");
+  };
+
+  auto llval_index = [&](void) -> int {
+    return tcg_index_of_named_global("llval");
+  };
 #endif
 
   printf("#pragma once\n"
@@ -574,6 +582,8 @@ int main(int argc, char **argv) {
   __TCG_CONST(t9_index);
   __TCG_CONST(ra_index);
   __TCG_CONST(gp_index);
+  __TCG_CONST(llval_index);
+  __TCG_CONST(lladdr_index);
 #endif
 
 #undef __TCG_CONST
