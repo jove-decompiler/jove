@@ -11386,7 +11386,7 @@ int TranslateTCGOp(TCGOp *op,
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
-      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(112 /* lladdr */);            \
+      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(tcg_lladdr_index);            \
       assert(Ptr);                                                             \
                                                                                \
       llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
@@ -11395,7 +11395,7 @@ int TranslateTCGOp(TCGOp *op,
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
-      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(113 /* llval */);             \
+      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(tcg_llval_index);             \
       assert(Ptr);                                                             \
                                                                                \
       llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
