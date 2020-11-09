@@ -833,7 +833,7 @@ static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
 
-static llvm::Type *WordType(void) {
+static llvm::IntegerType *WordType(void) {
   return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
 }
 
@@ -3809,9 +3809,6 @@ int ProcessBinaryRelocations(void) {
   for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
     const target_ulong Addr = Parser.getGotAddress(&Ent);
 
-    if (!Ent)
-      continue;
-
     llvm::outs() << llvm::formatv("LocalEntry: {0:x}\n", Addr);
 
     relocation_t res;
@@ -4829,10 +4826,15 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
   assert(SectsStartAddr);
   assert(SectsEndAddr);
 
+#if 0
   if (!(Addr >= SectsStartAddr))
     return nullptr;
+#endif
 
-  unsigned off = Addr - SectsStartAddr;
+  int64_t off =
+      static_cast<int64_t>(Addr) -
+      static_cast<int64_t>(SectsStartAddr);
+
 #if 0
 
   llvm::GlobalVariable *SectsGV =
@@ -4868,7 +4870,7 @@ llvm::Constant *SectionPointer(uintptr_t Addr) {
 #else
   return llvm::ConstantExpr::getAdd(
       llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
-      llvm::ConstantInt::get(WordType(), off));
+      llvm::ConstantInt::getSigned(WordType(), off));
 #endif
 }
 
@@ -8427,7 +8429,7 @@ static int TranslateFunction(function_t &f) {
     }
 
 #if defined(__mips__)
-    if (false /* f.IsABI */) {
+    if (f.IsABI) {
       llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
                                             GlobalAllocaVec[tcg_t9_index]);
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
