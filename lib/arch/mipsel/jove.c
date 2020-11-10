@@ -2719,7 +2719,56 @@ void _jove_fail2(target_ulong a0,
 target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                          target_ulong *args   /* a1 ($5) */,
                          target_ulong *emuspp /* a2 ($6) */) {
-  asm volatile("hltt: b hltt\n"
+  asm volatile(".set noreorder\n"
+               "addiu $sp,$sp,-80\n" // allocate stack space
+
+               "sw $s8, 72($sp)\n"
+               "sw $ra, 76($sp)\n"
+               "sw $s7, 68($sp)\n"
+               "sw $s6, 64($sp)\n"
+               "sw $s5, 60($sp)\n"
+               "sw $s4, 56($sp)\n"
+               "sw $s3, 52($sp)\n"
+               "sw $s2, 48($sp)\n"
+               "sw $s1, 44($sp)\n"
+               "sw $s0, 40($sp)\n"
+
+               "move $t9, $a0\n" // dstpc in $t9
+               "move $s0, $a1\n" // args in $s0
+               "move $s1, $a2\n" // emuspp in $s1
+               "move $s2, $sp\n" // save sp in $s2
+
+               "lw $sp, 0($s1)\n" // sp=*emuspp
+
+               // unpack args
+               "lw $a0,0($s0)\n"
+               "lw $a1,4($s0)\n"
+               "lw $a2,8($s0)\n"
+               "lw $a3,12($s0)\n"
+
+               "jalr $t9\n"
+               "nop\n" // [delay slot]
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+
+               "move $sp, $s2\n" // restore stack pointer
+
+               "lw $s8, 72($sp)\n"
+               "lw $ra, 76($sp)\n"
+               "lw $s7, 68($sp)\n"
+               "lw $s6, 64($sp)\n"
+               "lw $s5, 60($sp)\n"
+               "lw $s4, 56($sp)\n"
+               "lw $s3, 52($sp)\n"
+               "lw $s2, 48($sp)\n"
+               "lw $s1, 44($sp)\n"
+               "lw $s0, 40($sp)\n"
+
+               "jr $ra\n"
+               "addiu $sp,$sp,80\n" // [delay slot] deallocate stack space
+               ".set reorder"
+
+
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
