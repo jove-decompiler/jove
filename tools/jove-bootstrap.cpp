@@ -4291,11 +4291,23 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         basic_block_t bb;
 
         {
-          auto it = BBMap.find(rva - 1);
+          constexpr unsigned delay_slot =
+#if defined(__mips64) || defined(__mips__)
+              4
+#else
+              0
+#endif
+              ;
+
+          auto it = BBMap.find(rva - delay_slot - 1);
           if (it == BBMap.end()) {
             //
             // we have no preceeding call
             //
+            if (opts::Verbose)
+              WithColor::warning() << llvm::formatv(
+                  "{0}: could not find preceeding call @ {1:x}\n", __func__,
+                  rva);
             return;
           }
 
