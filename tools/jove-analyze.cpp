@@ -370,8 +370,9 @@ int InitStateForBinaries(void) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
-                         << '\n';
+      if (!binary.IsVDSO)
+        WithColor::error() << llvm::formatv(
+            "failed to create binary from {0}\n", binary.Path);
 
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
