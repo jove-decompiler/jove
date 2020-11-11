@@ -1727,7 +1727,13 @@ on_insn_boundary:
             DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
                                   bbprop.Term.Addr, llvm::nulls());
         assert(Disassembled);
+#if 0
+        if (InstLen != RetInfo.InsnBytes.size()) {
+          WithColor::error() << llvm::formatv("{0} != {1}\n", InstLen,
+                                              RetInfo.InsnBytes.size());
+        }
         assert(InstLen == RetInfo.InsnBytes.size());
+#endif
       }
 
       place_breakpoint_at_return(child, termpc, RetInfo);
@@ -2176,7 +2182,19 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
 #elif defined(__mips64) || defined(__mips__)
-    {
+    if (InsnBytes.empty()) { /* assume jr $ra */
+      assert(Inst.getOpcode() == llvm::Mips::JR);
+      assert(Inst.getNumOperands() == 1);
+      assert(Inst.getOperand(0).isReg());
+      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+      pc = gpr.regs[31 /* ra */];
+    } else {
+      if (InsnBytes.size() != sizeof(uint64_t)) {
+        WithColor::error() << llvm::formatv("wtf? InsnBytes.size()={0}\n",
+                                            InsnBytes.size());
+        WithColor::error() << llvm::formatv("wtf? Inst={0}\n", Inst);
+      }
+
       assert(InsnBytes.size() == sizeof(uint64_t));
       uint64_t key = *((uint64_t *)InsnBytes.data());
 
