@@ -423,6 +423,11 @@ int run(void) {
                         "-SSE2");
 #endif
 
+    //
+    // disable lazy linking (please)
+    //
+    env.s_vec.push_back("LD_BIND_NOW=1");
+
     for (std::string &s : opts::Envs)
       env.s_vec.push_back(s);
 
