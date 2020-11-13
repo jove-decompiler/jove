@@ -52,7 +52,8 @@ int main(int argc, char **argv) {
       try {
         printf("constexpr tcg_global_set_t CallConvArgs(%llu);\n", s.to_ullong());
       } catch (...) {
-        printf("static const tcg_global_set_t CallConvArgs(\"%s\");\n", s.to_string().c_str());
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t CallConvArgs(\"%s\");\n", str.c_str());
       }
     }
 
@@ -86,7 +87,8 @@ int main(int argc, char **argv) {
       try {
         printf("constexpr tcg_global_set_t CallConvRets(%llu);\n", s.to_ullong());
       } catch (...) {
-        printf("static const tcg_global_set_t CallConvRets(\"%s\");\n", s.to_string().c_str());
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t CallConvRets(\"%s\");\n", str.c_str());
       }
     }
 
@@ -191,7 +193,8 @@ int main(int argc, char **argv) {
       try {
         printf("constexpr tcg_global_set_t NotArgs(%llu);\n", s.to_ullong());
       } catch (...) {
-        printf("static const tcg_global_set_t NotArgs(\"%s\");\n", s.to_string().c_str());
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t NotArgs(\"%s\");\n", str.c_str());
       }
     }
 
@@ -208,7 +211,8 @@ int main(int argc, char **argv) {
       try {
         printf("constexpr tcg_global_set_t NotRets(%llu);\n", s.to_ullong());
       } catch (...) {
-        printf("static const tcg_global_set_t NotRets(\"%s\");\n", s.to_string().c_str());
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t NotRets(\"%s\");\n", str.c_str());
       }
     }
   };
@@ -280,7 +284,8 @@ int main(int argc, char **argv) {
       try {
         printf("constexpr tcg_global_set_t CalleeSavedRegs(%llu);\n", s.to_ullong());
       } catch (...) {
-        printf("static const tcg_global_set_t CalleeSavedRegs(\"%s\");\n", s.to_string().c_str());
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t CalleeSavedRegs(\"%s\");\n", str.c_str());
       }
     }
   };
