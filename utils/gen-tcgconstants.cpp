@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
 #endif
 
     {
-      std::bitset<256> s;
+      jove::tcg_global_set_t s;
       for (const char *nm : arg_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
     }
 
     {
-      std::bitset<256> s;
+      jove::tcg_global_set_t s;
       for (const char *nm : ret_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -132,6 +132,9 @@ int main(int argc, char **argv) {
       "bnd3_lb",
       "bnd3_ub"
     };
+
+    const auto &not_ret_regs = not_arg_or_ret_regs;
+    const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(__i386__)
     const std::array<const char *, 24> not_arg_or_ret_regs{
       "_frame",
@@ -159,31 +162,45 @@ int main(int argc, char **argv) {
       "bnd3_ub_0",
       "bnd3_ub_1",
     };
+
+    const auto &not_ret_regs = not_arg_or_ret_regs;
+    const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(__aarch64__)
     const std::array<const char *, 2> not_arg_or_ret_regs{
       "_frame",
       "env",
     };
+
+    const auto &not_ret_regs = not_arg_or_ret_regs;
+    const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(__mips64)
     const std::array<const char *, 3> not_arg_or_ret_regs{
       "_frame",
       "env",
       "PC",
     };
+
+    const auto &not_ret_regs = not_arg_or_ret_regs;
+    const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(__mips__)
-    const std::array<const char *, 3> not_arg_or_ret_regs{
+    const std::array<const char *, 3> not_arg_regs{
       "_frame",
       "env",
       "PC",
+    };
+
+    const std::array<const char *, 4> not_ret_regs{
+      "_frame",
+      "env",
+      "PC",
+      "ra"
     };
 #else
 #error
 #endif
 
     {
-      const auto &not_arg_regs = not_arg_or_ret_regs;
-
-      std::bitset<256> s;
+      jove::tcg_global_set_t s;
       for (const char *nm : not_arg_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -199,9 +216,7 @@ int main(int argc, char **argv) {
     }
 
     {
-      const auto &not_ret_regs = not_arg_or_ret_regs;
-
-      std::bitset<256> s;
+      jove::tcg_global_set_t s;
       for (const char *nm : not_ret_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
@@ -274,7 +289,7 @@ int main(int argc, char **argv) {
 #endif
 
     {
-      std::bitset<256> s;
+      jove::tcg_global_set_t s;
       for (const char *nm : callee_saved_regs) {
         int idx = tcg_index_of_named_global(nm);
         assert(idx >= 0 && idx < s.size());
