@@ -476,11 +476,14 @@ void function_t::Analyze(void) {
       this->Analysis.rets.reset();
     } else {
       this->Analysis.rets =
-          std::accumulate(std::next(exitVertices.begin()), exitVertices.end(),
-                          G[exitVertices.front()].OUT,
-                          [&](tcg_global_set_t res, flow_vertex_t V) {
-                            return res & G[V].OUT;
-                          }) & ~NotRets;
+          std::accumulate(
+              exitVertices.begin(),
+              exitVertices.end(),
+              ~tcg_global_set_t(),
+              [&](tcg_global_set_t res, flow_vertex_t V) -> tcg_global_set_t {
+                return res & G[V].OUT;
+              }) &
+          ~NotRets;
     }
   }
 
