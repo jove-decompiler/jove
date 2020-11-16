@@ -500,11 +500,9 @@ int run(void) {
     uint64_t uint64 = pid;
     ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
 
-    if (ret != sizeof(uint64_t)) {
-      int err = errno;
+    if (ret != sizeof(uint64_t))
       WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
-                                          strerror(err));
-    }
+                                          ret);
 
     if (close(pipefd) < 0) {
       int err = errno;
