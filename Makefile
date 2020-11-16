@@ -28,6 +28,8 @@ else ifeq "$(GCC_TARGET)" "i686-linux-gnu"
 ARCH := i386
 else ifeq "$(GCC_TARGET)" "aarch64-unknown-linux-gnu"
 ARCH := aarch64
+else ifeq "$(GCC_TARGET)" "aarch64-linux-gnu"
+ARCH := aarch64
 else ifeq "$(GCC_TARGET)" "armv7l-unknown-linux-gnueabihf"
 ARCH := arm
 else ifeq "$(GCC_TARGET)" "mips64el-linux-gnuabi64"
