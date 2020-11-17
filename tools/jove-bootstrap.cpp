@@ -4333,7 +4333,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
           bb = boost::vertex(bbidx, ICFG);
         }
 
-        bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
+        bool isCall         = ICFG[bb].Term.Type == TERMINATOR::CALL;
         bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
 #if !defined(__x86_64__) && defined(__i386__)
