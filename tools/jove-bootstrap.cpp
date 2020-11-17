@@ -955,7 +955,14 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
             uintptr_t act = a2;
             if (act) {
-              uintptr_t handler = _ptrace_peekdata(child, act);
+              constexpr unsigned handler_offset =
+#if defined(__mips__)
+                  4
+#else
+                  0
+#endif
+                  ;
+              uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
               WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
