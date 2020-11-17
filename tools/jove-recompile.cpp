@@ -662,7 +662,7 @@ int recompile(void) {
   }
 
   Q.reserve(top_sorted.size());
-  for (dso_t dso : top_sorted)
+  for (dso_t dso : boost::adaptors::reverse(top_sorted))
     Q.push_back(dso);
 
   //
