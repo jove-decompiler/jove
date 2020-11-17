@@ -3774,13 +3774,15 @@ static void on_rtld_breakpoint(pid_t child,
                                     lm.l_addr, s);
 
     if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-      fs::path path = fs::canonical(s);
+      if (s.find("libjove_dyn_preload") == std::string::npos) {
+        fs::path path = fs::canonical(s);
 
-      auto it = BinPathToIdxMap.find(path.c_str());
-      if (it == BinPathToIdxMap.end()) {
-        llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
-                                      path.c_str());
-        add_binary(child, tcg, dis, path.c_str());
+        auto it = BinPathToIdxMap.find(path.c_str());
+        if (it == BinPathToIdxMap.end()) {
+          llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
+                                        path.c_str());
+          add_binary(child, tcg, dis, path.c_str());
+        }
       }
     }
 
