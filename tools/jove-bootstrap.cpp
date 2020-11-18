@@ -948,58 +948,73 @@ int ParentProc(pid_t child, const char *fifo_path) {
 #error
 #endif
 
-          if (no == __NR_rt_sigaction) {
-            WithColor::note()
-                << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
-                                 a1, a2, a3, a4);
+          auto examine_syscall = [&](void) -> void {
+            //
+            // inspect syscall number
+            //
+            switch (no) {
+#ifdef __NR_rt_sigaction
+            case __NR_rt_sigaction: {
+              WithColor::note()
+                  << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
+                                   a1, a2, a3, a4);
 
-            uintptr_t act = a2;
-            if (act) {
-              constexpr unsigned handler_offset =
+              uintptr_t act = a2;
+              if (act) {
+                constexpr unsigned handler_offset =
 #if defined(__mips__)
-                  4
+                    4
 #else
-                  0
+                    0
 #endif
-                  ;
-              uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
+                    ;
+                uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-              WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
+                WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
-              if (handler && (void *)handler != SIG_IGN) {
-                update_view_of_virtual_memory(child);
+                if (handler && (void *)handler != SIG_IGN) {
+                  update_view_of_virtual_memory(child);
 
-                auto it = AddressSpace.find(handler);
-                if (it == AddressSpace.end()) {
-                  WithColor::warning() << llvm::formatv(
-                      "sighandler {0:x} in unknown binary\n", handler);
-                } else {
-                  binary_index_t handler_binary_idx = *(*it).second.begin();
-
-                  unsigned brkpt_count = 0;
-                  function_index_t f_idx = translate_function(
-                      child, handler_binary_idx, tcg, dis,
-                      rva_of_va(handler, handler_binary_idx), brkpt_count);
-
-                  if (f_idx == invalid_function_index) {
-                    WithColor::error() << llvm::formatv(
-                        "failed to translate signal handler {0:x}\n", handler);
+                  auto it = AddressSpace.find(handler);
+                  if (it == AddressSpace.end()) {
+                    WithColor::warning() << llvm::formatv(
+                        "sighandler {0:x} in unknown binary\n", handler);
                   } else {
-                    binary_t &binary =
-                        decompilation.Binaries[handler_binary_idx];
-                    binary.Analysis.Functions[f_idx].IsSignalHandler = true;
-                    binary.Analysis.Functions[f_idx].IsABI = true;
+                    binary_index_t handler_binary_idx = *(*it).second.begin();
+
+                    unsigned brkpt_count = 0;
+                    function_index_t f_idx = translate_function(
+                        child, handler_binary_idx, tcg, dis,
+                        rva_of_va(handler, handler_binary_idx), brkpt_count);
+
+                    if (f_idx == invalid_function_index) {
+                      WithColor::error() << llvm::formatv(
+                          "failed to translate signal handler {0:x}\n", handler);
+                    } else {
+                      binary_t &binary =
+                          decompilation.Binaries[handler_binary_idx];
+                      binary.Analysis.Functions[f_idx].IsSignalHandler = true;
+                      binary.Analysis.Functions[f_idx].IsABI = true;
+                    }
                   }
                 }
               }
+
+              break;
             }
-          }
+#endif
+
+            default:
+              break;
+            }
+          };
 
 #if defined(__mips64) || defined(__mips__)
-          if (ExecutableRegionAddress) {
+          if (ExecutableRegionAddress)
 #else
-          if (true) {
+          if (true)
 #endif
+          {
             search_address_space_for_binaries(child, dis);
             rendezvous_with_dynamic_linker(child, dis);
             harvest_reloc_targets(child, tcg, dis);
@@ -1007,6 +1022,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
             if (opts::Verbose)
               WithColor::note() << "!ExecutableRegionAddress\n";
           }
+
+          examine_syscall();
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
