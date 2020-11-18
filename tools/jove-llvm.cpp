@@ -5409,15 +5409,19 @@ int CreateSectionGlobalVariables(void) {
 #ifdef __mips__
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
-      assert(!S.IsUndefined());
+      if (!S.IsUndefined()) {
+        if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
+          return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
-      if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+        AddrToSymbolMap[S.Addr].insert(S.Name);
+        AddrToSizeMap[S.Addr] = S.Size;
 
-      AddrToSymbolMap[S.Addr].insert(S.Name);
-      AddrToSizeMap[S.Addr] = S.Size;
-
-      return nullptr;
+        return nullptr;
+      } else {
+        if (llvm::Function *F = Module->getFunction(S.Name))
+          return llvm::ConstantExpr::getPtrToInt(F, WordType());
+        return nullptr;
+      }
     }
 #endif
 
@@ -10548,7 +10552,7 @@ int TranslateBasicBlock(basic_block_t bb,
 
     reload(tcg_stack_pointer_index);
 
-#if defined(__mips__)
+#if 0 /* defined(__mips__) */
     reload(tcg_t9_index);
     reload(tcg_ra_index);
     reload(tcg_gp_index);
