@@ -1181,6 +1181,43 @@ int ParentProc(pid_t child, const char *fifo_path) {
 }
 
 #if defined(__mips64) || defined(__mips)
+template <bool IsRead>
+static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
+                          write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
+static ssize_t robust_read(int fd, void *const buf, const size_t count) {
+  return robust_read_or_write<true /* r */>(fd, buf, count);
+}
+
+static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
+  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
+}
+
 void fifo_reader(const char *fifo_path) {
   int fd = open(fifo_path, O_RDWR);
   if (fd < 0) {
@@ -1191,10 +1228,7 @@ void fifo_reader(const char *fifo_path) {
 
   {
     void *addr;
-    ssize_t ret;
-    do
-      ret = read(fd, &addr, sizeof(addr));
-    while (ret < 0 && errno == EINTR);
+    ssize_t ret = robust_read(fd, &addr, sizeof(addr));
 
     if (ret == sizeof(addr)) {
       if (opts::VeryVerbose)
