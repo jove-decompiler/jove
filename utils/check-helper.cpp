@@ -114,6 +114,9 @@ int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
+  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
+    OS << "jove version " JOVE_VERSION "\n";
+  });
   cl::ParseCommandLineOptions(argc, argv, "Helper Bitcode Checker\n");
 
   llvm::for_each(opts::InputHelpers, jove::checkHelper);

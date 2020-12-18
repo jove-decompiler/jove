@@ -89,6 +89,9 @@ int main(int argc, char **argv) {
   llvm::InitLLVM X(argc, argv);
 
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
+  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
+    OS << "jove version " JOVE_VERSION "\n";
+  });
   cl::ParseCommandLineOptions(argc, argv, "Jove Trace\n");
 
   if (!fs::exists(opts::Prog)) {

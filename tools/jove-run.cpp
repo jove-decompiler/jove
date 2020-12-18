@@ -98,6 +98,9 @@ int main(int argc, char **argv) {
   llvm::InitLLVM X(_argc, _argv);
 
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
+  cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
+    OS << "jove version " JOVE_VERSION "\n";
+  });
   cl::ParseCommandLineOptions(_argc, _argv, "jove-run\n");
 
   return jove::run();
