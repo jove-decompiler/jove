@@ -43,6 +43,8 @@ endif
 $(info GCC TARGET $(GCC_TARGET))
 $(info ARCH       $(ARCH))
 
+VER := $(shell git log -n1 --format="%h")
+
 #
 # build flags
 #
@@ -64,8 +66,9 @@ CXXFLAGS := -std=gnu++17 \
             -I lib/arch/$(ARCH) \
             -I $(_LLVM_INSTALL_DIR)/include \
             -D___JOVE_ARCH_NAME=\"$(ARCH)\" \
-            -D_GNU_SOURCE \
-            -DBOOST_ICL_USE_STATIC_BOUNDED_INTERVALS
+            -D _GNU_SOURCE \
+            -D BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS \
+            -D JOVE_VERSION=\"$(VER)\"
 
 LDFLAGS := -Wl,--no-undefined \
            $(shell $(_LLVM_CONFIG) --ldflags) \
