@@ -3198,11 +3198,121 @@ static void harvest_addressof_reloc_targets(pid_t child,
   }
 }
 
+static void harvest_ctor_and_dtors(pid_t child,
+                                   tiny_code_generator_t &tcg,
+                                   disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = decompilation.Binaries[BIdx];
+
+    if (!BinFoundVec[BIdx]) {
+#if 0
+      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
+#endif
+      continue;
+    }
+
+    unsigned brkpt_count = 0;
+
+#if 0
+    llvm::outs() << "harvesting relocation targets for " << Binary.Path << '\n';
+#endif
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
+      continue;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    assert(llvm::isa<ELFO>(Bin.get()));
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &E = *O.getELFFile();
+
+    typedef typename ELFF::Elf_Phdr Elf_Phdr;
+    typedef typename ELFF::Elf_Dyn Elf_Dyn;
+    typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+    typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+    typedef typename ELFF::Elf_Shdr Elf_Shdr;
+    typedef typename ELFF::Elf_Sym Elf_Sym;
+    typedef typename ELFF::Elf_Rela Elf_Rela;
+    typedef typename ELFF::Elf_Rel Elf_Rel;
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      bool ctor = false, dtor = false;
+
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_INIT_ARRAY:
+        ctor = true;
+        break;
+
+      case llvm::ELF::SHT_FINI_ARRAY:
+        dtor = true;
+        break;
+
+      default:
+        continue;
+      }
+
+      assert(ctor || dtor);
+
+      assert(Sec.sh_size % sizeof(uintptr_t) == 0);
+      unsigned N = Sec.sh_size / sizeof(uintptr_t);
+
+      for (unsigned j = 0; j < N; ++j) {
+        try {
+          uintptr_t rva = Sec.sh_addr + j * sizeof(uintptr_t);
+
+          uintptr_t Proc = _ptrace_peekdata(child, va_of_rva(rva, BIdx));
+
+          auto it = AddressSpace.find(Proc);
+          if (it != AddressSpace.end() &&
+              *(*it).second.begin() == BIdx) {
+            if (opts::Verbose)
+              llvm::errs() << llvm::formatv("{0}tor at 0x{1:x}\n",
+                                            ctor ? "c" : "d", Proc);
+
+            function_index_t f_idx = translate_function(
+                child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
+
+            if (is_function_index_valid(f_idx))
+              Binary.Analysis.Functions[f_idx].IsABI = true; /* it is an ABI */
+          }
+        } catch (const std::exception &e) {
+          if (opts::Verbose)
+            WithColor::warning()
+                << llvm::formatv("failed examining ctor: {0}\n", e.what());
+        }
+      }
+    }
+
+    if (brkpt_count > 0) {
+      llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
+                                    brkpt_count, Binary.Path);
+    }
+  }
+}
+
 void harvest_reloc_targets(pid_t child,
                            tiny_code_generator_t &tcg,
                            disas_t &dis) {
   harvest_irelative_reloc_targets(child, tcg, dis);
   harvest_addressof_reloc_targets(child, tcg, dis);
+  harvest_ctor_and_dtors(child, tcg, dis);
 }
 
 static void on_binary_loaded(pid_t, disas_t &, binary_index_t,
