@@ -3268,7 +3268,7 @@ static void harvest_ctor_and_dtors(pid_t child,
         continue;
       }
 
-      assert(ctor || dtor);
+      assert(ctor ^ dtor);
 
       assert(Sec.sh_size % sizeof(uintptr_t) == 0);
       unsigned N = Sec.sh_size / sizeof(uintptr_t);
