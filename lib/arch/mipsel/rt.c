@@ -2006,6 +2006,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #undef ra
 #undef t9
 #undef emusp
+#undef emut9
 
   //
   // if we get here, this is most likely a real crash.
