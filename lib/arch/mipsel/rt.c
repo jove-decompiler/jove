@@ -1855,13 +1855,13 @@ void _jove_inverse_thunk(void) {
                "lw $t7,28($sp)" "\n" // t7 = emuspp
                "lw $t6,0($t7)"  "\n" // t6 = emusp
 
-               "lw $at,12($sp)" "\n" // saved_emusp in $at
-               "sw $at,0($t7)"  "\n" // restore emusp
+               "lw $t5,12($sp)" "\n" // saved_emusp in $t5
+               "sw $t5,0($t7)"  "\n" // restore emusp
 
-               "lw $at,4($sp)"  "\n" // saved_retaddr in $at
+               "lw $t5,4($sp)"  "\n" // saved_retaddr in $t5
                "move $sp, $t6"  "\n" // sp = emusp
 
-               "jr $at"         "\n" // pc = saved_retaddr
+               "jr $t5"         "\n" // pc = saved_retaddr
                "nop"
 
                : /* OutputOperands */
