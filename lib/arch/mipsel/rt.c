@@ -1864,7 +1864,17 @@ void _jove_inverse_thunk(void) {
                //
                "lw $a0,56($sp)" "\n"
                "lw $a1,20($sp)" "\n"
-               "sw $a1,0($a0)"  "\n" // __jove_callstack = saved_callstack
+               "sw $a1,0($a0)"  "\n" // __jove_callstack_begin = saved_callstack_begin
+
+               //
+               // mark newstack as to be freed
+               //
+               "lw $a0,24($sp)" "\n"
+               "lw $t9,40($sp)" "\n"
+               ".set noreorder" "\n"
+               "jalr $t9"       "\n" // _jove_free_stack_later(newstack)
+               "nop"            "\n"
+               ".set reorder"   "\n"
 
                "lw $v0,48($sp)" "\n"
                "lw $v1,52($sp)" "\n" /* preserve return registers */
@@ -1875,10 +1885,10 @@ void _jove_inverse_thunk(void) {
                "lw $a0,28($sp)" "\n" // a0 = &emusp
                "lw $a3,0($a0)"  "\n" // a3 = emusp
 
-               "lw $a1,12($sp)" "\n" // saved_emusp in $t5
+               "lw $a1,12($sp)" "\n" // saved_emusp in $a1
                "sw $a1,0($a0)"  "\n" // restore emusp
 
-               "lw $a2,4($sp)"  "\n" // saved_retaddr in $t5
+               "lw $a2,4($sp)"  "\n" // saved_retaddr in $a2
 
                "move $sp, $a3"  "\n" // sp = emusp
 
@@ -1948,7 +1958,10 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     if (to_free[i] == 0)
       continue;
 
+    // memory leak FIXME
+#if 0
     _jove_free_stack(to_free[i]);
+#endif
     to_free[i] = 0;
   }
 
