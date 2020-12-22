@@ -2010,8 +2010,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[5] = saved_callstack_begin;
         ((uintptr_t *)newsp)[6] = newstack;
         ((uintptr_t *)newsp)[7] = &emusp;
-        ((uintptr_t *)newsp)[8] = __jove_callstack_begin;
-        ((uintptr_t *)newsp)[9] = __jove_callstack;
+        ((uintptr_t *)newsp)[8] = saved_callstack_begin;
+        ((uintptr_t *)newsp)[9] = saved_callstack;
         ((uintptr_t *)newsp)[10] = _jove_free_stack_later;
         ((uintptr_t *)newsp)[11] = _jove_free_callstack;
         ((uintptr_t *)newsp)[12] = 0; /* saved v0 */
