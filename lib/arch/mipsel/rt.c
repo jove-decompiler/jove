@@ -1829,6 +1829,8 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 static target_ulong _jove_alloc_stack(void);
 _HIDDEN void _jove_free_stack(target_ulong);
 
+_HIDDEN void _jove_free_stack_later(target_ulong);
+
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
 //
@@ -1837,32 +1839,53 @@ _HIDDEN void _jove_free_stack(target_ulong);
 static _INL void *_memset(void *dst, int c, size_t n);
 
 void _jove_inverse_thunk(void) {
-  asm volatile(
-#if 0
-               "lw $t0,0($sp) ;"
-               "lw $t1,4($sp) ;"
-               "lw $t2,8($sp) ;"
-               "lw $t3,12($sp) ;"
-               "lw $t4,16($sp) ;"
-               "lw $t5,20($sp) ;"
-               "lw $t6,24($sp) ;"
-               "lw $t7,28($sp) ;"
-               "lw $t8,32($sp) ;"
-               "lw $t9,36($sp) ;"
-               "break ;"
-#endif
+  asm volatile("sw $v0,48($sp)" "\n"
+               "sw $v1,52($sp)" "\n" /* preserve return registers */
 
-               "lw $t7,28($sp)" "\n" // t7 = emuspp
-               "lw $t6,0($t7)"  "\n" // t6 = emusp
+               //
+               // free the callstack we allocated in sighandler
+               //
+               "lw $a0,32($sp)" "\n"
+               "lw $t9,44($sp)" "\n"
+               ".set noreorder" "\n"
+               "jalr $t9"       "\n" // _jove_free_callstack(__jove_callstack_begin)
+               "nop"            "\n"
+               ".set reorder"   "\n"
 
-               "lw $t5,12($sp)" "\n" // saved_emusp in $t5
-               "sw $t5,0($t7)"  "\n" // restore emusp
+               //
+               // restore __jove_callstack
+               //
+               "lw $a0,60($sp)" "\n"
+               "lw $a1,16($sp)" "\n"
+               "sw $a1,0($a0)"  "\n" // __jove_callstack = saved_callstack
 
-               "lw $t5,4($sp)"  "\n" // saved_retaddr in $t5
-               "move $sp, $t6"  "\n" // sp = emusp
+               //
+               // restore __jove_callstack_begin
+               //
+               "lw $a0,56($sp)" "\n"
+               "lw $a1,20($sp)" "\n"
+               "sw $a1,0($a0)"  "\n" // __jove_callstack = saved_callstack
 
-               "jr $t5"         "\n" // pc = saved_retaddr
-               "nop"
+               "lw $v0,48($sp)" "\n"
+               "lw $v1,52($sp)" "\n" /* preserve return registers */
+
+               //
+               // restore emulated stack pointer
+               //
+               "lw $a0,28($sp)" "\n" // a0 = &emusp
+               "lw $a3,0($a0)"  "\n" // a3 = emusp
+
+               "lw $a1,12($sp)" "\n" // saved_emusp in $t5
+               "sw $a1,0($a0)"  "\n" // restore emusp
+
+               "lw $a2,4($sp)"  "\n" // saved_retaddr in $t5
+
+               "move $sp, $a3"  "\n" // sp = emusp
+
+               ".set noreorder" "\n"
+               "jr $a2"         "\n" // pc = saved_retaddr
+               "nop"            "\n"
+               ".set reorder"   "\n"
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -1948,8 +1971,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
       uintptr_t saved_retaddr = ra;
-      uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
-      uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
+      uintptr_t saved_callstack       = __jove_callstack;
+      uintptr_t saved_callstack_begin = __jove_callstack_begin;
 
       //
       // replace the emulated stack pointer with the real stack pointer
@@ -1960,7 +1983,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         const uintptr_t newstack = _jove_alloc_stack();
 
         uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 10 * sizeof(uintptr_t);
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16 * sizeof(uintptr_t);
 
         newsp &= 0xfffffff0; // align the stack
 
@@ -1974,8 +1997,14 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[5] = saved_callstack_begin;
         ((uintptr_t *)newsp)[6] = newstack;
         ((uintptr_t *)newsp)[7] = &emusp;
-        ((uintptr_t *)newsp)[8] = &__jove_callstack_begin;
-        ((uintptr_t *)newsp)[9] = &__jove_callstack;
+        ((uintptr_t *)newsp)[8] = __jove_callstack_begin;
+        ((uintptr_t *)newsp)[9] = __jove_callstack;
+        ((uintptr_t *)newsp)[10] = _jove_free_stack_later;
+        ((uintptr_t *)newsp)[11] = _jove_free_callstack;
+        ((uintptr_t *)newsp)[12] = 0; /* saved v0 */
+        ((uintptr_t *)newsp)[13] = 0; /* saved v1 */
+        ((uintptr_t *)newsp)[14] = &__jove_callstack_begin;
+        ((uintptr_t *)newsp)[15] = &__jove_callstack;
 
         sp = newsp;
         ra = _jove_inverse_thunk;
@@ -2079,6 +2108,9 @@ target_ulong _jove_alloc_callstack(void) {
 }
 
 void _jove_free_callstack(target_ulong start) {
+  if (start == 0x0)
+    return;
+
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
@@ -2110,4 +2142,17 @@ void *_memset(void *dst, int c, size_t n) {
     while (--n != 0);
   }
   return (dst);
+}
+
+void _jove_free_stack_later(target_ulong stack) {
+  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
+    if (to_free[i] != 0)
+      continue;
+
+    to_free[i] = stack;
+    return;
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
