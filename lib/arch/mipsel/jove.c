@@ -2722,7 +2722,7 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
   asm volatile(".set noreorder\n"
                "addiu $sp,$sp,-80\n" // allocate stack space
 
-               "sw $s8, 72($sp)\n"
+               "sw $s8, 72($sp)\n" /* callee-saved registers */
                "sw $ra, 76($sp)\n"
                "sw $s7, 68($sp)\n"
                "sw $s6, 64($sp)\n"
@@ -2762,7 +2762,7 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "lw $s3, 52($sp)\n"
                "lw $s2, 48($sp)\n"
                "lw $s1, 44($sp)\n"
-               "lw $s0, 40($sp)\n"
+               "lw $s0, 40($sp)\n" /* callee-saved registers */
 
                "jr $ra\n"
                "addiu $sp,$sp,80\n" // [delay slot] deallocate stack space
