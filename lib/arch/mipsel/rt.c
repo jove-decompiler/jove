@@ -1890,11 +1890,9 @@ void _jove_inverse_thunk(void) {
 
                "lw $a2,4($sp)"  "\n" // saved_retaddr in $a2
 
-               "move $sp, $a3"  "\n" // sp = emusp
-
                ".set noreorder" "\n"
                "jr $a2"         "\n" // pc = saved_retaddr
-               "nop"            "\n"
+               "move $sp, $a3"  "\n" // [delay slot] sp = emusp
                ".set reorder"   "\n"
 
                : /* OutputOperands */
