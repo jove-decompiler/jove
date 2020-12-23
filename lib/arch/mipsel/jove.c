@@ -1891,32 +1891,23 @@ static _INL void uint_to_string(uint32_t x, char *Str);
 //
 
 void _jove_start(void) {
-  asm volatile(
-#if 0
-               "li      $3, %%hi(_gp_disp)\n"
-               "addiu   $4, $pc, %%lo(_gp_disp)\n"
-               "sll     $3, 16\n"
-               "addu    $3, $4\n"
-               "move    $gp, $3\n" /* set up gp... */
-#else
-               ".set noreorder\n"
-               ".cpload $25\n"
-               ".set reorder\n"
-#endif
+  asm volatile(".set noreorder"      "\n"
+               ".cpload $t9"         "\n" /* set up gp */
 
                /* The return address register is set to zero so that programs
                   that search backword through stack frames recognize the last
                   stack frame. */
-               "move $31, $0\n"
+               "move $ra, $0"        "\n"
 
-               "move $6, $2\n"  /* a2=v0 */
-               "move $7, $29\n" /* a3=sp */
+               "move $a2, $v0"       "\n"
+               "move $a3, $sp"       "\n"
 
-               "la $25, _jove_begin\n"
-               "jalr $25\n"
-               "nop\n"
+               "la $t9, _jove_begin" "\n" /* needs gp set up */
+               "jalr $t9"            "\n"
+               "nop"                 "\n"
 
-               "break\n" /* if _jove_begin returns, we should trap */
+               "break"               "\n"
+               ".set reorder"        "\n"
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -2767,7 +2758,6 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "jr $ra\n"
                "addiu $sp,$sp,80\n" // [delay slot] deallocate stack space
                ".set reorder"
-
 
                : /* OutputOperands */
                : /* InputOperands */
