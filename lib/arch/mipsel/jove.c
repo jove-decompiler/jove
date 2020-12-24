@@ -2761,7 +2761,7 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "lw $sp, 0($s1)\n" // sp=*emuspp
                "sw $v0, 0($s1)\n" // *emuspp=newstack+0x80000
 
-               // unpack args
+               /* -- unpack args -- */
                "lw $a0,0($s0)\n"
                "lw $a1,4($s0)\n"
                "lw $a2,8($s0)\n"
@@ -2782,6 +2782,9 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "sw $sp, 0($s1)\n" // store modified emusp
                "move $sp, $s2\n"  // restore stack pointer
 
+               //
+               // free stack
+               //
                "move $a0, $s4\n"
                ".set noreorder\n"
 #if 0
