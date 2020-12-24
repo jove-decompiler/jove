@@ -2740,26 +2740,11 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "move $s4, $v0\n" // new stack in $s4
                ".set reorder\n"
 
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
-               "addiu $v0,$v0,32767\n"
+               "lui $a0,0x8\n"
+               "addu $v0,$v0,$a0\n" // v0 = newstack+0x80000
 
                "lw $sp, 0($s1)\n" // sp=*emuspp
-               "sw $v0, 0($s1)\n" // *emuspp=newstack+0x80000
+               "sw $v0, 0($s1)\n" // *emuspp=stack storage
 
                /* -- unpack args -- */
                "lw $a0,0($s0)\n"
