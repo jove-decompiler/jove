@@ -10167,8 +10167,14 @@ int TranslateBasicBlock(basic_block_t bb,
 
           llvm::CallInst *Ret;
           if (foreign) {
-            llvm::AllocaInst *ArgArrAlloca = IRB.CreateAlloca(
-                llvm::ArrayType::get(WordType(), CallConvArgArray.size()));
+            unsigned NumWords = CallConvArgArray.size();
+
+#if defined(__mips64) || defined(__mips__)
+            NumWords += 2; /* XXX */
+#endif
+
+            llvm::AllocaInst *ArgArrAlloca =
+                IRB.CreateAlloca(llvm::ArrayType::get(WordType(), NumWords));
 
             for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
               unsigned glb = CallConvArgArray[i];
@@ -10178,6 +10184,30 @@ int TranslateBasicBlock(basic_block_t bb,
 
               IRB.CreateStore(Val, Ptr);
             }
+
+#if defined(__mips64) || defined(__mips__)
+            for (unsigned i = CallConvArgArray.size(); i < NumWords; ++i) {
+              llvm::Value *Val = nullptr;
+              switch (i - CallConvArgArray.size()) {
+              case 0:
+                Val = IRB.CreatePtrToInt(JoveAllocStackFunc, WordType());
+                break;
+
+              case 1:
+                Val = IRB.CreatePtrToInt(JoveFreeStackFunc, WordType());
+                break;
+
+              default:
+                __builtin_trap();
+                __builtin_unreachable();
+              }
+              assert(Val);
+
+              llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
+
+              IRB.CreateStore(Val, Ptr);
+            }
+#endif
 
             llvm::Value *CallArgs[] = {
                 GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
