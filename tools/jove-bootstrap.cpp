@@ -4355,8 +4355,17 @@ void on_dynamic_linker_loaded(pid_t child,
     _r_debug.Found = true;
 
     rendezvous_with_dynamic_linker(child, dis);
-    break;
+    goto Found;
   }
+
+  //
+  // if we get here, we didn't find _r_debug
+  //
+  WithColor::warning() << llvm::formatv("{0}: could not find _r_debug\n",
+                                        __func__);
+
+Found:
+  ;
 }
 
 void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
