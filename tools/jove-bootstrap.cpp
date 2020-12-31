@@ -3905,6 +3905,10 @@ static void on_rtld_breakpoint(pid_t child,
     }
   }
 
+  if (opts::Verbose)
+    WithColor::note() << llvm::formatv("{0}: r_dbg.r_state={1}\n",
+                                       __func__, r_dbg.r_state);
+
   if (r_dbg.r_state == r_debug::RT_ADD ||
       r_dbg.r_state == r_debug::RT_DELETE)
     return;
@@ -3914,7 +3918,8 @@ static void on_rtld_breakpoint(pid_t child,
 #if defined(__mips64) || defined(__mips__)
   if (!ExecutableRegionAddress) {
     if (opts::Verbose)
-      WithColor::note() << "!ExecutableRegionAddress\n";
+      WithColor::note() << llvm::formatv("{0}: !ExecutableRegionAddress\n",
+                                         __func__);
     return;
   }
 #endif
