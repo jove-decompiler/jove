@@ -4395,6 +4395,9 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       return;
     }
 
+    if (opts::Verbose)
+      llvm::errs() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
+
     _r_debug.r_brk = r_dbg.r_brk;
   }
 
