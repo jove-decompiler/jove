@@ -11187,6 +11187,13 @@ int TranslateTCGOp(TCGOp *op,
 #elif defined(__mips__)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
+    if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
+      uint8_t idx = tcg_global_by_offset_lookup_table[off];                    \
+      if (idx != 0xff) {                                                       \
+        llvm::errs() << "[tonpetty] __ARCH_LD_OP: "                            \
+                     << TCG->_ctx.temps[idx].name << '\n';                     \
+      }                                                                        \
+    }                                                                          \
     if (off == offsetof(CPUMIPSState, active_tc.CP0_UserLocal)) {              \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
@@ -11253,6 +11260,14 @@ int TranslateTCGOp(TCGOp *op,
 #if defined(__mips__)
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
+    if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
+      uint8_t idx = tcg_global_by_offset_lookup_table[off];                    \
+      if (idx != 0xff) {                                                       \
+        llvm::errs() << "[tonpetty] __ARCH_ST_OP: "                            \
+                     << TCG->_ctx.temps[idx].name << '\n';                     \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
       llvm::AllocaInst *Ptr = GlobalAllocaVec.at(tcg_lladdr_index);            \
       assert(Ptr);                                                             \
