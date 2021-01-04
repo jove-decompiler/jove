@@ -444,6 +444,7 @@ static void fifo_reader(const char *fifo_path);
 
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
+static void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
 
 static function_index_t translate_function(pid_t child,
                                            binary_index_t binary_idx,
@@ -908,6 +909,21 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
       if (likely(WIFSTOPPED(status))) {
         //
+        // this is an opportunity to examine the state of the tracee
+        //
+#if defined(__mips64) || defined(__mips__)
+        if (ExecutableRegionAddress)
+#else
+        if (true)
+#endif
+        {
+          search_address_space_for_binaries(child, dis);
+          rendezvous_with_dynamic_linker(child, dis);
+          scan_rtld_link_map(child, tcg, dis);
+          harvest_reloc_targets(child, tcg, dis);
+        }
+
+        //
         // the following kinds of ptrace-stops exist:
         //
         //   (1) syscall-stops
@@ -1031,20 +1047,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
               break;
             }
           };
-
-#if defined(__mips64) || defined(__mips__)
-          if (ExecutableRegionAddress)
-#else
-          if (true)
-#endif
-          {
-            search_address_space_for_binaries(child, dis);
-            rendezvous_with_dynamic_linker(child, dis);
-            harvest_reloc_targets(child, tcg, dis);
-          } else {
-            if (opts::Verbose)
-              WithColor::note() << "!ExecutableRegionAddress\n";
-          }
 
           examine_syscall();
         } else if (stopsig == SIGTRAP) {
@@ -3908,9 +3910,12 @@ static void add_binary(pid_t child, tiny_code_generator_t &, disas_t &,
 
 static ssize_t _ptrace_memcpy(pid_t, void *dest, const void *src, size_t n);
 
-static void on_rtld_breakpoint(pid_t child,
-                               tiny_code_generator_t &tcg,
-                               disas_t &dis) {
+void scan_rtld_link_map(pid_t child,
+                        tiny_code_generator_t &tcg,
+                        disas_t &dis) {
+  if (!_r_debug.Addr)
+    return;
+
   struct r_debug r_dbg;
 
   {
@@ -3933,7 +3938,7 @@ static void on_rtld_breakpoint(pid_t child,
       r_dbg.r_state == r_debug::RT_DELETE)
     return;
 
-  assert(r_dbg.r_state == r_debug::RT_CONSISTENT);
+  WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT);
 
 #if defined(__mips64) || defined(__mips__)
   if (!ExecutableRegionAddress) {
@@ -4433,7 +4438,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
     if (BrkMap.find(_r_debug.r_brk) == BrkMap.end()) {
       try {
         breakpoint_t brk;
-        brk.callback = on_rtld_breakpoint;
+        brk.callback = scan_rtld_link_map;
 
         place_breakpoint(child, _r_debug.r_brk, brk, dis);
 
