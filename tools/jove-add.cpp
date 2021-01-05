@@ -843,6 +843,12 @@ int add(void) {
               continue;
 
             llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+            if (SymName.empty())
+              continue;
+
+            if (SymName[0] == '_') /* XXX magic (e.g. __syscall_error in glibc is not an ABI) */
+              continue;
+
             llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
             FunctionEntrypoints.insert(Sym.st_value);
