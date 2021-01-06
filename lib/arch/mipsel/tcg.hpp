@@ -12245,7 +12245,7 @@ static void tcg_dump_ops(TCGContext *s, bool have_prefs)
 
         if (have_prefs || op->life) {
             for (; col < 40; ++col) {
-                putc(' ', qemu_logfile);
+                //putc(' ', qemu_logfile);
             }
         }
 
