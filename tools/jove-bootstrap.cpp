@@ -264,10 +264,10 @@ static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
 
 #if defined(__mips64) || defined(__mips__)
-static uintptr_t ExecutableRegionAddress = 0x0;
-static size_t ExecutableRegionUsed = 0;
-
-static std::unordered_map<uint64_t, uintptr_t> TrampolineMap;
+//
+// we need to find a code cave that can hold two instructions (8 bytes)
+//
+static uintptr_t ExecutableRegionAddress;
 #endif
 
 static bool SeenExec = false;
@@ -438,10 +438,6 @@ typedef typename obj::ELFFile<ELFT> ELFF;
 
 static void IgnoreCtrlC(void);
 
-#if defined(__mips64) || defined(__mips)
-static void fifo_reader(const char *fifo_path);
-#endif
-
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
 static void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
@@ -484,13 +480,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
   }
 #elif 0
   signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
-#endif
-
-#if defined(__mips64) || defined(__mips)
-  {
-    std::thread fifo_thread(fifo_reader, fifo_path);
-    fifo_thread.detach(); /* go be free */
-  }
 #endif
 
   //
@@ -875,15 +864,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(SeenExec && (opts::Syscalls ||
-                                         !BinFoundVec.all() ||
-                                         BrkMap.find(_r_debug.r_brk) == BrkMap.end() ||
-                                         /* TODO !(harvested relocations) || */
-#if defined(__mips64) || defined(__mips__)
-                                         !ExecutableRegionAddress)
-#else
-                                         false)
-#endif
+        if (unlikely(ptrace(likely(SeenExec) && (opts::Syscalls || unlikely(!BinFoundVec.all()))
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
@@ -911,13 +892,10 @@ int ParentProc(pid_t child, const char *fifo_path) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-#if defined(__mips64) || defined(__mips__)
-        if (ExecutableRegionAddress)
-#else
-        if (true)
-#endif
+        if (likely(SeenExec))
         {
-          search_address_space_for_binaries(child, dis);
+          if (unlikely(!BinFoundVec.all()))
+            search_address_space_for_binaries(child, dis);
           rendezvous_with_dynamic_linker(child, dis);
           scan_rtld_link_map(child, tcg, dis);
           harvest_reloc_targets(child, tcg, dis);
@@ -1205,7 +1183,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   return 0;
 }
 
-#if defined(__mips64) || defined(__mips)
+#if 0 /* defined(__mips64) || defined(__mips) */
 template <bool IsRead>
 static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
   uint8_t *const _buf = (uint8_t *)buf;
@@ -1681,7 +1659,6 @@ on_insn_boundary:
     }
 
     tcg.dump_operations();
-    fputc('\n', stdout);
     return invalid_basic_block_index;
   }
 
@@ -1772,8 +1749,8 @@ on_insn_boundary:
       }
 #endif
 
-      ++brkpt_count;
       place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
+      ++brkpt_count;
     }
 
     //
@@ -1954,6 +1931,7 @@ static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
 #if defined(__mips64) || defined(__mips__)
 uint32_t encoding_of_jump_to_reg(unsigned r) {
+  // TODO make this endian-independant
   switch (r) {
     case llvm::Mips::ZERO: return 0x00000008;
     case llvm::Mips::AT:   return 0x00200008;
@@ -2044,7 +2022,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // insert breakpoint
   arch_put_breakpoint(&word);
 
-#if defined(__mips64) || defined(__mips__)
+#if 0 /* defined(__mips64) || defined(__mips__) */
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
     if (indbr.InsnBytes.size() != sizeof(uint64_t)) {
@@ -2099,6 +2077,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
         _ptrace_pokedata(child, ExecutableRegionAddress, val0);
         _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
       } else {
+        // XXX BUILD_BUG would be better here
         __builtin_trap();
         __builtin_unreachable();
       }
@@ -2162,7 +2141,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 
   arch_put_breakpoint(&word);
 
-#if defined(__mips64) || defined(__mips__)
+#if 0 /* defined(__mips64) || defined(__mips__) */
   {
     /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
     assert(r.InsnBytes.size() == sizeof(uint64_t));
@@ -2182,6 +2161,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
         _ptrace_pokedata(child, ExecutableRegionAddress, val0);
         _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
       } else {
+        // XXX BUILD_BUG would be better here
         __builtin_trap();
         __builtin_unreachable();
       }
@@ -2266,31 +2246,40 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     gpr.esp += sizeof(uint32_t);
 #elif defined(__mips64) || defined(__mips__)
     if (InsnBytes.empty()) { /* assume jr $ra */
-      assert(Inst.getOpcode() == llvm::Mips::JR);
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+      WARN_ON(Inst.getOpcode() != llvm::Mips::JR ||
+              Inst.getNumOperands() != 1 ||
+              !Inst.getOperand(0).isReg() ||
+              Inst.getOperand(0).getReg() != llvm::Mips::RA);
+
       pc = gpr.regs[31 /* ra */];
     } else {
-      if (InsnBytes.size() != sizeof(uint64_t)) {
-        WithColor::error() << llvm::formatv("wtf? InsnBytes.size()={0}\n",
-                                            InsnBytes.size());
-        WithColor::error() << llvm::formatv("wtf? Inst={0}\n", Inst);
+      assert(ExecutableRegionAddress);
+
+      assert(InsnBytes.size() == 2 * sizeof(uint32_t));
+
+      //
+      // prepare ExecutableRegion
+      //
+      uint64_t val = *((uint64_t *)InsnBytes.data());
+      switch (sizeof(long)) {
+      case 8: /* we can do it with one poke */
+        _ptrace_pokedata(child, ExecutableRegionAddress, val);
+        break;
+      case 4: { /* two pokes will suffice */
+        uint32_t val0 = ((uint32_t *)&val)[0];
+        uint32_t val1 = ((uint32_t *)&val)[1];
+
+        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
+        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
+        break;
       }
 
-      assert(InsnBytes.size() == sizeof(uint64_t));
-      uint64_t key = *((uint64_t *)InsnBytes.data());
-
-      auto it = TrampolineMap.find(key);
-      if (it == TrampolineMap.end()) {
-        WithColor::error() << llvm::formatv(
-            "no trampoline for breakpoint @ {0:x}\n", saved_pc);
-
-        throw std::runtime_error(
-            (fmt("no trampoline for breakpoint @ %#lx\n") % saved_pc).str());
-      } else {
-        pc = (*it).second;
+      default:
+        __builtin_trap(); /* XXX BUILD_BUG would be better here */
+        __builtin_unreachable();
       }
+
+      pc = ExecutableRegionAddress;
     }
 #else
 #error
@@ -2710,41 +2699,54 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   pc = target;
 #else
   {
-    uint64_t key = *((uint64_t *)IndBrInfo.InsnBytes.data());
+    assert(ExecutableRegionAddress);
+
+    assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
+
+    //
+    // prepare ExecutableRegion
+    //
+    uint64_t val = *((uint64_t *)IndBrInfo.InsnBytes.data());
 
     if (IndBrInfo.IsCall) {
-      llvm::MCInst &Inst = IndBrInfo.Inst;
+      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
 
+      //
+      // if this is a jalr, we have to turn it into a jr because otherwise
+      // the return address will be incorrect after the terminator instruction
+      // is executed
+      //
       assert(Inst.getOpcode() == llvm::Mips::JALR);
       assert(Inst.getNumOperands() == 2);
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
       assert(Inst.getOperand(1).isReg());
 
-#if 0
-        if (Inst.getNumOperands() != 1) {
-          WithColor::error() << llvm::formatv(
-              "{0}: unknown number ({1}) of operands [{2}]\n", __func__,
-              Inst.getNumOperands(), StringOfMCInst(Inst, dis));
-        }
-#endif
-
       uint32_t first_insn_replacement =
           encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
 
-      ((uint32_t *)&key)[0] = first_insn_replacement;
+      ((uint32_t *)&val)[0] = first_insn_replacement;
     }
 
-    auto it = TrampolineMap.find(key);
-    if (it == TrampolineMap.end()) {
-      WithColor::error() << llvm::formatv(
-          "no trampoline for breakpoint @ {0:x}\n", saved_pc);
+    switch (sizeof(long)) {
+    case 8: /* we can do it with one poke */
+      _ptrace_pokedata(child, ExecutableRegionAddress, val);
+      break;
+    case 4: { /* two pokes will suffice */
+      uint32_t val0 = ((uint32_t *)&val)[0];
+      uint32_t val1 = ((uint32_t *)&val)[1];
 
-      throw std::runtime_error(
-          (fmt("no trampoline for breakpoint @ %#lx\n") % saved_pc).str());
-    } else {
-      pc = (*it).second;
+      _ptrace_pokedata(child, ExecutableRegionAddress, val0);
+      _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
+      break;
     }
+
+    default:
+      __builtin_trap(); /* XXX BUILD_BUG would be better here */
+      __builtin_unreachable();
+    }
+
+    pc = ExecutableRegionAddress;
   }
 #endif
 
@@ -3365,14 +3367,13 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
       if (vm_prop.nm.find("[vsyscall]") != std::string::npos)
         continue; /* if a dynamic target is in [vsyscall], we'll know */
     }
-    if (vm_prop.nm.find("libjove_dyn_preload.so") != std::string::npos)
-      continue;
 
     // thus, if we get here, it's either a file or [vdso]
     auto it = BinPathToIdxMap.find(vm_prop.nm);
     if (it == BinPathToIdxMap.end()) {
       WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
                                             vm_prop.nm);
+      continue;
     }
 
     if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
@@ -3442,6 +3443,22 @@ void on_binary_loaded(pid_t child,
   //
   if (binary.IsDynamicLinker)
     on_dynamic_linker_loaded(child, dis, BIdx, vm_prop);
+
+#if defined(__mips64) || defined(__mips__)
+  if (binary.IsVDSO) {
+    WARN_ON(ExecutableRegionAddress);
+
+    //
+    // find a code cave that can hold two instructions (8 bytes)
+    //
+    ExecutableRegionAddress = vm_prop.end - 8;
+
+    if (opts::Verbose)
+        WithColor::note()
+            << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
+                             ExecutableRegionAddress);
+    }
+#endif
 
   //
   // place breakpoints for indirect branches
@@ -3704,7 +3721,7 @@ int ChildProc(const char *fifo_path) {
     env_vec.push_back(*env);
   env_vec.push_back("LD_BIND_NOW=1");
 
-#if defined(__mips64) || defined(__mips__)
+#if 0 /* defined(__mips64) || defined(__mips__) */
   std::string jove_dyn_preload_lib_path =
       fs::canonical(boost::dll::program_location().parent_path() /
                     "libjove_dyn_preload.so")
@@ -3725,6 +3742,7 @@ int ChildProc(const char *fifo_path) {
   std::string fifo_path_arg = std::string("JOVE_DYN_FIFO_PATH=") + fifo_path;
   env_vec.push_back(fifo_path_arg.c_str());
 #endif
+
 
 #if defined(__x86_64__)
   // <3 glibc
@@ -3917,6 +3935,7 @@ void scan_rtld_link_map(pid_t child,
     return;
 
   struct r_debug r_dbg;
+  memset(&r_dbg, 0, sizeof(r_dbg));
 
   {
     ssize_t ret = _ptrace_memcpy(child,
@@ -3931,8 +3950,10 @@ void scan_rtld_link_map(pid_t child,
   }
 
   if (opts::Verbose)
-    WithColor::note() << llvm::formatv("{0}: r_dbg.r_state={1}\n",
-                                       __func__, r_dbg.r_state);
+    WithColor::note() << llvm::formatv("{0}: r_dbg.r_state={1}, r_dbg.r_map={2}\n",
+                                       __func__,
+                                       r_dbg.r_state,
+                                       r_dbg.r_map);
 
   if (r_dbg.r_state == r_debug::RT_ADD ||
       r_dbg.r_state == r_debug::RT_DELETE)
@@ -3940,35 +3961,32 @@ void scan_rtld_link_map(pid_t child,
 
   WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT);
 
-#if defined(__mips64) || defined(__mips__)
-  if (!ExecutableRegionAddress) {
-    if (opts::Verbose)
-      WithColor::note() << llvm::formatv("{0}: !ExecutableRegionAddress\n",
-                                         __func__);
+  if (!r_dbg.r_map)
     return;
-  }
-#endif
 
-  struct link_map *lmp = r_dbg.r_map;
-  do {
-    struct link_map lm;
+  bool newbin = false;
 
-    ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
+  try {
+    struct link_map *lmp = r_dbg.r_map;
+    do {
+      struct link_map lm;
 
-    if (ret != sizeof(struct link_map)) {
-      WithColor::error() << __func__ << ": couldn't read link_map structure\n";
-      return;
-    }
+      ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
 
-    std::string s = _ptrace_read_string(child,
-                                        reinterpret_cast<uintptr_t>(lm.l_name));
+      if (ret != sizeof(struct link_map)) {
+        WithColor::error() << __func__
+                           << ": couldn't read link_map structure\n";
+        return;
+      }
 
-    if (opts::Verbose)
-      llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
-                                    lm.l_addr, s);
+      std::string s =
+          _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
 
-    if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-      if (s.find("libjove_dyn_preload") == std::string::npos) {
+      if (opts::Verbose)
+        llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
+                                      lm.l_addr, s);
+
+      if (!s.empty() && s.front() == '/' && fs::exists(s)) {
         fs::path path = fs::canonical(s);
 
         auto it = BinPathToIdxMap.find(path.c_str());
@@ -3976,16 +3994,19 @@ void scan_rtld_link_map(pid_t child,
           llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
                                         path.c_str());
           add_binary(child, tcg, dis, path.c_str());
+
+          newbin = true;
         }
       }
-    }
 
-    lmp = lm.l_next;
-  } while (lmp && lmp != r_dbg.r_map);
+      lmp = lm.l_next;
+    } while (lmp && lmp != r_dbg.r_map);
 
-  search_address_space_for_binaries(child, dis);
-  harvest_reloc_targets(child, tcg, dis);
-  // getting here implies we have already rendezvous with dynamic linker
+    if (newbin)
+      search_address_space_for_binaries(child, dis);
+  } catch (...) {
+    ;
+  }
 }
 
 static void print_command(std::vector<const char *> &arg_vec);
@@ -4518,65 +4539,66 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
             translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
-        assert(is_basic_block_index_valid(next_bb_idx));
+        if (is_basic_block_index_valid(next_bb_idx)) {
+          basic_block_t bb;
+
+          {
+            constexpr unsigned delay_slot =
+#if defined(__mips64) || defined(__mips__)
+                4
+#else
+                0
+#endif
+                ;
+
+            auto it = BBMap.find(rva - delay_slot - 1);
+            if (it == BBMap.end()) {
+              //
+              // we have no preceeding call
+              //
+              if (opts::Verbose)
+                WithColor::warning() << llvm::formatv(
+                    "{0}: could not find preceeding call @ {1:x}\n", __func__,
+                    rva);
+              return;
+            }
+
+            basic_block_index_t bbidx = (*it).second - 1;
+            bb = boost::vertex(bbidx, ICFG);
+          }
+
+          bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
+          bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
+
+#if !defined(__x86_64__) && defined(__i386__)
+          if (!isCall && !isIndirectCall) /* this can occur on i386 because of
+                                             hack in tcg.hpp */
+            return;
+#endif
+
+          assert(isCall || isIndirectCall);
+          assert(boost::out_degree(bb, ICFG) == 0 ||
+                 boost::out_degree(bb, ICFG) == 1);
+
+          if (isCall) {
+            ICFG[bb].Term._call.Returns = true;
+            if (is_function_index_valid(ICFG[bb].Term._call.Target))
+              binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns =
+                  true;
+          }
+
+          if (isIndirectCall)
+            ICFG[bb].Term._indirect_call.Returns = true;
+
+          basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
+          if (boost::add_edge(bb, next_bb, ICFG).second)
+            InvalidateAllFunctionAnalyses();
+        }
 
         if (brkpt_count > 0)
           llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
                                         brkpt_count, binary.Path);
 
-        basic_block_t bb;
-
-        {
-          constexpr unsigned delay_slot =
-#if defined(__mips64) || defined(__mips__)
-              4
-#else
-              0
-#endif
-              ;
-
-          auto it = BBMap.find(rva - delay_slot - 1);
-          if (it == BBMap.end()) {
-            //
-            // we have no preceeding call
-            //
-            if (opts::Verbose)
-              WithColor::warning() << llvm::formatv(
-                  "{0}: could not find preceeding call @ {1:x}\n", __func__,
-                  rva);
-            return;
-          }
-
-          basic_block_index_t bbidx = (*it).second - 1;
-          bb = boost::vertex(bbidx, ICFG);
-        }
-
-        bool isCall         = ICFG[bb].Term.Type == TERMINATOR::CALL;
-        bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
-
-#if !defined(__x86_64__) && defined(__i386__)
-        if (!isCall && !isIndirectCall) /* this can occur on i386 because of
-                                           hack in tcg.hpp */
-          return;
-#endif
-
-        assert(isCall || isIndirectCall);
-        assert(boost::out_degree(bb, ICFG) == 0 ||
-               boost::out_degree(bb, ICFG) == 1);
-
-        if (isCall) {
-          ICFG[bb].Term._call.Returns = true;
-          if (is_function_index_valid(ICFG[bb].Term._call.Target))
-            binary.Analysis.Functions.at(ICFG[bb].Term._call.Target).Returns =
-                true;
-        }
-
-        if (isIndirectCall)
-          ICFG[bb].Term._indirect_call.Returns = true;
-
-        basic_block_t next_bb = boost::vertex(next_bb_idx, ICFG);
-        if (boost::add_edge(bb, next_bb, ICFG).second)
-          InvalidateAllFunctionAnalyses();
       }
     }
   }
@@ -4645,9 +4667,9 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
 std::string description_of_program_counter(uintptr_t pc) {
 #if defined(__mips64) || defined(__mips__)
   if (ExecutableRegionAddress &&
-      pc >= (ExecutableRegionAddress - ExecutableRegionUsed) &&
-      pc < (ExecutableRegionAddress - ExecutableRegionUsed) + EXECUTABLE_REGION_SIZE) {
-    uintptr_t off = pc - (ExecutableRegionAddress - ExecutableRegionUsed);
+      pc >= ExecutableRegionAddress &&
+      pc < ExecutableRegionAddress + 8) {
+    uintptr_t off = pc - ExecutableRegionAddress;
     return (fmt("[exeregion]+%#lx") % off).str();
   }
 #endif
