@@ -2246,10 +2246,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     gpr.esp += sizeof(uint32_t);
 #elif defined(__mips64) || defined(__mips__)
     if (InsnBytes.empty()) { /* assume jr $ra */
-      WARN_ON(Inst.getOpcode() != llvm::Mips::JR ||
-              Inst.getNumOperands() != 1 ||
-              !Inst.getOperand(0).isReg() ||
-              Inst.getOperand(0).getReg() != llvm::Mips::RA);
+      WARN_ON(Inst.getOpcode() != llvm::Mips::JR
+           || Inst.getNumOperands() != 1
+           || !Inst.getOperand(0).isReg()
+           || Inst.getOperand(0).getReg() != llvm::Mips::RA);
 
       pc = gpr.regs[31 /* ra */];
     } else {
