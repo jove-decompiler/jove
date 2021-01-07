@@ -2326,13 +2326,22 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
 #elif defined(__mips64) || defined(__mips__)
-    if (InsnBytes.empty()) { /* assume jr $ra */
-      WARN_ON(Inst.getOpcode() != llvm::Mips::JR
-           || Inst.getNumOperands() != 1
-           || !Inst.getOperand(0).isReg()
-           || Inst.getOperand(0).getReg() != llvm::Mips::RA);
+    assert(InsnBytes.size() == 2 * sizeof(uint32_t));
 
-      pc = gpr.regs[31 /* ra */];
+    if (WARN_ON(!(Inst.getOpcode() == llvm::Mips::JR &&
+                  Inst.getNumOperands() == 1 &&
+                  Inst.getOperand(0).isReg() &&
+                  Inst.getOperand(0).getReg() == llvm::Mips::RA))) {
+      WithColor::error() << llvm::formatv(
+          "emulate_return: expected jr $ra, got {0} @ {1}\n", Inst,
+          description_of_program_counter(saved_pc));
+      pc = gpr.regs[31 /* ra */]; /* XXX */
+      return;
+    }
+
+    bool delay_slot_is_nop = ((uint32_t *)InsnBytes.data())[1] == 0x00000000;
+    if (delay_slot_is_nop) {
+      pc = gpr.regs[31 /* ra */]; /* simple case */
     } else {
       assert(ExecutableRegionAddress);
 
@@ -2807,8 +2816,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(Inst.getOperand(1).isReg());
 
       reg = Inst.getOperand(1).getReg();
+    } else {
+      WithColor::error() << llvm::formatv(
+          "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
+          __LINE__, Inst);
     }
     assert(reg != std::numeric_limits<unsigned>::max());
+
+    //bool delay_slot_is_nop = ((uint32_t *)IndBrInfo.InsnBytes.data())[1] == 0x00000000;
 
     unsigned idx = code_cave_idx_of_reg(reg);
     uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
