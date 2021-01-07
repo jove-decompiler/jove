@@ -2434,6 +2434,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       breakpoint_t &brk = (*it).second;
       brk.callback(child, tcg, dis);
 
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
+                                      description_of_program_counter(saved_pc));
+
       _ptrace_pokedata(child, saved_pc, brk.word);
       return;
     }
