@@ -4545,6 +4545,21 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       try {
         breakpoint_t brk;
         brk.callback = scan_rtld_link_map;
+        brk.InsnBytes.resize(2 * sizeof(uint32_t));
+        _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
+
+        uint64_t InstLen = 0;
+        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+        bool Disassembled = DisAsm.getInstruction(
+            brk.Inst,
+            InstLen,
+            brk.InsnBytes,
+            0 /* XXX should not matter */,
+            llvm::nulls());
+
+        if (unlikely(!Disassembled))
+          throw std::runtime_error("could not disassemble instruction at "
+                                   "address pointed to by _r_debug.r_brk");
 
         place_breakpoint(child, _r_debug.r_brk, brk, dis);
 
