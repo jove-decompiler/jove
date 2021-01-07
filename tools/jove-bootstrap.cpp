@@ -343,9 +343,7 @@ struct indirect_branch_t {
   llvm::MCInst Inst;
 
 #if defined(__mips64) || defined(__mips__)
-  struct {
-    llvm::MCInst DelaySlotInst;
-  } ___mips;
+  llvm::MCInst DelaySlotInst;
 #endif
 
   bool IsCall;
@@ -663,8 +661,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (opts::Verbose)
-        WithColor::error() << llvm::formatv(
+      if (!binary.IsVDSO)
+        WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
       boost::icl::interval<uintptr_t>::type intervl =
@@ -1721,7 +1719,7 @@ on_insn_boundary:
       indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
       indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
-      assert(indbr.InsnBytes.size() == sizeof(uint64_t));
+      assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
       memcpy(&indbr.InsnBytes[0],
              &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
@@ -1744,7 +1742,7 @@ on_insn_boundary:
       {
         uint64_t InstLen;
         bool Disassembled = DisAsm.getInstruction(
-            indbr.___mips.DelaySlotInst, InstLen,
+            indbr.DelaySlotInst, InstLen,
             llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
             bbprop.Term.Addr + 4, llvm::nulls());
         assert(Disassembled);
@@ -1973,7 +1971,6 @@ case 31:   return llvm::Mips::RA;
   }
 }
 uint32_t code_cave_idx_of_reg(unsigned r) {
-  // TODO make this endian-independant
   switch (r) {
     case llvm::Mips::ZERO: return 0;
     case llvm::Mips::AT:   return 1;
@@ -2014,7 +2011,6 @@ uint32_t code_cave_idx_of_reg(unsigned r) {
   }
 }
 uint32_t encoding_of_jump_to_reg(unsigned r) {
-  // TODO make this endian-independant
   switch (r) {
     case llvm::Mips::ZERO: return 0x00000008;
     case llvm::Mips::AT:   return 0x00200008;
@@ -2480,7 +2476,19 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
   llvm::MCInst &Inst = IndBrInfo.Inst;
 
-  auto RegValue = [&](unsigned llreg) -> long {
+#if defined(__x86_64__)
+#define _RegValue_Type unsigned long long
+#elif defined(__i386__)
+#define _RegValue_Type unsigned long long
+#elif defined(__aarch64__)
+#define _RegValue_Type unsigned long long
+#elif defined(__mips64) || defined(__mips__)
+#define _RegValue_Type unsigned long long
+#else
+#error
+#endif
+
+  auto RegValue = [&](unsigned llreg) -> _RegValue_Type & {
     switch (llreg) {
 #if defined(__x86_64__)
     case llvm::X86::RAX:
@@ -2560,7 +2568,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
 #elif defined(__mips64) || defined(__mips__)
 
-    case llvm::Mips::ZERO: return 0;
+    case llvm::Mips::ZERO: assert(gpr.regs[0] == 0); return gpr.regs[0];
     case llvm::Mips::AT: return gpr.regs[1];
     case llvm::Mips::V0: return gpr.regs[2];
     case llvm::Mips::V1: return gpr.regs[3];
@@ -2824,7 +2832,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       reg = Inst.getOperand(1).getReg();
     } else {
       WithColor::error() << llvm::formatv(
-          "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
+        "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
           __LINE__, Inst);
     }
     assert(reg != std::numeric_limits<unsigned>::max());
@@ -2833,17 +2841,67 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     if (delay_slot_is_nop) { /* simple case */
       pc = RegValue(reg);
     } else { /* non-trivial delay slot */
-      unsigned idx = code_cave_idx_of_reg(reg);
-      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
-                                  idx * (2 * sizeof(uint32_t));
-      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+      auto is_opcode_emulated = [](unsigned opc) -> bool {
+        return opc == llvm::Mips::LW
+            || opc == llvm::Mips::SW
+            || opc == llvm::Mips::NOP;
+      };
 
-      {
-        uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
-        _ptrace_pokedata(child, delay_slot_addr, val);
+      llvm::MCInst &I = IndBrInfo.DelaySlotInst;
+      const unsigned opc = I.getOpcode();
+
+      if (is_opcode_emulated(opc)) {
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
+                                        StringOfMCInst(I, dis));
+
+        //
+        // emulate delay slot instruction
+        //
+        switch (opc) {
+          case llvm::Mips::LW:
+          case llvm::Mips::SW: {
+            assert(I.getNumOperands() == 3);
+            assert(I.getOperand(0).isReg());
+            assert(I.getOperand(1).isReg());
+            assert(I.getOperand(2).isImm());
+
+            long Base = RegValue(I.getOperand(1).getReg());
+            long Offs = I.getOperand(2).getImm();
+            long Addr = Base + Offs;
+
+            auto &R = RegValue(I.getOperand(0).getReg());
+
+            if (opc == llvm::Mips::LW)
+              R = _ptrace_peekdata(child, Addr);
+            else /* SW */
+              _ptrace_pokedata(child, Addr, R);
+
+            break;
+          }
+
+          case llvm::Mips::NOP:
+            break;
+
+          default:
+            __builtin_trap();
+            __builtin_unreachable();
+        }
+
+        pc = RegValue(reg);
+      } else {
+        unsigned idx = code_cave_idx_of_reg(reg);
+        uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+                                    idx * (2 * sizeof(uint32_t));
+        uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+
+        {
+          uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
+          _ptrace_pokedata(child, delay_slot_addr, val);
+        }
+
+        pc = jumpr_insn_addr;
       }
-
-      pc = jumpr_insn_addr;
     }
   }
 #endif
@@ -2860,8 +2918,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   Inst,
                                   StringOfMCInst(Inst, dis),
 #if defined(__mips64) || defined(__mips__)
-                                  IndBrInfo.___mips.DelaySlotInst,
-                                  StringOfMCInst(IndBrInfo.___mips.DelaySlotInst, dis),
+                                  IndBrInfo.DelaySlotInst,
+                                  StringOfMCInst(IndBrInfo.DelaySlotInst, dis),
 #endif
                                   0 /* XXX unused */
                                   );
@@ -3031,8 +3089,8 @@ static void harvest_irelative_reloc_targets(pid_t child,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (opts::Verbose)
-        WithColor::error() << llvm::formatv(
+      if (!Binary.IsVDSO)
+        WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
       continue;
     }
@@ -3165,7 +3223,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (opts::Verbose)
+      if (!Binary.IsVDSO)
         WithColor::error() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
       continue;
@@ -3350,7 +3408,7 @@ static void harvest_ctor_and_dtors(pid_t child,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (opts::Verbose)
+      if (!Binary.IsVDSO)
         WithColor::error() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
       continue;
@@ -3404,10 +3462,6 @@ static void harvest_ctor_and_dtors(pid_t child,
           auto it = AddressSpace.find(Proc);
           if (it != AddressSpace.end() &&
               *(*it).second.begin() == BIdx) {
-            if (opts::Verbose)
-              llvm::errs() << llvm::formatv("{0}tor at 0x{1:x}\n",
-                                            ctor ? "c" : "d", Proc);
-
             function_index_t f_idx = translate_function(
                 child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
 
@@ -3596,7 +3650,7 @@ void on_binary_loaded(pid_t child,
     IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
     IndBrInfo.InsnBytes.resize(IndBrInfo.InsnBytes.size() + 4 /* delay slot */);
-    assert(IndBrInfo.InsnBytes.size() == sizeof(uint64_t));
+    assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
     auto sectit = st.SectMap.find(bbprop.Term.Addr);
@@ -3624,7 +3678,7 @@ void on_binary_loaded(pid_t child,
     {
       uint64_t InstLen;
       bool Disassembled = DisAsm.getInstruction(
-          IndBrInfo.___mips.DelaySlotInst, InstLen,
+          IndBrInfo.DelaySlotInst, InstLen,
           llvm::ArrayRef<uint8_t>(IndBrInfo.InsnBytes).slice(4),
           bbprop.Term.Addr + 4,
           llvm::errs());
@@ -4092,7 +4146,7 @@ void scan_rtld_link_map(pid_t child,
           _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
 
       if (opts::Verbose)
-        llvm::outs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
+        llvm::errs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
                                       lm.l_addr, s);
 
       if (!s.empty() && s.front() == '/' && fs::exists(s)) {
@@ -4240,8 +4294,8 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (opts::Verbose)
-        WithColor::error() << llvm::formatv(
+      if (!binary.IsVDSO)
+        WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
       boost::icl::interval<uintptr_t>::type intervl =
@@ -4387,8 +4441,9 @@ void on_dynamic_linker_loaded(pid_t child,
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(MemBuffRef);
   if (!BinOrErr) {
-    WithColor::error() << llvm::formatv(
-        "{0}: failed to create binary from {1}\n", __func__, binary.Path);
+    if (!binary.IsVDSO)
+      WithColor::warning() << llvm::formatv(
+          "{0}: failed to create binary from {1}\n", __func__, binary.Path);
     return;
   }
 
