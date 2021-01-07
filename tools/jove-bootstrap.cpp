@@ -2803,7 +2803,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
 #if !defined(__mips64) && !defined(__mips__)
   pc = target;
-#else
+#else /* delay slot madness */
   {
     assert(ExecutableRegionAddress);
 
@@ -2829,19 +2829,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
     assert(reg != std::numeric_limits<unsigned>::max());
 
-    //bool delay_slot_is_nop = ((uint32_t *)IndBrInfo.InsnBytes.data())[1] == 0x00000000;
+    bool delay_slot_is_nop = ((uint32_t *)IndBrInfo.InsnBytes.data())[1] == 0x00000000;
+    if (delay_slot_is_nop) { /* simple case */
+      pc = RegValue(reg);
+    } else { /* non-trivial delay slot */
+      unsigned idx = code_cave_idx_of_reg(reg);
+      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+                                  idx * (2 * sizeof(uint32_t));
+      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
 
-    unsigned idx = code_cave_idx_of_reg(reg);
-    uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
-                                idx * (2 * sizeof(uint32_t));
-    uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+      {
+        uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
+        _ptrace_pokedata(child, delay_slot_addr, val);
+      }
 
-    {
-      uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
-      _ptrace_pokedata(child, delay_slot_addr, val);
+      pc = jumpr_insn_addr;
     }
-
-    pc = jumpr_insn_addr;
   }
 #endif
 
