@@ -1930,6 +1930,87 @@ bool does_function_definitely_return(binary_index_t BIdx,
 static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 
 #if defined(__mips64) || defined(__mips__)
+unsigned reg_of_idx(unsigned idx) {
+  switch (idx) {
+case 0:    return llvm::Mips::ZERO;
+case 1:    return llvm::Mips::AT;
+case 2:    return llvm::Mips::V0;
+case 3:    return llvm::Mips::V1;
+case 4:    return llvm::Mips::A0;
+case 5:    return llvm::Mips::A1;
+case 6:    return llvm::Mips::A2;
+case 7:    return llvm::Mips::A3;
+case 8:    return llvm::Mips::T0;
+case 9:    return llvm::Mips::T1;
+case 10:   return llvm::Mips::T2;
+case 11:   return llvm::Mips::T3;
+case 12:   return llvm::Mips::T4;
+case 13:   return llvm::Mips::T5;
+case 14:   return llvm::Mips::T6;
+case 15:   return llvm::Mips::T7;
+case 16:   return llvm::Mips::S0;
+case 17:   return llvm::Mips::S1;
+case 18:   return llvm::Mips::S2;
+case 19:   return llvm::Mips::S3;
+case 20:   return llvm::Mips::S4;
+case 21:   return llvm::Mips::S5;
+case 22:   return llvm::Mips::S6;
+case 23:   return llvm::Mips::S7;
+case 24:   return llvm::Mips::T8;
+case 25:   return llvm::Mips::T9;
+case 26:   return llvm::Mips::K0;
+case 27:   return llvm::Mips::K1;
+case 28:   return llvm::Mips::GP;
+case 29:   return llvm::Mips::SP;
+case 30:   return llvm::Mips::FP;
+case 31:   return llvm::Mips::RA;
+
+    default:
+      __builtin_trap();
+      __builtin_unreachable();
+  }
+}
+uint32_t code_cave_idx_of_reg(unsigned r) {
+  // TODO make this endian-independant
+  switch (r) {
+    case llvm::Mips::ZERO: return 0;
+    case llvm::Mips::AT:   return 1;
+    case llvm::Mips::V0:   return 2;
+    case llvm::Mips::V1:   return 3;
+    case llvm::Mips::A0:   return 4;
+    case llvm::Mips::A1:   return 5;
+    case llvm::Mips::A2:   return 6;
+    case llvm::Mips::A3:   return 7;
+    case llvm::Mips::T0:   return 8;
+    case llvm::Mips::T1:   return 9;
+    case llvm::Mips::T2:   return 10;
+    case llvm::Mips::T3:   return 11;
+    case llvm::Mips::T4:   return 12;
+    case llvm::Mips::T5:   return 13;
+    case llvm::Mips::T6:   return 14;
+    case llvm::Mips::T7:   return 15;
+    case llvm::Mips::S0:   return 16;
+    case llvm::Mips::S1:   return 17;
+    case llvm::Mips::S2:   return 18;
+    case llvm::Mips::S3:   return 19;
+    case llvm::Mips::S4:   return 20;
+    case llvm::Mips::S5:   return 21;
+    case llvm::Mips::S6:   return 22;
+    case llvm::Mips::S7:   return 23;
+    case llvm::Mips::T8:   return 24;
+    case llvm::Mips::T9:   return 25;
+    case llvm::Mips::K0:   return 26;
+    case llvm::Mips::K1:   return 27;
+    case llvm::Mips::GP:   return 28;
+    case llvm::Mips::SP:   return 29;
+    case llvm::Mips::FP:   return 30;
+    case llvm::Mips::RA:   return 31;
+
+    default:
+      __builtin_trap();
+      __builtin_unreachable();
+  }
+}
 uint32_t encoding_of_jump_to_reg(unsigned r) {
   // TODO make this endian-independant
   switch (r) {
@@ -2257,29 +2338,33 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
       assert(InsnBytes.size() == 2 * sizeof(uint32_t));
 
-      //
-      // prepare ExecutableRegion
-      //
-      uint64_t val = *((uint64_t *)InsnBytes.data());
-      switch (sizeof(long)) {
-      case 8: /* we can do it with one poke */
-        _ptrace_pokedata(child, ExecutableRegionAddress, val);
-        break;
-      case 4: { /* two pokes will suffice */
-        uint32_t val0 = ((uint32_t *)&val)[0];
-        uint32_t val1 = ((uint32_t *)&val)[1];
+      unsigned reg = std::numeric_limits<unsigned>::max();
+      if (Inst.getOpcode() == llvm::Mips::JR) {
+        assert(Inst.getNumOperands() == 1);
+        assert(Inst.getOperand(0).isReg());
 
-        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
-        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
-        break;
+        reg = Inst.getOperand(0).getReg();
+      } else if (Inst.getOpcode() == llvm::Mips::JALR) {
+        assert(Inst.getNumOperands() == 2);
+        assert(Inst.getOperand(0).isReg());
+        assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
+        assert(Inst.getOperand(1).isReg());
+
+        reg = Inst.getOperand(1).getReg();
+      }
+      assert(reg != std::numeric_limits<unsigned>::max());
+
+      unsigned idx = code_cave_idx_of_reg(reg);
+      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+                                  idx * (2 * sizeof(uint32_t));
+      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+
+      {
+        uint32_t val = ((uint32_t *)InsnBytes.data())[1];
+        _ptrace_pokedata(child, delay_slot_addr, val);
       }
 
-      default:
-        __builtin_trap(); /* XXX BUILD_BUG would be better here */
-        __builtin_unreachable();
-      }
-
-      pc = ExecutableRegionAddress;
+      pc = jumpr_insn_addr;
     }
 #else
 #error
@@ -2303,6 +2388,12 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
+      if (opts::Verbose) {
+        llvm::errs() << llvm::formatv(
+            "*_r_debug.r_brk [{0}]\n",
+            description_of_program_counter(_r_debug.r_brk));
+      }
+
       //
       // we assume that this is a 'ret' TODO verify this assumption
       //
@@ -2703,50 +2794,33 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 
-    //
-    // prepare ExecutableRegion
-    //
-    uint64_t val = *((uint64_t *)IndBrInfo.InsnBytes.data());
+    unsigned reg = std::numeric_limits<unsigned>::max();
+    if (Inst.getOpcode() == llvm::Mips::JR) {
+      assert(Inst.getNumOperands() == 1);
+      assert(Inst.getOperand(0).isReg());
 
-    if (IndBrInfo.IsCall) {
-      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
-
-      //
-      // if this is a jalr, we have to turn it into a jr because otherwise
-      // the return address will be incorrect after the terminator instruction
-      // is executed
-      //
-      assert(Inst.getOpcode() == llvm::Mips::JALR);
+      reg = Inst.getOperand(0).getReg();
+    } else if (Inst.getOpcode() == llvm::Mips::JALR) {
       assert(Inst.getNumOperands() == 2);
       assert(Inst.getOperand(0).isReg());
       assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
       assert(Inst.getOperand(1).isReg());
 
-      uint32_t first_insn_replacement =
-          encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
+      reg = Inst.getOperand(1).getReg();
+    }
+    assert(reg != std::numeric_limits<unsigned>::max());
 
-      ((uint32_t *)&val)[0] = first_insn_replacement;
+    unsigned idx = code_cave_idx_of_reg(reg);
+    uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+                                idx * (2 * sizeof(uint32_t));
+    uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+
+    {
+      uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
+      _ptrace_pokedata(child, delay_slot_addr, val);
     }
 
-    switch (sizeof(long)) {
-    case 8: /* we can do it with one poke */
-      _ptrace_pokedata(child, ExecutableRegionAddress, val);
-      break;
-    case 4: { /* two pokes will suffice */
-      uint32_t val0 = ((uint32_t *)&val)[0];
-      uint32_t val1 = ((uint32_t *)&val)[1];
-
-      _ptrace_pokedata(child, ExecutableRegionAddress, val0);
-      _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
-      break;
-    }
-
-    default:
-      __builtin_trap(); /* XXX BUILD_BUG would be better here */
-      __builtin_unreachable();
-    }
-
-    pc = ExecutableRegionAddress;
+    pc = jumpr_insn_addr;
   }
 #endif
 
@@ -3448,10 +3522,21 @@ void on_binary_loaded(pid_t child,
   if (binary.IsVDSO) {
     WARN_ON(ExecutableRegionAddress);
 
+    constexpr unsigned num_trampolines = 32;
+
     //
-    // find a code cave that can hold two instructions (8 bytes)
+    // find a code cave that can hold 2*num_trampolines instructions
     //
-    ExecutableRegionAddress = vm_prop.end - 8;
+    ExecutableRegionAddress = vm_prop.end - num_trampolines * 8;
+
+    //
+    // "initialize" code cave
+    //
+    for (unsigned i = 0; i < 32; ++i) {
+      uint32_t insn = encoding_of_jump_to_reg(reg_of_idx(i));
+
+      _ptrace_pokedata(child, ExecutableRegionAddress + i * (2 * sizeof(uint32_t)), insn);
+    }
 
     if (opts::Verbose)
         WithColor::note()
@@ -4665,7 +4750,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
 }
 
 std::string description_of_program_counter(uintptr_t pc) {
-#if defined(__mips64) || defined(__mips__)
+#if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
       pc >= ExecutableRegionAddress &&
       pc < ExecutableRegionAddress + 8) {
