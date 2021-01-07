@@ -15882,6 +15882,7 @@ static inline void generate_exception_err(DisasContext *ctx, int excp, int err)
     tcg_temp_free_i32(terr);
     tcg_temp_free_i32(texcp);
     ctx->base.is_jmp = DISAS_NORETURN;
+    ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNREACHABLE;
 }
 
 static inline void generate_exception(DisasContext *ctx, int excp)
