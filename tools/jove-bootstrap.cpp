@@ -2851,7 +2851,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       const unsigned opc = I.getOpcode();
 
       if (is_opcode_emulated(opc)) {
-        if (opts::Verbose)
+        if (opts::VeryVerbose)
           llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
                                         StringOfMCInst(I, dis));
 
@@ -2866,16 +2866,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             assert(I.getOperand(1).isReg());
             assert(I.getOperand(2).isImm());
 
+            auto &Reg = RegValue(I.getOperand(0).getReg());
             long Base = RegValue(I.getOperand(1).getReg());
             long Offs = I.getOperand(2).getImm();
             long Addr = Base + Offs;
 
-            auto &R = RegValue(I.getOperand(0).getReg());
-
             if (opc == llvm::Mips::LW)
-              R = _ptrace_peekdata(child, Addr);
+              Reg = _ptrace_peekdata(child, Addr);
             else /* SW */
-              _ptrace_pokedata(child, Addr, R);
+              _ptrace_pokedata(child, Addr, Reg);
 
             break;
           }
@@ -2890,6 +2889,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         pc = RegValue(reg);
       } else {
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
+                                        StringOfMCInst(I, dis));
+
         unsigned idx = code_cave_idx_of_reg(reg);
         uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
                                     idx * (2 * sizeof(uint32_t));
