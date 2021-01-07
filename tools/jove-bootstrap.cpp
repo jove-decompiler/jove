@@ -1149,6 +1149,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
   if (git) {
     pid_t pid = fork();
     if (!pid) { /* child */
+      IgnoreCtrlC();
+
       std::string msg("[jove-bootstrap] ");
 
       for (const std::string &env : opts::Envs) {
