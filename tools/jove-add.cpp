@@ -176,6 +176,12 @@ static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
                                            disas_t &, target_ulong Addr);
 
+static basic_block_index_t translate_basic_block(binary_t &,
+                                                 tiny_code_generator_t &,
+                                                 disas_t &,
+                                                 const target_ulong Addr);
+
+
 /// Represents a contiguous uniform range in the file. We cannot just create a
 /// range directly because when creating one of these from the .dynamic table
 /// the size, entity size and virtual address are different entries in arbitrary
@@ -739,6 +745,7 @@ int add(void) {
   }
 
   std::set<uintptr_t> FunctionEntrypoints;
+  std::set<uintptr_t> BasicBlockAddresses;
 
   //
   // search symbols
@@ -846,12 +853,14 @@ int add(void) {
             if (SymName.empty())
               continue;
 
-            if (SymName[0] == '_') /* XXX magic (e.g. __syscall_error in glibc is not an ABI) */
-              continue;
-
-            llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
+            //
+            // since these are local symbols, we cannot rely on them being ABIs,
+            // or functions at all, for that matter. We know that each entry
+            // point is the start of a basic block, however.
+            //
+            llvm::outs() << llvm::formatv("translating (bb) {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
-            FunctionEntrypoints.insert(Sym.st_value);
+            BasicBlockAddresses.insert(Sym.st_value);
           }
         }
       }
@@ -970,12 +979,11 @@ int add(void) {
   //  10a330:       55                      push   %ebp
   //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
   //
+  for (uintptr_t Entrypoint : boost::adaptors::reverse(BasicBlockAddresses))
+    translate_basic_block(binary, tcg, dis, Entrypoint);
 
-  for (uintptr_t Entrypoint : boost::adaptors::reverse(FunctionEntrypoints)) {
-    //llvm::outs() << llvm::formatv("{0:x}\n", Entrypoint);
-
+  for (uintptr_t Entrypoint : boost::adaptors::reverse(FunctionEntrypoints))
     translate_function(binary, tcg, dis, Entrypoint);
-  }
 
   do {
     std::map<uintptr_t, std::vector<uintptr_t>>
@@ -1050,11 +1058,6 @@ int add(void) {
 
   return 0;
 }
-
-static basic_block_index_t translate_basic_block(binary_t &,
-                                                 tiny_code_generator_t &,
-                                                 disas_t &,
-                                                 const target_ulong Addr);
 
 static function_index_t translate_function(binary_t &binary,
                                            tiny_code_generator_t &tcg,
