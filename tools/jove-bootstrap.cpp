@@ -2904,9 +2904,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
             unsigned a = I.getOperand(0).getReg();
             unsigned b = I.getOperand(1).getReg();
 
-            long x = I.getOperand(2).getImm();
+            unsigned long x = I.getOperand(2).getImm();
 
-            RegValue(a) = RegValue(b) + x;
+            RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
             break;
           }
 
