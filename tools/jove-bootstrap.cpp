@@ -2478,6 +2478,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::MOVZ_I_I
           || opc == llvm::Mips::MFLO
           || opc == llvm::Mips::XOR
+          || opc == llvm::Mips::LUi
           || opc == llvm::Mips::NOP;
     };
 
@@ -2628,6 +2629,20 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         unsigned c = I.getOperand(2).getReg();
 
         RegValue(a) = RegValue(b) ^ RegValue(c);
+
+        break;
+      }
+
+      case llvm::Mips::LUi: {
+        assert(I.getNumOperands() == 2);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+
+        unsigned long x = I.getOperand(0).getImm()
+
+        RegValue(a) = x << 16;
 
         break;
       }
