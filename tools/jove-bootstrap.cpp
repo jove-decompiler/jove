@@ -2474,6 +2474,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::ADDiu
           || opc == llvm::Mips::ADDu
           || opc == llvm::Mips::SLL
+          || opc == llvm::Mips::SUBu
           || opc == llvm::Mips::NOP;
     };
 
@@ -2548,6 +2549,21 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         unsigned c = I.getOperand(2).getReg();
 
         RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
+                      static_cast<unsigned long>(RegValue(c));
+        break;
+      }
+
+      case llvm::Mips::SUBu: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        RegValue(a) = static_cast<unsigned long>(RegValue(b)) -
                       static_cast<unsigned long>(RegValue(c));
         break;
       }
