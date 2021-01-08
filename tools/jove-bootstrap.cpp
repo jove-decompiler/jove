@@ -2485,7 +2485,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::AND
           || opc == llvm::Mips::SB
           || opc == llvm::Mips::ORi
-          || opc == llvm::Mips::MOVN_I_I;
+          || opc == llvm::Mips::MOVN_I_I
           || opc == llvm::Mips::ANDi
           || opc == llvm::Mips::NOP;
     };
