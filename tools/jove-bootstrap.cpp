@@ -355,6 +355,10 @@ struct return_t {
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
 
+#if defined(__mips64) || defined(__mips__)
+  llvm::MCInst DelaySlotInst;
+#endif
+
   uintptr_t TermAddr;
 };
 
@@ -387,11 +391,16 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
 
+// one-shot breakpoint
 struct breakpoint_t {
   unsigned long word;
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
+
+#if defined(__mips64) || defined(__mips__)
+  llvm::MCInst DelaySlotInst;
+#endif
 
   void (*callback)(pid_t, tiny_code_generator_t &, disas_t &);
 };
@@ -1484,7 +1493,7 @@ on_insn_boundary:
 
       assert(boost::icl::disjoint(intervl1, intervl2));
 
-      if (opts::Verbose) {
+      if (false) {
         llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
                      << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
 
@@ -1787,14 +1796,25 @@ on_insn_boundary:
             DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
                                   bbprop.Term.Addr, llvm::nulls());
         assert(Disassembled);
-#if 0
-        if (InstLen != RetInfo.InsnBytes.size()) {
-          WithColor::error() << llvm::formatv("{0} != {1}\n", InstLen,
-                                              RetInfo.InsnBytes.size());
-        }
-        assert(InstLen == RetInfo.InsnBytes.size());
-#endif
       }
+
+#if defined(__mips64) || defined(__mips__)
+      //
+      // disassemble delay slot
+      //
+      {
+        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
+
+        uint64_t InstLen;
+        bool Disassembled =
+            DisAsm.getInstruction(RetInfo.DelaySlotInst, InstLen,
+                                  llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
+                                  bbprop.Term.Addr + 4,
+                                  llvm::nulls());
+
+        assert(Disassembled);
+      }
+#endif
 
       place_breakpoint_at_return(child, termpc, RetInfo);
       ++brkpt_count;
@@ -2193,18 +2213,6 @@ void place_breakpoint(pid_t child,
 
   brk.word = word;
 
-  llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-  {
-    std::vector<uint8_t> InsnBytes;
-    InsnBytes.resize(sizeof(word));
-    memcpy(&InsnBytes[0], &word, sizeof(word));
-
-    uint64_t InstLen;
-    bool Disassembled =
-        DisAsm.getInstruction(brk.Inst, InstLen, InsnBytes, 0x0, llvm::nulls());
-    assert(Disassembled);
-  }
-
   arch_put_breakpoint(&word);
 
   // write the word back
@@ -2313,169 +2321,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   const uintptr_t saved_pc = pc;
 
   //
-  // helper function to emulate the semantics of a return instruction
+  // the following are some helper functions for reading the cpu state
   //
-  auto emulate_return = [&](llvm::MCInst &Inst,
-                            const std::vector<uint8_t> &InsnBytes) -> void {
-#if defined(__x86_64__)
-    pc = _ptrace_peekdata(child, gpr.rsp);
-    gpr.rsp += sizeof(uint64_t);
-#elif defined(__i386__)
-    pc = _ptrace_peekdata(child, gpr.esp);
-    gpr.esp += sizeof(uint32_t);
-#elif defined(__mips64) || defined(__mips__)
-    assert(InsnBytes.size() == 2 * sizeof(uint32_t));
-
-    if (WARN_ON(!(Inst.getOpcode() == llvm::Mips::JR &&
-                  Inst.getNumOperands() == 1 &&
-                  Inst.getOperand(0).isReg() &&
-                  Inst.getOperand(0).getReg() == llvm::Mips::RA))) {
-      WithColor::error() << llvm::formatv(
-          "emulate_return: expected jr $ra, got {0} @ {1}\n", Inst,
-          description_of_program_counter(saved_pc));
-      pc = gpr.regs[31 /* ra */]; /* XXX */
-      return;
-    }
-
-    bool delay_slot_is_nop = ((uint32_t *)InsnBytes.data())[1] == 0x00000000;
-    if (delay_slot_is_nop) {
-      pc = gpr.regs[31 /* ra */]; /* simple case */
-    } else {
-      assert(ExecutableRegionAddress);
-
-      assert(InsnBytes.size() == 2 * sizeof(uint32_t));
-
-      unsigned reg = std::numeric_limits<unsigned>::max();
-      if (Inst.getOpcode() == llvm::Mips::JR) {
-        assert(Inst.getNumOperands() == 1);
-        assert(Inst.getOperand(0).isReg());
-
-        reg = Inst.getOperand(0).getReg();
-      } else if (Inst.getOpcode() == llvm::Mips::JALR) {
-        assert(Inst.getNumOperands() == 2);
-        assert(Inst.getOperand(0).isReg());
-        assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
-        assert(Inst.getOperand(1).isReg());
-
-        reg = Inst.getOperand(1).getReg();
-      }
-      assert(reg != std::numeric_limits<unsigned>::max());
-
-      unsigned idx = code_cave_idx_of_reg(reg);
-      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
-                                  idx * (2 * sizeof(uint32_t));
-      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
-
-      {
-        uint32_t val = ((uint32_t *)InsnBytes.data())[1];
-        _ptrace_pokedata(child, delay_slot_addr, val);
-      }
-
-      pc = jumpr_insn_addr;
-    }
-#else
-#error
-#endif
-
-#if defined(__x86_64__) || defined(__i386__)
-    if (Inst.getNumOperands() > 0) {
-      assert(Inst.getNumOperands() == 1);
-      assert(Inst.getOperand(0).isImm());
-
-#if defined(__x86_64__)
-      gpr.rsp += Inst.getOperand(0).getImm();
-#elif defined(__i386__)
-      gpr.esp += Inst.getOperand(0).getImm();
-#else
-#error
-#endif
-    }
-#endif
-  };
-
-  {
-    if (unlikely(saved_pc == _r_debug.r_brk)) {
-      if (opts::Verbose) {
-        llvm::errs() << llvm::formatv(
-            "*_r_debug.r_brk [{0}]\n",
-            description_of_program_counter(_r_debug.r_brk));
-      }
-
-      //
-      // we assume that this is a 'ret' TODO verify this assumption
-      //
-      auto it = BrkMap.find(saved_pc);
-      assert(it != BrkMap.end());
-      breakpoint_t &brk = (*it).second;
-
-      brk.callback(child, tcg, dis);
-
-      emulate_return(brk.Inst, brk.InsnBytes);
-      return;
-    }
-  }
-
-  {
-    auto it = RetMap.find(saved_pc);
-    if (it != RetMap.end()) {
-      return_t &ret = (*it).second;
-
-      emulate_return(ret.Inst, ret.InsnBytes);
-      on_return(child, saved_pc, pc, tcg, dis);
-      return;
-    }
-  }
-
-  {
-    auto it = BrkMap.find(saved_pc);
-    if (it != BrkMap.end()) {
-      breakpoint_t &brk = (*it).second;
-      brk.callback(child, tcg, dis);
-
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
-                                      description_of_program_counter(saved_pc));
-
-      _ptrace_pokedata(child, saved_pc, brk.word);
-      return;
-    }
-  }
-
-  auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
-    auto it = IndBrMap.find(addr);
-    if (it == IndBrMap.end())
-      throw std::runtime_error((fmt("unknown breakpoint @ %#lx") % addr).str());
-
-    return (*it).second;
-  };
-
-  indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
-  auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
-  auto &ICFG = binary.Analysis.ICFG;
-
-  //
-  // push program counter past instruction (on x86_64 this is necessary to make
-  // EIP-relative expressions correct)
-  //
-  pc += IndBrInfo.InsnBytes.size();
-
-  //
-  // shorthand-functions for reading the tracee's memory and registers
-  //
-  basic_block_index_t bbidx;
-  basic_block_t bb;
-
-  {
-    auto it = BBMap.find(IndBrInfo.TermAddr);
-    assert(it != BBMap.end());
-
-    bbidx = (*it).second - 1;
-    bb = boost::vertex(bbidx, ICFG);
-  }
-
-  llvm::MCInst &Inst = IndBrInfo.Inst;
-
 #if defined(__x86_64__)
 #define _RegValue_Type unsigned long long
 #elif defined(__i386__)
@@ -2607,11 +2454,266 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     default:
       throw std::runtime_error(
-          (fmt("RegValue: unknown llreg %u @ %s : BB %#lx\n%s") % llreg %
-           binary.Path % ICFG[bb].Addr % StringOfMCInst(Inst, dis))
-              .str());
+          (fmt("RegValue: unknown llreg %u\n") % llreg).str());
     }
   };
+
+#if defined(__mips64) || defined(__mips__)
+  auto emulate_delay_slot = [&](llvm::MCInst &I,
+                                const std::vector<uint8_t> &InsnBytes,
+                                unsigned reg) -> void {
+    auto is_opcode_emulated = [](unsigned opc) -> bool {
+      return opc == llvm::Mips::LW
+          || opc == llvm::Mips::SW
+          || opc == llvm::Mips::OR
+          || opc == llvm::Mips::ADDiu
+          || opc == llvm::Mips::ADDu
+          || opc == llvm::Mips::NOP;
+    };
+
+    const unsigned opc = I.getOpcode();
+
+    if (is_opcode_emulated(opc)) {
+      if (opts::VeryVerbose)
+        llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
+                                      StringOfMCInst(I, dis));
+
+      //
+      // emulate delay slot instruction
+      //
+      switch (opc) {
+      case llvm::Mips::LW:
+      case llvm::Mips::SW: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        auto &Reg = RegValue(I.getOperand(0).getReg());
+        long Base = RegValue(I.getOperand(1).getReg());
+        long Offs = I.getOperand(2).getImm();
+        long Addr = Base + Offs;
+
+        if (opc == llvm::Mips::LW)
+          Reg = _ptrace_peekdata(child, Addr);
+        else /* SW */
+          _ptrace_pokedata(child, Addr, Reg);
+
+        break;
+      }
+
+      case llvm::Mips::OR: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        RegValue(a) = RegValue(b) | RegValue(c);
+        break;
+      }
+
+      case llvm::Mips::ADDiu: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+
+        unsigned long x = I.getOperand(2).getImm();
+
+        RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
+        break;
+      }
+
+      case llvm::Mips::ADDu: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
+                      static_cast<unsigned long>(RegValue(c));
+        break;
+      }
+
+      case llvm::Mips::NOP:
+        break;
+
+      default:
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      pc = RegValue(reg);
+    } else {
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
+                                      StringOfMCInst(I, dis));
+
+      unsigned idx = code_cave_idx_of_reg(reg);
+      uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
+                                  idx * (2 * sizeof(uint32_t));
+      uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
+
+      {
+        uint32_t val = ((uint32_t *)InsnBytes.data())[1];
+        _ptrace_pokedata(child, delay_slot_addr, val);
+      }
+
+      pc = jumpr_insn_addr;
+    }
+  };
+#endif
+
+  //
+  // helper function to emulate the semantics of a return instruction
+  //
+  auto emulate_return = [&](llvm::MCInst &Inst,
+#if defined(__mips64) || defined(__mips__)
+                            llvm::MCInst &DelaySlotInst,
+#endif
+                            const std::vector<uint8_t> &InsnBytes) -> void {
+#if defined(__x86_64__)
+    pc = _ptrace_peekdata(child, gpr.rsp);
+    gpr.rsp += sizeof(uint64_t);
+#elif defined(__i386__)
+    pc = _ptrace_peekdata(child, gpr.esp);
+    gpr.esp += sizeof(uint32_t);
+#elif defined(__mips64) || defined(__mips__)
+    assert(InsnBytes.size() == 2 * sizeof(uint32_t));
+
+    if (WARN_ON(!(Inst.getOpcode() == llvm::Mips::JR &&
+                  Inst.getNumOperands() == 1 &&
+                  Inst.getOperand(0).isReg() &&
+                  Inst.getOperand(0).getReg() == llvm::Mips::RA))) {
+      WithColor::error() << llvm::formatv(
+          "emulate_return: expected jr $ra, got {0} @ {1}\n", Inst,
+          description_of_program_counter(saved_pc));
+      pc = gpr.regs[31 /* ra */]; /* XXX */
+      return;
+    }
+
+    emulate_delay_slot(DelaySlotInst, InsnBytes, llvm::Mips::RA);
+#else
+#error
+#endif
+
+#if defined(__x86_64__) || defined(__i386__)
+    if (Inst.getNumOperands() > 0) {
+      assert(Inst.getNumOperands() == 1);
+      assert(Inst.getOperand(0).isImm());
+
+#if defined(__x86_64__)
+      gpr.rsp += Inst.getOperand(0).getImm();
+#elif defined(__i386__)
+      gpr.esp += Inst.getOperand(0).getImm();
+#else
+#error
+#endif
+    }
+#endif
+  };
+
+  {
+    if (unlikely(saved_pc == _r_debug.r_brk)) {
+      if (opts::Verbose) {
+        llvm::errs() << llvm::formatv(
+            "*_r_debug.r_brk [{0}]\n",
+            description_of_program_counter(_r_debug.r_brk));
+      }
+
+      //
+      // we assume that this is a 'ret' TODO verify this assumption
+      //
+      auto it = BrkMap.find(saved_pc);
+      assert(it != BrkMap.end());
+      breakpoint_t &brk = (*it).second;
+
+      brk.callback(child, tcg, dis);
+
+      emulate_return(brk.Inst,
+#if defined(__mips64) || defined(__mips__)
+                     brk.DelaySlotInst,
+#endif
+                     brk.InsnBytes);
+      return;
+    }
+  }
+
+  {
+    auto it = RetMap.find(saved_pc);
+    if (it != RetMap.end()) {
+      return_t &ret = (*it).second;
+
+      emulate_return(ret.Inst,
+#if defined(__mips64) || defined(__mips__)
+                     ret.DelaySlotInst,
+#endif
+                     ret.InsnBytes);
+      on_return(child, saved_pc, pc, tcg, dis);
+      return;
+    }
+  }
+
+  {
+    auto it = BrkMap.find(saved_pc);
+    if (it != BrkMap.end()) {
+      breakpoint_t &brk = (*it).second;
+      brk.callback(child, tcg, dis);
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
+                                      description_of_program_counter(saved_pc));
+
+      _ptrace_pokedata(child, saved_pc, brk.word);
+      return;
+    }
+  }
+
+  auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
+    auto it = IndBrMap.find(addr);
+    if (it == IndBrMap.end())
+      throw std::runtime_error((fmt("unknown breakpoint @ %#lx") % addr).str());
+
+    return (*it).second;
+  };
+
+  indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
+  binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
+  auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
+  auto &ICFG = binary.Analysis.ICFG;
+
+  //
+  // push program counter past instruction (on x86_64 this is necessary to make
+  // EIP-relative expressions correct)
+  //
+  pc += IndBrInfo.InsnBytes.size();
+
+  //
+  // shorthand-functions for reading the tracee's memory and registers
+  //
+  basic_block_index_t bbidx;
+  basic_block_t bb;
+
+  {
+    auto it = BBMap.find(IndBrInfo.TermAddr);
+    assert(it != BBMap.end());
+
+    bbidx = (*it).second - 1;
+    bb = boost::vertex(bbidx, ICFG);
+  }
+
+  llvm::MCInst &Inst = IndBrInfo.Inst;
 
   auto LoadAddr = [&](uintptr_t addr) -> uintptr_t {
     return _ptrace_peekdata(child, addr);
@@ -2837,122 +2939,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
     assert(reg != std::numeric_limits<unsigned>::max());
 
-    bool delay_slot_is_nop = ((uint32_t *)IndBrInfo.InsnBytes.data())[1] == 0x00000000;
-    if (delay_slot_is_nop) { /* simple case */
-      pc = RegValue(reg);
-    } else { /* non-trivial delay slot */
-      auto is_opcode_emulated = [](unsigned opc) -> bool {
-        return opc == llvm::Mips::LW
-            || opc == llvm::Mips::SW
-            || opc == llvm::Mips::OR
-            || opc == llvm::Mips::ADDiu
-            || opc == llvm::Mips::ADDu
-            || opc == llvm::Mips::NOP;
-      };
-
-      llvm::MCInst &I = IndBrInfo.DelaySlotInst;
-      const unsigned opc = I.getOpcode();
-
-      if (is_opcode_emulated(opc)) {
-        if (opts::VeryVerbose)
-          llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                        StringOfMCInst(I, dis));
-
-        //
-        // emulate delay slot instruction
-        //
-        switch (opc) {
-          case llvm::Mips::LW:
-          case llvm::Mips::SW: {
-            assert(I.getNumOperands() == 3);
-            assert(I.getOperand(0).isReg());
-            assert(I.getOperand(1).isReg());
-            assert(I.getOperand(2).isImm());
-
-            auto &Reg = RegValue(I.getOperand(0).getReg());
-            long Base = RegValue(I.getOperand(1).getReg());
-            long Offs = I.getOperand(2).getImm();
-            long Addr = Base + Offs;
-
-            if (opc == llvm::Mips::LW)
-              Reg = _ptrace_peekdata(child, Addr);
-            else /* SW */
-              _ptrace_pokedata(child, Addr, Reg);
-
-            break;
-          }
-
-          case llvm::Mips::OR: {
-            assert(I.getNumOperands() == 3);
-            assert(I.getOperand(0).isReg());
-            assert(I.getOperand(1).isReg());
-            assert(I.getOperand(2).isReg());
-
-            unsigned a = I.getOperand(0).getReg();
-            unsigned b = I.getOperand(1).getReg();
-            unsigned c = I.getOperand(2).getReg();
-
-            RegValue(a) = RegValue(b) | RegValue(c);
-            break;
-          }
-
-          case llvm::Mips::ADDiu: {
-            assert(I.getNumOperands() == 3);
-            assert(I.getOperand(0).isReg());
-            assert(I.getOperand(1).isReg());
-            assert(I.getOperand(2).isImm());
-
-            unsigned a = I.getOperand(0).getReg();
-            unsigned b = I.getOperand(1).getReg();
-
-            unsigned long x = I.getOperand(2).getImm();
-
-            RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
-            break;
-          }
-
-          case llvm::Mips::ADDu: {
-            assert(I.getNumOperands() == 3);
-            assert(I.getOperand(0).isReg());
-            assert(I.getOperand(1).isReg());
-            assert(I.getOperand(2).isReg());
-
-            unsigned a = I.getOperand(0).getReg();
-            unsigned b = I.getOperand(1).getReg();
-            unsigned c = I.getOperand(2).getReg();
-
-            RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
-                          static_cast<unsigned long>(RegValue(c));
-            break;
-          }
-
-          case llvm::Mips::NOP:
-            break;
-
-          default:
-            __builtin_trap();
-            __builtin_unreachable();
-        }
-
-        pc = RegValue(reg);
-      } else {
-        if (opts::Verbose)
-          llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
-                                        StringOfMCInst(I, dis));
-
-        unsigned idx = code_cave_idx_of_reg(reg);
-        uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
-                                    idx * (2 * sizeof(uint32_t));
-        uintptr_t delay_slot_addr = jumpr_insn_addr  + sizeof(uint32_t);
-
-        {
-          uint32_t val = ((uint32_t *)IndBrInfo.InsnBytes.data())[1];
-          _ptrace_pokedata(child, delay_slot_addr, val);
-        }
-
-        pc = jumpr_insn_addr;
-      }
-    }
+    emulate_delay_slot(IndBrInfo.DelaySlotInst,
+                       IndBrInfo.InsnBytes,
+                       reg);
   }
 #endif
 
@@ -3780,6 +3769,18 @@ void on_binary_loaded(pid_t child,
       assert(Disassembled);
       assert(InstLen <= RetInfo.InsnBytes.size());
     }
+
+#if defined(__mips64) || defined(__mips__)
+    {
+      uint64_t InstLen;
+      bool Disassembled = DisAsm.getInstruction(
+          RetInfo.DelaySlotInst, InstLen,
+          llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
+          bbprop.Term.Addr + 4,
+          llvm::nulls());
+      assert(Disassembled);
+    }
+#endif
 
     if (opts::VeryVerbose)
       llvm::outs() << llvm::formatv("return: {0}\n", RetInfo.Inst);
@@ -4677,18 +4678,36 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
-        uint64_t InstLen = 0;
         llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-        bool Disassembled = DisAsm.getInstruction(
-            brk.Inst,
-            InstLen,
-            brk.InsnBytes,
-            0 /* XXX should not matter */,
-            llvm::nulls());
 
-        if (unlikely(!Disassembled))
-          throw std::runtime_error("could not disassemble instruction at "
-                                   "address pointed to by _r_debug.r_brk");
+        {
+          uint64_t InstLen = 0;
+          bool Disassembled = DisAsm.getInstruction(
+              brk.Inst,
+              InstLen,
+              brk.InsnBytes,
+              0 /* XXX should not matter */,
+              llvm::nulls());
+
+          if (unlikely(!Disassembled))
+            throw std::runtime_error("could not disassemble instruction at "
+                                     "address pointed to by _r_debug.r_brk");
+
+        }
+#if defined(__mips64) || defined(__mips__)
+        //
+        // disassemble delay slot
+        //
+        {
+          uint64_t InstLen = 0;
+          bool Disassembled =
+              DisAsm.getInstruction(brk.DelaySlotInst,
+                                    InstLen,
+                                    llvm::ArrayRef<uint8_t>(brk.InsnBytes).slice(4),
+                                    4 /* should not matter */,
+                                    llvm::nulls());
+        }
+#endif
 
         place_breakpoint(child, _r_debug.r_brk, brk, dis);
 
