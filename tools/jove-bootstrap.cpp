@@ -166,6 +166,13 @@ static cl::alias PrintSignalsAlias("s", cl::desc("Alias for -signals."),
 static cl::opt<bool> Syscalls("syscalls", cl::desc("Always trace system calls"),
                               cl::cat(JoveCategory));
 
+static cl::opt<bool> ScanLinkMap("scan-link-map",
+                                 cl::desc("Always scan link map"),
+                                 cl::cat(JoveCategory));
+
+static cl::alias ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
+                                  cl::aliasopt(ScanLinkMap), cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -891,7 +898,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
       child = waitpid(-1, &status, __WALL);
 
       if (unlikely(child < 0)) {
-        llvm::errs() << "exiting... (" << strerror(errno) << ")\n";
+        llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(errno));
         break;
       }
 
@@ -904,8 +911,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
           if (unlikely(!BinFoundVec.all()))
             search_address_space_for_binaries(child, dis);
           rendezvous_with_dynamic_linker(child, dis);
-          scan_rtld_link_map(child, tcg, dis);
-          harvest_reloc_targets(child, tcg, dis);
         }
 
         //
