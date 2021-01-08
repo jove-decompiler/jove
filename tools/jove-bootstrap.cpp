@@ -471,6 +471,10 @@ static std::pair<void *, unsigned> GetVDSO(void);
 
 static std::string jove_add_path;
 
+#if defined(__mips64) || defined(__mips__)
+static constexpr unsigned FastEmuJumpReg = llvm::Mips::RA;
+#endif
+
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
 
@@ -1116,12 +1120,32 @@ int ParentProc(pid_t child, const char *fifo_path) {
           //
           // (4) signal-delivery-stop
           //
-          if (opts::PrintSignals)
-            llvm::errs() << "delivering signal number " << stopsig << " ["
-                         << child << "]\n";
 
           // deliver it
           sig = stopsig;
+
+#if defined(__mips64) || defined(__mips)
+          //
+          // FastEmuJumpReg
+          //
+          if (stopsig == SIGSEGV) {
+            cpu_state_t cpu_state;
+            _ptrace_get_cpu_state(child, cpu_state);
+
+            if (cpu_state.cp0_epc == 0) {
+              assert(FastEmuJumpReg == llvm::Mips::RA);
+
+              cpu_state.cp0_epc = cpu_state.regs[31 /* ra */];
+              _ptrace_set_cpu_state(child, cpu_state);
+
+              sig = 0; /* suppress */
+            }
+          }
+#endif
+
+          if (sig)
+            llvm::errs() << "delivering signal number " << stopsig << " ["
+                         << child << "]\n";
         }
       } else {
         //
@@ -2234,7 +2258,14 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
+#if defined(__mips64) || defined(__mips__)
+  //
+  // FastEmuJumpReg
+  //
+  ((uint32_t *)&word)[0] = encoding_of_jump_to_reg(llvm::Mips::ZERO);
+#else
   arch_put_breakpoint(&word);
+#endif
 
 #if 0 /* defined(__mips64) || defined(__mips__) */
   {
