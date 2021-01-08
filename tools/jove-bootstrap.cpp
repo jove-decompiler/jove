@@ -36,7 +36,6 @@
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/WithColor.h>
 #include <sys/wait.h>
-#include <sys/ptrace.h>
 #include <sys/user.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -94,6 +93,10 @@ extern "C" unsigned long getauxval(unsigned long type);
 
 #define GET_REGINFO_ENUM
 #include "LLVMGenRegisterInfo.hpp"
+
+#include <sys/ptrace.h>
+#include <asm/ptrace.h>
+//#include <linux/ptrace.h>
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -423,14 +426,14 @@ static void on_breakpoint(pid_t, tiny_code_generator_t &, disas_t &);
 static uintptr_t segment_address_of_selector(pid_t, unsigned segsel);
 #endif
 
-#if defined(__mips64) || defined(__mips__)
-struct user_regs_struct {
-  uint64_t regs[38];
-};
+#if defined(__mips64) || defined(__mips__) || defined(__arm__)
+typedef struct pt_regs cpu_state_t;
+#else
+typedef struct user_regs_struct cpu_state_t;
 #endif
 
-static void _ptrace_get_gpr(pid_t, struct user_regs_struct &out);
-static void _ptrace_set_gpr(pid_t, const struct user_regs_struct &in);
+static void _ptrace_get_cpu_state(pid_t, cpu_state_t &out);
+static void _ptrace_set_cpu_state(pid_t, const cpu_state_t &in);
 
 static std::string _ptrace_read_string(pid_t, uintptr_t addr);
 
@@ -935,8 +938,8 @@ int ParentProc(pid_t child, const char *fifo_path) {
           // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
           // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
           //
-          struct user_regs_struct gpr;
-          _ptrace_get_gpr(child, gpr);
+          cpu_state_t gpr;
+          _ptrace_get_cpu_state(child, gpr);
 
           //
           // syscall # and arguments
@@ -2286,18 +2289,18 @@ static std::string description_of_program_counter(uintptr_t);
 static void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                       tiny_code_generator_t &, disas_t &);
 
-struct ScopedGPR {
+struct ScopedCPUState {
   pid_t child;
-  struct user_regs_struct gpr;
+  cpu_state_t gpr;
 
-  ScopedGPR(pid_t child) : child(child) { _ptrace_get_gpr(child, gpr); }
-  ~ScopedGPR() { _ptrace_set_gpr(child, gpr); }
+  ScopedCPUState(pid_t child) : child(child) { _ptrace_get_cpu_state(child, gpr); }
+  ~ScopedCPUState()                          { _ptrace_set_cpu_state(child, gpr); }
 };
 
 void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
-  ScopedGPR _scoped_gpr(child);
+  ScopedCPUState  _scoped_cpu_state(child);
 
-  auto &gpr = _scoped_gpr.gpr;
+  auto &gpr = _scoped_cpu_state.gpr;
 
   auto &pc =
 #if defined(__x86_64__)
@@ -2307,7 +2310,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #elif defined(__aarch64__)
       gpr.pc
 #elif defined(__mips64) || defined(__mips__)
-      gpr.regs[34]
+      gpr.cp0_epc
 #else
 #error
 #endif
@@ -2480,6 +2483,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::XOR
           || opc == llvm::Mips::LUi
           || opc == llvm::Mips::AND
+          || opc == llvm::Mips::SB
           || opc == llvm::Mips::NOP;
     };
 
@@ -2641,7 +2645,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         unsigned a = I.getOperand(0).getReg();
 
-        unsigned long x = I.getOperand(0).getImm()
+        unsigned long x = I.getOperand(1).getImm();
 
         RegValue(a) = x << 16;
 
@@ -2659,6 +2663,26 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         unsigned c = I.getOperand(2).getReg();
 
         RegValue(a) = RegValue(b) & RegValue(c);
+
+        break;
+      }
+
+      case llvm::Mips::SB: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+
+        uintptr_t Base = RegValue(b);
+        long Offset = I.getOperand(2).getImm();
+        uintptr_t Addr = Base + Offset;
+
+        unsigned long word = _ptrace_peekdata(child, Addr);
+        ((uint8_t *)&word)[0] = RegValue(a) & 0xff;
+        _ptrace_pokedata(child, Addr, word);
 
         break;
       }
@@ -3947,7 +3971,7 @@ uintptr_t segment_address_of_selector(pid_t child, unsigned segsel) {
 }
 #endif
 
-void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
+void _ptrace_get_cpu_state(pid_t child, cpu_state_t &out) {
 #if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_GETREGS;
   unsigned long _pid = child;
@@ -3959,7 +3983,7 @@ void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
                              std::string(strerror(errno)));
 #else
   struct iovec iov = {.iov_base = &out,
-                      .iov_len = sizeof(struct user_regs_struct)};
+                      .iov_len = sizeof(cpu_state_t)};
 
   unsigned long _request = PTRACE_GETREGSET;
   unsigned long _pid = child;
@@ -3972,7 +3996,7 @@ void _ptrace_get_gpr(pid_t child, struct user_regs_struct &out) {
 #endif
 }
 
-void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
+void _ptrace_set_cpu_state(pid_t child, const cpu_state_t &in) {
 #if defined(__mips64) || defined(__mips__)
   unsigned long _request = PTRACE_SETREGS;
   unsigned long _pid = child;
@@ -3983,8 +4007,8 @@ void _ptrace_set_gpr(pid_t child, const struct user_regs_struct &in) {
     throw std::runtime_error(std::string("PTRACE_SETREGS failed : ") +
                              std::string(strerror(errno)));
 #else
-  struct iovec iov = {.iov_base = const_cast<struct user_regs_struct *>(&in),
-                      .iov_len = sizeof(struct user_regs_struct)};
+  struct iovec iov = {.iov_base = const_cast<cpu_state_t *>(&in),
+                      .iov_len = sizeof(cpu_state_t)};
 
   unsigned long _request = PTRACE_SETREGSET;
   unsigned long _pid = child;
