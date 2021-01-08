@@ -2491,7 +2491,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::MUL
           || opc == llvm::Mips::SLTu
           || opc == llvm::Mips::SLTiu
-          || opc == llvm::Mips::LHU
+          || opc == llvm::Mips::LHu
           || opc == llvm::Mips::NOP;
     };
 
@@ -2526,7 +2526,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         break;
       }
 
-      case llvm::Mips::LHU: {
+      case llvm::Mips::LHu: {
         assert(I.getNumOperands() == 3);
         assert(I.getOperand(0).isReg());
         assert(I.getOperand(1).isReg());
