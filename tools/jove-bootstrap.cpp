@@ -2705,14 +2705,18 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
 
       case llvm::Mips::MOVN_I_I: {
-        assert(I.getNumOperands() == 3);
+        assert(I.getNumOperands() == 4);
         assert(I.getOperand(0).isReg());
         assert(I.getOperand(1).isReg());
         assert(I.getOperand(2).isReg());
+        assert(I.getOperand(3).isReg());
 
         unsigned a = I.getOperand(0).getReg();
         unsigned b = I.getOperand(1).getReg();
         unsigned c = I.getOperand(2).getReg();
+        unsigned d = I.getOperand(3).getReg();
+
+        WARN_ON(a != d);
 
         if (RegValue(c) != 0)
           RegValue(a) = RegValue(b);
