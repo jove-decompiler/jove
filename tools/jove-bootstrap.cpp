@@ -2477,6 +2477,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::SUBu
           || opc == llvm::Mips::MOVZ_I_I
           || opc == llvm::Mips::MFLO
+          || opc == llvm::Mips::XOR
           || opc == llvm::Mips::NOP;
     };
 
@@ -2612,6 +2613,21 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         unsigned a = I.getOperand(0).getReg();
 
         RegValue(a) = gpr.lo;
+
+        break;
+      }
+
+      case llvm::Mips::XOR: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        RegValue(a) = RegValue(b) ^ RegValue(c);
 
         break;
       }
