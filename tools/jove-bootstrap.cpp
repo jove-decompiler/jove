@@ -2488,6 +2488,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::MOVN_I_I
           || opc == llvm::Mips::ANDi
           || opc == llvm::Mips::SRL
+          || opc == llvm::Mips::MUL
+          || opc == llvm::Mips::SLTu
+          || opc == llvm::Mips::SLTiu
+          || opc == llvm::Mips::LHU
           || opc == llvm::Mips::NOP;
     };
 
@@ -2518,6 +2522,28 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Reg = _ptrace_peekdata(child, Addr);
         else /* SW */
           _ptrace_pokedata(child, Addr, Reg);
+
+        break;
+      }
+
+      case llvm::Mips::LHU: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+
+        long Base = RegValue(b);
+        long Offs = I.getOperand(2).getImm();
+        long Addr = Base + Offs;
+
+        unsigned long word = _ptrace_peekdata(child, Addr);
+
+        static_assert(sizeof(word) >= sizeof(uint16_t));
+
+        RegValue(a) = static_cast<unsigned long>(((uint16_t *)&word)[0]);
 
         break;
       }
@@ -2683,6 +2709,57 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         RegValue(a) = RegValue(b) & RegValue(c);
 
+        break;
+      }
+
+      case llvm::Mips::MUL: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        int64_t x = RegValue(b);
+        int64_t y = RegValue(c);
+        int64_t z = x * y;
+
+        RegValue(a) = ((uint32_t *)&z)[0];
+
+        break;
+      }
+
+      case llvm::Mips::SLTu: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+        unsigned c = I.getOperand(2).getReg();
+
+        unsigned long x = RegValue(b);
+        unsigned long y = RegValue(c);
+
+        RegValue(a) = x < y;
+        break;
+      }
+
+      case llvm::Mips::SLTiu: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).isReg();
+        unsigned b = I.getOperand(1).isReg();
+
+        unsigned long x = I.getOperand(2).getImm();
+
+        RegValue(a) = static_cast<unsigned long>(RegValue(b)) < x;
         break;
       }
 
