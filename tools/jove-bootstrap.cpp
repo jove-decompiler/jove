@@ -2476,6 +2476,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::SLL
           || opc == llvm::Mips::SUBu
           || opc == llvm::Mips::MOVZ_I_I
+          || opc == llvm::Mips::MFLO
           || opc == llvm::Mips::NOP;
     };
 
@@ -2600,6 +2601,17 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
         if (RegValue(c) == 0)
           RegValue(a) = RegValue(b);
+
+        break;
+      }
+
+      case llvm::Mips::MFLO: {
+        assert(I.getNumOperands() == 1);
+        assert(I.getOperand(0).isReg());
+
+        unsigned a = I.getOperand(0).getReg();
+
+        RegValue(a) = gpr.lo;
 
         break;
       }
