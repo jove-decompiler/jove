@@ -471,6 +471,12 @@ static std::pair<void *, unsigned> GetVDSO(void);
 
 static std::string jove_add_path;
 
+static void on_return(pid_t child,
+                      uintptr_t AddrOfRet,
+                      uintptr_t RetAddr,
+                      tiny_code_generator_t &,
+                      disas_t &);
+
 #if defined(__mips64) || defined(__mips__)
 static constexpr unsigned FastEmuJumpReg = llvm::Mips::RA;
 #endif
@@ -1135,10 +1141,14 @@ int ParentProc(pid_t child, const char *fifo_path) {
             if (cpu_state.cp0_epc == 0) {
               assert(FastEmuJumpReg == llvm::Mips::RA);
 
-              cpu_state.cp0_epc = cpu_state.regs[31 /* ra */];
+              uintptr_t RetAddr = cpu_state.regs[31 /* ra */];
+
+              cpu_state.cp0_epc = RetAddr;
               _ptrace_set_cpu_state(child, cpu_state);
 
               sig = 0; /* suppress */
+
+              on_return(child, 0 /* XXX */, RetAddr, tcg, dis);
             }
           }
 #endif
@@ -2316,9 +2326,6 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 }
 
 static std::string description_of_program_counter(uintptr_t);
-
-static void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
-                      tiny_code_generator_t &, disas_t &);
 
 struct ScopedCPUState {
   pid_t child;
@@ -5062,6 +5069,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   //
   // examine AddrOfRet
   //
+  if (AddrOfRet)
   {
     uintptr_t pc = AddrOfRet;
     binary_index_t BIdx = invalid_binary_index;
@@ -5098,6 +5106,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   //
   // examine RetAddr; we know this is the start of a block
   //
+  if (RetAddr)
   {
     uintptr_t pc = RetAddr;
     binary_index_t BIdx = invalid_binary_index;
