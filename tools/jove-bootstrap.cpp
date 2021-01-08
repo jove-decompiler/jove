@@ -2492,6 +2492,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::SLTu
           || opc == llvm::Mips::SLTiu
           || opc == llvm::Mips::LHu
+          || opc == llvm::Mips::SH
           || opc == llvm::Mips::NOP;
     };
 
@@ -2544,6 +2545,26 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         static_assert(sizeof(word) >= sizeof(uint16_t));
 
         RegValue(a) = static_cast<unsigned long>(((uint16_t *)&word)[0]);
+
+        break;
+      }
+
+      case llvm::Mips::SH: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+
+        int64_t Base = RegValue(b);
+        int64_t Offs = I.getOperand(2).getImm();
+        int64_t Addr = Base + Offs;
+
+        unsigned long word = _ptrace_peekdata(child, Addr);
+        ((uint16_t *)&word)[0] = RegValue(a);
+        _ptrace_pokedata(child, Addr, word);
 
         break;
       }
@@ -2772,12 +2793,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         unsigned a = I.getOperand(0).getReg();
         unsigned b = I.getOperand(1).getReg();
 
-        uintptr_t Base = RegValue(b);
-        long Offset = I.getOperand(2).getImm();
-        uintptr_t Addr = Base + Offset;
+        int64_t Base = RegValue(b);
+        int64_t Offset = I.getOperand(2).getImm();
+        int64_t Addr = Base + Offset;
 
         unsigned long word = _ptrace_peekdata(child, Addr);
-        ((uint8_t *)&word)[0] = RegValue(a) & 0xff;
+        ((uint8_t *)&word)[0] = RegValue(a);
         _ptrace_pokedata(child, Addr, word);
 
         break;
@@ -4068,9 +4089,6 @@ void on_binary_loaded(pid_t child,
       assert(Disassembled);
     }
 #endif
-
-    if (opts::VeryVerbose)
-      llvm::outs() << llvm::formatv("return: {0}\n", RetInfo.Inst);
 
     place_breakpoint_at_return(child, Addr, RetInfo);
     ++cnt;
