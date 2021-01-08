@@ -2484,6 +2484,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           || opc == llvm::Mips::LUi
           || opc == llvm::Mips::AND
           || opc == llvm::Mips::SB
+          || opc == llvm::Mips::ORi
           || opc == llvm::Mips::NOP;
     };
 
@@ -2684,6 +2685,20 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         ((uint8_t *)&word)[0] = RegValue(a) & 0xff;
         _ptrace_pokedata(child, Addr, word);
 
+        break;
+      }
+
+      case llvm::Mips::ORi: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        unsigned a = I.getOperand(0).getReg();
+        unsigned b = I.getOperand(1).getReg();
+
+        unsigned long x = I.getOperand(1).getImm();
+        RegValue(a) = RegValue(b) | x;
         break;
       }
 
