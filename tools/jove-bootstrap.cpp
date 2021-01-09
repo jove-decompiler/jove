@@ -1130,7 +1130,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
           // deliver it
           sig = stopsig;
 
-#if defined(__mips64) || defined(__mips)
+#if defined(__mips64) || defined(__mips__)
           //
           // FastEmuJumpReg
           //
@@ -1234,7 +1234,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   return 0;
 }
 
-#if 0 /* defined(__mips64) || defined(__mips) */
+#if 0 /* defined(__mips64) || defined(__mips__) */
 template <bool IsRead>
 static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
   uint8_t *const _buf = (uint8_t *)buf;
