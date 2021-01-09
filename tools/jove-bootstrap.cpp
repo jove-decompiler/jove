@@ -3990,7 +3990,7 @@ void on_binary_loaded(pid_t child,
     //
     // find a code cave that can hold 2*num_trampolines instructions
     //
-    ExecutableRegionAddress = vm_prop.end - num_trampolines * 8;
+    ExecutableRegionAddress = vm_prop.end - num_trampolines * (2 * sizeof(uint32_t));
 
     //
     // "initialize" code cave
