@@ -4101,7 +4101,7 @@ void on_binary_loaded(pid_t child,
     RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
     RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
-    assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
+    assert(RetInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
     memcpy(&RetInfo.InsnBytes[0],
            &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
