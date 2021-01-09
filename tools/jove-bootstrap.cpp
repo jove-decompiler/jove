@@ -158,16 +158,12 @@ static cl::alias PrintPtraceEventsAlias("e", cl::desc("Alias for -events."),
                                         cl::aliasopt(PrintPtraceEvents),
                                         cl::cat(JoveCategory));
 
-static cl::opt<bool>
-    PrintSignals("signals", cl::desc("Print signals when they are delivered"),
-                 cl::cat(JoveCategory));
-
-static cl::alias PrintSignalsAlias("s", cl::desc("Alias for -signals."),
-                                   cl::aliasopt(PrintSignals),
-                                   cl::cat(JoveCategory));
-
 static cl::opt<bool> Syscalls("syscalls", cl::desc("Always trace system calls"),
                               cl::cat(JoveCategory));
+
+static cl::alias SyscallsAlias("s", cl::desc("Alias for -syscalls."),
+                               cl::aliasopt(Syscalls),
+                               cl::cat(JoveCategory));
 
 static cl::opt<bool> ScanLinkMap("scan-link-map",
                                  cl::desc("Always scan link map"),
