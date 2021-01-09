@@ -609,22 +609,23 @@ int ParentProc(pid_t child, const char *fifo_path) {
   // decompilation
   //
   for (binary_t &binary : decompilation.Binaries) {
-    if (!binary.IsExecutable)
+    if (binary.VDSO)
       continue;
 
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(opts::Prog);
+        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
     if (std::error_code EC = FileOrErr.getError()) {
-      WithColor::error() << "failed to open given path " << opts::Prog << '\n';
+      WithColor::error() << llvm::formatv("failed to open binary {0}\n",
+                                          binary.Path);
       return 1;
     }
 
     std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
     if (binary.Data.size() != Buffer->getBufferSize() ||
         memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      WithColor::error()
-          << "given binary does not match binary in decompilation\n";
+      WithColor::error() << llvm::formatv("binary {0} has changed\n",
+                                          binary.Path);
       return 1;
     }
 
