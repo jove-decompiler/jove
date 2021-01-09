@@ -609,7 +609,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   // decompilation
   //
   for (binary_t &binary : decompilation.Binaries) {
-    if (binary.VDSO)
+    if (binary.IsVDSO)
       continue;
 
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
@@ -628,8 +628,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
                                           binary.Path);
       return 1;
     }
-
-    break;
   }
 
   llvm::Triple TheTriple;
