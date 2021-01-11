@@ -1047,6 +1047,9 @@ int ParentProc(pid_t child, const char *fifo_path) {
           };
 
           examine_syscall();
+
+          if (opts::ScanLinkMap)
+            scan_rtld_link_map(child, tcg, dis);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
