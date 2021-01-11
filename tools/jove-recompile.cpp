@@ -1137,6 +1137,10 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--stackrealign");
       }
 
+#if defined(__mips64) || defined(__mips__)
+      arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
+#endif
+
       arg_vec.push_back(nullptr);
 
       print_command(&arg_vec[0]);
