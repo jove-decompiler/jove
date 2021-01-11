@@ -257,9 +257,11 @@ int loop(void) {
       fs::path chrooted_path(opts::sysroot);
       chrooted_path /= opts::Prog;
 
-      if (!fs::exists(chrooted_path))
+      if (!fs::exists(chrooted_path)) {
+        WithColor::note() << llvm::formatv(
+            "{0} does not exist; recompiling...\n", chrooted_path.c_str());
         goto skip_run;
-
+      }
     }
 
     //
