@@ -215,6 +215,25 @@ struct hook_t;
 #include <boost/serialization/vector.hpp>
 #include <boost/container_hash/extensions.hpp>
 
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
+
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
 
@@ -5421,9 +5440,25 @@ int CreateSectionGlobalVariables(void) {
 
         return nullptr;
       } else {
-        if (llvm::Function *F = Module->getFunction(S.Name))
-          return llvm::ConstantExpr::getPtrToInt(F, WordType());
-        return nullptr;
+        if (S.Type == symbol_t::TYPE::FUNCTION) {
+          if (llvm::Function *F = Module->getFunction(S.Name))
+            return llvm::ConstantExpr::getPtrToInt(F, WordType());
+
+          return nullptr;
+        } else if (S.Type == symbol_t::TYPE::DATA) {
+          //
+          // from constant_of_addressof_undefined_data_relocation XXX
+          //
+          llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, false);
+
+          if (GV)
+            return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+
+          return nullptr;
+        } else {
+          WARN();
+          return nullptr;
+        }
       }
     }
 #endif
@@ -5442,8 +5477,9 @@ int CreateSectionGlobalVariables(void) {
       Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
     }
 
-    WithColor::note() << llvm::formatv(
-        "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
+    if (opts::Verbose)
+      WithColor::note() << llvm::formatv(
+          "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
 
 #if 0
     auto it = FuncMap.find(Addr);
@@ -11861,4 +11897,8 @@ int TranslateTCGOp(TCGOp *op,
   return 0;
 }
 
+}
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
