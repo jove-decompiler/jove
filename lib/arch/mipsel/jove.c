@@ -2753,9 +2753,8 @@ target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "lw $a3,12($s0)\n"
 
                ".set noreorder\n"
-               "move $t9, $s3\n"
-               "jalr $t9\n" // call dstpc
-               "nop\n"
+               "jalr $s3\n" // call dstpc
+               "move $t9, $s3\n" // [delay slot] set t9
                ".set reorder\n"
 
                //
