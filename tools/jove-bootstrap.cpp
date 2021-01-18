@@ -565,7 +565,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
   decompilation.Binaries.reserve(2 * decompilation.Binaries.size());
 
   //
-  // verify that the binaries did not change on-disk
+  // verify that the binaries on-disk are those found in the decompilation.
   //
   for (binary_t &binary : decompilation.Binaries) {
     if (binary.IsVDSO) {
@@ -585,32 +585,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
       continue;
     }
-
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      WithColor::error() << "failed to open binary " << binary.Path
-                         << " in given decompilation\n";
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-    if (binary.Data.size() != Buffer->getBufferSize() ||
-        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      WithColor::error() << "contents of binary " << binary.Path
-                         << "have changed\n";
-      return 1;
-    }
-  }
-
-  //
-  // verify that the given executable is identical to the one found in the
-  // decompilation
-  //
-  for (binary_t &binary : decompilation.Binaries) {
-    if (binary.IsVDSO)
-      continue;
 
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
         llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
