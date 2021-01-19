@@ -95,27 +95,30 @@ int await_process_completion(pid_t pid) {
 }
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LEObjectFile ELFO;
-typedef typename obj::ELF64LEFile ELFT;
-#elif defined(__i386__) || defined(__mips__)
-typedef typename obj::ELF32LEObjectFile ELFO;
-typedef typename obj::ELF32LEFile ELFT;
+typedef typename obj::ELF64LE ELFT;
+#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
+typedef typename obj::ELF32LE ELFT;
+#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
+typedef typename obj::ELF32BE ELFT;
 #else
 #error
 #endif
 
-typedef typename ELFT::Elf_Dyn Elf_Dyn;
-typedef typename ELFT::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFT::Elf_Phdr Elf_Phdr;
-typedef typename ELFT::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFT::Elf_Rela Elf_Rela;
-typedef typename ELFT::Elf_Shdr Elf_Shdr;
-typedef typename ELFT::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFT::Elf_Sym Elf_Sym;
-typedef typename ELFT::Elf_Sym_Range Elf_Sym_Range;
+typedef typename obj::ELFObjectFile<ELFT> ELFO;
+typedef typename obj::ELFFile<ELFT> ELFF;
+
+typedef typename ELFF::Elf_Dyn Elf_Dyn;
+typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFF::Elf_Phdr Elf_Phdr;
+typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
+typedef typename ELFF::Elf_Rela Elf_Rela;
+typedef typename ELFF::Elf_Shdr Elf_Shdr;
+typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+typedef typename ELFF::Elf_Sym Elf_Sym;
+typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
 
 // taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
-static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFT &Obj) {
+static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   auto PhdrsOrErr = Obj.program_headers();
   if (!PhdrsOrErr) {
     consumeError(PhdrsOrErr.takeError());
@@ -184,10 +187,10 @@ int tcgdump(void) {
   }
 
   const ELFO &O = *llvm::cast<ELFO>(B);
-  const ELFT &E = *O.getELFFile();
+  const ELFF &E = *O.getELFFile();
 
   const ELFO *split_O = nullptr;
-  const ELFT *split_E = nullptr;
+  const ELFF *split_E = nullptr;
 
   std::unique_ptr<llvm::MemoryBuffer> SplitBuf;
   std::unique_ptr<obj::Binary> SplitBinary;
@@ -342,7 +345,7 @@ int tcgdump(void) {
   }
 
   const ELFO &_O = split_O ? *split_O : O;
-  const ELFT &_E = split_E ? *split_E : E;
+  const ELFF &_E = split_E ? *split_E : E;
 
   //
   // examine defined symbols which are functions and have a nonzero size

@@ -225,8 +225,10 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
 typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || defined(__mips__)
+#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
 typedef typename obj::ELF32LE ELFT;
+#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
+typedef typename obj::ELF32BE ELFT;
 #else
 #error
 #endif
