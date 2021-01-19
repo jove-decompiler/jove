@@ -36,9 +36,14 @@ else ifeq "$(GCC_TARGET)" "mips64el-linux-gnuabi64"
 ARCH := mips64el
 else ifeq "$(GCC_TARGET)" "mipsel-linux-gnu"
 ARCH := mipsel
+else ifeq "$(GCC_TARGET)" "mips-linux-gnu"
+ARCH := mipsel
+JOVE_BIGENDIAN := yes
 else
 $(error "Unknown GCC target $(GCC_TARGET)")
 endif
+
+JOVE_BIGENDIAN ?= no
 
 $(info GCC TARGET $(GCC_TARGET))
 $(info ARCH       $(ARCH))
@@ -69,6 +74,10 @@ CXXFLAGS := -std=gnu++17 \
             -D _GNU_SOURCE \
             -D BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS \
             -D JOVE_VERSION=\"$(VER)\"
+
+ifeq "$(JOVE_BIGENDIAN)" "yes"
+CXXFLAGS += -DHOST_WORDS_BIGENDIAN
+endif
 
 LDFLAGS := -Wl,--no-undefined \
            $(shell $(_LLVM_CONFIG) --ldflags) \
