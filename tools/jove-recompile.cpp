@@ -1357,7 +1357,6 @@ typedef typename ELFF::Elf_Sym Elf_Sym;
 typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
 typedef typename ELFF::Elf_Rela Elf_Rela;
 
-static bool verify_arch(const obj::ObjectFile &);
 
 bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   //
@@ -1384,11 +1383,6 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   }
 
   ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-  if (!verify_arch(O)) {
-    WithColor::error() << "architecture mismatch of input\n";
-    return false;
-  }
 
   const ELFF &E = *O.getELFFile();
 
@@ -1499,24 +1493,6 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   }
 
   return true;
-}
-
-bool verify_arch(const obj::ObjectFile &Obj) {
-#if defined(__x86_64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(__i386__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86;
-#elif defined(__aarch64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
-#elif defined(__mips64)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mips64el;
-#elif defined(__mips__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mipsel;
-#else
-#error
-#endif
-
-  return Obj.getArch() == archty;
 }
 
 void IgnoreCtrlC(void) {

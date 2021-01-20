@@ -266,7 +266,6 @@ typedef boost::format fmt;
 
 static decompilation_t decompilation;
 
-static bool verify_arch(const obj::ObjectFile &);
 static bool update_view_of_virtual_memory(pid_t child);
 
 #if defined(__mips64) || defined(__mips__)
@@ -4312,26 +4311,6 @@ int ChildProc(const char *fifo_path) {
   WithColor::error() << llvm::formatv("failed to execve (reason: {0})",
                                       strerror(err));
   return 1;
-}
-
-bool verify_arch(const obj::ObjectFile &Obj) {
-  const llvm::Triple::ArchType archty =
-#if defined(__x86_64__)
-      llvm::Triple::ArchType::x86_64
-#elif defined(__i386__)
-      llvm::Triple::ArchType::x86;
-#elif defined(__aarch64__)
-      llvm::Triple::ArchType::aarch64
-#elif defined(__mips64)
-      llvm::Triple::ArchType::mips64el
-#elif defined(__mips__)
-      llvm::Triple::ArchType::mipsel
-#else
-#error
-#endif
-      ;
-
-  return Obj.getArch() == archty;
 }
 
 bool update_view_of_virtual_memory(pid_t child) {

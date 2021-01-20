@@ -144,8 +144,6 @@ struct section_t {
 
 typedef boost::format fmt;
 
-static bool verify_arch(const obj::ObjectFile &);
-
 typedef std::tuple<llvm::MCDisassembler &,
                    const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &> disas_t;
@@ -344,11 +342,6 @@ int add(void) {
   }
 
   ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-  if (!verify_arch(O)) {
-    WithColor::error() << "architecture mismatch of input\n";
-    return 1;
-  }
 
   std::string ArchName;
   llvm::Triple TheTriple = O.makeTriple();
@@ -821,11 +814,6 @@ int add(void) {
       }
 
       ELFO &split_O = *llvm::cast<ELFO>(split_Bin.get());
-
-      if (!verify_arch(split_O)) {
-        WithColor::error() << "split debug info has architecture mismatch\n";
-        return 1;
-      }
 
       const ELFF &split_E = *split_O.getELFFile();
 
@@ -1565,24 +1553,6 @@ bool does_function_definitely_return(binary_index_t BIdx,
                });
 
   return !ExitBasicBlocks.empty();
-}
-
-bool verify_arch(const obj::ObjectFile &Obj) {
-#if defined(__x86_64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86_64;
-#elif defined(__i386__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::x86;
-#elif defined(__aarch64__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::aarch64;
-#elif defined(__mips64)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mips64el;
-#elif defined(__mips__)
-  const llvm::Triple::ArchType archty = llvm::Triple::ArchType::mipsel;
-#else
-#error
-#endif
-
-  return Obj.getArch() == archty;
 }
 
 void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
