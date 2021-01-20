@@ -273,17 +273,24 @@ int recompile(void) {
     return 1;
   }
 
-#if 0
-  std::string lld_path =
-      (boost::dll::program_location().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "bin" / "ld.lld")
-          .string();
-#else
   // lld 9.0.1
-  std::string lld_path = fs::exists("/usr/bin/ld.lld-9")
-                             ? "/usr/bin/ld.lld-9"
-                             : "/usr/local/bin/ld.lld";
-#endif
+  std::string lld_path;
+
+  auto find_lld_at = [&](const fs::path &path) -> void {
+    if (!lld_path.empty())
+      return;
+
+    if (fs::exists(path))
+      lld_path = path.string();
+  };
+
+  find_lld_at("/usr/bin/ld.lld-9");     /* look for debian/ubuntu lld-9 installation */
+  find_lld_at("/usr/local/bin/ld.lld"); /* look for custom ld.lld in /usr/local */
+
+  /* otherwise fallback to lld in third_party */
+  find_lld_at((boost::dll::program_location().parent_path().parent_path() /
+               "third_party" / "llvm-project" / "install" / "bin" / "ld.lld"));
+
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
