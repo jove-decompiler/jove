@@ -747,8 +747,10 @@ int recompile(void) {
           "aarch64linux",
 #elif defined(__mips64)
           "elf64ltsmip",
-#elif defined(__mips__)
+#elif defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN)
 	  "elf32ltsmip",
+#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
+	  "elf32btsmip",
 #else
 #error
 #endif
