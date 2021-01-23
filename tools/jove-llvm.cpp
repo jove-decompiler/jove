@@ -4949,6 +4949,63 @@ int CreateSectionGlobalVariables(void) {
     SectsEndAddr = maxAddr;
   }
 
+#if defined(__mips__) || defined(__mips64)
+
+  //
+  // on mips (and possibly other architectures), we cannot rely on the
+  // SectionsGlobal to be not placed in non executable memory (see READ_IMPLIES_EXEC)
+  //
+  struct PatchContents {
+    boost::icl::interval_map<uintptr_t, unsigned> &SectIdxMap;
+    std::vector<section_t> &SectTable;
+
+    std::vector<uint32_t> FunctionOrigInsnTable;
+
+    PatchContents(boost::icl::interval_map<uintptr_t, unsigned> &SectIdxMap,
+                  std::vector<section_t> &SectTable)
+      : SectIdxMap(SectIdxMap),
+        SectTable(SectTable) {
+      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &ICFG = Binary.Analysis.ICFG;
+
+      FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
+      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
+        function_t &f = Binary.Analysis.Functions[FIdx];
+        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        void *ptr = binary_data_ptr_of_addr(Addr);
+        uint32_t &insn = *((uint32_t *)ptr);
+        FunctionOrigInsnTable[FIdx] = insn;
+        insn = 0x0000000d; /* break */
+      }
+    }
+    ~PatchContents() {
+      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &ICFG = Binary.Analysis.ICFG;
+
+      //
+      // restore original insns
+      //
+      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
+        function_t &f = Binary.Analysis.Functions[FIdx];
+        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        void *ptr = binary_data_ptr_of_addr(Addr);
+        uint32_t &insn = *((uint32_t *)ptr);
+        insn = FunctionOrigInsnTable[FIdx];
+      }
+    }
+
+    void *binary_data_ptr_of_addr(uintptr_t Addr) {
+      auto it = SectIdxMap.find(Addr);
+      assert(it != SectIdxMap.end());
+
+      section_t &Sect = SectTable[(*it).second];
+      unsigned Off = Addr - Sect.Addr;
+
+      return const_cast<unsigned char *>(&Sect.Contents[Off]);
+    }
+  } __PatchContents(SectIdxMap, SectTable);
+#endif
+
   auto type_at_address = [&](uintptr_t Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
