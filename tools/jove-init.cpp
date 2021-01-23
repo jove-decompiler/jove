@@ -229,7 +229,9 @@ int init(void) {
       return 1;
     }
 
-    //llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+    if (opts::Verbose)
+      llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+
     binary_paths.push_back(fs::canonical(path).string());
   }
 
