@@ -4952,8 +4952,8 @@ int CreateSectionGlobalVariables(void) {
 #if defined(__mips__) || defined(__mips64)
 
   //
-  // on mips (and possibly other architectures), we cannot rely on the
-  // SectionsGlobal to be not placed in non executable memory (see READ_IMPLIES_EXEC)
+  // on mips, we cannot rely on the SectionsGlobal to be not placed in
+  // non executable memory (see READ_IMPLIES_EXEC)
   //
   struct PatchContents {
     boost::icl::interval_map<uintptr_t, unsigned> &SectIdxMap;
@@ -4969,13 +4969,23 @@ int CreateSectionGlobalVariables(void) {
       auto &ICFG = Binary.Analysis.ICFG;
 
       FunctionOrigInsnTable.resize(Binary.Analysis.Functions.size());
+
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
         uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-        void *ptr = binary_data_ptr_of_addr(Addr);
-        uint32_t &insn = *((uint32_t *)ptr);
+
+        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
+
         FunctionOrigInsnTable[FIdx] = insn;
-        insn = 0x0000000d; /* break */
+      }
+
+      for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
+        function_t &f = Binary.Analysis.Functions[FIdx];
+        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+
+        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
+
+        insn = 0x8c010000; /* lw at,0(zero) ; <- guaranteed to SIGSEGV */
       }
     }
     ~PatchContents() {
@@ -4988,8 +4998,9 @@ int CreateSectionGlobalVariables(void) {
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
         uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-        void *ptr = binary_data_ptr_of_addr(Addr);
-        uint32_t &insn = *((uint32_t *)ptr);
+
+        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
+
         insn = FunctionOrigInsnTable[FIdx];
       }
     }
