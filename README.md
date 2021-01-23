@@ -159,7 +159,7 @@ sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot /usr/sbin/nginx -- -
 # Building
 ```bash
 sudo apt-get update
-sudo apt-get install cmake ninja-build easy-graph graphviz libxml2
+sudo apt-get install cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl
 # on archlinux: sudo pacman -Syu ninja cmake graphviz libxml2
 sudo apt-get build-dep llvm
 sudo apt-get build-dep libz3-dev
