@@ -1921,15 +1921,6 @@ static _CTOR void _jove_rt_init(void) {
     }
   }
 
-  {
-    long ret =
-        _jove_sys_rt_sigaction(SIGTRAP, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-  }
-
   target_ulong newstack = _jove_alloc_stack();
 
   stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
@@ -1951,8 +1942,7 @@ static _CTOR void _jove_rt_init(void) {
 static target_ulong to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-  if (sig != SIGTRAP &&
-      sig != SIGSEGV) {
+  if (sig != SIGSEGV) {
     __builtin_trap();
     __builtin_unreachable();
   }
