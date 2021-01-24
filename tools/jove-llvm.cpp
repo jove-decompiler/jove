@@ -8436,11 +8436,6 @@ static int TranslateFunction(function_t &f) {
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
 
-  {
-    llvm::IRBuilderTy IRB(EntryB);
-    IRB.CreateBr(ICFG[entry_bb].B);
-  }
-
   llvm::DISubprogram::DISPFlags SubProgFlags =
       llvm::DISubprogram::SPFlagDefinition |
       llvm::DISubprogram::SPFlagOptimized;
@@ -8471,7 +8466,7 @@ static int TranslateFunction(function_t &f) {
   // entry basic block of the function
   //
   {
-    llvm::IRBuilderTy IRB(ICFG[entry_bb].B);
+    llvm::IRBuilderTy IRB(EntryB);
 
     if (f.IsSignalHandler) {
       IRB.SetCurrentDebugLocation(
@@ -8549,11 +8544,10 @@ static int TranslateFunction(function_t &f) {
     }
 #endif
 
-    if (int ret = TranslateBasicBlock(entry_bb, f, GlobalAllocaVec, IRB))
-      return ret;
+    IRB.CreateBr(ICFG[entry_bb].B);
   }
 
-  for (unsigned i = 1; i < f.BasicBlocks.size(); ++i) {
+  for (unsigned i = 0; i < f.BasicBlocks.size(); ++i) {
     basic_block_t bb = f.BasicBlocks[i];
     llvm::IRBuilderTy IRB(ICFG[bb].B);
 
@@ -9888,6 +9882,7 @@ int TranslateBasicBlock(basic_block_t bb,
     }
   }
 
+#if 0
   if (T.Type == TERMINATOR::UNCONDITIONAL_JUMP &&
       f.IsABI) {
     auto eit_pair = boost::out_edges(bb, ICFG);
@@ -9899,6 +9894,7 @@ int TranslateBasicBlock(basic_block_t bb,
     if (succ == boost::vertex(f.Entry, ICFG))
       store_global(tcg_stack_pointer_index);
   }
+#endif
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
