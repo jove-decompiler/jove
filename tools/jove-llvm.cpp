@@ -9888,6 +9888,18 @@ int TranslateBasicBlock(basic_block_t bb,
     }
   }
 
+  if (T.Type == TERMINATOR::UNCONDITIONAL_JUMP &&
+      f.IsABI) {
+    auto eit_pair = boost::out_edges(bb, ICFG);
+    assert(eit_pair.first != eit_pair.second &&
+           std::next(eit_pair.first) == eit_pair.second);
+    control_flow_t cf = *eit_pair.first;
+    basic_block_t succ = boost::target(cf, ICFG);
+
+    if (succ == boost::vertex(f.Entry, ICFG))
+      store_global(tcg_stack_pointer_index);
+  }
+
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
