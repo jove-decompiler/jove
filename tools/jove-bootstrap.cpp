@@ -3881,8 +3881,9 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
     // thus, if we get here, it's either a file or [vdso]
     auto it = BinPathToIdxMap.find(vm_prop.nm);
     if (it == BinPathToIdxMap.end()) {
-      WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
-                                            vm_prop.nm);
+      if (opts::Verbose)
+        WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
+                                              vm_prop.nm);
       continue;
     }
 
