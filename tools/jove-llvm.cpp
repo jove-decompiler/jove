@@ -9827,21 +9827,21 @@ int TranslateBasicBlock(basic_block_t bb,
     return 0;
   }
 
+  auto store_global = [&](unsigned glb) -> void {
+    llvm::LoadInst *LI = IRB.CreateLoad(GlobalAllocaVec[glb]);
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+    llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
+
   auto store_stack_pointers = [&](void) -> void {
-    auto store = [&](unsigned glb) -> void {
-      llvm::LoadInst *LI = IRB.CreateLoad(GlobalAllocaVec[glb]);
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-      llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    };
-
-    store(tcg_stack_pointer_index);
+    store_global(tcg_stack_pointer_index);
 
 #if defined(__mips__)
-    store(tcg_t9_index);
-    store(tcg_ra_index);
-    store(tcg_gp_index);
+    store_global(tcg_t9_index);
+    store_global(tcg_ra_index);
+    store_global(tcg_gp_index);
 #endif
   };
 
