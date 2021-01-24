@@ -891,8 +891,6 @@ int ParentProc(pid_t child, const char *fifo_path) {
         //
         if (likely(SeenExec))
         {
-          if (unlikely(!BinFoundVec.all()))
-            search_address_space_for_binaries(child, dis);
           rendezvous_with_dynamic_linker(child, dis);
         }
 
@@ -1025,6 +1023,9 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
           if (opts::ScanLinkMap)
             scan_rtld_link_map(child, tcg, dis);
+
+          if (!BinFoundVec.all())
+            search_address_space_for_binaries(child, dis);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
