@@ -850,7 +850,12 @@ int add(void) {
             //
             llvm::outs() << llvm::formatv("translating (bb) {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
-            BasicBlockAddresses.insert(Sym.st_value);
+
+#if defined(__mips64) || defined(__mips__)
+            BasicBlockAddresses.insert(Sym.st_value); /* XXX */
+#else
+            FunctionEntrypoints.insert(Sym.st_value);
+#endif
           }
         }
       }
