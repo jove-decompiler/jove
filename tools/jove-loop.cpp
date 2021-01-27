@@ -72,6 +72,11 @@ static cl::opt<std::string>
           cl::desc("Force using particular linker (lld,bfd,gold)"),
           cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    Trace("trace",
+          cl::desc("Instrument code to output basic block execution trace"),
+          cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -429,6 +434,9 @@ skip_run:
 
       if (opts::DFSan)
         arg_vec.push_back("--dfsan");
+
+      if (opts::Trace)
+        arg_vec.push_back("--trace");
 
       arg_vec.push_back(nullptr);
 
