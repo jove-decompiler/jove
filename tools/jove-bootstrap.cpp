@@ -963,6 +963,13 @@ int ParentProc(pid_t child, const char *fifo_path) {
             // inspect syscall number
             //
             switch (no) {
+            case __NR_exit_group:
+              if (opts::Verbose)
+                WithColor::note() << "Observed program exit.\n";
+
+              harvest_reloc_targets(child, tcg, dis);
+              break;
+
 #ifdef __NR_rt_sigaction
             case __NR_rt_sigaction: {
               WithColor::note()
