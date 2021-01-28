@@ -208,6 +208,13 @@ int run(void) {
       fprintf(stderr, "mounting /run failed : %s\n", strerror(errno));
   }
 
+  {
+    fs::path subdir = fs::path(opts::sysroot) / "var" / "run";
+
+    if (mount("/var/run", subdir.c_str(), "", MS_BIND, nullptr) < 0)
+      fprintf(stderr, "mounting /var/run failed : %s\n", strerror(errno));
+  }
+
 #if 0
   {
     fs::path subdir = fs::path(opts::sysroot) / "tmp";
@@ -600,6 +607,13 @@ int run(void) {
       fprintf(stderr, "unmounting /tmp failed : %s\n", strerror(errno));
   }
 #endif
+
+  {
+    fs::path subdir = fs::path(opts::sysroot) / "var" / "run";
+
+    if (umount2(subdir.c_str(), 0) < 0)
+      fprintf(stderr, "unmounting /var/run failed : %s\n", strerror(errno));
+  }
 
   {
     fs::path subdir = fs::path(opts::sysroot) / "run";
