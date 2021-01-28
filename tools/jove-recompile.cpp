@@ -514,6 +514,7 @@ int recompile(void) {
     fs::create_directories(fs::path(opts::Output) / "etc");
     fs::create_directories(fs::path(opts::Output) / "usr" / "bin");
     fs::create_directories(fs::path(opts::Output) / "usr" / "lib");
+    fs::create_directories(fs::path(opts::Output) / "var" / "run");
   }
 
   //
