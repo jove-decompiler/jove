@@ -435,6 +435,18 @@ static std::string _ptrace_read_string(pid_t, uintptr_t addr);
 static unsigned long _ptrace_peekdata(pid_t, uintptr_t addr);
 static void _ptrace_pokedata(pid_t, uintptr_t addr, unsigned long data);
 
+struct child_syscall_state_t {
+  unsigned no;
+  long a1, a2, a3, a4, a5, a6;
+  unsigned int dir : 1;
+
+  unsigned long pc;
+
+  child_syscall_state_t() : dir(0), pc(0) {}
+};
+
+static std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
+
 static int await_process_completion(pid_t);
 
 #if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
@@ -477,6 +489,26 @@ static void on_return(pid_t child,
 #if defined(__mips64) || defined(__mips__)
 static constexpr unsigned FastEmuJumpReg = llvm::Mips::RA;
 #endif
+
+static long pc_of_cpu_state(const cpu_state_t &cpu_state) {
+  long pc =
+#if defined(__x86_64__)
+      cpu_state.rip
+#elif defined(__i386__)
+      cpu_state.eip
+#elif defined(__aarch64__)
+      cpu_state.pc
+#elif defined(__arm__)
+      cpu_state.uregs[15]
+#elif defined(__mips64) || defined(__mips__)
+      cpu_state.cp0_epc
+#else
+#error
+#endif
+      ;
+
+  return pc;
+}
 
 int ParentProc(pid_t child, const char *fifo_path) {
   IgnoreCtrlC();
@@ -916,117 +948,195 @@ int ParentProc(pid_t child, const char *fifo_path) {
           // if the PTRACE_O_TRACESYSGOOD option was set by the tracer- then
           // WSTOPSIG(status) will give the value (SIGTRAP | 0x80).
           //
-          cpu_state_t gpr;
-          _ptrace_get_cpu_state(child, gpr);
+          child_syscall_state_t &syscall_state = children_syscall_state[child];
+
+          cpu_state_t cpu_state;
+          _ptrace_get_cpu_state(child, cpu_state);
+
+          long pc = pc_of_cpu_state(cpu_state);
+          long ra =
+#if defined(__mips64) || defined(__mips__)
+              cpu_state.regs[31]
+#else
+              0
+#endif
+              ;
 
           //
-          // syscall # and arguments
+          // determine whether this syscall is entering or has exited
           //
+#if defined(__arm__)
+          unsigned dir = cpu_state.uregs[12]; /* unambiguous */
+#else
+          unsigned dir = syscall_state.dir;
+
+          if (syscall_state.pc != pc)
+            dir = 0; /* we must see the same pc twice */
+#endif
+
+          if (dir == 0 /* enter */) {
+            //
+            // syscall # and arguments
+            //
 #if defined(__x86_64__)
-          auto &no = gpr.orig_rax;
-          auto &a1 = gpr.rdi;
-          auto &a2 = gpr.rsi;
-          auto &a3 = gpr.rdx;
-          auto &a4 = gpr.r10;
-          auto &a5 = gpr.r8;
-          auto &a6 = gpr.r9;
+            long no = cpu_state.orig_rax;
+            long a1 = cpu_state.rdi;
+            long a2 = cpu_state.rsi;
+            long a3 = cpu_state.rdx;
+            long a4 = cpu_state.r10;
+            long a5 = cpu_state.r8;
+            long a6 = cpu_state.r9;
 #elif defined(__i386__)
-          auto &no = gpr.orig_eax;
-          auto &a1 = gpr.ebx;
-          auto &a2 = gpr.ecx;
-          auto &a3 = gpr.edx;
-          auto &a4 = gpr.esi;
-          auto &a5 = gpr.edi;
-          auto &a6 = gpr.ebp;
+            long no = cpu_state.orig_eax;
+            long a1 = cpu_state.ebx;
+            long a2 = cpu_state.ecx;
+            long a3 = cpu_state.edx;
+            long a4 = cpu_state.esi;
+            long a5 = cpu_state.edi;
+            long a6 = cpu_state.ebp;
 #elif defined(__aarch64__)
-          auto &no = gpr.regs[8];
-          auto &a1 = gpr.regs[0];
-          auto &a2 = gpr.regs[1];
-          auto &a3 = gpr.regs[2];
-          auto &a4 = gpr.regs[3];
-          auto &a5 = gpr.regs[4];
-          auto &a6 = gpr.regs[5];
+            long no = cpu_state.regs[8];
+            long a1 = cpu_state.regs[0];
+            long a2 = cpu_state.regs[1];
+            long a3 = cpu_state.regs[2];
+            long a4 = cpu_state.regs[3];
+            long a5 = cpu_state.regs[4];
+            long a6 = cpu_state.regs[5];
 #elif defined(__mips64) || defined(__mips__)
-          auto &no = gpr.regs[2];
-          auto &a1 = gpr.regs[4];
-          auto &a2 = gpr.regs[5];
-          auto &a3 = gpr.regs[6];
-          auto &a4 = gpr.regs[7];
-          auto &a5 = gpr.regs[8];
-          auto &a6 = gpr.regs[9];
+            long no = cpu_state.regs[2];
+            long a1 = cpu_state.regs[4];
+            long a2 = cpu_state.regs[5];
+            long a3 = cpu_state.regs[6];
+            long a4 = cpu_state.regs[7];
+            long a5 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 16);
+            long a6 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 20);
 #else
 #error
 #endif
 
-          auto examine_syscall = [&](void) -> void {
-            //
-            // inspect syscall number
-            //
-            switch (no) {
-            case __NR_exit_group:
-              if (opts::Verbose)
-                WithColor::note() << "Observed program exit.\n";
+            syscall_state.no = no;
+            syscall_state.a1 = a1;
+            syscall_state.a2 = a2;
+            syscall_state.a3 = a3;
+            syscall_state.a4 = a4;
+            syscall_state.a5 = a5;
+            syscall_state.a6 = a6;
 
-              harvest_reloc_targets(child, tcg, dis);
-              break;
+            auto on_syscall_enter = [&](void) -> void {
+              switch (no) {
+              case __NR_exit_group:
+                if (opts::Verbose)
+                  WithColor::note() << "Observed program exit.\n";
 
-#ifdef __NR_rt_sigaction
-            case __NR_rt_sigaction: {
-              WithColor::note()
-                  << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
-                                   a1, a2, a3, a4);
+                harvest_reloc_targets(child, tcg, dis);
+                break;
 
-              uintptr_t act = a2;
-              if (act) {
-                constexpr unsigned handler_offset =
-#if defined(__mips__)
-                    4
-#else
-                    0
+
+              default:
+                break;
+              }
+            };
+
+            on_syscall_enter();
+          } else { /* exit */
+#if defined(__mips64) || defined(__mips__)
+            long r7 = cpu_state.regs[7];
+            long r2 = cpu_state.regs[2];
 #endif
-                    ;
-                uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-                WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
+            long ret =
+#if defined(__x86_64__)
+                cpu_state.rax
+#elif defined(__i386__)
+                cpu_state.eax
+#elif defined(__aarch64__)
+                cpu_state.regs[0]
+#elif defined(__arm__)
+                cpu_state.uregs[0]
+#elif defined(__mips64) || defined(__mips__)
+                r7 && r2 > 0 ? -r2 : r2
+#else
+#error
+#endif
+                ;
 
-                if (handler && (void *)handler != SIG_IGN) {
-                  update_view_of_virtual_memory(child);
+            long no = syscall_state.no;
 
-                  auto it = AddressSpace.find(handler);
-                  if (it == AddressSpace.end()) {
-                    WithColor::warning() << llvm::formatv(
-                        "sighandler {0:x} in unknown binary\n", handler);
-                  } else {
-                    binary_index_t handler_binary_idx = *(*it).second.begin();
+            long a1 = syscall_state.a1;
+            long a2 = syscall_state.a2;
+            long a3 = syscall_state.a3;
+            long a4 = syscall_state.a4;
+            long a5 = syscall_state.a5;
+            long a6 = syscall_state.a6;
 
-                    unsigned brkpt_count = 0;
-                    function_index_t f_idx = translate_function(
-                        child, handler_binary_idx, tcg, dis,
-                        rva_of_va(handler, handler_binary_idx), brkpt_count);
+            auto on_syscall_exit = [&](void) -> void {
+              if (unlikely(ret < 0 && ret > -4096))
+                return; /* system call failed */
 
-                    if (f_idx == invalid_function_index) {
-                      WithColor::error() << llvm::formatv(
-                          "failed to translate signal handler {0:x}\n", handler);
+              switch (no) {
+#ifdef __NR_rt_sigaction
+              case __NR_rt_sigaction: {
+                WithColor::note()
+                    << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
+                                     a1, a2, a3, a4);
+
+                uintptr_t act = a2;
+                if (act) {
+                  constexpr unsigned handler_offset =
+#if defined(__mips__)
+                      4
+#else
+                      0
+#endif
+                      ;
+                  uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
+
+                  WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
+
+                  if (handler && (void *)handler != SIG_IGN) {
+                    update_view_of_virtual_memory(child);
+
+                    auto it = AddressSpace.find(handler);
+                    if (it == AddressSpace.end()) {
+                      WithColor::warning() << llvm::formatv(
+                          "sighandler {0:x} in unknown binary\n", handler);
                     } else {
-                      binary_t &binary =
-                          decompilation.Binaries[handler_binary_idx];
-                      binary.Analysis.Functions[f_idx].IsSignalHandler = true;
-                      binary.Analysis.Functions[f_idx].IsABI = true;
+                      binary_index_t handler_binary_idx = *(*it).second.begin();
+
+                      unsigned brkpt_count = 0;
+                      function_index_t f_idx = translate_function(
+                          child, handler_binary_idx, tcg, dis,
+                          rva_of_va(handler, handler_binary_idx), brkpt_count);
+
+                      if (f_idx == invalid_function_index) {
+                        WithColor::error() << llvm::formatv(
+                            "failed to translate signal handler {0:x}\n", handler);
+                      } else {
+                        binary_t &binary =
+                            decompilation.Binaries[handler_binary_idx];
+                        binary.Analysis.Functions[f_idx].IsSignalHandler = true;
+                        binary.Analysis.Functions[f_idx].IsABI = true;
+                      }
                     }
                   }
                 }
-              }
 
-              break;
-            }
+                break;
+              }
 #endif
 
-            default:
-              break;
-            }
-          };
+              default:
+                break;
+              }
+            };
 
-          examine_syscall();
+            on_syscall_exit();
+          }
+
+          dir ^= 1;
+
+          syscall_state.pc = pc;
+          syscall_state.dir = dir;
 
           if (opts::ScanLinkMap)
             scan_rtld_link_map(child, tcg, dis);
