@@ -490,24 +490,24 @@ static void on_return(pid_t child,
 static constexpr unsigned FastEmuJumpReg = llvm::Mips::RA;
 #endif
 
-static long pc_of_cpu_state(const cpu_state_t &cpu_state) {
-  long pc =
+static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #if defined(__x86_64__)
-      cpu_state.rip
+  #define _pc_field rip
 #elif defined(__i386__)
-      cpu_state.eip
+  #define _pc_field eip
 #elif defined(__aarch64__)
-      cpu_state.pc
+  #define _pc_field pc
 #elif defined(__arm__)
-      cpu_state.uregs[15]
+  #define _pc_field uregs[15]
 #elif defined(__mips64) || defined(__mips__)
-      cpu_state.cp0_epc
+  #define _pc_field cp0_epc
 #else
 #error
 #endif
-      ;
 
-  return pc;
+  return cpu_state._pc_field;
+
+#undef _pc_field
 }
 
 int ParentProc(pid_t child, const char *fifo_path) {
@@ -2430,20 +2430,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   ScopedCPUState  _scoped_cpu_state(child);
 
   auto &gpr = _scoped_cpu_state.gpr;
-
-  auto &pc =
-#if defined(__x86_64__)
-      gpr.rip
-#elif defined(__i386__)
-      gpr.eip
-#elif defined(__aarch64__)
-      gpr.pc
-#elif defined(__mips64) || defined(__mips__)
-      gpr.cp0_epc
-#else
-#error
-#endif
-      ;
+  auto &pc = pc_of_cpu_state(_scoped_cpu_state.gpr);
 
   //
   // rewind before the breakpoint instruction (why is this x86-specific?)
