@@ -8468,11 +8468,11 @@ static int TranslateFunction(function_t &f) {
   {
     llvm::IRBuilderTy IRB(EntryB);
 
-    if (f.IsSignalHandler) {
-      IRB.SetCurrentDebugLocation(
-          llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
-                                f.DebugInformation.Subprogram));
+    IRB.SetCurrentDebugLocation(
+        llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
+                              f.DebugInformation.Subprogram));
 
+    if (f.IsSignalHandler) {
       //
       // save the emulated CPU state
       //
@@ -8482,18 +8482,42 @@ static int TranslateFunction(function_t &f) {
           llvm::MaybeAlign(), sizeof(CPUArchState));
     }
 
-    for (unsigned glb = 0; glb < GlobalAllocaVec.size(); ++glb) {
-      GlobalAllocaVec[glb] = IRB.CreateAlloca(
-          IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), 0,
-          std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+    //
+    // create Alloca's upfront for globals we know will be used
+    //
+    {
+      tcg_global_set_t glbs = DetermineFunctionArgs(f) |
+                              DetermineFunctionRets(f);
+
+      if (tcg_program_counter_index >= 0)
+        glbs.set(tcg_program_counter_index);
+
+#if defined(__mips64) || defined(__mips__)
+      if (f.IsABI)
+        glbs.set(tcg_t9_index);
+#endif
+
+      std::vector<unsigned> glbv;
+      explode_tcg_global_set(glbv, glbs);
+
+      for (unsigned glb : glbv) {
+        assert(!GlobalAllocaVec[glb]);
+
+        GlobalAllocaVec[glb] = IRB.CreateAlloca(
+            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+            nullptr, std::string(TCG->_ctx.temps[glb].name) + "_ptr");
+      }
+
+      if (tcg_program_counter_index >= 0) {
+        f.PCAlloca = GlobalAllocaVec[tcg_program_counter_index];
+        assert(f.PCAlloca);
+      } else {
+        f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr");
+      }
     }
 
-    f.PCAlloca = tcg_program_counter_index < 0
-                     ? IRB.CreateAlloca(WordType(), 0, "pc_ptr")
-                     : GlobalAllocaVec[tcg_program_counter_index];
-
     //
-    // initialize the globals which are passed as parameters
+    // initialize the ones passed as parameters
     //
     {
       std::vector<unsigned> glbv;
@@ -8503,15 +8527,17 @@ static int TranslateFunction(function_t &f) {
       for (unsigned glb : glbv) {
         assert(arg_it != F->arg_end());
         llvm::Argument *Val = &*arg_it++;
-        llvm::Value *Ptr = GlobalAllocaVec[glb];
-        IRB.CreateStore(Val, Ptr);
+
+        llvm::AllocaInst *Ptr = GlobalAllocaVec[glb];
+        assert(Ptr);
+
+        llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
 
     //
-    // for globals not passed as parameters, they are either loaded from the
-    // GlobalCPUState *or*, if this function conforms to the ABI specification
-    // they are initialized to UndefValue
+    // initialize globals that aren't passed as parameters from the CPU state
     //
     {
       tcg_global_set_t glbs = ~DetermineFunctionArgs(f);
@@ -8521,6 +8547,10 @@ static int TranslateFunction(function_t &f) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
+        llvm::AllocaInst *Ptr = GlobalAllocaVec[glb];
+        if (!Ptr)
+          continue;
+
         unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
         llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
@@ -8531,13 +8561,20 @@ static int TranslateFunction(function_t &f) {
         llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-        llvm::StoreInst *SI = IRB.CreateStore(LI, GlobalAllocaVec[glb]);
+        llvm::StoreInst *SI = IRB.CreateStore(LI, Ptr);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
 
-#if defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
+    //
+    // when calling position independent functions $t9 must contain the address
+    // of the called function. this is a strict requirement, and rarely do we
+    // see non-PIC mips code. N.B. this is still a hack XXX
+    //
     if (f.IsABI) {
+      assert(GlobalAllocaVec[tcg_t9_index]);
+
       llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
                                             GlobalAllocaVec[tcg_t9_index]);
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
@@ -9615,6 +9652,72 @@ int TranslateBasicBlock(basic_block_t bb,
                         function_t &f,
                         std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaVec,
                         llvm::IRBuilderTy &IRB) {
+  //
+  // helper functions for GlobalAllocaVec
+  //
+  auto set = [&](llvm::Value *V, unsigned glb) -> void {
+    assert(glb != tcg_env_index);
+
+#if defined(__x86_64__)
+    assert(glb != tcg_fs_base_index);
+#elif defined(__i386__)
+    assert(glb != tcg_gs_base_index);
+#endif
+
+    llvm::AllocaInst *&Ptr = GlobalAllocaVec.at(glb);
+    if (!Ptr) {
+      llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+      Ptr = tmpIRB.CreateAlloca(
+        tmpIRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+        nullptr, std::string(TCG->_ctx.temps[glb].name) + "_ptr"); /* create it */
+
+      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+      assert(GlbPtr);
+
+      llvm::LoadInst *LI = tmpIRB.CreateLoad(GlbPtr);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::StoreInst *SI = tmpIRB.CreateStore(LI, Ptr);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    }
+
+    llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
+
+  auto get = [&](unsigned glb) -> llvm::Value * {
+    assert(glb != tcg_env_index);
+
+#if defined(__x86_64__)
+    assert(glb != tcg_fs_base_index);
+#elif defined(__i386__)
+    assert(glb != tcg_gs_base_index);
+#endif
+
+    llvm::AllocaInst *&Ptr = GlobalAllocaVec.at(glb);
+    if (!Ptr) {
+      llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+      Ptr = tmpIRB.CreateAlloca(
+        tmpIRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
+        nullptr, std::string(TCG->_ctx.temps[glb].name) + "_ptr"); /* create it */
+
+      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+      assert(GlbPtr);
+
+      llvm::LoadInst *LI = tmpIRB.CreateLoad(GlbPtr);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      llvm::StoreInst *SI = tmpIRB.CreateStore(LI, Ptr);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    }
+
+    llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    return LI;
+  };
+
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
 
@@ -9822,6 +9925,9 @@ int TranslateBasicBlock(basic_block_t bb,
   }
 
   auto store_global = [&](unsigned glb) -> void {
+    if (!GlobalAllocaVec[glb])
+      return;
+
     llvm::LoadInst *LI = IRB.CreateLoad(GlobalAllocaVec[glb]);
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
@@ -10005,7 +10111,7 @@ int TranslateBasicBlock(basic_block_t bb,
       ArgVec.resize(glbv.size());
       std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                      [&](unsigned glb) -> llvm::Value * {
-                       return IRB.CreateLoad(GlobalAllocaVec[glb]);
+                       return get(glb);
                      });
     }
 
@@ -10029,7 +10135,7 @@ int TranslateBasicBlock(basic_block_t bb,
 
       if (glbv.size() == 1) {
         assert(DetermineFunctionType(callee)->getReturnType()->isIntegerTy());
-        IRB.CreateStore(Ret, GlobalAllocaVec[glbv.front()]);
+        set(Ret, glbv.front());
       } else {
         for (unsigned i = 0; i < glbv.size(); ++i) {
           unsigned glb = glbv[i];
@@ -10040,7 +10146,7 @@ int TranslateBasicBlock(basic_block_t bb,
                % TCG->_ctx.temps[glb].name
                % callee.F->getName().str()).str());
 
-          IRB.CreateStore(Val, GlobalAllocaVec[glb]);
+          set(Val, glb);
         }
       }
     }
@@ -10293,7 +10399,7 @@ int TranslateBasicBlock(basic_block_t bb,
             for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
               unsigned glb = CallConvArgArray[i];
 
-              llvm::Value *Val = IRB.CreateLoad(GlobalAllocaVec[glb]);
+              llvm::Value *Val = get(glb);
               llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
 
               IRB.CreateStore(Val, Ptr);
@@ -10345,9 +10451,7 @@ int TranslateBasicBlock(basic_block_t bb,
               ArgVec.resize(glbv.size());
               std::transform(glbv.begin(), glbv.end(), ArgVec.begin(),
                              [&](unsigned glb) -> llvm::Value * {
-                               llvm::Value *Ptr = GlobalAllocaVec[glb];
-                               assert(Ptr);
-                               return IRB.CreateLoad(Ptr);
+                               return get(glb);
                              });
             }
 
@@ -10374,7 +10478,7 @@ int TranslateBasicBlock(basic_block_t bb,
 
             if (glbv.size() == 1
                 || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
-              IRB.CreateStore(Ret, GlobalAllocaVec[glbv.front()]);
+              set(Ret, glbv.front());
             } else {
               assert(glbv.size() > 1);
               assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
@@ -10386,7 +10490,7 @@ int TranslateBasicBlock(basic_block_t bb,
                     Ret, llvm::ArrayRef<unsigned>(i),
                     (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
 
-                IRB.CreateStore(Val, GlobalAllocaVec[glb]);
+                set(Val, glb);
               }
             }
           }
@@ -10426,8 +10530,7 @@ int TranslateBasicBlock(basic_block_t bb,
                   {
 #if !defined(__x86_64__) && defined(__i386__)
                     // special-case i386: cdecl means read parameters off stack
-                    llvm::LoadInst *SP = IRB.CreateLoad(
-                        GlobalAllocaVec[tcg_stack_pointer_index]);
+                    llvm::LoadInst *SP = get(tcg_stack_pointer_index);
 
                     ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
                         IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
@@ -10436,7 +10539,7 @@ int TranslateBasicBlock(basic_block_t bb,
 
                     SPAddend += info.Size;
 #else
-                    ArgVal = IRB.CreateLoad(GlobalAllocaVec[CallConvArgArray.at(j)]);
+                    ArgVal = get(CallConvArgArray.at(j));
 #endif
                   }
 
@@ -10519,6 +10622,9 @@ int TranslateBasicBlock(basic_block_t bb,
 
   auto reload_stack_pointers = [&](void) -> void {
     auto reload = [&](unsigned glb) -> void {
+      if (!GlobalAllocaVec[glb])
+        return;
+
       llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
@@ -10649,9 +10755,7 @@ int TranslateBasicBlock(basic_block_t bb,
 
     if (DetermineFunctionType(f)->getReturnType()->isIntegerTy()) {
       assert(glbv.size() == 1);
-      assert(GlobalAllocaVec[glbv.front()]);
-
-      IRB.CreateRet(IRB.CreateLoad(GlobalAllocaVec[glbv.front()]));
+      IRB.CreateRet(get(glbv.front()));
       break;
     }
 
@@ -10666,7 +10770,7 @@ int TranslateBasicBlock(basic_block_t bb,
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
             return IRB.CreateInsertValue(res,
-                                         IRB.CreateLoad(GlobalAllocaVec[glb]),
+                                         get(glb),
                                          llvm::ArrayRef<unsigned>(idx++));
           });
       IRB.CreateRet(retVal);
@@ -10730,40 +10834,74 @@ int TranslateTCGOp(TCGOp *op,
 #elif defined(__i386__)
       assert(idx != tcg_gs_base_index);
 #endif
+      llvm::AllocaInst *&Ptr = GlobalAllocaVec.at(idx);
+      if (!Ptr) {
+        llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+        Ptr = tmpIRB.CreateAlloca(
+          tmpIRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[idx].type)),
+          nullptr, std::string(TCG->_ctx.temps[idx].name) + "_ptr"); /* create it */
+
+        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
+        assert(GlbPtr);
+
+        llvm::LoadInst *LI = tmpIRB.CreateLoad(GlbPtr);
+        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+        llvm::StoreInst *SI = tmpIRB.CreateStore(LI, Ptr);
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      }
+
+      llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    } else {
+      llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
+      assert(Ptr);
+
+      llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
-
-    llvm::AllocaInst *Ptr =
-        ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
-    assert(Ptr);
-
-    llvm::StoreInst *SI = IRB.CreateStore(V, Ptr);
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
   };
 
   auto get = [&](TCGTemp *ts) -> llvm::Value * {
     unsigned idx = temp_idx(ts);
 
     if (ts->temp_global) {
-      switch (idx) {
-      case tcg_env_index:
-        return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+      assert(idx != tcg_env_index);
 #if defined(__x86_64__)
-      case tcg_fs_base_index:
-        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+      assert(idx != tcg_fs_base_index);
 #elif defined(__i386__)
-      case tcg_gs_base_index:
-        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+      assert(idx != tcg_gs_base_index);
 #endif
+      llvm::AllocaInst *&Ptr = GlobalAllocaVec.at(idx);
+      if (!Ptr) {
+        llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+        Ptr = tmpIRB.CreateAlloca(
+          tmpIRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[idx].type)),
+          nullptr, std::string(TCG->_ctx.temps[idx].name) + "_ptr"); /* create it */
+
+        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
+        assert(GlbPtr);
+
+        llvm::LoadInst *LI = tmpIRB.CreateLoad(GlbPtr);
+        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+        llvm::StoreInst *SI = tmpIRB.CreateStore(LI, Ptr);
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
+
+      llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      return LI;
+    } else {
+      llvm::AllocaInst *Ptr = TempAllocaVec.at(idx);
+      assert(Ptr);
+
+      llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      return LI;
     }
-
-    llvm::AllocaInst *Ptr =
-        ts->temp_global ? GlobalAllocaVec.at(idx) : TempAllocaVec.at(idx);
-    assert(Ptr);
-
-    llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    return LI;
   };
 
   static bool pcrel_flag = false;
@@ -11383,20 +11521,12 @@ int TranslateTCGOp(TCGOp *op,
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
-      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(tcg_lladdr_index);            \
-      assert(Ptr);                                                             \
-                                                                               \
-      llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);  \
+      set(Val, &TCG->_ctx.temps[tcg_lladdr_index]);                            \
       break;                                                                   \
     }                                                                          \
                                                                                \
     if (off == offsetof(CPUMIPSState, llval)) {                                \
-      llvm::AllocaInst *Ptr = GlobalAllocaVec.at(tcg_llval_index);             \
-      assert(Ptr);                                                             \
-                                                                               \
-      llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);                         \
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);  \
+      set(Val, &TCG->_ctx.temps[tcg_llval_index]);                             \
       break;                                                                   \
     }                                                                          \
   }
