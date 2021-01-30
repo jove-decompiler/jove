@@ -178,7 +178,7 @@ ___SYSCALL4(4197, rt_sigtimedwait_time32, const sigset_t *, uthese, siginfo_t *,
 ___SYSCALL3(4198, rt_sigqueueinfo, pid_t, pid, int, sig, siginfo_t *, uinfo)
 ___SYSCALL2(4199, rt_sigsuspend, sigset_t *, unewset, size_t, sigsetsize)
 ___SYSCALL6(4200, pread64, unsigned int, fd, char *, buf, size_t, count, unsigned long, unused, unsigned long, pos_low, unsigned long, pos_high)
-___SYSCALL5(4201, pwrite64, unsigned int, fd, const char *, buf, size_t, count, unsigned long, pos_low, unsigned long, pos_high)
+___SYSCALL6(4201, pwrite64, unsigned int, fd, const char *, buf, size_t, count, unsigned long, unused, unsigned long, pos_low, unsigned long, pos_high)
 ___SYSCALL3(4202, chown, const char *, filename, uid_t, user, gid_t, group)
 ___SYSCALL2(4203, getcwd, char *, buf, unsigned long, size)
 ___SYSCALL2(4204, capget, cap_user_header_t, header, cap_user_data_t, dataptr)
