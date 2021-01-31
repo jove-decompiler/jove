@@ -10823,6 +10823,8 @@ static unsigned bits_of_memop(MemOp op) {
   return bits_of_memop_lookup_table[op & MO_SIZE];
 }
 
+static bool pcrel_flag = false; /* XXX this is ugly, but it works */
+
 template <unsigned opc>
 static int TranslateTCGOp(TCGOp *op,
                           function_t &f,
@@ -10924,8 +10926,6 @@ static int TranslateTCGOp(TCGOp *op,
       return LI;
     }
   };
-
-  static bool pcrel_flag = false;
 
   auto immediate_constant = [&](unsigned bits, TCGArg A) -> llvm::Value * {
     if (!pcrel_flag)
