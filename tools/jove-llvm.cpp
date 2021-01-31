@@ -9636,14 +9636,16 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-static int TranslateTCGOp(TCGOp *op,
-                          function_t &,
-                          basic_block_t,
-                          std::array<llvm::AllocaInst *, tcg_num_globals> &,
-                          std::vector<llvm::AllocaInst *> &,
-                          std::vector<llvm::BasicBlock *> &,
-                          llvm::BasicBlock *,
-                          llvm::IRBuilderTy &);
+typedef int (*translate_tcg_op_proc_t)(TCGOp *,
+                                       function_t &,
+                                       basic_block_t,
+                                       std::array<llvm::AllocaInst *, tcg_num_globals> &,
+                                       std::vector<llvm::AllocaInst *> &,
+                                       std::vector<llvm::BasicBlock *> &,
+                                       llvm::BasicBlock *,
+                                       llvm::IRBuilderTy &);
+
+extern const translate_tcg_op_proc_t TranslateTCGOpTable[250];
 
 static std::string
 dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
@@ -9855,12 +9857,22 @@ int TranslateBasicBlock(basic_block_t bb,
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
-      if (int ret = TranslateTCGOp(op, f, bb,
-                                   GlobalAllocaArr,
-                                   TempAllocaVec,
-                                   LabelVec,
-                                   ExitBB,
-                                   IRB)) {
+      unsigned opc = op->opc;
+      assert(opc < ARRAY_SIZE(TranslateTCGOpTable));
+
+      translate_tcg_op_proc_t proc = TranslateTCGOpTable[opc];
+      if (unlikely(!proc)) {
+        WithColor::error() << llvm::formatv("[BUG] unhandled TCG opcode {0}\n", opc);
+        exit(1);
+      }
+
+      int ret = proc(op, f, bb,
+                     GlobalAllocaArr,
+                     TempAllocaVec,
+                     LabelVec,
+                     ExitBB,
+                     IRB);
+      if (unlikely(ret)) {
         TCG->dump_operations();
         return ret;
       }
@@ -10811,14 +10823,23 @@ static unsigned bits_of_memop(MemOp op) {
   return bits_of_memop_lookup_table[op & MO_SIZE];
 }
 
-int TranslateTCGOp(TCGOp *op,
-                   function_t &f,
-                   basic_block_t bb,
-                   std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaArr,
-                   std::vector<llvm::AllocaInst *> &TempAllocaVec,
-                   std::vector<llvm::BasicBlock *> &LabelVec,
-                   llvm::BasicBlock *ExitBB,
-                   llvm::IRBuilderTy &IRB) {
+template <unsigned opc>
+static int TranslateTCGOp(TCGOp *op,
+                          function_t &f,
+                          basic_block_t bb,
+                          std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaArr,
+                          std::vector<llvm::AllocaInst *> &TempAllocaVec,
+                          std::vector<llvm::BasicBlock *> &LabelVec,
+                          llvm::BasicBlock *ExitBB,
+                          llvm::IRBuilderTy &IRB) {
+
+  // XXX BUILD_BUG might be good here..
+  // N.B. ARRAY_SIZE(tcg_op_defs)=178...
+  if (unlikely(!(opc < ARRAY_SIZE(tcg_op_defs)))) {
+    //WithColor::error() << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
+    return 1;
+  }
+
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = f.PCAlloca;
@@ -10920,7 +10941,12 @@ int TranslateTCGOp(TCGOp *op,
             llvm::ConstantInt::get(WordType(), SectsStartAddr)));
   };
 
+#if 0
   const TCGOpcode opc = op->opc;
+#else
+  assert(op->opc == opc);
+#endif
+
   const TCGOpDef &def = tcg_op_defs[opc];
 
   int nb_oargs = def.nb_oargs;
@@ -12096,14 +12122,273 @@ int TranslateTCGOp(TCGOp *op,
   }
 
   default:
+#if 0
     WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
     TCG->dump_operations();
     llvm::errs() << *f.F << '\n';
+#endif
     return 1;
   }
 
   return 0;
 }
+
+const translate_tcg_op_proc_t TranslateTCGOpTable[250] = {
+    [0 ... 250 - 1] = nullptr,
+
+[0] = TranslateTCGOp<0>,
+[1] = TranslateTCGOp<1>,
+[2] = TranslateTCGOp<2>,
+[3] = TranslateTCGOp<3>,
+[4] = TranslateTCGOp<4>,
+[5] = TranslateTCGOp<5>,
+[6] = TranslateTCGOp<6>,
+[7] = TranslateTCGOp<7>,
+[8] = TranslateTCGOp<8>,
+[9] = TranslateTCGOp<9>,
+[10] = TranslateTCGOp<10>,
+[11] = TranslateTCGOp<11>,
+[12] = TranslateTCGOp<12>,
+[13] = TranslateTCGOp<13>,
+[14] = TranslateTCGOp<14>,
+[15] = TranslateTCGOp<15>,
+[16] = TranslateTCGOp<16>,
+[17] = TranslateTCGOp<17>,
+[18] = TranslateTCGOp<18>,
+[19] = TranslateTCGOp<19>,
+[20] = TranslateTCGOp<20>,
+[21] = TranslateTCGOp<21>,
+[22] = TranslateTCGOp<22>,
+[23] = TranslateTCGOp<23>,
+[24] = TranslateTCGOp<24>,
+[25] = TranslateTCGOp<25>,
+[26] = TranslateTCGOp<26>,
+[27] = TranslateTCGOp<27>,
+[28] = TranslateTCGOp<28>,
+[29] = TranslateTCGOp<29>,
+[30] = TranslateTCGOp<30>,
+[31] = TranslateTCGOp<31>,
+[32] = TranslateTCGOp<32>,
+[33] = TranslateTCGOp<33>,
+[34] = TranslateTCGOp<34>,
+[35] = TranslateTCGOp<35>,
+[36] = TranslateTCGOp<36>,
+[37] = TranslateTCGOp<37>,
+[38] = TranslateTCGOp<38>,
+[39] = TranslateTCGOp<39>,
+[40] = TranslateTCGOp<40>,
+[41] = TranslateTCGOp<41>,
+[42] = TranslateTCGOp<42>,
+[43] = TranslateTCGOp<43>,
+[44] = TranslateTCGOp<44>,
+[45] = TranslateTCGOp<45>,
+[46] = TranslateTCGOp<46>,
+[47] = TranslateTCGOp<47>,
+[48] = TranslateTCGOp<48>,
+[49] = TranslateTCGOp<49>,
+[50] = TranslateTCGOp<50>,
+[51] = TranslateTCGOp<51>,
+[52] = TranslateTCGOp<52>,
+[53] = TranslateTCGOp<53>,
+[54] = TranslateTCGOp<54>,
+[55] = TranslateTCGOp<55>,
+[56] = TranslateTCGOp<56>,
+[57] = TranslateTCGOp<57>,
+[58] = TranslateTCGOp<58>,
+[59] = TranslateTCGOp<59>,
+[60] = TranslateTCGOp<60>,
+[61] = TranslateTCGOp<61>,
+[62] = TranslateTCGOp<62>,
+[63] = TranslateTCGOp<63>,
+[64] = TranslateTCGOp<64>,
+[65] = TranslateTCGOp<65>,
+[66] = TranslateTCGOp<66>,
+[67] = TranslateTCGOp<67>,
+[68] = TranslateTCGOp<68>,
+[69] = TranslateTCGOp<69>,
+[70] = TranslateTCGOp<70>,
+[71] = TranslateTCGOp<71>,
+[72] = TranslateTCGOp<72>,
+[73] = TranslateTCGOp<73>,
+[74] = TranslateTCGOp<74>,
+[75] = TranslateTCGOp<75>,
+[76] = TranslateTCGOp<76>,
+[77] = TranslateTCGOp<77>,
+[78] = TranslateTCGOp<78>,
+[79] = TranslateTCGOp<79>,
+[80] = TranslateTCGOp<80>,
+[81] = TranslateTCGOp<81>,
+[82] = TranslateTCGOp<82>,
+[83] = TranslateTCGOp<83>,
+[84] = TranslateTCGOp<84>,
+[85] = TranslateTCGOp<85>,
+[86] = TranslateTCGOp<86>,
+[87] = TranslateTCGOp<87>,
+[88] = TranslateTCGOp<88>,
+[89] = TranslateTCGOp<89>,
+[90] = TranslateTCGOp<90>,
+[91] = TranslateTCGOp<91>,
+[92] = TranslateTCGOp<92>,
+[93] = TranslateTCGOp<93>,
+[94] = TranslateTCGOp<94>,
+[95] = TranslateTCGOp<95>,
+[96] = TranslateTCGOp<96>,
+[97] = TranslateTCGOp<97>,
+[98] = TranslateTCGOp<98>,
+[99] = TranslateTCGOp<99>,
+[100] = TranslateTCGOp<100>,
+[101] = TranslateTCGOp<101>,
+[102] = TranslateTCGOp<102>,
+[103] = TranslateTCGOp<103>,
+[104] = TranslateTCGOp<104>,
+[105] = TranslateTCGOp<105>,
+[106] = TranslateTCGOp<106>,
+[107] = TranslateTCGOp<107>,
+[108] = TranslateTCGOp<108>,
+[109] = TranslateTCGOp<109>,
+[110] = TranslateTCGOp<110>,
+[111] = TranslateTCGOp<111>,
+[112] = TranslateTCGOp<112>,
+[113] = TranslateTCGOp<113>,
+[114] = TranslateTCGOp<114>,
+[115] = TranslateTCGOp<115>,
+[116] = TranslateTCGOp<116>,
+[117] = TranslateTCGOp<117>,
+[118] = TranslateTCGOp<118>,
+[119] = TranslateTCGOp<119>,
+[120] = TranslateTCGOp<120>,
+[121] = TranslateTCGOp<121>,
+[122] = TranslateTCGOp<122>,
+[123] = TranslateTCGOp<123>,
+[124] = TranslateTCGOp<124>,
+[125] = TranslateTCGOp<125>,
+[126] = TranslateTCGOp<126>,
+[127] = TranslateTCGOp<127>,
+[128] = TranslateTCGOp<128>,
+[129] = TranslateTCGOp<129>,
+[130] = TranslateTCGOp<130>,
+[131] = TranslateTCGOp<131>,
+[132] = TranslateTCGOp<132>,
+[133] = TranslateTCGOp<133>,
+[134] = TranslateTCGOp<134>,
+[135] = TranslateTCGOp<135>,
+[136] = TranslateTCGOp<136>,
+[137] = TranslateTCGOp<137>,
+[138] = TranslateTCGOp<138>,
+[139] = TranslateTCGOp<139>,
+[140] = TranslateTCGOp<140>,
+[141] = TranslateTCGOp<141>,
+[142] = TranslateTCGOp<142>,
+[143] = TranslateTCGOp<143>,
+[144] = TranslateTCGOp<144>,
+[145] = TranslateTCGOp<145>,
+[146] = TranslateTCGOp<146>,
+[147] = TranslateTCGOp<147>,
+[148] = TranslateTCGOp<148>,
+[149] = TranslateTCGOp<149>,
+[150] = TranslateTCGOp<150>,
+[151] = TranslateTCGOp<151>,
+[152] = TranslateTCGOp<152>,
+[153] = TranslateTCGOp<153>,
+[154] = TranslateTCGOp<154>,
+[155] = TranslateTCGOp<155>,
+[156] = TranslateTCGOp<156>,
+[157] = TranslateTCGOp<157>,
+[158] = TranslateTCGOp<158>,
+[159] = TranslateTCGOp<159>,
+[160] = TranslateTCGOp<160>,
+[161] = TranslateTCGOp<161>,
+[162] = TranslateTCGOp<162>,
+[163] = TranslateTCGOp<163>,
+[164] = TranslateTCGOp<164>,
+[165] = TranslateTCGOp<165>,
+[166] = TranslateTCGOp<166>,
+[167] = TranslateTCGOp<167>,
+[168] = TranslateTCGOp<168>,
+[169] = TranslateTCGOp<169>,
+[170] = TranslateTCGOp<170>,
+[171] = TranslateTCGOp<171>,
+[172] = TranslateTCGOp<172>,
+[173] = TranslateTCGOp<173>,
+[174] = TranslateTCGOp<174>,
+[175] = TranslateTCGOp<175>,
+[176] = TranslateTCGOp<176>,
+[177] = TranslateTCGOp<177>,
+[178] = TranslateTCGOp<178>,
+
+#if 0
+[179] = TranslateTCGOp<179>,
+[180] = TranslateTCGOp<180>,
+[181] = TranslateTCGOp<181>,
+[182] = TranslateTCGOp<182>,
+[183] = TranslateTCGOp<183>,
+[184] = TranslateTCGOp<184>,
+[185] = TranslateTCGOp<185>,
+[186] = TranslateTCGOp<186>,
+[187] = TranslateTCGOp<187>,
+[188] = TranslateTCGOp<188>,
+[189] = TranslateTCGOp<189>,
+[190] = TranslateTCGOp<190>,
+[191] = TranslateTCGOp<191>,
+[192] = TranslateTCGOp<192>,
+[193] = TranslateTCGOp<193>,
+[194] = TranslateTCGOp<194>,
+[195] = TranslateTCGOp<195>,
+[196] = TranslateTCGOp<196>,
+[197] = TranslateTCGOp<197>,
+[198] = TranslateTCGOp<198>,
+[199] = TranslateTCGOp<199>,
+[200] = TranslateTCGOp<200>,
+[201] = TranslateTCGOp<201>,
+[202] = TranslateTCGOp<202>,
+[203] = TranslateTCGOp<203>,
+[204] = TranslateTCGOp<204>,
+[205] = TranslateTCGOp<205>,
+[206] = TranslateTCGOp<206>,
+[207] = TranslateTCGOp<207>,
+[208] = TranslateTCGOp<208>,
+[209] = TranslateTCGOp<209>,
+[210] = TranslateTCGOp<210>,
+[211] = TranslateTCGOp<211>,
+[212] = TranslateTCGOp<212>,
+[213] = TranslateTCGOp<213>,
+[214] = TranslateTCGOp<214>,
+[215] = TranslateTCGOp<215>,
+[216] = TranslateTCGOp<216>,
+[217] = TranslateTCGOp<217>,
+[218] = TranslateTCGOp<218>,
+[219] = TranslateTCGOp<219>,
+[220] = TranslateTCGOp<220>,
+[221] = TranslateTCGOp<221>,
+[222] = TranslateTCGOp<222>,
+[223] = TranslateTCGOp<223>,
+[224] = TranslateTCGOp<224>,
+[225] = TranslateTCGOp<225>,
+[226] = TranslateTCGOp<226>,
+[227] = TranslateTCGOp<227>,
+[228] = TranslateTCGOp<228>,
+[229] = TranslateTCGOp<229>,
+[230] = TranslateTCGOp<230>,
+[231] = TranslateTCGOp<231>,
+[232] = TranslateTCGOp<232>,
+[233] = TranslateTCGOp<233>,
+[234] = TranslateTCGOp<234>,
+[235] = TranslateTCGOp<235>,
+[236] = TranslateTCGOp<236>,
+[237] = TranslateTCGOp<237>,
+[238] = TranslateTCGOp<238>,
+[239] = TranslateTCGOp<239>,
+#endif
+
+#if 0
+#define __PROC_CASE(n, i, data) [i] = TranslateTCGOp<i>,
+
+BOOST_PP_REPEAT_FROM_TO(0, 239, __PROC_CASE, void)
+
+#undef __REG_CASE
+#endif
+
+};
 
 }
 
