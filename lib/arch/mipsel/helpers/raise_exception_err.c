@@ -1917,8 +1917,8 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     register long r7 asm("$7");
     register long r2 asm("$2");
     register long r3 asm("$3");
-    asm volatile("addu $2,$0,%2 ; syscall"
-                 : "=&r"(r2), "=r"(r3), "=r"(r7)
+    asm volatile("addu $2,$0,%3 ; syscall"
+                 : "=&r"(r2), "=r"(r7), "=r"(r3)
                  : "ir"(4042), "0"(r2)
                  : __SYSCALL_CLOBBERS, "$8", "$9", "$10");
     env->active_tc.gpr[7] = r7;
