@@ -2181,9 +2181,6 @@ void *_memset(void *dst, int c, size_t n) {
 static void _jove_sigsegv_handler(void);
 
 void _jove_trace_init(void) {
-  if (__jove_trace)
-    return;
-
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
   if (fd < 0) {
@@ -2191,7 +2188,7 @@ void _jove_trace_init(void) {
     __builtin_unreachable();
   }
 
-  off_t size = 1UL << 31; /* 2 GiB */
+  off_t size = 1UL << 30; /* 1 GiB */
   if (_jove_sys_ftruncate(fd, size) < 0) {
     __builtin_trap();
     __builtin_unreachable();
@@ -2214,22 +2211,6 @@ void _jove_trace_init(void) {
   if (_jove_sys_close(fd) < 0) {
     __builtin_trap();
     __builtin_unreachable();
-  }
-
-  //
-  // install SIGSEGV handler
-  //
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
-  sa._sa_handler = (void *)_jove_sigsegv_handler;
-
-  {
-    long ret =
-        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
   }
 }
 

@@ -2140,7 +2140,7 @@ void _jove_callstack_init(void) {
 }
 
 void _jove_trace_init(void) {
-  static uint64_t zeros[4 * 4096] = {0};
+  static uint64_t zeros[20 * 4096] = {0};
 
   __jove_trace = &zeros[0];
 }
