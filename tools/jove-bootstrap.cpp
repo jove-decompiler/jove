@@ -1071,7 +1071,7 @@ int ParentProc(pid_t child, const char *fifo_path) {
 
             auto on_syscall_exit = [&](void) -> void {
               if (unlikely(ret < 0 && ret > -4096))
-                return; /* system call failed */
+                return; /* system call probably failed */
 
               switch (no) {
 #ifdef __NR_rt_sigaction
