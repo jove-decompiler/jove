@@ -10834,13 +10834,8 @@ static int TranslateTCGOp(TCGOp *op,
                           std::vector<llvm::BasicBlock *> &LabelVec,
                           llvm::BasicBlock *ExitBB,
                           llvm::IRBuilderTy &IRB) {
-
-  // XXX BUILD_BUG might be good here..
-  // N.B. ARRAY_SIZE(tcg_op_defs)=178...
-  if (unlikely(!(opc < ARRAY_SIZE(tcg_op_defs)))) {
-    //WithColor::error() << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
+  if (!(opc < ARRAY_SIZE(tcg_op_defs)))
     return 1;
-  }
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
@@ -10953,6 +10948,7 @@ static int TranslateTCGOp(TCGOp *op,
   int nb_iargs = def.nb_iargs;
   int nb_cargs = def.nb_cargs;
 
+#if 0
   if (likely(opc < ARRAY_SIZE(seenOpTable))) {
     bool seen = seenOpTable[opc];
     if (!seen) {
@@ -10961,6 +10957,7 @@ static int TranslateTCGOp(TCGOp *op,
       seenOpTable[opc] = true;
     }
   }
+#endif
 
   switch (opc) {
   case INDEX_op_insn_start:
