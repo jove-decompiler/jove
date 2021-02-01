@@ -289,8 +289,11 @@ int add(void) {
       obj::createBinary(Buffer->getMemBufferRef());
 
   if (!BinOrErr) {
+#if 0
     WithColor::error() << llvm::formatv("failed to create binary from {0}\n",
                                         opts::Input);
+#endif
+
     //
     // if this happens, we assume the given bytes do not constitute an object
     // file, and treat them as data mmapped into memory; they have no symbol
