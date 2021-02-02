@@ -95,7 +95,7 @@ extern "C" unsigned long getauxval(unsigned long type);
 #include "LLVMGenRegisterInfo.hpp"
 
 #include <sys/ptrace.h>
-#include <asm/ptrace.h>
+//#include <asm/ptrace.h>
 //#include <linux/ptrace.h>
 
 namespace fs = boost::filesystem;
@@ -2445,21 +2445,32 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   const uintptr_t saved_pc = pc;
 
   //
-  // the following are some helper functions for reading the cpu state
+  // define some helper functions for accessing the cpu state
   //
 #if defined(__x86_64__)
-#define _RegValue_Type unsigned long long
+  typedef unsigned long long RegValue_t;
 #elif defined(__i386__)
-#define _RegValue_Type unsigned long long
+  typedef long RegValue_t;
 #elif defined(__aarch64__)
-#define _RegValue_Type unsigned long long
+  typedef long RegValue_t;
 #elif defined(__mips64) || defined(__mips__)
-#define _RegValue_Type unsigned long long
+  typedef long RegValue_t;
 #else
 #error
 #endif
 
-  auto RegValue = [&](unsigned llreg) -> _RegValue_Type & {
+#if defined(__i386__)
+  struct {
+    long ss;
+    long cs;
+    long ds;
+    long es;
+    long fs;
+    long gs;
+  } _hack; /* purely so we can take a reference to the segment fields */
+#endif
+
+  auto RegValue = [&](unsigned llreg) -> RegValue_t & {
     switch (llreg) {
 #if defined(__x86_64__)
     case llvm::X86::RAX:
@@ -2515,17 +2526,28 @@ BOOST_PP_REPEAT_FROM_TO(8, 16, __REG_CASE, void)
     // which they reference (bits 15-3)
     //
     case llvm::X86::SS:
-      return segment_address_of_selector(child, gpr.xss);
+      _hack.ss = segment_address_of_selector(child, gpr.xss);
+      return _hack.ss;
+
     case llvm::X86::CS:
-      return segment_address_of_selector(child, gpr.xcs);
+      _hack.cs = segment_address_of_selector(child, gpr.xcs);
+      return _hack.cs;
+
     case llvm::X86::DS:
-      return segment_address_of_selector(child, gpr.xds);
+      _hack.ds = segment_address_of_selector(child, gpr.xds);
+      return _hack.ds;
+
     case llvm::X86::ES:
-      return segment_address_of_selector(child, gpr.xes);
+      _hack.es = segment_address_of_selector(child, gpr.xes);
+      return _hack.es;
+
     case llvm::X86::FS:
-      return segment_address_of_selector(child, gpr.xfs);
+      _hack.fs = segment_address_of_selector(child, gpr.xfs);
+      return _hack.fs;
+
     case llvm::X86::GS:
-      return segment_address_of_selector(child, gpr.xgs);
+      _hack.gs = segment_address_of_selector(child, gpr.xgs);
+      return _hack.gs;
 
 #elif defined(__aarch64__)
 
