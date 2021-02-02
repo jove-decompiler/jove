@@ -95,7 +95,11 @@ extern "C" unsigned long getauxval(unsigned long type);
 #include "LLVMGenRegisterInfo.hpp"
 
 #include <sys/ptrace.h>
-//#include <asm/ptrace.h>
+
+#if defined(__mips__)
+#include <asm/ptrace.h> /* for pt_regs */
+#endif
+
 //#include <linux/ptrace.h>
 
 namespace fs = boost::filesystem;
@@ -2453,8 +2457,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   typedef long RegValue_t;
 #elif defined(__aarch64__)
   typedef long RegValue_t;
-#elif defined(__mips64) || defined(__mips__)
-  typedef long RegValue_t;
+#elif defined(__mips__)
+  typedef unsigned long long RegValue_t;
 #else
 #error
 #endif
