@@ -8362,10 +8362,23 @@ int CreateNoAliasMetadata(void) {
   return 0;
 }
 
-static int TranslateBasicBlock(basic_block_t,
-                               function_t &,
-                               std::array<llvm::AllocaInst *, tcg_num_globals> &,
-                               llvm::IRBuilderTy &);
+struct TranslateContext {
+  function_t &f;
+  basic_block_t bb;
+
+  std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaArr;
+  std::vector<llvm::AllocaInst *> TempAllocaVec;
+  std::vector<llvm::BasicBlock *> LabelVec;
+
+  TranslateContext(function_t &f) : f(f) {
+    std::fill(GlobalAllocaArr.begin(),
+              GlobalAllocaArr.end(),
+              nullptr);
+  }
+};
+
+
+static int TranslateBasicBlock(TranslateContext &);
 
 llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
   assert(glb < tcg_num_globals);
@@ -8424,6 +8437,8 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
 }
 
 static int TranslateFunction(function_t &f) {
+  TranslateContext TC(f);
+
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
@@ -8459,7 +8474,7 @@ static int TranslateFunction(function_t &f) {
 
   F->setSubprogram(f.DebugInformation.Subprogram);
 
-  std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaArr{};
+  auto &GlobalAllocaArr = TC.GlobalAllocaArr;
 
   //
   // create the AllocaInst's for each global referenced at the start of the
@@ -8584,12 +8599,15 @@ static int TranslateFunction(function_t &f) {
     IRB.CreateBr(ICFG[entry_bb].B);
   }
 
-  for (unsigned i = 0; i < f.BasicBlocks.size(); ++i) {
-    basic_block_t bb = f.BasicBlocks[i];
-    llvm::IRBuilderTy IRB(ICFG[bb].B);
+  {
+    for (unsigned i = 0; i < f.BasicBlocks.size(); ++i) {
+      basic_block_t bb = f.BasicBlocks[i];
 
-    if (int ret = TranslateBasicBlock(bb, f, GlobalAllocaArr, IRB))
-      return ret;
+      TC.bb = bb;
+
+      if (int ret = TranslateBasicBlock(TC))
+        return ret;
+    }
   }
 
   DIB.finalizeSubprogram(f.DebugInformation.Subprogram);
@@ -9637,23 +9655,26 @@ Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 typedef int (*translate_tcg_op_proc_t)(TCGOp *,
-                                       function_t &,
-                                       basic_block_t,
-                                       std::array<llvm::AllocaInst *, tcg_num_globals> &,
-                                       std::vector<llvm::AllocaInst *> &,
-                                       std::vector<llvm::BasicBlock *> &,
                                        llvm::BasicBlock *,
-                                       llvm::IRBuilderTy &);
+                                       llvm::IRBuilderTy &,
+                                       TranslateContext &);
 
 extern const translate_tcg_op_proc_t TranslateTCGOpTable[250];
 
 static std::string
 dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
 
-int TranslateBasicBlock(basic_block_t bb,
-                        function_t &f,
-                        std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaArr,
-                        llvm::IRBuilderTy &IRB) {
+int TranslateBasicBlock(TranslateContext &TC) {
+  auto &GlobalAllocaArr = TC.GlobalAllocaArr;
+  auto &TempAllocaVec = TC.TempAllocaVec;
+  auto &LabelVec = TC.LabelVec;
+  basic_block_t bb = TC.bb;
+  function_t &f = TC.f;
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  const auto &ICFG = Binary.Analysis.ICFG;
+  llvm::IRBuilderTy IRB(ICFG[bb].B);
+
   //
   // helper functions for GlobalAllocaArr
   //
@@ -9720,9 +9741,6 @@ int TranslateBasicBlock(basic_block_t bb,
     return LI;
   };
 
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  const auto &ICFG = Binary.Analysis.ICFG;
-
   const uintptr_t Addr = ICFG[bb].Addr;
   const unsigned Size = ICFG[bb].Size;
 
@@ -9785,8 +9803,16 @@ int TranslateBasicBlock(basic_block_t bb,
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
 
-    std::vector<llvm::AllocaInst *> TempAllocaVec(s->nb_temps, nullptr);
-    std::vector<llvm::BasicBlock *> LabelVec(s->nb_labels, nullptr);
+    TempAllocaVec.resize(s->nb_temps);
+    LabelVec.resize(s->nb_labels);
+
+    std::fill(TempAllocaVec.begin(),
+              TempAllocaVec.end(),
+              nullptr);
+
+    std::fill(LabelVec.begin(),
+              LabelVec.end(),
+              nullptr);
 
     //
     // create temp alloca's up-front
@@ -9860,18 +9886,13 @@ int TranslateBasicBlock(basic_block_t bb,
       unsigned opc = op->opc;
       assert(opc < ARRAY_SIZE(TranslateTCGOpTable));
 
-      translate_tcg_op_proc_t proc = TranslateTCGOpTable[opc];
-      if (unlikely(!proc)) {
+      translate_tcg_op_proc_t translate_tcg_op_proc = TranslateTCGOpTable[opc];
+      if (unlikely(!translate_tcg_op_proc)) {
         WithColor::error() << llvm::formatv("[BUG] unhandled TCG opcode {0}\n", opc);
         exit(1);
       }
 
-      int ret = proc(op, f, bb,
-                     GlobalAllocaArr,
-                     TempAllocaVec,
-                     LabelVec,
-                     ExitBB,
-                     IRB);
+      int ret = translate_tcg_op_proc(op, ExitBB, IRB, TC);
       if (unlikely(ret)) {
         TCG->dump_operations();
         return ret;
@@ -10827,13 +10848,15 @@ static bool pcrel_flag = false; /* XXX this is ugly, but it works */
 
 template <unsigned opc>
 static int TranslateTCGOp(TCGOp *op,
-                          function_t &f,
-                          basic_block_t bb,
-                          std::array<llvm::AllocaInst *, tcg_num_globals> &GlobalAllocaArr,
-                          std::vector<llvm::AllocaInst *> &TempAllocaVec,
-                          std::vector<llvm::BasicBlock *> &LabelVec,
                           llvm::BasicBlock *ExitBB,
-                          llvm::IRBuilderTy &IRB) {
+                          llvm::IRBuilderTy &IRB,
+                          TranslateContext &TC) {
+  function_t &f = TC.f;
+  basic_block_t bb = TC.bb;
+  auto &GlobalAllocaArr = TC.GlobalAllocaArr;
+  auto &TempAllocaVec = TC.TempAllocaVec;
+  auto &LabelVec = TC.LabelVec;
+
   if (!(opc < ARRAY_SIZE(tcg_op_defs)))
     return 1;
 
