@@ -8601,11 +8601,11 @@ static int TranslateFunction(function_t &f) {
 
   {
     for (unsigned i = 0; i < f.BasicBlocks.size(); ++i) {
-      basic_block_t bb = f.BasicBlocks[i];
+      TC.bb = f.BasicBlocks[i];
 
-      TC.bb = bb;
+      int ret = TranslateBasicBlock(TC);
 
-      if (int ret = TranslateBasicBlock(TC))
+      if (unlikely(ret))
         return ret;
     }
   }
@@ -9681,12 +9681,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto set = [&](llvm::Value *V, unsigned glb) -> void {
     assert(glb != tcg_env_index);
 
-#if defined(__x86_64__)
-    assert(glb != tcg_fs_base_index);
-#elif defined(__i386__)
-    assert(glb != tcg_gs_base_index);
-#endif
-
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
       llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
@@ -9710,13 +9704,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
   };
 
   auto get = [&](unsigned glb) -> llvm::Value * {
-    assert(glb != tcg_env_index);
-
+    switch (glb) {
+    case tcg_env_index:
+      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(__x86_64__)
-    assert(glb != tcg_fs_base_index);
+    case tcg_fs_base_index:
+      return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #elif defined(__i386__)
-    assert(glb != tcg_gs_base_index);
+    case tcg_gs_base_index:
+      return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #endif
+    }
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
@@ -10563,7 +10561,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                   {
 #if !defined(__x86_64__) && defined(__i386__)
                     // special-case i386: cdecl means read parameters off stack
-                    llvm::LoadInst *SP = get(tcg_stack_pointer_index);
+                    llvm::Value *SP = get(tcg_stack_pointer_index);
 
                     ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
                         IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
@@ -10870,11 +10868,7 @@ static int TranslateTCGOp(TCGOp *op,
 
     if (ts->temp_global) {
       assert(idx != tcg_env_index);
-#if defined(__x86_64__)
-      assert(idx != tcg_fs_base_index);
-#elif defined(__i386__)
-      assert(idx != tcg_gs_base_index);
-#endif
+
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
         llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
@@ -10908,12 +10902,18 @@ static int TranslateTCGOp(TCGOp *op,
     unsigned idx = temp_idx(ts);
 
     if (ts->temp_global) {
-      assert(idx != tcg_env_index);
+      switch (idx) {
+      case tcg_env_index:
+        return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(__x86_64__)
-      assert(idx != tcg_fs_base_index);
+      case tcg_fs_base_index:
+        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #elif defined(__i386__)
-      assert(idx != tcg_gs_base_index);
+      case tcg_gs_base_index:
+        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #endif
+      }
+
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
         llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
