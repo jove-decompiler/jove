@@ -294,10 +294,12 @@ struct tiny_code_generator_t {
       }
     }
 
-#if defined(__i386__)
+#if defined(__i386__) || defined(__mips__)
     struct terminator_info_t &ti = tb.jove.T;
 
-    /* quirk */
+    //
+    // explain this (TODO)
+    //
     if (ti.Type == jove::TERMINATOR::CALL &&
         ti._call.Target == ti._call.NextPC) {
       uintptr_t NextPC = ti._call.NextPC;
