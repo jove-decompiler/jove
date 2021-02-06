@@ -180,8 +180,8 @@ static cl::alias ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
 
 namespace jove {
 
-static int ChildProc(const char *fifo_path);
-static int ParentProc(pid_t child, const char *fifo_path);
+static int ChildProc(void);
+static int ParentProc(pid_t child);
 
 }
 
@@ -242,26 +242,11 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  std::string fifo_path = tmpnam(nullptr);
-
-  if (mkfifo(fifo_path.c_str(), 0666) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("mkfifo failed ({0})\n", strerror(err));
-    return 1;
-  }
-
   pid_t child = fork();
   if (!child)
-    return jove::ChildProc(fifo_path.c_str());
+    return jove::ChildProc();
 
-#ifndef __mips64
-  return jove::ParentProc(child, fifo_path.c_str());
-#else
-  int rc = jove::ParentProc(child, fifo_path.c_str());
-  syscall(__NR_exit_group, rc);
-  __builtin_trap();
-  __builtin_unreachable();
-#endif
+  return jove::ParentProc(child);
 }
 
 namespace jove {
@@ -514,7 +499,7 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #undef _pc_field
 }
 
-int ParentProc(pid_t child, const char *fifo_path) {
+int ParentProc(pid_t child) {
   IgnoreCtrlC();
 
   jove_add_path =
@@ -4360,7 +4345,7 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
                              std::string(strerror(errno)));
 }
 
-int ChildProc(const char *fifo_path) {
+int ChildProc(void) {
   //
   // the request
   //
