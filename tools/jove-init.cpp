@@ -206,34 +206,10 @@ int init(void) {
   std::vector<std::string> binary_paths;
   binary_paths.reserve(3);
 
+  //
+  // executable should be first
+  //
   binary_paths.push_back(fs::canonical(opts::Input).string());
-
-  //
-  // get the path to the dynamic linker
-  //
-  {
-    std::string::size_type pos = dynlink_stdout.find("\t/");
-    if (pos == std::string::npos) {
-      WithColor::error()
-          << "could not find interpreter path in output from dynamic linker\n";
-      return 1;
-    }
-
-    ++pos;
-
-    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
-
-    std::string path = dynlink_stdout.substr(pos, space_pos - pos);
-    if (!fs::exists(path)) {
-      WithColor::error() << "could not find interpreter path\n";
-      return 1;
-    }
-
-    if (opts::Verbose)
-      llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
-
-    binary_paths.push_back(fs::canonical(path).string());
-  }
 
   //
   // vdso
@@ -254,17 +230,17 @@ int init(void) {
     binary_paths.push_back(path);
   }
 
-  //
-  // consider everything else, except vdso
-  //
   std::string::size_type pos = 0;
   for (;;) {
-    std::string::size_type arrow_pos = dynlink_stdout.find(" => /", pos);
+    std::string::size_type arrow_pos = dynlink_stdout.find(" /", pos);
+
+    if (arrow_pos == std::string::npos)
+      arrow_pos = dynlink_stdout.find("\t/", pos);
 
     if (arrow_pos == std::string::npos)
       break;
 
-    pos = arrow_pos + strlen(" => /") - 1;
+    pos = arrow_pos + strlen(" /") - 1;
 
     std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
 
@@ -279,9 +255,27 @@ int init(void) {
     }
 
     std::string bin_path = fs::canonical(path).string();
-    assert(std::find(binary_paths.begin(), binary_paths.end(), bin_path) ==
-           binary_paths.end());
+    assert(std::find(binary_paths.begin(),
+                     binary_paths.end(), bin_path) == binary_paths.end());
     binary_paths.push_back(bin_path);
+  }
+
+  //
+  // we assume the dynamic linker is last on the list. we need to insert it just
+  // following after the executable
+  //
+  {
+    assert(!binary_paths.empty());
+
+    std::string path = binary_paths.back();
+
+    if (opts::Verbose)
+      llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+
+    binary_paths.pop_back();
+
+    auto it = std::next(binary_paths.begin());
+    binary_paths.insert(it, path); /* just before vdso */
   }
 
   //
