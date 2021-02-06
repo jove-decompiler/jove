@@ -57,6 +57,28 @@ UserBreakPoint(void) {
 }
 }
 
+//
+// TODO consolidate this into a header or something
+//
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -202,7 +224,9 @@ struct DynRegionInfo {
     if (!Start)
       return {Start, Start};
     if (EntSize != sizeof(Type) || Size % EntSize)
-      abort();
+    {
+      WARN();
+    }
     return {Start, Start + (Size / EntSize)};
   }
 };
@@ -606,7 +630,10 @@ int add(void) {
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||
         (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
-      abort();
+    {
+      WARN();
+      return DRI;
+    }
     return DRI;
   };
 
@@ -668,13 +695,17 @@ int add(void) {
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -767,7 +798,12 @@ int add(void) {
         if (Sym.getType() != llvm::ELF::STT_FUNC)
           continue;
 
-        llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+        llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(StrTable);
+        if (!ExpectedSymName)
+          continue;
+
+        llvm::StringRef SymName = *ExpectedSymName;
+
         llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
                                       SymName,
                                       Sym.st_value);
@@ -842,7 +878,11 @@ int add(void) {
             if (Sym.getType() != llvm::ELF::STT_FUNC)
               continue;
 
-            llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+            llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(StrTable);
+            if (!ExpectedSymName)
+              continue;
+
+            llvm::StringRef SymName = *ExpectedSymName;
             if (SymName.empty())
               continue;
 
@@ -882,9 +922,15 @@ int add(void) {
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
-    llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName,
+    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+    if (!ExpectedSymName)
+      continue;
+
+    llvm::StringRef SymName = *ExpectedSymName;
+    llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
+                                  SymName,
                                   Sym.st_value);
+
     FunctionEntrypoints.insert(Sym.st_value);
   }
 
@@ -897,7 +943,11 @@ int add(void) {
     if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+    if (!ExpectedSymName)
+      continue;
+
+    llvm::StringRef SymName = *ExpectedSymName;
 
     llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
                                   SymName, Sym.st_value);
@@ -1565,4 +1615,8 @@ bool does_function_definitely_return(binary_index_t BIdx,
 
 void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
 
+} // namespace jove
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
