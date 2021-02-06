@@ -3794,9 +3794,15 @@ static void harvest_addressof_reloc_targets(pid_t child,
       if (!Sym->isUndefined())
         return;
 
-      llvm::StringRef StrTable =
-          unwrapOrError(E.getStringTableForSymtab(*SymTab));
-      std::string SymName = unwrapOrError(Sym->getName(StrTable));
+      llvm::Expected<llvm::StringRef> ExpectedStrTable = E.getStringTableForSymtab(*SymTab);
+      if (!ExpectedStrTable)
+        return;
+      llvm::StringRef StrTable = *ExpectedStrTable;
+
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(StrTable);
+      if (!ExpectedSymName)
+        return;
+      std::string SymName = *ExpectedSymName;
 
       if (opts::Verbose)
         llvm::outs() << llvm::formatv("{0} SymName={1}\n", __func__, SymName);
@@ -4560,7 +4566,9 @@ struct DynRegionInfo {
     if (!Start)
       return {Start, Start};
     if (EntSize != sizeof(Type) || Size % EntSize)
-      abort();
+    {
+      WARN();
+    }
     return {Start, Start + (Size / EntSize)};
   }
 };
@@ -4947,7 +4955,10 @@ void on_dynamic_linker_loaded(pid_t child,
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||
         (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
-      abort();
+    {
+      WARN();
+      return DRI;
+    }
     return DRI;
   };
 
@@ -5041,7 +5052,11 @@ void on_dynamic_linker_loaded(pid_t child,
     if (Sym.isUndefined())
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+    if (!ExpectedSymName)
+      continue;
+
+    llvm::StringRef SymName = *ExpectedSymName;
     if (SymName != "_r_debug" &&
         SymName != "_dl_debug_addr")
       continue;
