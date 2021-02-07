@@ -176,12 +176,22 @@ static cl::opt<bool> ScanLinkMap("scan-link-map",
 static cl::alias ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
                                   cl::aliasopt(ScanLinkMap), cl::cat(JoveCategory));
 
+static cl::opt<unsigned> PID("attach",
+                             cl::desc("attach to existing process PID"),
+                             cl::cat(JoveCategory));
+
+static cl::alias PIDAlias("p", cl::desc("Alias for -attach."),
+                          cl::aliasopt(PID),
+                          cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
 
 static int ChildProc(void);
-static int ParentProc(pid_t child);
+static int TracerLoop(pid_t child);
+
+static bool SeenExec = false;
 
 }
 
@@ -242,11 +252,65 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  pid_t child = fork();
-  if (!child)
-    return jove::ChildProc();
+  //
+  // bootstrap has two modes of execution.
+  //
+  // (1) attach to existing process (--attach pid)
+  // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
+  //
+  if (pid_t child = opts::PID) {
+    //
+    // mode 1: attach
+    //
+    if (ptrace(PTRACE_ATTACH, child, 0, 0) < 0) {
+      llvm::errs() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
+      return 1;
+    }
 
-  return jove::ParentProc(child);
+    //
+    // since PTRACE_ATTACH succeeded, we know the tracee was sent a SIGSTOP.
+    // wait on it.
+    //
+    if (opts::Verbose)
+      llvm::errs() << "waiting for SIGSTOP...\n";
+
+    {
+      int status;
+      do
+        waitpid(-1, &status, __WALL);
+      while (!WIFSTOPPED(status));
+    }
+
+    if (opts::Verbose)
+      llvm::errs() << "waited on SIGSTOP.\n";
+
+    jove::SeenExec = true; /* XXX */
+    return jove::TracerLoop(child);
+  } else {
+    //
+    // mode 2: create new process
+    //
+    child = fork();
+    if (!child)
+      return jove::ChildProc();
+
+    //
+    // observe the (initial) signal-delivery-stop
+    //
+    if (opts::Verbose)
+      llvm::errs() << "parent: waiting for initial stop of child " << child
+                   << "...\n";
+
+    int status;
+    do
+      waitpid(child, &status, 0);
+    while (!WIFSTOPPED(status));
+
+    if (opts::Verbose)
+      llvm::errs() << "parent: initial stop observed\n";
+
+    return jove::TracerLoop(child);
+  }
 }
 
 namespace jove {
@@ -263,8 +327,6 @@ static bool update_view_of_virtual_memory(pid_t child);
 //
 static uintptr_t ExecutableRegionAddress;
 #endif
-
-static bool SeenExec = false;
 
 static struct {
   bool Found;
@@ -499,7 +561,7 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #undef _pc_field
 }
 
-int ParentProc(pid_t child) {
+int TracerLoop(pid_t child) {
   IgnoreCtrlC();
 
   jove_add_path =
@@ -526,21 +588,6 @@ int ParentProc(pid_t child) {
 #elif 0
   signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
 #endif
-
-  //
-  // observe the (initial) signal-delivery-stop
-  //
-  if (opts::VeryVerbose)
-    llvm::errs() << "parent: waiting for initial stop of child " << child
-                 << "...\n";
-
-  int status;
-  do
-    waitpid(child, &status, 0);
-  while (!WIFSTOPPED(status));
-
-  if (opts::VeryVerbose)
-    llvm::errs() << "parent: initial stop observed\n";
 
   //
   // select ptrace options
