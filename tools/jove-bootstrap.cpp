@@ -5295,11 +5295,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
           bool isCall = ICFG[bb].Term.Type == TERMINATOR::CALL;
           bool isIndirectCall = ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL;
 
-#if !defined(__x86_64__) && defined(__i386__)
-          if (!isCall && !isIndirectCall) /* this can occur on i386 because of
-                                             hack in tcg.hpp */
+          if (!isCall && !isIndirectCall) { /* this can occur on i386 because of
+                                               hack in tcg.hpp */
+            if (opts::Verbose)
+              llvm::errs() << llvm::formatv("on_return: unexpected terminator {0}\n",
+                                            description_of_terminator(ICFG[bb].Term.Type));
             return;
-#endif
+          }
 
           assert(isCall || isIndirectCall);
           assert(boost::out_degree(bb, ICFG) == 0 ||
