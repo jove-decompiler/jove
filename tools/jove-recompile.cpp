@@ -1458,7 +1458,8 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
         StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
         break;
       case llvm::ELF::DT_STRSZ:
-        StringTableSize = Dyn.getVal();
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
         break;
       case llvm::ELF::DT_NEEDED:
         break;

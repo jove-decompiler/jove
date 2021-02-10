@@ -1998,7 +1998,8 @@ int ProcessBinaryTLSSymbols(void) {
         StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
         break;
       case llvm::ELF::DT_STRSZ:
-        StringTableSize = Dyn.getVal();
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
         break;
       }
     };
@@ -2166,7 +2167,8 @@ int ProcessExportedFunctions(void) {
           StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
           break;
         case llvm::ELF::DT_STRSZ:
-          StringTableSize = Dyn.getVal();
+          if (uint64_t sz = Dyn.getVal())
+            StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
           DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
@@ -2547,7 +2549,8 @@ int ProcessDynamicSymbols(void) {
           StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
           break;
         case llvm::ELF::DT_STRSZ:
-          StringTableSize = Dyn.getVal();
+          if (uint64_t sz = Dyn.getVal())
+            StringTableSize = sz;
           break;
         }
       };
@@ -4131,7 +4134,8 @@ int ProcessIFuncResolvers(void) {
         StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
         break;
       case llvm::ELF::DT_STRSZ:
-        StringTableSize = Dyn.getVal();
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
         break;
       }
     };
@@ -7168,7 +7172,8 @@ int ProcessDynamicSymbols2(void) {
           StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
           break;
         case llvm::ELF::DT_STRSZ:
-          StringTableSize = Dyn.getVal();
+          if (uint64_t sz = Dyn.getVal())
+            StringTableSize = sz;
           break;
         }
       };
@@ -7676,7 +7681,8 @@ decipher_copy_relocation(const symbol_t &S) {
           StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
           break;
         case llvm::ELF::DT_STRSZ:
-          StringTableSize = Dyn.getVal();
+          if (uint64_t sz = Dyn.getVal())
+            StringTableSize = sz;
           break;
         }
       };

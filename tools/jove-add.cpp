@@ -717,7 +717,8 @@ int add(void) {
         StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
         break;
       case llvm::ELF::DT_STRSZ:
-        StringTableSize = Dyn.getVal();
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
         break;
       case llvm::ELF::DT_NEEDED:
         IsStaticallyLinked = false;
