@@ -513,6 +513,17 @@ typedef typename obj::ELF32BE ELFT;
 typedef typename obj::ELFObjectFile<ELFT> ELFO;
 typedef typename obj::ELFFile<ELFT> ELFF;
 
+typedef typename ELFF::Elf_Phdr Elf_Phdr;
+typedef typename ELFF::Elf_Dyn Elf_Dyn;
+typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
+typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+typedef typename ELFF::Elf_Shdr Elf_Shdr;
+typedef typename ELFF::Elf_Sym Elf_Sym;
+typedef typename ELFF::Elf_Rela Elf_Rela;
+typedef typename ELFF::Elf_Rel Elf_Rel;
+
+typedef typename ELFT::uint uintX_t;
+
 static void IgnoreCtrlC(void);
 
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
@@ -592,9 +603,13 @@ int TracerLoop(pid_t child) {
   //
   // select ptrace options
   //
-  int ptrace_options = PTRACE_O_TRACESYSGOOD | PTRACE_O_EXITKILL |
-                       PTRACE_O_TRACECLONE | PTRACE_O_TRACEEXEC |
-                       PTRACE_O_TRACEFORK | PTRACE_O_TRACEVFORK;
+  int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                    /* PTRACE_O_EXITKILL   | */
+                       PTRACE_O_TRACEEXIT  |
+                    /* PTRACE_O_TRACEEXEC  | */
+                    /* PTRACE_O_TRACEFORK  | */
+                    /* PTRACE_O_TRACEVFORK | */
+                       PTRACE_O_TRACECLONE;
 
   //
   // set those options
@@ -1044,8 +1059,19 @@ int TracerLoop(pid_t child) {
             long a2 = cpu_state.regs[5];
             long a3 = cpu_state.regs[6];
             long a4 = cpu_state.regs[7];
-            long a5 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 16);
-            long a6 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 20);
+            long a5;
+            long a6;
+            try {
+              a5 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 16);
+              a6 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 20);
+            } catch (const std::exception &e) {
+              WithColor::error() << llvm::formatv(
+                  "{0}: couldn't read arguments 5 and 6: {1}\n", __func__,
+                  e.what());
+
+              a5 = 0;
+              a6 = 0;
+            }
 #else
 #error
 #endif
@@ -1166,7 +1192,11 @@ int TracerLoop(pid_t child) {
               }
             };
 
-            on_syscall_exit();
+            try {
+              on_syscall_exit();
+            } catch (const std::exception &e) {
+              ;
+            }
           }
 
           dir ^= 1;
@@ -1223,6 +1253,8 @@ int TracerLoop(pid_t child) {
               if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
+
+              harvest_reloc_targets(child, tcg, dis);
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
@@ -1927,7 +1959,12 @@ on_insn_boundary:
       }
 #endif
 
-      place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
+      try {
+        place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
+      }
+
       ++brkpt_count;
     }
 
@@ -1985,8 +2022,12 @@ on_insn_boundary:
       }
 #endif
 
-      place_breakpoint_at_return(child, termpc, RetInfo);
-      ++brkpt_count;
+      try {
+        place_breakpoint_at_return(child, termpc, RetInfo);
+        ++brkpt_count;
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
+      }
     }
   }
 
@@ -2393,6 +2434,7 @@ void place_breakpoint(pid_t child,
 
 void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   // read a word of the instruction
+
   unsigned long word = _ptrace_peekdata(child, Addr);
 
 #if defined(__mips64) || defined(__mips__)
@@ -3123,11 +3165,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       brk.callback(child, tcg, dis);
 
-      emulate_return(brk.Inst,
+      try {
+        emulate_return(brk.Inst,
 #if defined(__mips64) || defined(__mips__)
-                     brk.DelaySlotInst,
+                       brk.DelaySlotInst,
 #endif
-                     brk.InsnBytes);
+                       brk.InsnBytes);
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv("failed to emulate return: {0}\n", e.what());
+      }
       return;
     }
   }
@@ -3137,12 +3183,21 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     if (it != RetMap.end()) {
       return_t &ret = (*it).second;
 
-      emulate_return(ret.Inst,
+      try {
+        emulate_return(ret.Inst,
 #if defined(__mips64) || defined(__mips__)
-                     ret.DelaySlotInst,
+                       ret.DelaySlotInst,
 #endif
-                     ret.InsnBytes);
-      on_return(child, saved_pc, pc, tcg, dis);
+                       ret.InsnBytes);
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv("failed to emulate return: {0}\n", e.what());
+      }
+
+      try {
+        on_return(child, saved_pc, pc, tcg, dis);
+      } catch (const std::exception &e) {
+        WithColor::error() << llvm::formatv("on_return failed: {0}\n", e.what());
+      }
       return;
     }
   }
@@ -3368,7 +3423,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   };
 
-  uintptr_t target = GetTarget();
+  uintptr_t target = 0;
+  try {
+    target = GetTarget();
+  } catch (...) {
+    WithColor::error() << llvm::formatv("GetTarget failed; bug? Inst={0}\n",
+                                        Inst);
+    throw;
+  }
 
   //
   // if the instruction is a call, we need to emulate the semantics of
@@ -3396,6 +3458,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #if !defined(__mips64) && !defined(__mips__)
   pc = target;
 #else /* delay slot madness */
+  try
   {
     assert(ExecutableRegionAddress);
 
@@ -3424,6 +3487,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     emulate_delay_slot(IndBrInfo.DelaySlotInst,
                        IndBrInfo.InsnBytes,
                        reg);
+  } catch (const std::exception &e) {
+    WithColor::error() << llvm::formatv("failed to emulate delay slot? {0}\n", e.what());
   }
 #endif
 
@@ -3472,11 +3537,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   {
     auto it = AddressSpace.find(target);
     if (it == AddressSpace.end()) {
-      update_view_of_virtual_memory(child);
+      if (opts::Verbose) {
+        update_view_of_virtual_memory(child);
 
-      WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                            description_of_program_counter(saved_pc),
-                                            description_of_program_counter(target));
+        WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
+                                              description_of_program_counter(saved_pc),
+                                              description_of_program_counter(target));
+      }
       return;
     }
 
@@ -4112,7 +4179,11 @@ void on_binary_loaded(pid_t child,
     breakpoint_t &brk = BrkMap[Addr];
     brk.callback = harvest_reloc_targets;
 
-    place_breakpoint(child, Addr, brk, dis);
+    try {
+      place_breakpoint(child, Addr, brk, dis);
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
+    }
   }
 
   //
@@ -4271,8 +4342,14 @@ void on_binary_loaded(pid_t child,
     }
 #endif
 
-    place_breakpoint_at_return(child, Addr, RetInfo);
-    ++cnt;
+    try {
+      place_breakpoint_at_return(child, Addr, RetInfo);
+
+      ++cnt;
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv(
+          "failed to place breakpoint at return: {0}\n", e.what());
+    }
   }
 
   if (cnt > 0)
@@ -4619,7 +4696,7 @@ void scan_rtld_link_map(pid_t child,
   struct r_debug r_dbg;
   memset(&r_dbg, 0, sizeof(r_dbg));
 
-  {
+  try {
     ssize_t ret = _ptrace_memcpy(child,
                                  &r_dbg,
                                  (void *)_r_debug.Addr,
@@ -4629,6 +4706,9 @@ void scan_rtld_link_map(pid_t child,
       WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
       return;
     }
+  } catch (const std::exception &e) {
+    if (opts::Verbose)
+      WithColor::error() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
   }
 
   if (opts::Verbose)
@@ -4975,15 +5055,6 @@ void on_dynamic_linker_loaded(pid_t child,
 
   const ELFF &E = *O.getELFFile();
 
-  typedef typename ELFF::Elf_Phdr Elf_Phdr;
-  typedef typename ELFF::Elf_Dyn Elf_Dyn;
-  typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFF::Elf_Shdr Elf_Shdr;
-  typedef typename ELFF::Elf_Sym Elf_Sym;
-  typedef typename ELFF::Elf_Rela Elf_Rela;
-  typedef typename ELFF::Elf_Rel Elf_Rel;
-
   auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
     if (DRI.Addr < E.base() ||
         (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
@@ -5049,13 +5120,17 @@ void on_dynamic_linker_loaded(pid_t child,
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -5069,6 +5144,11 @@ void on_dynamic_linker_loaded(pid_t child,
       case llvm::ELF::DT_STRSZ:
         if (uint64_t sz = Dyn.getVal())
           StringTableSize = sz;
+        break;
+
+      case llvm::ELF::DT_SYMTAB:
+        DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
+        DynSymRegion.EntSize = sizeof(Elf_Sym);
         break;
       }
     };
@@ -5086,8 +5166,16 @@ void on_dynamic_linker_loaded(pid_t child,
       continue;
 
     llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-    if (!ExpectedSymName)
+    if (!ExpectedSymName) {
+      std::string Buf;
+      {
+        llvm::raw_string_ostream OS(Buf);
+        llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+      }
+
+      WithColor::error() << llvm::formatv("{0}: couldn't get sym name ({1})\n", __func__, Buf);
       continue;
+    }
 
     llvm::StringRef SymName = *ExpectedSymName;
     if (SymName != "_r_debug" &&
