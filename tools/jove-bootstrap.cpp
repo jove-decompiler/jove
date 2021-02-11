@@ -572,7 +572,38 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #undef _pc_field
 }
 
+static bool ShouldDetach = false;
+
+static void sighandler(int no) {
+  switch (no) {
+  case SIGUSR1:
+    ShouldDetach = true;
+    break;
+
+  default:
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+}
+
 int TracerLoop(pid_t child) {
+  //
+  // first, install signal handler so the user can gracefully detach.
+  //
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = sighandler;
+
+    if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
   IgnoreCtrlC();
 
   jove_add_path =
@@ -972,6 +1003,25 @@ int TracerLoop(pid_t child) {
         //
         // this is an opportunity to examine the state of the tracee
         //
+        if (unlikely(ShouldDetach)) {
+          WithColor::note() << "detaching...\n";
+
+          //
+          // detaching is actually nontrivial, because we have to undo the
+          // breakpoints we have planted in DSO(s)
+          //
+
+          //
+          // now stop tracing the child.
+          //
+          if (ptrace(PTRACE_DETACH, child, 0, 0) < 0) {
+            int err = errno;
+            WithColor::error() << llvm::formatv("failed to detach from {0}: {1}\n", child, strerror(err));
+          }
+
+          break;
+        }
+
         if (likely(SeenExec))
         {
           rendezvous_with_dynamic_linker(child, dis);
