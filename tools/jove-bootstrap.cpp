@@ -2074,6 +2074,7 @@ on_insn_boundary:
 
       try {
         place_breakpoint_at_return(child, termpc, RetInfo);
+
         ++brkpt_count;
       } catch (const std::exception &e) {
         WithColor::error() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
@@ -2212,38 +2213,38 @@ static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
 #if defined(__mips64) || defined(__mips__)
 unsigned reg_of_idx(unsigned idx) {
   switch (idx) {
-case 0:    return llvm::Mips::ZERO;
-case 1:    return llvm::Mips::AT;
-case 2:    return llvm::Mips::V0;
-case 3:    return llvm::Mips::V1;
-case 4:    return llvm::Mips::A0;
-case 5:    return llvm::Mips::A1;
-case 6:    return llvm::Mips::A2;
-case 7:    return llvm::Mips::A3;
-case 8:    return llvm::Mips::T0;
-case 9:    return llvm::Mips::T1;
-case 10:   return llvm::Mips::T2;
-case 11:   return llvm::Mips::T3;
-case 12:   return llvm::Mips::T4;
-case 13:   return llvm::Mips::T5;
-case 14:   return llvm::Mips::T6;
-case 15:   return llvm::Mips::T7;
-case 16:   return llvm::Mips::S0;
-case 17:   return llvm::Mips::S1;
-case 18:   return llvm::Mips::S2;
-case 19:   return llvm::Mips::S3;
-case 20:   return llvm::Mips::S4;
-case 21:   return llvm::Mips::S5;
-case 22:   return llvm::Mips::S6;
-case 23:   return llvm::Mips::S7;
-case 24:   return llvm::Mips::T8;
-case 25:   return llvm::Mips::T9;
-case 26:   return llvm::Mips::K0;
-case 27:   return llvm::Mips::K1;
-case 28:   return llvm::Mips::GP;
-case 29:   return llvm::Mips::SP;
-case 30:   return llvm::Mips::FP;
-case 31:   return llvm::Mips::RA;
+    case 0:    return llvm::Mips::ZERO;
+    case 1:    return llvm::Mips::AT;
+    case 2:    return llvm::Mips::V0;
+    case 3:    return llvm::Mips::V1;
+    case 4:    return llvm::Mips::A0;
+    case 5:    return llvm::Mips::A1;
+    case 6:    return llvm::Mips::A2;
+    case 7:    return llvm::Mips::A3;
+    case 8:    return llvm::Mips::T0;
+    case 9:    return llvm::Mips::T1;
+    case 10:   return llvm::Mips::T2;
+    case 11:   return llvm::Mips::T3;
+    case 12:   return llvm::Mips::T4;
+    case 13:   return llvm::Mips::T5;
+    case 14:   return llvm::Mips::T6;
+    case 15:   return llvm::Mips::T7;
+    case 16:   return llvm::Mips::S0;
+    case 17:   return llvm::Mips::S1;
+    case 18:   return llvm::Mips::S2;
+    case 19:   return llvm::Mips::S3;
+    case 20:   return llvm::Mips::S4;
+    case 21:   return llvm::Mips::S5;
+    case 22:   return llvm::Mips::S6;
+    case 23:   return llvm::Mips::S7;
+    case 24:   return llvm::Mips::T8;
+    case 25:   return llvm::Mips::T9;
+    case 26:   return llvm::Mips::K0;
+    case 27:   return llvm::Mips::K1;
+    case 28:   return llvm::Mips::GP;
+    case 29:   return llvm::Mips::SP;
+    case 30:   return llvm::Mips::FP;
+    case 31:   return llvm::Mips::RA;
 
     default:
       __builtin_trap();
