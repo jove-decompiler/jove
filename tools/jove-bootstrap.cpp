@@ -1013,7 +1013,8 @@ int TracerLoop(pid_t child) {
 
           //
           // detaching is actually nontrivial, because we have to undo the
-          // breakpoints we have planted in DSO(s)
+          // breakpoints we have planted in DSO(s), otherwise the program will
+          // crash after we detach.
           //
 
           //
@@ -1154,7 +1155,12 @@ int TracerLoop(pid_t child) {
               }
             };
 
-            on_syscall_enter();
+            try {
+              on_syscall_enter();
+            } catch (const std::exception &e) {
+              ;
+            }
+
           } else { /* exit */
 #if defined(__mips64) || defined(__mips__)
             long r7 = cpu_state.regs[7];
