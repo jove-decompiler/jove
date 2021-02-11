@@ -2011,11 +2011,11 @@ on_insn_boundary:
 
       try {
         place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
+
+        ++brkpt_count;
       } catch (const std::exception &e) {
         WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
       }
-
-      ++brkpt_count;
     }
 
     //
@@ -4334,8 +4334,14 @@ void on_binary_loaded(pid_t child,
     }
 #endif
 
-    place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
-    ++cnt;
+    try {
+      place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
+
+      ++cnt;
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv(
+          "failed to place breakpoint at indirect branch: {0}\n", e.what());
+    }
   }
 
   //
