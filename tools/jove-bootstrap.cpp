@@ -3622,10 +3622,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     // (2) transfers control to a function (i.e. calling a function pointer)
     //
     bool isTailCall =
-        boost::out_degree(bb, ICFG) == 0 &&
-        (IndBrInfo.binary_idx != binary_idx ||
-         BinStateVec[binary_idx].FuncMap.find(rva_of_va(target, binary_idx)) !=
-             BinStateVec[binary_idx].FuncMap.end());
+        IndBrInfo.binary_idx != binary_idx ||
+        (boost::out_degree(bb, ICFG) == 0 &&
+         BinStateVec[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
 
     if (isTailCall) {
       function_index_t f_idx =
