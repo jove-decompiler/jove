@@ -638,7 +638,7 @@ int TracerLoop(pid_t child) {
                     /* PTRACE_O_EXITKILL   | */
                        PTRACE_O_TRACEEXIT  |
                     /* PTRACE_O_TRACEEXEC  | */
-                    /* PTRACE_O_TRACEFORK  | */
+                       PTRACE_O_TRACEFORK  |
                     /* PTRACE_O_TRACEVFORK | */
                        PTRACE_O_TRACECLONE;
 
@@ -648,7 +648,12 @@ int TracerLoop(pid_t child) {
   if (opts::VeryVerbose)
     llvm::errs() << "parent: setting ptrace options...\n";
 
-  ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options);
+  if (ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                        __func__,
+                                        strerror(err));
+  }
 
   if (opts::VeryVerbose)
     llvm::errs() << "ptrace options set!\n";
