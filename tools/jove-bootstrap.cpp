@@ -5399,9 +5399,15 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   if (!_r_debug.r_brk) {
     struct r_debug r_dbg;
 
-    ssize_t ret = _ptrace_memcpy(child, &r_dbg,
-                                 (void *)_r_debug.Addr,
-                                 sizeof(struct r_debug));
+    ssize_t ret;
+    try {
+      ret = _ptrace_memcpy(child, &r_dbg, (void *)_r_debug.Addr, sizeof(struct r_debug));
+    } catch (const std::exception &e) {
+      if (opts::Verbose)
+        WithColor::error() << llvm::formatv("failed to read r_debug structure: {0}\n",
+                                            e.what());
+      return;
+    }
 
     if (ret != sizeof(struct r_debug)) {
       if (ret < 0) {
