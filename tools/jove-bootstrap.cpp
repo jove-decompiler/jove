@@ -191,8 +191,6 @@ namespace jove {
 static int ChildProc(void);
 static int TracerLoop(pid_t child);
 
-static bool SeenExec = false;
-
 }
 
 int main(int argc, char **argv) {
@@ -262,7 +260,7 @@ int main(int argc, char **argv) {
     //
     // mode 1: attach
     //
-    if (ptrace(PTRACE_ATTACH, child, 0, 0) < 0) {
+    if (ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
       llvm::errs() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
       return 1;
     }
@@ -284,7 +282,6 @@ int main(int argc, char **argv) {
     if (opts::Verbose)
       llvm::errs() << "waited on SIGSTOP.\n";
 
-    jove::SeenExec = true; /* XXX */
     return jove::TracerLoop(child);
   } else {
     //
@@ -391,6 +388,8 @@ static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
     AddressSpace;
 
 struct indirect_branch_t {
+  unsigned long word;
+
   binary_index_t binary_idx;
 
   uintptr_t TermAddr;
@@ -406,6 +405,8 @@ struct indirect_branch_t {
 };
 
 struct return_t {
+  unsigned long word;
+
   binary_index_t binary_idx;
 
   std::vector<uint8_t> InsnBytes;
@@ -525,6 +526,7 @@ typedef typename ELFF::Elf_Rel Elf_Rel;
 typedef typename ELFT::uint uintX_t;
 
 static void IgnoreCtrlC(void);
+static void UnIgnoreCtrlC(void);
 
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
@@ -648,7 +650,7 @@ int TracerLoop(pid_t child) {
   if (opts::VeryVerbose)
     llvm::errs() << "parent: setting ptrace options...\n";
 
-  if (ptrace(PTRACE_SETOPTIONS, child, 0, ptrace_options) < 0) {
+  if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
                                         __func__,
@@ -980,7 +982,7 @@ int TracerLoop(pid_t child) {
   try {
     for (;;) {
       if (likely(!(child < 0))) {
-        if (unlikely(ptrace(likely(SeenExec) && (opts::Syscalls || unlikely(!BinFoundVec.all()))
+        if (unlikely(ptrace(opts::Syscalls || unlikely(!BinFoundVec.all())
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
@@ -1016,22 +1018,60 @@ int TracerLoop(pid_t child) {
           // breakpoints we have planted in DSO(s), otherwise the program will
           // crash after we detach.
           //
+          for (const auto &Entry : RetMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Ret = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Ret.word);
+            } catch (...) {
+              ;
+            }
+          }
+
+          for (const auto &Entry : IndBrMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Jmp = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Jmp.word);
+            } catch (...) {
+              ;
+            }
+          }
+
+          for (const auto &Entry : BrkMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Brk = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Brk.word);
+            } catch (...) {
+              ;
+            }
+          }
 
           //
           // now stop tracing the child.
           //
-          if (ptrace(PTRACE_DETACH, child, 0, 0) < 0) {
+#if 0
+          if (ptrace(PTRACE_DETACH, child, 0UL, 0UL) < 0) {
             int err = errno;
             WithColor::error() << llvm::formatv("failed to detach from {0}: {1}\n", child, strerror(err));
           }
 
-          break;
+          //break;
+          child = -1;
+#endif
+
+          ShouldDetach = false; /* XXX */
+          continue;
         }
 
-        if (likely(SeenExec))
-        {
-          rendezvous_with_dynamic_linker(child, dis);
-        }
+        rendezvous_with_dynamic_linker(child, dis);
 
         //
         // the following kinds of ptrace-stops exist:
@@ -1308,7 +1348,6 @@ int TracerLoop(pid_t child) {
               if (opts::PrintPtraceEvents)
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
                              << "]\n";
-              SeenExec = true;
               break;
             case PTRACE_EVENT_EXIT:
               if (opts::PrintPtraceEvents)
@@ -1329,9 +1368,14 @@ int TracerLoop(pid_t child) {
               break;
             }
           } else {
-            on_breakpoint(child, tcg, dis);
+            try {
+              on_breakpoint(child, tcg, dis);
+            } catch (const std::exception &e) {
+              if (opts::Verbose)
+                WithColor::note() << llvm::formatv("on_breakpoint failed: {0}\n", e.what());
+            }
           }
-        } else if (ptrace(PTRACE_GETSIGINFO, child, 0, &si) < 0) {
+        } else if (ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
           // (3) group-stop
           //
@@ -1388,7 +1432,15 @@ int TracerLoop(pid_t child) {
       }
     }
   } catch (const std::exception &e) {
-    WithColor::note() << llvm::formatv("exception! {0}\n", e.what());
+    std::string what(e.what());
+    WithColor::error() << llvm::formatv("exception! {0}\n", what);
+
+    if (what.find("unknown breakpoint") != std::string::npos) {
+      UnIgnoreCtrlC();
+
+      for (;;) { sleep(1); }
+      __builtin_unreachable();
+    }
   }
 
   {
@@ -1537,6 +1589,20 @@ void IgnoreCtrlC(void) {
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
   sa.sa_handler = SIG_IGN;
+
+  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
+  }
+}
+
+void UnIgnoreCtrlC(void) {
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = SIG_DFL;
 
   if (sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;
@@ -2390,6 +2456,8 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // read a word of the branch instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
+  indbr.word = word;
+
   // insert breakpoint
   arch_put_breakpoint(&word);
 
@@ -2498,6 +2566,8 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   // read a word of the instruction
 
   unsigned long word = _ptrace_peekdata(child, Addr);
+
+  r.word = word;
 
 #if defined(__mips64) || defined(__mips__)
   //
@@ -2751,6 +2821,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto is_opcode_emulated = [](unsigned opc) -> bool {
       return opc == llvm::Mips::LW
           || opc == llvm::Mips::SW
+          || opc == llvm::Mips::LB
           || opc == llvm::Mips::OR
           || opc == llvm::Mips::ADDiu
           || opc == llvm::Mips::ADDu
@@ -2802,6 +2873,25 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         else /* SW */
           _ptrace_pokedata(child, Addr, Reg);
 
+        break;
+      }
+
+      case llvm::Mips::LB: {
+        assert(I.getNumOperands() == 3);
+        assert(I.getOperand(0).isReg());
+        assert(I.getOperand(1).isReg());
+        assert(I.getOperand(2).isImm());
+
+        auto &Reg = RegValue(I.getOperand(0).getReg());
+        long Base = RegValue(I.getOperand(1).getReg());
+        long Offs = I.getOperand(2).getImm();
+        long Addr = Base + Offs;
+
+        unsigned long word = _ptrace_peekdata(child, Addr);
+
+        int8_t byte = *((int8_t *)&word);
+
+        Reg = byte;
         break;
       }
 
@@ -3210,6 +3300,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
   };
 
+  //
+  // is the dynamic linker doing something?
+  //
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
       if (opts::Verbose) {
@@ -3240,6 +3333,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   }
 
+  //
+  // is it a return?
+  //
   {
     auto it = RetMap.find(saved_pc);
     if (it != RetMap.end()) {
@@ -3264,6 +3360,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   }
 
+  //
+  // is it a one-shot breakpoint?
+  //
   {
     auto it = BrkMap.find(saved_pc);
     if (it != BrkMap.end()) {
@@ -3274,19 +3373,30 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         llvm::errs() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
                                       description_of_program_counter(saved_pc));
 
-      _ptrace_pokedata(child, saved_pc, brk.word);
+      try {
+        _ptrace_pokedata(child, saved_pc, brk.word);
+      } catch (const std::exception &e) {
+        WithColor::error() << "failed restoring breakpoint instruction bytes\n";
+      }
+
       return;
     }
   }
 
   auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
-    if (it == IndBrMap.end())
-      throw std::runtime_error((fmt("unknown breakpoint @ %#lx") % addr).str());
+    if (it == IndBrMap.end()) {
+      auto desc(description_of_program_counter(addr));
+
+      throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
+    }
 
     return (*it).second;
   };
 
+  //
+  // it's an indirect branch.
+  //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
   auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
@@ -3637,6 +3747,16 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         IndBrInfo.binary_idx != binary_idx ||
         (boost::out_degree(bb, ICFG) == 0 &&
          BinStateVec[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
+
+    if (isTailCall && boost::out_degree(bb, ICFG) > 0) {
+      //
+      // okay. we thought this was a goto, but now we know it's a call.
+      // translate all sucessors as functions, then store them into the dynamic
+      // targets set for this bb. afterwards, delete the edges in the ICFG that
+      // would originate from this basic block.
+      //
+      WARN();
+    }
 
     if (isTailCall) {
       function_index_t f_idx =
@@ -4537,21 +4657,6 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
 }
 
 int ChildProc(void) {
-  //
-  // the request
-  //
-  ptrace(PTRACE_TRACEME);
-  //
-  // turns the calling thread into a tracee.  The thread continues to run
-  // (doesn't enter ptrace-stop).  A common practice is to follow the
-  // PTRACE_TRACEME with
-  //
-  raise(SIGSTOP);
-  //
-  // and allow the parent (which is our tracer now) to observe our
-  // signal-delivery-stop.
-  //
-
   std::vector<const char *> arg_vec;
   arg_vec.push_back(opts::Prog.c_str());
 
@@ -4615,6 +4720,21 @@ int ChildProc(void) {
     env_vec.push_back(Env.c_str());
 
   env_vec.push_back(nullptr);
+
+  //
+  // the request
+  //
+  ptrace(PTRACE_TRACEME);
+  //
+  // turns the calling thread into a tracee.  The thread continues to run
+  // (doesn't enter ptrace-stop).  A common practice is to follow the
+  // PTRACE_TRACEME with
+  //
+  raise(SIGSTOP);
+  //
+  // and allow the parent (which is our tracer now) to observe our
+  // signal-delivery-stop.
+  //
 
   execve(arg_vec[0],
          const_cast<char **>(&arg_vec[0]),
@@ -5302,11 +5422,12 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   }
 
   if (_r_debug.r_brk) {
-    if (BrkMap.find(_r_debug.r_brk) == BrkMap.end()) {
+    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end())) {
       try {
         breakpoint_t brk;
         brk.callback = scan_rtld_link_map;
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
+        brk.word = _ptrace_peekdata(child, _r_debug.r_brk);
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
         llvm::MCDisassembler &DisAsm = std::get<0>(dis);
@@ -5580,6 +5701,7 @@ std::string description_of_program_counter(uintptr_t pc) {
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
 
 ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
+  // N.B. this is the dumbest algorithm... TODO
   for (unsigned i = 0; i < n; ++i) {
     unsigned long word =
         _ptrace_peekdata(child, reinterpret_cast<uintptr_t>(src) + i);
@@ -5596,7 +5718,7 @@ void arch_put_breakpoint(void *code) {
 #elif defined(__aarch64__)
   reinterpret_cast<uint32_t *>(code)[0] = 0xd4200000; /* brk */
 #elif defined(__mips64) || defined(__mips__)
-  reinterpret_cast<uint32_t *>(code)[0] = 0x0000000d; /* break */
+  reinterpret_cast<uint32_t *>(code)[0] = 0x00ff000d; /* break 0xff */
 #else
 #error
 #endif
