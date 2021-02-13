@@ -5471,9 +5471,11 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
 
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv(
-            "{0}: couldn't place breakpoint at r_brk ({1})\n", __func__,
-            _r_debug.r_brk);
+        if (opts::Verbose)
+          WithColor::error() << llvm::formatv(
+              "{0}: couldn't place breakpoint at r_brk ({1:x})\n",
+              __func__,
+              _r_debug.r_brk);
       }
     }
   }
