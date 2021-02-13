@@ -4,15 +4,30 @@ https://images.aarno-labs.com/jove/
 
 These linux binaries are statically linked; they are essentially distroless.
 
+## Preparation
+One can use the above binaries without anything else installed, assuming you
+don't plan on recompiling the code (i.e. only use jove-init, jove-add, jove-bootstrap)
+
+It is possible to use the whole system end-to-end without building it yourself. It's
+just a matter of setting up some symlinks, assuming your distro has LLVM
+packages >= 10 (i.e. llc-10). Lastly, lld-9 is preferred, because it is known to
+successfully recompile non-PIC executables. If your distro has a package for it,
+use that, otherwise you can build it yourself and install somewhere (e.g. /usr/local)
+
+TLDR; On debian, one can do
+```bash
+apt-get install llvm-10 lld-9
+```
+
 ## Usage
 ```bash
 # 64-bit x86
 mkdir /opt/jove
-sudo tar -xvf /home/aeden/jove.1e205848-x86_64.tar.xz -C /opt/jove
+tar -xvf /home/aeden/jove.1e205848-x86_64.tar.xz -C /opt/jove
 
 # 32-bit x86
 mkdir /opt/jove32
-sudo tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
+tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 ```
 
 # Examples
