@@ -388,7 +388,7 @@ static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
     AddressSpace;
 
 struct indirect_branch_t {
-  unsigned long word;
+  unsigned long words[2];
 
   binary_index_t binary_idx;
 
@@ -405,7 +405,7 @@ struct indirect_branch_t {
 };
 
 struct return_t {
-  unsigned long word;
+  unsigned long words[2];
 
   binary_index_t binary_idx;
 
@@ -450,7 +450,7 @@ typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
 
 // one-shot breakpoint
 struct breakpoint_t {
-  unsigned long word;
+  unsigned long words[2];
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
@@ -575,12 +575,18 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 }
 
 static bool ShouldDetach = false;
+static bool ShouldAttach = false;
 
 static void sighandler(int no) {
   switch (no) {
   case SIGUSR1:
     ShouldDetach = true;
     break;
+
+  case SIGUSR2:
+    ShouldAttach = true;
+    break;
+
 
   default:
     __builtin_trap();
@@ -600,6 +606,20 @@ int TracerLoop(pid_t child) {
     sa.sa_handler = sighandler;
 
     if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = sighandler;
+
+    if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
                                           __func__, strerror(err));
@@ -1024,7 +1044,7 @@ int TracerLoop(pid_t child) {
 
             // write the word back
             try {
-              _ptrace_pokedata(child, Addr, Ret.word);
+              _ptrace_pokedata(child, Addr, Ret.words[0]);
             } catch (...) {
               ;
             }
@@ -1036,7 +1056,7 @@ int TracerLoop(pid_t child) {
 
             // write the word back
             try {
-              _ptrace_pokedata(child, Addr, Jmp.word);
+              _ptrace_pokedata(child, Addr, Jmp.words[0]);
             } catch (...) {
               ;
             }
@@ -1048,7 +1068,7 @@ int TracerLoop(pid_t child) {
 
             // write the word back
             try {
-              _ptrace_pokedata(child, Addr, Brk.word);
+              _ptrace_pokedata(child, Addr, Brk.words[0]);
             } catch (...) {
               ;
             }
@@ -1068,6 +1088,48 @@ int TracerLoop(pid_t child) {
 #endif
 
           ShouldDetach = false; /* XXX */
+          continue;
+        }
+
+        if (unlikely(ShouldAttach)) {
+          WithColor::note() << "attaching...\n";
+
+          for (const auto &Entry : RetMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Ret = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Ret.words[1]);
+            } catch (...) {
+              ;
+            }
+          }
+
+          for (const auto &Entry : IndBrMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Jmp = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Jmp.words[1]);
+            } catch (...) {
+              ;
+            }
+          }
+
+          for (const auto &Entry : BrkMap) {
+            uintptr_t Addr  = Entry.first;
+            const auto &Brk = Entry.second;
+
+            // write the word back
+            try {
+              _ptrace_pokedata(child, Addr, Brk.words[1]);
+            } catch (...) {
+              ;
+            }
+          }
+          ShouldAttach = false; /* XXX */
           continue;
         }
 
@@ -2456,10 +2518,12 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   // read a word of the branch instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
-  indbr.word = word;
+  indbr.words[0] = word;
 
   // insert breakpoint
   arch_put_breakpoint(&word);
+
+  indbr.words[1] = word;
 
 #if 0 /* defined(__mips64) || defined(__mips__) */
   {
@@ -2551,9 +2615,11 @@ void place_breakpoint(pid_t child,
   // read a word of the instruction
   unsigned long word = _ptrace_peekdata(child, Addr);
 
-  brk.word = word;
+  brk.words[0] = word;
 
   arch_put_breakpoint(&word);
+
+  brk.words[1] = word;
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
@@ -2567,7 +2633,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 
   unsigned long word = _ptrace_peekdata(child, Addr);
 
-  r.word = word;
+  r.words[0] = word;
 
 #if defined(__mips64) || defined(__mips__)
   //
@@ -2577,6 +2643,8 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 #else
   arch_put_breakpoint(&word);
 #endif
+
+  r.words[1] = word;
 
 #if 0 /* defined(__mips64) || defined(__mips__) */
   {
@@ -3374,7 +3442,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                       description_of_program_counter(saved_pc));
 
       try {
-        _ptrace_pokedata(child, saved_pc, brk.word);
+        _ptrace_pokedata(child, saved_pc, brk.words[0]);
       } catch (const std::exception &e) {
         WithColor::error() << "failed restoring breakpoint instruction bytes\n";
       }
@@ -5261,15 +5329,21 @@ void on_dynamic_linker_loaded(pid_t child,
     };
 
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
-      }
+
       if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
         continue;
+
       LoadSegments.push_back(&Phdr);
     }
   }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
   assert(DynamicTable.Addr);
 
@@ -5433,7 +5507,6 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
         breakpoint_t brk;
         brk.callback = scan_rtld_link_map;
         brk.InsnBytes.resize(2 * sizeof(uint32_t));
-        brk.word = _ptrace_peekdata(child, _r_debug.r_brk);
         _ptrace_memcpy(child, &brk.InsnBytes[0], (void *)_r_debug.r_brk, brk.InsnBytes.size());
 
         llvm::MCDisassembler &DisAsm = std::get<0>(dis);
@@ -5473,9 +5546,10 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       } catch (const std::exception &e) {
         if (opts::Verbose)
           WithColor::error() << llvm::formatv(
-              "{0}: couldn't place breakpoint at r_brk ({1:x})\n",
+              "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
               __func__,
-              _r_debug.r_brk);
+              _r_debug.r_brk,
+              e.what());
       }
     }
   }
