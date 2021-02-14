@@ -161,6 +161,10 @@ int init(void) {
       env_vec.push_back(*env);
 
     env_vec.push_back("LD_TRACE_LOADED_OBJECTS=1");
+
+    if (fs::exists("/firmadyne/libnvram.so"))
+      env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+
     env_vec.push_back(nullptr);
 
     return execve(arg_vec[0],
