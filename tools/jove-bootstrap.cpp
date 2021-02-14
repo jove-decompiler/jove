@@ -4787,6 +4787,9 @@ int ChildProc(void) {
   for (const std::string &Env : opts::Envs)
     env_vec.push_back(Env.c_str());
 
+  if (fs::exists("/firmadyne/libnvram.so"))
+    env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+
   env_vec.push_back(nullptr);
 
   //
@@ -5495,7 +5498,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       return;
     }
 
-    if (opts::Verbose)
+    if (unlikely(opts::Verbose) && unlikely(r_dbg.r_brk))
       llvm::errs() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
 
     _r_debug.r_brk = r_dbg.r_brk;
