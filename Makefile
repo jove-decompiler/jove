@@ -65,7 +65,7 @@ CXXFLAGS := -std=gnu++17 \
             -fwrapv \
             -fno-common \
             -Ofast \
-            -g \
+            -g1 \
             -I include \
             -I lib \
             -I lib/arch/$(ARCH) \
