@@ -1143,47 +1143,29 @@ public:
     // Find dynamic GOT section.
     if (DtPltGot || DtLocalGotNum || DtGotSym) {
       if (!DtPltGot) {
-#if 0
-        report_fatal_error("Cannot find PLTGOT dynamic table tag.");
-#else
+        WithColor::warning() << "Cannot find PLTGOT dynamic table tag.\n";
         abort();
-#endif
       }
       if (!DtLocalGotNum) {
-#if 0
-        report_fatal_error("Cannot find MIPS_LOCAL_GOTNO dynamic table tag.");
-#else
+        WithColor::warning() << "Cannot find MIPS_LOCAL_GOTNO dynamic table tag.\n";
         abort();
-#endif
       }
       if (!DtGotSym) {
-#if 0
-        report_fatal_error("Cannot find MIPS_GOTSYM dynamic table tag.");
-#else
+        WithColor::warning() << "Cannot find MIPS_GOTSYM dynamic table tag.\n";
         abort();
-#endif
       }
 
       size_t DynSymTotal = DynSyms.size();
       if (*DtGotSym > DynSymTotal) {
-#if 0
-        reportError(
-            createError("MIPS_GOTSYM exceeds a number of dynamic symbols"),
-            FileName);
-#else
-        abort();
-#endif
+        WithColor::error() << llvm::formatv(
+            "MIPS_GOTSYM ({0}) exceeds a number of dynamic symbols ({1})\n",
+            *DtGotSym, DynSymTotal);
       }
 
       GotSec = findNotEmptySectionByAddress(Obj, *DtPltGot);
       if (!GotSec) {
-#if 0
-        reportError(createError("There is no not empty GOT section at 0x" +
-                                Twine::utohexstr(*DtPltGot)),
-                    FileName);
-#else
-        abort();
-#endif
+        WithColor::error() << llvm::formatv("There is no not empty GOT section at {0}\n",
+                                            llvm::Twine::utohexstr(*DtPltGot));
       }
 
       LocalNum = *DtLocalGotNum;
@@ -1199,39 +1181,26 @@ public:
     // Find PLT section.
     if (DtMipsPltGot || DtJmpRel) {
       if (!DtMipsPltGot) {
-#if 0
-        report_fatal_error("Cannot find MIPS_PLTGOT dynamic table tag.");
-#else
+        WithColor::warning() << "Cannot find PLTGOT dynamic table tag.\n";
         abort();
-#endif
       }
 
       if (!DtJmpRel) {
-#if 0
-        report_fatal_error("Cannot find JMPREL dynamic table tag.");
-#else
+        WithColor::warning() << "Cannot find JMPREL dynamic table tag.\n";
         abort();
-#endif
       }
 
       PltSec = findNotEmptySectionByAddress(Obj, *DtMipsPltGot);
       if (!PltSec) {
-#if 0
-        report_fatal_error("There is no not empty PLTGOT section at 0x " +
-                           Twine::utohexstr(*DtMipsPltGot));
-#else
-        abort();
-#endif
+        WithColor::warning() << llvm::formatv("There is no not empty PLTGOT section at {0}\n",
+                                              llvm::Twine::utohexstr(*DtMipsPltGot));
       }
 
       PltRelSec = findNotEmptySectionByAddress(Obj, *DtJmpRel);
       if (!PltRelSec) {
-#if 0
-        report_fatal_error("There is no not empty RELPLT section at 0x" +
-                           Twine::utohexstr(*DtJmpRel));
-#else
+        WithColor::error() << llvm::formatv("There is no not empty RELPLT section at {0}\n",
+                                            llvm::Twine::utohexstr(*DtPltGot));
         abort();
-#endif
       }
 
       llvm::ArrayRef<uint8_t> PltContent =
@@ -1824,8 +1793,9 @@ struct DynRegionInfo {
     const Type *Start = reinterpret_cast<const Type *>(Addr);
     if (!Start)
       return {Start, Start};
-    if (EntSize != sizeof(Type) || Size % EntSize)
+    if (EntSize != sizeof(Type))
       abort();
+    WARN_ON(Size % EntSize);
     return {Start, Start + (Size / EntSize)};
   }
 };
@@ -1934,15 +1904,21 @@ int ProcessBinaryTLSSymbols(void) {
     };
 
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
-      }
+
       if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
         continue;
+
       LoadSegments.push_back(&Phdr);
     }
   }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
   assert(DynamicTable.Addr);
 
@@ -1980,13 +1956,17 @@ int ProcessBinaryTLSSymbols(void) {
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -2107,10 +2087,18 @@ int ProcessExportedFunctions(void) {
         if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
           DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
 
-        if (Phdr.p_type == llvm::ELF::PT_LOAD && Phdr.p_filesz != 0)
-          LoadSegments.push_back(&Phdr);
+        if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
+          continue;
+
+        LoadSegments.push_back(&Phdr);
       }
     }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
     assert(DynamicTable.Addr);
 
@@ -2147,13 +2135,17 @@ int ProcessExportedFunctions(void) {
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -2495,6 +2487,12 @@ int ProcessDynamicSymbols(void) {
       }
     }
 
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
+
     assert(DynamicTable.Addr);
 
     DynRegionInfo DynSymRegion;
@@ -2531,13 +2529,17 @@ int ProcessDynamicSymbols(void) {
                              [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                                return VAddr < Phdr->p_vaddr;
                              });
-        if (I == LoadSegments.begin())
-          abort();
+        if (I == LoadSegments.begin()) {
+          WARN();
+          return nullptr;
+        }
         --I;
         const Elf_Phdr &Phdr = **I;
         uint64_t Delta = VAddr - Phdr.p_vaddr;
-        if (Delta >= Phdr.p_filesz)
-          abort();
+        if (Delta >= Phdr.p_filesz) {
+          WARN();
+          return nullptr;
+        }
         return E.base() + Phdr.p_offset + Delta;
       };
 
@@ -3371,6 +3373,12 @@ int ProcessBinaryRelocations(void) {
     }
   }
 
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
+
   assert(DynamicTable.Addr);
 
   DynRegionInfo DynSymRegion;
@@ -3425,22 +3433,48 @@ int ProcessBinaryRelocations(void) {
                          [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                            return VAddr < Phdr->p_vaddr;
                          });
-    if (I == LoadSegments.begin())
-      abort();
+    if (I == LoadSegments.begin()) {
+      WARN();
+      return nullptr;
+    }
     --I;
     const Elf_Phdr &Phdr = **I;
     uint64_t Delta = VAddr - Phdr.p_vaddr;
-    if (Delta >= Phdr.p_filesz)
-      abort();
+    if (Delta >= Phdr.p_filesz) {
+      WARN();
+      return nullptr;
+    }
     return E.base() + Phdr.p_offset + Delta;
   };
 
-  for (const Elf_Dyn &Dyn : dynamic_table()) {
-    switch (Dyn.d_tag) {
-    case llvm::ELF::DT_SYMTAB:
-      DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
-      DynSymRegion.EntSize = sizeof(Elf_Sym);
-      break;
+  {
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      switch (Dyn.d_tag) {
+        case llvm::ELF::DT_STRTAB:
+          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          WARN_ON(!StringTableBegin);
+          break;
+        case llvm::ELF::DT_STRSZ:
+          if (uint64_t sz = Dyn.getVal())
+            StringTableSize = sz;
+          break;
+        case llvm::ELF::DT_SYMTAB: {
+          const uint8_t *p = toMappedAddr(Dyn.getPtr());
+          if (WARN_ON(!p))
+            break;
+
+          // otherwise...
+          DynSymRegion.Addr = p;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+          break;
+        }
+      }
+
+      if (StringTableBegin)
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
   }
 
@@ -4070,15 +4104,21 @@ int ProcessIFuncResolvers(void) {
     };
 
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
-      }
+
       if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
         continue;
+
       LoadSegments.push_back(&Phdr);
     }
   }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
   assert(DynamicTable.Addr);
 
@@ -4116,13 +4156,17 @@ int ProcessIFuncResolvers(void) {
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -7118,6 +7162,12 @@ int ProcessDynamicSymbols2(void) {
       }
     }
 
+    std::sort(LoadSegments.begin(),
+              LoadSegments.end(),
+              [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+                return PhdrA->p_vaddr < PhdrB->p_vaddr;
+              });
+
     assert(DynamicTable.Addr);
 
     DynRegionInfo DynSymRegion;
@@ -7154,13 +7204,17 @@ int ProcessDynamicSymbols2(void) {
                              [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                                return VAddr < Phdr->p_vaddr;
                              });
-        if (I == LoadSegments.begin())
-          abort();
+        if (I == LoadSegments.begin()) {
+          WARN();
+          return nullptr;
+        }
         --I;
         const Elf_Phdr &Phdr = **I;
         uint64_t Delta = VAddr - Phdr.p_vaddr;
-        if (Delta >= Phdr.p_filesz)
-          abort();
+        if (Delta >= Phdr.p_filesz) {
+          WARN();
+          return nullptr;
+        }
         return E.base() + Phdr.p_offset + Delta;
       };
 
@@ -7627,6 +7681,12 @@ decipher_copy_relocation(const symbol_t &S) {
       }
     }
 
+    std::sort(LoadSegments.begin(),
+              LoadSegments.end(),
+              [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+                return PhdrA->p_vaddr < PhdrB->p_vaddr;
+              });
+
     assert(DynamicTable.Addr);
 
     DynRegionInfo DynSymRegion;
@@ -7663,13 +7723,17 @@ decipher_copy_relocation(const symbol_t &S) {
                              [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                                return VAddr < Phdr->p_vaddr;
                              });
-        if (I == LoadSegments.begin())
-          abort();
+        if (I == LoadSegments.begin()) {
+          WARN();
+          return nullptr;
+        }
         --I;
         const Elf_Phdr &Phdr = **I;
         uint64_t Delta = VAddr - Phdr.p_vaddr;
-        if (Delta >= Phdr.p_filesz)
-          abort();
+        if (Delta >= Phdr.p_filesz) {
+          WARN();
+          return nullptr;
+        }
         return E.base() + Phdr.p_offset + Delta;
       };
 

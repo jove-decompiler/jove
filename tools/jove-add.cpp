@@ -648,13 +648,20 @@ int add(void) {
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
       if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
       }
+
       if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
         continue;
+
       LoadSegments.push_back(&Phdr);
     }
   }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
   assert(DynamicTable.Addr);
 

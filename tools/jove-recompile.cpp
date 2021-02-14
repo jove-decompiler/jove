@@ -66,6 +66,25 @@ struct dynamic_linking_info_t {
 #include <boost/graph/topological_sort.hpp>
 #include <boost/format.hpp>
 
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
+
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
 
@@ -1324,8 +1343,9 @@ struct DynRegionInfo {
     const Type *Start = reinterpret_cast<const Type *>(Addr);
     if (!Start)
       return {Start, Start};
-    if (EntSize != sizeof(Type) || Size % EntSize)
-      abort();
+    if (EntSize != sizeof(Type) || Size % EntSize) {
+      WARN();
+    }
     return {Start, Start + (Size / EntSize)};
   }
 };
@@ -1412,15 +1432,21 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
     };
 
     for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
+      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
         DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-        continue;
-      }
+
       if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
         continue;
+
       LoadSegments.push_back(&Phdr);
     }
   }
+
+  std::sort(LoadSegments.begin(),
+            LoadSegments.end(),
+            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
+              return PhdrA->p_vaddr < PhdrB->p_vaddr;
+            });
 
   assert(DynamicTable.Addr);
 
@@ -1440,13 +1466,17 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
                            [](uint64_t VAddr, const Elf_Phdr *Phdr) {
                              return VAddr < Phdr->p_vaddr;
                            });
-      if (I == LoadSegments.begin())
-        abort();
+      if (I == LoadSegments.begin()) {
+        WARN();
+        return nullptr;
+      }
       --I;
       const Elf_Phdr &Phdr = **I;
       uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz)
-        abort();
+      if (Delta >= Phdr.p_filesz) {
+        WARN();
+        return nullptr;
+      }
       return E.base() + Phdr.p_offset + Delta;
     };
 
@@ -1599,4 +1629,8 @@ std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
   return {SectsStartAddr, SectsEndAddr};
 }
 
+} // namespace jove
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
