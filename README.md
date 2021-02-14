@@ -6,15 +6,15 @@ These linux binaries are statically linked; they are essentially distroless.
 
 ## Preparation
 One can use the above binaries without anything else installed, assuming you
-don't plan on recompiling the code (i.e. only use jove-init, jove-add, jove-bootstrap)
+don't plan on recompiling the code (i.e. only use `jove-init`, `jove-add`, `jove-bootstrap`)
 
 It is possible to use the whole system end-to-end without building it yourself. It's
 just a matter of setting up some symlinks, assuming your distro has LLVM
-packages >= 10 (i.e. llc-10). Lastly, lld-9 is preferred, because it is known to
-successfully recompile non-PIC executables. If your distro has a package for it,
-use that, otherwise you can build it yourself and install somewhere (e.g. /usr/local)
+packages >= 10 (i.e. `llc-10`). `lld-9` is preferred as the (static) linker to use,
+it is known to successfully recompile non-PIC executables. If your distro has a package for it,
+use that, otherwise you can build it yourself and install somewhere (e.g. `/usr/local`)
 
-TLDR; On debian, one can do
+on debian or ubuntu:
 ```bash
 apt-get install llvm-10 lld-9
 ```
