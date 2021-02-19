@@ -1537,7 +1537,6 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   const ELFF &E = *O.getELFFile();
 
   DynRegionInfo DynamicTable(O.getFileName());
-  DynRegionInfo DynamicTableFromPhdr(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
 
   if (WARN_ON(!DynamicTable.Addr)) {
