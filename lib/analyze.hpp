@@ -209,7 +209,7 @@ static flow_vertex_t copy_function_cfg(
   }
 
   //
-  // check for back edge
+  // have we already copied this function's CFG?
   //
   {
     auto it = memoize.find(&f);
