@@ -66,6 +66,14 @@ struct dynamic_linking_info_t {
 #include <boost/graph/topological_sort.hpp>
 #include <boost/format.hpp>
 
+#ifndef likely
+#define likely(x)   __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
 static void __warn(const char *file, int line);
 
 #ifndef WARN
@@ -1327,9 +1335,9 @@ void print_command(const char **argv) {
 /// the size, entity size and virtual address are different entries in arbitrary
 /// order (DT_REL, DT_RELSZ, DT_RELENT for example).
 struct DynRegionInfo {
-  DynRegionInfo() = default;
-  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
-      : Addr(A), Size(S), EntSize(ES) {}
+  DynRegionInfo(llvm::StringRef ObjName) : FileName(ObjName) {}
+  DynRegionInfo(const void *A, uint64_t S, uint64_t ES, llvm::StringRef ObjName)
+      : Addr(A), Size(S), EntSize(ES), FileName(ObjName) {}
 
   /// Address in current address space.
   const void *Addr = nullptr;
@@ -1338,13 +1346,24 @@ struct DynRegionInfo {
   /// Size of each entity in the region.
   uint64_t EntSize = 0;
 
-  template <typename Type>
-    llvm::ArrayRef<Type> getAsArrayRef() const {
+  /// Name of the file. Used for error reporting.
+  llvm::StringRef FileName;
+
+  template <typename Type> llvm::ArrayRef<Type> getAsArrayRef() const {
     const Type *Start = reinterpret_cast<const Type *>(Addr);
     if (!Start)
       return {Start, Start};
     if (EntSize != sizeof(Type) || Size % EntSize) {
       WARN();
+
+#if 0
+      // TODO: Add a section index to this warning.
+      reportWarning(createError("invalid section size (" + Twine(Size) +
+                                ") or entity size (" + Twine(EntSize) + ")"),
+                    FileName);
+#endif
+
+      return {Start, Start};
     }
     return {Start, Start + (Size / EntSize)};
   }
@@ -1386,6 +1405,107 @@ typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
 typedef typename ELFF::Elf_Sym Elf_Sym;
 typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
 typedef typename ELFF::Elf_Rela Elf_Rela;
+typedef typename ELFT::uint uintX_t;
+
+static std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
+findDynamic(const ELFO *, const ELFF *);
+
+static DynRegionInfo checkDRI(DynRegionInfo DRI, const ELFO *ObjF) {
+  const ELFF *Obj = ObjF->getELFFile();
+  if (DRI.Addr < Obj->base() ||
+      reinterpret_cast<const uint8_t *>(DRI.Addr) + DRI.Size >
+          Obj->base() + Obj->getBufSize()) {
+    WithColor::error() << llvm::formatv("{0}: check failed. bug?\n", __func__);
+  }
+  return DRI;
+}
+
+static DynRegionInfo createDRIFrom(const Elf_Phdr *P, uintX_t EntSize, const ELFO *ObjF) {
+  return checkDRI({ObjF->getELFFile()->base() + P->p_offset, P->p_filesz,
+                   EntSize, ObjF->getFileName()}, ObjF);
+}
+
+static DynRegionInfo createDRIFrom(const Elf_Shdr *S, const ELFO *ObjF) {
+  return checkDRI({ObjF->getELFFile()->base() + S->sh_offset, S->sh_size,
+                   S->sh_entsize, ObjF->getFileName()}, ObjF);
+}
+
+static void loadDynamicTable(const ELFF *Obj,
+                             const ELFO *ObjF,
+                             DynRegionInfo &DynamicTable) {
+  const Elf_Phdr *DynamicPhdr;
+  const Elf_Shdr *DynamicSec;
+  std::tie(DynamicPhdr, DynamicSec) = findDynamic(ObjF, Obj);
+  if (!DynamicPhdr && !DynamicSec)
+    return;
+
+  DynRegionInfo FromPhdr(ObjF->getFileName());
+  bool IsPhdrTableValid = false;
+  if (DynamicPhdr) {
+    FromPhdr = createDRIFrom(DynamicPhdr, sizeof(Elf_Dyn), ObjF);
+    IsPhdrTableValid = !FromPhdr.getAsArrayRef<Elf_Dyn>().empty();
+  }
+
+  // Locate the dynamic table described in a section header.
+  // Ignore sh_entsize and use the expected value for entry size explicitly.
+  // This allows us to dump dynamic sections with a broken sh_entsize
+  // field.
+  DynRegionInfo FromSec(ObjF->getFileName());
+  bool IsSecTableValid = false;
+  if (DynamicSec) {
+    FromSec =
+        checkDRI({ObjF->getELFFile()->base() + DynamicSec->sh_offset,
+                  DynamicSec->sh_size, sizeof(Elf_Dyn), ObjF->getFileName()}, ObjF);
+    IsSecTableValid = !FromSec.getAsArrayRef<Elf_Dyn>().empty();
+  }
+
+  // When we only have information from one of the SHT_DYNAMIC section header or
+  // PT_DYNAMIC program header, just use that.
+  if (!DynamicPhdr || !DynamicSec) {
+    if ((DynamicPhdr && IsPhdrTableValid) || (DynamicSec && IsSecTableValid)) {
+      DynamicTable = DynamicPhdr ? FromPhdr : FromSec;
+    } else {
+      WithColor::warning() << llvm::formatv(
+          "no valid dynamic table was found for {0}\n", ObjF->getFileName());
+    }
+    return;
+  }
+
+  // At this point we have tables found from the section header and from the
+  // dynamic segment. Usually they match, but we have to do sanity checks to
+  // verify that.
+
+  if (FromPhdr.Addr != FromSec.Addr) {
+    WithColor::warning() << llvm::formatv("SHT_DYNAMIC section header and PT_DYNAMIC "
+                                          "program header disagree about "
+                                          "the location of the dynamic table for {0}\n",
+                                          ObjF->getFileName());
+  }
+
+  if (!IsPhdrTableValid && !IsSecTableValid) {
+    WithColor::warning() << llvm::formatv("no valid dynamic table was found for {0}\n",
+                                          ObjF->getFileName());
+    return;
+  }
+
+  // Information in the PT_DYNAMIC program header has priority over the information
+  // in a section header.
+  if (IsPhdrTableValid) {
+    if (!IsSecTableValid)
+      WithColor::warning()
+          << llvm::formatv("SHT_DYNAMIC dynamic table is invalid: PT_DYNAMIC "
+                           "will be used for {0}\n",
+                           ObjF->getFileName());
+
+    DynamicTable = FromPhdr;
+  } else {
+    WithColor::warning() <<
+      llvm::formatv("PT_DYNAMIC dynamic table is invalid: SHT_DYNAMIC will be used for {0}\n",
+                    ObjF->getFileName());
+
+    DynamicTable = FromSec;
+  }
+}
 
 
 bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
@@ -1416,125 +1536,202 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
 
   const ELFF &E = *O.getELFFile();
 
-  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
-    if (DRI.Addr < E.base() ||
-        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
-      abort();
-    return DRI;
-  };
+  DynRegionInfo DynamicTable(O.getFileName());
+  DynRegionInfo DynamicTableFromPhdr(O.getFileName());
+  loadDynamicTable(&E, &O, DynamicTable);
 
-  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-  DynRegionInfo DynamicTable;
-  {
-    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
-                                         uint64_t EntSize) -> DynRegionInfo {
-      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
-    };
-
-    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC)
-        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-
-      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
-        continue;
-
-      LoadSegments.push_back(&Phdr);
-    }
+  if (WARN_ON(!DynamicTable.Addr)) {
+    return true;
   }
-
-  std::sort(LoadSegments.begin(),
-            LoadSegments.end(),
-            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
-              return PhdrA->p_vaddr < PhdrB->p_vaddr;
-            });
-
-  assert(DynamicTable.Addr);
 
   //
   // parse dynamic table
   //
+  DynRegionInfo DynSymRegion(O.getFileName());
+
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
   llvm::StringRef DynamicStringTable;
   {
-
-    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
-      const Elf_Phdr *const *I =
-          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
-                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
-                             return VAddr < Phdr->p_vaddr;
-                           });
-      if (I == LoadSegments.begin()) {
-        WARN();
-        return nullptr;
-      }
-      --I;
-      const Elf_Phdr &Phdr = **I;
-      uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz) {
-        WARN();
-        return nullptr;
-      }
-      return E.base() + Phdr.p_offset + Delta;
-    };
-
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
-        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
         break;
       case llvm::ELF::DT_STRSZ:
         if (uint64_t sz = Dyn.getVal())
           StringTableSize = sz;
         break;
-      case llvm::ELF::DT_NEEDED:
+
+      case llvm::ELF::DT_SYMTAB: {
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          DynSymRegion.Addr = *ExpectedPtr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
         break;
       }
-    };
 
-    if (StringTableBegin)
+      default:
+        break;
+      }
+    }
+
+    if (StringTableBegin && StringTableSize)
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
-  std::vector<uint64_t> needed_offsets;
-  uint64_t SONameOffset = 0;
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
+                                  b.Path, DynamicStringTable.size());
 
-  for (const Elf_Dyn &Dyn : dynamic_table()) {
-    switch (Dyn.d_tag) {
-    case llvm::ELF::DT_SONAME:
-      SONameOffset = Dyn.getVal();
-      break;
-    case llvm::ELF::DT_NEEDED:
-      needed_offsets.push_back(Dyn.getVal());
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    switch (Sec.sh_type) {
+    case llvm::ELF::SHT_DYNSYM:
+      DynSymRegion = createDRIFrom(&Sec, &O);
+      //DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+      llvm::Expected<llvm::StringRef> ExpectedDynamicStringTable = E.getStringTableForSymtab(Sec);
+      if (!ExpectedDynamicStringTable) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedDynamicStringTable.takeError(), OS, "");
+        }
+
+        WithColor::warning() << llvm::formatv(
+            "{0}: could not get string table for symtab: {1}\n", __func__, Buf);
+        break;
+      }
+
+      DynamicStringTable = *ExpectedDynamicStringTable;
       break;
     }
   }
 
-  if (!SONameOffset || SONameOffset > DynamicStringTable.size())
-    ; // no soname
-  else
-    out.soname = DynamicStringTable.data() + SONameOffset;
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
+                                  b.Path, DynamicStringTable.size());
+
+  std::vector<uint64_t> needed_offsets;
+  struct {
+    bool Found;
+    uint64_t Offset;
+  } SOName = {false, 0};
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_SONAME:
+      SOName.Offset = Dyn.getVal();
+      SOName.Found = true;
+      break;
+
+    case llvm::ELF::DT_NEEDED:
+      uint64_t needed_offset = Dyn.getVal();
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("{0}: DT_NEEDED: {1}\n", b.Path, needed_offset);
+
+      if (needed_offset >= DynamicStringTable.size()) {
+        if (opts::Verbose)
+          WithColor::warning() << llvm::formatv(
+              "ignoring DT_NEEDED entry; offset is {0} >= {1}\n", needed_offset,
+              DynamicStringTable.size());
+        break;
+      }
+
+      needed_offsets.push_back(needed_offset);
+      break;
+    }
+  }
+
+  if (SOName.Found) {
+    if (SOName.Offset >= DynamicStringTable.size()) {
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("[{0}] bad SOName.Offset {1}\n", b.Path, SOName.Offset);
+    } else {
+      const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("[{0}] out.soname=\"{1}\"\n", b.Path, soname_cstr);
+
+      out.soname = soname_cstr;
+    }
+  }
 
   for (uint64_t off : needed_offsets) {
-    if (!off || off > DynamicStringTable.size())
-      ; // no soname
-    else
-      out.needed.push_back(DynamicStringTable.data() + off);
+    if (off >= DynamicStringTable.size()) {
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("[{0}] bad needed_offset {1}\n", b.Path, off);
+      continue;
+    }
+
+    const char *needed_cstr = DynamicStringTable.data() + off;
+
+    if (opts::Verbose)
+      llvm::errs() << llvm::formatv("[{0}] out.needed=\"{1}\"\n", b.Path, needed_cstr);
+
+    out.needed.emplace_back(needed_cstr);
   }
 
   for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
     if (Phdr.p_type == llvm::ELF::PT_INTERP) {
-      out.interp = Buffer.data() + Phdr.p_offset;
+      out.interp = std::string(Buffer.data() + Phdr.p_offset);
       break;
     }
   }
 
   return true;
 }
+
+std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
+findDynamic(const ELFO *ObjF, const ELFF *Obj) {
+  // Try to locate the PT_DYNAMIC header.
+  const Elf_Phdr *DynamicPhdr = nullptr;
+  for (const Elf_Phdr &Phdr : unwrapOrError(Obj->program_headers())) {
+    if (Phdr.p_type != llvm::ELF::PT_DYNAMIC)
+      continue;
+    DynamicPhdr = &Phdr;
+    break;
+  }
+
+  // Try to locate the .dynamic section in the sections header table.
+  const Elf_Shdr *DynamicSec = nullptr;
+  for (const Elf_Shdr &Sec : unwrapOrError(Obj->sections())) {
+    if (Sec.sh_type != llvm::ELF::SHT_DYNAMIC)
+      continue;
+    DynamicSec = &Sec;
+    break;
+  }
+
+  if (DynamicPhdr && DynamicPhdr->p_offset + DynamicPhdr->p_filesz >
+                         ObjF->getMemoryBufferRef().getBufferSize()) {
+    WithColor::warning() <<
+      llvm::formatv("{0}: PT_DYNAMIC segment offset + size exceeds the size of the file\n", __func__);
+
+    // Don't use the broken dynamic header.
+    DynamicPhdr = nullptr;
+  }
+
+  if (DynamicPhdr && DynamicSec) {
+    llvm::StringRef Name = unwrapOrError(Obj->getSectionName(DynamicSec));
+    if (DynamicSec->sh_addr + DynamicSec->sh_size >
+            DynamicPhdr->p_vaddr + DynamicPhdr->p_memsz ||
+        DynamicSec->sh_addr < DynamicPhdr->p_vaddr)
+      WithColor::warning() <<
+        llvm::formatv("The SHT_DYNAMIC section '{0}' is not contained within the PT_DYNAMIC segment\n", Name);
+
+    if (DynamicSec->sh_addr != DynamicPhdr->p_vaddr)
+      WithColor::warning() <<
+        llvm::formatv("The SHT_DYNAMIC section '{0}' is not at the start of PT_DYNAMIC segment\n", Name);
+  }
+
+  return std::make_pair(DynamicPhdr, DynamicSec);
+}
+
 
 void IgnoreCtrlC(void) {
   struct sigaction sa;
