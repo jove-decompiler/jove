@@ -215,6 +215,14 @@ struct hook_t;
 #include <boost/serialization/vector.hpp>
 #include <boost/container_hash/extensions.hpp>
 
+#ifndef likely
+#define likely(x)   __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
 static void __warn(const char *file, int line);
 
 #ifndef WARN
@@ -2156,15 +2164,23 @@ int ProcessExportedFunctions(void) {
       for (const Elf_Dyn &Dyn : dynamic_table()) {
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
-          StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+          if (const char *p = (const char *)toMappedAddr(Dyn.getPtr()))
+            StringTableBegin = p;
           break;
         case llvm::ELF::DT_STRSZ:
           if (uint64_t sz = Dyn.getVal())
             StringTableSize = sz;
           break;
-        case llvm::ELF::DT_SYMTAB:
-          DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
+        case llvm::ELF::DT_SYMTAB: {
+          const void *p = toMappedAddr(Dyn.getPtr());
+          if (!p)
+            break;
+
+          DynSymRegion.Addr = p;
           DynSymRegion.EntSize = sizeof(Elf_Sym);
+          break;
+        }
+        default:
           break;
         }
       }
@@ -2295,7 +2311,23 @@ int ProcessExportedFunctions(void) {
       if (Sym.isUndefined() || Sym.getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      if (!ExpectedSymName) {
+        if (unlikely(opts::Verbose)) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+          }
+
+          WithColor::warning()
+              << llvm::formatv("could not get symbol name ({0})\n", Buf);
+        }
+
+        continue;
+      }
+
+      llvm::StringRef SymName = *ExpectedSymName;
 
       function_index_t FuncIdx;
       {
@@ -2684,7 +2716,19 @@ int ProcessDynamicSymbols(void) {
       if (Sym.isUndefined()) /* defined */
         continue;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      if (!ExpectedSymName) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+        }
+
+        WithColor::warning() << llvm::formatv("could not get symbol name ({0})\n", Buf);
+        continue;
+      }
+
+      llvm::StringRef SymName = *ExpectedSymName;
 
       //////////////////////////////////////////////////////
       //////////////////////////////////////////////////////
@@ -5123,7 +5167,16 @@ int CreateSectionGlobalVariables(void) {
   auto type_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(S.IsUndefined());
+#if 0
     assert(!S.Size);
+#else
+    if (!S.Size) {
+      if (opts::Verbose)
+        WithColor::warning() <<
+          llvm::formatv("type_of_addressof_undefined_data_relocation: S.Name={0} S.Size={1}\n",
+                        S.Name, S.Size);
+    }
+#endif
 
     unsigned Size;
 
@@ -5488,7 +5541,7 @@ int CreateSectionGlobalVariables(void) {
   auto constant_of_addressof_undefined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(S.IsUndefined());
-    assert(!S.Size);
+    WARN_ON(S.Size);
 
     llvm::GlobalVariable *GV = Module->getGlobalVariable(S.Name, false);
 
@@ -7359,7 +7412,20 @@ int ProcessDynamicSymbols2(void) {
       if (Sym.isUndefined()) /* defined */
         continue;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+
+      if (WARN_ON(!ExpectedSymName)) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+        }
+
+        WithColor::warning() << llvm::formatv("could not get symbol name ({0})\n", Buf);
+        continue;
+      }
+
+      llvm::StringRef SymName = *ExpectedSymName;
 
       //////////////////////////////////////////////////////
       //////////////////////////////////////////////////////
