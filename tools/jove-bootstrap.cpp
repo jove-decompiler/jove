@@ -5403,19 +5403,21 @@ void on_dynamic_linker_loaded(pid_t child,
     for (const Elf_Dyn &Dyn : dynamic_table()) {
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
-        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        if (const char *p = (const char *)toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = p;
         break;
       case llvm::ELF::DT_STRSZ:
         if (uint64_t sz = Dyn.getVal())
           StringTableSize = sz;
         break;
-
       case llvm::ELF::DT_SYMTAB:
-        DynSymRegion.Addr = toMappedAddr(Dyn.getPtr());
-        DynSymRegion.EntSize = sizeof(Elf_Sym);
+        if (const void *p = toMappedAddr(Dyn.getPtr())) {
+          DynSymRegion.Addr = p;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
         break;
       }
-    };
+    }
 
     if (StringTableBegin)
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
