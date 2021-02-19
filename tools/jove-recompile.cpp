@@ -596,8 +596,10 @@ int recompile(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     binary_t &b = Decompilation.Binaries[BIdx];
 
-    if (b.dynl.soname.empty())
+    if (b.dynl.soname.empty() && !b.IsExecutable) {
+      soname_map.insert({fs::path(b.Path).filename().string(), BIdx}); /* XXX */
       continue;
+    }
 
     if (soname_map.find(b.dynl.soname) != soname_map.end()) {
       WithColor::error() << llvm::formatv(
