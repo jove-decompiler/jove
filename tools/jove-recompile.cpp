@@ -339,14 +339,13 @@ int recompile(void) {
   if (!opts::UseLd.empty()) {
     if (opts::UseLd.compare("gold") == 0) {
       ld_path = ld_gold_path;
-    }
-
-    if (opts::UseLd.compare("bfd") == 0) {
+    } else if (opts::UseLd.compare("bfd") == 0) {
       ld_path = ld_bfd_path;
-    }
-
-    if (opts::UseLd.compare("lld") == 0) {
+    } else if (opts::UseLd.compare("lld") == 0) {
       ld_path = lld_path;
+    } else {
+      WithColor::error() << llvm::formatv("unknown linker \"{0}\"\n", opts::UseLd);
+      return 1;
     }
   }
 
