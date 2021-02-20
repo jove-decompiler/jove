@@ -19,7 +19,7 @@ on debian or ubuntu:
 apt-get install llvm-10 lld-9
 ```
 
-## Usage
+## Installation
 ```bash
 # 64-bit x86
 mkdir /opt/jove
@@ -30,7 +30,7 @@ mkdir /opt/jove32
 tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 ```
 
-# Examples
+# Usage
 ## `ls`
 ```bash
 export PATH=$PATH:/opt/jove/bin
