@@ -201,62 +201,7 @@ static basic_block_index_t translate_basic_block(binary_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-
-/// Represents a contiguous uniform range in the file. We cannot just create a
-/// range directly because when creating one of these from the .dynamic table
-/// the size, entity size and virtual address are different entries in arbitrary
-/// order (DT_REL, DT_RELSZ, DT_RELENT for example).
-struct DynRegionInfo {
-  DynRegionInfo() = default;
-  DynRegionInfo(const void *A, uint64_t S, uint64_t ES)
-      : Addr(A), Size(S), EntSize(ES) {}
-
-  /// Address in current address space.
-  const void *Addr = nullptr;
-  /// Size in bytes of the region.
-  uint64_t Size = 0;
-  /// Size of each entity in the region.
-  uint64_t EntSize = 0;
-
-  template <typename Type>
-    llvm::ArrayRef<Type> getAsArrayRef() const {
-    const Type *Start = reinterpret_cast<const Type *>(Addr);
-    if (!Start)
-      return {Start, Start};
-    if (EntSize != sizeof(Type) || Size % EntSize)
-    {
-      WARN();
-    }
-    return {Start, Start + (Size / EntSize)};
-  }
-};
-
-template <class T>
-static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
-
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
-  }
-  WithColor::error() << Buf << '\n';
-  exit(1);
-}
-
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
-#else
-#error
-#endif
-
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
+#include "elf.hpp"
 
 // taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
 static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
@@ -485,17 +430,6 @@ int add(void) {
     break;
   }
 
-  typedef typename ELFF::Elf_Dyn Elf_Dyn;
-  typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
-  typedef typename ELFF::Elf_Phdr Elf_Phdr;
-  typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
-  typedef typename ELFF::Elf_Shdr Elf_Shdr;
-  typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-  typedef typename ELFF::Elf_Sym Elf_Sym;
-  typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
-  typedef typename ELFF::Elf_Rela Elf_Rela;
-  typedef typename ELFF::Elf_Rel Elf_Rel;
-
   //
   // build section map
   //
@@ -624,66 +558,28 @@ int add(void) {
 
   disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
-  //
-  // iterate dynamic defined functions
-  //
-  auto checkDRI = [&E](DynRegionInfo DRI) -> DynRegionInfo {
-    if (DRI.Addr < E.base() ||
-        (const uint8_t *)DRI.Addr + DRI.Size > E.base() + E.getBufSize())
-    {
-      WARN();
-      return DRI;
-    }
-    return DRI;
-  };
-
-  llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-  DynRegionInfo DynamicTable;
-  {
-    auto createDRIFrom = [&E, &checkDRI](const Elf_Phdr *P,
-                                         uint64_t EntSize) -> DynRegionInfo {
-      return checkDRI({E.base() + P->p_offset, P->p_filesz, EntSize});
-    };
-
-    for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
-      if (Phdr.p_type == llvm::ELF::PT_DYNAMIC) {
-        DynamicTable = createDRIFrom(&Phdr, sizeof(Elf_Dyn));
-      }
-
-      if (Phdr.p_type != llvm::ELF::PT_LOAD || Phdr.p_filesz == 0)
-        continue;
-
-      LoadSegments.push_back(&Phdr);
-    }
-  }
-
-  std::sort(LoadSegments.begin(),
-            LoadSegments.end(),
-            [](const Elf_Phdr *PhdrA, const Elf_Phdr *PhdrB) -> bool {
-              return PhdrA->p_vaddr < PhdrB->p_vaddr;
-            });
+  DynRegionInfo DynamicTable(O.getFileName());
+  loadDynamicTable(&E, &O, DynamicTable);
 
   assert(DynamicTable.Addr);
 
-  DynRegionInfo DynSymRegion;
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  DynRegionInfo DynSymRegion(O.getFileName());
   llvm::StringRef DynSymtabName;
   llvm::StringRef DynamicStringTable;
 
   bool IsStaticallyLinked = true;
 
-  {
-    auto createDRIFrom = [&E, &checkDRI](const Elf_Shdr *S) -> DynRegionInfo {
-      return checkDRI({E.base() + S->sh_offset, S->sh_size, S->sh_entsize});
-    };
-
-    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      switch (Sec.sh_type) {
-      case llvm::ELF::SHT_DYNSYM:
-        DynSymRegion = createDRIFrom(&Sec);
-        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
-        break;
-      }
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    switch (Sec.sh_type) {
+    case llvm::ELF::SHT_DYNSYM:
+      DynSymRegion = createDRIFrom(&Sec, &O);
+      DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+      break;
     }
   }
 
@@ -692,40 +588,23 @@ int add(void) {
   // parse dynamic table
   //
   {
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
-
-    auto toMappedAddr = [&](uint64_t VAddr) -> const uint8_t * {
-      const Elf_Phdr *const *I =
-          std::upper_bound(LoadSegments.begin(), LoadSegments.end(), VAddr,
-                           [](uint64_t VAddr, const Elf_Phdr *Phdr) {
-                             return VAddr < Phdr->p_vaddr;
-                           });
-      if (I == LoadSegments.begin()) {
-        WARN();
-        return nullptr;
-      }
-      --I;
-      const Elf_Phdr &Phdr = **I;
-      uint64_t Delta = VAddr - Phdr.p_vaddr;
-      if (Delta >= Phdr.p_filesz) {
-        WARN();
-        return nullptr;
-      }
-      return E.base() + Phdr.p_offset + Delta;
-    };
-
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
-        StringTableBegin = (const char *)toMappedAddr(Dyn.getPtr());
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
         break;
       case llvm::ELF::DT_STRSZ:
         if (uint64_t sz = Dyn.getVal())
           StringTableSize = sz;
+        break;
+      case llvm::ELF::DT_SYMTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          DynSymRegion.Addr = *ExpectedPtr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
         break;
       case llvm::ELF::DT_NEEDED:
         IsStaticallyLinked = false;
