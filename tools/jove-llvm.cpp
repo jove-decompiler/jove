@@ -1149,36 +1149,33 @@ public:
     if (DtMipsPltGot || DtJmpRel) {
       if (!DtMipsPltGot) {
         WithColor::warning() << "Cannot find PLTGOT dynamic table tag.\n";
-        abort();
+      } else {
+        if (!DtJmpRel) {
+          WithColor::warning() << "Cannot find JMPREL dynamic table tag.\n";
+        } else {
+          PltSec = findNotEmptySectionByAddress(Obj, *DtMipsPltGot);
+          if (!PltSec) {
+            WithColor::warning() << llvm::formatv("There is no not empty PLTGOT section at {0}\n",
+                                                  llvm::Twine::utohexstr(*DtMipsPltGot));
+          } else {
+            PltRelSec = findNotEmptySectionByAddress(Obj, *DtJmpRel);
+            if (!PltRelSec) {
+              WithColor::error() << llvm::formatv("There is no not empty RELPLT section at {0}\n",
+                                                  llvm::Twine::utohexstr(*DtPltGot));
+            } else {
+              llvm::ArrayRef<uint8_t> PltContent =
+                  unwrapOrError(Obj->getSectionContents(PltSec));
+              PltEntries = Entries(reinterpret_cast<const Entry *>(PltContent.data()),
+                                   PltContent.size() / sizeof(Entry));
+
+              PltSymTable =
+                  unwrapOrError(Obj->getSection(PltRelSec->sh_link));
+              PltStrTable =
+                  unwrapOrError(Obj->getStringTableForSymtab(*PltSymTable));
+            }
+          }
+        }
       }
-
-      if (!DtJmpRel) {
-        WithColor::warning() << "Cannot find JMPREL dynamic table tag.\n";
-        abort();
-      }
-
-      PltSec = findNotEmptySectionByAddress(Obj, *DtMipsPltGot);
-      if (!PltSec) {
-        WithColor::warning() << llvm::formatv("There is no not empty PLTGOT section at {0}\n",
-                                              llvm::Twine::utohexstr(*DtMipsPltGot));
-      }
-
-      PltRelSec = findNotEmptySectionByAddress(Obj, *DtJmpRel);
-      if (!PltRelSec) {
-        WithColor::error() << llvm::formatv("There is no not empty RELPLT section at {0}\n",
-                                            llvm::Twine::utohexstr(*DtPltGot));
-        abort();
-      }
-
-      llvm::ArrayRef<uint8_t> PltContent =
-          unwrapOrError(Obj->getSectionContents(PltSec));
-      PltEntries = Entries(reinterpret_cast<const Entry *>(PltContent.data()),
-                           PltContent.size() / sizeof(Entry));
-
-      PltSymTable =
-          unwrapOrError(Obj->getSection(PltRelSec->sh_link));
-      PltStrTable =
-          unwrapOrError(Obj->getStringTableForSymtab(*PltSymTable));
     }
   }
 
@@ -3675,8 +3672,24 @@ int ProcessBinaryRelocations(void) {
       assert(Ent);
     }
 
+
+    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(DynamicStringTable);
+    if (!ExpectedSymName) {
+      std::string Buf;
+      {
+        llvm::raw_string_ostream OS(Buf);
+        llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+      }
+
+      WithColor::note() << llvm::formatv("MipsGOTParser: could not get sym name: {0}\n",
+                                         Buf);
+      continue;
+    }
+
+    llvm::StringRef SymName = *ExpectedSymName;
+
     llvm::outs() << llvm::formatv("GlobalEntry: {0} {1}\n", Ent,
-                                  unwrapOrError(Sym->getName(DynamicStringTable)));
+                                  SymName);
 
     relocation_t res;
     res.Type = relocation_t::TYPE::ADDRESSOF;
@@ -3686,7 +3699,7 @@ int ProcessBinaryRelocations(void) {
     {
       symbol_t sym;
 
-      sym.Name = unwrapOrError(Sym->getName(DynamicStringTable));
+      sym.Name = SymName;
       sym.Addr = is_undefined ? 0 : Sym->st_value;
       sym.Visibility.IsDefault = false;
 
