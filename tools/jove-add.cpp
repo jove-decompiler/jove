@@ -613,7 +613,7 @@ int add(void) {
         initFunctionAddr = Dyn.getVal();
         break;
       }
-    };
+    }
 
     if (StringTableBegin)
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
