@@ -124,10 +124,6 @@ JOVE_RT_SONAME := libjove_rt.so
 JOVE_RT_SO     := $(JOVE_RT_SONAME).0
 JOVE_RT        := $(BINDIR)/$(JOVE_RT_SO)
 
-JOVE_DYN_PRELOAD_SONAME := libjove_dyn_preload.so
-JOVE_DYN_PRELOAD_SO     := $(JOVE_DYN_PRELOAD_SONAME).0
-JOVE_DYN_PRELOAD        := $(BINDIR)/$(JOVE_DYN_PRELOAD_SO)
-
 #
 # TCG helpers (for each architecture)
 #
@@ -147,7 +143,7 @@ HELPERS_DFSAN_BITCODE := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper)
 HELPERS_ASSEMBLY := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).ll)
 HELPERS_DFSAN_ASSEMBLY := $(foreach helper,$($(ARCH)_HELPERS),$(BINDIR)/$(helper).dfsan.ll)
 
-all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY)
+all: $(UTILBINS) $(TOOLBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY)
 
 helpers: $(HELPERS_BITCODE)
 
@@ -183,11 +179,6 @@ $(JOVE_RT): lib/arch/$(ARCH)/rt.c
 	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -nostdlib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall -I lib -I lib/arch/$(ARCH) $<
 	@ln -sf $(JOVE_RT_SO) $(BINDIR)/$(JOVE_RT_SONAME)
 
-$(JOVE_DYN_PRELOAD): lib/jove-bootstrap/preload.c
-	@echo CC $<
-	@$(_LLVM_CC) -o $@ -shared -Wl,-soname=$(JOVE_DYN_PRELOAD_SONAME) -Ofast -fno-stack-protector -fPIC -g -Wall $<
-	@ln -sf $(JOVE_DYN_PRELOAD_SO) $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME)
-
 $(BINDIR)/jove.bc: lib/arch/$(ARCH)/jove.c
 	@echo CC $<
 	@$(_LLVM_CC) -o $@ -c -emit-llvm -I lib -Ofast -ffreestanding -fno-stack-protector -fPIC -g -Wall $<
@@ -203,14 +194,14 @@ VER := $(shell git log -n1 --format="%h")
 
 .PHONY: package
 package:
-	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(JOVE_DYN_PRELOAD) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt
+	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt
 ifndef PACKAGE_TARBALL
 	xz --threads=0 jove.$(VER)-$(ARCH).tar
 endif
 
 .PHONY: clean
 clean:
-	rm -rf $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(TOOLDEPS) $(UTILDEPS) $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE) $(JOVE_DYN_PRELOAD) $(BINDIR)/$(JOVE_DYN_PRELOAD_SONAME) $(BINDIR)/$(JOVE_RT_SONAME)
+	rm -rf $(TOOLBINS) $(UTILBINS) $(JOVE_RT) $(BINDIR)/jove.bc $(BINDIR)/jove.dfsan.bc $(TOOLDEPS) $(UTILDEPS) $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE) $(BINDIR)/$(JOVE_RT_SONAME)
 
 #
 # for extricating QEMU code
