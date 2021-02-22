@@ -3952,14 +3952,20 @@ int ProcessIFuncResolvers(void) {
   uintptr_t initFunctionAddr = 0;
 
   for (const Elf_Dyn &Dyn : dynamic_table()) {
-    switch (Dyn.d_tag) {
-    case llvm::ELF::DT_INIT:
-      initFunctionAddr = Dyn.getVal();
-      break;
+    if (Dyn.d_tag == llvm::ELF::DT_INIT) {
+      if (opts::Verbose)
+        WithColor::note() << llvm::formatv("DT_INIT: {0}\n", Dyn.getVal());
+
+      if (uint64_t X = Dyn.getVal()) {
+        initFunctionAddr = Dyn.getVal();
+        break;
+      }
     }
-  };
+  }
 
   if (initFunctionAddr) {
+    WithColor::note() << llvm::formatv("we think initFunctionAddr is {0:x}\n", initFunctionAddr);
+
     auto it = FuncMap.find(initFunctionAddr);
     assert(it != FuncMap.end());
 
