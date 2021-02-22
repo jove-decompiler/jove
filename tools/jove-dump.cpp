@@ -126,9 +126,10 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
   for (const auto &B : decompilation.Binaries) {
     llvm::DictScope __(Writer, B.Path.c_str());
 
-    Writer.printBoolean("IsDynamicLinker", B.IsDynamicLinker);
-    Writer.printBoolean("IsExecutable", B.IsExecutable);
-    Writer.printBoolean("IsVDSO", B.IsVDSO);
+    Writer.printBoolean("IsDynamicLinker",     B.IsDynamicLinker);
+    Writer.printBoolean("IsExecutable",        B.IsExecutable);
+    Writer.printBoolean("IsVDSO",              B.IsVDSO);
+    Writer.printBoolean("IsPIC",               B.IsPIC);
     Writer.printBoolean("IsDynamicallyLoaded", B.IsDynamicallyLoaded);
 
     const auto &ICFG = B.Analysis.ICFG;
