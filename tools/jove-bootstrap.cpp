@@ -3790,18 +3790,45 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     // (2) transfers control to a function (i.e. calling a function pointer)
     //
     bool isTailCall =
+        IsDefinitelyTailCall(ICFG, bb) ||
         IndBrInfo.binary_idx != binary_idx ||
         (boost::out_degree(bb, ICFG) == 0 &&
          BinStateVec[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
 
     if (isTailCall && boost::out_degree(bb, ICFG) > 0) {
       //
-      // okay. we thought this was a goto, but now we know it's a call.
+      // okay. we thought this was a goto, but now we know it's definitely a tail call.
       // translate all sucessors as functions, then store them into the dynamic
       // targets set for this bb. afterwards, delete the edges in the ICFG that
       // would originate from this basic block.
       //
-      WARN();
+      if (opts::Verbose)
+        WithColor::note() << llvm::formatv("{0}: we thought {1:x} was a goto, but now we know it to be a tail call. (out_degree is {2})\n",
+                                           __func__,
+                                           ICFG[bb].Addr,
+                                           boost::out_degree(bb, ICFG));
+
+      binary_t &binary = decompilation.Binaries[binary_idx];
+
+      while (boost::out_degree(bb, ICFG) > 0) {
+        icfg_t::out_edge_iterator e_it, e_it_end;
+        std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
+        assert(e_it != e_it_end);
+
+        control_flow_t cf(*e_it);
+
+        basic_block_t succ = boost::target(cf, ICFG);
+
+        function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
+                                                   ICFG[succ].Addr, brkpt_count);
+        assert(is_function_index_valid(FIdx));
+        ICFG[bb].DynTargets.insert({binary_idx, FIdx});
+        binary.Analysis.Functions.at(FIdx).IsABI = true;
+
+        boost::remove_edge(cf, ICFG);
+      }
+
+      assert(boost::out_degree(bb, ICFG) == 0);
     }
 
     if (isTailCall) {
