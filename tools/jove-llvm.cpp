@@ -1895,12 +1895,8 @@ int ProcessBinaryTLSSymbols(void) {
       }
     };
 
-    if (StringTableBegin) {
-      assert(StringTableSize);
-
-      if (DynamicStringTable.size() < StringTableSize)
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-    }
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -2045,12 +2041,8 @@ int ProcessExportedFunctions(void) {
         }
       }
 
-      if (StringTableBegin) {
-	assert(StringTableSize);
-
-	if (DynamicStringTable.size() < StringTableSize)
-	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-      }
+      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -2417,12 +2409,8 @@ int ProcessDynamicSymbols(void) {
         }
       };
 
-      if (StringTableBegin) {
-	assert(StringTableSize);
-
-	if (DynamicStringTable.size() < StringTableSize)
-	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-      }
+      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -3304,12 +3292,8 @@ int ProcessBinaryRelocations(void) {
           break;
       }
 
-      if (StringTableBegin) {
-	assert(StringTableSize);
-
-	if (DynamicStringTable.size() < StringTableSize)
-	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-      }
+      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
   }
 
@@ -3997,12 +3981,8 @@ int ProcessIFuncResolvers(void) {
       }
     };
 
-    if (StringTableBegin) {
-      assert(StringTableSize);
-
-      if (DynamicStringTable.size() < StringTableSize)
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-    }
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -7012,14 +6992,10 @@ int ProcessDynamicSymbols2(void) {
 	  }
 	  break;
         }
-      };
-
-      if (StringTableBegin) {
-	assert(StringTableSize);
-
-	if (DynamicStringTable.size() < StringTableSize)
-	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
       }
+
+      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -7514,14 +7490,10 @@ decipher_copy_relocation(const symbol_t &S) {
 	  }
 	  break;
         }
-      };
-
-      if (StringTableBegin) {
-	assert(StringTableSize);
-
-	if (DynamicStringTable.size() < StringTableSize)
-	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
       }
+
+      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {

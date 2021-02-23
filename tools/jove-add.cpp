@@ -646,12 +646,8 @@ int add(void) {
       }
     }
 
-    if (StringTableBegin) {
-      assert(StringTableSize);
-
-      if (DynamicStringTable.size() < StringTableSize)
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-    }
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   //

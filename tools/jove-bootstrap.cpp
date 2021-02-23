@@ -5306,12 +5306,8 @@ void on_dynamic_linker_loaded(pid_t child,
       }
     }
 
-    if (StringTableBegin) {
-      assert(StringTableSize);
-
-      if (DynamicStringTable.size() < StringTableSize)
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-    }
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {

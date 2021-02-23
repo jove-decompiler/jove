@@ -1413,12 +1413,8 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
       }
     }
 
-    if (StringTableBegin) {
-      assert(StringTableSize);
-
-      if (DynamicStringTable.size() < StringTableSize)
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-    }
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   if (opts::Verbose)
