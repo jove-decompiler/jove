@@ -314,7 +314,7 @@ int main(int argc, char **argv) {
     }
 
     printf("static const uint8_t tcg_global_by_offset_lookup_table[%u] = {\n"
-           "[0 ... %u] = 0xff,\n", max_offset + 1, max_offset);
+           "[0 ... %u - 1] = 0xff,\n", max_offset + 1, max_offset);
 
     for (int i = 0; i < tcg._ctx.nb_globals; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
