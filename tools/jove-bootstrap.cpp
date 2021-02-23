@@ -5292,15 +5292,26 @@ void on_dynamic_linker_loaded(pid_t child,
         break;
       case llvm::ELF::DT_SYMTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          DynSymRegion.Addr = *ExpectedPtr;
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
       }
     }
 
-    if (StringTableBegin)
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    if (StringTableBegin) {
+      assert(StringTableSize);
+
+      if (DynamicStringTable.size() < StringTableSize)
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {

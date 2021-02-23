@@ -1830,15 +1830,25 @@ int ProcessBinaryTLSSymbols(void) {
   assert(DynamicTable.Addr);
 
   DynRegionInfo DynSymRegion(O.getFileName());
-  llvm::StringRef DynSymtabName;
   llvm::StringRef DynamicStringTable;
 
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
+    if (Sec.sh_type == llvm::ELF::SHT_DYNSYM) {
       DynSymRegion = createDRIFrom(&Sec, &O);
-      DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+
+      if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
+	DynamicStringTable = *ExpectedStringTable;
+      } else {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
+        }
+
+	WithColor::warning() <<
+	  llvm::formatv("couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
+      }
+
       break;
     }
   }
@@ -1868,7 +1878,14 @@ int ProcessBinaryTLSSymbols(void) {
         break;
       case llvm::ELF::DT_SYMTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          DynSymRegion.Addr = *ExpectedPtr;
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
@@ -1878,8 +1895,12 @@ int ProcessBinaryTLSSymbols(void) {
       }
     };
 
-    if (StringTableBegin)
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    if (StringTableBegin) {
+      assert(StringTableSize);
+
+      if (DynamicStringTable.size() < StringTableSize)
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -2006,19 +2027,30 @@ int ProcessExportedFunctions(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-            DynSymRegion.Addr = *ExpectedPtr;
-            DynSymRegion.EntSize = sizeof(Elf_Sym);
-          }
-          break;
+	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	    const uint8_t *Ptr = *ExpectedPtr;
+
+	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	      WithColor::warning()
+		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		     "the location of the dynamic symbol table\n";
+
+	    DynSymRegion.Addr = Ptr;
+	    DynSymRegion.EntSize = sizeof(Elf_Sym);
+	  }
+	  break;
 
         default:
           break;
         }
       }
 
-      if (StringTableBegin)
-        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin) {
+	assert(StringTableSize);
+
+	if (DynamicStringTable.size() < StringTableSize)
+	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -2370,16 +2402,27 @@ int ProcessDynamicSymbols(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-            DynSymRegion.Addr = *ExpectedPtr;
-            DynSymRegion.EntSize = sizeof(Elf_Sym);
-          }
-          break;
+	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	    const uint8_t *Ptr = *ExpectedPtr;
+
+	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	      WithColor::warning()
+		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		     "the location of the dynamic symbol table\n";
+
+	    DynSymRegion.Addr = Ptr;
+	    DynSymRegion.EntSize = sizeof(Elf_Sym);
+	  }
+	  break;
         }
       };
 
-      if (StringTableBegin)
-        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin) {
+	assert(StringTableSize);
+
+	if (DynamicStringTable.size() < StringTableSize)
+	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -3245,17 +3288,28 @@ int ProcessBinaryRelocations(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-            DynSymRegion.Addr = *ExpectedPtr;
-            DynSymRegion.EntSize = sizeof(Elf_Sym);
-          }
-          break;
+	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	    const uint8_t *Ptr = *ExpectedPtr;
+
+	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	      WithColor::warning()
+		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		     "the location of the dynamic symbol table\n";
+
+	    DynSymRegion.Addr = Ptr;
+	    DynSymRegion.EntSize = sizeof(Elf_Sym);
+	  }
+	  break;
         default:
           break;
       }
 
-      if (StringTableBegin)
-        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin) {
+	assert(StringTableSize);
+
+	if (DynamicStringTable.size() < StringTableSize)
+	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
     }
   }
 
@@ -3928,16 +3982,27 @@ int ProcessIFuncResolvers(void) {
           StringTableSize = sz;
         break;
       case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          DynSymRegion.Addr = *ExpectedPtr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
+	if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	  const uint8_t *Ptr = *ExpectedPtr;
+
+	  if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	    WithColor::warning()
+		<< "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		   "the location of the dynamic symbol table\n";
+
+	  DynSymRegion.Addr = Ptr;
+	  DynSymRegion.EntSize = sizeof(Elf_Sym);
+	}
+	break;
       }
     };
 
-    if (StringTableBegin)
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    if (StringTableBegin) {
+      assert(StringTableSize);
+
+      if (DynamicStringTable.size() < StringTableSize)
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -6934,16 +6999,27 @@ int ProcessDynamicSymbols2(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-            DynSymRegion.Addr = *ExpectedPtr;
-            DynSymRegion.EntSize = sizeof(Elf_Sym);
-          }
-          break;
+	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	    const uint8_t *Ptr = *ExpectedPtr;
+
+	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	      WithColor::warning()
+		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		     "the location of the dynamic symbol table\n";
+
+	    DynSymRegion.Addr = Ptr;
+	    DynSymRegion.EntSize = sizeof(Elf_Sym);
+	  }
+	  break;
         }
       };
 
-      if (StringTableBegin)
-        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin) {
+	assert(StringTableSize);
+
+	if (DynamicStringTable.size() < StringTableSize)
+	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -7425,16 +7501,27 @@ decipher_copy_relocation(const symbol_t &S) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-            DynSymRegion.Addr = *ExpectedPtr;
-            DynSymRegion.EntSize = sizeof(Elf_Sym);
-          }
-          break;
+	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+	    const uint8_t *Ptr = *ExpectedPtr;
+
+	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+	      WithColor::warning()
+		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+		     "the location of the dynamic symbol table\n";
+
+	    DynSymRegion.Addr = Ptr;
+	    DynSymRegion.EntSize = sizeof(Elf_Sym);
+	  }
+	  break;
         }
       };
 
-      if (StringTableBegin)
-        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin) {
+	assert(StringTableSize);
+
+	if (DynamicStringTable.size() < StringTableSize)
+	  DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {

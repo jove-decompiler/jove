@@ -1396,7 +1396,14 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
         break;
       case llvm::ELF::DT_SYMTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          DynSymRegion.Addr = *ExpectedPtr;
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
@@ -1406,8 +1413,12 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
       }
     }
 
-    if (StringTableBegin && StringTableSize)
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    if (StringTableBegin) {
+      assert(StringTableSize);
+
+      if (DynamicStringTable.size() < StringTableSize)
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
   }
 
   if (opts::Verbose)
