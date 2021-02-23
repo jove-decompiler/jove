@@ -1970,32 +1970,10 @@ on_insn_boundary:
       if (it != BBMap.end()) {
         const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
 
-        if (opts::Verbose)
-          WithColor::error() << "can't translate further ["
-                             << (fmt("%#lx") % intervl.lower()).str()
-                             << ", "
-                             << (fmt("%#lx") % intervl.upper()).str()
-                             << "), BBMap already contains ["
-                             << (fmt("%#lx") % _intervl.lower()).str()
-                             << ", "
-                             << (fmt("%#lx") % _intervl.upper()).str()
-                             << ")\n";
 
         assert(intervl.lower() < _intervl.lower());
 
         //assert(intervl.upper() == _intervl.upper());
-
-        if (opts::Verbose && intervl.upper() != _intervl.upper()) {
-          WithColor::warning() << "we've translated into another basic block:"
-                               << (fmt("%#lx") % intervl.lower()).str()
-                               << ", "
-                               << (fmt("%#lx") % intervl.upper()).str()
-                               << "), BBMap already contains ["
-                               << (fmt("%#lx") % _intervl.lower()).str()
-                               << ", "
-                               << (fmt("%#lx") % _intervl.upper()).str()
-                               << ")\n";
-        }
 
         //
         // solution here is to prematurely end the basic block with a NONE
