@@ -22,17 +22,18 @@ struct DynRegionInfo {
     if (!Start)
       return {Start, Start};
     if (EntSize != sizeof(Type) || Size % EntSize) {
-      WARN();
-
 #if 0
       // TODO: Add a section index to this warning.
       reportWarning(createError("invalid section size (" + Twine(Size) +
                                 ") or entity size (" + Twine(EntSize) + ")"),
                     FileName);
+#else
+      WARN();
 #endif
 
       return {Start, Start};
     }
+
     return {Start, Start + (Size / EntSize)};
   }
 };
