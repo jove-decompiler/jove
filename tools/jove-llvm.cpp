@@ -1854,6 +1854,9 @@ int ProcessBinaryTLSSymbols(void) {
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -1990,6 +1993,9 @@ int ProcessExportedFunctions(void) {
       uint64_t StringTableSize = 0;
 
       for (const Elf_Dyn &Dyn : dynamic_table()) {
+	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+	  break; /* marks end of dynamic table. */
+
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
           if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -2351,6 +2357,9 @@ int ProcessDynamicSymbols(void) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
+	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+	  break; /* marks end of dynamic table. */
+
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
           if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -3223,6 +3232,9 @@ int ProcessBinaryRelocations(void) {
     uint64_t StringTableSize = 0;
 
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
       switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
           if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -3903,6 +3915,9 @@ int ProcessIFuncResolvers(void) {
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -3952,6 +3967,9 @@ int ProcessIFuncResolvers(void) {
   uintptr_t initFunctionAddr = 0;
 
   for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+      break; /* marks end of dynamic table. */
+
     if (Dyn.d_tag == llvm::ELF::DT_INIT) {
       if (opts::Verbose)
         WithColor::note() << llvm::formatv("DT_INIT: {0}\n", Dyn.getVal());
@@ -6356,6 +6374,9 @@ int CreateSectionGlobalVariables(void) {
     uintptr_t initFunctionAddr = 0;
 
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_INIT:
         initFunctionAddr = Dyn.getVal();
@@ -6900,6 +6921,9 @@ int ProcessDynamicSymbols2(void) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
+	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+	  break; /* marks end of dynamic table. */
+
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
           if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -7388,6 +7412,9 @@ decipher_copy_relocation(const symbol_t &S) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
+	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+	  break; /* marks end of dynamic table. */
+
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
           if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))

@@ -5278,6 +5278,9 @@ void on_dynamic_linker_loaded(pid_t child,
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))

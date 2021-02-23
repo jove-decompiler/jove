@@ -568,20 +568,37 @@ int add(void) {
   };
 
   DynRegionInfo DynSymRegion(O.getFileName());
-  llvm::StringRef DynSymtabName;
   llvm::StringRef DynamicStringTable;
 
   bool IsStaticallyLinked = true;
 
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
+    if (Sec.sh_type == llvm::ELF::SHT_DYNSYM) {
       DynSymRegion = createDRIFrom(&Sec, &O);
-      DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+
+      if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
+	DynamicStringTable = *ExpectedStringTable;
+      } else {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
+        }
+
+	WithColor::warning() <<
+	  llvm::formatv("couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
+      }
+
       break;
     }
   }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  std::set<uintptr_t> FunctionEntrypoints;
+  std::set<uintptr_t> BasicBlockAddresses;
 
   uintptr_t initFunctionAddr = 0;
   //
@@ -591,6 +608,13 @@ int add(void) {
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
     for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
+	break; /* marks end of dynamic table. */
+
+      llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
+                                    __FILE__, __LINE__,
+                                    E.getDynamicTagAsString(Dyn.getTag()));
+
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
@@ -602,7 +626,14 @@ int add(void) {
         break;
       case llvm::ELF::DT_SYMTAB:
         if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          DynSymRegion.Addr = *ExpectedPtr;
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
@@ -615,13 +646,13 @@ int add(void) {
       }
     }
 
-    if (StringTableBegin)
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
+    if (StringTableBegin) {
+      assert(StringTableSize);
 
-  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
+      if (DynamicStringTable.size() < StringTableSize)
+	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+  }
 
   //
   // if the ELF has a PT_INTERP program header, then we'll explore the entry
@@ -660,11 +691,8 @@ int add(void) {
     binary.Analysis.EntryFunction = invalid_function_index;
   }
 
-  std::set<uintptr_t> FunctionEntrypoints;
-  std::set<uintptr_t> BasicBlockAddresses;
-
   //
-  // search symbols
+  // search local symbols
   //
   {
     const Elf_Shdr *SymTab = nullptr;
@@ -753,6 +781,7 @@ int add(void) {
           if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
             assert(!SymTab);
             SymTab = &Sect;
+            break;
           }
         }
 
@@ -810,8 +839,19 @@ int add(void) {
       continue;
 
     llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-    if (!ExpectedSymName)
+    if (!ExpectedSymName) {
+      if (opts::Verbose) {
+	std::string Buf;
+	{
+	  llvm::raw_string_ostream OS(Buf);
+	  llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+	}
+
+	WithColor::error() << llvm::formatv("{0}: could not get symbol name: {1}\n",
+					   __func__, Buf);
+      }
       continue;
+    }
 
     llvm::StringRef SymName = *ExpectedSymName;
     llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
