@@ -136,11 +136,17 @@ int extract(void) {
     return 1;
   }
 
+  WithColor::note() << llvm::formatv("extracting binaries into {0}\n",
+                                     opts::OutDir.c_str());
+
   for (binary_t &b : Decompilation.Binaries) {
-    fs::path out_path = fs::path(opts::OutDir) / fs::path(b.Path).filename();
+    assert(b.Path[0] == '/');
+
+    fs::path chrooted_path(std::string(opts::OutDir) + b.Path);
+    fs::create_directories(chrooted_path.parent_path());
 
     {
-      std::ofstream ofs(out_path.c_str());
+      std::ofstream ofs(chrooted_path.c_str());
 
       ofs.write(reinterpret_cast<const char *>(&b.Data[0]), b.Data.size());
     }
