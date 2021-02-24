@@ -140,6 +140,8 @@ int init(void) {
     return 1;
   }
 
+  const bool firmadyne = fs::exists("/firmadyne/libnvram.so");
+
   const pid_t pid = fork();
 
   //
@@ -162,7 +164,7 @@ int init(void) {
 
     env_vec.push_back("LD_TRACE_LOADED_OBJECTS=1");
 
-    if (fs::exists("/firmadyne/libnvram.so"))
+    if (firmadyne)
       env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
     env_vec.push_back(nullptr);
@@ -326,6 +328,23 @@ int init(void) {
   final_decompilation.Binaries.at(1).IsDynamicLinker = true;
   if (HasVDSO())
     final_decompilation.Binaries.at(2).IsVDSO = true;
+
+  //
+  // firmadyne janky hack
+  //
+  if (firmadyne) {
+    for (binary_t &b : final_decompilation.Binaries) {
+      if (b.Path.find("firmadyne") != std::string::npos) {
+        b.IsDynamicallyLoaded = true;
+        goto found;
+      }
+    }
+
+    assert(false && "firmadyne DSO not found?");
+
+found:
+    ;
+  }
 
   if (fs::exists(opts::Output)) {
     if (opts::Verbose)
