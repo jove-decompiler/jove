@@ -938,7 +938,8 @@ int recompile(void) {
       if (opts::UseLd.compare("lld") == 0)
         arg_vec.push_back("--allow-shlib-undefined");
 
-      arg_vec.push_back(rtld_path);
+      if (rtld_path && fs::exists(rtld_path)) /* XXX */
+	arg_vec.push_back(rtld_path);
 
       arg_vec.push_back(nullptr);
 
@@ -1002,13 +1003,15 @@ void worker(const dso_graph_t &dso_graph) {
     if (!pid) {
       IgnoreCtrlC();
 
+      std::string BIdx_arg(std::to_string(BIdx));
+
       std::vector<const char *> arg_vec = {
         jove_llvm_path.c_str(),
 
         "-o", bcfp.c_str(),
         "--version-script", mapfp.c_str(),
 
-        "-b", binary_filename.c_str(),
+        "-b", BIdx_arg.c_str(),
 
         "-d", opts::jv.c_str(),
       };
