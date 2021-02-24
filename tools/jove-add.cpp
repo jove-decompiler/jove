@@ -573,24 +573,55 @@ int add(void) {
   bool IsStaticallyLinked = true;
 
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    if (Sec.sh_type == llvm::ELF::SHT_DYNSYM) {
+    switch (Sec.sh_type) {
+    case llvm::ELF::SHT_DYNSYM:
       DynSymRegion = createDRIFrom(&Sec, &O);
-
-      if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
-	DynamicStringTable = *ExpectedStringTable;
-      } else {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
-        }
-
-	WithColor::warning() <<
-	  llvm::formatv("couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
-      }
-
+      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
       break;
     }
+  }
+
+  //
+  // parse dynamic table
+  //
+  {
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
+        break;
+      case llvm::ELF::DT_STRSZ:
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
+        break;
+      case llvm::ELF::DT_SYMTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
+        break;
+
+      default:
+        break;
+      }
+    }
+
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
