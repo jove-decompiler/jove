@@ -927,6 +927,13 @@ int recompile(void) {
           continue;
 #endif
 
+        auto it = soname_map.find(needed);
+        if (it == soname_map.end()) {
+          WithColor::warning()
+              << llvm::formatv("no entry in soname_map for {0}\n", needed);
+          continue;
+        }
+
         needed_arg_vec.push_back(std::string(":") + needed);
       }
 
