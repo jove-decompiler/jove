@@ -169,12 +169,12 @@ static cl::alias SyscallsAlias("s", cl::desc("Alias for -syscalls."),
                                cl::aliasopt(Syscalls),
                                cl::cat(JoveCategory));
 
-static cl::opt<bool> ScanLinkMap("scan-link-map",
+static cl::opt<bool> PrintLinkMap("print-link-map",
                                  cl::desc("Always scan link map"),
                                  cl::cat(JoveCategory));
 
 static cl::alias ScanLinkMapAlias("l", cl::desc("Alias for -scan-link-map."),
-                                  cl::aliasopt(ScanLinkMap), cl::cat(JoveCategory));
+                                  cl::aliasopt(PrintLinkMap), cl::cat(JoveCategory));
 
 static cl::opt<unsigned> PID("attach",
                              cl::desc("attach to existing process PID"),
@@ -1351,7 +1351,7 @@ int TracerLoop(pid_t child) {
           syscall_state.pc = pc;
           syscall_state.dir = dir;
 
-          if (opts::ScanLinkMap)
+          if (opts::PrintLinkMap)
             scan_rtld_link_map(child, tcg, dis);
 
           if (!BinFoundVec.all())
@@ -4906,17 +4906,11 @@ void scan_rtld_link_map(pid_t child,
       WithColor::error() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
   }
 
-  if (opts::Verbose)
-    WithColor::note() << llvm::formatv("{0}: r_dbg.r_state={1}, r_dbg.r_map={2}\n",
-                                       __func__,
-                                       r_dbg.r_state,
-                                       r_dbg.r_map);
-
-  if (r_dbg.r_state == r_debug::RT_ADD ||
-      r_dbg.r_state == r_debug::RT_DELETE)
-    return;
-
-  WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT);
+  if (opts::Verbose) {
+    WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
+            r_dbg.r_state != r_debug::RT_ADD &&
+            r_dbg.r_state != r_debug::RT_DELETE);
+  }
 
   if (!r_dbg.r_map)
     return;
@@ -4939,9 +4933,9 @@ void scan_rtld_link_map(pid_t child,
       std::string s =
           _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
 
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("[link_map] l_addr={0}, l_name={1}\n",
-                                      lm.l_addr, s);
+      if (opts::PrintLinkMap)
+        llvm::errs() << llvm::formatv("[link_map] l_addr={0} l_name={1}\n",
+                                      (void *)lm.l_addr, s);
 
       if (!s.empty() && s.front() == '/' && fs::exists(s)) {
         fs::path path = fs::canonical(s);
@@ -4961,8 +4955,10 @@ void scan_rtld_link_map(pid_t child,
 
     if (newbin)
       search_address_space_for_binaries(child, dis);
-  } catch (...) {
-    ;
+  } catch (const std::exception &e) {
+    if (opts::Verbose)
+      WithColor::warning() << llvm::formatv(
+          "{0}: couldn't read link map: {1}\n", __func__, e.what());
   }
 }
 
