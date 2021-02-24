@@ -572,6 +572,12 @@ static void sighandler(int no) {
   }
 }
 
+static void InvalidateAllFunctionAnalyses(void) {
+  for (binary_t &binary : decompilation.Binaries)
+    for (function_t &f : binary.Analysis.Functions)
+      f.InvalidateAnalysis();
+}
+
 int TracerLoop(pid_t child) {
   //
   // first, install signal handler so the user can gracefully detach.
@@ -1493,6 +1499,67 @@ int TracerLoop(pid_t child) {
     sigaction(SIGINT, &sa, nullptr);
   }
 
+  {
+    //
+    // fix ambiguous indirect jumps. why do we do this here? because this
+    // process involves removing edges from the graph, which can be messy.
+    //
+    bool Changed = false;
+
+    for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+      auto &Binary = decompilation.Binaries[BIdx];
+      auto &ICFG = Binary.Analysis.ICFG;
+
+      auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
+        icfg_t::vertex_iterator vi, vi_end;
+        for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
+          basic_block_t bb = *vi;
+
+          if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
+            continue;
+
+          if (IsDefinitelyTailCall(ICFG, bb) &&
+              boost::out_degree(bb, ICFG) > 0) {
+            //
+            // we thought this was a goto, but now we know it's definitely a tail call.
+            // translate all sucessors as functions, then store them into the dynamic
+            // targets set for this bb. afterwards, delete the edges in the ICFG that
+            // would originate from this basic block.
+            //
+            icfg_t::out_edge_iterator e_it, e_it_end;
+            for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
+                 e_it != e_it_end; ++e_it) {
+              control_flow_t cf(*e_it);
+
+              basic_block_t succ = boost::target(cf, ICFG);
+
+              unsigned brkpt_count = 0;
+              function_index_t FIdx = translate_function(child, BIdx, tcg, dis,
+                                                         ICFG[succ].Addr, brkpt_count);
+              assert(is_function_index_valid(FIdx));
+              ICFG[bb].DynTargets.insert({BIdx, FIdx});
+              Binary.Analysis.Functions.at(FIdx).IsABI = true;
+            }
+
+            boost::clear_out_edges(bb, ICFG);
+            return true;
+          }
+        }
+
+        return false;
+      };
+
+      while (fix_ambiguous_indirect_jumps())
+        Changed = true;
+    }
+
+    if (Changed)
+      InvalidateAllFunctionAnalyses();
+
+    if (opts::Verbose && Changed)
+      llvm::errs() << "fixed ambiguous indirect jumps.\n";
+  }
+
   //
   // write decompilation
   //
@@ -1672,12 +1739,6 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
-}
-
-static void InvalidateAllFunctionAnalyses(void) {
-  for (binary_t &binary : decompilation.Binaries)
-    for (function_t &f : binary.Analysis.Functions)
-      f.InvalidateAnalysis();
 }
 
 static basic_block_index_t translate_basic_block(pid_t,
@@ -2296,8 +2357,7 @@ bool does_function_definitely_return(binary_index_t BIdx,
                BasicBlocks.end(),
                std::back_inserter(ExitBasicBlocks),
                [&](basic_block_t bb) -> bool {
-                 return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
-                        IsDefinitelyTailCall(ICFG, bb);
+                 return IsExitBlock(ICFG, bb);
                });
 
   return !ExitBasicBlocks.empty();
@@ -3772,42 +3832,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         IndBrInfo.binary_idx != binary_idx ||
         (boost::out_degree(bb, ICFG) == 0 &&
          BinStateVec[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
-
-    if (isTailCall && boost::out_degree(bb, ICFG) > 0) {
-      //
-      // okay. we thought this was a goto, but now we know it's definitely a tail call.
-      // translate all sucessors as functions, then store them into the dynamic
-      // targets set for this bb. afterwards, delete the edges in the ICFG that
-      // would originate from this basic block.
-      //
-      if (opts::Verbose)
-        WithColor::note() << llvm::formatv("{0}: we thought {1:x} was a goto, but now we know it to be a tail call. (out_degree is {2})\n",
-                                           __func__,
-                                           ICFG[bb].Addr,
-                                           boost::out_degree(bb, ICFG));
-
-      binary_t &binary = decompilation.Binaries[binary_idx];
-
-      while (boost::out_degree(bb, ICFG) > 0) {
-        icfg_t::out_edge_iterator e_it, e_it_end;
-        std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-        assert(e_it != e_it_end);
-
-        control_flow_t cf(*e_it);
-
-        basic_block_t succ = boost::target(cf, ICFG);
-
-        function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
-                                                   ICFG[succ].Addr, brkpt_count);
-        assert(is_function_index_valid(FIdx));
-        ICFG[bb].DynTargets.insert({binary_idx, FIdx});
-        binary.Analysis.Functions.at(FIdx).IsABI = true;
-
-        boost::remove_edge(cf, ICFG);
-      }
-
-      assert(boost::out_degree(bb, ICFG) == 0);
-    }
 
     if (isTailCall) {
       function_index_t f_idx =

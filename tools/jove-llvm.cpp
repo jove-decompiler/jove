@@ -129,6 +129,7 @@ struct hook_t;
 
 #include "tcgcommon.hpp"
 
+#include <cctype>
 #include <tuple>
 #include <memory>
 #include <sstream>
@@ -914,6 +915,25 @@ int ParseDecompilation(void) {
 }
 
 int FindBinary(void) {
+  if (opts::Binary.empty())
+    return 1;
+
+  if (std::isdigit(opts::Binary[0])) {
+    //
+    // interpret input as an index of the binary to translate
+    //
+    int idx = atoi(opts::Binary.c_str());
+
+    if (idx < 0 || idx >= Decompilation.Binaries.size()) {
+      WithColor::error() << llvm::formatv("{0}: invalid binary index supplied\n",
+                                          __func__);
+      return 1;
+    }
+
+    BinaryIndex = idx;
+    return 0;
+  }
+
   for (unsigned idx = 0; idx < Decompilation.Binaries.size(); ++idx) {
     binary_t &binary = Decompilation.Binaries[idx];
 
@@ -1320,8 +1340,7 @@ int InitStateForBinaries(void) {
                    f.BasicBlocks.end(),
                    std::back_inserter(f.ExitBasicBlocks),
                    [&](basic_block_t bb) -> bool {
-                     return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
-                            IsDefinitelyTailCall(ICFG, bb);
+                     return IsExitBlock(ICFG, bb);
                    });
     }
 

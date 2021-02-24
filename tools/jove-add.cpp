@@ -710,8 +710,17 @@ int add(void) {
           continue;
 
         llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(StrTable);
-        if (!ExpectedSymName)
+        if (!ExpectedSymName) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+          }
+
+          WithColor::error() << llvm::formatv("{0}:{1}: could not get symbol name: {2}\n",
+                                             __FILE__, __LINE__, Buf);
           continue;
+        }
 
         llvm::StringRef SymName = *ExpectedSymName;
 
@@ -1534,8 +1543,7 @@ bool does_function_definitely_return(binary_index_t BIdx,
                BasicBlocks.end(),
                std::back_inserter(ExitBasicBlocks),
                [&](basic_block_t bb) -> bool {
-                 return ICFG[bb].Term.Type == TERMINATOR::RETURN ||
-                        IsDefinitelyTailCall(ICFG, bb);
+                 return IsExitBlock(ICFG, bb);
                });
 
   return !ExitBasicBlocks.empty();

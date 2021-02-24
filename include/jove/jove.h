@@ -157,10 +157,22 @@ inline basic_block_t NullBasicBlock(void) {
       interprocedural_control_flow_graph_t>::null_vertex();
 }
 
-inline bool IsDefinitelyTailCall(icfg_t &ICFG, basic_block_t bb) {
-  return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-         boost::out_degree(bb, ICFG) == 0 &&
-         !ICFG[bb].DynTargets.empty();
+inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
+  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+#ifdef WARN_ON
+  WARN_ON(boost::out_degree(bb, ICFG) > 0);
+#endif
+
+  return !ICFG[bb].DynTargets.empty();
+}
+
+inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
+  auto T = ICFG[bb].Term.Type;
+
+  return T == TERMINATOR::RETURN ||
+        (T == TERMINATOR::INDIRECT_JUMP &&
+         IsDefinitelyTailCall(ICFG, bb));
 }
 
 struct function_t {
