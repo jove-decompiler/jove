@@ -106,20 +106,24 @@ static DynRegionInfo createDRIFrom(const Elf_Shdr *S, const ELFO *ObjF) {
                    S->sh_entsize, ObjF->getFileName()}, ObjF);
 }
 
-static void loadDynamicTable(const ELFF *Obj,
-                             const ELFO *ObjF,
-                             DynRegionInfo &DynamicTable) {
+static uintptr_t loadDynamicTable(const ELFF *Obj,
+                                  const ELFO *ObjF,
+                                  DynRegionInfo &DynamicTable) {
   const Elf_Phdr *DynamicPhdr;
   const Elf_Shdr *DynamicSec;
   std::tie(DynamicPhdr, DynamicSec) = findDynamic(ObjF, Obj);
   if (!DynamicPhdr && !DynamicSec)
-    return;
+    return 0;
+
+  uintptr_t res = 0;
 
   DynRegionInfo FromPhdr(ObjF->getFileName());
   bool IsPhdrTableValid = false;
   if (DynamicPhdr) {
     FromPhdr = createDRIFrom(DynamicPhdr, sizeof(Elf_Dyn), ObjF);
     IsPhdrTableValid = !FromPhdr.getAsArrayRef<Elf_Dyn>().empty();
+
+    res = DynamicPhdr->p_vaddr;
   }
 
   // Locate the dynamic table described in a section header.
@@ -133,6 +137,8 @@ static void loadDynamicTable(const ELFF *Obj,
         checkDRI({ObjF->getELFFile()->base() + DynamicSec->sh_offset,
                   DynamicSec->sh_size, sizeof(Elf_Dyn), ObjF->getFileName()}, ObjF);
     IsSecTableValid = !FromSec.getAsArrayRef<Elf_Dyn>().empty();
+
+    res = DynamicSec->sh_addr;
   }
 
   // When we only have information from one of the SHT_DYNAMIC section header or
@@ -144,7 +150,7 @@ static void loadDynamicTable(const ELFF *Obj,
       WithColor::warning() << llvm::formatv(
           "no valid dynamic table was found for {0}\n", ObjF->getFileName());
     }
-    return;
+    return res;
   }
 
   // At this point we have tables found from the section header and from the
@@ -161,7 +167,7 @@ static void loadDynamicTable(const ELFF *Obj,
   if (!IsPhdrTableValid && !IsSecTableValid) {
     WithColor::warning() << llvm::formatv("no valid dynamic table was found for {0}\n",
                                           ObjF->getFileName());
-    return;
+    return res;
   }
 
   // Information in the PT_DYNAMIC program header has priority over the information
@@ -181,6 +187,8 @@ static void loadDynamicTable(const ELFF *Obj,
 
     DynamicTable = FromSec;
   }
+
+  return res;
 }
 
 std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
