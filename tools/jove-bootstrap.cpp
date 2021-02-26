@@ -4950,7 +4950,7 @@ void scan_rtld_link_map(pid_t child,
 
     std::string s;
     try {
-      _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
+      s = _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
     } catch (const std::exception &e) {
       ;
     }
