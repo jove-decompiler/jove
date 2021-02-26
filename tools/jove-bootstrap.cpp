@@ -4910,7 +4910,7 @@ void scan_rtld_link_map(pid_t child,
 
   if (opts::PrintLinkMap)
       llvm::errs() << llvm::formatv("[r_debug] r_version = {0}\n"
-                                    "          r_map=    = {1}\n"
+                                    "          r_map     = {1}\n"
                                     "          r_brk     = {2}\n"
                                     "          r_state   = {3}\n"
                                     "          r_ldbase  = {4}\n",
