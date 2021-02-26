@@ -4904,7 +4904,21 @@ void scan_rtld_link_map(pid_t child,
   } catch (const std::exception &e) {
     if (opts::Verbose)
       WithColor::error() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
+
+    return;
   }
+
+  if (opts::PrintLinkMap)
+      llvm::errs() << llvm::formatv("[r_debug] r_version = {0}\n"
+                                    "          r_map=    = {1}\n"
+                                    "          r_brk     = {2}\n"
+                                    "          r_state   = {3}\n"
+                                    "          r_ldbase  = {4}\n",
+                                    (void *)r_dbg.r_version,
+                                    (void *)r_dbg.r_map,
+                                    (void *)r_dbg.r_brk,
+                                    (void *)r_dbg.r_state,
+                                    (void *)r_dbg.r_ldbase);
 
   if (opts::Verbose) {
     WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
@@ -4917,11 +4931,11 @@ void scan_rtld_link_map(pid_t child,
 
   bool newbin = false;
 
-  try {
-    struct link_map *lmp = r_dbg.r_map;
-    do {
-      struct link_map lm;
+  struct link_map *lmp = r_dbg.r_map;
+  do {
+    struct link_map lm;
 
+    try {
       ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
 
       if (ret != sizeof(struct link_map)) {
@@ -4929,37 +4943,48 @@ void scan_rtld_link_map(pid_t child,
                            << ": couldn't read link_map structure\n";
         return;
       }
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv("failed to read link_map: {0}\n", e.what());
+      return;
+    }
 
-      std::string s =
-          _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
+    std::string s;
+    try {
+      _ptrace_read_string(child, reinterpret_cast<uintptr_t>(lm.l_name));
+    } catch (const std::exception &e) {
+      ;
+    }
 
-      if (opts::PrintLinkMap)
-        llvm::errs() << llvm::formatv("[link_map] l_addr={0} l_name={1}\n",
-                                      (void *)lm.l_addr, s);
+    if (opts::PrintLinkMap)
+      llvm::errs() << llvm::formatv("[link_map] l_addr = {0}\n"
+                                    "           l_name =\"{1}\"\n"
+                                    "           l_prev = {2}\n"
+                                    "           l_next = {3}\n"
+                                    "           l_ld   = {4}\n",
+                                    (void *)lm.l_addr,
+                                    s,
+                                    (void *)lm.l_prev,
+                                    (void *)lm.l_next,
+                                    (void *)lm.l_ld);
 
-      if (!s.empty() && s.front() == '/' && fs::exists(s)) {
-        fs::path path = fs::canonical(s);
+    if (!s.empty() && s.front() == '/' && fs::exists(s)) {
+      fs::path path = fs::canonical(s);
 
-        auto it = BinPathToIdxMap.find(path.c_str());
-        if (it == BinPathToIdxMap.end()) {
-          llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
-                                        path.c_str());
-          add_binary(child, tcg, dis, path.c_str());
+      auto it = BinPathToIdxMap.find(path.c_str());
+      if (it == BinPathToIdxMap.end()) {
+        llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
+                                      path.c_str());
+        add_binary(child, tcg, dis, path.c_str());
 
-          newbin = true;
-        }
+        newbin = true;
       }
+    }
 
-      lmp = lm.l_next;
-    } while (lmp && lmp != r_dbg.r_map);
+    lmp = lm.l_next;
+  } while (lmp && lmp != r_dbg.r_map);
 
-    if (newbin)
-      search_address_space_for_binaries(child, dis);
-  } catch (const std::exception &e) {
-    if (opts::Verbose)
-      WithColor::warning() << llvm::formatv(
-          "{0}: couldn't read link map: {1}\n", __func__, e.what());
-  }
+  if (newbin)
+    search_address_space_for_binaries(child, dis);
 }
 
 static void print_command(std::vector<const char *> &arg_vec);
