@@ -188,8 +188,31 @@ static cl::alias PIDAlias("p", cl::desc("Alias for -attach."),
 
 namespace jove {
 
-static int ChildProc(void);
+static int ChildProc(int fd);
 static int TracerLoop(pid_t child);
+
+static void set_ptrace_options(pid_t child) {
+  //
+  // select ptrace options
+  //
+  int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                    /* PTRACE_O_EXITKILL   | */
+                       PTRACE_O_TRACEEXIT  |
+                    /* PTRACE_O_TRACEEXEC  | */
+                       PTRACE_O_TRACEFORK  |
+                    /* PTRACE_O_TRACEVFORK | */
+                       PTRACE_O_TRACECLONE;
+
+  //
+  // set those options
+  //
+  if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                        __func__,
+                                        strerror(err));
+  }
+}
 
 }
 
@@ -282,14 +305,47 @@ int main(int argc, char **argv) {
     if (opts::Verbose)
       llvm::errs() << "waited on SIGSTOP.\n";
 
+    jove::set_ptrace_options(child);
+
     return jove::TracerLoop(child);
   } else {
+    //
+    // first, create a pipe
+    //
+    int pipefd[2];
+    if (pipe(pipefd) < 0) {
+      WithColor::error() << "pipe(2) failed. bug?\n";
+      return 1;
+    }
+
+    int &rfd = pipefd[0];
+    int &wfd = pipefd[1];
+
     //
     // mode 2: create new process
     //
     child = fork();
-    if (!child)
-      return jove::ChildProc();
+    if (!child) {
+      {
+        int rc = close(rfd);
+        assert(!(rc < 0));
+      }
+
+      //
+      // make pipe close-on-exec
+      //
+      {
+        int rc = fcntl(wfd, F_SETFD, FD_CLOEXEC);
+        assert(!(rc < 0));
+      }
+
+      return jove::ChildProc(wfd);
+    }
+
+    {
+      int rc = close(wfd);
+      assert(!(rc < 0));
+    }
 
     //
     // observe the (initial) signal-delivery-stop
@@ -306,7 +362,33 @@ int main(int argc, char **argv) {
     if (opts::Verbose)
       llvm::errs() << "parent: initial stop observed\n";
 
-    return jove::TracerLoop(child);
+    jove::set_ptrace_options(child);
+
+    //
+    // allow the child to make progress (most importantly, execve)
+    //
+    if (ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to resume tracee! {0}", err);
+      return 1;
+    }
+
+    //
+    // "If a process attempts to read from an empty pipe, then read(2) will
+    // block until data is available."
+    //
+    {
+      ssize_t ret;
+      do {
+        uint8_t byte;
+        ret = read(rfd, &byte, 1);
+      } while (!(ret <= 0));
+
+      /* if we got here, the other end of the pipe must have been closed. */
+      close(rfd);
+    }
+
+    return jove::TracerLoop(-1);
   }
 }
 
@@ -636,33 +718,6 @@ int TracerLoop(pid_t child) {
 #elif 0
   signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
 #endif
-
-  //
-  // select ptrace options
-  //
-  int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                    /* PTRACE_O_EXITKILL   | */
-                       PTRACE_O_TRACEEXIT  |
-                    /* PTRACE_O_TRACEEXEC  | */
-                       PTRACE_O_TRACEFORK  |
-                    /* PTRACE_O_TRACEVFORK | */
-                       PTRACE_O_TRACECLONE;
-
-  //
-  // set those options
-  //
-  if (opts::VeryVerbose)
-    llvm::errs() << "parent: setting ptrace options...\n";
-
-  if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                        __func__,
-                                        strerror(err));
-  }
-
-  if (opts::VeryVerbose)
-    llvm::errs() << "ptrace options set!\n";
 
   tiny_code_generator_t tcg;
 
@@ -3320,6 +3375,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
                                       StringOfMCInst(I, dis));
 
+      assert(ExecutableRegionAddress);
+
       unsigned idx = code_cave_idx_of_reg(reg);
       uintptr_t jumpr_insn_addr = ExecutableRegionAddress +
                                   idx * (2 * sizeof(uint32_t));
@@ -4690,7 +4747,7 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
                              std::string(strerror(errno)));
 }
 
-int ChildProc(void) {
+int ChildProc(int fd) {
   std::vector<const char *> arg_vec;
   arg_vec.push_back(opts::Prog.c_str());
 
@@ -4781,6 +4838,8 @@ int ChildProc(void) {
   int err = errno;
   WithColor::error() << llvm::formatv("failed to execve (reason: {0})",
                                       strerror(err));
+
+  close(fd);
   return 1;
 }
 
