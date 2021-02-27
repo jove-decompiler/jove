@@ -4491,7 +4491,7 @@ void on_binary_loaded(pid_t child,
         WithColor::note()
             << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
                              ExecutableRegionAddress);
-    }
+  }
 #endif
 
   //
