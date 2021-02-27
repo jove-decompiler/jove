@@ -1,10 +1,11 @@
+#include <string>
+#include <vector>
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/graphviz.hpp>
+
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
-#include <sys/auxv.h>
 #include <sched.h>
 #include <tuple>
 #include <thread>
@@ -14,16 +15,22 @@
 #include <queue>
 #include <sstream>
 #include <fstream>
+#include <unordered_set>
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Object/ELF.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
-#include <llvm/Support/FormatVariadic.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "jove/jove.h"
 #include <boost/archive/binary_iarchive.hpp>
@@ -33,9 +40,40 @@
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
+#include <boost/range/adaptor/reversed.hpp>
+#include <boost/graph/topological_sort.hpp>
+#include <boost/format.hpp>
+
+#ifndef likely
+#define likely(x)   __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+namespace obj = llvm::object;
 
 using llvm::WithColor;
 
@@ -97,6 +135,8 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+#include "elf.hpp"
+
 static void spawn_workers(void);
 
 static std::queue<std::string> Q;
@@ -113,6 +153,8 @@ static int null_fd;
 
 static bool HasVDSO(void);
 static std::pair<void *, unsigned> GetVDSO(void);
+
+static std::string program_interpreter_of_executable(const char *exepath);
 
 int init(void) {
   null_fd = open("/dev/null", O_WRONLY);
@@ -238,10 +280,8 @@ int init(void) {
 
   std::string::size_type pos = 0;
   for (;;) {
-    std::string::size_type arrow_pos = dynlink_stdout.find(" /", pos);
-
-    if (arrow_pos == std::string::npos)
-      arrow_pos = dynlink_stdout.find("\t/", pos);
+    std::string::size_type arrow_pos = std::min(dynlink_stdout.find("\t/", pos),
+                                                dynlink_stdout.find(" /", pos));
 
     if (arrow_pos == std::string::npos)
       break;
@@ -261,28 +301,59 @@ int init(void) {
     }
 
     std::string bin_path = fs::canonical(path).string();
+    if (opts::Verbose)
+      llvm::errs() << llvm::formatv("path = {0} bin_path = {1}\n", path, bin_path);
     assert(std::find(binary_paths.begin(),
                      binary_paths.end(), bin_path) == binary_paths.end());
     binary_paths.push_back(bin_path);
   }
 
   //
-  // we assume the dynamic linker is last on the list. we need to insert it just
-  // following after the executable
+  // get the path to the dynamic linker (i.e. program interpreter)
   //
+  fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts::Input.c_str()));
+
+  WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
+
   {
-    assert(!binary_paths.empty());
+    unsigned Idx;
+    for (Idx = 0; Idx < binary_paths.size(); ++Idx) {
+      if (fs::equivalent(binary_paths[Idx], rtld_path)) {
+        if (opts::Verbose)
+          WithColor::note() << llvm::formatv("found rtld! idx={0} path={1} rtld_path={2}\n", Idx, binary_paths[Idx], rtld_path.c_str());
+        goto Found;
+      }
+    }
 
-    std::string path = binary_paths.back();
+    /* if we got here, we failed to find the dynamic linker */
+    WithColor::error() << llvm::formatv("couldn't find rtld! {0}\n", rtld_path.c_str());
+    return 1;
 
-    if (opts::Verbose)
-      llvm::outs() << "dynamic linker: " << fs::canonical(path).string() << '\n';
+Found:
 
-    binary_paths.pop_back();
+    WithColor::error() << llvm::formatv("rtld in binary_paths: idx={0}\n", Idx);
 
-    auto it = std::next(binary_paths.begin());
-    binary_paths.insert(it, path); /* just before vdso */
+    if (Idx != 1) {
+      //
+      // modify binary_paths so that the dynamic linker is at index 1.
+      //
+      {
+        auto it = binary_paths.begin();
+        std::advance(it, Idx);
+        binary_paths.erase(it);
+      }
+
+      {
+        auto it = std::next(binary_paths.begin());
+        binary_paths.insert(it, rtld_path.string()); /* just before vdso */
+      }
+    }
   }
+
+  /* Line buffer to ensure lines are written atomically and immediately
+     so that processes running in parallel do not intersperse their output.  */
+  setvbuf(stdout, NULL, _IOLBF, 0);
+  setvbuf(stderr, NULL, _IOLBF, 0);
 
   //
   // process the binaries, concurrently
@@ -451,6 +522,36 @@ found:
   }
 
   return 0;
+}
+
+std::string program_interpreter_of_executable(const char *exepath) {
+  std::string res;
+
+  llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
+      obj::createBinary(exepath);
+
+  if (!BinaryOrErr) {
+    WithColor::error() << llvm::formatv("{0}: failed to open %s\n", __func__, exepath);
+    return res;
+  }
+
+  obj::Binary *B = BinaryOrErr.get().getBinary();
+  if (!llvm::isa<ELFO>(B)) {
+    WithColor::error() << llvm::formatv("{0}: invalid binary\n", __func__);
+    return res;
+  }
+
+  const ELFO &O = *llvm::cast<ELFO>(B);
+  const ELFF &E = *O.getELFFile();
+
+  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+    if (Phdr.p_type == llvm::ELF::PT_INTERP) {
+      res = std::string(reinterpret_cast<const char *>(E.base() + Phdr.p_offset));
+      break;
+    }
+  }
+
+  return res;
 }
 
 bool HasVDSO(void) {
@@ -688,4 +789,8 @@ void print_command(const char **argv) {
   llvm::outs() << msg;
 }
 
+} // namespace jove
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
