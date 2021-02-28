@@ -1080,19 +1080,17 @@ static function_index_t translate_function(binary_t &binary,
       return (*it).second;
   }
 
-  basic_block_index_t bbidx =
-    translate_basic_block(binary, tcg, dis, Addr);
-
-  if (unlikely(!is_basic_block_index_valid(bbidx)))
-    return invalid_function_index;
-
   function_index_t res = binary.Analysis.Functions.size();
   FuncMap[Addr] = res;
   binary.Analysis.Functions.resize(res + 1);
-  binary.Analysis.Functions[res].Entry = bbidx;
+  binary.Analysis.Functions[res].Entry =
+    translate_basic_block(binary, tcg, dis, Addr);
   binary.Analysis.Functions[res].Analysis.Stale = true;
   binary.Analysis.Functions[res].IsABI = false;
   binary.Analysis.Functions[res].IsSignalHandler = false;
+
+  if (unlikely(!is_basic_block_index_valid(binary.Analysis.Functions[res].Entry)))
+    return invalid_function_index;
 
   return res;
 }

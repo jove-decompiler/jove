@@ -813,6 +813,9 @@ function_index_t translate_function(binary_index_t binary_idx,
   binary.Analysis.Functions[res].IsABI = false;
   binary.Analysis.Functions[res].IsSignalHandler = false;
 
+  if (unlikely(!is_basic_block_index_valid(binary.Analysis.Functions[res].Entry)))
+    return invalid_function_index;
+
   return res;
 }
 
