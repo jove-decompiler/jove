@@ -189,11 +189,12 @@ int main(int argc, char **argv) {
       "PC",
     };
 
-    const std::array<const char *, 4> not_ret_regs{
+    const std::array<const char *, 5> not_ret_regs{
       "_frame",
       "env",
       "PC",
-      "ra"
+      "ra",
+      "gp",
     };
 #else
 #error
@@ -314,7 +315,7 @@ int main(int argc, char **argv) {
     }
 
     printf("static const uint8_t tcg_global_by_offset_lookup_table[%u] = {\n"
-           "[0 ... %u - 1] = 0xff,\n", max_offset + 1, max_offset);
+           "[0 ... %u] = 0xff,\n", max_offset + 1, max_offset);
 
     for (int i = 0; i < tcg._ctx.nb_globals; i++) {
       TCGTemp &ts = tcg._ctx.temps[i];
