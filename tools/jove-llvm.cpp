@@ -390,6 +390,15 @@ static cl::opt<bool>
                                     cl::desc("Check for stack overrun"),
                                     cl::cat(JoveCategory));
 
+#if defined(__mips64) || defined(__mips__)
+static cl::opt<bool>
+    MipsT9Hack("mips-t9-hack",
+               cl::desc("Assume t9 is the address of the "
+                        "function for all functions, not "
+                        "just ABI's. Can result in easier-to-read bitcode"),
+               cl::cat(JoveCategory));
+#endif
+
 } // namespace opts
 
 namespace jove {
@@ -8338,7 +8347,7 @@ static int TranslateFunction(function_t &f) {
         glbs.set(tcg_program_counter_index);
 
 #if defined(__mips64) || defined(__mips__)
-      if (f.IsABI)
+      if (f.IsABI || opts::MipsT9Hack)
         glbs.set(tcg_t9_index);
 #endif
 
@@ -8417,11 +8426,11 @@ static int TranslateFunction(function_t &f) {
     // of the called function. this is a strict requirement, and rarely do we
     // see non-PIC mips code. N.B. this is still a hack XXX
     //
-    if (f.IsABI) {
-      assert(GlobalAllocaArr[tcg_t9_index]);
+    if (f.IsABI || opts::MipsT9Hack) {
+      llvm::AllocaInst *AI = GlobalAllocaArr[tcg_t9_index];
+      assert(AI);
 
-      llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr),
-                                            GlobalAllocaArr[tcg_t9_index]);
+      llvm::StoreInst *SI = IRB.CreateStore(SectionPointer(ICFG[entry_bb].Addr), AI);
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
 #endif
