@@ -95,7 +95,6 @@ struct hook_t;
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::set<basic_block_t> BasicBlocksSet;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
-  llvm::AllocaInst *PCAlloca;                                                  \
   const hook_t *hook = nullptr;                                                \
   llvm::Function *PreHook = nullptr;                                           \
   llvm::Function *PostHook = nullptr;                                          \
@@ -8208,6 +8207,7 @@ struct TranslateContext {
   std::array<llvm::AllocaInst *, tcg_num_globals> GlobalAllocaArr;
   std::vector<llvm::AllocaInst *> TempAllocaVec;
   std::vector<llvm::BasicBlock *> LabelVec;
+  llvm::AllocaInst *PCAlloca;
 
   TranslateContext(function_t &f) : f(f) {
     std::fill(GlobalAllocaArr.begin(),
@@ -8363,11 +8363,12 @@ static int TranslateFunction(function_t &f) {
       }
 
       if (tcg_program_counter_index >= 0) {
-        f.PCAlloca = GlobalAllocaArr[tcg_program_counter_index];
-        assert(f.PCAlloca);
+        TC.PCAlloca = GlobalAllocaArr[tcg_program_counter_index];
       } else {
-        f.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr");
+        TC.PCAlloca = IRB.CreateAlloca(WordType(), 0, "pc_ptr");
       }
+
+      assert(TC.PCAlloca);
     }
 
     //
@@ -10092,7 +10093,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         basic_block_t succ = succ_bb_vec[i];
 
         IRB.SetInsertPoint(IfSuccBlockVec[i]);
-        llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+        llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
         llvm::Value *EQV =
             IRB.CreateICmpEQ(PC, SectionPointer(ICFG[succ].Addr));
         IRB.CreateCondBr(EQV, ICFG[succ].B,
@@ -10106,7 +10107,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
           boost::get(boost::vertex_index, ICFG);
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                    IRB.CreateLoad(f.PCAlloca)};
+                                    IRB.CreateLoad(TC.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
       IRB.CreateCall(
@@ -10131,7 +10132,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
           boost::get(boost::vertex_index, ICFG);
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                    IRB.CreateLoad(f.PCAlloca)};
+                                    IRB.CreateLoad(TC.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
 
@@ -10146,7 +10147,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs);
 
       if (JoveFail1Func) {
-        llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
+        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
         IRB.CreateCall(JoveFail1Func, FailArgs);
       } else {
         IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
@@ -10190,7 +10191,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         do {
           IRB.SetInsertPoint(B);
 
-          llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+          llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
@@ -10221,7 +10222,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                             boost::vertex_index_t>::type bb_idx_map =
             boost::get(boost::vertex_index, ICFG);
         llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                      IRB.CreateLoad(f.PCAlloca)};
+                                      IRB.CreateLoad(TC.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
 
@@ -10229,7 +10230,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
           IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs);
 
         if (JoveFail1Func) {
-          llvm::Value *FailArgs[] = {IRB.CreateLoad(f.PCAlloca)};
+          llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
           IRB.CreateCall(JoveFail1Func, FailArgs);
         } else {
           IRB.CreateCall(llvm::Intrinsic::getDeclaration(
@@ -10534,7 +10535,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
 #if defined(__x86_64__) || defined(__i386__)
     llvm::Value *Args[] = {
-        IRB.CreateLoad(f.PCAlloca),
+        IRB.CreateLoad(TC.PCAlloca),
         IRB.CreatePtrToInt(
             IRB.CreateCall(llvm::Intrinsic::getDeclaration(
                                Module.get(), llvm::Intrinsic::returnaddress),
@@ -10575,7 +10576,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     basic_block_t succ1 = boost::target(cf1, ICFG);
     basic_block_t succ2 = boost::target(cf2, ICFG);
 
-    llvm::Value *PC = IRB.CreateLoad(f.PCAlloca);
+    llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
     llvm::Value *EQV = IRB.CreateICmpEQ(
         PC, IRB.getIntN(sizeof(uintptr_t) * 8, ICFG[succ1].Addr));
     IRB.CreateCondBr(EQV, ICFG[succ1].B, ICFG[succ2].B);
@@ -10699,7 +10700,7 @@ static int TranslateTCGOp(TCGOp *op,
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
-  auto &PCAlloca = f.PCAlloca;
+  auto &PCAlloca = TC.PCAlloca;
   TCGContext *s = &TCG->_ctx;
 
   auto set = [&](llvm::Value *V, TCGTemp *ts) -> void {
@@ -11434,7 +11435,7 @@ static int TranslateTCGOp(TCGOp *op,
     TCGArg off = op->args[2];                                                  \
     if (off == tcg_program_counter_env_offset) {                               \
       assert(memBits == WordBits() && regBits == WordBits());                  \
-      IRB.CreateStore(Val, PCAlloca);                                          \
+      IRB.CreateStore(Val, TC.PCAlloca);                                       \
       break;                                                                   \
     }                                                                          \
                                                                                \
