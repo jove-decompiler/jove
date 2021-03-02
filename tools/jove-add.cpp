@@ -642,9 +642,10 @@ int add(void) {
       if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
 	break; /* marks end of dynamic table. */
 
-      llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
-                                    __FILE__, __LINE__,
-                                    E.getDynamicTagAsString(Dyn.getTag()));
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
+                                      __FILE__, __LINE__,
+                                      E.getDynamicTagAsString(Dyn.getTag()));
 
       switch (Dyn.d_tag) {
       case llvm::ELF::DT_STRTAB:
