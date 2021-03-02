@@ -3128,3 +3128,65 @@ void uint_to_string(uint32_t x, char *Str) {
   *Str = '\0';
   return;
 }
+
+typedef uint16_t dfsan_label;
+
+static const uint64_t DF32_ADDR_SPACE_SIZE = 0xffffffffull + 1ull;
+static const unsigned DF32_PAGE_SIZE = 4 * 1024; /* 4 KiB */
+static const unsigned DF32_SHADOW_PAGE_SIZE = 16 * DF32_PAGE_SIZE; /* 64 KiB */
+static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_SHADOW_PAGE_SIZE;
+
+extern dfsan_label *__df32_shadow_page_table[DF32_NUM_PAGES];
+
+#ifdef JOVE_DFSAN
+_HIDDEN
+#else
+static
+#endif
+dfsan_label *__df32_shadow_for(uint32_t A) {
+  unsigned quot = A / DF32_SHADOW_PAGE_SIZE;
+  unsigned rem  = A % DF32_SHADOW_PAGE_SIZE;
+
+#define page_bits_ptr __df32_shadow_page_table[quot]
+
+  if (unlikely(!page_bits_ptr)) {
+    long ret = _jove_sys_mips_mmap(0x0,
+                                   (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE)
+                                   + 2 * DF32_PAGE_SIZE /* extra space */
+                                   + 2 * DF32_PAGE_SIZE /* guard pages */,
+                                   PROT_READ | PROT_WRITE,
+                                   MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+    if (ret < 0 && ret > -4096) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    if (ret == 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    //
+    // create guard pages on both sides
+    //
+    if (_jove_sys_mprotect(ret, DF32_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    if (_jove_sys_mprotect(
+            ret + DF32_PAGE_SIZE + /* guard page */
+                (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE) /* labels */ +
+                2 * DF32_PAGE_SIZE /* extra space */,
+            DF32_PAGE_SIZE, PROT_NONE) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    page_bits_ptr = (dfsan_label *)(ret + DF32_PAGE_SIZE);
+
+    //internal_memset(&page_bits_ptr[0], 0, sizeof(dfsan_label) * _PAGE_SIZE);
+  }
+
+  return &page_bits_ptr[rem];
+}
