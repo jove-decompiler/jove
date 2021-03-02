@@ -1864,7 +1864,7 @@ int ProcessBinaryTLSSymbols(void) {
       DynSymRegion = createDRIFrom(&Sec, &O);
 
       if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
-	DynamicStringTable = *ExpectedStringTable;
+        DynamicStringTable = *ExpectedStringTable;
       } else {
         std::string Buf;
         {
@@ -1872,8 +1872,8 @@ int ProcessBinaryTLSSymbols(void) {
           llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
         }
 
-	WithColor::warning() <<
-	  llvm::formatv("couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
+        WithColor::warning() << llvm::formatv(
+            "couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
       }
 
       break;
@@ -2037,12 +2037,13 @@ int ProcessExportedFunctions(void) {
       uint64_t StringTableSize = 0;
 
       for (const Elf_Dyn &Dyn : dynamic_table()) {
-	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-	  break; /* marks end of dynamic table. */
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
 
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
-          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          if (llvm::Expected<const uint8_t *> ExpectedPtr =
+                  E.toMappedAddr(Dyn.getPtr()))
             StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
           break;
         case llvm::ELF::DT_STRSZ:
@@ -2050,18 +2051,18 @@ int ProcessExportedFunctions(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	    const uint8_t *Ptr = *ExpectedPtr;
+          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+            const uint8_t *Ptr = *ExpectedPtr;
 
-	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	      WithColor::warning()
-		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		     "the location of the dynamic symbol table\n";
+            if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+              WithColor::warning()
+                  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                     "the location of the dynamic symbol table\n";
 
-	    DynSymRegion.Addr = Ptr;
-	    DynSymRegion.EntSize = sizeof(Elf_Sym);
-	  }
-	  break;
+            DynSymRegion.Addr = Ptr;
+            DynSymRegion.EntSize = sizeof(Elf_Sym);
+          }
+          break;
 
         default:
           break;
@@ -2408,8 +2409,8 @@ int ProcessDynamicSymbols(void) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
-	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-	  break; /* marks end of dynamic table. */
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
 
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
@@ -2421,18 +2422,18 @@ int ProcessDynamicSymbols(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	    const uint8_t *Ptr = *ExpectedPtr;
+          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+            const uint8_t *Ptr = *ExpectedPtr;
 
-	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	      WithColor::warning()
-		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		     "the location of the dynamic symbol table\n";
+            if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+              WithColor::warning()
+                  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                     "the location of the dynamic symbol table\n";
 
-	    DynSymRegion.Addr = Ptr;
-	    DynSymRegion.EntSize = sizeof(Elf_Sym);
-	  }
-	  break;
+            DynSymRegion.Addr = Ptr;
+            DynSymRegion.EntSize = sizeof(Elf_Sym);
+          }
+          break;
         }
       };
 
@@ -3303,18 +3304,18 @@ int ProcessBinaryRelocations(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	    const uint8_t *Ptr = *ExpectedPtr;
+          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+            const uint8_t *Ptr = *ExpectedPtr;
 
-	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	      WithColor::warning()
-		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		     "the location of the dynamic symbol table\n";
+            if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+              WithColor::warning()
+                  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                     "the location of the dynamic symbol table\n";
 
-	    DynSymRegion.Addr = Ptr;
-	    DynSymRegion.EntSize = sizeof(Elf_Sym);
-	  }
-	  break;
+            DynSymRegion.Addr = Ptr;
+            DynSymRegion.EntSize = sizeof(Elf_Sym);
+          }
+          break;
         default:
           break;
       }
@@ -3993,18 +3994,18 @@ int ProcessIFuncResolvers(void) {
           StringTableSize = sz;
         break;
       case llvm::ELF::DT_SYMTAB:
-	if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	  const uint8_t *Ptr = *ExpectedPtr;
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          const uint8_t *Ptr = *ExpectedPtr;
 
-	  if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	    WithColor::warning()
-		<< "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		   "the location of the dynamic symbol table\n";
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
 
-	  DynSymRegion.Addr = Ptr;
-	  DynSymRegion.EntSize = sizeof(Elf_Sym);
-	}
-	break;
+          DynSymRegion.Addr = Ptr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
+        break;
       }
     };
 
@@ -6993,8 +6994,8 @@ int ProcessDynamicSymbols2(void) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
-	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-	  break; /* marks end of dynamic table. */
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
 
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
@@ -7006,23 +7007,24 @@ int ProcessDynamicSymbols2(void) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	    const uint8_t *Ptr = *ExpectedPtr;
+          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+            const uint8_t *Ptr = *ExpectedPtr;
 
-	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	      WithColor::warning()
-		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		     "the location of the dynamic symbol table\n";
+            if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+              WithColor::warning()
+                  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                     "the location of the dynamic symbol table\n";
 
-	    DynSymRegion.Addr = Ptr;
-	    DynSymRegion.EntSize = sizeof(Elf_Sym);
-	  }
-	  break;
+            DynSymRegion.Addr = Ptr;
+            DynSymRegion.EntSize = sizeof(Elf_Sym);
+          }
+          break;
         }
       }
 
-      if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-	DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      if (StringTableBegin && StringTableSize &&
+          StringTableSize > DynamicStringTable.size())
+        DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -7491,8 +7493,8 @@ decipher_copy_relocation(const symbol_t &S) {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
       for (const Elf_Dyn &Dyn : dynamic_table()) {
-	if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-	  break; /* marks end of dynamic table. */
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
 
         switch (Dyn.d_tag) {
         case llvm::ELF::DT_STRTAB:
@@ -7504,18 +7506,18 @@ decipher_copy_relocation(const symbol_t &S) {
             StringTableSize = sz;
           break;
         case llvm::ELF::DT_SYMTAB:
-	  if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-	    const uint8_t *Ptr = *ExpectedPtr;
+          if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+            const uint8_t *Ptr = *ExpectedPtr;
 
-	    if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-	      WithColor::warning()
-		  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-		     "the location of the dynamic symbol table\n";
+            if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+              WithColor::warning()
+                  << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                     "the location of the dynamic symbol table\n";
 
-	    DynSymRegion.Addr = Ptr;
-	    DynSymRegion.EntSize = sizeof(Elf_Sym);
-	  }
-	  break;
+            DynSymRegion.Addr = Ptr;
+            DynSymRegion.EntSize = sizeof(Elf_Sym);
+          }
+          break;
         }
       }
 
@@ -8037,28 +8039,28 @@ int FixupHelperStubs(void) {
 
     llvm::DIBuilder &DIB = *DIBuilder;
     llvm::DISubprogram::DISPFlags SubProgFlags =
-	llvm::DISubprogram::SPFlagDefinition |
-	llvm::DISubprogram::SPFlagOptimized;
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
 
     SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
     llvm::DISubroutineType *SubProgType =
-	DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
     struct {
       llvm::DISubprogram *Subprogram;
     } DebugInfo;
 
     DebugInfo.Subprogram = DIB.createFunction(
-	/* Scope       */ DebugInformation.CompileUnit,
-	/* Name        */ CallEntryF->getName(),
-	/* LinkageName */ CallEntryF->getName(),
-	/* File        */ DebugInformation.File,
-	/* LineNo      */ 0,
-	/* Ty          */ SubProgType,
-	/* ScopeLine   */ 0,
-	/* Flags       */ llvm::DINode::FlagZero,
-	/* SPFlags     */ SubProgFlags);
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ CallEntryF->getName(),
+      /* LinkageName */ CallEntryF->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
 
     CallEntryF->setSubprogram(DebugInfo.Subprogram);
 
@@ -10911,44 +10913,44 @@ static int TranslateTCGOp(TCGOp *op,
         assert(hf.EnvArgNo == iarg_idx);
 
         if (hf.Analysis.Simple)
-	  ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
-	else
-	  ArgVec.push_back(CPUStateGlobal);
+          ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
+        else
+          ArgVec.push_back(CPUStateGlobal);
 
         ++iarg_idx;
       } else if (ParamTy->isPointerTy()) {
         if (WordBits() == 32) {
-	  assert(ts->type == TCG_TYPE_I32);
-	} else if (WordBits() == 64) {
-	  assert(ts->type == TCG_TYPE_I64);
-	} else {
-	  __builtin_trap();
-	  __builtin_unreachable();
-	}
+          assert(ts->type == TCG_TYPE_I32);
+        } else if (WordBits() == 64) {
+          assert(ts->type == TCG_TYPE_I64);
+        } else {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
 
         ArgVec.push_back(IRB.CreateIntToPtr(get(ts), ParamTy));
         ++iarg_idx;
       } else if (ParamTy->isIntegerTy()) {
-	if (ParamTy->isIntegerTy(32)) {
-	  if (ts->type == TCG_TYPE_I32) {
+        if (ParamTy->isIntegerTy(32)) {
+          if (ts->type == TCG_TYPE_I32) {
             ArgVec.push_back(get(ts));
             ++iarg_idx;
           } else {
-	    __builtin_trap();
-	    __builtin_unreachable();
-	  }
+            __builtin_trap();
+            __builtin_unreachable();
+          }
         } else if (ParamTy->isIntegerTy(64)) {
           if (ts->type == TCG_TYPE_I64) {
             ArgVec.push_back(get(ts));
             ++iarg_idx;
-	  } else if (ts->type == TCG_TYPE_I32) {
-	    llvm::Value *lo = get(ts);
+          } else if (ts->type == TCG_TYPE_I32) {
+            llvm::Value *lo = get(ts);
 
             ++iarg_idx;
-	    assert(iarg_idx < nb_iargs);
+            assert(iarg_idx < nb_iargs);
             ts = arg_temp(op->args[nb_oargs + iarg_idx]);
-	    assert(ts->type == TCG_TYPE_I32);
-	    llvm::Value *hi = get(ts);
+            assert(ts->type == TCG_TYPE_I32);
+            llvm::Value *hi = get(ts);
             ++iarg_idx;
 
 #if 0
@@ -10965,16 +10967,16 @@ static int TranslateTCGOp(TCGOp *op,
                                            llvm::APInt(64, 32)));
             ArgVec.push_back(combined);
           } else {
-	    __builtin_trap();
-	    __builtin_unreachable();
-	  }
-	} else {
-	  __builtin_trap();
-	  __builtin_unreachable();
-	}
+            __builtin_trap();
+            __builtin_unreachable();
+          }
+        } else {
+          __builtin_trap();
+          __builtin_unreachable();
+        }
       } else {
-	__builtin_trap();
-	__builtin_unreachable();
+        __builtin_trap();
+        __builtin_unreachable();
       }
     }
 
@@ -11032,25 +11034,25 @@ static int TranslateTCGOp(TCGOp *op,
     //
     if (nb_oargs > 0) {
       if (nb_oargs == 1) {
-	TCGTemp *dst = arg_temp(op->args[0]);
+        TCGTemp *dst = arg_temp(op->args[0]);
 
         set(Ret, dst);
       } else if (nb_oargs == 2) {
-	TCGTemp *dst1 = arg_temp(op->args[0]);
-	TCGTemp *dst2 = arg_temp(op->args[1]);
+        TCGTemp *dst1 = arg_temp(op->args[0]);
+        TCGTemp *dst2 = arg_temp(op->args[1]);
 
-	assert(dst1->type == TCG_TYPE_I32);
-	assert(dst2->type == TCG_TYPE_I32);
+        assert(dst1->type == TCG_TYPE_I32);
+        assert(dst2->type == TCG_TYPE_I32);
 
-	assert(FTy->getReturnType()->isIntegerTy(64));
+        assert(FTy->getReturnType()->isIntegerTy(64));
 
         set(IRB.CreateTrunc(Ret, IRB.getInt32Ty()), dst1);
         set(IRB.CreateTrunc(IRB.CreateLShr(Ret, llvm::APInt(64, 32)),
                             IRB.getInt32Ty()),
             dst2);
       } else {
-	__builtin_trap();
-	__builtin_unreachable();
+        __builtin_trap();
+        __builtin_unreachable();
       }
     }
 
