@@ -1180,10 +1180,12 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--relocation-model=static");
       }
 
+#if defined(__x86_64__) || defined(__i386__)
       if (opts::DFSan) {
         arg_vec.push_back("--stack-alignment=16");
         arg_vec.push_back("--stackrealign");
       }
+#endif
 
 #if defined(__mips64) || defined(__mips__)
       arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
