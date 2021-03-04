@@ -4750,7 +4750,7 @@ void _ptrace_pokedata(pid_t child, uintptr_t addr, unsigned long data) {
                              std::string(strerror(errno)));
 }
 
-int ChildProc(int fd) {
+int ChildProc(int pipefd) {
   std::vector<const char *> arg_vec;
   arg_vec.push_back(opts::Prog.c_str());
 
@@ -4842,7 +4842,7 @@ int ChildProc(int fd) {
   WithColor::error() << llvm::formatv("failed to execve (reason: {0})",
                                       strerror(err));
 
-  close(fd);
+  close(pipefd);
   return 1;
 }
 
