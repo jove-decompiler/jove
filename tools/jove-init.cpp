@@ -313,7 +313,8 @@ int init(void) {
   //
   fs::path rtld_path = fs::canonical(program_interpreter_of_executable(opts::Input.c_str()));
 
-  WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
+  if (opts::Verbose)
+    WithColor::note() << llvm::formatv("rtld_path={0}\n", rtld_path.c_str());
 
   {
     unsigned Idx;
@@ -331,7 +332,8 @@ int init(void) {
 
 Found:
 
-    WithColor::error() << llvm::formatv("rtld in binary_paths: idx={0}\n", Idx);
+    if (opts::Verbose)
+      WithColor::error() << llvm::formatv("rtld in binary_paths: idx={0}\n", Idx);
 
     if (Idx != 1) {
       //
