@@ -320,7 +320,8 @@ run:
         // program + args
         //
         arg_vec.push_back(opts::Prog.c_str());
-        arg_vec.push_back("--");
+        if (!opts::Args.empty())
+          arg_vec.push_back("--");
         for (std::string &s : opts::Args)
           arg_vec.push_back(s.c_str());
 
