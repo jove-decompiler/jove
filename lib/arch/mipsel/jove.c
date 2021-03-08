@@ -1777,6 +1777,9 @@ struct kernel_sigaction {
 #define likely(x)   __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
 
+#define MAX_ERRNO       4095
+#define IS_ERR_VALUE(x) unlikely((x) >= (unsigned long)-MAX_ERRNO)
+
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _NAKED  __attribute__((naked))
@@ -2530,7 +2533,7 @@ found:
         buff[0] = ch;
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
-        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+        *((uintptr_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
           __builtin_trap();
@@ -3131,12 +3134,38 @@ void uint_to_string(uint32_t x, char *Str) {
 
 typedef uint16_t dfsan_label;
 
-static const uint64_t DF32_ADDR_SPACE_SIZE = 0xffffffffull + 1ull;
-static const unsigned DF32_PAGE_SIZE = 4 * 1024; /* 4 KiB */
-static const unsigned DF32_SHADOW_PAGE_SIZE = 16 * DF32_PAGE_SIZE; /* 64 KiB */
-static const unsigned DF32_NUM_PAGES = DF32_ADDR_SPACE_SIZE / DF32_SHADOW_PAGE_SIZE;
+extern dfsan_label *__df32_shadow_mem[65536];
 
-extern dfsan_label *__df32_shadow_page_table[DF32_NUM_PAGES];
+//#define DF32_INLINED_SHADOW_FOR
+
+#ifdef DF32_INLINED_SHADOW_FOR
+
+//
+// this is the shortest version of the function without the guard pages or error
+// handling, suitable for inlining across the board
+//
+_INL dfsan_label *__df32_shadow_for(uint32_t A) {
+  dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
+
+  dfsan_label *shadow = *shadowp;
+  if (unlikely(!shadow)) {
+    static const unsigned N = sizeof(dfsan_label) * 65536 +
+      2 * JOVE_PAGE_SIZE /* XXX extra space */;
+
+    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, N,
+                                                    PROT_READ | PROT_WRITE,
+                                                    MAP_PRIVATE | MAP_ANONYMOUS,
+                                                    -1L, 0);
+
+    shadow = (dfsan_label *)shadow_base;
+
+    *shadowp = shadow;
+  }
+
+  return &shadow[A & 0xFFFF];
+}
+
+#else
 
 #ifdef JOVE_DFSAN
 _HIDDEN
@@ -3144,49 +3173,63 @@ _HIDDEN
 static
 #endif
 dfsan_label *__df32_shadow_for(uint32_t A) {
-  unsigned quot = A / DF32_SHADOW_PAGE_SIZE;
-  unsigned rem  = A % DF32_SHADOW_PAGE_SIZE;
+  dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
 
-#define page_bits_ptr __df32_shadow_page_table[quot]
+  dfsan_label *shadow = *shadowp;
+  if (unlikely(!shadow)) {
+    static const unsigned N = sizeof(dfsan_label) * 65536 +
+      2 * JOVE_PAGE_SIZE /* guard pages */;
 
-  if (unlikely(!page_bits_ptr)) {
-    long ret = _jove_sys_mips_mmap(0x0,
-                                   (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE)
-                                   + 2 * DF32_PAGE_SIZE /* extra space */
-                                   + 2 * DF32_PAGE_SIZE /* guard pages */,
-                                   PROT_READ | PROT_WRITE,
-                                   MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-    if (ret < 0 && ret > -4096) {
+    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, N,
+                                                    PROT_READ | PROT_WRITE,
+                                                    MAP_PRIVATE | MAP_ANONYMOUS,
+                                                    -1L, 0);
+    if (IS_ERR_VALUE(shadow_base)) {
       __builtin_trap();
       __builtin_unreachable();
     }
 
-    if (ret == 0) {
-      __builtin_trap();
-      __builtin_unreachable();
+    shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
+
+    //
+    // guard page #1
+    //
+    {
+      unsigned long ret = _jove_sys_mprotect(shadow_base,
+                                             JOVE_PAGE_SIZE,
+                                             PROT_NONE);
+      if (IS_ERR_VALUE(ret)) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
     }
 
     //
-    // create guard pages on both sides
+    // guard page #2
     //
-    if (_jove_sys_mprotect(ret, DF32_PAGE_SIZE, PROT_NONE) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
+    {
+      unsigned long ret = _jove_sys_mprotect(shadow_base + N - JOVE_PAGE_SIZE,
+                                             JOVE_PAGE_SIZE,
+                                             PROT_NONE);
+      if (IS_ERR_VALUE(ret)) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
     }
 
-    if (_jove_sys_mprotect(
-            ret + DF32_PAGE_SIZE + /* guard page */
-                (sizeof(dfsan_label) * DF32_SHADOW_PAGE_SIZE) /* labels */ +
-                2 * DF32_PAGE_SIZE /* extra space */,
-            DF32_PAGE_SIZE, PROT_NONE) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    page_bits_ptr = (dfsan_label *)(ret + DF32_PAGE_SIZE);
-
-    //internal_memset(&page_bits_ptr[0], 0, sizeof(dfsan_label) * _PAGE_SIZE);
+    *shadowp = shadow;
   }
 
-  return &page_bits_ptr[rem];
+  return &shadow[A & 0xFFFF];
+}
+
+#endif /* DF32_INLINED_SHADOW_FOR */
+
+//
+// this function's sole purpose is to prevent __df32_shadow_for_inline from
+// being dead-code eliminated.
+//
+_HIDDEN
+dfsan_label *__jove_foo(uint32_t A) {
+  return __df32_shadow_for_inline(A);
 }
