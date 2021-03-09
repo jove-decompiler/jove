@@ -1988,8 +1988,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
       uintptr_t saved_retaddr = ra;
-      uintptr_t saved_callstack       = __jove_callstack;
-      uintptr_t saved_callstack_begin = __jove_callstack_begin;
+      uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
+      uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
       //
       // replace the emulated stack pointer with the real stack pointer
