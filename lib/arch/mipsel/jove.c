@@ -3224,12 +3224,3 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
 }
 
 #endif /* DF32_INLINED_SHADOW_FOR */
-
-//
-// this function's sole purpose is to prevent __df32_shadow_for_inline from
-// being dead-code eliminated.
-//
-_HIDDEN
-dfsan_label *__jove_foo(uint32_t A) {
-  return __df32_shadow_for_inline(A);
-}
