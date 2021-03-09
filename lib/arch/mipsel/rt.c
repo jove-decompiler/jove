@@ -1846,6 +1846,7 @@ void _jove_inverse_thunk(void) {
                // free the callstack we allocated in sighandler
                //
                "lw $a0,32($sp)" "\n"
+               "lw $a0,0($a0)"  "\n"
                "lw $t9,44($sp)" "\n"
                ".set noreorder" "\n"
                "jalr $t9"       "\n" // _jove_free_callstack(__jove_callstack_begin)
@@ -2013,7 +2014,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         ((uintptr_t *)newsp)[5] = saved_callstack_begin;
         ((uintptr_t *)newsp)[6] = newstack;
         ((uintptr_t *)newsp)[7] = &emusp;
-        ((uintptr_t *)newsp)[8] = saved_callstack_begin;
+        ((uintptr_t *)newsp)[8] = &__jove_callstack_begin;
         ((uintptr_t *)newsp)[9] = saved_callstack;
         ((uintptr_t *)newsp)[10] = _jove_free_stack_later;
         ((uintptr_t *)newsp)[11] = _jove_free_callstack;
