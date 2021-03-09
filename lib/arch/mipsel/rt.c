@@ -2125,9 +2125,6 @@ target_ulong _jove_alloc_callstack(void) {
 }
 
 void _jove_free_callstack(target_ulong start) {
-  if (start == 0x0)
-    return;
-
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
     __builtin_trap();
     __builtin_unreachable();
