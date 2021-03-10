@@ -1962,10 +1962,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     if (to_free[i] == 0)
       continue;
 
-    // memory leak FIXME
-#if 0
     _jove_free_stack(to_free[i]);
-#endif
     to_free[i] = 0;
   }
 
