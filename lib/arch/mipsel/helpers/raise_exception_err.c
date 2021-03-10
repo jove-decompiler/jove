@@ -2064,8 +2064,8 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #ifdef JOVE_DFSAN
   long sysret;
   {
-    long r7 = env->active_tc.gpr[7] = r7;
-    long r2 = env->active_tc.gpr[2] = r2;
+    long r7 = env->active_tc.gpr[7];
+    long r2 = env->active_tc.gpr[2];
 
     sysret = r7 && r2 > 0 ? -r2 : r2;
   }
