@@ -583,6 +583,8 @@ static std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
 static int await_process_completion(pid_t);
 
+static std::string description_of_program_counter(uintptr_t);
+
 #include "elf.hpp"
 
 static void IgnoreCtrlC(void);
@@ -1469,12 +1471,7 @@ int TracerLoop(pid_t child) {
               break;
             }
           } else {
-            try {
-              on_breakpoint(child, tcg, dis);
-            } catch (const std::exception &e) {
-              if (opts::Verbose)
-                WithColor::note() << llvm::formatv("on_breakpoint failed: {0}\n", e.what());
-            }
+            on_breakpoint(child, tcg, dis);
           }
         } else if (ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
@@ -1535,13 +1532,6 @@ int TracerLoop(pid_t child) {
   } catch (const std::exception &e) {
     std::string what(e.what());
     WithColor::error() << llvm::formatv("exception! {0}\n", what);
-
-    if (what.find("unknown breakpoint") != std::string::npos) {
-      UnIgnoreCtrlC();
-
-      for (;;) { sleep(1); }
-      __builtin_unreachable();
-    }
   }
 
   {
@@ -2768,8 +2758,6 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
     llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
-static std::string description_of_program_counter(uintptr_t);
-
 struct ScopedCPUState {
   pid_t child;
   cpu_state_t gpr;
@@ -3527,9 +3515,10 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   }
 
-  auto indirect_branch_of_address = [](uintptr_t addr) -> indirect_branch_t & {
+  auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
+      update_view_of_virtual_memory(child);
       auto desc(description_of_program_counter(addr));
 
       throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
