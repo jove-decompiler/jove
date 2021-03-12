@@ -354,10 +354,12 @@ int main(int argc, char **argv) {
       llvm::errs() << "parent: waiting for initial stop of child " << child
                    << "...\n";
 
-    int status;
-    do
-      waitpid(child, &status, 0);
-    while (!WIFSTOPPED(status));
+    {
+      int status;
+      do
+        waitpid(child, &status, 0);
+      while (!WIFSTOPPED(status));
+    }
 
     if (opts::Verbose)
       llvm::errs() << "parent: initial stop observed\n";
