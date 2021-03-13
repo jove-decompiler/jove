@@ -20,18 +20,18 @@
 #include <numeric>
 #include <limits>
 
-#if defined(__aarch64__)
+#if defined(TARGET_AARCH64)
 #include <jove/arch/aarch64/tcgconstants.h>
-#elif defined(__x86_64__)
+#elif defined(TARGET_X86_64)
 #include <jove/arch/x86_64/tcgconstants.h>
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
 #include <jove/arch/i386/tcgconstants.h>
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
 #include <jove/arch/mips64el/tcgconstants.h>
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
 #include <jove/arch/mipsel/tcgconstants.h>
 #else
-#error "unknown architecture"
+#error "unknown target"
 #endif
 
 namespace jove {
