@@ -11955,31 +11955,40 @@ static int TranslateTCGOp(TCGOp *op,
     // TODO relaxed version
     // see smp_mb() in tcg/tci.c
 
-    std::vector<llvm::Type *> AsmArgTypes;
-    std::vector<llvm::Value *> AsmArgs;
+    llvm::Triple TargetTriple(Module->getTargetTriple());
+    bool IsX86_64 = TargetTriple.getArch() == llvm::Triple::x86_64;
+    bool IsI386 = TargetTriple.getArch() == llvm::Triple::x86;
+    bool IsMIPS64 = TargetTriple.isMIPS64();
+    bool IsMIPS32 = TargetTriple.isMIPS32();
+    bool IsAArch64 = TargetTriple.getArch() == llvm::Triple::aarch64 ||
+                     TargetTriple.getArch() == llvm::Triple::aarch64_be;
 
-    llvm::FunctionType *AsmFTy =
-        llvm::FunctionType::get(VoidType(), AsmArgTypes, false);
+    llvm::StringRef AsmText;
+    llvm::StringRef Constraints;
 
-#if defined(__x86_64__)
-    llvm::StringRef AsmText("mfence");
-    llvm::StringRef Constraints("~{memory}");
-#elif defined(__i386__)
-    llvm::StringRef AsmText("lock; addl $$0,0(%esp)");
-    llvm::StringRef Constraints("~{memory},~{cc},~{dirflag},~{fpsr},~{flags}");
-#elif defined(__aarch64__)
-    llvm::StringRef AsmText("dmb ish");
-    llvm::StringRef Constraints("~{memory}");
-#elif defined(__mips64) || defined(__mips__)
-    llvm::StringRef AsmText("sync");
-    llvm::StringRef Constraints("~{memory}");
-#else
-#error
-#endif
+    if (IsX86_64) {
+      AsmText = "mfence";
+      Constraints = "~{memory}";
+    } else if (IsI386) {
+      AsmText = "lock; addl $$0,0(%esp)";
+      Constraints = "~{memory},~{cc},~{dirflag},~{fpsr},~{flags}";
+    } else if (IsAArch64) {
+      AsmText = "dmb ish";
+      Constraints = "~{memory}";
+    } else if (IsMIPS64 || IsMIPS32) {
+      AsmText = "sync";
+      Constraints = "~{memory}";
+    } else {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
-    llvm::InlineAsm *IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
-                                               true /* hasSideEffects */);
-    IRB.CreateCall(IA);
+    {
+      llvm::InlineAsm *IA =
+          llvm::InlineAsm::get(llvm::FunctionType::get(VoidType(), false),
+                               AsmText, Constraints, true /* hasSideEffects */);
+      IRB.CreateCall(IA);
+    }
     break;
   }
 
