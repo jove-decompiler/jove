@@ -28,7 +28,7 @@
 #include <sched.h>
 #include <linux/aio_abi.h>
 #include <mqueue.h>
-#include <keyutils.h>
+//#include <keyutils.h>
 #include <linux/bpf.h>
 
 typedef unsigned long key_serial_t;
