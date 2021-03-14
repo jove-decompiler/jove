@@ -25,7 +25,14 @@ static inline void stl_le_p(void *ptr, uint32_t v)
 
 #define HELPER(name) glue(helper_, name)
 
+#if 0
 #include <zlib.h>
+#else
+static unsigned long crc32(unsigned long crc, const void *buf, unsigned len) {
+  __builtin_trap(); /* XXX TODO */
+  __builtin_unreachable();
+}
+#endif
 
 uint32_t HELPER(crc32)(uint32_t acc, uint32_t val, uint32_t bytes)
 {
