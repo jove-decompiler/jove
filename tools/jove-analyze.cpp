@@ -295,34 +295,7 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
-#else
-#error
-#endif
-
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
-
-typedef typename ELFF::Elf_Dyn Elf_Dyn;
-typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFF::Elf_Phdr Elf_Phdr;
-typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFF::Elf_Rel Elf_Rel;
-typedef typename ELFF::Elf_Rela Elf_Rela;
-typedef typename ELFF::Elf_Shdr Elf_Shdr;
-typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFF::Elf_Sym Elf_Sym;
-typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
-typedef typename ELFF::Elf_Word Elf_Word;
-typedef typename ELFF::Elf_Versym Elf_Versym;
-typedef typename ELFF::Elf_Verdef Elf_Verdef;
-typedef typename ELFF::Elf_Vernaux Elf_Vernaux;
-typedef typename ELFF::Elf_Verneed Elf_Verneed;
+#include "elf.hpp"
 
 // TODO this whole function needs to be obliterated
 int InitStateForBinaries(void) {

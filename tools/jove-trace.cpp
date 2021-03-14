@@ -422,11 +422,11 @@ clear_events:
 
         char buff[0x100];
         snprintf(buff, sizeof(buff),
-                 "p:jove/JV_%u_%u %s:0x%" PRIxPTR "\n",
+                 "p:jove/JV_%u_%u %s:0x%" PRIx64 "\n",
                  BIdx,
                  BBIdx,
                  chrooted.c_str(),
-                 ICFG[bb].Addr);
+                 static_cast<uint64_t>(ICFG[bb].Addr));
 
         if (write(fd, buff, strlen(buff)) < 0) {
           int err = errno;

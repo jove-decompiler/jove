@@ -31,6 +31,7 @@
 #include <keyutils.h>
 #include <linux/bpf.h>
 
+typedef unsigned long key_serial_t;
 typedef unsigned long old_uid_t;
 typedef unsigned long old_gid_t;
 typedef uint32_t u32;

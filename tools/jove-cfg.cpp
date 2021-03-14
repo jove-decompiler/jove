@@ -42,6 +42,33 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/unordered_set.hpp>
 
+#ifndef likely
+#define likely(x)   __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
+
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
@@ -87,42 +114,7 @@ typedef boost::format fmt;
 
 static binary_index_t BinaryIndex = invalid_binary_index;
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
-#else
-#error
-#endif
-
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
-
-typedef typename ELFF::Elf_Dyn Elf_Dyn;
-typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFF::Elf_Phdr Elf_Phdr;
-typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFF::Elf_Rela Elf_Rela;
-typedef typename ELFF::Elf_Shdr Elf_Shdr;
-typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFF::Elf_Sym Elf_Sym;
-typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
-
-template <class T>
-static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
-
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
-  }
-  fprintf(stderr, "%s\n", Buf.c_str());
-  exit(1);
-}
+#include "elf.hpp"
 
 static int await_process_completion(pid_t);
 
@@ -390,9 +382,11 @@ int cfg(void) {
   //
   TCG.reset(new tiny_code_generator_t);
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
                          binary.Data.size());
@@ -670,4 +664,8 @@ void print_command(const char **argv) {
   llvm::outs() << '\n';
 }
 
+} // namespace jove
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }

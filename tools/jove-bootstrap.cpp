@@ -1,3 +1,7 @@
+#if (defined(__x86_64__) && defined(TARGET_X86_64)) || \
+    (defined(__i386__)   && defined(TARGET_I386))   || \
+    (defined(__mips64)   && defined(TARGET_MIPS64)) || \
+    (defined(__mips__)   && defined(TARGET_MIPS32))
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -725,9 +729,11 @@ int TracerLoop(pid_t child) {
 
   tiny_code_generator_t tcg;
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   bool git = fs::is_directory(opts::jv);
 
@@ -6330,3 +6336,14 @@ std::pair<void *, unsigned> GetVDSO(void) {
 void __warn(const char *file, int line) {
   WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
+
+#else
+
+#include <iostream>
+
+int main(int argc, char **argv) {
+  std::cerr << "error: wrong architecture (" TARGET_ARCH_NAME " does not match the host)\n";
+  return 1;
+}
+
+#endif

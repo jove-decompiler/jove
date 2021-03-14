@@ -19,6 +19,8 @@
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
 #include <llvm/Support/InitLLVM.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Support/WithColor.h>
 #include <sys/wait.h>
 
 #include <boost/icl/split_interval_map.hpp>
@@ -26,6 +28,8 @@
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
 namespace cl = llvm::cl;
+
+using llvm::WithColor;
 
 namespace opts {
   static cl::OptionCategory JoveCategory("Specific Options");
@@ -94,28 +98,7 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
-#else
-#error
-#endif
-
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
-
-typedef typename ELFF::Elf_Dyn Elf_Dyn;
-typedef typename ELFF::Elf_Dyn_Range Elf_Dyn_Range;
-typedef typename ELFF::Elf_Phdr Elf_Phdr;
-typedef typename ELFF::Elf_Phdr_Range Elf_Phdr_Range;
-typedef typename ELFF::Elf_Rela Elf_Rela;
-typedef typename ELFF::Elf_Shdr Elf_Shdr;
-typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-typedef typename ELFF::Elf_Sym Elf_Sym;
-typedef typename ELFF::Elf_Sym_Range Elf_Sym_Range;
+#include "elf.hpp"
 
 // taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
 static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
@@ -136,20 +119,6 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   return {};
 }
 
-template <class T>
-static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
-
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
-  }
-  fprintf(stderr, "%s\n", Buf.c_str());
-  exit(1);
-}
-
 int tcgdump(void) {
   struct {
     uintptr_t Addr;
@@ -168,9 +137,11 @@ int tcgdump(void) {
 
   jove::tiny_code_generator_t tcg;
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   llvm::Expected<obj::OwningBinary<obj::Binary>> BinaryOrErr =
       obj::createBinary(opts::Binary);
@@ -350,26 +321,86 @@ int tcgdump(void) {
   //
   // examine defined symbols which are functions and have a nonzero size
   //
-  llvm::StringRef StrTable;
-  const Elf_Shdr *DotSymtabSec = nullptr;
+  DynRegionInfo DynamicTable(O.getFileName());
+  loadDynamicTable(&E, &O, DynamicTable);
 
-  for (const Elf_Shdr &Sec : unwrapOrError(_E.sections())) {
-    if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
-      assert(!DotSymtabSec);
-      DotSymtabSec = &Sec;
+  assert(DynamicTable.Addr);
+
+  DynRegionInfo DynSymRegion(O.getFileName());
+  llvm::StringRef DynamicStringTable;
+
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    if (Sec.sh_type == llvm::ELF::SHT_DYNSYM) {
+      DynSymRegion = createDRIFrom(&Sec, &O);
+
+      if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
+        DynamicStringTable = *ExpectedStringTable;
+      } else {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
+        }
+
+        WithColor::warning() << llvm::formatv(
+            "couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
+      }
+
+      break;
     }
   }
 
-  if (!DotSymtabSec)
-    return 0;
+  //
+  // parse dynamic table
+  //
+  {
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
 
-  StrTable = unwrapOrError(_E.getStringTableForSymtab(*DotSymtabSec));
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
 
-  auto symbols = [&](void) -> Elf_Sym_Range {
-    return unwrapOrError(_E.symbols(DotSymtabSec));
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
+        break;
+      case llvm::ELF::DT_STRSZ:
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
+        break;
+      case llvm::ELF::DT_SYMTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
+        break;
+
+      default:
+        break;
+      }
+    };
+
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  for (const Elf_Sym &Sym : symbols()) {
+  for (const Elf_Sym &Sym : dynamic_symbols()) {
     if (Sym.getType() != llvm::ELF::STT_FUNC)
       continue;
     if (Sym.isUndefined())
@@ -377,7 +408,7 @@ int tcgdump(void) {
     if (!Sym.st_size)
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(StrTable));
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
     uintptr_t Addr = Sym.st_value;
 
     auto it = SectMap.find(Addr);
@@ -434,7 +465,7 @@ int tcgdump(void) {
           IP->printInst(&Inst, _A, "", *STI, StrStream);
         }
 
-        printf("%" PRIxPTR "%s\n", _A, inst_str.c_str());
+        printf("%" PRIx64 "%s\n", static_cast<uint64_t>(_A), inst_str.c_str());
       }
       fputc('\n', stdout);
 
@@ -447,30 +478,30 @@ int tcgdump(void) {
       //
       // print basic block terminator
       //
-      printf("%s @ 0x%" PRIxPTR "\n",
-             description_of_terminator(T.Type), T.Addr);
+      printf("%s @ 0x%" PRIx64 "\n",
+             description_of_terminator(T.Type), static_cast<uint64_t>(T.Addr));
 
       switch (T.Type) {
       case jove::TERMINATOR::UNCONDITIONAL_JUMP:
-        printf("Target: 0x%" PRIxPTR "\n", T._unconditional_jump.Target);
+        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._unconditional_jump.Target));
         break;
 
       case jove::TERMINATOR::CONDITIONAL_JUMP:
-        printf("Target: 0x%" PRIxPTR "\n", T._conditional_jump.Target);
-        printf("NextPC: 0x%" PRIxPTR "\n", T._conditional_jump.NextPC);
+        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._conditional_jump.Target));
+        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._conditional_jump.NextPC));
         break;
 
       case jove::TERMINATOR::INDIRECT_CALL:
-        printf("NextPC: 0x%" PRIxPTR "\n", T._indirect_call.NextPC);
+        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._indirect_call.NextPC));
         break;
 
       case jove::TERMINATOR::CALL:
-        printf("Target: 0x%" PRIxPTR "\n", T._call.Target);
-        printf("NextPC: 0x%" PRIxPTR "\n", T._call.NextPC);
+        printf("Target: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._call.Target));
+        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._call.NextPC));
         break;
 
       case jove::TERMINATOR::NONE:
-        printf("NextPC: 0x%" PRIxPTR "\n", T._none.NextPC);
+        printf("NextPC: 0x%" PRIx64 "\n", static_cast<uint64_t>(T._none.NextPC));
         break;
 
       default:

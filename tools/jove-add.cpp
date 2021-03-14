@@ -151,14 +151,14 @@ namespace jove {
 struct section_t {
   llvm::StringRef Name;
   llvm::ArrayRef<uint8_t> Contents;
-  uintptr_t Addr;
+  target_ulong Addr;
   unsigned Size;
 
   bool initArray;
   bool finiArray;
 
   struct {
-    boost::icl::split_interval_set<uintptr_t> Intervals;
+    boost::icl::split_interval_set<target_ulong> Intervals;
     std::map<unsigned, llvm::Constant *> Constants;
     std::map<unsigned, llvm::Type *> Types;
   } Stuff;
@@ -190,7 +190,7 @@ struct section_properties_t {
 };
 
 typedef std::set<section_properties_t> section_properties_set_t;
-static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
+static boost::icl::split_interval_map<target_ulong, section_properties_set_t>
     SectMap;
 
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
@@ -222,13 +222,13 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   return {};
 }
 
-static std::map<uintptr_t, std::vector<uintptr_t>> FunctionCallsToFixup;
+static std::map<target_ulong, std::vector<target_ulong>> FunctionCallsToFixup;
 
-static boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-static std::unordered_map<std::uintptr_t, function_index_t> FuncMap;
+static boost::icl::split_interval_map<target_ulong, basic_block_index_t> BBMap;
+static std::unordered_map<target_ulong, function_index_t> FuncMap;
 
 static struct {
-  uintptr_t Addr;
+  target_ulong Addr;
   bool Active;
 } BreakOn = {.Active = false};
 
@@ -240,9 +240,11 @@ int add(void) {
 
   tiny_code_generator_t tcg;
 
-  // Initialize targets and assembly printers/parsers.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
       llvm::MemoryBuffer::getFileOrSTDIN(opts::Input);
@@ -497,8 +499,8 @@ int add(void) {
     sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
     sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
-    boost::icl::interval<std::uintptr_t>::type intervl =
-        boost::icl::interval<std::uintptr_t>::right_open(
+    boost::icl::interval<target_ulong>::type intervl =
+        boost::icl::interval<target_ulong>::right_open(
             Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
     {
@@ -529,10 +531,10 @@ int add(void) {
   std::vector<section_t> SectTable;
   SectTable.resize(NumSections);
 
-  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+  boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
 
   {
-    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
     unsigned i = 0;
     for (const auto &pair : SectMap) {
       section_t &Sect = SectTable[i];
@@ -548,7 +550,7 @@ int add(void) {
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
       Sect.initArray = prop.initArray;
       Sect.finiArray = prop.finiArray;
 
@@ -628,10 +630,10 @@ int add(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  std::set<uintptr_t> FunctionEntrypoints;
-  std::set<uintptr_t> BasicBlockAddresses;
+  std::set<target_ulong> FunctionEntrypoints;
+  std::set<target_ulong> BasicBlockAddresses;
 
-  uintptr_t initFunctionAddr = 0;
+  target_ulong initFunctionAddr = 0;
   //
   // parse dynamic table
   //
@@ -709,7 +711,7 @@ int add(void) {
     }
   }
 
-  if (uintptr_t EntryAddr = E.getHeader()->e_entry) {
+  if (target_ulong EntryAddr = E.getHeader()->e_entry) {
     llvm::outs() << "translating entry point @ "
                  << (fmt("%#lx") % EntryAddr).str() << '\n';
 
@@ -847,7 +849,7 @@ int add(void) {
             llvm::outs() << llvm::formatv("translating (bb) {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
             BasicBlockAddresses.insert(Sym.st_value); /* XXX */
 #else
             FunctionEntrypoints.insert(Sym.st_value);
@@ -923,13 +925,13 @@ int add(void) {
   //
   auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
       constexpr unsigned long irelative_reloc_ty =
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
           llvm::ELF::R_X86_64_IRELATIVE
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
           llvm::ELF::R_386_IRELATIVE
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
           llvm::ELF::R_AARCH64_IRELATIVE
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
           std::numeric_limits<unsigned long>::max()
 #else
 #error
@@ -940,7 +942,7 @@ int add(void) {
     if (reloc_ty != irelative_reloc_ty)
       return;
 
-    uintptr_t ifunc_resolver_addr = R.r_addend;
+    target_ulong ifunc_resolver_addr = R.r_addend;
     if (!ifunc_resolver_addr) {
       // TODO refactor
       auto it = SectIdxMap.find(R.r_offset);
@@ -950,7 +952,7 @@ int add(void) {
       unsigned Off = R.r_offset - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      ifunc_resolver_addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
     assert(ifunc_resolver_addr);
 
@@ -991,20 +993,20 @@ int add(void) {
   //  10a330:       55                      push   %ebp
   //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
   //
-  for (uintptr_t Entrypoint : boost::adaptors::reverse(BasicBlockAddresses))
+  for (target_ulong Entrypoint : boost::adaptors::reverse(BasicBlockAddresses))
     translate_basic_block(binary, tcg, dis, Entrypoint);
 
-  for (uintptr_t Entrypoint : boost::adaptors::reverse(FunctionEntrypoints))
+  for (target_ulong Entrypoint : boost::adaptors::reverse(FunctionEntrypoints))
     translate_function(binary, tcg, dis, Entrypoint);
 
   do {
-    std::map<uintptr_t, std::vector<uintptr_t>>
+    std::map<target_ulong, std::vector<target_ulong>>
         LocalFunctionCallsToFixup = FunctionCallsToFixup;
     FunctionCallsToFixup.clear();
 
     auto &ICFG = binary.Analysis.ICFG;
     for (const auto &pair : boost::adaptors::reverse(LocalFunctionCallsToFixup)) {
-      for (uintptr_t CallSiteAddr : pair.second) {
+      for (target_ulong CallSiteAddr : pair.second) {
         auto it = BBMap.find(CallSiteAddr);
         assert(it != BBMap.end());
 
@@ -1117,7 +1119,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
       assert(bbidx < boost::num_vertices(ICFG));
 
-      uintptr_t beg = ICFG[bb].Addr;
+      target_ulong beg = ICFG[bb].Addr;
 
       if (beg == Addr) {
         assert(ICFG[bb].Addr == (*it).first.lower());
@@ -1192,7 +1194,7 @@ on_insn_boundary:
       ptrdiff_t off = Addr - beg;
       assert(off > 0);
 
-      boost::icl::interval<uintptr_t>::type orig_intervl = (*it).first;
+      boost::icl::interval<target_ulong>::type orig_intervl = (*it).first;
 
       basic_block_index_t newbbidx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG);
@@ -1232,12 +1234,12 @@ on_insn_boundary:
 
       assert(boost::out_degree(newbb, ICFG) == deg);
 
-      boost::icl::interval<uintptr_t>::type intervl1 =
-          boost::icl::interval<uintptr_t>::right_open(
+      boost::icl::interval<target_ulong>::type intervl1 =
+          boost::icl::interval<target_ulong>::right_open(
               ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
 
-      boost::icl::interval<uintptr_t>::type intervl2 =
-          boost::icl::interval<uintptr_t>::right_open(
+      boost::icl::interval<target_ulong>::type intervl2 =
+          boost::icl::interval<target_ulong>::right_open(
               ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
 
       assert(boost::icl::disjoint(intervl1, intervl2));
@@ -1341,13 +1343,13 @@ on_insn_boundary:
     Size += size;
 
     {
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
+      boost::icl::interval<target_ulong>::type intervl =
+          boost::icl::interval<target_ulong>::right_open(Addr, Addr + Size);
       auto it = BBMap.find(intervl);
       if (it == BBMap.end())
         continue; /* proceed */
 
-      const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
+      const boost::icl::interval<target_ulong>::type &_intervl = (*it).first;
 
       if (opts::Verbose)
         WithColor::error() << "can't translate further ["
@@ -1444,8 +1446,8 @@ on_insn_boundary:
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
+    boost::icl::interval<target_ulong>::type intervl =
+        boost::icl::interval<target_ulong>::right_open(bbprop.Addr,
                                                     bbprop.Addr + bbprop.Size);
     assert(BBMap.find(intervl) == BBMap.end());
 
@@ -1456,7 +1458,7 @@ on_insn_boundary:
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
   //
-  auto control_flow = [&](std::uintptr_t Target) -> void {
+  auto control_flow = [&](target_ulong Target) -> void {
     assert(Target);
 
     basic_block_index_t succidx =

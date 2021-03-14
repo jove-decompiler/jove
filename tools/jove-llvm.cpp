@@ -52,7 +52,7 @@ namespace jove {
 struct symbol_t {
   llvm::StringRef Name;
   llvm::StringRef Vers;
-  uintptr_t Addr;
+  uint64_t Addr;
 
   enum class TYPE {
     NONE,
@@ -123,8 +123,8 @@ struct hook_t;
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::Function *SectsF = nullptr;                                            \
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
-  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
+  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
+  boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
 
 #include "tcgcommon.hpp"
 
@@ -389,7 +389,7 @@ static cl::opt<bool>
                                     cl::desc("Check for stack overrun"),
                                     cl::cat(JoveCategory));
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 static cl::opt<bool>
     MipsT9Hack("mips-t9-hack",
                cl::desc("Assume t9 is the address of the "
@@ -450,14 +450,14 @@ struct binary_state_t {
 struct section_t {
   llvm::StringRef Name;
   llvm::ArrayRef<uint8_t> Contents;
-  uintptr_t Addr;
+  target_ulong Addr;
   unsigned Size;
 
   bool initArray;
   bool finiArray;
 
   struct {
-    boost::icl::split_interval_set<uintptr_t> Intervals;
+    boost::icl::split_interval_set<target_ulong> Intervals;
     std::map<unsigned, llvm::Constant *> Constants;
     std::map<unsigned, llvm::Type *> Types;
   } Stuff;
@@ -513,9 +513,9 @@ struct relocation_t {
     TPMOD
   } Type;
 
-  uintptr_t Addr;
+  target_ulong Addr;
   unsigned SymbolIndex;
-  uintptr_t Addend;
+  target_ulong Addend;
 
   llvm::Type *T; /* XXX */
   llvm::Constant *C; /* XXX */
@@ -609,7 +609,7 @@ static std::unique_ptr<llvm::TargetMachine> TM;
 
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
-static std::unordered_set<uintptr_t> ConstantRelocationLocs;
+static std::unordered_set<target_ulong> ConstantRelocationLocs;
 
 static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
@@ -637,7 +637,7 @@ static llvm::Function *JoveCheckReturnAddrFunc;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
-static uintptr_t SectsStartAddr, SectsEndAddr;
+static target_ulong SectsStartAddr, SectsEndAddr;
 static llvm::GlobalVariable *TLSSectsGlobal;
 
 static std::vector<function_index_t> FuncIdxAreABIVec;
@@ -650,7 +650,7 @@ static llvm::MDNode *AliasScopeMetadata;
 
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
 
-static std::map<uintptr_t, llvm::Constant *> TPOFFHack;
+static std::map<target_ulong, llvm::Constant *> TPOFFHack;
 
 static struct {
   struct {
@@ -659,7 +659,7 @@ static struct {
     unsigned Size;
   } Data;
 
-  uintptr_t Beg, End;
+  target_ulong Beg, End;
 
   bool Present;
 } ThreadLocalStorage;
@@ -671,18 +671,18 @@ static struct {
 
 static std::unordered_map<std::string, unsigned> GlobalSymbolDefinedSizeMap;
 
-static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
+static std::unordered_map<target_ulong, std::set<llvm::StringRef>>
     TLSValueToSymbolMap;
-static std::unordered_map<uintptr_t, unsigned>
+static std::unordered_map<target_ulong, unsigned>
     TLSValueToSizeMap;
 
-static boost::icl::split_interval_set<uintptr_t> AddressSpaceObjects;
+static boost::icl::split_interval_set<target_ulong> AddressSpaceObjects;
 
-static std::unordered_map<uintptr_t, std::set<llvm::StringRef>>
+static std::unordered_map<target_ulong, std::set<llvm::StringRef>>
     AddrToSymbolMap;
-static std::unordered_map<uintptr_t, unsigned>
+static std::unordered_map<target_ulong, unsigned>
     AddrToSizeMap;
-static std::unordered_set<uintptr_t>
+static std::unordered_set<target_ulong>
     TLSObjects; // XXX
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
@@ -691,7 +691,7 @@ static std::unordered_map<llvm::GlobalIFunc *,
                           std::pair<binary_index_t, function_index_t>>
     IFuncTargetMap;
 
-static std::unordered_set<uintptr_t> ExternGlobalAddrs;
+static std::unordered_set<target_ulong> ExternGlobalAddrs;
 
 static std::unordered_set<llvm::Function *> FunctionsToInline;
 
@@ -700,13 +700,13 @@ static struct {
 } VersionScript;
 
 // set {int}0x08053ebc = 0xf7fa83f0
-static std::map<std::pair<uintptr_t, unsigned>,
+static std::map<std::pair<target_ulong, unsigned>,
                 std::pair<binary_index_t, unsigned>>
     CopyRelocMap;
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
+#if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
 constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
-#elif defined(__i386__) || defined(__mips__)
+#elif defined(TARGET_I386) || defined(TARGET_MIPS32)
 constexpr target_ulong Cookie = 0xd27b9f5a;
 #else
 #error
@@ -872,8 +872,33 @@ static bool is_integral_size(unsigned n) {
   return n == 1 || n == 2 || n == 4 || n == 8;
 }
 
+static constexpr unsigned WordBytes(void) {
+  return sizeof(target_ulong);
+}
+
+static constexpr unsigned WordBits(void) {
+  return WordBytes() * 8;
+}
+
 static llvm::IntegerType *WordType(void) {
-  return llvm::Type::getIntNTy(*Context, sizeof(uintptr_t) * 8);
+  return llvm::Type::getIntNTy(*Context, WordBits());
+}
+
+static llvm::Type *PointerToWordType(void) {
+  return llvm::PointerType::get(WordType(), 0);
+}
+
+static llvm::Type *PPointerType(void) {
+  return llvm::PointerType::get(PointerToWordType(), 0);
+}
+
+llvm::Type *VoidType(void) {
+  return llvm::Type::getVoidTy(*Context);
+}
+
+static llvm::Type *VoidFunctionPointer(void) {
+  llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+  return llvm::PointerType::get(FTy, 0);
 }
 
 static std::error_code lockFile(int FD) {
@@ -969,7 +994,7 @@ DynTargetNeedsThunkPred(std::pair<binary_index_t, function_index_t> DynTarget) {
   return binary.IsDynamicLinker || binary.IsVDSO;
 }
 
-static llvm::Constant *SectionPointer(uintptr_t Addr);
+static llvm::Constant *SectionPointer(target_ulong Addr);
 
 template <bool Callable>
 static llvm::Value *
@@ -1034,7 +1059,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
 
 #include "elf.hpp"
 
-#ifdef __mips__
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 
 static const typename ELFF::Elf_Shdr *
 findNotEmptySectionByAddress(const ELFF *Obj, uint64_t Addr) {
@@ -1366,8 +1391,8 @@ int InitStateForBinaries(void) {
       WithColor::error() << "failed to create binary from " << binary.Path
                          << '\n';
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
+      boost::icl::interval<target_ulong>::type intervl =
+          boost::icl::interval<target_ulong>::right_open(0, binary.Data.size());
 
       assert(SectMap.find(intervl) == SectMap.end());
 
@@ -1439,8 +1464,8 @@ int InitStateForBinaries(void) {
         sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
         sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
 
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
+        boost::icl::interval<target_ulong>::type intervl =
+            boost::icl::interval<target_ulong>::right_open(
                 Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
 
         {
@@ -1474,7 +1499,7 @@ int InitStateForBinaries(void) {
       // compute SectsStartAddr, SectsEndAddr
       //
       {
-        uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+        target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
         for (const auto &pair : SectMap) {
           minAddr = std::min(minAddr, pair.first.lower());
           maxAddr = std::max(maxAddr, pair.first.upper());
@@ -1656,8 +1681,6 @@ static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
   return llvm::Type::getIntNTy(*Context, info.Size * 8);
 }
 
-static llvm::Type *VoidType(void);
-
 template <bool IsPreOrPost>
 static llvm::Function *declareHook(const hook_t &h) {
   const char *namePrefix = IsPreOrPost ? "__dfs_pre_hook_"
@@ -1836,7 +1859,7 @@ int ProcessBinaryTLSSymbols(void) {
           continue;
         }
 
-        uintptr_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
+        target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
         AddrToSymbolMap[Addr].insert(SymName);
         AddrToSizeMap[Addr] = Sym.st_size;
 
@@ -1949,7 +1972,7 @@ int ProcessBinaryTLSSymbols(void) {
       continue;
     }
 
-    uintptr_t Addr = ThreadLocalStorage.Beg + Sym.st_value;
+    target_ulong Addr = ThreadLocalStorage.Beg + Sym.st_value;
     AddrToSymbolMap[Addr].insert(SymName);
     AddrToSizeMap[Addr] = Sym.st_size;
 
@@ -3705,7 +3728,10 @@ int ProcessBinaryRelocations(void) {
     }
   }
 
-#ifdef __mips__
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  //
+  // on MIPS there is an arch-specific representation of the GOT.
+  //
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
@@ -3833,7 +3859,7 @@ int ProcessBinaryRelocations(void) {
 
     RelocationTable.push_back(res);
   }
-#endif /* __mips__ */
+#endif
 
   //
   // print relocations & symbols
@@ -3891,10 +3917,10 @@ int ProcessIFuncResolvers(void) {
   std::vector<section_t> SectTable;
   SectTable.resize(NumSections);
 
-  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+  boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
 
   {
-    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
     unsigned i = 0;
     for (const auto &pair : SectMap) {
       section_t &Sect = SectTable[i];
@@ -3910,7 +3936,7 @@ int ProcessIFuncResolvers(void) {
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
       Sect.initArray = prop.initArray;
       Sect.finiArray = prop.finiArray;
 
@@ -3924,7 +3950,7 @@ int ProcessIFuncResolvers(void) {
     if (R.Type != relocation_t::TYPE::IRELATIVE)
       continue;
 
-    uintptr_t ifunc_resolver_addr = R.Addend;
+    target_ulong ifunc_resolver_addr = R.Addend;
     if (!ifunc_resolver_addr) {
       // TODO refactor
       auto it = SectIdxMap.find(R.Addr);
@@ -3934,7 +3960,7 @@ int ProcessIFuncResolvers(void) {
       unsigned Off = R.Addr - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      ifunc_resolver_addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
     assert(ifunc_resolver_addr);
 
@@ -4037,7 +4063,7 @@ int ProcessIFuncResolvers(void) {
   //
   // DT_INIT
   //
-  uintptr_t initFunctionAddr = 0;
+  target_ulong initFunctionAddr = 0;
 
   for (const Elf_Dyn &Dyn : dynamic_table()) {
     if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
@@ -4071,8 +4097,11 @@ int ProcessIFuncResolvers(void) {
 int PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
 
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   std::string ArchName;
   std::string Error;
@@ -4128,8 +4157,8 @@ int PrepareToTranslateCode(void) {
   }
 
   int AsmPrinterVariant =
-#if defined(__x86_64__)
-      1
+#if defined(TARGET_X86_64)
+      1 /* intel please */
 #else
       AsmInfo->getAssemblerDialect()
 #endif
@@ -4339,27 +4368,6 @@ void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
   });
 }
 
-static llvm::Type *PointerToWordType(void) {
-  return llvm::PointerType::get(WordType(), 0);
-}
-
-static llvm::Type *PPointerType(void) {
-  return llvm::PointerType::get(PointerToWordType(), 0);
-}
-
-static unsigned WordBits(void) {
-  return sizeof(uintptr_t) * 8;
-}
-
-llvm::Type *VoidType(void) {
-  return llvm::Type::getVoidTy(*Context);
-}
-
-static llvm::Type *VoidFunctionPointer(void) {
-  llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
-  return llvm::PointerType::get(FTy, 0);
-}
-
 static unsigned bitsOfTCGType(TCGType ty) {
   switch (ty) {
   case TCG_TYPE_I32:
@@ -4456,7 +4464,7 @@ int CreateFunctions(void) {
     f.F = llvm::Function::Create(DetermineFunctionType(f),
                                  llvm::GlobalValue::ExternalLinkage, jove_name,
                                  Module.get());
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
     if (f.IsABI) {
       for (unsigned i = 0; i < f.F->arg_size(); ++i) {
         f.F->addParamAttr(i, llvm::Attribute::InReg);
@@ -4466,7 +4474,7 @@ int CreateFunctions(void) {
 
     //f.F->addFnAttr(llvm::Attribute::UWTable);
 
-    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
     unsigned off = Addr - SectsStartAddr;
 
     for (const symbol_t &sym : f.Syms) {
@@ -4613,7 +4621,7 @@ int CreateFunctionTable(void) {
 
   for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
     const function_t &f = Binary.Analysis.Functions[i];
-    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     llvm::Constant *C1 = SectionPointer(Addr);
     llvm::Constant *C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
@@ -4728,7 +4736,7 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 
 namespace jove {
 
-llvm::Constant *SectionPointer(uintptr_t Addr) {
+llvm::Constant *SectionPointer(target_ulong Addr) {
   assert(SectsStartAddr);
   assert(SectsEndAddr);
 
@@ -4801,10 +4809,10 @@ int CreateSectionGlobalVariables(void) {
   std::vector<section_t> SectTable;
   SectTable.resize(NumSections);
 
-  boost::icl::interval_map<uintptr_t, unsigned> SectIdxMap;
+  boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
 
   {
-    uintptr_t minAddr = std::numeric_limits<uintptr_t>::max(), maxAddr = 0;
+    target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
     unsigned i = 0;
     for (const auto &pair : SectMap) {
       section_t &Sect = SectTable[i];
@@ -4820,7 +4828,7 @@ int CreateSectionGlobalVariables(void) {
       Sect.Name = prop.name;
       Sect.Contents = prop.contents;
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
       Sect.initArray = prop.initArray;
       Sect.finiArray = prop.finiArray;
 
@@ -4831,19 +4839,19 @@ int CreateSectionGlobalVariables(void) {
     SectsEndAddr = maxAddr;
   }
 
-#if defined(__mips__) || defined(__mips64)
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
 
   //
   // on mips, we cannot rely on the SectionsGlobal to be not placed in
   // non executable memory (see READ_IMPLIES_EXEC)
   //
   struct PatchContents {
-    boost::icl::interval_map<uintptr_t, unsigned> &SectIdxMap;
+    boost::icl::interval_map<target_ulong, unsigned> &SectIdxMap;
     std::vector<section_t> &SectTable;
 
     std::vector<uint32_t> FunctionOrigInsnTable;
 
-    PatchContents(boost::icl::interval_map<uintptr_t, unsigned> &SectIdxMap,
+    PatchContents(boost::icl::interval_map<target_ulong, unsigned> &SectIdxMap,
                   std::vector<section_t> &SectTable)
       : SectIdxMap(SectIdxMap),
         SectTable(SectTable) {
@@ -4854,7 +4862,7 @@ int CreateSectionGlobalVariables(void) {
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
-        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4863,7 +4871,7 @@ int CreateSectionGlobalVariables(void) {
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
-        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4879,7 +4887,7 @@ int CreateSectionGlobalVariables(void) {
       //
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
-        uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+        target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
@@ -4887,7 +4895,7 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
-    void *binary_data_ptr_of_addr(uintptr_t Addr) {
+    void *binary_data_ptr_of_addr(target_ulong Addr) {
       auto it = SectIdxMap.find(Addr);
       assert(it != SectIdxMap.end());
 
@@ -4899,15 +4907,15 @@ int CreateSectionGlobalVariables(void) {
   } __PatchContents(SectIdxMap, SectTable);
 #endif
 
-  auto type_at_address = [&](uintptr_t Addr, llvm::Type *T) -> void {
+  auto type_at_address = [&](target_ulong Addr, llvm::Type *T) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
     section_t &Sect = SectTable[(*it).second];
     unsigned Off = Addr - Sect.Addr;
 
-    Sect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
-        Off, Off + sizeof(uintptr_t)));
+    Sect.Stuff.Intervals.insert(boost::icl::interval<target_ulong>::right_open(
+        Off, Off + sizeof(target_ulong)));
     Sect.Stuff.Types[Off] = T;
   };
 
@@ -5084,7 +5092,7 @@ int CreateSectionGlobalVariables(void) {
     }
 
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
     unsigned tpoff;
     {
       auto it = SectIdxMap.find(R.Addr);
@@ -5129,13 +5137,13 @@ int CreateSectionGlobalVariables(void) {
                                      const symbol_t &S) -> llvm::Type * {
     assert(R.Addr == S.Addr);
 
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     const char *CopyRelocName = "R_X86_64_COPY";
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     const char *CopyRelocName = "R_386_COPY";
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     const char *CopyRelocName = "R_AARCH64_COPY";
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     const char *CopyRelocName = "R_MIPS_COPY";
 #else
 #error
@@ -5154,7 +5162,7 @@ int CreateSectionGlobalVariables(void) {
         R.Addr, S.Name, S.Size);
     //abort();
 
-    if (CopyRelocMap.find(std::pair<uintptr_t, unsigned>(S.Addr, S.Size)) !=
+    if (CopyRelocMap.find(std::pair<target_ulong, unsigned>(S.Addr, S.Size)) !=
         CopyRelocMap.end())
       return VoidType();
 
@@ -5175,7 +5183,7 @@ int CreateSectionGlobalVariables(void) {
     std::tie(CopyFrom.BIdx, CopyFrom.SectsOffset) = decipher_copy_relocation(S);
 
     if (is_binary_index_valid(CopyFrom.BIdx))
-      CopyRelocMap.emplace(std::pair<uintptr_t, unsigned>(S.Addr, S.Size),
+      CopyRelocMap.emplace(std::pair<target_ulong, unsigned>(S.Addr, S.Size),
                            std::pair<binary_index_t, unsigned>(
                                CopyFrom.BIdx, CopyFrom.SectsOffset));
 
@@ -5240,7 +5248,7 @@ int CreateSectionGlobalVariables(void) {
     }
   };
 
-  auto constant_at_address = [&](uintptr_t Addr, llvm::Constant *C) -> void {
+  auto constant_at_address = [&](target_ulong Addr, llvm::Constant *C) -> void {
     auto it = SectIdxMap.find(Addr);
     assert(it != SectIdxMap.end());
 
@@ -5389,7 +5397,7 @@ int CreateSectionGlobalVariables(void) {
 
   auto constant_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Constant * {
-#ifdef __mips__
+#ifdef TARGET_MIPS32
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
       if (!S.IsUndefined()) {
@@ -5424,7 +5432,7 @@ int CreateSectionGlobalVariables(void) {
     }
 #endif
 
-    uintptr_t Addr;
+    target_ulong Addr;
     if (R.Addend) {
       Addr = R.Addend;
     } else {
@@ -5435,7 +5443,7 @@ int CreateSectionGlobalVariables(void) {
       unsigned Off = R.Addr - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      Addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
 
     if (opts::Verbose)
@@ -5641,7 +5649,7 @@ int CreateSectionGlobalVariables(void) {
     binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
     auto &ICFG = binary.Analysis.ICFG;
     function_t &f = binary.Analysis.Functions.at(IdxPair.second);
-    uintptr_t Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     return SectionPointer(Addr);
 #endif
@@ -5690,8 +5698,7 @@ int CreateSectionGlobalVariables(void) {
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
     }
 
-#if (!defined(__x86_64__) && defined(__i386__)) ||                             \
-    (!defined(__mips64) && defined(__mips__))
+#if defined(TARGET_I386) || defined(TARGET_MIPS32)
     unsigned tpoff;
     {
       auto it = SectIdxMap.find(R.Addr);
@@ -5701,7 +5708,7 @@ int CreateSectionGlobalVariables(void) {
       unsigned Off = R.Addr - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      tpoff = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      tpoff = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
     //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
 #else
@@ -5826,6 +5833,33 @@ int CreateSectionGlobalVariables(void) {
   };
 
   llvm::StructType *SectsGlobalTy;
+
+#if 0 /* defined(__mips__) */
+    {
+      auto it = std::find_if(
+          std::begin(SectTable),
+          std::end(SectTable),
+          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
+      if (it != SectTable.end()) {
+        section_t &GOTSect = *it;
+
+        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
+                                           GOTSect.Addr);
+
+        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
+
+        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
+          if (GOTSect.Stuff.Types.find(Off) !=
+              GOTSect.Stuff.Types.end()) /* XXX */
+            continue;
+
+          GOTSect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
+              Off, Off + sizeof(uintptr_t)));
+          GOTSect.Stuff.Types[Off] = WordType();
+        }
+      }
+    }
+#endif
 
   auto declare_sections = [&](void) -> void {
     //
@@ -5976,7 +6010,7 @@ int CreateSectionGlobalVariables(void) {
     ConstSectsGlobal->setConstant(true);
   };
 
-  auto create_global_variable = [&](uintptr_t Addr, unsigned Size,
+  auto create_global_variable = [&](target_ulong Addr, unsigned Size,
                                     llvm::StringRef SymName,
                                     llvm::GlobalValue::ThreadLocalMode tlsMode)
       -> llvm::GlobalVariable * {
@@ -6022,7 +6056,7 @@ int CreateSectionGlobalVariables(void) {
     }
 
     if (is_integral_size(Size)) {
-      if (Size == sizeof(uintptr_t)) {
+      if (Size == sizeof(target_ulong)) {
         auto typeit = Sect.Stuff.Types.find(Off);
         auto constit = Sect.Stuff.Constants.find(Off);
 
@@ -6085,8 +6119,8 @@ int CreateSectionGlobalVariables(void) {
     int Left = Size;
 
     for (const auto &_intvl : Sect.Stuff.Intervals) {
-      uintptr_t lower = _intvl.lower();
-      uintptr_t upper = _intvl.upper();
+      target_ulong lower = _intvl.lower();
+      target_ulong upper = _intvl.upper();
 
       if (upper <= Off)
         continue;
@@ -6190,7 +6224,7 @@ int CreateSectionGlobalVariables(void) {
       Sect.Stuff.Types.clear();
       Sect.Stuff.Intervals.clear();
       Sect.Stuff.Intervals.insert(
-          boost::icl::interval<uintptr_t>::right_open(0, Sect.Size));
+          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
     }
   };
 
@@ -6366,7 +6400,7 @@ int CreateSectionGlobalVariables(void) {
           continue;
       }
 
-      uintptr_t Addr = pair.first;
+      target_ulong Addr = pair.first;
 
       unsigned Size;
       {
@@ -6444,7 +6478,7 @@ int CreateSectionGlobalVariables(void) {
       return DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
-    uintptr_t initFunctionAddr = 0;
+    target_ulong initFunctionAddr = 0;
 
     for (const Elf_Dyn &Dyn : dynamic_table()) {
       if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
@@ -8348,7 +8382,7 @@ static int TranslateFunction(function_t &f) {
       if (tcg_program_counter_index >= 0)
         glbs.set(tcg_program_counter_index);
 
-#if defined(__mips64) || defined(__mips__)
+#ifdef TARGET_MIPS32
       if (f.IsABI || opts::MipsT9Hack)
         glbs.set(tcg_t9_index);
 #endif
@@ -8423,7 +8457,7 @@ static int TranslateFunction(function_t &f) {
       }
     }
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS32)
     //
     // when calling position independent functions $t9 must contain the address
     // of the called function. this is a strict requirement, and rarely do we
@@ -8689,25 +8723,25 @@ int FixupTPBaseAddrs(void) {
 
   llvm::InlineAsm *IA;
   {
-    std::vector<llvm::Type *> AsmArgTypes;
-    std::vector<llvm::Value *> AsmArgs;
-
     llvm::FunctionType *AsmFTy =
-        llvm::FunctionType::get(WordType(), AsmArgTypes, false);
+        llvm::FunctionType::get(WordType(), false);
+
+    llvm::StringRef AsmText;
+    llvm::StringRef Constraints;
 
     // TODO replace with thread pointer intrinsic
-#if defined(__x86_64__)
-    llvm::StringRef AsmText("movq \%fs:0x0,$0");
-    llvm::StringRef Constraints("=r");
-#elif defined(__i386__)
-    llvm::StringRef AsmText("movl \%gs:0x0,$0");
-    llvm::StringRef Constraints("=r");
-#elif defined(__aarch64__)
-    llvm::StringRef AsmText("mrs $0, tpidr_el0");
-    llvm::StringRef Constraints("=r");
-#elif defined(__mips64) || defined(__mips__)
-    llvm::StringRef AsmText("rdhwr $0, $$29");
-    llvm::StringRef Constraints("=r,~{$1}");
+#if defined(TARGET_X86_64)
+    AsmText = "movq \%fs:0x0,$0";
+    Constraints = "=r";
+#elif defined(TARGET_I386)
+    AsmText = "movl \%gs:0x0,$0";
+    Constraints = "=r";
+#elif defined(TARGET_AARCH64)
+    AsmText = "mrs $0, tpidr_el0";
+    Constraints = "=r";
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    AsmText = "rdhwr $0, $$29";
+    Constraints = "=r,~{$1}";
 #else
 #error
 #endif
@@ -9549,10 +9583,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
     switch (glb) {
     case tcg_env_index:
       return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     case tcg_fs_base_index:
       return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     case tcg_gs_base_index:
       return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #endif
@@ -9811,7 +9845,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto store_stack_pointers = [&](void) -> void {
     store_global(tcg_stack_pointer_index);
 
-#if defined(__mips__)
+#if defined(TARGET_MIPS32)
     store_global(tcg_t9_index);
     store_global(tcg_ra_index);
     store_global(tcg_gp_index);
@@ -9993,7 +10027,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     if (callee.IsABI) {
       Ret->setIsNoInline();
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
       //
       // on i386 ABIs have first three registers
       //
@@ -10262,7 +10296,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
           if (foreign) {
             unsigned NumWords = CallConvArgArray.size();
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
             NumWords += 2; /* XXX */
 #endif
 
@@ -10278,7 +10312,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
               IRB.CreateStore(Val, Ptr);
             }
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+            //
+            // XXX
+            //
             for (unsigned i = CallConvArgArray.size(); i < NumWords; ++i) {
               llvm::Value *Val = nullptr;
               switch (i - CallConvArgArray.size()) {
@@ -10334,7 +10371,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
             //
             // on i386 ABIs have first three registers
             //
@@ -10401,8 +10438,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
                   llvm::Value *ArgVal = nullptr;
                   {
-#if !defined(__x86_64__) && defined(__i386__)
+#if defined(TARGET_I386)
+                    //
                     // special-case i386: cdecl means read parameters off stack
+                    //
                     llvm::Value *SP = get(tcg_stack_pointer_index);
 
                     ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
@@ -10506,12 +10545,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
     };
 
     reload(tcg_stack_pointer_index);
-
-#if 0 /* defined(__mips__) */
-    reload(tcg_t9_index);
-    reload(tcg_ra_index);
-    reload(tcg_gp_index);
-#endif
   };
 
   switch (T.Type) {
@@ -10535,7 +10568,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   }
 
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
     llvm::Value *Args[] = {
         IRB.CreateLoad(TC.PCAlloca),
         IRB.CreatePtrToInt(
@@ -10670,7 +10703,7 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
   binary_t &b = Decompilation.Binaries[DynTarget.BIdx];
   function_t &f = b.Analysis.Functions[DynTarget.FIdx];
 
-  uintptr_t Addr =
+  target_ulong Addr =
       b.Analysis.ICFG[boost::vertex(f.Entry, b.Analysis.ICFG)].Addr;
 
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
@@ -10747,10 +10780,10 @@ static int TranslateTCGOp(TCGOp *op,
       switch (idx) {
       case tcg_env_index:
         return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
       case tcg_fs_base_index:
         return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
       case tcg_gs_base_index:
         return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
 #endif
@@ -11314,7 +11347,7 @@ static int TranslateTCGOp(TCGOp *op,
 //
 // load from host memory
 //
-#if defined(__aarch64__)
+#if defined(TARGET_AARCH64)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
     if (off == tcg_tpidr_el0_env_offset) {                                     \
@@ -11324,7 +11357,7 @@ static int TranslateTCGOp(TCGOp *op,
       break;                                                                   \
     }                                                                          \
   }
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
     if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
@@ -11397,7 +11430,7 @@ static int TranslateTCGOp(TCGOp *op,
 
 #undef __LD_OP
 
-#if defined(__mips__)
+#if defined(TARGET_MIPS32)
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
     if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
@@ -11952,43 +11985,29 @@ static int TranslateTCGOp(TCGOp *op,
 #endif
 
   case INDEX_op_mb: {
-    // TODO relaxed version
-    // see smp_mb() in tcg/tci.c
-
-    llvm::Triple TargetTriple(Module->getTargetTriple());
-    bool IsX86_64 = TargetTriple.getArch() == llvm::Triple::x86_64;
-    bool IsI386 = TargetTriple.getArch() == llvm::Triple::x86;
-    bool IsMIPS64 = TargetTriple.isMIPS64();
-    bool IsMIPS32 = TargetTriple.isMIPS32();
-    bool IsAArch64 = TargetTriple.getArch() == llvm::Triple::aarch64 ||
-                     TargetTriple.getArch() == llvm::Triple::aarch64_be;
-
     llvm::StringRef AsmText;
     llvm::StringRef Constraints;
 
-    if (IsX86_64) {
-      AsmText = "mfence";
-      Constraints = "~{memory}";
-    } else if (IsI386) {
-      AsmText = "lock; addl $$0,0(%esp)";
-      Constraints = "~{memory},~{cc},~{dirflag},~{fpsr},~{flags}";
-    } else if (IsAArch64) {
-      AsmText = "dmb ish";
-      Constraints = "~{memory}";
-    } else if (IsMIPS64 || IsMIPS32) {
-      AsmText = "sync";
-      Constraints = "~{memory}";
-    } else {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+#if defined(TARGET_X86_64)
+    AsmText = "mfence";
+    Constraints = "~{memory}";
+#elif defined(TARGET_I386)
+    AsmText = "lock; addl $$0,0(%esp)";
+    Constraints = "~{memory},~{cc},~{dirflag},~{fpsr},~{flags}";
+#elif defined(TARGET_AARCH64)
+    AsmText = "dmb ish";
+    Constraints = "~{memory}";
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    AsmText = "sync";
+    Constraints = "~{memory}";
+#else
+#error
+#endif
 
-    {
-      llvm::InlineAsm *IA =
-          llvm::InlineAsm::get(llvm::FunctionType::get(VoidType(), false),
-                               AsmText, Constraints, true /* hasSideEffects */);
-      IRB.CreateCall(IA);
-    }
+    llvm::InlineAsm *IA =
+        llvm::InlineAsm::get(llvm::FunctionType::get(VoidType(), false),
+                             AsmText, Constraints, true /* hasSideEffects */);
+    IRB.CreateCall(IA);
     break;
   }
 

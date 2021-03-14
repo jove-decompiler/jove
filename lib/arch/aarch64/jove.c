@@ -631,8 +631,11 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/mman.h>
 #include <sys/uio.h>
 #include <signal.h>
+#include <stdbool.h>
 
 typedef unsigned long kernel_sigset_t;
+typedef unsigned long cap_user_header_t;
+typedef unsigned long cap_user_data_t;
 
 struct kernel_sigaction {
   void *          _sa_handler;
@@ -663,11 +666,13 @@ extern /* -> static */ uintptr_t _jove_sections_global_beg_addr(void);
 extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
 extern /* -> static */ uint32_t _jove_binary_index(void);
 extern /* -> static */ bool _jove_trace_enabled(void);
+extern /* -> static */ bool _jove_dfsan_enabled(void);
 extern /* -> static */ void _jove_call_entry(void);
 extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ void _jove_do_tpoff_hack(void);
+extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();

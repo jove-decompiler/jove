@@ -210,13 +210,13 @@ static void worker(const dso_graph_t &dso_graph);
 
 static bool worker_failed = false;
 
-static std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &);
+static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
 
 int recompile(void) {
   compiler_runtime_afp =
-      (boost::dll::program_location().parent_path().parent_path() /
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
        "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
-       "lib" / "linux" / ("libclang_rt.builtins-" ___JOVE_ARCH_NAME ".a"))
+       "lib" / "linux" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
           .string();
 
   if (!fs::exists(compiler_runtime_afp) ||
@@ -273,9 +273,9 @@ int recompile(void) {
   }
 
   jove_dfsan_path =
-      (boost::dll::program_location().parent_path().parent_path() /
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
        "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
-       "lib" / "linux" / ("libclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME ".so"))
+       "lib" / "linux" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
           .string();
   if (!fs::exists(jove_dfsan_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n",
@@ -283,7 +283,7 @@ int recompile(void) {
     return 1;
   }
 
-  llc_path = (boost::dll::program_location().parent_path().parent_path() /
+  llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
               "third_party" / "llvm-project" / "install" / "bin" / "llc")
                  .string();
   if (!fs::exists(llc_path)) {
@@ -292,7 +292,7 @@ int recompile(void) {
   }
 
   llvm_dis_path =
-      (boost::dll::program_location().parent_path().parent_path() /
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
        "third_party" / "llvm-project" / "install" / "bin" / "llvm-dis")
           .string();
   if (!fs::exists(llvm_dis_path)) {
@@ -315,26 +315,14 @@ int recompile(void) {
   find_lld_at("/usr/local/bin/ld.lld"); /* look for custom ld.lld in /usr/local */
 
   /* otherwise fallback to lld in third_party */
-  find_lld_at((boost::dll::program_location().parent_path().parent_path() /
+  find_lld_at((boost::dll::program_location().parent_path().parent_path().parent_path() /
                "third_party" / "llvm-project" / "install" / "bin" / "ld.lld"));
 
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
 
-#if defined(__x86_64__)
-  ld_path = ld_gold_path;
-#elif defined(__i386__)
-  ld_path = ld_gold_path;
-#elif defined(__aarch64__)
-  ld_path = ld_bfd_path;
-#elif defined(__mips64)
-  ld_path = ld_bfd_path;
-#elif defined(__mips__)
-  ld_path = ld_bfd_path;
-#else
-#error
-#endif
+  ld_path = lld_path;
 
   if (!opts::UseLd.empty()) {
     if (opts::UseLd.compare("gold") == 0) {
@@ -355,7 +343,7 @@ int recompile(void) {
     return 1;
   }
 
-  opt_path = (boost::dll::program_location().parent_path().parent_path() /
+  opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
               "third_party" / "llvm-project" / "install" / "bin" / "opt")
                  .string();
   if (!fs::exists(opt_path)) {
@@ -521,7 +509,7 @@ int recompile(void) {
   if (opts::DFSan) {
     fs::path chrooted_path =
         fs::path(opts::Output) / "usr" / "lib" /
-        ("libclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME ".so");
+        ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so");
 
     fs::create_directories(chrooted_path.parent_path());
     fs::copy_file(jove_dfsan_path, chrooted_path,
@@ -573,7 +561,7 @@ int recompile(void) {
         for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
              ++BBIdx) {
           basic_block_t bb = boost::vertex(BBIdx, ICFG);
-          uintptr_t Addr = ICFG[bb].Term.Addr; /* XXX */
+          tcg_uintptr_t Addr = ICFG[bb].Term.Addr; /* XXX */
           ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
         }
       }
@@ -770,15 +758,17 @@ int recompile(void) {
 
           "-m",
 
-#if defined(__x86_64__) || defined(__i386__)
-          "elf_" ___JOVE_ARCH_NAME,
-#elif defined(__aarch64__)
+#if defined(TARGET_X86_64)
+          "elf_x86_64",
+#elif defined(TARGET_I386)
+          "elf_i386",
+#elif defined(TARGET_AARCH64)
           "aarch64linux",
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
           "elf64ltsmip",
-#elif defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN)
 	  "elf32ltsmip",
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
 	  "elf32btsmip",
 #else
 #error
@@ -806,7 +796,7 @@ int recompile(void) {
           //arg_vec.push_back("-z");
           //arg_vec.push_back("nocopyreloc");
 
-          uintptr_t Base, End;
+          tcg_uintptr_t Base, End;
           std::tie(Base, End) = base_of_executable(b);
 
           arg_vec.push_back("--section-start");
@@ -876,7 +866,7 @@ int recompile(void) {
 
       arg_vec.push_back("-ljove_rt");
       if (opts::DFSan)
-        arg_vec.push_back("-lclang_rt.dfsan.jove-" ___JOVE_ARCH_NAME);
+        arg_vec.push_back("-lclang_rt.dfsan.jove-" TARGET_ARCH_NAME);
 
       const char *rtld_path = nullptr;
       if (!b.dynl.interp.empty()) {
@@ -1180,14 +1170,14 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--relocation-model=static");
       }
 
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
       if (opts::DFSan) {
         arg_vec.push_back("--stack-alignment=16");
         arg_vec.push_back("--stackrealign");
       }
 #endif
 
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
       arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
 #endif
 
@@ -1559,7 +1549,7 @@ unsigned num_cpus(void) {
   return CPU_COUNT(&cpu_mask);
 }
 
-std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
+std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &binary) {
   //
   // parse the ELF
   //
@@ -1602,8 +1592,8 @@ std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
   //
   // compute SectsStartAddr, SectsEndAddr
   //
-  uintptr_t SectsStartAddr = std::numeric_limits<uintptr_t>::max();
-  uintptr_t SectsEndAddr = 0;
+  tcg_uintptr_t SectsStartAddr = std::numeric_limits<tcg_uintptr_t>::max();
+  tcg_uintptr_t SectsEndAddr = 0;
 
   for (const Elf_Shdr &Sec : *sections) {
     if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
@@ -1620,8 +1610,8 @@ std::pair<uintptr_t, uintptr_t> base_of_executable(binary_t &binary) {
     if (!Sec.sh_size)
       continue;
 
-    SectsStartAddr = std::min<uintptr_t>(SectsStartAddr, Sec.sh_addr);
-    SectsEndAddr = std::max<uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
+    SectsStartAddr = std::min<tcg_uintptr_t>(SectsStartAddr, Sec.sh_addr);
+    SectsEndAddr = std::max<tcg_uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
   }
 
   return {SectsStartAddr, SectsEndAddr};

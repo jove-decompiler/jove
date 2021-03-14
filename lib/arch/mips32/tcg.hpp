@@ -8,6 +8,9 @@
 
 #define CONFIG_ATOMIC64 1
 
+// (aeden) XXX
+#define TARGET_MIPS32 1
+
 #define TARGET_ALIGNED_ONLY 1
 
 #define CONFIG_USER_ONLY 1
@@ -3615,10 +3618,14 @@ enum {
 #endif
 
     /* An alias for the size of the native pointer.  */
+#if 0
 #if UINTPTR_MAX == UINT32_MAX
     TCG_TYPE_PTR = TCG_TYPE_I32,
 #else
     TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I32,
 #endif
 
     /* An alias for the size of the target "long", aka register.  */
@@ -3652,7 +3659,7 @@ static inline unsigned get_alignment_bits(MemOp memop)
     return a;
 }
 
-typedef tcg_target_ulong TCGArg;
+typedef uintptr_t TCGArg;
 
 typedef struct TCGv_i32_d *TCGv_i32;
 
@@ -8274,7 +8281,7 @@ static inline void tcg_gen_add_ptr(TCGv_ptr r, TCGv_ptr a, TCGv_ptr b)
 
 static inline void tcg_gen_ext_i32_ptr(TCGv_ptr r, TCGv_i32 a)
 {
-#if UINTPTR_MAX == UINT32_MAX
+#if 1 // UINTPTR_MAX == UINT32_MAX
     tcg_gen_mov_i32((NAT)r, a);
 #else
     tcg_gen_ext_i32_i64((NAT)r, a);

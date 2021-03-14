@@ -3094,8 +3094,12 @@ enum {
 #endif
 
     /* An alias for the size of the native pointer.  */
+#if 0
 #if UINTPTR_MAX == UINT32_MAX
     TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
 #else
     TCG_TYPE_PTR = TCG_TYPE_I64,
 #endif
@@ -3131,7 +3135,7 @@ static inline unsigned get_alignment_bits(MemOp memop)
     return a;
 }
 
-typedef tcg_target_ulong TCGArg;
+typedef uintptr_t TCGArg;
 
 typedef struct TCGv_i32_d *TCGv_i32;
 

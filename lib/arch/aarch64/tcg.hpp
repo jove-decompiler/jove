@@ -4829,8 +4829,12 @@ enum {
 #endif
 
     /* An alias for the size of the native pointer.  */
+#if 0
 #if UINTPTR_MAX == UINT32_MAX
     TCG_TYPE_PTR = TCG_TYPE_I32,
+#else
+    TCG_TYPE_PTR = TCG_TYPE_I64,
+#endif
 #else
     TCG_TYPE_PTR = TCG_TYPE_I64,
 #endif
@@ -4866,7 +4870,7 @@ static inline unsigned get_alignment_bits(MemOp memop)
     return a;
 }
 
-typedef tcg_target_ulong TCGArg;
+typedef uintptr_t TCGArg;
 
 typedef struct TCGv_i32_d *TCGv_i32;
 
@@ -14501,7 +14505,7 @@ static inline void tcg_gen_brcondi_ptr(TCGCond cond, TCGv_ptr a,
 
 static inline void tcg_gen_ext_i32_ptr(TCGv_ptr r, TCGv_i32 a)
 {
-#if UINTPTR_MAX == UINT32_MAX
+#if 0 // UINTPTR_MAX == UINT32_MAX
     tcg_gen_mov_i32((NAT)r, a);
 #else
     tcg_gen_ext_i32_i64((NAT)r, a);
@@ -14510,7 +14514,7 @@ static inline void tcg_gen_ext_i32_ptr(TCGv_ptr r, TCGv_i32 a)
 
 static inline void tcg_gen_extu_ptr_i64(TCGv_i64 r, TCGv_ptr a)
 {
-#if UINTPTR_MAX == UINT32_MAX
+#if 0 // UINTPTR_MAX == UINT32_MAX
     tcg_gen_extu_i32_i64(r, (NAT)a);
 #else
     tcg_gen_mov_i64(r, (NAT)a);

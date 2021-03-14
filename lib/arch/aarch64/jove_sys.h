@@ -3,7 +3,7 @@
 #endif
 
 #include <sys/quota.h>
-#include <xfs/xqm.h> /* for XFS quotas */
+//#include <xfs/xqm.h> /* for XFS quotas */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
@@ -24,19 +24,22 @@
 #include <sys/times.h>
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
-#include <sys/capability.h>
+//#include <sys/capability.h>
 #include <sys/quota.h>
 #include <sys/epoll.h>
 #include <sched.h>
 #include <linux/aio_abi.h>
 #include <mqueue.h>
-#include <keyutils.h>
+//#include <keyutils.h>
 #include <linux/bpf.h>
 
 #ifndef __user
 #define __user
 #endif
 
+typedef unsigned long cap_user_data_t; /* XXX */
+typedef unsigned long cap_user_header_t; /* XXX */
+typedef unsigned long key_serial_t; /* XXX */
 typedef uint64_t u64;
 typedef uint32_t u32;
 typedef unsigned int qid_t;

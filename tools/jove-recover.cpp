@@ -204,18 +204,7 @@ static function_index_t translate_function(binary_index_t binary_idx,
                                            disas_t &dis,
                                            target_ulong Addr);
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
-typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
-#else
-#error
-#endif
-
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
+#include "elf.hpp"
 
 static std::string DescribeFunction(binary_index_t, function_index_t);
 static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
@@ -276,8 +265,11 @@ int recover(void) {
   tiny_code_generator_t tcg;
 
   // Initialize targets and assembly printers/parsers.
-  llvm::InitializeNativeTarget();
-  llvm::InitializeNativeTargetDisassembler();
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
 
   llvm::Triple TheTriple;
   llvm::SubtargetFeatures Features;
@@ -649,7 +641,7 @@ int recover(void) {
 
     uintptr_t NextAddr = ICFG[bb].Addr + ICFG[bb].Size;
 
-#ifdef __mips__
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
     NextAddr += 4; /* delay slot */
 #endif
 
@@ -1229,20 +1221,6 @@ bool does_function_definitely_return(binary_index_t BIdx,
                });
 
   return !ExitBasicBlocks.empty();
-}
-
-template <class T>
-static T unwrapOrError(llvm::Expected<T> EO) {
-  if (EO)
-    return *EO;
-
-  std::string Buf;
-  {
-    llvm::raw_string_ostream OS(Buf);
-    llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
-  }
-  WithColor::error() << Buf << '\n';
-  exit(1);
 }
 
 std::string DescribeFunction(binary_index_t BIdx,

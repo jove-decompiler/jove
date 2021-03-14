@@ -22,14 +22,18 @@
 #include <sys/times.h>
 #include <sys/utsname.h>
 #include <sys/sysinfo.h>
-#include <sys/capability.h>
+//#include <sys/capability.h>
 #include <sys/quota.h>
 #include <sys/epoll.h>
 #include <sched.h>
 #include <linux/aio_abi.h>
 #include <mqueue.h>
-#include <keyutils.h>
+//#include <keyutils.h>
 #include <linux/bpf.h>
+
+typedef unsigned long key_serial_t; /* XXX */
+typedef unsigned long cap_user_data_t; /* XXX */
+typedef unsigned long cap_user_header_t; /* XXX */
 
 #ifndef __user
 #define __user

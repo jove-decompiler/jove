@@ -580,15 +580,8 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   unsigned size = 0;
   jove::terminator_info_t T;
   do {
-    do_tcg_optimization = true; /* XXX */
-
     unsigned len;
     std::tie(len, T) = TCG->translate(Addr + size, Addr + Size);
-
-    do_tcg_optimization = false; /* XXX */
-
-    TCGArg constprop[tcg_max_temps];
-    constprop[tcg_syscall_number_index] = std::numeric_limits<TCGArg>::max();
 
     TCGOp *op, *op_next;
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
@@ -605,101 +598,11 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 
         iglbs = hf.Analysis.InGlbs;
         oglbs = hf.Analysis.OutGlbs;
-
-        void *helper_ptr =
-            reinterpret_cast<void *>(op->args[nb_oargs + nb_iargs]);
-
-        //
-        // check to see if this helper function call is really a system call,
-        // and if so, try to get the number of parameters (if we can get the num
-        // statically)
-        //
-#if defined(__x86_64__)
-        if (helper_ptr == helper_syscall) {
-#elif defined(__i386__)
-        if (helper_ptr == helper_raise_interrupt &&
-            constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == 0x80) {
-#elif defined(__aarch64__)
-        if (helper_ptr == helper_exception_with_syndrome &&
-	    constprop[temp_idx(arg_temp(op->args[nb_oargs + 1]))] == EXCP_SWI) {
-#elif defined(__mips__)
-        if (false) {
-#else
-#error
-#endif
-          const auto &N = constprop[tcg_syscall_number_index];
-          if (N < syscalls::NR_END) {
-            //
-            // this is all for the purpose of achieving a higher-precision
-            // data-flow analysis. if we can statically determine the syscall
-            // number, we can know exactly how many parameters it takes
-            //
-            iglbs.reset();
-            oglbs.reset();
-
-            unsigned M = syscalls::nparams_tbl[N];
-            assert(M < 7);
-            switch (M) {
-              case 6:
-                if (tcg_syscall_arg6_index >= 0)
-                  iglbs.set(tcg_syscall_arg6_index);
-                /* fallthrough */
-              case 5:
-                if (tcg_syscall_arg5_index >= 0)
-                  iglbs.set(tcg_syscall_arg5_index);
-                /* fallthrough */
-              case 4:
-                if (tcg_syscall_arg4_index >= 0)
-                  iglbs.set(tcg_syscall_arg4_index);
-                /* fallthrough */
-              case 3:
-                if (tcg_syscall_arg3_index >= 0)
-                  iglbs.set(tcg_syscall_arg3_index);
-                /* fallthrough */
-              case 2:
-                if (tcg_syscall_arg2_index >= 0)
-                  iglbs.set(tcg_syscall_arg2_index);
-                /* fallthrough */
-              case 1:
-                if (tcg_syscall_arg1_index >= 0)
-                  iglbs.set(tcg_syscall_arg1_index);
-                /* fallthrough */
-              case 0:
-                break;
-
-              default:
-                __builtin_trap();
-                __builtin_unreachable();
-            }
-
-            oglbs.set(tcg_syscall_return_index);
-            iglbs.set(tcg_syscall_number_index);
-          }
-        }
       } else {
         const TCGOpDef &opdef = tcg_op_defs[opc];
 
         nb_iargs = opdef.nb_iargs;
         nb_oargs = opdef.nb_oargs;
-      }
-
-      if (opc == INDEX_op_movi_i64 ||
-          opc == INDEX_op_movi_i32) {
-        TCGTemp *ts = arg_temp(op->args[0]);
-        unsigned glb_idx = temp_idx(ts);
-
-        constprop[glb_idx] = op->args[1];
-      }
-
-      if (opc == INDEX_op_mov_i64 ||
-          opc == INDEX_op_mov_i32) {
-        TCGTemp *dst = arg_temp(op->args[0]);
-        TCGTemp *src = arg_temp(op->args[1]);
-
-        unsigned dst_idx = temp_idx(dst);
-        unsigned src_idx = temp_idx(src);
-
-        constprop[dst_idx] = constprop[src_idx];
       }
 
       for (int i = 0; i < nb_iargs; ++i) {
@@ -895,6 +798,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     const char *helper_nm = tcg_find_helper(s, addr);
     assert(helper_nm);
 
+#if 0
     if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
       if (F->user_begin() == F->user_end()) {
         F->eraseFromParent();
@@ -904,6 +808,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
                    std::to_string(i++));
       }
     }
+#endif
 
     assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
            "helper function already exists");
@@ -911,15 +816,13 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     std::string suffix = isDFSan() ? ".dfsan.bc" : ".bc";
 
     std::string helperModulePath =
-        (boost::dll::program_location().parent_path() /
-         (std::string(helper_nm) + suffix))
-            .string();
+        (boost::dll::program_location().parent_path() / "helpers" / (std::string(helper_nm) + suffix)).string();
 
     llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
         llvm::MemoryBuffer::getFile(helperModulePath);
     if (!BufferOr) {
       WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                         << " (" << BufferOr.getError().message() << ")\n";
+                         << " at " << helperModulePath << " (" << BufferOr.getError().message() << ")\n";
       exit(1);
     }
 
@@ -1027,16 +930,16 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     //
     // force Analysis.Simple=1 for system calls
     //
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_syscall))
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_raise_interrupt))
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_exception_with_syndrome))
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     if (reinterpret_cast<void *>(addr) ==
         reinterpret_cast<void *>(helper_raise_exception_err))
 #else

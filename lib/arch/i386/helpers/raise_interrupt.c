@@ -1123,9 +1123,10 @@ void QEMU_NORETURN cpu_loop_exit_restore(CPUState *cpu, uintptr_t pc);
 #include <sched.h>
 #include <linux/aio_abi.h>
 #include <mqueue.h>
-#include <keyutils.h>
+//#include <keyutils.h>
 #include <linux/bpf.h>
 
+typedef unsigned long key_serial_t;
 typedef unsigned long old_time32_t;
 typedef unsigned long old_uid_t;
 typedef unsigned long old_gid_t;

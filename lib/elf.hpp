@@ -28,7 +28,9 @@ struct DynRegionInfo {
                                 ") or entity size (" + Twine(EntSize) + ")"),
                     FileName);
 #else
+#ifdef WARN
       WARN();
+#endif
 #endif
 
       return {Start, Start};
@@ -52,11 +54,11 @@ static T unwrapOrError(llvm::Expected<T> EO) {
   exit(1);
 }
 
-#if defined(__x86_64__) || defined(__aarch64__) || defined(__mips64)
+#if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
 typedef typename obj::ELF64LE ELFT;
-#elif defined(__i386__) || (defined(__mips__) && !defined(HOST_WORDS_BIGENDIAN))
+#elif defined(TARGET_I386) || (defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN))
 typedef typename obj::ELF32LE ELFT;
-#elif defined(__mips__) && defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
 typedef typename obj::ELF32BE ELFT;
 #else
 #error

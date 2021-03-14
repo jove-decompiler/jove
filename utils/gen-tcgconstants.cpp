@@ -25,16 +25,16 @@ int main(int argc, char **argv) {
   };
 
   auto print_call_conv_sets = [&](void) -> void {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     const std::array<const char *, 6> arg_regs{"rdi", "rsi", "rdx", "rcx", "r8", "r9"};
     const std::array<const char *, 2> ret_regs{"rax", "rdx"};
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     const std::array<const char *, 3> arg_regs{"eax", "edx", "ecx"};
     const std::array<const char *, 2> ret_regs{"eax", "edx"};
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
     const std::array<const char *, 2> ret_regs = {"v0", "v1"};
 #else
@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
   };
 
   auto print_not_sets = [&](void) -> void {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     const std::array<const char *, 16> not_arg_or_ret_regs{
       "_frame",
       "env",
@@ -135,7 +135,7 @@ int main(int argc, char **argv) {
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     const std::array<const char *, 24> not_arg_or_ret_regs{
       "_frame",
       "env",
@@ -165,15 +165,14 @@ int main(int argc, char **argv) {
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
-#elif defined(__aarch64__)
-    const std::array<const char *, 2> not_arg_or_ret_regs{
-      "_frame",
+#elif defined(TARGET_AARCH64)
+    const std::array<const char *, 1> not_arg_or_ret_regs{
       "env",
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     const std::array<const char *, 3> not_arg_or_ret_regs{
       "_frame",
       "env",
@@ -182,7 +181,7 @@ int main(int argc, char **argv) {
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     const std::array<const char *, 3> not_arg_regs{
       "_frame",
       "env",
@@ -234,7 +233,7 @@ int main(int argc, char **argv) {
   };
 
   auto print_callee_saved_registers = [&](void) -> void {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     const std::array<const char *, 6> callee_saved_regs{
       "rbx",
       "rbp",
@@ -243,27 +242,27 @@ int main(int argc, char **argv) {
       "r14",
       "r15"
     };
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     const std::array<const char *, 4> callee_saved_regs{
       "ebx",
       "ebp",
       "esi",
       "edi",
     };
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     const std::array<const char *, 10> callee_saved_regs{
-      "r19",
-      "r20",
-      "r21",
-      "r22",
-      "r23",
-      "r24",
-      "r25",
-      "r26",
-      "r27",
-      "r28",
+      "x19",
+      "x20",
+      "x21",
+      "x22",
+      "x23",
+      "x24",
+      "x25",
+      "x26",
+      "x27",
+      "x28",
     };
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     const std::array<const char *, 8> callee_saved_regs{
       "s0",
       "s1",
@@ -274,7 +273,7 @@ int main(int argc, char **argv) {
       "s6",
       "s7",
     };
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     const std::array<const char *, 8> callee_saved_regs{
       "s0",
       "s1",
@@ -336,63 +335,63 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("env");
   };
   auto program_counter_index = [&](void) -> int {
-#if defined(__mips64) || defined(__mips__)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     return tcg_index_of_named_global("PC");
 #else
     return tcg_index_of_named_global("pc");
 #endif
   };
   auto stack_pointer_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rsp");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("esp");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("sp");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("sp");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("sp");
 #else
 #error
 #endif
   };
   auto frame_pointer_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rbp");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("ebp");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x29");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("s8");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("s8");
 #else
 #error
 #endif
   };
   auto program_counter_env_offset = [&](void) -> int {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
     return offsetof(CPUX86State, eip);
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return -1;
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     return offsetof(CPUMIPSState, active_tc.PC);
 #else
 #error
 #endif
   };
   auto syscall_number_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rax");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("eax");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x8");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("v0");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("v0");
 #else
 #error
@@ -400,15 +399,15 @@ int main(int argc, char **argv) {
   };
 
   auto syscall_return_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rax");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("eax");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x0");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("v0");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("v0");
 #else
 #error
@@ -416,97 +415,97 @@ int main(int argc, char **argv) {
   };
 
   auto syscall_arg1_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rdi");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("ebx");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x0");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("a0");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("a0");
 #else
 #error
 #endif
   };
   auto syscall_arg2_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rsi");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("ecx");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x1");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("a1");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("a1");
 #else
 #error
 #endif
   };
   auto syscall_arg3_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("rdx");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("edx");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x2");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("a2");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("a2");
 #else
 #error
 #endif
   };
   auto syscall_arg4_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("r10");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("esi");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x3");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("a3");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return tcg_index_of_named_global("a3");
 #else
 #error
 #endif
   };
   auto syscall_arg5_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("r8");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("edi");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x4");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("t0");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return -1; /* on stack */
 #else
 #error
 #endif
   };
   auto syscall_arg6_index = [&](void) -> int {
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     return tcg_index_of_named_global("r9");
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     return tcg_index_of_named_global("ebp");
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     return tcg_index_of_named_global("x5");
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     return tcg_index_of_named_global("t1");
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     return -1; /* on stack */
 #else
 #error
 #endif
   };
 
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
   auto fs_base_index = [&](void) -> int {
     return tcg_index_of_named_global("fs_base");
   };
@@ -526,19 +525,19 @@ int main(int argc, char **argv) {
   auto r15_index = [&](void) -> int {
     return tcg_index_of_named_global("r15");
   };
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
   auto gs_base_index = [&](void) -> int {
     return tcg_index_of_named_global("gs_base");
   };
 #endif
 
-#if defined(__aarch64__)
+#if defined(TARGET_AARCH64)
   auto tpidr_el0_env_offset = [&](void) -> int {
     return offsetof(CPUARMState, cp15.tpidr_el[0]);
   };
 #endif
 
-#if defined(__mips__)
+#if defined(TARGET_MIPS32)
   auto t9_index = [&](void) -> int {
     return tcg_index_of_named_global("t9");
   };
@@ -563,10 +562,14 @@ int main(int argc, char **argv) {
   printf("#pragma once\n"
          "#include <bitset>\n"
          "#include <array>\n"
+         "#include <cstdint>\n"
          "\n"
+         "/* NOTE: THIS FILE IS AUTO-GENERATED BY GEN-TCGCONSTANTS. DO NOT MODIFY */\n"
          "namespace jove {\n");
 
 #define __TCG_CONST(NM) printf("constexpr int tcg_" #NM " = %d;\n", NM())
+
+  printf("typedef uint%u_t tcg_uintptr_t;\n", static_cast<unsigned>(8 * sizeof(target_ulong)));
 
   __TCG_CONST(num_globals);
   __TCG_CONST(num_helpers);
@@ -585,21 +588,21 @@ int main(int argc, char **argv) {
   __TCG_CONST(syscall_arg5_index);
   __TCG_CONST(syscall_arg6_index);
 
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
   __TCG_CONST(fs_base_index);
   __TCG_CONST(r12_index);
   __TCG_CONST(r13_index);
   __TCG_CONST(r14_index);
   __TCG_CONST(r15_index);
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
   __TCG_CONST(gs_base_index);
 #endif
 
-#if defined(__aarch64__)
+#if defined(TARGET_AARCH64)
   __TCG_CONST(tpidr_el0_env_offset);
 #endif
 
-#if defined(__mips__)
+#if defined(TARGET_MIPS32)
   __TCG_CONST(t9_index);
   __TCG_CONST(ra_index);
   __TCG_CONST(gp_index);

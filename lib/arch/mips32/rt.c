@@ -1791,8 +1791,8 @@ struct kernel_sigaction {
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
-#include <sys/syscall.h>
-#include <errno.h>
+//#include <sys/syscall.h>
+//#include <errno.h>
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/mman.h>

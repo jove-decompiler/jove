@@ -74,11 +74,11 @@ namespace jove {
 static bool do_tcg_optimization = false;
 
 struct tiny_code_generator_t {
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
   X86CPU _cpu;
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
   ARMCPU _cpu;
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   MIPSCPU _cpu;
 #else
 #error "unknown arch"
@@ -92,7 +92,7 @@ struct tiny_code_generator_t {
 
     _cpu.parent_obj.env_ptr = &_cpu.env;
 
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     _cpu.env.eflags = 514;
     _cpu.env.hflags = 0x0040c0b3;
     _cpu.env.hflags2 = 1;
@@ -110,7 +110,7 @@ struct tiny_code_generator_t {
     _cpu.env.features[5] = 563346429;
     _cpu.env.features[6] = 5;
     _cpu.env.user_features[0] = 2;
-#elif defined(__i386__)
+#elif defined(TARGET_I386)
     _cpu.env.eflags = 514;
     _cpu.env.hflags = 0x004000b3;
     _cpu.env.hflags2 = 1;
@@ -126,7 +126,7 @@ struct tiny_code_generator_t {
     _cpu.env.features[1] = 2147483649;
     _cpu.env.features[1] |= CPUID_EXT_XSAVE;
     _cpu.env.user_features[0] = 2;
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     _cpu.cp_regs = g_hash_table_new_full(g_int_hash, g_int_equal, g_free,
                                          cpreg_hashtable_data_destroy);
 
@@ -201,7 +201,7 @@ struct tiny_code_generator_t {
     _cpu.env.features |= 1ULL << ARM_FEATURE_V4T;
     _cpu.env.features |= 1ULL << ARM_FEATURE_VBAR;
 #endif
-#elif defined(__mips64)
+#elif defined(TARGET_MIPS64)
     _cpu.env.insn_flags = 511;
     _cpu.env.hflags = 234;
     _cpu.env.CP0_Config1 = -1100926821;
@@ -211,7 +211,7 @@ struct tiny_code_generator_t {
     _cpu.env.CP0_Config5 = 0;
     _cpu.env.PAMask = 68719476735;
     _cpu.env.CP0_LLAddr_shift = 4;
-#elif defined(__mips__)
+#elif defined(TARGET_MIPS32)
     _cpu.env.insn_flags = 4294967395;
     _cpu.env.hflags = 226;
     _cpu.env.CP0_Config1 = -1642525553;
@@ -231,14 +231,14 @@ struct tiny_code_generator_t {
     tcg_context_init(&_ctx);
     _ctx.cpu = &_cpu.parent_obj;
 
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
     tcg_x86_init();
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     arm_translate_init();
 
     register_cp_regs_for_features(&_cpu);
     init_cpreg_list(&_cpu);
-#elif defined(__mips64) || defined(__mips__)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     mips_tcg_init();
 #else
 #error
@@ -267,9 +267,12 @@ struct tiny_code_generator_t {
 
     tb.pc = pc;
 
-#if defined(__x86_64__) || defined(__i386__) || defined(__mips64) || defined(__mips__)
+#if defined(TARGET_X86_64) || \
+    defined(TARGET_I386)   || \
+    defined(TARGET_MIPS64) || \
+    defined(TARGET_MIPS32)
     tb.flags = _cpu.env.hflags;
-#elif defined(__aarch64__)
+#elif defined(TARGET_AARCH64)
     tb.flags = R_TBFLAG_ANY_AARCH64_STATE_MASK;
 #else
 #error
@@ -294,7 +297,7 @@ struct tiny_code_generator_t {
       }
     }
 
-#if defined(__i386__) || defined(__mips__)
+#if defined(TARGET_I386) || defined(TARGET_MIPS32)
     struct terminator_info_t &ti = tb.jove.T;
 
     //
