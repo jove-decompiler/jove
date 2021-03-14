@@ -27,9 +27,9 @@
 #elif defined(TARGET_I386)
 #include <jove/arch/i386/tcgconstants.h>
 #elif defined(TARGET_MIPS64)
-#include <jove/arch/mips64el/tcgconstants.h>
+#include <jove/arch/mips64/tcgconstants.h>
 #elif defined(TARGET_MIPS32)
-#include <jove/arch/mipsel/tcgconstants.h>
+#include <jove/arch/mips32/tcgconstants.h>
 #else
 #error "unknown target"
 #endif
@@ -70,11 +70,11 @@ inline bool is_basic_block_index_valid(basic_block_index_t idx) {
 }
 
 struct basic_block_properties_t {
-  uintptr_t Addr;
+  tcg_uintptr_t Addr;
   unsigned Size;
 
   struct {
-    uintptr_t Addr;
+    tcg_uintptr_t Addr;
     TERMINATOR Type;
 
     struct {
@@ -220,9 +220,9 @@ struct binary_t {
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
 
-    std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
+    std::map<tcg_uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
         RelocDynTargets;
-    std::map<uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
+    std::map<tcg_uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
         IFuncDynTargets;
     std::map<std::string, std::set<std::pair<binary_index_t, function_index_t>>>
         SymDynTargets;
@@ -305,25 +305,25 @@ inline const char *description_of_terminator(TERMINATOR TermTy) {
 
 struct terminator_info_t {
   TERMINATOR Type;
-  uintptr_t Addr;
+  tcg_uintptr_t Addr;
 
   union {
     struct {
-      uintptr_t Target;
+      tcg_uintptr_t Target;
     } _unconditional_jump;
 
     struct {
-      uintptr_t Target;
-      uintptr_t NextPC;
+      tcg_uintptr_t Target;
+      tcg_uintptr_t NextPC;
     } _conditional_jump;
 
     struct {
-      uintptr_t Target;
-      uintptr_t NextPC;
+      tcg_uintptr_t Target;
+      tcg_uintptr_t NextPC;
     } _call;
 
     struct {
-      uintptr_t NextPC;
+      tcg_uintptr_t NextPC;
     } _indirect_call;
 
     struct {
@@ -339,7 +339,7 @@ struct terminator_info_t {
     } _unreachable;
 
     struct {
-      uintptr_t NextPC;
+      tcg_uintptr_t NextPC;
     } _none;
   };
 };
