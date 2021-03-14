@@ -97,7 +97,7 @@ static void checkHelper(const std::string &helper_nm) {
   if (syms.empty())
     return;
 
-  llvm::outs() << llvm::formatv(___JOVE_ARCH_NAME "-{0}_EXTRICATE_ARGS :=",
+  llvm::outs() << llvm::formatv(TARGET_ARCH_NAME "-{0}_EXTRICATE_ARGS :=",
                                 helper_nm);
 
   for (const std::string &sym : syms)
