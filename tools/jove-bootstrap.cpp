@@ -861,7 +861,7 @@ int TracerLoop(pid_t child) {
 
       section_properties_t sectprop;
       sectprop.name = ".text";
-      sectprop.contents = binary.Data;
+      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
       sectprop.w = false;
       sectprop.x = true;
       st.SectMap.add({intervl, {sectprop}});
@@ -5647,7 +5647,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
 
       section_properties_t sectprop;
       sectprop.name = ".text";
-      sectprop.contents = binary.Data;
+      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
       sectprop.w = false;
       sectprop.x = true;
       st.SectMap.add({intervl, {sectprop}});

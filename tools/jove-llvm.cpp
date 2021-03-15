@@ -1398,7 +1398,7 @@ int InitStateForBinaries(void) {
 
       section_properties_t sectprop;
       sectprop.name = ".text";
-      sectprop.contents = binary.Data;
+      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
       sectprop.w = false;
       sectprop.x = true;
       sectprop.initArray = false;
