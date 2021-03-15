@@ -71,7 +71,7 @@ inline bool is_basic_block_index_valid(basic_block_index_t idx) {
 
 struct basic_block_properties_t {
   tcg_uintptr_t Addr;
-  unsigned Size;
+  uint32_t Size;
 
   struct {
     tcg_uintptr_t Addr;
