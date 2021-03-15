@@ -124,8 +124,8 @@ class Binary;
 
 #include "jove/jove.h"
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
@@ -228,7 +228,7 @@ int ParseDecompilation(void) {
   std::ifstream ifs(
       fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-  boost::archive::binary_iarchive ia(ifs);
+  boost::archive::text_iarchive ia(ifs);
   ia >> Decompilation;
 
   return 0;
@@ -622,7 +622,7 @@ int WriteDecompilation(void) {
                           ? (opts::jv + "/decompilation.jv")
                           : opts::jv);
 
-    boost::archive::binary_oarchive oa(ofs);
+    boost::archive::text_oarchive oa(ofs);
     oa << Decompilation;
   }
 

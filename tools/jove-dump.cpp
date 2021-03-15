@@ -16,7 +16,7 @@ void _qemu_log(const char *cstr) { fputs(cstr, stdout); }
 #include <fstream>
 #include <algorithm>
 #include <boost/filesystem.hpp>
-#include <boost/archive/binary_iarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
@@ -467,7 +467,7 @@ static void dumpInput(const std::string &Path) {
     std::ifstream ifs(fs::is_directory(Path) ? Path + "/decompilation.jv"
                                              : Path);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> decompilation;
   }
 

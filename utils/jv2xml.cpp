@@ -27,8 +27,8 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/archive/xml_oarchive.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -80,7 +80,7 @@ int jv2xml(void) {
   {
     std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> Decompilation;
   }
 

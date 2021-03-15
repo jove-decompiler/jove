@@ -199,8 +199,8 @@ struct hook_t;
 
 #include "jove/jove.h"
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
@@ -937,7 +937,7 @@ int ParseDecompilation(void) {
   {
     std::ifstream ifs(path);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> Decompilation;
   }
 
@@ -9280,7 +9280,7 @@ int WriteDecompilation(void) {
     {
       std::ofstream ofs(path);
 
-      boost::archive::binary_oarchive oa(ofs);
+      boost::archive::text_oarchive oa(ofs);
       oa << Decompilation;
     }
 

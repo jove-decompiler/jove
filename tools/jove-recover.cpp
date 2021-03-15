@@ -48,8 +48,8 @@
 #endif
 
 #include "jove/jove.h"
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
@@ -254,7 +254,7 @@ int recover(void) {
     {
       std::ifstream ifs(path);
 
-      boost::archive::binary_iarchive ia(ifs);
+      boost::archive::text_iarchive ia(ifs);
       ia >> Decompilation;
     }
 
@@ -731,7 +731,7 @@ int recover(void) {
     {
       std::ofstream ofs(path);
 
-      boost::archive::binary_oarchive oa(ofs);
+      boost::archive::text_oarchive oa(ofs);
       oa << Decompilation;
     }
 

@@ -31,8 +31,8 @@
 
 #include "jove/jove.h"
 #include <boost/range/adaptor/reversed.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
@@ -301,7 +301,7 @@ int add(void) {
     {
       std::ofstream ofs(opts::Output);
 
-      boost::archive::binary_oarchive oa(ofs);
+      boost::archive::text_oarchive oa(ofs);
       oa << decompilation;
     }
 
@@ -387,7 +387,7 @@ int add(void) {
   if (fs::exists(opts::Output)) {
     std::ifstream ifs(opts::Output);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> decompilation;
   }
 
@@ -1066,7 +1066,7 @@ int add(void) {
   {
     std::ofstream ofs(opts::Output);
 
-    boost::archive::binary_oarchive oa(ofs);
+    boost::archive::text_oarchive oa(ofs);
     oa << decompilation;
   }
 

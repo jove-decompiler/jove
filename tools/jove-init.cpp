@@ -33,8 +33,8 @@
 #include <fcntl.h>
 
 #include "jove/jove.h"
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
@@ -382,7 +382,7 @@ Found:
     {
       std::ifstream ifs(jvfp);
 
-      boost::archive::binary_iarchive ia(ifs);
+      boost::archive::text_iarchive ia(ifs);
       ia >> decompilation;
     }
 
@@ -440,7 +440,7 @@ found:
   {
     std::ofstream ofs(final_output_path);
 
-    boost::archive::binary_oarchive oa(ofs);
+    boost::archive::text_oarchive oa(ofs);
     oa << final_decompilation;
   }
 

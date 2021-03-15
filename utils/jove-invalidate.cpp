@@ -11,8 +11,8 @@
 #include <fstream>
 #include <algorithm>
 #include <boost/filesystem.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
@@ -48,7 +48,7 @@ static void invalidateInput(const std::string &Path) {
   {
     std::ifstream ifs(git ? Path + "/decompilation.jv" : Path);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> Decompilation;
   }
 
@@ -73,7 +73,7 @@ static void invalidateInput(const std::string &Path) {
   {
     std::ofstream ofs(git ? Path + "/decompilation.jv" : Path);
 
-    boost::archive::binary_oarchive oa(ofs);
+    boost::archive::text_oarchive oa(ofs);
     oa << Decompilation;
   }
 

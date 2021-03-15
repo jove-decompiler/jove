@@ -28,8 +28,8 @@
 
 #include "jove/jove.h"
 #include <boost/format.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/vector.hpp>
@@ -349,7 +349,7 @@ int cfg(void) {
                           ? (fs::path(opts::jv) / "decompilation.jv").string()
                           : opts::jv);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> Decompilation;
   }
 

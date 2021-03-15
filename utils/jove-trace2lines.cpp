@@ -14,8 +14,8 @@
 #include <fcntl.h>
 #include <linux/magic.h>
 #include <boost/filesystem.hpp>
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/serialization/bitset.hpp>
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
@@ -214,7 +214,7 @@ int trace2lines(void) {
     {
       std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-      boost::archive::binary_iarchive ia(ifs);
+      boost::archive::text_iarchive ia(ifs);
       ia >> decompilation;
     }
 

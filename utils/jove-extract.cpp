@@ -48,8 +48,8 @@
 #endif
 
 #include "jove/jove.h"
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
@@ -123,7 +123,7 @@ int extract(void) {
   {
     std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> Decompilation;
   }
 

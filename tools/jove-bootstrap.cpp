@@ -54,8 +54,8 @@
 #endif
 
 #include "jove/jove.h"
-#include <boost/archive/binary_iarchive.hpp>
-#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
 #include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
@@ -743,7 +743,7 @@ int TracerLoop(pid_t child) {
   {
     std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
 
-    boost::archive::binary_iarchive ia(ifs);
+    boost::archive::text_iarchive ia(ifs);
     ia >> decompilation;
   }
 
@@ -1620,7 +1620,7 @@ int TracerLoop(pid_t child) {
     std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
                           : opts::jv);
 
-    boost::archive::binary_oarchive oa(ofs);
+    boost::archive::text_oarchive oa(ofs);
     oa << decompilation;
   }
 
@@ -5565,7 +5565,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     {
       std::ifstream ifs(jvfp);
 
-      boost::archive::binary_iarchive ia(ifs);
+      boost::archive::text_iarchive ia(ifs);
       ia >> new_decompilation;
     }
 
