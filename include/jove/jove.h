@@ -207,7 +207,7 @@ struct function_t {
 
 struct binary_t {
   std::string Path;
-  std::vector<uint8_t> Data;
+  std::string Data;
 
   bool IsDynamicLinker, IsExecutable, IsVDSO;
 
