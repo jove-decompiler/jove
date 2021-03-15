@@ -5011,7 +5011,7 @@ int CreateSectionGlobalVariables(void) {
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
 #if 0
-    uintptr_t Addr;
+    target_ulong Addr;
     if (R.Addend) {
       Addr = R.Addend;
     } else {
@@ -5022,7 +5022,7 @@ int CreateSectionGlobalVariables(void) {
       unsigned Off = R.Addr - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      Addr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      Addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
 
     auto it = FuncMap.find(Addr);
@@ -5102,7 +5102,7 @@ int CreateSectionGlobalVariables(void) {
       unsigned Off = R.Addr - Sect.Addr;
 
       assert(!Sect.Contents.empty());
-      tpoff = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
+      tpoff = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
     }
     //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
 #else
@@ -8010,7 +8010,7 @@ int FixupHelperStubs(void) {
       llvm::IRBuilderTy IRB(BB);
 
       // TODO call DL.getAllocSize and verify the numbers are the same
-      uintptr_t SectsGlobalSize = SectsEndAddr - SectsStartAddr;
+      target_ulong SectsGlobalSize = SectsEndAddr - SectsStartAddr;
 
       IRB.CreateRet(llvm::ConstantExpr::getAdd(
           llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -10613,7 +10613,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
     llvm::Value *EQV = IRB.CreateICmpEQ(
-        PC, IRB.getIntN(sizeof(uintptr_t) * 8, ICFG[succ1].Addr));
+        PC, IRB.getIntN(WordBits(), ICFG[succ1].Addr));
     IRB.CreateCondBr(EQV, ICFG[succ1].B, ICFG[succ2].B);
     break;
   }
@@ -10920,7 +10920,7 @@ static int TranslateTCGOp(TCGOp *op,
     nb_iargs = TCGOP_CALLI(op);
     uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
     void *helper_ptr = reinterpret_cast<void *>(helper_addr);
-    //const char *helper_nm = tcg_find_helper(&TCG->_ctx, helper_addr);
+    const char *helper_nm = tcg_find_helper(&TCG->_ctx, helper_addr);
 
     //
     // some helper functions are special-cased
@@ -10934,6 +10934,33 @@ static int TranslateTCGOp(TCGOp *op,
     //
     // build the vector of arguments to pass
     //
+    if (opts::Verbose) {
+      auto StringOfTCGTemp = [](TCGTemp *ts) -> std::string {
+        return std::to_string(bitsOfTCGType(ts->type));
+      };
+
+      std::string arguments_str;
+#if 0
+      for (int i = 0; i < nb_oargs) {
+        TCGTemp *ts = arg_temp(op->args[i]);
+
+        arguments_str.append(" ");
+        arguments_str.append(StringOfTCGTemp(ts));
+      }
+#endif
+
+      for (int i = 0; i < nb_iargs; ++i) {
+        TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
+
+        if (i != 0)
+          arguments_str.append(" ");
+
+        arguments_str.append(StringOfTCGTemp(ts));
+      }
+
+      llvm::errs() << llvm::formatv("{0} helper_{1}({2}) nb_oargs={3} nb_iargs={4}\n", *hf.F->getType(), helper_nm, arguments_str, nb_oargs, nb_iargs);
+    }
+
     std::vector<llvm::Value *> ArgVec;
     ArgVec.reserve(nb_iargs);
 
@@ -11014,7 +11041,13 @@ static int TranslateTCGOp(TCGOp *op,
     }
 
     assert(ArgVec.size() == hf.F->arg_size());
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    if (helper_ptr != helper_raise_exception) {
+#endif
     assert(iarg_idx == nb_iargs); /* confirm we consumed all inputs */
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    }
+#endif
 
     //
     // does the helper function take a CPUState* parameter?
