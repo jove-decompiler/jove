@@ -10978,6 +10978,12 @@ static int TranslateTCGOp(TCGOp *op,
           ArgVec.push_back(CPUStateGlobal);
 
         ++iarg_idx;
+
+        if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
+          if (opts::Verbose)
+            WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
+          ++iarg_idx;
+        }
       } else if (ParamTy->isPointerTy()) {
         if (WordBits() == 32) {
           assert(ts->type == TCG_TYPE_I32);
@@ -10990,6 +10996,12 @@ static int TranslateTCGOp(TCGOp *op,
 
         ArgVec.push_back(IRB.CreateIntToPtr(get(ts), ParamTy));
         ++iarg_idx;
+
+        if (ts->type == TCG_TYPE_I32 && sizeof(TCGArg) == sizeof(uint64_t)) {
+          if (opts::Verbose)
+            WithColor::warning() << llvm::formatv("skipping arg at {0}\n", iarg_idx);
+          ++iarg_idx;
+        }
       } else if (ParamTy->isIntegerTy()) {
         if (ParamTy->isIntegerTy(32)) {
           if (ts->type == TCG_TYPE_I32) {
@@ -11044,7 +11056,16 @@ static int TranslateTCGOp(TCGOp *op,
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     if (helper_ptr != helper_raise_exception) {
 #endif
+#if 0
     assert(iarg_idx == nb_iargs); /* confirm we consumed all inputs */
+#else
+    if (iarg_idx != nb_iargs) {
+      WithColor::warning() << llvm::formatv(
+          "it looks like we didn't consume all inputs for helper_{0} (nb_oargs={1}, nb_iargs={2})\n",
+          helper_nm, nb_oargs, nb_iargs);
+    }
+#endif
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     }
 #endif
