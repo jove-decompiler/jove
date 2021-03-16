@@ -77,6 +77,14 @@ static cl::opt<bool>
           cl::desc("Instrument code to output basic block execution trace"),
           cl::cat(JoveCategory));
 
+static cl::opt<std::string> Connect("connect",
+                                    cl::desc("Offload work to remote server"),
+                                    cl::Required, cl::value_desc("ip address"),
+                                    cl::cat(JoveCategory));
+
+static cl::alias ConnectAlias("c", cl::desc("Alias for -connect."),
+                              cl::aliasopt(Connect), cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -165,6 +173,7 @@ static void sighandler(int no) {
     break;
 
   case SIGINT:
+    llvm::errs() << "Received SIGINT. Cancelling..\n";
     Cancelled.store(true);
     break;
 
@@ -281,8 +290,8 @@ run:
         return 1;
       }
 
-      int &rdFd = pipefd[0];
-      int &wrFd = pipefd[1];
+      int rdFd = pipefd[0];
+      int wrFd = pipefd[1];
 
       pid = fork();
       if (!pid) {
