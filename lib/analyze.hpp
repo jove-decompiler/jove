@@ -798,7 +798,6 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     const char *helper_nm = tcg_find_helper(s, addr);
     assert(helper_nm);
 
-#if 0
     if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
       if (F->user_begin() == F->user_end()) {
         F->eraseFromParent();
@@ -808,7 +807,6 @@ const helper_function_t &LookupHelper(TCGOp *op) {
                    std::to_string(i++));
       }
     }
-#endif
 
     assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
            "helper function already exists");
