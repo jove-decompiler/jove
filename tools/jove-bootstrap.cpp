@@ -6342,7 +6342,7 @@ void __warn(const char *file, int line) {
 #include <iostream>
 
 int main(int argc, char **argv) {
-  std::cerr << "error: wrong architecture (" TARGET_ARCH_NAME " does not match the host)\n";
+  std::cerr << "error: target architecture " TARGET_ARCH_NAME " does not match the host.\n";
   return 1;
 }
 
