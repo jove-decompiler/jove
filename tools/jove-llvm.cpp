@@ -11053,22 +11053,7 @@ static int TranslateTCGOp(TCGOp *op,
     }
 
     assert(ArgVec.size() == hf.F->arg_size());
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    if (helper_ptr != helper_raise_exception) {
-#endif
-#if 0
     assert(iarg_idx == nb_iargs); /* confirm we consumed all inputs */
-#else
-    if (iarg_idx != nb_iargs) {
-      WithColor::warning() << llvm::formatv(
-          "it looks like we didn't consume all inputs for helper_{0} (nb_oargs={1}, nb_iargs={2})\n",
-          helper_nm, nb_oargs, nb_iargs);
-    }
-#endif
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    }
-#endif
 
     //
     // does the helper function take a CPUState* parameter?
