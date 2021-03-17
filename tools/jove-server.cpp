@@ -293,7 +293,7 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
 }
 
 static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
-  int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT | O_TRUNC, 0666);
+  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, 0666);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
     return false;
