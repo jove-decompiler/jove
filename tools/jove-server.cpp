@@ -457,10 +457,10 @@ void *ConnectionProc(void *arg) {
         break;
 
       {
-        int jvfd = open(chrooted_path.c_str(), O_RDONLY);
+        int fd = open(chrooted_path.c_str(), O_RDONLY);
 
         do {
-          ssize_t ret = sendfile(data_socket, jvfd, nullptr, jv_size);
+          ssize_t ret = sendfile(data_socket, fd, nullptr, jv_size);
           if (ret < 0) {
             int err = errno;
             WithColor::error()
@@ -471,7 +471,7 @@ void *ConnectionProc(void *arg) {
           jv_size -= ret;
         } while (jv_size > 0);
 
-        close(jvfd);
+        close(fd);
       }
     }
 
