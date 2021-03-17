@@ -1,3 +1,4 @@
+#include "jove/jove.h"
 #include <unistd.h>
 #include <iostream>
 #include <vector>
@@ -69,7 +70,10 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static fs::path jove_recompile_path, jove_run_path, jove_analyze_path;
+static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
+                        'X', 'X', 'X', 'X', 'X', '\0'};
+
+static fs::path jove_recompile_path, jove_analyze_path;
 
 static int await_process_completion(pid_t);
 
@@ -142,6 +146,16 @@ int server(void) {
     return 1;
   }
 
+  jove_recompile_path = (boost::dll::program_location().parent_path() /
+                         std::string("jove-recompile"))
+                            .string();
+  if (!fs::exists(jove_recompile_path)) {
+    WithColor::error() << llvm::formatv(
+        "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
+
+    return 1;
+  }
+
   //
   // Create TCP socket
   //
@@ -182,6 +196,15 @@ int server(void) {
       WithColor::error() << llvm::formatv("listen failed: {0}\n", strerror(err));
       return 1;
     }
+  }
+
+  //
+  // prepare to process the binaries by creating a unique temporary directory
+  //
+  if (!mkdtemp(tmpdir)) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
+    return 1;
   }
 
   //
@@ -267,30 +290,19 @@ void *ConnectionProc(void *arg) {
 
   int data_socket = args->data_socket;
 
-  auto do_read = [&](void *out, ssize_t n) -> bool {
-    ssize_t ret = recv(data_socket, out, n, 0);
-
-    if (unlikely(ret <= 0)) {
-      if (ret < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("{0}: recv failed (%s)", __func__,
-                                            strerror(err));
-      }
-
-      return false;
-    }
-
-    return ret == n;
-  };
-
   for (;;) {
+    //
+    // get size of jv file
+    //
     uint32_t JvSize = 0;
-    if (unlikely(!do_read(&JvSize, sizeof(JvSize))))
+    if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
       return nullptr;
 
-    if (opts::Verbose)
-      llvm::errs() << llvm::formatv("JvSize is {0}\n", JvSize);
+    std::string tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
 
+    //
+    // read decompilation into temporary jv file
+    //
     {
       std::vector<uint8_t> jv_contents;
       jv_contents.resize(JvSize);
@@ -298,7 +310,7 @@ void *ConnectionProc(void *arg) {
         return nullptr;
 
       {
-        int jvfd = open("/tmp/tmp.jv", O_WRONLY | O_CREAT, 0666);
+        int jvfd = open(tmpjv.c_str(), O_WRONLY | O_CREAT, 0666);
         robust_write(jvfd, &jv_contents[0], jv_contents.size());
         close(jvfd);
       }
@@ -312,7 +324,7 @@ void *ConnectionProc(void *arg) {
       const char *arg_arr[] = {
           jove_analyze_path.c_str(),
 
-          "-d", "/tmp/tmp.jv",
+          "-d", tmpjv.c_str(),
 
           nullptr
       };
@@ -329,6 +341,76 @@ void *ConnectionProc(void *arg) {
     if (int ret = await_process_completion(pid)) {
       WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
       return nullptr;
+    }
+
+    //
+    // recompile
+    //
+    std::string sysroot_dir = (fs::path(tmpdir) / "sysroot").string();
+    fs::create_directory(sysroot_dir);
+
+    pid = fork();
+    if (!pid) {
+      const char *arg_arr[] = {
+          jove_recompile_path.c_str(),
+
+          "-d", tmpjv.c_str(),
+          "-o", sysroot_dir.c_str(),
+
+          nullptr
+      };
+
+      print_command(&arg_arr[0]);
+      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return nullptr;
+    }
+
+    if (int ret = await_process_completion(pid)) {
+      WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
+      return nullptr;
+    }
+
+    //
+    // send size of new jv
+    //
+    uint32_t jv_size = 0;
+    {
+      struct stat st;
+      if (stat(tmpjv.c_str(), &st) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+        break;
+      }
+
+      jv_size = st.st_size;
+    }
+
+    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+      break;
+
+    //
+    // send new jv
+    //
+    {
+      int jvfd = open(tmpjv.c_str(), O_RDONLY);
+
+      do {
+        ssize_t ret = sendfile(data_socket, jvfd, nullptr, jv_size);
+        if (ret < 0) {
+          int err = errno;
+          WithColor::error()
+              << llvm::formatv("sendfile failed: {0}\n", strerror(err));
+          return nullptr;
+        }
+
+        jv_size -= ret;
+      } while (jv_size > 0);
+
+      close(jvfd);
     }
 
     return nullptr;
