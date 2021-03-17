@@ -88,7 +88,7 @@ static cl::opt<bool>
 
 static cl::opt<std::string> Connect("connect",
                                     cl::desc("Offload work to remote server"),
-                                    cl::Required, cl::value_desc("ip address"),
+                                    cl::value_desc("ip address"),
                                     cl::cat(JoveCategory));
 
 static cl::alias ConnectAlias("c", cl::desc("Alias for -connect."),
