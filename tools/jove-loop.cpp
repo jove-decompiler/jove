@@ -303,6 +303,14 @@ int loop(void) {
                         ? (fs::path(opts::jv) / "decompilation.jv").string()
                         : opts::jv);
 
+  decompilation_t decompilation;
+  {
+    std::ifstream ifs(jv_path.c_str());
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
   while (!Cancelled) {
     pid_t pid;
 
@@ -460,7 +468,7 @@ skip_run:
 
       int connect_ret;
       do {
-        llvm::errs() << llvm::formatv("connecting to remote {0}...", opts::Connect);
+        llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
         connect_ret = connect(remote_fd,
                               reinterpret_cast<struct sockaddr *>(&server_addr),
                               sizeof(sockaddr_in));
@@ -511,23 +519,21 @@ skip_run:
       //
       robust_read(remote_fd, &jv_size, sizeof(uint32_t));
 
+      llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
+
       std::vector<uint8_t> newJvBytes;
       newJvBytes.resize(jv_size);
       robust_read(remote_fd, &newJvBytes[0], jv_size);
 
+#if 0
       {
-        int jvfd = open(jv_path.c_str(), O_WRONLY | O_TRUNC);
+        int jvfd = open(jv_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0666);
         robust_write(jvfd, &newJvBytes[0], newJvBytes.size());
         close(jvfd);
       }
+#endif
 
-      decompilation_t decompilation;
-      {
-        std::ifstream ifs(jv_path.c_str());
-
-        boost::archive::text_iarchive ia(ifs);
-        ia >> decompilation;
-      }
+      llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
       for (const binary_t &binary : decompilation.Binaries) {
         if (binary.IsVDSO)
@@ -537,23 +543,25 @@ skip_run:
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        uint32_t dso_size = 0;
-        robust_read(remote_fd, &dso_size, sizeof(uint32_t));
-
-        llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size,
-                                      binary.Path);
-
         std::vector<uint8_t> newDSOBytes;
-        newDSOBytes.resize(jv_size);
+        {
+          uint32_t dso_size = 0;
+          robust_read(remote_fd, &dso_size, sizeof(uint32_t));
+
+          llvm::errs() << llvm::formatv("received dso_size={0} for {1}\n", dso_size, binary.Path);
+
+          newDSOBytes.resize(dso_size);
+          robust_read(remote_fd, &newDSOBytes[0], dso_size);
+        }
 
         {
-          int fd = open(chrooted_path.c_str(), O_WRONLY | O_TRUNC);
-          if (fd < 0) {
+          int dsofd = open(chrooted_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0777);
+          if (dsofd < 0) {
             WithColor::warning() << llvm::formatv("failed to open chrooted_path ({0})\n",
                                                   chrooted_path.c_str());
           } else {
-            robust_write(fd, &newDSOBytes[0], newDSOBytes.size());
-            close(fd);
+            robust_write(dsofd, &newDSOBytes[0], newDSOBytes.size());
+            close(dsofd);
           }
         }
       }
