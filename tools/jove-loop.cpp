@@ -525,13 +525,11 @@ skip_run:
       newJvBytes.resize(jv_size);
       robust_read(remote_fd, &newJvBytes[0], jv_size);
 
-#if 0
       {
         int jvfd = open(jv_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0666);
         robust_write(jvfd, &newJvBytes[0], newJvBytes.size());
         close(jvfd);
       }
-#endif
 
       llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
