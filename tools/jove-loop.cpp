@@ -64,10 +64,6 @@ static cl::opt<bool>
                    cl::desc("Skip running the prog the first time"),
                    cl::cat(JoveCategory));
 
-static cl::opt<bool> JustRecompile("just-recompile",
-                                   cl::desc("Just recompile, nothing else"),
-                                   cl::cat(JoveCategory));
-
 static cl::opt<bool> JustRun("just-run",
                              cl::desc("Just run, nothing else"),
                              cl::cat(JoveCategory));
@@ -161,6 +157,43 @@ static void print_command(const char **argv);
 static std::atomic<bool> Cancelled(false);
 
 static std::atomic<pid_t> app_pid;
+
+template <bool IsRead>
+static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
+                          write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
+static ssize_t robust_read(int fd, void *const buf, const size_t count) {
+  return robust_read_or_write<true /* r */>(fd, buf, count);
+}
+
+static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
+  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
+}
 
 static void sighandler(int no) {
   switch (no) {
@@ -258,14 +291,12 @@ int loop(void) {
     return 1;
   }
 
+  std::string jv_path(fs::is_directory(opts::jv)
+                        ? (fs::path(opts::jv) / "decompilation.jv").string()
+                        : opts::jv);
+
   while (!Cancelled) {
     pid_t pid;
-
-    if (opts::JustRun)
-      goto run;
-
-    if (opts::JustRecompile)
-      goto skip_run;
 
     if (opts::ForceRecompile) {
       opts::ForceRecompile = false; /* XXX just the first time */
@@ -402,18 +433,12 @@ run:
       break;
 
 skip_run:
-    //
-    // analyze
-    //
-    if (!opts::Connect.empty()) {
-      //
-      // we need to transfer the decompilation over the network.
-      //
+    if (!opts::Connect.empty()) { /* remote */
       int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
       if (remote_fd < 0) {
         int err = errno;
         WithColor::error() << llvm::formatv("socket failed: {0}\n", strerror(err));
-        break;
+        return 1;
       }
 
       struct sockaddr_in server_addr;
@@ -434,25 +459,6 @@ skip_run:
         }
       } while (connect_ret < 0 && errno != EINPROGRESS && (usleep(100000), true));
 
-#if 0
-      //
-      // poll so we are certain the connection is ready
-      //
-      struct pollfd fds = {.fd = fd, .events = POLLIN | POLLOUT, .revents = 0};
-
-      if (poll(&fds, 1, 1000 /* 1 sec */) < 0) {
-        logcat({__LOG_BOLD_RED, __func__, ": poll failed (", strerror(errno),
-                ")" __LOG_NORMAL_COLOR});
-
-        int err = errno;
-        close(fd);
-        return -err;
-      }
-#endif
-      std::string jv_path(fs::is_directory(opts::jv)
-                            ? (fs::path(opts::jv) / "decompilation.jv").string()
-                            : opts::jv);
-
       uint32_t jv_size = 0;
       {
         struct stat st;
@@ -465,110 +471,110 @@ skip_run:
         jv_size = st.st_size;
       }
 
-      auto do_write = [&](void *out, ssize_t n) -> bool {
-	ssize_t ret = write(remote_fd, out, n);
-
-	if (ret <= 0) {
-	  if (ret < 0) {
-	    int err = errno;
-	    WithColor::error() << llvm::formatv("{0}: recv failed (%s)", __func__,
-						strerror(err));
-	  }
-
-	  return false;
-	}
-
-	return ret == n;
-      };
-
-      if (!do_write(&jv_size, sizeof(uint32_t)))
+      if (robust_write(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
         break;
 
-      do {
+      {
         int jvfd = open(jv_path.c_str(), O_RDONLY);
-        ssize_t ret = sendfile(remote_fd, jvfd, nullptr, jv_size);
-        if (ret < 0) {
-          int err = errno;
-          WithColor::warning()
-              << llvm::formatv("sendfile failed: {0}\n", strerror(err));
-          break;
-        }
+        do {
+          ssize_t ret = sendfile(remote_fd, jvfd, nullptr, jv_size);
+          if (ret < 0) {
+            int err = errno;
+            WithColor::error()
+                << llvm::formatv("sendfile failed: {0}\n", strerror(err));
+            return 1;
+          }
 
-        jv_size -= ret;
-
+          jv_size -= ret;
+        } while (jv_size > 0);
         close(jvfd);
-      } while (jv_size > 0);
+      }
+
+      //
+      // ... the remote analyzes and recompiles and sends us a new jv
+      //
+      robust_read(remote_fd, &jv_size, sizeof(uint32_t));
+
+      std::vector<uint8_t> newJvBytes;
+      newJvBytes.resize(jv_size);
+      robust_read(remote_fd, &newJvBytes[0], jv_size);
+
+      {
+        int jvfd = open(jv_path.c_str(), O_WRONLY | O_TRUNC);
+        robust_write(jvfd, &newJvBytes[0], newJvBytes.size());
+        close(jvfd);
+      }
 
       close(remote_fd);
       break;
-    }
+    } else { /* local */
+      //
+      // analyze
+      //
+      pid = fork();
+      if (!pid) {
+        const char *arg_arr[] = {
+            jove_analyze_path.c_str(),
 
-    pid = fork();
-    if (!pid) {
-      const char *arg_arr[] = {
-          jove_analyze_path.c_str(),
+            "-d", opts::jv.c_str(),
 
-          "-d", opts::jv.c_str(),
+            nullptr
+        };
 
-          nullptr
-      };
+        print_command(&arg_arr[0]);
+        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
-      print_command(&arg_arr[0]);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
-
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
-      return ret;
-    }
-
-    //
-    // recompile
-    //
-    pid = fork();
-    if (!pid) {
-      std::vector<const char *> arg_vec = {
-          jove_recompile_path.c_str(),
-
-          "-d", opts::jv.c_str(),
-          "-o", opts::sysroot.c_str(),
-      };
-
-      std::string use_ld_arg;
-      if (!opts::UseLd.empty()) {
-        use_ld_arg = "--use-ld=" + opts::UseLd;
-        arg_vec.push_back(use_ld_arg.c_str());
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                            strerror(err));
+        return 1;
       }
 
-      if (opts::DFSan)
-        arg_vec.push_back("--dfsan");
+      if (int ret = await_process_completion(pid)) {
+        WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
+        return ret;
+      }
 
-      if (opts::Trace)
-        arg_vec.push_back("--trace");
+      //
+      // recompile
+      //
+      pid = fork();
+      if (!pid) {
+        std::vector<const char *> arg_vec = {
+            jove_recompile_path.c_str(),
 
-      arg_vec.push_back(nullptr);
+            "-d", opts::jv.c_str(),
+            "-o", opts::sysroot.c_str(),
+        };
 
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+        std::string use_ld_arg;
+        if (!opts::UseLd.empty()) {
+          use_ld_arg = "--use-ld=" + opts::UseLd;
+          arg_vec.push_back(use_ld_arg.c_str());
+        }
 
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return 1;
+        if (opts::DFSan)
+          arg_vec.push_back("--dfsan");
+
+        if (opts::Trace)
+          arg_vec.push_back("--trace");
+
+        arg_vec.push_back(nullptr);
+
+        print_command(&arg_vec[0]);
+        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                            strerror(err));
+        return 1;
+      }
+
+      if (int ret = await_process_completion(pid)) {
+        WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
+        return ret;
+      }
     }
-
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
-      return ret;
-    }
-
-    if (opts::JustRecompile)
-      break;
   }
 
   return 0;
