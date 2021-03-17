@@ -301,25 +301,31 @@ void *ConnectionProc(void *arg) {
     //
     // get size of jv file
     //
-    uint32_t JvSize = 0;
-    if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
-      return nullptr;
-
-    std::string tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-
-    //
-    // read decompilation into temporary jv file
-    //
+    std::string tmpjv;
     {
-      std::vector<uint8_t> jv_contents;
-      jv_contents.resize(JvSize);
-      if (robust_read(data_socket, &jv_contents[0], JvSize) < 0)
+      uint32_t JvSize = 0;
+      if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
         return nullptr;
 
+      tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
+
+      //
+      // receive decompilation
+      //
       {
-        int jvfd = open(tmpjv.c_str(), O_WRONLY | O_CREAT, 0666);
-        robust_write(jvfd, &jv_contents[0], jv_contents.size());
-        close(jvfd);
+        std::vector<uint8_t> jv_contents;
+        jv_contents.resize(JvSize);
+        if (robust_read(data_socket, &jv_contents[0], JvSize) < 0)
+          return nullptr;
+
+        //
+        // write it to disk
+        //
+        {
+          int jvfd = open(tmpjv.c_str(), O_WRONLY | O_CREAT, 0666);
+          robust_write(jvfd, &jv_contents[0], jv_contents.size());
+          close(jvfd);
+        }
       }
     }
 
@@ -381,45 +387,50 @@ void *ConnectionProc(void *arg) {
       return nullptr;
     }
 
-    //
-    // send size of new jv
-    //
-    uint32_t jv_size = 0;
     {
-      struct stat st;
-      if (stat(tmpjv.c_str(), &st) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
-        break;
-      }
-
-      jv_size = st.st_size;
-    }
-
-    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
-      break;
-
-    //
-    // send new jv
-    //
-    {
-      int jvfd = open(tmpjv.c_str(), O_RDONLY);
-
-      do {
-        ssize_t ret = sendfile(data_socket, jvfd, nullptr, jv_size);
-        if (ret < 0) {
+      //
+      // get size of new jv
+      //
+      uint32_t jv_size = 0;
+      {
+        struct stat st;
+        if (stat(tmpjv.c_str(), &st) < 0) {
           int err = errno;
-          WithColor::error()
-              << llvm::formatv("sendfile failed: {0}\n", strerror(err));
-          return nullptr;
+          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+          break;
         }
 
-        jv_size -= ret;
-      } while (jv_size > 0);
+        jv_size = st.st_size;
+      }
 
-      close(jvfd);
+      if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+        break;
+
+      //
+      // send new jv
+      //
+      {
+        int jvfd = open(tmpjv.c_str(), O_RDONLY);
+
+        do {
+          ssize_t ret = sendfile(data_socket, jvfd, nullptr, jv_size);
+          if (ret < 0) {
+            int err = errno;
+            WithColor::error()
+                << llvm::formatv("sendfile failed: {0}\n", strerror(err));
+            return nullptr;
+          }
+
+          jv_size -= ret;
+        } while (jv_size > 0);
+
+        close(jvfd);
+      }
     }
 
+    //
+    // send the rest of the DSO's that were recompiled
+    //
     decompilation_t decompilation;
     {
       std::ifstream ifs(tmpjv.c_str());
@@ -460,10 +471,10 @@ void *ConnectionProc(void *arg) {
         break;
 
       {
-        int fd = open(chrooted_path.c_str(), O_RDONLY);
+        int dsofd = open(chrooted_path.c_str(), O_RDONLY);
 
         do {
-          ssize_t ret = sendfile(data_socket, fd, nullptr, dso_size);
+          ssize_t ret = sendfile(data_socket, dsofd, nullptr, dso_size);
           if (ret < 0) {
             int err = errno;
             WithColor::error()
@@ -474,7 +485,7 @@ void *ConnectionProc(void *arg) {
           dso_size -= ret;
         } while (dso_size > 0);
 
-        close(fd);
+        close(dsofd);
       }
     }
 
