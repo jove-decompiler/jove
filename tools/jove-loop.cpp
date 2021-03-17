@@ -31,6 +31,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <sys/mman.h>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -85,6 +86,13 @@ static cl::opt<bool>
     Trace("trace",
           cl::desc("Instrument code to output basic block execution trace"),
           cl::cat(JoveCategory));
+
+static cl::opt<bool> Verbose("verbose",
+                             cl::desc("Output helpful messages for debugging"),
+                             cl::cat(JoveCategory));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
 
 static cl::opt<std::string> Connect("connect",
                                     cl::desc("Offload work to remote server"),
@@ -207,47 +215,49 @@ static bool receive_file_with_size(int data_socket, const char *out, unsigned si
   int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT | O_TRUNC, 0666);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
-    return;
+    return false;
   }
 
   if (ftruncate(fd, size) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("ftruncate failed: {0}\n", strerror(err));
-    return;
+    return false;
   }
 
-  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0)
+  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0);
   if (p == MAP_FAILED) {
     int err = errno;
     WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));
-    return;
+    return false;
   }
 
   {
     ssize_t ret = robust_read(data_socket, p, size);
     if (ret < 0) {
       WithColor::error() << llvm::formatv("robust_read failed: {0}\n", strerror(-ret));
-      return nullptr;
+      return false;
     }
   }
 
   if (msync(p, size, MS_SYNC) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
-    return;
+    return false;
   }
 
   if (munmap(p, size) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("munmap failed: {0}\n", strerror(err));
-    return;
+    return false;
   }
 
   if (close(fd) < 0) {
     int err = errno;
     WithColor::error() << llvm::formatv("close failed: {0}\n", strerror(err));
-    return;
+    return false;
   }
+
+  return true;
 }
 
 static void sighandler(int no) {
@@ -568,7 +578,7 @@ skip_run:
 
       llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
 
-      receive_file_with_size(data_socket, jv_path.c_str(), jv_size);
+      receive_file_with_size(remote_fd, jv_path.c_str(), jv_size);
 
       llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
@@ -588,7 +598,7 @@ skip_run:
           if (opts::Verbose)
             llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-          receive_file_with_size(data_socket, chrooted_path.c_str(), jv_size);
+          receive_file_with_size(remote_fd, chrooted_path.c_str(), jv_size);
         }
       }
 
