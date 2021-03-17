@@ -571,16 +571,15 @@ skip_run:
       server_addr.sin_addr.s_addr = inet_addr(addr_str.c_str());
 
       int connect_ret;
-      do {
-        llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
-        connect_ret = connect(remote_fd,
-                              reinterpret_cast<struct sockaddr *>(&server_addr),
-                              sizeof(sockaddr_in));
-        if (connect_ret < 0) {
-          int err = errno;
-          WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
-        }
-      } while (connect_ret < 0 && errno != EINPROGRESS && (usleep(100000), true));
+      llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
+      connect_ret = connect(remote_fd,
+                            reinterpret_cast<struct sockaddr *>(&server_addr),
+                            sizeof(sockaddr_in));
+      if (connect_ret < 0 && errno != EINPROGRESS) {
+        int err = errno;
+        WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
+        break;
+      }
 
       //
       // send the jv
