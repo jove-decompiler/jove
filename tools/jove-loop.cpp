@@ -557,6 +557,8 @@ skip_run:
         auto colon_idx = opts::Connect.find(':');
         assert(colon_idx != std::string::npos);
         std::string port_s = opts::Connect.substr(colon_idx, std::string::npos);
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("parsed port as {0}\n", port_s);
         port = atoi(port_s.c_str());
 
         addr_str = opts::Connect.substr(0, colon_idx);
