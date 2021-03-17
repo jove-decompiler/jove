@@ -565,7 +565,7 @@ skip_run:
       struct sockaddr_in server_addr;
 
       server_addr.sin_family = AF_INET;
-      server_addr.sin_port = htons(2000);
+      server_addr.sin_port = htons(port);
       server_addr.sin_addr.s_addr = inet_addr(addr_str.c_str());
 
       int connect_ret;
