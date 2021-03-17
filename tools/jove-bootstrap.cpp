@@ -322,8 +322,8 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    int &rfd = pipefd[0];
-    int &wfd = pipefd[1];
+    int rfd = pipefd[0];
+    int wfd = pipefd[1];
 
     //
     // mode 2: create new process
