@@ -211,13 +211,13 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
-static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
+static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
   if (opts::Verbose) {
     llvm::errs() << llvm::formatv("receive_file_with_size({0},\"{1}\",{2})\n",
                                   data_socket, out, size);
   }
 
-  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, 0666);
+  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, file_perm);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
     return false;
@@ -583,7 +583,7 @@ skip_run:
 
       llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
 
-      receive_file_with_size(remote_fd, jv_path.c_str(), jv_size);
+      receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666);
 
       llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
@@ -603,7 +603,7 @@ skip_run:
           if (opts::Verbose)
             llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-          receive_file_with_size(remote_fd, chrooted_path.c_str(), jv_size);
+          receive_file_with_size(remote_fd, chrooted_path.c_str(), jv_size, 0777);
         }
       }
 

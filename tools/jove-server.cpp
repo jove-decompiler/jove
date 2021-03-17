@@ -292,8 +292,8 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
-static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
-  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, 0666);
+static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
+  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, file_perm);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
     return false;
@@ -358,7 +358,7 @@ void *ConnectionProc(void *arg) {
         return nullptr;
 
       tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-      receive_file_with_size(data_socket, tmpjv.c_str(), JvSize);
+      receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666);
     }
 
     //
