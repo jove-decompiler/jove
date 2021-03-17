@@ -18,6 +18,11 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <sys/socket.h>
+#include <sys/sendfile.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
@@ -400,6 +405,104 @@ skip_run:
     //
     // analyze
     //
+    if (!opts::Connect.empty()) {
+      //
+      // we need to transfer the decompilation over the network.
+      //
+      int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
+      if (remote_fd < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("socket failed: {0}\n", strerror(err));
+        break;
+      }
+
+      struct sockaddr_in server_addr;
+
+      server_addr.sin_family = AF_INET;
+      server_addr.sin_port = htons(2000);
+      server_addr.sin_addr.s_addr = inet_addr(opts::Connect.c_str());
+
+      int connect_ret;
+      do {
+        llvm::errs() << llvm::formatv("connecting to remote {0}...", opts::Connect);
+        connect_ret = connect(remote_fd,
+                              reinterpret_cast<struct sockaddr *>(&server_addr),
+                              sizeof(sockaddr_in));
+        if (connect_ret < 0) {
+          int err = errno;
+          WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
+        }
+      } while (connect_ret < 0 && errno != EINPROGRESS && (usleep(100000), true));
+
+#if 0
+      //
+      // poll so we are certain the connection is ready
+      //
+      struct pollfd fds = {.fd = fd, .events = POLLIN | POLLOUT, .revents = 0};
+
+      if (poll(&fds, 1, 1000 /* 1 sec */) < 0) {
+        logcat({__LOG_BOLD_RED, __func__, ": poll failed (", strerror(errno),
+                ")" __LOG_NORMAL_COLOR});
+
+        int err = errno;
+        close(fd);
+        return -err;
+      }
+#endif
+      std::string jv_path(fs::is_directory(opts::jv)
+                            ? (fs::path(opts::jv) / "decompilation.jv").string()
+                            : opts::jv);
+
+      uint32_t jv_size = 0;
+      {
+        struct stat st;
+        if (stat(jv_path.c_str(), &st) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+          break;
+        }
+
+        jv_size = st.st_size;
+      }
+
+      auto do_write = [&](void *out, ssize_t n) -> bool {
+	ssize_t ret = write(remote_fd, out, n);
+
+	if (ret <= 0) {
+	  if (ret < 0) {
+	    int err = errno;
+	    WithColor::error() << llvm::formatv("{0}: recv failed (%s)", __func__,
+						strerror(err));
+	  }
+
+	  return false;
+	}
+
+	return ret == n;
+      };
+
+      if (!do_write(&jv_size, sizeof(uint32_t)))
+        break;
+
+      do {
+        int jvfd = open(jv_path.c_str(), O_RDONLY);
+        ssize_t ret = sendfile(remote_fd, jvfd, nullptr, jv_size);
+        if (ret < 0) {
+          int err = errno;
+          WithColor::warning()
+              << llvm::formatv("sendfile failed: {0}\n", strerror(err));
+          break;
+        }
+
+        jv_size -= ret;
+
+        close(jvfd);
+      } while (jv_size > 0);
+
+      close(remote_fd);
+      break;
+    }
+
     pid = fork();
     if (!pid) {
       const char *arg_arr[] = {
