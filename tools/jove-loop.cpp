@@ -96,7 +96,7 @@ static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
 
 static cl::opt<std::string> Connect("connect",
                                     cl::desc("Offload work to remote server"),
-                                    cl::value_desc("ip address"),
+                                    cl::value_desc("ip address:port"),
                                     cl::cat(JoveCategory));
 
 static cl::alias ConnectAlias("c", cl::desc("Alias for -connect."),
@@ -385,6 +385,10 @@ int loop(void) {
     return 1;
   }
 
+  if (!opts::Connect.empty() && opts::Connect.find(':') == std::string::npos) {
+    WithColor::error() << "usage: --connect IPADDRESS:PORT\n";
+  }
+
   std::string jv_path(fs::is_directory(opts::jv)
                         ? (fs::path(opts::jv) / "decompilation.jv").string()
                         : opts::jv);
@@ -546,11 +550,23 @@ skip_run:
         return 1;
       }
 
+      std::string addr_str;
+
+      unsigned port = 0;
+      {
+        auto colon_idx = opts::Connect.find(':');
+        assert(colon_idx != std::string::npos);
+        std::string port_s = opts::Connect.substr(colon_idx, std::string::npos);
+        port = atoi(port_s.c_str());
+
+        addr_str = opts::Connect.substr(0, colon_idx);
+      }
+
       struct sockaddr_in server_addr;
 
       server_addr.sin_family = AF_INET;
       server_addr.sin_port = htons(2000);
-      server_addr.sin_addr.s_addr = inet_addr(opts::Connect.c_str());
+      server_addr.sin_addr.s_addr = inet_addr(addr_str.c_str());
 
       int connect_ret;
       do {

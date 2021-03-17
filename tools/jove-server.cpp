@@ -49,6 +49,9 @@ using llvm::WithColor;
 namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
 
+static cl::opt<unsigned> Port("port", cl::desc("Network port to listen on"),
+                              cl::Required, cl::cat(JoveCategory));
+
 static cl::opt<bool> Verbose("verbose",
                              cl::desc("Output helpful messages for debugging"),
                              cl::cat(JoveCategory));
@@ -177,8 +180,8 @@ int server(void) {
   {
     struct sockaddr_in server_addr;
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(2000);
-    server_addr.sin_addr.s_addr = INADDR_ANY; //inet_addr("127.0.0.1");
+    server_addr.sin_port = htons(opts::Port);
+    server_addr.sin_addr.s_addr = INADDR_ANY;
 
     int ret = bind(connection_socket,
                    (const struct sockaddr *)&server_addr,
@@ -530,7 +533,7 @@ void *ConnectionProc(void *arg) {
         llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
       if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
-        break;
+        return nullptr;
 
       {
         int dsofd = open(chrooted_path.c_str(), O_RDONLY);
