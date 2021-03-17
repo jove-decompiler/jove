@@ -158,7 +158,7 @@ int server(void) {
                             .string();
   if (!fs::exists(jove_recompile_path)) {
     WithColor::error() << llvm::formatv(
-        "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
+        "could not find jove-recompile at {0}\n", jove_analyze_path.c_str());
 
     return 1;
   }
