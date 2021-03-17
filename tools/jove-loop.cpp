@@ -203,6 +203,53 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
+  int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0) {
+    WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
+    return;
+  }
+
+  if (ftruncate(fd, size) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("ftruncate failed: {0}\n", strerror(err));
+    return;
+  }
+
+  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0)
+  if (p == MAP_FAILED) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));
+    return;
+  }
+
+  {
+    ssize_t ret = robust_read(data_socket, p, size);
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv("robust_read failed: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+  }
+
+  if (msync(p, size, MS_SYNC) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
+    return;
+  }
+
+  if (munmap(p, size) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("munmap failed: {0}\n", strerror(err));
+    return;
+  }
+
+  if (close(fd) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("close failed: {0}\n", strerror(err));
+    return;
+  }
+}
+
 static void sighandler(int no) {
   switch (no) {
   case SIGTERM:
@@ -521,15 +568,7 @@ skip_run:
 
       llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
 
-      std::vector<uint8_t> newJvBytes;
-      newJvBytes.resize(jv_size);
-      robust_read(remote_fd, &newJvBytes[0], jv_size);
-
-      {
-        int jvfd = open(jv_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0666);
-        robust_write(jvfd, &newJvBytes[0], newJvBytes.size());
-        close(jvfd);
-      }
+      receive_file_with_size(data_socket, jv_path.c_str(), jv_size);
 
       llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
@@ -546,21 +585,10 @@ skip_run:
           uint32_t dso_size = 0;
           robust_read(remote_fd, &dso_size, sizeof(uint32_t));
 
-          llvm::errs() << llvm::formatv("received dso_size={0} for {1}\n", dso_size, binary.Path);
+          if (opts::Verbose)
+            llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-          newDSOBytes.resize(dso_size);
-          robust_read(remote_fd, &newDSOBytes[0], dso_size);
-        }
-
-        {
-          int dsofd = open(chrooted_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0777);
-          if (dsofd < 0) {
-            WithColor::warning() << llvm::formatv("failed to open chrooted_path ({0})\n",
-                                                  chrooted_path.c_str());
-          } else {
-            robust_write(dsofd, &newDSOBytes[0], newDSOBytes.size());
-            close(dsofd);
-          }
+          receive_file_with_size(data_socket, chrooted_path.c_str(), jv_size);
         }
       }
 

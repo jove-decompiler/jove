@@ -291,6 +291,53 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
+  int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT | O_TRUNC, 0666);
+  if (fd < 0) {
+    WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
+    return;
+  }
+
+  if (ftruncate(fd, size) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("ftruncate failed: {0}\n", strerror(err));
+    return;
+  }
+
+  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0)
+  if (p == MAP_FAILED) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));
+    return;
+  }
+
+  {
+    ssize_t ret = robust_read(data_socket, p, size);
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv("robust_read failed: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+  }
+
+  if (msync(p, size, MS_SYNC) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
+    return;
+  }
+
+  if (munmap(p, size) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("munmap failed: {0}\n", strerror(err));
+    return;
+  }
+
+  if (close(fd) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("close failed: {0}\n", strerror(err));
+    return;
+  }
+}
+
 void *ConnectionProc(void *arg) {
   std::unique_ptr<ConnectionProcArgs> args(
       reinterpret_cast<ConnectionProcArgs *>(arg));
@@ -308,25 +355,7 @@ void *ConnectionProc(void *arg) {
         return nullptr;
 
       tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-
-      //
-      // receive decompilation
-      //
-      {
-        std::vector<uint8_t> jv_contents;
-        jv_contents.resize(JvSize);
-        if (robust_read(data_socket, &jv_contents[0], JvSize) < 0)
-          return nullptr;
-
-        //
-        // write it to disk
-        //
-        {
-          int jvfd = open(tmpjv.c_str(), O_WRONLY | O_CREAT, 0666);
-          robust_write(jvfd, &jv_contents[0], jv_contents.size());
-          close(jvfd);
-        }
-      }
+      receive_file_with_size(tmpjv.c_str(), JvSize);
     }
 
     //
