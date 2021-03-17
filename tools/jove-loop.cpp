@@ -212,7 +212,7 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
 }
 
 static bool receive_file_with_size(int data_socket, const char *out, unsigned size) {
-  int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT | O_TRUNC, 0666);
+  int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, 0666);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
     return false;
@@ -224,7 +224,7 @@ static bool receive_file_with_size(int data_socket, const char *out, unsigned si
     return false;
   }
 
-  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0);
+  void *p = mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
   if (p == MAP_FAILED) {
     int err = errno;
     WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));

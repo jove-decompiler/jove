@@ -305,7 +305,7 @@ static bool receive_file_with_size(int data_socket, const char *out, unsigned si
     return false;
   }
 
-  void *p = mmap(NULL, size, PROT_WRITE, MAP_PRIVATE, fd, 0);
+  void *p = mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
   if (p == MAP_FAILED) {
     int err = errno;
     WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));
