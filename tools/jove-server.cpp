@@ -16,6 +16,13 @@
 #include <sys/sendfile.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/serialization/bitset.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
@@ -411,6 +418,61 @@ void *ConnectionProc(void *arg) {
       } while (jv_size > 0);
 
       close(jvfd);
+    }
+
+    decompilation_t decompilation;
+    {
+      std::ifstream ifs(tmpjv.c_str());
+
+      boost::archive::text_iarchive ia(ifs);
+      ia >> decompilation;
+    }
+
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+
+      fs::path chrooted_path(fs::path(sysroot_dir) / binary.Path);
+      if (!fs::exists(chrooted_path)) {
+        WithColor::warning() << llvm::formatv("skipping {0} (not found)\n",
+                                              chrooted_path.c_str());
+        continue;
+      }
+
+      uint32_t jv_size = 0;
+      {
+        struct stat st;
+        if (stat(chrooted_path.c_str(), &st) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+          break;
+        }
+
+        jv_size = st.st_size;
+      }
+
+      if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+        break;
+
+      {
+        int jvfd = open(chrooted_path.c_str(), O_RDONLY);
+
+        do {
+          ssize_t ret = sendfile(data_socket, jvfd, nullptr, jv_size);
+          if (ret < 0) {
+            int err = errno;
+            WithColor::error()
+                << llvm::formatv("sendfile failed: {0}\n", strerror(err));
+            return nullptr;
+          }
+
+          jv_size -= ret;
+        } while (jv_size > 0);
+
+        close(jvfd);
+      }
     }
 
     return nullptr;

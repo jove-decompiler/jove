@@ -1,3 +1,4 @@
+#include "jove/jove.h"
 #include <unistd.h>
 #include <iostream>
 #include <vector>
@@ -14,6 +15,13 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/serialization/bitset.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
@@ -434,6 +442,9 @@ run:
 
 skip_run:
     if (!opts::Connect.empty()) { /* remote */
+      //
+      // connect to jove-server
+      //
       int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
       if (remote_fd < 0) {
         int err = errno;
@@ -459,6 +470,9 @@ skip_run:
         }
       } while (connect_ret < 0 && errno != EINPROGRESS && (usleep(100000), true));
 
+      //
+      // send the jv
+      //
       uint32_t jv_size = 0;
       {
         struct stat st;
@@ -476,6 +490,7 @@ skip_run:
 
       {
         int jvfd = open(jv_path.c_str(), O_RDONLY);
+
         do {
           ssize_t ret = sendfile(remote_fd, jvfd, nullptr, jv_size);
           if (ret < 0) {
@@ -487,6 +502,7 @@ skip_run:
 
           jv_size -= ret;
         } while (jv_size > 0);
+
         close(jvfd);
       }
 
@@ -505,8 +521,41 @@ skip_run:
         close(jvfd);
       }
 
+      decompilation_t decompilation;
+      {
+        std::ifstream ifs(jv_path.c_str());
+
+        boost::archive::text_iarchive ia(ifs);
+        ia >> decompilation;
+      }
+
+      for (const binary_t &binary : decompilation.Binaries) {
+        if (binary.IsVDSO)
+          continue;
+        if (binary.IsDynamicLinker)
+          continue;
+
+        fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
+
+        uint32_t jv_size = 0;
+        robust_read(remote_fd, &jv_size, sizeof(uint32_t));
+
+        std::vector<uint8_t> newDSOBytes;
+        newDSOBytes.resize(jv_size);
+
+        {
+          int fd = open(chrooted_path.c_str(), O_WRONLY | O_TRUNC);
+          if (fd < 0) {
+            WithColor::warning() << llvm::formatv("failed to open chrooted_path ({0})\n",
+                                                  chrooted_path.c_str());
+          } else {
+            robust_write(fd, &newDSOBytes[0], newDSOBytes.size());
+            close(fd);
+          }
+        }
+      }
+
       close(remote_fd);
-      break;
     } else { /* local */
       //
       // analyze
