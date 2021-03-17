@@ -292,7 +292,13 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+#if 0
+
 static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("receive_file_with_size({0},\"{1}\",{2},{3})\n",
+                                  data_socket, out, size, file_perm);
+
   int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, file_perm);
   if (fd < 0) {
     WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
@@ -340,6 +346,30 @@ static bool receive_file_with_size(int data_socket, const char *out, unsigned si
 
   return true;
 }
+
+#else
+
+static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("receive_file_with_size({0},\"{1}\",{2},{3})\n",
+                                  data_socket, out, size, file_perm);
+
+  std::vector<uint8_t> buff;
+  buff.resize(size);
+
+  robust_read(data_socket, &buff[0], buff.size());
+
+  {
+    int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    robust_write(fd, &buff[0], buff.size());
+    close(fd);
+  }
+
+  return true;
+}
+
+#endif
+
 
 void *ConnectionProc(void *arg) {
   std::unique_ptr<ConnectionProcArgs> args(
