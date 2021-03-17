@@ -441,7 +441,7 @@ void *ConnectionProc(void *arg) {
         continue;
       }
 
-      uint32_t jv_size = 0;
+      uint32_t dso_size = 0;
       {
         struct stat st;
         if (stat(chrooted_path.c_str(), &st) < 0) {
@@ -450,17 +450,20 @@ void *ConnectionProc(void *arg) {
           break;
         }
 
-        jv_size = st.st_size;
+        dso_size = st.st_size;
       }
 
-      if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
+
+      if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
         break;
 
       {
         int fd = open(chrooted_path.c_str(), O_RDONLY);
 
         do {
-          ssize_t ret = sendfile(data_socket, fd, nullptr, jv_size);
+          ssize_t ret = sendfile(data_socket, fd, nullptr, dso_size);
           if (ret < 0) {
             int err = errno;
             WithColor::error()
@@ -468,8 +471,8 @@ void *ConnectionProc(void *arg) {
             return nullptr;
           }
 
-          jv_size -= ret;
-        } while (jv_size > 0);
+          dso_size -= ret;
+        } while (dso_size > 0);
 
         close(fd);
       }

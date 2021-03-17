@@ -537,8 +537,11 @@ skip_run:
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        uint32_t jv_size = 0;
-        robust_read(remote_fd, &jv_size, sizeof(uint32_t));
+        uint32_t dso_size = 0;
+        robust_read(remote_fd, &dso_size, sizeof(uint32_t));
+
+        llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size,
+                                      binary.Path);
 
         std::vector<uint8_t> newDSOBytes;
         newDSOBytes.resize(jv_size);
