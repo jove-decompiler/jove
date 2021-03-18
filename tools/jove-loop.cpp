@@ -578,7 +578,16 @@ skip_run:
       if (connect_ret < 0 && errno != EINPROGRESS) {
         int err = errno;
         WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
-        break;
+        return 1;
+      }
+
+      //
+      // send header
+      //
+      {
+        uint8_t header = opts::DFSan;
+        if (robust_write(remote_fd, &header, sizeof(header)) < 0)
+          break;
       }
 
       //
