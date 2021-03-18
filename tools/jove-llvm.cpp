@@ -10467,9 +10467,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
                     if (dstBits == srcBits)
                       return ArgVal;
 
-                    assert(dstBits < srcBits);
+                    if (dstBits < srcBits)
+                      return IRB.CreateTrunc(ArgVal, DstTy);
 
-                    return IRB.CreateTrunc(ArgVal, DstTy);
+                    assert(dstBits > srcBits);
+                    return IRB.CreateZExt(ArgVal, DstTy);
                   }();
                 }
               }
