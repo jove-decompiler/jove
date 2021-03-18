@@ -381,6 +381,14 @@ void *ConnectionProc(void *arg) {
   int data_socket = args->data_socket;
 
   for (;;) {
+    uint8_t header;
+    if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
+      WithColor::error() << "failed to read header\n";
+      break;
+    }
+
+    bool dfsan = header;
+
     //
     // get size of jv file
     //
@@ -429,17 +437,20 @@ void *ConnectionProc(void *arg) {
 
     pid = fork();
     if (!pid) {
-      const char *arg_arr[] = {
+      std::vector<const char *> arg_vec = {
           jove_recompile_path.c_str(),
 
           "-d", tmpjv.c_str(),
           "-o", sysroot_dir.c_str(),
-
-          nullptr
       };
 
-      print_command(&arg_arr[0]);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+      if (dfsan)
+        arg_vec.push_back("--dfsan");
+
+      arg_vec.push_back(nullptr);
+
+      print_command(&arg_vec[0]);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
       int err = errno;
       WithColor::error() << llvm::formatv("execve failed: {0}\n",
