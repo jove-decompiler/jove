@@ -49,6 +49,9 @@ using llvm::WithColor;
 namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
 
+static cl::opt<std::string> TemporaryDir("tmpdir", cl::value_desc("directory"),
+                                         cl::cat(JoveCategory));
+
 static cl::opt<unsigned> Port("port", cl::desc("Network port to listen on"),
                               cl::Required, cl::cat(JoveCategory));
 
@@ -81,8 +84,7 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
+static std::string tmpdir;
 
 static fs::path jove_recompile_path, jove_analyze_path;
 
@@ -212,10 +214,23 @@ int server(void) {
   //
   // prepare to process the binaries by creating a unique temporary directory
   //
-  if (!mkdtemp(tmpdir)) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
-    return 1;
+  if (opts::TemporaryDir.empty()) {
+    char tmpdir_c_str[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
+    if (!mkdtemp(tmpdir_c_str)) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
+      return 1;
+    }
+
+    tmpdir = tmpdir_c_str;
+  } else {
+    tmpdir = opts::TemporaryDir + "/" + std::to_string(getpid());
+
+    if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
+      int err = errno;
+      llvm::errs() << "could not create temporary directory: " << strerror(err) << '\n';
+      return 1;
+    }
   }
 
   //
