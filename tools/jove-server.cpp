@@ -170,6 +170,28 @@ int server(void) {
   }
 
   //
+  // prepare to process the binaries by creating a unique temporary directory
+  //
+  if (opts::TemporaryDir.empty()) {
+    char tmpdir_c_str[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
+    if (!mkdtemp(tmpdir_c_str)) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
+      return 1;
+    }
+
+    tmpdir = tmpdir_c_str;
+  } else {
+    tmpdir = opts::TemporaryDir + "/" + std::to_string(getpid());
+
+    if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
+      int err = errno;
+      llvm::errs() << "could not create temporary directory: " << strerror(err) << '\n';
+      return 1;
+    }
+  }
+
+  //
   // Create TCP socket
   //
   int connection_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -207,28 +229,6 @@ int server(void) {
     if (ret < 0) {
       int err = errno;
       WithColor::error() << llvm::formatv("listen failed: {0}\n", strerror(err));
-      return 1;
-    }
-  }
-
-  //
-  // prepare to process the binaries by creating a unique temporary directory
-  //
-  if (opts::TemporaryDir.empty()) {
-    char tmpdir_c_str[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
-    if (!mkdtemp(tmpdir_c_str)) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
-      return 1;
-    }
-
-    tmpdir = tmpdir_c_str;
-  } else {
-    tmpdir = opts::TemporaryDir + "/" + std::to_string(getpid());
-
-    if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
-      int err = errno;
-      llvm::errs() << "could not create temporary directory: " << strerror(err) << '\n';
       return 1;
     }
   }
