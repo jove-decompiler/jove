@@ -276,15 +276,18 @@ static bool receive_file_with_size(int data_socket, const char *out, unsigned si
   std::vector<uint8_t> buff;
   buff.resize(size);
 
-  robust_read(data_socket, &buff[0], buff.size());
+  if (robust_read(data_socket, &buff[0], buff.size()) < 0)
+    return false;
 
+  bool res = true;
   {
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
-    robust_write(fd, &buff[0], buff.size());
+    if (robust_write(fd, &buff[0], buff.size()) < 0)
+      res = false;
     close(fd);
   }
 
-  return true;
+  return res;
 }
 
 #endif
@@ -630,28 +633,28 @@ skip_run:
       // ... the remote analyzes and recompiles and sends us a new jv
       //
       robust_read(remote_fd, &jv_size, sizeof(uint32_t));
-
       llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
 
-      receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666);
+      if (receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666)) {
+        llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
 
-      llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
+        for (const binary_t &binary : decompilation.Binaries) {
+          if (binary.IsVDSO)
+            continue;
+          if (binary.IsDynamicLinker)
+            continue;
 
-      for (const binary_t &binary : decompilation.Binaries) {
-        if (binary.IsVDSO)
-          continue;
-        if (binary.IsDynamicLinker)
-          continue;
+          fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
+          uint32_t dso_size = 0;
+          if (robust_read(remote_fd, &dso_size, sizeof(uint32_t)) < 0)
+            break;
 
-        uint32_t dso_size = 0;
-        robust_read(remote_fd, &dso_size, sizeof(uint32_t));
+          if (opts::Verbose)
+            llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-        if (opts::Verbose)
-          llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
-
-        receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777);
+          receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777);
+        }
       }
 
       close(remote_fd);
