@@ -10292,6 +10292,31 @@ int TranslateBasicBlock(TranslateContext &TC) {
           function_t &callee = Decompilation.Binaries.at(ADynTarget.BIdx)
                                    .Analysis.Functions.at(ADynTarget.FIdx);
 
+          struct {
+            std::vector<llvm::Value *> SavedArgs;
+          } _dfsan_hook;
+
+          if (opts::DFSan) {
+            auto it = dfsanPostHooks.find(DynTargetsVec[i]);
+            if (it != dfsanPostHooks.end()) {
+              function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                                       .Analysis.Functions.at((*it).second);
+              assert(hook_f.hook);
+              const hook_t &hook = *hook_f.hook;
+
+#if 0
+              llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n", (*it).first, (*it).second);
+#endif
+
+              _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
+              std::transform(
+                  CallConvArgArray.begin(),
+                  CallConvArgArray.end(),
+                  _dfsan_hook.SavedArgs.begin(),
+                  [&](unsigned glb) -> llvm::Value * { return get(glb); });
+            }
+          }
+
           llvm::CallInst *Ret;
           if (foreign) {
             unsigned NumWords = CallConvArgArray.size();
@@ -10451,7 +10476,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
                     SPAddend += info.Size;
 #else
-                    ArgVal = get(CallConvArgArray.at(j));
+                    ArgVal = _dfsan_hook.SavedArgs.at(j);
 #endif
                   }
 
