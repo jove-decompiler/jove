@@ -211,6 +211,39 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_size) {
+  int fd = open(file_path, O_RDONLY);
+
+  if (fd < 0)
+    return -errno;
+
+  struct closeme_t {
+    int fd;
+    closeme_t (int fd) : fd(fd) {}
+    ~closeme_t() { close(fd); }
+  } closeme_t(fd);
+
+  const size_t saved_file_size = file_size;
+
+  do {
+    ssize_t ret = sendfile(socket, fd, nullptr, file_size);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
+                                          strerror(err));
+      return -err;
+    }
+
+    file_size -= ret;
+  } while (file_size > 0);
+
+  return saved_file_size;
+}
+
 #if 0
 
 static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
@@ -611,23 +644,8 @@ skip_run:
       if (robust_write(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
         break;
 
-      {
-        int jvfd = open(jv_path.c_str(), O_RDONLY);
-
-        do {
-          ssize_t ret = sendfile(remote_fd, jvfd, nullptr, jv_size);
-          if (ret < 0) {
-            int err = errno;
-            WithColor::error()
-                << llvm::formatv("sendfile failed: {0}\n", strerror(err));
-            return 1;
-          }
-
-          jv_size -= ret;
-        } while (jv_size > 0);
-
-        close(jvfd);
-      }
+      if (robust_sendfile(remote_fd, jv_path.c_str(), jv_size) < 0)
+        break;
 
       //
       // ... the remote analyzes and recompiles and sends us a new jv
