@@ -650,7 +650,9 @@ skip_run:
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
-      robust_read(remote_fd, &jv_size, sizeof(uint32_t));
+      if (robust_read(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
+	break;
+
       llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
 
       if (receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666)) {
@@ -666,7 +668,7 @@ skip_run:
 
           uint32_t dso_size = 0;
           if (robust_read(remote_fd, &dso_size, sizeof(uint32_t)) < 0)
-            break;
+            return 1;
 
           if (opts::Verbose)
             llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
