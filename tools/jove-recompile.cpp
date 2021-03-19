@@ -359,7 +359,15 @@ int recompile(void) {
     return 1;
   }
 
-  llvm::outs() << "tmpdir: " << tmpdir << '\n';
+  struct rm_tmpdir_t {
+    rm_tmpdir_t () {}
+    ~rm_tmpdir_t () {
+      fs::remove_all(fs::path(tmpdir));
+    }
+  } rm_tmpdir;
+
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("tmpdir: {0}\n", tmpdir);
 
   if (!fs::exists(opts::jv)) {
     WithColor::error() << "can't find decompilation.jv\n";
