@@ -1835,8 +1835,21 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #define env_a5 (*((uint32_t *)(env_sp + 16)))
 #define env_a6 (*((uint32_t *)(env_sp + 20)))
 
-#ifdef JOVE_DFSAN
+  long _a1 = env_a1;
+  long _a2 = env_a2;
+  long _a3 = env_a3;
+  long _a4 = env_a4;
+  long _a5 = env_a5;
+  long _a6 = env_a6;
 
+#undef env_a1
+#undef env_a2
+#undef env_a3
+#undef env_a4
+#undef env_a5
+#undef env_a6
+
+#ifdef JOVE_DFSAN
   //
   // call sysenter procedure
   //
@@ -1847,42 +1860,27 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     break;
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1);                                                   \
+    SYSENTR(nm)((t1)_a1);                                                      \
     break;
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1,                                                    \
-                (t2)env_a2);                                                   \
+    SYSENTR(nm)((t1)_a1, (t2)_a2);                                              \
     break;
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1,                                                    \
-                (t2)env_a2,                                                    \
-                (t3)env_a3);                                                   \
+    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3);                                    \
     break;
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1,                                                    \
-                (t2)env_a2,                                                    \
-                (t3)env_a3,                                                    \
-                (t4)env_a4);                                                   \
+    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                           \
     break;
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1,                                                    \
-                (t2)env_a2,                                                    \
-                (t3)env_a3,                                                    \
-                (t4)env_a4,                                                    \
-                (t5)env_a5);                                                   \
+    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);                  \
     break;
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)env_a1,                                                    \
-                (t2)env_a2,                                                    \
-                (t3)env_a3,                                                    \
-                (t4)env_a4,                                                    \
-                (t5)env_a5,                                                    \
-                (t6)env_a6);                                                   \
+    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6);         \
     break;
 
 #define ___DFSAN
@@ -1943,7 +1941,7 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
+    register long r4 asm("$4") = _a1;                                          \
     register long r7 asm("$7");                                                \
     register long r2 asm("$2");                                                \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
@@ -1957,8 +1955,8 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
-    register long r5 asm("$5") = env_a2;                                       \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
     register long r7 asm("$7");                                                \
     register long r2 asm("$2");                                                \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
@@ -1972,9 +1970,9 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
-    register long r5 asm("$5") = env_a2;                                       \
-    register long r6 asm("$6") = env_a3;                                       \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
     register long r7 asm("$7");                                                \
     register long r2 asm("$2");                                                \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
@@ -1988,10 +1986,10 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
-    register long r5 asm("$5") = env_a2;                                       \
-    register long r6 asm("$6") = env_a3;                                       \
-    register long r7 asm("$7") = env_a4;                                       \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
     register long r2 asm("$2");                                                \
     asm volatile("addu $2,$0,%2 ; syscall"                                     \
                  : "=&r"(r2), "+r"(r7)                                         \
@@ -2004,11 +2002,11 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
-    register long r5 asm("$5") = env_a2;                                       \
-    register long r6 asm("$6") = env_a3;                                       \
-    register long r7 asm("$7") = env_a4;                                       \
-    register long r8 asm("$8") = env_a5;                                       \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
+    register long r8 asm("$8") = _a5;                                          \
     register long r2 asm("$2");                                                \
     asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; "                          \
                  "addu $2,$0,%3 ; syscall ;"                                   \
@@ -2023,12 +2021,12 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   case nr: {                                                                   \
-    register long r4 asm("$4") = env_a1;                                       \
-    register long r5 asm("$5") = env_a2;                                       \
-    register long r6 asm("$6") = env_a3;                                       \
-    register long r7 asm("$7") = env_a4;                                       \
-    register long r8 asm("$8") = env_a5;                                       \
-    register long r9 asm("$9") = env_a6;                                       \
+    register long r4 asm("$4") = _a1;                                          \
+    register long r5 asm("$5") = _a2;                                          \
+    register long r6 asm("$6") = _a3;                                          \
+    register long r7 asm("$7") = _a4;                                          \
+    register long r8 asm("$8") = _a5;                                          \
+    register long r9 asm("$9") = _a6;                                          \
     register long r2 asm("$2");                                                \
     asm volatile("subu $sp,$sp,32 ; sw $8,16($sp) ; sw $9,20($sp) ; "          \
                  "addu $2,$0,%4 ; syscall ;"                                   \
@@ -2080,42 +2078,27 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     break;
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1);                                              \
     break;
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1,                                            \
-                        (t2)env_a2);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2);                                     \
     break;
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1,                                            \
-                        (t2)env_a2,                                            \
-                        (t3)env_a3);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3);                            \
     break;
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1,                                            \
-                        (t2)env_a2,                                            \
-                        (t3)env_a3,                                            \
-                        (t4)env_a4);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                   \
     break;
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1,                                            \
-                        (t2)env_a2,                                            \
-                        (t3)env_a3,                                            \
-                        (t4)env_a4,                                            \
-                        (t5)env_a5);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);          \
     break;
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)env_a1,                                            \
-                        (t2)env_a2,                                            \
-                        (t3)env_a3,                                            \
-                        (t4)env_a4,                                            \
-                        (t5)env_a5,                                            \
-                        (t6)env_a6);                                           \
+    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
     break;
 
 #define ___DFSAN
