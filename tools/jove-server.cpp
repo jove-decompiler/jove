@@ -182,7 +182,11 @@ int server(void) {
 
     tmpdir = tmpdir_c_str;
   } else {
-    tmpdir = opts::TemporaryDir + "/" + std::to_string(getpid());
+    srand(time(NULL));
+    tmpdir = opts::TemporaryDir + "/" + std::to_string(rand());
+
+    if (opts::Verbose)
+      llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
 
     if (mkdir(tmpdir.c_str(), 0777) < 0 && errno != EEXIST) {
       int err = errno;
