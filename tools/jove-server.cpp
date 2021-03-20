@@ -258,15 +258,6 @@ int server(void) {
       return 1;
     }
 
-#if 0
-    if (getpeername(data_socket, (struct sockaddr *)&args->addr, &args->addrlen) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("getpeername failed: {0}\n",
-                                          strerror(err));
-      delete args;
-      return 1;
-    }
-#endif
     args->data_socket = data_socket;
 
     WithColor::note() << llvm::formatv(
@@ -422,19 +413,6 @@ static bool receive_file_with_size(int socket, const char *out, unsigned file_pe
 }
 
 std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
-#if 0
-  char buff[256];
-  if (!inet_ntop(AF_INET, (struct sockaddr *)addr, buff, sizeof(buff))) {
-    int err = errno;
-    WithColor::warning() << llvm::formatv("inet_ntop failed: {0}\n", strerror(err));
-    buff[0] = '\0';
-  }
-
-  return std::string(buff);
-#else
-  if (!addr)
-    return "";
-
   char hbuf[NI_MAXHOST];
   int ret = getnameinfo(addr, addrlen, hbuf, sizeof(hbuf), nullptr, 0,
                         NI_NUMERICHOST);
@@ -445,7 +423,6 @@ std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
   }
 
   return std::string(hbuf);
-#endif
 }
 
 void *ConnectionProc(void *arg) {
