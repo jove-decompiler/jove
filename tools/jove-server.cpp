@@ -372,7 +372,7 @@ static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
   if (ret < 0)
     return ret;
 
-  ret = robust_sendfile(socket, tmpjv.c_str(), jv_size);
+  ret = robust_sendfile(socket, file_path, file_size);
   if (ret < 0)
     return ret;
 
