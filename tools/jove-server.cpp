@@ -124,7 +124,10 @@ static void sighandler(int no) {
 }
 
 struct ConnectionProcArgs {
-  int data_socket;
+  const int data_socket;
+
+  struct sockaddr_in addr;
+  socklen_t addrlen;
 
   ConnectionProcArgs(int data_socket)
       : data_socket(data_socket) {
@@ -142,7 +145,11 @@ struct ConnectionProcArgs {
 
     WithColor::note() << llvm::formatv("connection closed [{0:x}]\n", st.st_ino);
 
-    close(data_socket);
+    if (close(data_socket) < 0) {
+      int err = errno;
+      WithColor::warning() << llvm::formatv(
+          "failed to close data_socket: {0}]\n", strerror(err));
+    }
   }
 };
 
@@ -244,10 +251,14 @@ int server(void) {
     //
     // Wait for incoming connection
     //
-    int data_socket = accept(connection_socket, nullptr, nullptr);
+    ConnectionProcArgs *args = new ConnectionProcArgs(data_socket);
+
+    int data_socket = accept(connection_socket, &args->addr, &args->addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
       WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
+
+      delete args;
       return 1;
     }
 
@@ -255,8 +266,6 @@ int server(void) {
     // Create thread to service that connection
     //
     {
-      ConnectionProcArgs *args = new ConnectionProcArgs(data_socket);
-
       pthread_t thd;
       int ret = pthread_create(&thd, nullptr, ConnectionProc, args);
       if (unlikely(ret != 0)) {
