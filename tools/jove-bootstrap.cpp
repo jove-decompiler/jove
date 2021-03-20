@@ -314,10 +314,10 @@ int main(int argc, char **argv) {
     return jove::TracerLoop(child);
   } else {
     //
-    // first, create a pipe
+    // mode 2: create new process
     //
     int pipefd[2];
-    if (pipe(pipefd) < 0) {
+    if (pipe(pipefd) < 0) { /* first, create a pipe */
       WithColor::error() << "pipe(2) failed. bug?\n";
       return 1;
     }
@@ -325,9 +325,6 @@ int main(int argc, char **argv) {
     int rfd = pipefd[0];
     int wfd = pipefd[1];
 
-    //
-    // mode 2: create new process
-    //
     child = fork();
     if (!child) {
       {
