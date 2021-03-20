@@ -561,7 +561,7 @@ skip_run:
       }
 
       struct closeme_t {
-        int fd;
+        const int fd;
         closeme_t(int fd) : fd(fd) {}
         ~closeme_t() { close(fd); }
       } closeme(remote_fd);
