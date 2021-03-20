@@ -363,15 +363,31 @@ static uint32_t size_of_file32(const char *path) {
   return res;
 }
 
-static bool receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
+static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
+  ssize_t ret;
+
+  uint32_t file_size = size_of_file32(file_path);
+
+  ret = robust_write(socket, &file_size, sizeof(file_size));
+  if (ret < 0)
+    return ret;
+
+  ret = robust_sendfile(socket, tmpjv.c_str(), jv_size);
+  if (ret < 0)
+    return ret;
+
+  return file_size;
+}
+
+static bool receive_file_with_size(int socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
-  if (robust_read(data_socket, &file_size, sizeof(uint32_t)) < 0)
+  if (robust_read(socket, &file_size, sizeof(uint32_t)) < 0)
     return false;
 
   std::vector<uint8_t> buff;
   buff.resize(file_size);
 
-  if (robust_read(data_socket, &buff[0], buff.size()) < 0)
+  if (robust_read(socket, &buff[0], buff.size()) < 0)
     return false;
 
   bool res = true;
@@ -485,11 +501,12 @@ void *ConnectionProc(void *arg) {
     //
     // send new jv
     //
-    uint32_t jv_size = size_of_file32(tmpjv.c_str());
-    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+    ssize_t ret = robust_sendfile_with_size(tmpjv.c_str());
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv(
+          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
       return nullptr;
-    if (robust_sendfile(data_socket, tmpjv.c_str(), jv_size) < 0)
-      return nullptr;
+    }
   }
 
   //
@@ -519,11 +536,13 @@ void *ConnectionProc(void *arg) {
     if (opts::Verbose)
       llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
-    uint32_t dso_size = size_of_file32(chrooted_path.c_str());
-    if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
+    ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
+
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv(
+          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
       return nullptr;
-    if (robust_sendfile(data_socket, chrooted_path.c_str(), dso_size) < 0)
-      return nullptr;
+    }
   }
 
   return nullptr;
