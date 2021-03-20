@@ -218,7 +218,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
     return -errno;
 
   struct closeme_t {
-    int fd;
+    const int fd;
     closeme_t(int fd) : fd(fd) {}
     ~closeme_t() { close(fd); }
   } closeme(fd);
