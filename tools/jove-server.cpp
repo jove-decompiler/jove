@@ -28,6 +28,7 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <sys/socket.h>
+#include <netdb.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -98,6 +99,8 @@ static std::atomic<bool> Cancelled(false);
 
 static std::atomic<pid_t> app_pid;
 
+static std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen);
+
 static void sighandler(int no) {
   switch (no) {
   case SIGTERM:
@@ -124,26 +127,19 @@ static void sighandler(int no) {
 }
 
 struct ConnectionProcArgs {
-  const int data_socket;
+  int data_socket = -1;
 
   struct sockaddr_in addr;
   socklen_t addrlen;
 
-  ConnectionProcArgs(int data_socket)
-      : data_socket(data_socket) {
-    struct stat64 st;
-    if (fstat64(data_socket, &st) < 0)
-      memset(&st, 0, sizeof(st));
-
-    WithColor::note() << llvm::formatv("connection established [{0:x}]\n", st.st_ino);
+  ConnectionProcArgs() {
+    addrlen = sizeof(addr);
   }
 
   ~ConnectionProcArgs() {
-    struct stat64 st;
-    if (fstat64(data_socket, &st) < 0)
-      memset(&st, 0, sizeof(st));
-
-    WithColor::note() << llvm::formatv("connection closed [{0:x}]\n", st.st_ino);
+    WithColor::note() << llvm::formatv(
+        "connection closed [{0}]\n",
+        string_of_sockaddr((struct sockaddr *)&this->addr, this->addrlen));
 
     if (close(data_socket) < 0) {
       int err = errno;
@@ -251,9 +247,9 @@ int server(void) {
     //
     // Wait for incoming connection
     //
-    ConnectionProcArgs *args = new ConnectionProcArgs(data_socket);
+    ConnectionProcArgs *args = new ConnectionProcArgs;
 
-    int data_socket = accept(connection_socket, &args->addr, &args->addrlen);
+    int data_socket = accept(connection_socket, (struct sockaddr *)&args->addr, &args->addrlen);
     if (unlikely(data_socket < 0)) {
       int err = errno;
       WithColor::error() << llvm::formatv("accept failed: {0}\n", strerror(err));
@@ -261,6 +257,21 @@ int server(void) {
       delete args;
       return 1;
     }
+
+#if 0
+    if (getpeername(data_socket, (struct sockaddr *)&args->addr, &args->addrlen) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("getpeername failed: {0}\n",
+                                          strerror(err));
+      delete args;
+      return 1;
+    }
+#endif
+    args->data_socket = data_socket;
+
+    WithColor::note() << llvm::formatv(
+        "connection established [{0}]\n",
+        string_of_sockaddr((struct sockaddr *)&args->addr, args->addrlen));
 
     //
     // Create thread to service that connection
@@ -408,6 +419,33 @@ static bool receive_file_with_size(int socket, const char *out, unsigned file_pe
   }
 
   return res;
+}
+
+std::string string_of_sockaddr(const struct sockaddr *addr, socklen_t addrlen) {
+#if 0
+  char buff[256];
+  if (!inet_ntop(AF_INET, (struct sockaddr *)addr, buff, sizeof(buff))) {
+    int err = errno;
+    WithColor::warning() << llvm::formatv("inet_ntop failed: {0}\n", strerror(err));
+    buff[0] = '\0';
+  }
+
+  return std::string(buff);
+#else
+  if (!addr)
+    return "";
+
+  char hbuf[NI_MAXHOST];
+  int ret = getnameinfo(addr, addrlen, hbuf, sizeof(hbuf), nullptr, 0,
+                        NI_NUMERICHOST);
+  if (ret != 0) {
+    llvm::errs() << llvm::formatv("{0}: getnameinfo failed ({1})", __func__,
+                                  gai_strerror(ret));
+    return "";
+  }
+
+  return std::string(hbuf);
+#endif
 }
 
 void *ConnectionProc(void *arg) {
