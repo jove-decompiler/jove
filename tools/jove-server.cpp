@@ -447,6 +447,9 @@ void *ConnectionProc(void *arg) {
 
   int data_socket = args->data_socket;
 
+  //
+  // check for magic bytes
+  //
   {
     char magic[4];
     if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
