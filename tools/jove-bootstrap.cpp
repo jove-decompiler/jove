@@ -192,8 +192,69 @@ static cl::alias PIDAlias("p", cl::desc("Alias for -attach."),
 
 namespace jove {
 
+typedef boost::format fmt;
+
+typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
+                   llvm::MCInstPrinter &>
+    disas_t;
+
 static int ChildProc(int fd);
-static int TracerLoop(pid_t child);
+static int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &);
+
+static std::string jove_add_path;
+
+static decompilation_t decompilation;
+
+struct vm_properties_t {
+  uintptr_t beg;
+  uintptr_t end;
+  std::ptrdiff_t off;
+
+  bool r, w, x; /* unix permissions */
+  bool p;       /* private memory? (i.e. not shared) */
+
+  std::string nm;
+
+  bool operator==(const vm_properties_t &vm) const {
+    return beg == vm.beg && end == vm.end;
+  }
+
+  bool operator<(const vm_properties_t &vm) const { return beg < vm.beg; }
+};
+typedef std::set<vm_properties_t> vm_properties_set_t;
+
+static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
+
+struct section_properties_t {
+  llvm::StringRef name;
+  llvm::ArrayRef<uint8_t> contents;
+
+  bool w, x;
+
+  bool operator==(const section_properties_t &sect) const {
+    return name == sect.name;
+  }
+
+  bool operator<(const section_properties_t &sect) const {
+    return name < sect.name;
+  }
+};
+typedef std::set<section_properties_t> section_properties_set_t;
+
+// we have a BB & Func map for each binary_t
+struct binary_state_t {
+  std::unordered_map<uintptr_t, function_index_t> FuncMap;
+  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
+  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
+
+  struct {
+    uintptr_t LoadAddr, LoadAddrEnd;
+  } dyn;
+};
+
+static std::vector<binary_state_t> BinStateVec;
+static boost::dynamic_bitset<> BinFoundVec;
+static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
 static void set_ptrace_options(pid_t child) {
   //
@@ -217,6 +278,11 @@ static void set_ptrace_options(pid_t child) {
                                         strerror(err));
   }
 }
+
+static bool HasVDSO(void);
+static std::pair<void *, unsigned> GetVDSO(void);
+
+#include "elf.hpp"
 
 }
 
@@ -277,6 +343,334 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  jove::jove_add_path =
+      (boost::dll::program_location().parent_path() / std::string("jove-add"))
+          .string();
+  if (!fs::exists(jove::jove_add_path))
+    WithColor::warning() << "could not find jove-add at " << jove::jove_add_path
+                         << '\n';
+
+  //
+  // okay, it looks like we're actually going to run. initialize stuff
+  //
+  jove::tiny_code_generator_t tcg;
+
+  llvm::InitializeAllTargets();
+  llvm::InitializeAllTargetMCs();
+  llvm::InitializeAllAsmPrinters();
+  llvm::InitializeAllAsmParsers();
+  llvm::InitializeAllDisassemblers();
+
+  bool git = fs::is_directory(opts::jv);
+
+  //
+  // parse the existing decompilation file
+  //
+  {
+    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> jove::decompilation;
+  }
+
+  //
+  // OMG. this hack is awful. it is here because if a binary is dynamically
+  // added to the decompilation, the std::vector will resize if necessary- and
+  // if such an event occurs, pointers to the section data will be invalidated
+  // because the binary_t::Data will be recopied. TODO
+  //
+  jove::decompilation.Binaries.reserve(2 * jove::decompilation.Binaries.size());
+
+  //
+  // verify that the binaries on-disk are those found in the decompilation.
+  //
+  for (jove::binary_t &binary : jove::decompilation.Binaries) {
+    if (binary.IsVDSO) {
+      assert(jove::HasVDSO());
+      void *vdso;
+      unsigned n;
+
+      std::tie(vdso, n) = jove::GetVDSO();
+
+      assert(n);
+
+      if (binary.Data.size() != n ||
+          memcmp(&binary.Data[0], vdso, binary.Data.size())) {
+        WithColor::error() << "[vdso] has changed\n";
+        return 1;
+      }
+
+      continue;
+    }
+
+    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
+
+    if (std::error_code EC = FileOrErr.getError()) {
+      WithColor::error() << llvm::formatv("failed to open binary {0}\n",
+                                          binary.Path);
+      return 1;
+    }
+
+    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+    if (binary.Data.size() != Buffer->getBufferSize() ||
+        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+      WithColor::error() << llvm::formatv(
+          "binary {0} has changed ; re-run jove-init?\n", binary.Path);
+      return 1;
+    }
+  }
+
+  llvm::Triple TheTriple;
+  llvm::SubtargetFeatures Features;
+
+  //
+  // initialize state associated with every binary
+  //
+  jove::BinStateVec.resize(jove::decompilation.Binaries.size());
+  for (jove::binary_index_t i = 0; i < jove::decompilation.Binaries.size(); ++i) {
+    auto &binary = jove::decompilation.Binaries[i];
+    auto &st = jove::BinStateVec[i];
+
+    // add to path -> index map
+    if (binary.IsVDSO)
+      jove::BinPathToIdxMap["[vdso]"] = i;
+    else
+      jove::BinPathToIdxMap[binary.Path] = i;
+
+    //
+    // build FuncMap
+    //
+    for (jove::function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+         ++f_idx) {
+      jove::function_t &f = binary.Analysis.Functions[f_idx];
+      assert(f.Entry != jove::invalid_basic_block_index);
+      jove::basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+    }
+
+    //
+    // build BBMap
+    //
+    for (jove::basic_block_index_t bb_idx = 0;
+         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+      jove::basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+      const auto &bbprop = binary.Analysis.ICFG[bb];
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(
+              bbprop.Addr, bbprop.Addr + bbprop.Size);
+      assert(st.BBMap.find(intervl) == st.BBMap.end());
+
+      st.BBMap.add({intervl, 1 + bb_idx});
+    }
+
+    //
+    // build section map
+    //
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      if (!binary.IsVDSO)
+        WithColor::warning() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
+
+      boost::icl::interval<uintptr_t>::type intervl =
+          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
+
+      assert(st.SectMap.find(intervl) == st.SectMap.end());
+
+      jove::section_properties_t sectprop;
+      sectprop.name = ".text";
+      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
+      sectprop.w = false;
+      sectprop.x = true;
+      st.SectMap.add({intervl, {sectprop}});
+    } else {
+      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+      if (!llvm::isa<jove::ELFO>(Bin.get())) {
+        WithColor::error() << binary.Path << " is not ELF of expected type\n";
+        return 1;
+      }
+
+      jove::ELFO &O = *llvm::cast<jove::ELFO>(Bin.get());
+
+      TheTriple = O.makeTriple();
+      Features = O.getFeatures();
+
+      const jove::ELFF &E = *O.getELFFile();
+
+      typedef typename jove::ELFF::Elf_Shdr Elf_Shdr;
+      typedef typename jove::ELFF::Elf_Shdr_Range Elf_Shdr_Range;
+
+      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
+      if (!sections) {
+        WithColor::error() << "could not get ELF sections for binary "
+                           << binary.Path << '\n';
+        return 1;
+      }
+
+      for (const jove::Elf_Shdr &Sec : *sections) {
+        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+          continue;
+
+        if (!Sec.sh_size)
+          continue;
+
+        jove::section_properties_t sectprop;
+
+        {
+          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+          if (!name) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section name ({0})\n", Buf);
+            continue;
+          }
+
+          sectprop.name = *name;
+        }
+
+        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+            sectprop.name == std::string(".tbss"))
+          continue;
+
+        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+          sectprop.contents = llvm::ArrayRef<uint8_t>();
+        } else {
+          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+              E.getSectionContents(&Sec);
+
+          if (!contents) {
+            std::string Buf;
+            {
+              llvm::raw_string_ostream OS(Buf);
+              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
+            }
+
+            WithColor::note()
+                << llvm::formatv("could not get section {0} contents ({1})\n",
+                                 sectprop.name, Buf);
+            continue;
+          }
+
+          sectprop.contents = *contents;
+        }
+
+        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
+        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
+
+        boost::icl::interval<uintptr_t>::type intervl =
+            boost::icl::interval<uintptr_t>::right_open(
+                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+        {
+          auto it = st.SectMap.find(intervl);
+          if (it != st.SectMap.end()) {
+            WithColor::error() << "the following sections intersect: "
+                               << (*(*it).second.begin()).name << " and "
+                               << sectprop.name << '\n';
+            return 1;
+          }
+        }
+
+        st.SectMap.add({intervl, {sectprop}});
+
+        if (opts::VeryVerbose)
+          llvm::errs() << (jove::fmt("%-20s [0x%lx, 0x%lx)")
+                           % std::string(sectprop.name)
+                           % intervl.lower()
+                           % intervl.upper())
+                              .str()
+                       << '\n';
+      }
+    }
+  }
+
+  jove::BinFoundVec.resize(jove::decompilation.Binaries.size());
+
+  //
+  // initialize the LLVM objects necessary for disassembling instructions
+  //
+  std::string ArchName;
+  std::string Error;
+
+  const llvm::Target *TheTarget =
+      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
+  if (!TheTarget) {
+    WithColor::error() << "failed to lookup target: " << Error << '\n';
+    return 1;
+  }
+
+  std::string TripleName = TheTriple.getTriple();
+  std::string MCPU;
+
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
+      TheTarget->createMCRegInfo(TripleName));
+  if (!MRI) {
+    WithColor::error() << "no register info for target\n";
+    return 1;
+  }
+
+  llvm::MCTargetOptions Options;
+  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
+      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
+  if (!AsmInfo) {
+    WithColor::error() << "no assembly info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
+      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
+  if (!STI) {
+    WithColor::error() << "no subtarget info\n";
+    return 1;
+  }
+
+  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
+  if (!MII) {
+    WithColor::error() << "no instruction info\n";
+    return 1;
+  }
+
+  llvm::MCObjectFileInfo MOFI;
+  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
+  // FIXME: for now initialize MCObjectFileInfo with default values
+  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
+
+  std::unique_ptr<llvm::MCDisassembler> DisAsm(
+      TheTarget->createMCDisassembler(*STI, Ctx));
+  if (!DisAsm) {
+    WithColor::error() << "no disassembler for target\n";
+    return 1;
+  }
+
+#if defined(__x86_64__) || defined(__i386__)
+  int AsmPrinterVariant = 1; // Intel syntax
+#else
+  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
+#endif
+  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
+      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
+  if (!IP) {
+    WithColor::error() << "no instruction printer\n";
+    return 1;
+  }
+
+  jove::disas_t dis(*DisAsm, std::cref(*STI), *IP);
+
   //
   // bootstrap has two modes of execution.
   //
@@ -311,7 +705,7 @@ int main(int argc, char **argv) {
 
     jove::set_ptrace_options(child);
 
-    return jove::TracerLoop(child);
+    return jove::TracerLoop(child, tcg, dis);
   } else {
     //
     // mode 2: create new process
@@ -391,15 +785,11 @@ int main(int argc, char **argv) {
       close(rfd);
     }
 
-    return jove::TracerLoop(-1);
+    return jove::TracerLoop(-1, tcg, dis);
   }
 }
 
 namespace jove {
-
-typedef boost::format fmt;
-
-static decompilation_t decompilation;
 
 static bool update_view_of_virtual_memory(pid_t child);
 
@@ -416,57 +806,6 @@ static struct {
 
   uintptr_t r_brk;
 } _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
-
-struct vm_properties_t {
-  uintptr_t beg;
-  uintptr_t end;
-  std::ptrdiff_t off;
-
-  bool r, w, x; /* unix permissions */
-  bool p;       /* private memory? (i.e. not shared) */
-
-  std::string nm;
-
-  bool operator==(const vm_properties_t &vm) const {
-    return beg == vm.beg && end == vm.end;
-  }
-
-  bool operator<(const vm_properties_t &vm) const { return beg < vm.beg; }
-};
-typedef std::set<vm_properties_t> vm_properties_set_t;
-
-static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
-
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
-
-// we have a BB & Func map for each binary_t
-struct binary_state_t {
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;
-  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
-
-  struct {
-    uintptr_t LoadAddr, LoadAddrEnd;
-  } dyn;
-};
-
-static std::vector<binary_state_t> BinStateVec;
-static boost::dynamic_bitset<> BinFoundVec;
-static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
 typedef std::set<binary_index_t> binary_index_set_t;
 static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
@@ -529,10 +868,6 @@ static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t idx) {
   return Addr - BinStateVec.at(idx).dyn.LoadAddr;
 }
 
-typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
-                   llvm::MCInstPrinter &>
-    disas_t;
-
 // one-shot breakpoint
 struct breakpoint_t {
   unsigned long words[2];
@@ -588,8 +923,6 @@ static int await_process_completion(pid_t);
 
 static std::string description_of_program_counter(uintptr_t);
 
-#include "elf.hpp"
-
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
 
@@ -603,11 +936,6 @@ static function_index_t translate_function(pid_t child,
                                            disas_t &dis,
                                            target_ulong Addr,
                                            unsigned &brkpt_count);
-
-static bool HasVDSO(void);
-static std::pair<void *, unsigned> GetVDSO(void);
-
-static std::string jove_add_path;
 
 static void on_return(pid_t child,
                       uintptr_t AddrOfRet,
@@ -665,383 +993,7 @@ static void InvalidateAllFunctionAnalyses(void) {
       f.InvalidateAnalysis();
 }
 
-int TracerLoop(pid_t child) {
-  //
-  // first, install signal handler so the user can gracefully detach.
-  //
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-
-  IgnoreCtrlC();
-
-  jove_add_path =
-      (boost::dll::program_location().parent_path() / std::string("jove-add"))
-          .string();
-  if (!fs::exists(jove_add_path))
-    WithColor::warning() << "could not find jove-add at " << jove_add_path
-                         << '\n';
-
-#if 0
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_NOCLDWAIT;
-    sa.sa_handler = SIG_DFL;
-
-    if (sigaction(SIGINT, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-#elif 0
-  signal(SIGCHLD, SIG_IGN); /* Silently (and portably) reap children. */
-#endif
-
-  tiny_code_generator_t tcg;
-
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllTargetMCs();
-  llvm::InitializeAllAsmPrinters();
-  llvm::InitializeAllAsmParsers();
-  llvm::InitializeAllDisassemblers();
-
-  bool git = fs::is_directory(opts::jv);
-
-  //
-  // parse the existing decompilation file
-  //
-  {
-    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
-
-  //
-  // OMG. this hack is awful. it is here because if a binary is dynamically
-  // added to the decompilation, the std::vector will resize if necessary- and
-  // if such an event occurs, pointers to the section data will be invalidated
-  // because the binary_t::Data will be recopied. TODO
-  //
-  decompilation.Binaries.reserve(2 * decompilation.Binaries.size());
-
-  //
-  // verify that the binaries on-disk are those found in the decompilation.
-  //
-  for (binary_t &binary : decompilation.Binaries) {
-    if (binary.IsVDSO) {
-      assert(HasVDSO());
-      void *vdso;
-      unsigned n;
-
-      std::tie(vdso, n) = GetVDSO();
-
-      assert(n);
-
-      if (binary.Data.size() != n ||
-          memcmp(&binary.Data[0], vdso, binary.Data.size())) {
-        WithColor::error() << "[vdso] has changed\n";
-        return 1;
-      }
-
-      continue;
-    }
-
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      WithColor::error() << llvm::formatv("failed to open binary {0}\n",
-                                          binary.Path);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-    if (binary.Data.size() != Buffer->getBufferSize() ||
-        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      WithColor::error() << llvm::formatv("binary {0} has changed\n",
-                                          binary.Path);
-      return 1;
-    }
-  }
-
-  llvm::Triple TheTriple;
-  llvm::SubtargetFeatures Features;
-
-  //
-  // initialize state associated with every binary
-  //
-  BinStateVec.resize(decompilation.Binaries.size());
-  for (binary_index_t i = 0; i < decompilation.Binaries.size(); ++i) {
-    binary_t &binary = decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
-
-    // add to path -> index map
-    if (binary.IsVDSO)
-      BinPathToIdxMap["[vdso]"] = i;
-    else
-      BinPathToIdxMap[binary.Path] = i;
-
-    //
-    // build FuncMap
-    //
-    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-         ++f_idx) {
-      function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != invalid_basic_block_index);
-      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
-    }
-
-    //
-    // build BBMap
-    //
-    for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-      const auto &bbprop = binary.Analysis.ICFG[bb];
-
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              bbprop.Addr, bbprop.Addr + bbprop.Size);
-      assert(st.BBMap.find(intervl) == st.BBMap.end());
-
-      st.BBMap.add({intervl, 1 + bb_idx});
-    }
-
-    //
-    // build section map
-    //
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!binary.IsVDSO)
-        WithColor::warning() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
-
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
-
-      assert(st.SectMap.find(intervl) == st.SectMap.end());
-
-      section_properties_t sectprop;
-      sectprop.name = ".text";
-      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
-      sectprop.w = false;
-      sectprop.x = true;
-      st.SectMap.add({intervl, {sectprop}});
-    } else {
-      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
-
-      if (!llvm::isa<ELFO>(Bin.get())) {
-        WithColor::error() << binary.Path << " is not ELF of expected type\n";
-        return 1;
-      }
-
-      ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-
-      const ELFF &E = *O.getELFFile();
-
-      typedef typename ELFF::Elf_Shdr Elf_Shdr;
-      typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return 1;
-      }
-
-      for (const Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        section_properties_t sectprop;
-
-        {
-          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-          if (!name) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section name ({0})\n", Buf);
-            continue;
-          }
-
-          sectprop.name = *name;
-        }
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            sectprop.name == std::string(".tbss"))
-          continue;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-
-          if (!contents) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section {0} contents ({1})\n",
-                                 sectprop.name, Buf);
-            continue;
-          }
-
-          sectprop.contents = *contents;
-        }
-
-        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
-        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
-
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = st.SectMap.find(intervl);
-          if (it != st.SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            return 1;
-          }
-        }
-
-        st.SectMap.add({intervl, {sectprop}});
-
-        if (opts::VeryVerbose)
-          llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)")
-                           % std::string(sectprop.name)
-                           % intervl.lower()
-                           % intervl.upper())
-                              .str()
-                       << '\n';
-      }
-    }
-  }
-
-  BinFoundVec.resize(decompilation.Binaries.size());
-
-  //
-  // initialize the LLVM objects necessary for disassembling instructions
-  //
-  std::string ArchName;
-  std::string Error;
-
-  const llvm::Target *TheTarget =
-      llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
-  if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
-    return 1;
-  }
-
-  std::string TripleName = TheTriple.getTriple();
-  std::string MCPU;
-
-  std::unique_ptr<const llvm::MCRegisterInfo> MRI(
-      TheTarget->createMCRegInfo(TripleName));
-  if (!MRI) {
-    WithColor::error() << "no register info for target\n";
-    return 1;
-  }
-
-  llvm::MCTargetOptions Options;
-  std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
-  if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCSubtargetInfo> STI(
-      TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
-  if (!STI) {
-    WithColor::error() << "no subtarget info\n";
-    return 1;
-  }
-
-  std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
-  if (!MII) {
-    WithColor::error() << "no instruction info\n";
-    return 1;
-  }
-
-  llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
-  MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
-
-  std::unique_ptr<llvm::MCDisassembler> DisAsm(
-      TheTarget->createMCDisassembler(*STI, Ctx));
-  if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
-    return 1;
-  }
-
-#if defined(__x86_64__) || defined(__i386__)
-  int AsmPrinterVariant = 1; // Intel syntax
-#else
-  int AsmPrinterVariant = AsmInfo->getAssemblerDialect();
-#endif
-  std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
-      llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
-  if (!IP) {
-    WithColor::error() << "no instruction printer\n";
-    return 1;
-  }
-
-  disas_t dis(*DisAsm, std::cref(*STI), *IP);
-
+int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   siginfo_t si;
   long sig = 0;
 
@@ -1613,6 +1565,7 @@ int TracerLoop(pid_t child) {
   //
   // write decompilation
   //
+  bool git = fs::is_directory(opts::jv);
   {
     std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
                           : opts::jv);
@@ -5196,7 +5149,7 @@ unsigned long _ptrace_peekdata(pid_t child, uintptr_t addr) {
 
   if (syscall(__NR_ptrace, _request, _pid, _addr, _data) < 0)
     throw std::runtime_error((fmt("PTRACE_PEEKDATA(%d, %p) failed : %s") %
-			      child % addr % strerror(errno)).str());
+                              child % addr % strerror(errno)).str());
 
   return res;
 }
