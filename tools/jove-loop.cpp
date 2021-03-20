@@ -247,7 +247,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
 static bool receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
   if (robust_read(data_socket, &file_size, sizeof(uint32_t)) < 0)
-    break;
+    return false;
 
   std::vector<uint8_t> buff;
   buff.resize(file_size);
@@ -306,6 +306,23 @@ static uint32_t size_of_file32(const char *path) {
 
   return res;
 }
+
+static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
+  ssize_t ret;
+
+  uint32_t file_size = size_of_file32(file_path);
+
+  ret = robust_write(socket, &file_size, sizeof(file_size));
+  if (ret < 0)
+    return ret;
+
+  ret = robust_sendfile(socket, file_path, file_size);
+  if (ret < 0)
+    return ret;
+
+  return file_size;
+}
+
 
 int loop(void) {
   //
@@ -602,10 +619,7 @@ skip_run:
       // send the jv
       //
       {
-        uint32_t jv_size = size_of_file32(jv_path.c_str());
-        if (robust_write(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
-          break;
-        if (robust_sendfile(remote_fd, jv_path.c_str(), jv_size) < 0)
+        if (robust_sendfile_with_size(remote_fd, jv_path.c_str()) < 0)
           break;
       }
 
