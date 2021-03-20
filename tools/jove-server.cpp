@@ -363,83 +363,27 @@ static uint32_t size_of_file32(const char *path) {
   return res;
 }
 
-#if 0
-
-static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("receive_file_with_size({0},\"{1}\",{2},{3})\n",
-                                  data_socket, out, size, file_perm);
-
-  int fd = open(out, O_RDWR | O_TRUNC | O_CREAT, file_perm);
-  if (fd < 0) {
-    WithColor::error() << llvm::formatv("failed to receive {0}!\n", out);
+static bool receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
+  uint32_t file_size;
+  if (robust_read(data_socket, &file_size, sizeof(uint32_t)) < 0)
     return false;
-  }
-
-  if (ftruncate(fd, size) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("ftruncate failed: {0}\n", strerror(err));
-    return false;
-  }
-
-  void *p = mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
-  if (p == MAP_FAILED) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("mmap failed: {0}\n", strerror(err));
-    return false;
-  }
-
-  {
-    ssize_t ret = robust_read(data_socket, p, size);
-    if (ret < 0) {
-      WithColor::error() << llvm::formatv("robust_read failed: {0}\n", strerror(-ret));
-      return false;
-    }
-  }
-
-  if (msync(p, size, MS_SYNC) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("msync failed: {0}\n", strerror(err));
-    return false;
-  }
-
-  if (munmap(p, size) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("munmap failed: {0}\n", strerror(err));
-    return false;
-  }
-
-  if (close(fd) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("close failed: {0}\n", strerror(err));
-    return false;
-  }
-
-  return true;
-}
-
-#else
-
-static bool receive_file_with_size(int data_socket, const char *out, unsigned size, unsigned file_perm) {
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("receive_file_with_size({0},\"{1}\",{2},{3})\n",
-                                  data_socket, out, size, file_perm);
 
   std::vector<uint8_t> buff;
-  buff.resize(size);
+  buff.resize(file_size);
 
-  robust_read(data_socket, &buff[0], buff.size());
+  if (robust_read(data_socket, &buff[0], buff.size()) < 0)
+    return false;
 
+  bool res = true;
   {
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
-    robust_write(fd, &buff[0], buff.size());
+    if (robust_write(fd, &buff[0], buff.size()) < 0)
+      res = false;
     close(fd);
   }
 
-  return true;
+  return res;
 }
-
-#endif
 
 void *ConnectionProc(void *arg) {
   std::unique_ptr<ConnectionProcArgs> args(
@@ -470,17 +414,9 @@ void *ConnectionProc(void *arg) {
 
   bool dfsan = header;
 
-  //
-  // get size of jv file
-  //
-  std::string tmpjv;
+  std::string tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
   {
-    uint32_t JvSize = 0;
-    if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
-      return nullptr;
-
-    tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-    if (!receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666))
+    if (!receive_file_with_size(data_socket, tmpjv.c_str(), 0666))
       return nullptr;
   }
 
