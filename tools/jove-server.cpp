@@ -431,175 +431,173 @@ void *ConnectionProc(void *arg) {
 
   int data_socket = args->data_socket;
 
-  for (;;) {
-    {
-      char magic[4];
-      if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
-         !(magic[0] == 'J' &&
-           magic[1] == 'O' &&
-           magic[2] == 'V' &&
-           magic[3] == 'E')) {
-        WithColor::error() << "invalid magic bytes\n";
-        break;
-      }
-    }
-
-    uint8_t header;
-    if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
-      WithColor::error() << "failed to read header\n";
-      break;
-    }
-
-    bool dfsan = header;
-
-    //
-    // get size of jv file
-    //
-    std::string tmpjv;
-    {
-      uint32_t JvSize = 0;
-      if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
-        return nullptr;
-
-      tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-      receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666);
-    }
-
-    //
-    // analyze
-    //
-    pid_t pid = fork();
-    if (!pid) {
-      const char *arg_arr[] = {
-          jove_analyze_path.c_str(),
-
-          "-d", tmpjv.c_str(),
-
-          nullptr
-      };
-
-      print_command(&arg_arr[0]);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
+  {
+    char magic[4];
+    if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
+       !(magic[0] == 'J' &&
+         magic[1] == 'O' &&
+         magic[2] == 'V' &&
+         magic[3] == 'E')) {
+      WithColor::error() << "invalid magic bytes\n";
       return nullptr;
     }
+  }
 
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
-      return nullptr;
-    }
-
-    //
-    // recompile
-    //
-    std::string sysroot_dir = (fs::path(tmpdir) / "sysroot").string();
-    fs::create_directory(sysroot_dir);
-
-    pid = fork();
-    if (!pid) {
-      std::vector<const char *> arg_vec = {
-          jove_recompile_path.c_str(),
-
-          "-d", tmpjv.c_str(),
-          "-o", sysroot_dir.c_str(),
-      };
-
-      if (dfsan)
-        arg_vec.push_back("--dfsan");
-
-      arg_vec.push_back(nullptr);
-
-      print_command(&arg_vec[0]);
-      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
-
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      return nullptr;
-    }
-
-    if (int ret = await_process_completion(pid)) {
-      WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
-      return nullptr;
-    }
-
-    {
-      //
-      // get size of new jv
-      //
-      uint32_t jv_size = 0;
-      {
-        struct stat st;
-        if (stat(tmpjv.c_str(), &st) < 0) {
-          int err = errno;
-          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
-          break;
-        }
-
-        jv_size = st.st_size;
-      }
-
-      if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
-        break;
-
-      //
-      // send new jv
-      //
-      if (robust_sendfile(data_socket, tmpjv.c_str(), jv_size) < 0)
-        return nullptr;
-    }
-
-    //
-    // send the rest of the DSO's that were recompiled
-    //
-    decompilation_t decompilation;
-    {
-      std::ifstream ifs(tmpjv.c_str());
-
-      boost::archive::text_iarchive ia(ifs);
-      ia >> decompilation;
-    }
-
-    for (const binary_t &binary : decompilation.Binaries) {
-      if (binary.IsVDSO)
-        continue;
-      if (binary.IsDynamicLinker)
-        continue;
-
-      fs::path chrooted_path(fs::path(sysroot_dir) / binary.Path);
-      if (!fs::exists(chrooted_path)) {
-        WithColor::warning() << llvm::formatv("skipping {0} (not found)\n",
-                                              chrooted_path.c_str());
-        continue;
-      }
-
-      uint32_t dso_size = 0;
-      {
-        struct stat st;
-        if (stat(chrooted_path.c_str(), &st) < 0) {
-          int err = errno;
-          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
-          break;
-        }
-
-        dso_size = st.st_size;
-      }
-
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
-
-      if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
-        return nullptr;
-
-      if (robust_sendfile(data_socket, chrooted_path.c_str(), dso_size) < 0)
-        return nullptr;
-    }
-
+  uint8_t header;
+  if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
+    WithColor::error() << "failed to read header\n";
     return nullptr;
   }
+
+  bool dfsan = header;
+
+  //
+  // get size of jv file
+  //
+  std::string tmpjv;
+  {
+    uint32_t JvSize = 0;
+    if (robust_read(data_socket, &JvSize, sizeof(JvSize)) < 0)
+      return nullptr;
+
+    tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
+    receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666);
+  }
+
+  //
+  // analyze
+  //
+  pid_t pid = fork();
+  if (!pid) {
+    const char *arg_arr[] = {
+        jove_analyze_path.c_str(),
+
+        "-d", tmpjv.c_str(),
+
+        nullptr
+    };
+
+    print_command(&arg_arr[0]);
+    execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+
+    int err = errno;
+    WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                        strerror(err));
+    return nullptr;
+  }
+
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
+    return nullptr;
+  }
+
+  //
+  // recompile
+  //
+  std::string sysroot_dir = (fs::path(tmpdir) / "sysroot").string();
+  fs::create_directory(sysroot_dir);
+
+  pid = fork();
+  if (!pid) {
+    std::vector<const char *> arg_vec = {
+        jove_recompile_path.c_str(),
+
+        "-d", tmpjv.c_str(),
+        "-o", sysroot_dir.c_str(),
+    };
+
+    if (dfsan)
+      arg_vec.push_back("--dfsan");
+
+    arg_vec.push_back(nullptr);
+
+    print_command(&arg_vec[0]);
+    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+    int err = errno;
+    WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                        strerror(err));
+    return nullptr;
+  }
+
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
+    return nullptr;
+  }
+
+  {
+    //
+    // get size of new jv
+    //
+    uint32_t jv_size = 0;
+    {
+      struct stat st;
+      if (stat(tmpjv.c_str(), &st) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+        return nullptr;
+      }
+
+      jv_size = st.st_size;
+    }
+
+    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+      return nullptr;
+
+    //
+    // send new jv
+    //
+    if (robust_sendfile(data_socket, tmpjv.c_str(), jv_size) < 0)
+      return nullptr;
+  }
+
+  //
+  // send the rest of the DSO's that were recompiled
+  //
+  decompilation_t decompilation;
+  {
+    std::ifstream ifs(tmpjv.c_str());
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> decompilation;
+  }
+
+  for (const binary_t &binary : decompilation.Binaries) {
+    if (binary.IsVDSO)
+      continue;
+    if (binary.IsDynamicLinker)
+      continue;
+
+    fs::path chrooted_path(fs::path(sysroot_dir) / binary.Path);
+    if (!fs::exists(chrooted_path)) {
+      WithColor::warning() << llvm::formatv("skipping {0} (not found)\n",
+                                            chrooted_path.c_str());
+      continue;
+    }
+
+    uint32_t dso_size = 0;
+    {
+      struct stat st;
+      if (stat(chrooted_path.c_str(), &st) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+        return nullptr;
+      }
+
+      dso_size = st.st_size;
+    }
+
+    if (opts::Verbose)
+      llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
+
+    if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
+      return nullptr;
+
+    if (robust_sendfile(data_socket, chrooted_path.c_str(), dso_size) < 0)
+      return nullptr;
+  }
+
+  return nullptr;
 
   return nullptr;
 }
