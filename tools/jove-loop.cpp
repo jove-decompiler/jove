@@ -219,7 +219,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
 
   struct closeme_t {
     int fd;
-    closeme_t (int fd) : fd(fd) {}
+    closeme_t(int fd) : fd(fd) {}
     ~closeme_t() { close(fd); }
   } closeme(fd);
 
@@ -348,6 +348,22 @@ static void sighandler(int no) {
   default:
     abort();
   }
+}
+
+static uint32_t size_of_file32(const char *path) {
+  uint32_t res;
+  {
+    struct stat st;
+    if (stat(path, &st) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+      return 0;
+    }
+
+    res = st.st_size;
+  }
+
+  return res;
 }
 
 int loop(void) {
@@ -638,52 +654,41 @@ skip_run:
       //
       // send the jv
       //
-      uint32_t jv_size = 0;
       {
-        struct stat st;
-        if (stat(jv_path.c_str(), &st) < 0) {
-          int err = errno;
-          WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+        uint32_t jv_size = size_of_file32(jv_path.c_str());
+        if (robust_write(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
           break;
-        }
-
-        jv_size = st.st_size;
+        if (robust_sendfile(remote_fd, jv_path.c_str(), jv_size) < 0)
+          break;
       }
-
-      if (robust_write(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
-        break;
-
-      if (robust_sendfile(remote_fd, jv_path.c_str(), jv_size) < 0)
-        break;
 
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
-      if (robust_read(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
-	break;
+      {
+        uint32_t jv_size;
+        if (robust_read(remote_fd, &jv_size, sizeof(uint32_t)) < 0)
+          break;
+        if (!receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666))
+          break;
+      }
 
-      llvm::errs() << llvm::formatv("jv_size={0}\n", jv_size);
+      for (const binary_t &binary : decompilation.Binaries) {
+        if (binary.IsVDSO)
+          continue;
+        if (binary.IsDynamicLinker)
+          continue;
 
-      if (receive_file_with_size(remote_fd, jv_path.c_str(), jv_size, 0666)) {
-        llvm::errs() << llvm::formatv("parsing decompilation {0}\n", jv_path.c_str());
+        fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        for (const binary_t &binary : decompilation.Binaries) {
-          if (binary.IsVDSO)
-            continue;
-          if (binary.IsDynamicLinker)
-            continue;
+        uint32_t dso_size = 0;
+        if (robust_read(remote_fd, &dso_size, sizeof(uint32_t)) < 0)
+          return 1;
 
-          fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-          uint32_t dso_size = 0;
-          if (robust_read(remote_fd, &dso_size, sizeof(uint32_t)) < 0)
-            return 1;
-
-          if (opts::Verbose)
-            llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
-
-          receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777);
-        }
+        receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777);
       }
 
       close(remote_fd);

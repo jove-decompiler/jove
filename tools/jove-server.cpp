@@ -324,7 +324,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
     int fd;
     closeme_t (int fd) : fd(fd) {}
     ~closeme_t() { close(fd); }
-  } closeme_t(fd);
+  } closeme(fd);
 
   const size_t saved_file_size = file_size;
 
@@ -345,6 +345,22 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
   } while (file_size > 0);
 
   return saved_file_size;
+}
+
+static uint32_t size_of_file32(const char *path) {
+  uint32_t res;
+  {
+    struct stat st;
+    if (stat(path, &st) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+      return 0;
+    }
+
+    res = st.st_size;
+  }
+
+  return res;
 }
 
 #if 0
@@ -527,26 +543,11 @@ void *ConnectionProc(void *arg) {
 
   {
     //
-    // get size of new jv
-    //
-    uint32_t jv_size = 0;
-    {
-      struct stat st;
-      if (stat(tmpjv.c_str(), &st) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
-        return nullptr;
-      }
-
-      jv_size = st.st_size;
-    }
-
-    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
-      return nullptr;
-
-    //
     // send new jv
     //
+    uint32_t jv_size = size_of_file32(tmpjv.c_str());
+    if (robust_write(data_socket, &jv_size, sizeof(uint32_t)) < 0)
+      return nullptr;
     if (robust_sendfile(data_socket, tmpjv.c_str(), jv_size) < 0)
       return nullptr;
   }
@@ -575,24 +576,12 @@ void *ConnectionProc(void *arg) {
       return nullptr;
     }
 
-    uint32_t dso_size = 0;
-    {
-      struct stat st;
-      if (stat(chrooted_path.c_str(), &st) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
-        return nullptr;
-      }
-
-      dso_size = st.st_size;
-    }
-
     if (opts::Verbose)
       llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
+    uint32_t dso_size = size_of_file32(chrooted_path.c_str());
     if (robust_write(data_socket, &dso_size, sizeof(uint32_t)) < 0)
       return nullptr;
-
     if (robust_sendfile(data_socket, chrooted_path.c_str(), dso_size) < 0)
       return nullptr;
   }
