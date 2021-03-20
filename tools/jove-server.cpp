@@ -501,7 +501,7 @@ void *ConnectionProc(void *arg) {
     //
     // send new jv
     //
-    ssize_t ret = robust_sendfile_with_size(tmpjv.c_str());
+    ssize_t ret = robust_sendfile_with_size(data_socket, tmpjv.c_str());
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
           "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
