@@ -221,7 +221,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
     int fd;
     closeme_t (int fd) : fd(fd) {}
     ~closeme_t() { close(fd); }
-  } closeme_t(fd);
+  } closeme(fd);
 
   const size_t saved_file_size = file_size;
 
@@ -615,6 +615,15 @@ skip_run:
         int err = errno;
         WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
         return 1;
+      }
+
+      //
+      // send magic bytes
+      //
+      {
+        char magic[4] = {'J', 'O', 'V', 'E'};
+        if (robust_write(remote_fd, &magic[0], sizeof(magic)) < 0)
+          break;
       }
 
       //

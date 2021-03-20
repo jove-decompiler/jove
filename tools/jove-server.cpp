@@ -432,6 +432,18 @@ void *ConnectionProc(void *arg) {
   int data_socket = args->data_socket;
 
   for (;;) {
+    {
+      char magic[4];
+      if (robust_read(data_socket, &magic[0], sizeof(magic)) < 0 ||
+         !(magic[0] == 'J' &&
+           magic[1] == 'O' &&
+           magic[2] == 'V' &&
+           magic[3] == 'E')) {
+        WithColor::error() << "invalid magic bytes\n";
+        break;
+      }
+    }
+
     uint8_t header;
     if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
       WithColor::error() << "failed to read header\n";
