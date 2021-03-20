@@ -602,6 +602,12 @@ skip_run:
         return 1;
       }
 
+      struct closeme_t {
+        int fd;
+        closeme_t(int fd) : fd(fd) {}
+        ~closeme_t() { close(fd); }
+      } closeme(remote_fd);
+
       std::string addr_str;
 
       unsigned port = 0;
@@ -691,8 +697,6 @@ skip_run:
         if (!receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777))
           return 1;
       }
-
-      close(remote_fd);
     } else { /* local */
       //
       // analyze
