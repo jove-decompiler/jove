@@ -570,9 +570,9 @@ void *ConnectionProc(void *arg) {
 
     fs::path chrooted_path(fs::path(sysroot_dir) / binary.Path);
     if (!fs::exists(chrooted_path)) {
-      WithColor::warning() << llvm::formatv("skipping {0} (not found)\n",
-                                            chrooted_path.c_str());
-      continue;
+      WithColor::error() << llvm::formatv("{0} not found\n",
+                                          chrooted_path.c_str());
+      return nullptr;
     }
 
     uint32_t dso_size = 0;
