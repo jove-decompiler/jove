@@ -688,7 +688,8 @@ skip_run:
         if (opts::Verbose)
           llvm::errs() << llvm::formatv("dso_size={0} for {1}\n", dso_size, binary.Path);
 
-        receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777);
+        if (!receive_file_with_size(remote_fd, chrooted_path.c_str(), dso_size, 0777))
+          return 1;
       }
 
       close(remote_fd);
