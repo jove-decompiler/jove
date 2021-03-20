@@ -480,7 +480,8 @@ void *ConnectionProc(void *arg) {
       return nullptr;
 
     tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
-    receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666);
+    if (!receive_file_with_size(data_socket, tmpjv.c_str(), JvSize, 0666))
+      return nullptr;
   }
 
   //
