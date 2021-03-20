@@ -598,8 +598,6 @@ void *ConnectionProc(void *arg) {
   }
 
   return nullptr;
-
-  return nullptr;
 }
 
 void print_command(const char **argv) {
