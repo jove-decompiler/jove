@@ -346,6 +346,10 @@ static cl::opt<bool>
 static cl::opt<bool> NoOpt2("no-opt2", cl::desc("Don't optimize bitcode (2)"),
                             cl::cat(JoveCategory));
 
+static cl::opt<bool> Optimize("optimize",
+                              cl::desc("Optimize bitcode (recommended)"),
+                              cl::cat(JoveCategory));
+
 static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
@@ -780,15 +784,11 @@ int llvm(void) {
       || CreateTPOFFCtorHack()
       || CreateCopyRelocationHack()
       || TranslateFunctions()
+      || InternalizeSections()
       || PrepareToOptimize()
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
-      || DoOptimize()
+      || (opts::Optimize ? DoOptimize() : 0)
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
-
-      || ConstifyRelocationSectionPointers()
-      || InternalizeSections()
-      || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
-      || DoOptimize()
 
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
@@ -8575,6 +8575,7 @@ static void ReloadGlobalVariables(void) {
 }
 
 int DoOptimize(void) {
+#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
 
@@ -8584,6 +8585,7 @@ int DoOptimize(void) {
     //llvm::errs() << *Module << '\n';
     return 1;
   }
+#endif
 
   constexpr unsigned OptLevel = 2;
   constexpr unsigned SizeLevel = 2;
@@ -8624,11 +8626,13 @@ int DoOptimize(void) {
 
   MPM.run(*Module);
 
+#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [post] failed to verify module\n";
     //llvm::errs() << *Module << '\n';
     return 1;
   }
+#endif
 
   //
   // if any gv was optimized away, we'd like to make sure our pointer to it

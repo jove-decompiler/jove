@@ -551,7 +551,7 @@ int recompile(void) {
           (fs::path(opts::Output) / "jove" / "BinaryPathsTable.txt").c_str());
 
       for (const binary_t &binary : Decompilation.Binaries)
-	ofs << binary.Path << '\n';
+        ofs << binary.Path << '\n';
     }
 
     fs::create_directories(fs::path(opts::Output) / "jove" /
@@ -653,7 +653,7 @@ int recompile(void) {
 
         input_arg.c_str(),
 #if 0
-	"--as=ascii",
+        "--as=ascii",
 #else
         "--as=boxart",
 #endif
@@ -775,9 +775,9 @@ int recompile(void) {
 #elif defined(TARGET_MIPS64)
           "elf64ltsmip",
 #elif defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN)
-	  "elf32ltsmip",
+          "elf32ltsmip",
 #elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
-	  "elf32btsmip",
+          "elf32btsmip",
 #else
 #error
 #endif
@@ -944,7 +944,7 @@ int recompile(void) {
         arg_vec.push_back("--allow-shlib-undefined");
 
       if (rtld_path && fs::exists(rtld_path)) /* XXX */
-	arg_vec.push_back(rtld_path);
+        arg_vec.push_back(rtld_path);
 
       arg_vec.push_back(nullptr);
 
@@ -1019,6 +1019,11 @@ void worker(const dso_graph_t &dso_graph) {
         "-b", BIdx_arg.c_str(),
 
         "-d", opts::jv.c_str(),
+
+#if 1
+        "--optimize",
+#endif
+
       };
 
       std::string output_module_id_file_arg =
@@ -1082,6 +1087,7 @@ void worker(const dso_graph_t &dso_graph) {
                     fs::copy_option::overwrite_if_exists);
     }
 
+#if 0
     //
     // run llvm-dis on bitcode
     //
@@ -1114,9 +1120,12 @@ void worker(const dso_graph_t &dso_graph) {
       WithColor::error() << "llvm-dis failed for " << binary_filename << '\n';
       continue;
     }
+#endif
+
+#if 0
 
     //
-    // run llvm-dis on bitcode (stripped)
+    // run opt on bitcode to generate stripped ll
     //
     pid = fork();
     if (!pid) {
@@ -1148,6 +1157,7 @@ void worker(const dso_graph_t &dso_graph) {
       WithColor::error() << "opt failed for " << binary_filename << '\n';
       continue;
     }
+#endif
 
     //
     // run llc
@@ -1167,8 +1177,10 @@ void worker(const dso_graph_t &dso_graph) {
 
         "--disable-simplify-libcalls",
 #if 0
-        "--emulated-tls,"
+        "--emulated-tls",
 #endif
+        "--fast-isel",
+        "-O0",
       };
 
       if (b.IsPIC) {
