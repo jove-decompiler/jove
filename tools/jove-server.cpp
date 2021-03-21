@@ -446,6 +446,16 @@ void *ConnectionProc(void *arg) {
     }
   }
 
+  //
+  // create a temporary directory
+  //
+  srand(time(NULL));
+  fs::path TemporaryDir = fs::path(tmpdir) / std::to_string(rand());
+  fs::create_directory(TemporaryDir);
+
+  //
+  // read header
+  //
   uint8_t header;
   if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
@@ -454,7 +464,7 @@ void *ConnectionProc(void *arg) {
 
   bool dfsan = header;
 
-  std::string tmpjv = (fs::path(tmpdir) / "decompilation.jv").string();
+  std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
   {
     if (!receive_file_with_size(data_socket, tmpjv.c_str(), 0666))
       return nullptr;
@@ -490,7 +500,7 @@ void *ConnectionProc(void *arg) {
   //
   // recompile
   //
-  std::string sysroot_dir = (fs::path(tmpdir) / "sysroot").string();
+  std::string sysroot_dir = (TemporaryDir / "sysroot").string();
   fs::create_directory(sysroot_dir);
 
   pid = fork();
