@@ -4655,11 +4655,40 @@ int CreateFunctionTable(void) {
       Module->getFunction("_jove_get_function_table");
   assert(GetFunctionTableF && GetFunctionTableF->empty());
 
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ GetFunctionTableF->getName(),
+      /* LinkageName */ GetFunctionTableF->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+  GetFunctionTableF->setSubprogram(DebugInfo.Subprogram);
+
   llvm::BasicBlock *BB =
       llvm::BasicBlock::Create(*Context, "", GetFunctionTableF);
 
   {
     llvm::IRBuilderTy IRB(BB);
+
+    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
     IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
   }
@@ -7970,9 +7999,38 @@ int FixupHelperStubs(void) {
     llvm::Function *F = Module->getFunction("_jove_sections_start_file_addr");
     assert(F && F->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(llvm::ConstantInt::get(WordType(), SectsStartAddr));
     }
@@ -7984,9 +8042,39 @@ int FixupHelperStubs(void) {
     llvm::Function *F = Module->getFunction("_jove_sections_global_beg_addr");
     assert(F && F->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
     }
@@ -7998,9 +8086,38 @@ int FixupHelperStubs(void) {
     llvm::Function *F = Module->getFunction("_jove_sections_global_end_addr");
     assert(F && F->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       // TODO call DL.getAllocSize and verify the numbers are the same
       target_ulong SectsGlobalSize = SectsEndAddr - SectsStartAddr;
@@ -8017,9 +8134,38 @@ int FixupHelperStubs(void) {
     llvm::Function *F = Module->getFunction("_jove_binary_index");
     assert(F && F->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(IRB.getInt32(BinaryIndex));
     }
@@ -8031,10 +8177,40 @@ int FixupHelperStubs(void) {
     llvm::Function *TraceEnabledF = Module->getFunction("_jove_trace_enabled");
     assert(TraceEnabledF && TraceEnabledF->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ TraceEnabledF->getName(),
+        /* LinkageName */ TraceEnabledF->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    TraceEnabledF->setSubprogram(DebugInfo.Subprogram);
+
+
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", TraceEnabledF);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(IRB.getInt1(opts::Trace));
     }
@@ -8046,10 +8222,39 @@ int FixupHelperStubs(void) {
     llvm::Function *F = Module->getFunction("_jove_dfsan_enabled");
     assert(F && F->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", F);
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(IRB.getInt1(opts::DFSan));
     }
@@ -8094,6 +8299,7 @@ int FixupHelperStubs(void) {
     llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", CallEntryF);
     {
       llvm::IRBuilderTy IRB(BB);
+
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
@@ -8160,11 +8366,41 @@ int FixupHelperStubs(void) {
         Module->getFunction("_jove_get_dynl_function_table");
     assert(GetDynlFunctionTableF && GetDynlFunctionTableF->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ GetDynlFunctionTableF->getName(),
+      /* LinkageName */ GetDynlFunctionTableF->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+
+    GetDynlFunctionTableF->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", GetDynlFunctionTableF);
 
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
     }
@@ -8199,11 +8435,40 @@ int FixupHelperStubs(void) {
         Module->getFunction("_jove_get_vdso_function_table");
     assert(GetVDSOFunctionTableF && GetVDSOFunctionTableF->empty());
 
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ GetVDSOFunctionTableF->getName(),
+        /* LinkageName */ GetVDSOFunctionTableF->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    GetVDSOFunctionTableF->setSubprogram(DebugInfo.Subprogram);
+
     llvm::BasicBlock *BB =
         llvm::BasicBlock::Create(*Context, "", GetVDSOFunctionTableF);
 
     {
       llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
     }
@@ -8590,8 +8855,11 @@ int DoOptimize(void) {
   constexpr unsigned OptLevel = 2;
   constexpr unsigned SizeLevel = 2;
 
+#if 1
   llvm::legacy::PassManager MPM;
+#else
   llvm::legacy::FunctionPassManager FPM(Module.get());
+#endif
 
   // Add an appropriate TargetLibraryInfo pass for the module's triple.
   llvm::Triple ModuleTriple(Module->getTargetTriple());
@@ -8601,12 +8869,35 @@ int DoOptimize(void) {
   // The -disable-simplify-libcalls flag actually disables all builtin optzns.
   if (true /* DisableSimplifyLibCalls */)
     TLII.disableAllFunctions();
+#if 1
   MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+#else
+  FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+#endif
 
   // Add internal analysis passes from the target machine.
+#if 1
   MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+#else
   FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+#endif
 
+#if 1
+  MPM.add(llvm::createFunctionInliningPass());
+#endif
+
+#if 1
+  MPM.add(llvm::createScopedNoAliasAAWrapperPass());
+  MPM.add(llvm::createPromoteMemoryToRegisterPass());
+  MPM.add(llvm::createSROAPass());
+  MPM.add(llvm::createGlobalOptimizerPass()); // Optimize out global vars
+  MPM.add(llvm::createGlobalDCEPass());
+  MPM.add(llvm::createConstantMergePass());     // Merge dup global constants
+  MPM.add(llvm::createCFGSimplificationPass());
+  MPM.add(llvm::createDeadStoreEliminationPass());
+#endif
+
+#if 0
   llvm::PassManagerBuilder Builder;
   Builder.OptLevel = OptLevel;
   Builder.SizeLevel = SizeLevel;
@@ -8618,18 +8909,55 @@ int DoOptimize(void) {
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
+#else
+  //
+  // populate function pass manager
+  //
+#if 0
+  FPM.add(llvm::createTypeBasedAAWrapperPass());
+  FPM.add(llvm::createScopedNoAliasAAWrapperPass());
 
+  FPM.add(llvm::createLowerExpectIntrinsicPass());
+  FPM.add(llvm::createEarlyCSEPass());
+  FPM.add(llvm::createPromoteMemoryToRegisterPass());
+  FPM.add(llvm::createSROAPass());
+  FPM.add(llvm::createCFGSimplificationPass());
+#endif
+
+#if 0
+  //
+  // populate module pass manager
+  //
+  // Add TypeBasedAliasAnalysis before BasicAliasAnalysis so that
+  // BasicAliasAnalysis wins if they disagree. This is intended to help
+  // support "obvious" type-punning idioms.
+  MPM.add(llvm::createTypeBasedAAWrapperPass());
+  MPM.add(llvm::createScopedNoAliasAAWrapperPass());
+
+  MPM.add(llvm::createInstructionCombiningPass(false));
+  MPM.add(llvm::createPromoteMemoryToRegisterPass());
+  MPM.add(llvm::createGlobalsAAWrapperPass());
+  MPM.add(llvm::createSROAPass());
+  MPM.add(llvm::createConstantMergePass());
+#endif
+#endif
+
+#if 1
+  MPM.run(*Module);
+#endif
+
+#if 0
   FPM.doInitialization();
   for (llvm::Function &F : *Module)
     FPM.run(F);
   FPM.doFinalization();
+#endif
 
-  MPM.run(*Module);
-
-#if 0
+#if 1
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [post] failed to verify module\n";
-    //llvm::errs() << *Module << '\n';
+
+    DumpModule("post.opt1.fail");
     return 1;
   }
 #endif
