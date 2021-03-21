@@ -644,8 +644,6 @@ static std::vector<function_index_t> FuncIdxAreABIVec;
 
 static llvm::GlobalVariable *TLSModGlobal;
 
-static llvm::GlobalVariable *TPBaseGlobal;
-
 static llvm::MDNode *AliasScopeMetadata;
 
 static std::unique_ptr<llvm::DIBuilder> DIBuilder;
@@ -736,7 +734,6 @@ static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int ProcessDynamicSymbols2(void);
 static int CreateFunctionTable(void);
-static int CreateTPBaseGlobal(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
 static int CreateTPOFFCtorHack(void);
@@ -745,7 +742,6 @@ static int TranslateFunctions(void);
 static int InlineCalls(void);
 static int PrepareToOptimize(void);
 static int ConstifyRelocationSectionPointers(void);
-static int FixupTPBaseAddrs(void);
 static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int ExpandMemoryIntrinsicCalls(void);
@@ -779,7 +775,6 @@ int llvm(void) {
       || CreateSectionGlobalVariables()
       || ProcessDynamicSymbols2()
       || CreateFunctionTable()
-      || CreateTPBaseGlobal()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || CreateTPOFFCtorHack()
@@ -789,20 +784,12 @@ int llvm(void) {
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
       || DoOptimize()
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
-      || (opts::DumpPreFSBaseFixup ? (DumpModule("pre.fsbase.fixup"), 1) : 0)
-      || FixupTPBaseAddrs()
-      || (opts::DumpPostFSBaseFixup ? (DumpModule("post.fsbase.fixup"), 1) : 0)
-
-#if 0
-      || InlineCalls()
-      || DoOptimize()
-#endif
 
       || ConstifyRelocationSectionPointers()
       || InternalizeSections()
       || (opts::DumpPreOpt2 ? (DumpModule("pre.opt2"), 1) : 0)
-
       || DoOptimize()
+
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
 
@@ -3893,7 +3880,9 @@ int ProcessBinaryRelocations(void) {
     case relocation_t::TYPE::IRELATIVE:
     case relocation_t::TYPE::ABSOLUTE:
     case relocation_t::TYPE::ADDRESSOF:
+#if 0
     case relocation_t::TYPE::TPOFF:
+#endif
     case relocation_t::TYPE::TPMOD:
       ConstantRelocationLocs.insert(R.Addr);
       break;
@@ -7818,6 +7807,8 @@ decipher_copy_relocation(const symbol_t &S) {
   return {invalid_binary_index, 0};
 }
 
+static llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
+
 int CreateTPOFFCtorHack(void) {
   llvm::Function *F = Module->getFunction("_jove_do_tpoff_hack");
   assert(F && F->empty());
@@ -7859,21 +7850,30 @@ int CreateTPOFFCtorHack(void) {
         *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 #endif
 
+    llvm::Value *TP = nullptr;
+    if (!TPOFFHack.empty())
+      TP = insertThreadPointerInlineAsm(IRB);
+
     for (const auto &pair : TPOFFHack) {
       uintptr_t off = pair.first - SectsStartAddr;
+
+      assert(pair.second->getType()->isPointerTy() ||
+             pair.second->getType()->isIntegerTy());
 
       llvm::SmallVector<llvm::Value *, 4> Indices;
       llvm::Value *gep = llvm::getNaturalGEPWithOffset(
           IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
 
-      if (pair.second->getType()->isIntegerTy(WordBits()))
-        IRB.CreateStore(pair.second,
-                        gep, true /* Volatile */);
-      else if (pair.second->getType()->isPointerTy())
-        IRB.CreateStore(llvm::ConstantExpr::getPtrToInt(pair.second, WordType()),
-                        gep, true /* Volatile */);
-      else
-        abort();
+      llvm::Value *Val = pair.second;
+
+      if (Val->getType()->isPointerTy())
+        Val = IRB.CreatePtrToInt(Val, WordType());
+
+      assert(TP);
+
+      llvm::Value *TPOffset = IRB.CreateSub(Val, TP);
+
+      IRB.CreateStore(TPOffset, gep, true /* Volatile */);
     }
 
     IRB.CreateRetVoid();
@@ -7960,13 +7960,6 @@ int CreateCopyRelocationHack(void) {
   F->setLinkage(llvm::GlobalValue::InternalLinkage);
   assert(!F->empty());
 
-  return 0;
-}
-
-int CreateTPBaseGlobal(void) {
-  TPBaseGlobal = new llvm::GlobalVariable(
-      *Module, WordType(), false, llvm::GlobalValue::ExternalLinkage, nullptr,
-      "__jove_thread_pointer_base");
   return 0;
 }
 
@@ -8576,7 +8569,6 @@ int PrepareToOptimize(void) {
 }
 
 static void ReloadGlobalVariables(void) {
-  TPBaseGlobal     = Module->getGlobalVariable("__jove_thread_pointer_base", true);
   CPUStateGlobal   = Module->getGlobalVariable("__jove_env",                 true);
   SectsGlobal      = Module->getGlobalVariable("__jove_sections",            true);
   ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
@@ -8696,196 +8688,6 @@ int ConstifyRelocationSectionPointers(void) {
         }
       }
     }
-  }
-
-  for (auto &TR : ToReplace) {
-    llvm::Value *I;
-    llvm::Value *V;
-    std::tie(I, V) = TR;
-
-    I->replaceAllUsesWith(V);
-  }
-
-  return 0;
-}
-
-static int MakeThreadPointerBaseNULL(void);
-
-int FixupTPBaseAddrs(void) {
-  if (opts::NoFixupFSBase)
-    return 0;
-
-  if (!TPBaseGlobal)
-    return 0;
-
-  std::vector<std::tuple<llvm::Instruction *, unsigned, llvm::Value *>>
-      OperandsToReplace;
-
-  llvm::InlineAsm *IA;
-  {
-    llvm::FunctionType *AsmFTy =
-        llvm::FunctionType::get(WordType(), false);
-
-    llvm::StringRef AsmText;
-    llvm::StringRef Constraints;
-
-    // TODO replace with thread pointer intrinsic
-#if defined(TARGET_X86_64)
-    AsmText = "movq \%fs:0x0,$0";
-    Constraints = "=r";
-#elif defined(TARGET_I386)
-    AsmText = "movl \%gs:0x0,$0";
-    Constraints = "=r";
-#elif defined(TARGET_AARCH64)
-    AsmText = "mrs $0, tpidr_el0";
-    Constraints = "=r";
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    AsmText = "rdhwr $0, $$29";
-    Constraints = "=r,~{$1}";
-#else
-#error
-#endif
-
-    IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
-                              false /* hasSideEffects */);
-  }
-
-  for (llvm::User *U_0 : TPBaseGlobal->users()) {
-    if (!llvm::isa<llvm::ConstantExpr>(U_0)) {
-#if 0
-      WithColor::warning() << llvm::formatv("{0}: {1}:{2} U_0={3}\n", __func__,
-                                            __FILE__, __LINE__, *U_0);
-#endif
-
-      continue;
-    }
-
-    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
-    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt) {
-      WithColor::warning() << llvm::formatv("{0}: {1}:{2} U_0={3}\n", __func__,
-                                            __FILE__, __LINE__, *U_0);
-      continue;
-    }
-
-    for (llvm::User *U_1 : CE_0->users()) {
-      if (!llvm::isa<llvm::ConstantExpr>(U_1))
-        continue;
-
-      llvm::ConstantExpr *CE_1 = llvm::cast<llvm::ConstantExpr>(U_1);
-      if (CE_1->getOpcode() != llvm::Instruction::Add)
-        continue;
-
-      assert(CE_1->getNumOperands() == 2);
-      llvm::Value *Addend = CE_1->getOperand(1);
-      if (!llvm::isa<llvm::ConstantInt>(Addend))
-        continue;
-
-      if (opts::Verbose)
-        llvm::outs() << llvm::formatv(
-            "tp+{0}\n",
-            llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue());
-
-      //
-      // we need to find instruction users, so that we can build the asm
-      // expression which gets the thread pointer
-      //
-      for (const llvm::Use &U : CE_1->uses()) {
-        llvm::User *U_3 = U.getUser();
-
-        if (!llvm::isa<llvm::Instruction>(U_3)) {
-#if 0
-          WithColor::warning() << llvm::formatv(
-              "{0}: {1}:{2} U_3={3}\n", __func__, __FILE__, __LINE__, *U_3);
-#endif
-          continue;
-        }
-
-        llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
-        unsigned OpIdx = U.getOperandNo();
-
-        llvm::IRBuilderTy IRB(&Inst->getFunction()->getEntryBlock().front());
-
-        OperandsToReplace.push_back(
-            {Inst, OpIdx,
-             IRB.CreateAdd(IRB.CreateCall(IA), Addend)});
-      }
-
-      for (llvm::User *U_2 : CE_1->users()) {
-        if (!llvm::isa<llvm::ConstantExpr>(U_2)) {
-#if 0
-          WithColor::warning() << llvm::formatv(
-              "{0}: {1}:{2} U_2={3}\n", __func__, __FILE__, __LINE__, *U_2);
-#endif
-
-          continue;
-        }
-
-        llvm::ConstantExpr *CE_2 = llvm::cast<llvm::ConstantExpr>(U_2);
-        if (CE_2->getOpcode() != llvm::Instruction::IntToPtr) {
-          WithColor::warning() << llvm::formatv(
-              "{0}: {1}:{2} CE_2={3}\n", __func__, __FILE__, __LINE__, *CE_2);
-
-          continue;
-        }
-
-        for (const llvm::Use &U : CE_2->uses()) {
-          llvm::User *U_3 = U.getUser();
-
-          if (!llvm::isa<llvm::Instruction>(U_3)) {
-#if 1
-            WithColor::warning() << llvm::formatv(
-                "{0}: {1}:{2} U_3={3}\n", __func__, __FILE__, __LINE__, *U_3);
-#endif
-            continue;
-          }
-
-          llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(U_3);
-          unsigned OpIdx = U.getOperandNo();
-
-          llvm::IRBuilderTy IRB(&Inst->getFunction()->getEntryBlock().front());
-
-          OperandsToReplace.push_back(
-              {Inst, OpIdx,
-               IRB.CreateIntToPtr(IRB.CreateAdd(IRB.CreateCall(IA), Addend),
-                                  CE_2->getType())});
-        }
-      }
-    }
-  }
-
-  for (auto &TR : OperandsToReplace) {
-    llvm::Instruction *I;
-    unsigned OpIdx;
-    llvm::Value *V;
-
-    std::tie(I, OpIdx, V) = TR;
-
-    I->setOperand(OpIdx, V);
-  }
-
-  TPBaseGlobal->setLinkage(llvm::GlobalValue::InternalLinkage);
-  TPBaseGlobal->setInitializer(llvm::Constant::getNullValue(WordType()));
-  TPBaseGlobal->setConstant(true);
-
-  return MakeThreadPointerBaseNULL();
-}
-
-int MakeThreadPointerBaseNULL(void) {
-  if (!TPBaseGlobal)
-    return 0;
-
-  std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
-
-  for (llvm::User *U_0 : TPBaseGlobal->users()) {
-    if (!llvm::isa<llvm::ConstantExpr>(U_0))
-      continue;
-
-    llvm::ConstantExpr *CE_0 = llvm::cast<llvm::ConstantExpr>(U_0);
-    if (CE_0->getOpcode() != llvm::Instruction::PtrToInt)
-      continue;
-
-    ToReplace.push_back({CE_0, llvm::Constant::getNullValue(WordType())});
-    break;
   }
 
   for (auto &TR : ToReplace) {
@@ -9585,10 +9387,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
       return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
     case tcg_fs_base_index:
-      return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+      return insertThreadPointerInlineAsm(IRB);
 #elif defined(TARGET_I386)
     case tcg_gs_base_index:
-      return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+      return insertThreadPointerInlineAsm(IRB);
 #endif
     }
 
@@ -10718,6 +10520,39 @@ int TranslateBasicBlock(TranslateContext &TC) {
   return 0;
 }
 
+llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
+  llvm::InlineAsm *IA;
+  {
+    llvm::FunctionType *AsmFTy =
+        llvm::FunctionType::get(WordType(), false);
+
+    llvm::StringRef AsmText;
+    llvm::StringRef Constraints;
+
+    // TODO replace with thread pointer intrinsic
+#if defined(TARGET_X86_64)
+    AsmText = "movq \%fs:0x0,$0";
+    Constraints = "=r";
+#elif defined(TARGET_I386)
+    AsmText = "movl \%gs:0x0,$0";
+    Constraints = "=r";
+#elif defined(TARGET_AARCH64)
+    AsmText = "mrs $0, tpidr_el0";
+    Constraints = "=r";
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    AsmText = "rdhwr $0, $$29";
+    Constraints = "=r,~{$1}";
+#else
+#error
+#endif
+
+    IA = llvm::InlineAsm::get(AsmFTy, AsmText, Constraints,
+                              false /* hasSideEffects */);
+  }
+
+  return IRB.CreateCall(IA);
+}
+
 std::string
 dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
   struct {
@@ -10809,10 +10644,10 @@ static int TranslateTCGOp(TCGOp *op,
         return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
       case tcg_fs_base_index:
-        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+        return insertThreadPointerInlineAsm(IRB);
 #elif defined(TARGET_I386)
       case tcg_gs_base_index:
-        return llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType());
+        return insertThreadPointerInlineAsm(IRB);
 #endif
       }
 
@@ -11419,7 +11254,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (off == tcg_tpidr_el0_env_offset) {                                     \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I64);                                       \
-      set(llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType()), dst);     \
+      set(insertThreadPointerInlineAsm(IRB), dst);                             \
       break;                                                                   \
     }                                                                          \
   }
@@ -11436,7 +11271,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (off == offsetof(CPUMIPSState, active_tc.CP0_UserLocal)) {              \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
-      set(llvm::ConstantExpr::getPtrToInt(TPBaseGlobal, WordType()), dst);     \
+      set(insertThreadPointerInlineAsm(IRB), dst);                             \
       break;                                                                   \
     }                                                                          \
   }
