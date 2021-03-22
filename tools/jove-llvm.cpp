@@ -190,6 +190,7 @@ struct hook_t;
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
+#include <llvm/Analysis/Passes.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -298,10 +299,6 @@ static cl::opt<bool> PrintPCRel("pcrel",
                                 cl::desc("Print pc-relative references"),
                                 cl::cat(JoveCategory));
 
-static cl::opt<bool> NoInline("noinline",
-                              cl::desc("Prevents inlining internal functions"),
-                              cl::cat(JoveCategory));
-
 static cl::opt<bool>
     PrintDefAndUse("print-def-and-use",
                    cl::desc("Print use_B and def_B for every basic block B"),
@@ -328,14 +325,6 @@ static cl::opt<std::string> ForAddr("for-addr",
                                     cl::desc("Do stuff for the given address"),
                                     cl::cat(JoveCategory));
 
-static cl::opt<bool> NoOpt1("no-opt1", cl::desc("Don't optimize bitcode (1)"),
-                            cl::cat(JoveCategory));
-
-static cl::opt<bool>
-    NoFixupPcrel("no-fixup-pcrel",
-                 cl::desc("Don't fixup pc-relative references"),
-                 cl::cat(JoveCategory));
-
 #if defined(LLVM_ENABLE_STATS) && LLVM_ENABLE_STATS
 static cl::opt<bool>
     OptStats("opt-stats",
@@ -343,28 +332,20 @@ static cl::opt<bool>
              cl::cat(JoveCategory));
 #endif
 
-static cl::opt<bool> NoOpt2("no-opt2", cl::desc("Don't optimize bitcode (2)"),
-                            cl::cat(JoveCategory));
-
-static cl::opt<bool> Optimize("optimize",
-                              cl::desc("Optimize bitcode (recommended)"),
+static cl::opt<bool> Optimize("optimize", cl::desc("Optimize bitcode"),
                               cl::cat(JoveCategory));
 
 static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
 
-static cl::opt<bool> DumpPreOpt1("dump-pre-opt1",
-                                 cl::desc("Dump bitcode before Optimize1()"),
+static cl::opt<bool> DumpPreOpt1("dump-pre-opt",
+                                 cl::desc("Dump bitcode before DoOptimize()"),
                                  cl::cat(JoveCategory));
 
-static cl::opt<bool> DumpPostOpt1("dump-post-opt1",
-                                  cl::desc("Dump bitcode after Optimize1()"),
+static cl::opt<bool> DumpPostOpt1("dump-post-opt",
+                                  cl::desc("Dump bitcode after DoOptimize()"),
                                   cl::cat(JoveCategory));
-
-static cl::opt<bool> DumpPreOpt2("dump-pre-opt2",
-                                 cl::desc("Dump bitcode before Optimize2()"),
-                                 cl::cat(JoveCategory));
 
 static cl::opt<bool>
     DumpPreFSBaseFixup("dump-pre-fsbase-fixup",
@@ -785,19 +766,12 @@ int llvm(void) {
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
-      || PrepareToOptimize()
+      || (opts::Optimize ? PrepareToOptimize() : 0)
       || (opts::DumpPreOpt1 ? (DumpModule("pre.opt1"), 1) : 0)
       || (opts::Optimize ? DoOptimize() : 0)
       || (opts::DumpPostOpt1 ? (DumpModule("post.opt1"), 1) : 0)
-
       || ExpandMemoryIntrinsicCalls()
       || ReplaceAllRemainingUsesOfConstSections()
-
-#if 0
-      || RecoverControlFlow()
-      || WriteDecompilation()
-#endif
-
       || (opts::DFSan ? DFSanInstrument() : 0)
       || RenameFunctionLocals()
       || (!opts::VersionScript.empty() ? WriteVersionScript() : 0)
@@ -8750,14 +8724,46 @@ static int TranslateFunction(function_t &f) {
 }
 
 int TranslateFunctions(void) {
+  llvm::legacy::FunctionPassManager FPM(Module.get());
+
+  llvm::Triple ModuleTriple(Module->getTargetTriple());
+  llvm::TargetLibraryInfoImpl TLII(ModuleTriple);
+  if (true /* DisableSimplifyLibCalls */)
+    TLII.disableAllFunctions();
+
+  FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
+  FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
+
+  FPM.add(llvm::createScopedNoAliasAAWrapperPass());
+  FPM.add(llvm::createBasicAAWrapperPass());
+
+  // Promote allocas to registers.
+  FPM.add(llvm::createPromoteMemoryToRegisterPass());
+  // Do simple "peephole" optimizations and bit-twiddling optzns.
+  FPM.add(llvm::createInstructionCombiningPass());
+#if 0
+  // Reassociate expressions.
+  FPM.add(llvm::createReassociatePass());
+  // Eliminate Common SubExpressions.
+  FPM.add(llvm::createGVNPass());
+#endif
+  // Simplify the control flow graph (deleting unreachable blocks, etc).
+  FPM.add(llvm::createCFGSimplificationPass());
+
+  FPM.doInitialization();
+
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
     if (int ret = TranslateFunction(f))
       return ret;
+
+    FPM.run(*f.F);
   }
 
   llvm::DIBuilder &DIB = *DIBuilder;
   DIB.finalize();
+
+  FPM.doFinalization();
 
   return 0;
 }
@@ -8840,26 +8846,21 @@ static void ReloadGlobalVariables(void) {
 }
 
 int DoOptimize(void) {
-#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [pre] failed to verify module\n";
 
     WithColor::error() << "Dumping module...\n";
     DumpModule("pre.opt1.fail");
 
-    //llvm::errs() << *Module << '\n';
+    // llvm::errs() << *Module << '\n';
     return 1;
   }
-#endif
 
   constexpr unsigned OptLevel = 2;
   constexpr unsigned SizeLevel = 2;
 
-#if 1
   llvm::legacy::PassManager MPM;
-#else
   llvm::legacy::FunctionPassManager FPM(Module.get());
-#endif
 
   // Add an appropriate TargetLibraryInfo pass for the module's triple.
   llvm::Triple ModuleTriple(Module->getTargetTriple());
@@ -8869,35 +8870,12 @@ int DoOptimize(void) {
   // The -disable-simplify-libcalls flag actually disables all builtin optzns.
   if (true /* DisableSimplifyLibCalls */)
     TLII.disableAllFunctions();
-#if 1
   MPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-#else
-  FPM.add(new llvm::TargetLibraryInfoWrapperPass(TLII));
-#endif
 
   // Add internal analysis passes from the target machine.
-#if 1
   MPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
-#else
   FPM.add(llvm::createTargetTransformInfoWrapperPass(TM->getTargetIRAnalysis()));
-#endif
 
-#if 1
-  MPM.add(llvm::createFunctionInliningPass());
-#endif
-
-#if 1
-  MPM.add(llvm::createScopedNoAliasAAWrapperPass());
-  MPM.add(llvm::createPromoteMemoryToRegisterPass());
-  MPM.add(llvm::createSROAPass());
-  MPM.add(llvm::createGlobalOptimizerPass()); // Optimize out global vars
-  MPM.add(llvm::createGlobalDCEPass());
-  MPM.add(llvm::createConstantMergePass());     // Merge dup global constants
-  MPM.add(llvm::createCFGSimplificationPass());
-  MPM.add(llvm::createDeadStoreEliminationPass());
-#endif
-
-#if 0
   llvm::PassManagerBuilder Builder;
   Builder.OptLevel = OptLevel;
   Builder.SizeLevel = SizeLevel;
@@ -8909,58 +8887,20 @@ int DoOptimize(void) {
 
   Builder.populateFunctionPassManager(FPM);
   Builder.populateModulePassManager(MPM);
-#else
-  //
-  // populate function pass manager
-  //
-#if 0
-  FPM.add(llvm::createTypeBasedAAWrapperPass());
-  FPM.add(llvm::createScopedNoAliasAAWrapperPass());
 
-  FPM.add(llvm::createLowerExpectIntrinsicPass());
-  FPM.add(llvm::createEarlyCSEPass());
-  FPM.add(llvm::createPromoteMemoryToRegisterPass());
-  FPM.add(llvm::createSROAPass());
-  FPM.add(llvm::createCFGSimplificationPass());
-#endif
-
-#if 0
-  //
-  // populate module pass manager
-  //
-  // Add TypeBasedAliasAnalysis before BasicAliasAnalysis so that
-  // BasicAliasAnalysis wins if they disagree. This is intended to help
-  // support "obvious" type-punning idioms.
-  MPM.add(llvm::createTypeBasedAAWrapperPass());
-  MPM.add(llvm::createScopedNoAliasAAWrapperPass());
-
-  MPM.add(llvm::createInstructionCombiningPass(false));
-  MPM.add(llvm::createPromoteMemoryToRegisterPass());
-  MPM.add(llvm::createGlobalsAAWrapperPass());
-  MPM.add(llvm::createSROAPass());
-  MPM.add(llvm::createConstantMergePass());
-#endif
-#endif
-
-#if 1
-  MPM.run(*Module);
-#endif
-
-#if 0
   FPM.doInitialization();
   for (llvm::Function &F : *Module)
     FPM.run(F);
   FPM.doFinalization();
-#endif
 
-#if 1
+  MPM.run(*Module);
+
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DoOptimize: [post] failed to verify module\n";
 
     DumpModule("post.opt1.fail");
     return 1;
   }
-#endif
 
   //
   // if any gv was optimized away, we'd like to make sure our pointer to it
