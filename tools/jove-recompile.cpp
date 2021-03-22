@@ -148,6 +148,9 @@ static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
 static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                            cl::cat(JoveCategory));
 
+static cl::opt<bool> Optimize("optimize", cl::desc("Run optimizations on bitcode"),
+                              cl::cat(JoveCategory));
+
 static cl::opt<bool>
     CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
                                     cl::desc("Check for stack overrun"),
@@ -1019,12 +1022,10 @@ void worker(const dso_graph_t &dso_graph) {
         "-b", BIdx_arg.c_str(),
 
         "-d", opts::jv.c_str(),
-
-#if 1
-        "--optimize",
-#endif
-
       };
+
+      if (opts::Optimize)
+        arg_vec.push_back("--optimize");
 
       std::string output_module_id_file_arg =
           "--dfsan-output-module-id=" + dfsan_modid_fp;
