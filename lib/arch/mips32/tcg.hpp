@@ -12147,9 +12147,9 @@ static void tcg_dump_ops(TCGContext *s, bool have_prefs)
             nb_cargs = def->nb_cargs;
 
             /* function name, flags, out args */
-            col += qemu_log(" %s %s,$0x%" TCG_PRIlx ",$%d", def->name,
+            col += qemu_log(" %s %s,$0x%" PRIx64 ",$%d", def->name,
                             tcg_find_helper(s, op->args[nb_oargs + nb_iargs]),
-                            op->args[nb_oargs + nb_iargs + 1], nb_oargs);
+                            static_cast<uint64_t>(op->args[nb_oargs + nb_iargs + 1]), nb_oargs);
             for (i = 0; i < nb_oargs; i++) {
                 col += qemu_log(",%s", tcg_get_arg_str(s, buf, sizeof(buf),
                                                        op->args[i]));
@@ -12204,7 +12204,7 @@ static void tcg_dump_ops(TCGContext *s, bool have_prefs)
                     && cond_name[op->args[k]]) {
                     col += qemu_log(",%s", cond_name[op->args[k++]]);
                 } else {
-                    col += qemu_log(",$0x%" TCG_PRIlx, op->args[k++]);
+                    col += qemu_log(",$0x%" PRIx64, static_cast<uint64_t>(op->args[k++]));
                 }
                 i = 1;
                 break;
@@ -12246,7 +12246,7 @@ static void tcg_dump_ops(TCGContext *s, bool have_prefs)
                 break;
             }
             for (; i < nb_cargs; i++, k++) {
-                col += qemu_log("%s$0x%" TCG_PRIlx, k ? "," : "", op->args[k]);
+                col += qemu_log("%s$0x%" PRIx64, k ? "," : "", static_cast<uint64_t>(op->args[k]));
             }
         }
 
@@ -19007,6 +19007,9 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
             blink = 31;
             btgt = ctx->base.pc_next + insn_bytes + delayslot_size;
             ctx->hflags |= MIPS_HFLAG_B;
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+            ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
             break;
         case OPC_BLTZALL: /* 0 < 0 likely */
             tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
@@ -38204,8 +38207,10 @@ static void decode_opc(CPUMIPSState *env, DisasContext *ctx)
             check_cp1_enabled(ctx);
             gen_cp1(ctx, op1, rt, rd);
 
+#if 0
             ctx->base.tb->jove.T.Type = jove::TERMINATOR::NONE;
             ctx->base.tb->jove.T._none.NextPC = ctx->base.pc_next + 4;
+#endif
             break;
 #if defined(TARGET_MIPS64)
         case OPC_DMFC1:
