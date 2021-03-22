@@ -32,20 +32,26 @@ namespace cl = llvm::cl;
 using llvm::WithColor;
 
 namespace opts {
-  static cl::OptionCategory JoveCategory("Specific Options");
+static cl::OptionCategory JoveCategory("Specific Options");
 
-  static cl::opt<std::string> Binary(cl::Positional, cl::desc("<binary>"),
-                                     cl::Required, cl::cat(JoveCategory));
+static cl::opt<std::string> Binary(cl::Positional, cl::desc("<binary>"),
+                                   cl::Required, cl::cat(JoveCategory));
 
-  static cl::opt<bool> DoTCGOpt("do-tcg-opt",
-                                cl::desc("Run QEMU TCG optimizations"),
-                                cl::cat(JoveCategory));
+static cl::opt<bool> DoTCGOpt("do-tcg-opt",
+                              cl::desc("Run QEMU TCG optimizations"),
+                              cl::cat(JoveCategory));
 
-  static cl::opt<std::string> BreakOnAddr(
-      "break-on-addr",
-      cl::desc("Allow user to set a debugger breakpoint on TCGDumpUserBreakPoint, "
-               "and triggered when basic block address matches given address"),
-      cl::cat(JoveCategory));
+static cl::opt<std::string> BreakOnAddr(
+    "break-on-addr",
+    cl::desc(
+        "Allow user to set a debugger breakpoint on TCGDumpUserBreakPoint, "
+        "and triggered when basic block address matches given address"),
+    cl::cat(JoveCategory));
+
+static cl::opt<std::string>
+    StartingFrom("starting-from",
+                 cl::desc("Provide file address to disassemble"),
+                 cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -121,7 +127,7 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
 
 int tcgdump(void) {
   struct {
-    uintptr_t Addr;
+    target_ulong Addr;
     bool Active;
   } BreakOn = { .Active = false };
 
@@ -244,8 +250,7 @@ int tcgdump(void) {
   }
 
   llvm::MCObjectFileInfo MOFI;
-  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI);
-  // FIXME: for now initialize MCObjectFileInfo with default values
+  llvm::MCContext Ctx(AsmInfo.get(), MRI.get(), &MOFI); // FIXME: for now initialize MCObjectFileInfo with default values
   MOFI.InitMCObjectFileInfo(llvm::Triple(TripleName), false, Ctx);
 
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
@@ -256,8 +261,8 @@ int tcgdump(void) {
   }
 
   int AsmPrinterVariant =
-#if defined(__x86_64__) || defined(__i386__)
-      1
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+      1 /* intel */
 #else
       AsmInfo->getAssemblerDialect()
 #endif
@@ -400,41 +405,29 @@ int tcgdump(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.getType() != llvm::ELF::STT_FUNC)
-      continue;
-    if (Sym.isUndefined())
-      continue;
-    if (!Sym.st_size)
-      continue;
-
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
-    uintptr_t Addr = Sym.st_value;
-
+  auto linear_scan_disassemble = [&](target_ulong Addr, target_ulong End = 0) -> bool {
     auto it = SectMap.find(Addr);
     if (it == SectMap.end()) {
-      fprintf(stderr, "warning: no section for symbol %s @ %" PRIxPTR "\n",
-              SymName.str().c_str(), Addr);
-      continue;
+      fprintf(stderr, "warning: no section for address %" PRIx64 "\n",
+              static_cast<uint64_t>(Addr));
+      return false;
     }
 
     const auto &SectProp = *(*it).second.begin();
+    const uint64_t SectBase = (*it).first.lower();
+    const uint64_t SectSize = (*it).first.upper() - (*it).first.lower();
 
-    const uintptr_t SectBase = (*it).first.lower();
+    if (!End)
+      End = SectBase + SectSize;
 
-    printf("%s @ %s+0x%" PRIxPTR " <%u>\n",
-           SymName.str().c_str(),
-           SectProp.name.str().c_str(),
-           static_cast<std::uintptr_t>(Addr - SectBase),
-           static_cast<unsigned>(Sym.st_size));
-
-    //
-    // linear scan translation
-    //
     tcg.set_section(SectBase, SectProp.contents.data());
 
+    printf("%s+0x%" PRIx64 "\n",
+           SectProp.name.str().c_str(),
+           static_cast<uint64_t>(Addr - SectBase));
+
     unsigned BBSize;
-    for (uintptr_t A = Addr; A < Addr + Sym.st_size; A += BBSize) {
+    for (target_ulong A = Addr; A < End; A += BBSize) {
       if (BreakOn.Active) {
 	if (A == BreakOn.Addr) {
           ::TCGDumpUserBreakPoint();
@@ -448,14 +441,14 @@ int tcgdump(void) {
       // print machine code
       //
       uint64_t InstLen;
-      for (uintptr_t _A = A; _A < A + BBSize; _A += InstLen) {
+      for (uint64_t _A = A; _A < A + BBSize; _A += InstLen) {
         llvm::MCInst Inst;
 
-        ptrdiff_t Offset = _A - SectBase;
+        uint64_t Offset = _A - SectBase;
         bool Disassembled = DisAsm->getInstruction(
             Inst, InstLen, SectProp.contents.slice(Offset), _A, llvm::nulls());
         if (!Disassembled) {
-          fprintf(stderr, "failed to disassemble %" PRIxPTR "\n", _A);
+          fprintf(stderr, "failed to disassemble %" PRIx64 "\n", _A);
           break;
         }
 
@@ -509,6 +502,37 @@ int tcgdump(void) {
       }
 
       fputc('\n', stdout);
+    }
+
+    return true;
+  };
+
+  struct {
+    target_ulong Addr;
+  } StartingFrom = {0};
+
+  if (!opts::StartingFrom.empty()) {
+    StartingFrom.Addr = std::stoi(opts::StartingFrom.c_str(), 0, 16);
+  }
+
+  if (!opts::StartingFrom.empty()) {
+    linear_scan_disassemble(StartingFrom.Addr);
+  } else {
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.getType() != llvm::ELF::STT_FUNC)
+        continue;
+      if (Sym.isUndefined())
+        continue;
+      if (!Sym.st_size)
+        continue;
+
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      uintptr_t Addr = Sym.st_value;
+
+      printf("//\n"
+             "// %s\n"
+             "//\n", SymName.data());
+      linear_scan_disassemble(Addr, Addr + Sym.st_size);
     }
   }
 
