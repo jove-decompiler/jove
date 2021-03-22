@@ -8754,7 +8754,8 @@ int TranslateFunctions(void) {
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   for (function_t &f : Binary.Analysis.Functions) {
-    if (int ret = TranslateFunction(f))
+    int ret = TranslateFunction(f);
+    if (unlikely(ret))
       return ret;
 
     FPM.run(*f.F);
