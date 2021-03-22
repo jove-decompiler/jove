@@ -8747,6 +8747,7 @@ int TranslateFunctions(void) {
   // Eliminate Common SubExpressions.
   FPM.add(llvm::createGVNPass());
 #endif
+  FPM.add(llvm::createDeadStoreEliminationPass());
   // Simplify the control flow graph (deleting unreachable blocks, etc).
   FPM.add(llvm::createCFGSimplificationPass());
 
@@ -9791,12 +9792,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
           if (TempAllocaVec.at(idx))
             continue;
 
-          TempAllocaVec.at(idx) =
-            IRB.CreateAlloca(IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                            (fmt("%#lx_%s%u")
-                             % ICFG[bb].Addr
-                             % (ts->temp_local ? "loc" : "tmp")
-                             % (idx - tcg_num_globals)).str());
+          {
+            llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+            TempAllocaVec.at(idx) =
+              tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
+                                  (fmt("%#lx_%s%u")
+                                   % ICFG[bb].Addr
+                                   % (ts->temp_local ? "loc" : "tmp")
+                                   % (idx - tcg_num_globals)).str());
+          }
         }
 
         for (int i = 0; i < nb_oargs; ++i) {
@@ -9808,12 +9813,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
           if (TempAllocaVec.at(idx))
             continue;
 
-          TempAllocaVec.at(idx) =
-            IRB.CreateAlloca(IRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
-                            (fmt("%#lx_%s%u")
-                             % ICFG[bb].Addr
-                             % (ts->temp_local ? "loc" : "tmp")
-                             % (idx - tcg_num_globals)).str());
+          {
+            llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
+
+            TempAllocaVec.at(idx) =
+              tmpIRB.CreateAlloca(tmpIRB.getIntNTy(bitsOfTCGType(ts->type)), 0,
+                              (fmt("%#lx_%s%u")
+                               % ICFG[bb].Addr
+                               % (ts->temp_local ? "loc" : "tmp")
+                               % (idx - tcg_num_globals)).str());
+          }
         }
       }
     }
