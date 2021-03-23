@@ -1004,6 +1004,7 @@ void worker(const dso_graph_t &dso_graph) {
     std::string mapfp(chrooted_path.string() + ".map");
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
+    std::string bytecode_loc = (fs::path(opts::Output) / "dfsan").string();
     //
     // run jove-llvm
     //
@@ -1030,9 +1031,13 @@ void worker(const dso_graph_t &dso_graph) {
       std::string output_module_id_file_arg =
           "--dfsan-output-module-id=" + dfsan_modid_fp;
 
+      std::string dfsan_bytecode_loc_arg =
+          "--dfsan-bytecode-loc=" + bytecode_loc;
+
       if (opts::DFSan) {
         arg_vec.push_back("--dfsan");
         arg_vec.push_back(output_module_id_file_arg.c_str());
+        arg_vec.push_back(dfsan_bytecode_loc_arg.c_str());
       }
 
       if (opts::CheckEmulatedStackReturnAddress)
