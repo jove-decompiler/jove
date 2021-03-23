@@ -9064,11 +9064,13 @@ int RenameFunctionLocals(void) {
 int DFSanInstrument(void) {
   assert(opts::DFSan);
 
+#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DFSanInstrument: [pre] failed to verify module\n";
     //llvm::errs() << *Module << '\n';
     return 1;
   }
+#endif
 
 #if 1
   llvm::legacy::PassManager MPM;
@@ -9110,11 +9112,13 @@ int DFSanInstrument(void) {
   FPM.doFinalization();
 #endif
 
+#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "DFSanInstrument: [post] failed to verify module\n";
     //llvm::errs() << *Module << '\n';
     return 1;
   }
+#endif
 
   //
   // XXX
@@ -9414,11 +9418,13 @@ int WriteVersionScript(void) {
 }
 
 int WriteModule(void) {
+#if 0
   if (llvm::verifyModule(*Module, &llvm::errs())) {
     WithColor::error() << "WriteModule: failed to verify module\n";
     //llvm::errs() << *Module << '\n';
     return 1;
   }
+#endif
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
