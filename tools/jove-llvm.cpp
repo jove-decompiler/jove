@@ -335,6 +335,11 @@ static cl::opt<bool>
 static cl::opt<bool> Optimize("optimize", cl::desc("Optimize bitcode"),
                               cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    VerifyBitcode("verify-bitcode",
+                  cl::desc("run llvm::verifyModule on the bitcode"),
+                  cl::cat(JoveCategory));
+
 static cl::opt<bool> Graphviz("graphviz",
                               cl::desc("Dump graphviz of flow graphs"),
                               cl::cat(JoveCategory));
@@ -1598,39 +1603,45 @@ struct hook_t {
 static const hook_t HookArray[] = {
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
-    .Sym = #sym,                                                               \
-    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value}},   \
-    .Ret = {                                                                   \
-      .Size = sizeof(rett),                                                    \
-      .isPointer = std::is_pointer<rett>::value                                \
-    },                                                                         \
-    .Pre = !!(hook_kind & PRE),                                                \
-    .Post = !!(hook_kind & POST),                                              \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
   },
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
-    .Sym = #sym,                                                               \
-    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value},    \
-             {.Size = sizeof(t2), .isPointer = std::is_pointer<t2>::value}},   \
-    .Ret = {                                                                   \
-      .Size = sizeof(rett),                                                    \
-      .isPointer = std::is_pointer<rett>::value                                \
-    },                                                                         \
-    .Pre = !!(hook_kind & PRE),                                                \
-    .Post = !!(hook_kind & POST),                                              \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t2),               \
+                .isPointer = std::is_pointer<t2>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
   },
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
-    .Sym = #sym,                                                               \
-    .Args = {{.Size = sizeof(t1), .isPointer = std::is_pointer<t1>::value},    \
-             {.Size = sizeof(t2), .isPointer = std::is_pointer<t2>::value},    \
-             {.Size = sizeof(t3), .isPointer = std::is_pointer<t3>::value}},   \
-    .Ret = {                                                                   \
-      .Size = sizeof(rett),                                                    \
-      .isPointer = std::is_pointer<rett>::value                                \
-    },                                                                         \
-    .Pre = !!(hook_kind & PRE),                                                \
-    .Post = !!(hook_kind & POST),                                              \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t2),               \
+                .isPointer = std::is_pointer<t2>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t3),               \
+                .isPointer = std::is_pointer<t3>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
   },
 #include "dfsan_hooks.inc.h"
 };
@@ -9418,13 +9429,14 @@ int WriteVersionScript(void) {
 }
 
 int WriteModule(void) {
-#if 0
-  if (llvm::verifyModule(*Module, &llvm::errs())) {
-    WithColor::error() << "WriteModule: failed to verify module\n";
-    //llvm::errs() << *Module << '\n';
-    return 1;
+  if (opts::VerifyBitcode) {
+    if (llvm::verifyModule(*Module, &llvm::errs())) {
+      WithColor::error() << "WriteModule: failed to verify module\n";
+
+      DumpModule("pre.write.module");
+      return 1;
+    }
   }
-#endif
 
   std::error_code EC;
   llvm::ToolOutputFile Out(opts::Output, EC, llvm::sys::fs::F_None);
@@ -10112,6 +10124,22 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
     }
 
+    struct {
+      std::vector<llvm::Value *> SavedArgs;
+    } _dfsan_hook;
+
+    if (opts::DFSan) {
+      auto it = dfsanPostHooks.find({BinaryIndex, FIdx});
+      if (it != dfsanPostHooks.end()) {
+        _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
+        std::transform(
+            CallConvArgArray.begin(),
+            CallConvArgArray.end(),
+            _dfsan_hook.SavedArgs.begin(),
+            [&](unsigned glb) -> llvm::Value * { return get(glb); });
+      }
+    }
+
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
 
     if (callee.IsABI) {
@@ -10152,29 +10180,113 @@ int TranslateBasicBlock(TranslateContext &TC) {
       auto it = dfsanPostHooks.find({BinaryIndex, FIdx});
       if (it != dfsanPostHooks.end()) {
         llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
-                                      (*it).first,
-                                      (*it).second);
+                                      (*it).first, (*it).second);
 
         function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                               .Analysis.Functions.at((*it).second);
+                                 .Analysis.Functions.at((*it).second);
         assert(hook_f.hook);
         const hook_t &hook = *hook_f.hook;
 
-        std::vector<llvm::Value *> ArgVec;
+        //
+        // prepare arguments for post hook
+        //
+        std::vector<llvm::Value *> HookArgVec;
+        HookArgVec.resize(hook.Args.size());
 
-        ArgVec.resize(hook.Args.size());
-        std::transform(hook.Args.begin(),
-                       hook.Args.end(),
-                       ArgVec.begin(),
-                       [](const hook_t::arg_info_t &info) -> llvm::Value * {
-                         llvm::Type *Ty = type_of_arg_info(info);
-                         return llvm::Constant::getNullValue(Ty);
-                       });
+        {
+          unsigned SPAddend = sizeof(target_ulong);
 
-        ArgVec.insert(ArgVec.begin(),
-                      llvm::Constant::getNullValue(type_of_arg_info(hook.Ret)));
+          for (unsigned j = 0; j < hook.Args.size(); ++j) {
+            const hook_t::arg_info_t &info = hook.Args[j];
+            assert(is_integral_size(info.Size));
 
-        IRB.CreateCall(hook_f.PostHook, ArgVec);
+            llvm::Type *DstTy = type_of_arg_info(info);
+            assert(DstTy->isIntegerTy() || DstTy->isPointerTy());
+            unsigned dstBits =
+                DstTy->isIntegerTy()
+                    ? llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth()
+                    : WordBits();
+
+            llvm::Value *ArgVal = nullptr;
+            {
+#if defined(TARGET_I386)
+              //
+              // special-case i386: cdecl means read parameters off stack
+              //
+              llvm::Value *SP = get(tcg_stack_pointer_index);
+
+              ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
+                  IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
+                  llvm::PointerType::get(IRB.getIntNTy(info.Size * 8), 0)));
+
+              SPAddend += info.Size;
+#else
+              ArgVal = ArgVec.at(j);
+#endif
+            }
+
+            HookArgVec[j] = [&](void) -> llvm::Value * {
+              if (info.isPointer)
+                return IRB.CreateIntToPtr(ArgVal, DstTy);
+
+              assert(ArgVal->getType()->isIntegerTy());
+              unsigned srcBits =
+                  llvm::cast<llvm::IntegerType>(ArgVal->getType())
+                      ->getBitWidth();
+
+              if (dstBits == srcBits)
+                return ArgVal;
+
+              if (dstBits < srcBits)
+                return IRB.CreateTrunc(ArgVal, DstTy);
+
+              assert(dstBits > srcBits);
+              return IRB.CreateZExt(ArgVal, DstTy);
+            }();
+          }
+        }
+
+        assert(!Ret->getType()->isVoidTy());
+
+        llvm::Value *_Ret = [&](void) -> llvm::Value * {
+          llvm::Type *DstTy = type_of_arg_info(hook.Ret);
+
+          llvm::Value* _Ret = Ret;
+          if (!Ret->getType()->isIntegerTy()) {
+            if (Ret->getType()->isStructTy())
+              _Ret = IRB.CreateExtractValue(
+                  Ret, llvm::ArrayRef<unsigned>(0), "");
+          }
+
+          assert(_Ret->getType()->isIntegerTy());
+          unsigned srcBits =
+              llvm::cast<llvm::IntegerType>(_Ret->getType())
+                  ->getBitWidth();
+
+          if (hook.Ret.isPointer)
+            return IRB.CreateIntToPtr(_Ret, DstTy);
+
+          assert(DstTy->isIntegerTy());
+          unsigned dstBits =
+              llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth();
+
+          if (dstBits == srcBits)
+            return _Ret;
+
+          assert(dstBits < srcBits);
+
+          return IRB.CreateTrunc(_Ret, DstTy);
+        }();
+
+        //
+        // return value is first argument
+        //
+        HookArgVec.insert(HookArgVec.begin(), _Ret);
+
+        //
+        // make the call
+        //
+        IRB.CreateCall(hook_f.PostHook, HookArgVec);
       }
     }
 
@@ -10534,8 +10646,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // prepare arguments for post hook
               //
-              std::vector<llvm::Value *> ArgVec;
-              ArgVec.resize(hook.Args.size());
+              std::vector<llvm::Value *> HookArgVec;
+              HookArgVec.resize(hook.Args.size());
 
               {
                 unsigned SPAddend = sizeof(target_ulong);
@@ -10570,7 +10682,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 #endif
                   }
 
-                  ArgVec[j] = [&](void) -> llvm::Value * {
+                  HookArgVec[j] = [&](void) -> llvm::Value * {
                     if (info.isPointer)
                       return IRB.CreateIntToPtr(ArgVal, DstTy);
 
@@ -10626,12 +10738,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // return value is first argument
               //
-              ArgVec.insert(ArgVec.begin(), _Ret);
+              HookArgVec.insert(HookArgVec.begin(), _Ret);
 
               //
               // make the call
               //
-              IRB.CreateCall(hook_f.PostHook, ArgVec);
+              IRB.CreateCall(hook_f.PostHook, HookArgVec);
             }
           }
 
