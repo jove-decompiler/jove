@@ -829,10 +829,10 @@ int recompile(void) {
         arg_vec.push_back("-shared");
       }
 
-#if 1 /* __tls_get_addr... */
+      // XXX assuming lld
+      arg_vec.push_back("--allow-shlib-undefined");
       if (b.IsExecutable)
         arg_vec.push_back("--unresolved-symbols=ignore-all");
-#endif
 
       if (fs::exists(mapfp) && fs::is_regular_file(mapfp) &&
           fs::file_size(mapfp) > 0) {
@@ -942,9 +942,6 @@ int recompile(void) {
         arg_vec.push_back("-l");
         arg_vec.push_back(needed_arg.c_str());
       }
-
-      if (opts::UseLd.compare("lld") == 0)
-        arg_vec.push_back("--allow-shlib-undefined");
 
       if (rtld_path && fs::exists(rtld_path)) /* XXX */
         arg_vec.push_back(rtld_path);
