@@ -288,23 +288,27 @@ int init(void) {
 
     pos = arrow_pos + strlen(" /") - 1;
 
-    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
+    //
+    // XXX XXX XXX we do not support DSO's whose path contains a space
+    //
+    std::string::size_type space_pos = dynlink_stdout.find(' ', pos);
 
     if (space_pos == std::string::npos)
       break;
 
     std::string path = dynlink_stdout.substr(pos, space_pos - pos);
     if (!fs::exists(path)) {
-      WithColor::error() << "path from dynamic linker '" << path
-                         << "' is bogus\n";
-      return 1;
+      WithColor::warning() << "path from dynamic linker '" << path << "' is bogus\n";
+      continue;
     }
 
     std::string bin_path = fs::canonical(path).string();
     if (opts::Verbose)
       llvm::errs() << llvm::formatv("path = {0} bin_path = {1}\n", path, bin_path);
-    assert(std::find(binary_paths.begin(),
-                     binary_paths.end(), bin_path) == binary_paths.end());
+
+    if (std::find(binary_paths.begin(), binary_paths.end(), bin_path) != binary_paths.end())
+      continue; /* duplicate */
+
     binary_paths.push_back(bin_path);
   }
 
