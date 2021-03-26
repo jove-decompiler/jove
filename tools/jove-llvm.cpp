@@ -4182,9 +4182,8 @@ static bool shouldExpandOperationWithSize(llvm::Value *Size) {
 }
 
 // from AMDGPULowerIntrinsics.cpp
-static bool expandMemIntrinsicUses(llvm::Function &F) {
+static void expandMemIntrinsicUses(llvm::Function &F) {
   llvm::Intrinsic::ID ID = F.getIntrinsicID();
-  bool Changed = false;
 
   for (auto I = F.user_begin(), E = F.user_end(); I != E;) {
     llvm::Instruction *Inst = llvm::cast<llvm::Instruction>(*I);
@@ -4202,7 +4201,6 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
         llvm::TargetTransformInfo TTI(DL);
 #endif
         llvm::expandMemCpyAsLoop(Memcpy, TTI);
-        Changed = true;
         Memcpy->eraseFromParent();
       }
 
@@ -4212,7 +4210,6 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
       auto *Memmove = llvm::cast<llvm::MemMoveInst>(Inst);
       if (shouldExpandOperationWithSize(Memmove->getLength())) {
         llvm::expandMemMoveAsLoop(Memmove);
-        Changed = true;
         Memmove->eraseFromParent();
       }
 
@@ -4222,7 +4219,6 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
       auto *Memset = llvm::cast<llvm::MemSetInst>(Inst);
       if (shouldExpandOperationWithSize(Memset->getLength())) {
         llvm::expandMemSetAsLoop(Memset);
-        Changed = true;
         Memset->eraseFromParent();
       }
 
@@ -4232,8 +4228,6 @@ static bool expandMemIntrinsicUses(llvm::Function &F) {
       break;
     }
   }
-
-  return Changed;
 }
 
 static tcg_global_set_t DetermineFunctionArgs(function_t &f) {
@@ -9007,10 +9001,7 @@ int ExpandMemoryIntrinsicCalls(void) {
     case llvm::Intrinsic::memcpy:
     case llvm::Intrinsic::memmove:
     case llvm::Intrinsic::memset:
-      if (!expandMemIntrinsicUses(F)) {
-        WithColor::warning() << "couldn't expand llvm.mem intrinsic\n";
-        return 1;
-      }
+      expandMemIntrinsicUses(F);
       break;
 
     default:
