@@ -242,12 +242,16 @@ int run(void) {
       close(fd);
     }
 
-    fs::path resolv_conf_path = fs::canonical("/etc/resolv.conf");
+    try {
+      fs::path resolv_conf_path = fs::canonical("/etc/resolv.conf");
 
-    if (mount(resolv_conf_path.c_str(), chrooted_resolv_conf.c_str(), "",
-              MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting /etc/resolv.conf failed : %s\n",
-              strerror(errno));
+      if (mount(resolv_conf_path.c_str(), chrooted_resolv_conf.c_str(), "",
+                MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting /etc/resolv.conf failed : %s\n",
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
   {
@@ -267,11 +271,15 @@ int run(void) {
       close(fd);
     }
 
-    fs::path path = fs::canonical("/etc/passwd");
+    try {
+      fs::path path = fs::canonical("/etc/passwd");
 
-    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-              strerror(errno));
+      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
   {
@@ -290,11 +298,15 @@ int run(void) {
       close(fd);
     }
 
-    fs::path path = fs::canonical("/etc/group");
+    try {
+      fs::path path = fs::canonical("/etc/group");
 
-    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-              strerror(errno));
+      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
   {
@@ -313,11 +325,15 @@ int run(void) {
       close(fd);
     }
 
-    fs::path path = fs::canonical("/etc/shadow");
+    try {
+      fs::path path = fs::canonical("/etc/shadow");
 
-    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-              strerror(errno));
+      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
   {
@@ -336,11 +352,15 @@ int run(void) {
       close(fd);
     }
 
-    fs::path path = fs::canonical("/etc/nsswitch.conf");
+    try {
+      fs::path path = fs::canonical("/etc/nsswitch.conf");
 
-    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-              strerror(errno));
+      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
   {
@@ -359,11 +379,15 @@ int run(void) {
       close(fd);
     }
 
-    fs::path path = fs::canonical("/etc/hosts");
+    try {
+      fs::path path = fs::canonical("/etc/hosts");
 
-    if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-              strerror(errno));
+      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
+        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
+                strerror(errno));
+    } catch (...) {
+      ;
+    }
   }
 
 #if 0
