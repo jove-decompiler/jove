@@ -337,6 +337,9 @@ int init(void) {
     assert(!(rc < 0));
   }
 
+  if (int ret = await_process_completion(pid))
+    return ret;
+
   if (vdso.empty()) {
     WithColor::error() << "no [vdso] found. bug?\n";
     return 1;
