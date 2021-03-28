@@ -11,7 +11,7 @@
 #define _UNUSED  __attribute__((unused))
 #define _HIDDEN  __attribute__((visibility("hidden")))
 
-#define JOVE_SYS_ATTR _NOINL _HIDDEN
+#define JOVE_SYS_ATTR _NOINL _HIDDEN _UNUSED
 #include "jove_sys.h"
 
 typedef struct {

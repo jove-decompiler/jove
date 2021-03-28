@@ -167,7 +167,7 @@ gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
 define target_code_template
 $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -Wl,-soname=$(JOVE_RT_SONAME) -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -static -g -Wall -I lib -I lib/arch/$(1) $$<
+	$(_LLVM_CC) -o $$@ -Wl,-soname=$(JOVE_RT_SONAME) -Wl,-e,_start -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -static -g -Wall -I lib -I lib/arch/$(1) $$<
 
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
