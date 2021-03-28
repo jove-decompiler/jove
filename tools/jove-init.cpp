@@ -147,7 +147,7 @@ static int await_process_completion(pid_t);
 
 static void print_command(const char **argv);
 
-static std::string jove_add_path;
+static std::string jove_add_path, harvest_vdso_path;
 
 static int null_fd;
 
@@ -155,6 +155,9 @@ static bool HasVDSO(void);
 static std::pair<void *, unsigned> GetVDSO(void);
 
 static std::string program_interpreter_of_executable(const char *exepath);
+
+static ssize_t robust_read(int fd, void *const buf, const size_t count);
+static ssize_t robust_write(int fd, const void *const buf, const size_t count);
 
 int init(void) {
   null_fd = open("/dev/null", O_WRONLY);
@@ -172,6 +175,14 @@ int init(void) {
     return 1;
   }
 
+  harvest_vdso_path = (boost::dll::program_location().parent_path() /
+                       std::string("harvest-vdso"))
+                          .string();
+  if (!fs::exists(harvest_vdso_path)) {
+    WithColor::error() << "could not find harvest-vdso at " << harvest_vdso_path << '\n';
+    return 1;
+  }
+
   //
   // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
   // standard output, which will tell us what binaries are needed by prog.
@@ -182,18 +193,21 @@ int init(void) {
     return 1;
   }
 
+  int rfd = pipefd[0];
+  int wfd = pipefd[1];
+
   const bool firmadyne = fs::exists("/firmadyne/libnvram.so");
 
-  const pid_t pid = fork();
+  pid_t pid = fork();
 
   //
   // are we the child?
   //
   if (!pid) {
-    close(pipefd[0]); /* close unused read end */
+    close(rfd); /* close unused read end */
 
     /* make stdout be the write end of the pipe */
-    if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
+    if (dup2(wfd, STDOUT_FILENO) < 0) {
       WithColor::error() << "dup2 failed : " << strerror(errno) << '\n';
       exit(1);
     }
@@ -216,7 +230,7 @@ int init(void) {
                   const_cast<char **>(&env_vec[0]));
   }
 
-  close(pipefd[1]); /* close unused write end */
+  close(wfd); /* close unused write end */
 
   //
   // slurp up the result of executing the binary
@@ -224,11 +238,11 @@ int init(void) {
   std::string dynlink_stdout;
   {
     char buf;
-    while (read(pipefd[0], &buf, 1) > 0)
+    while (read(rfd, &buf, 1) > 0)
       dynlink_stdout += buf;
   }
 
-  close(pipefd[0]); /* close read end */
+  close(rfd); /* close read end */
 
   //
   // check exit code
@@ -260,19 +274,89 @@ int init(void) {
   binary_paths.push_back(fs::canonical(opts::Input).string());
 
   //
-  // vdso
+  // to get the vdso, we run $(BINDIR)/$(target)/harvest-vdso. if it exists, it
+  // will write the contents to STDOUT. otherwise it returns a non-zero number.
   //
-  if (HasVDSO()) {
-    void *vdso;
-    unsigned n;
+  if (pipe(pipefd) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
+    return 1;
+  }
 
-    std::tie(vdso, n) = GetVDSO();
+  rfd = pipefd[0];
+  wfd = pipefd[1];
 
+  //
+  // run harvest-vdso
+  //
+  pid = fork();
+  if (!pid) {
+    close(rfd); /* close unused read end */
+
+    /* make stdout be the write end of the pipe */
+    if (dup2(wfd, STDOUT_FILENO) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("dup2 failed: {0}\n", strerror(err));
+      return 1;
+    }
+
+    std::vector<const char *> arg_vec = {harvest_vdso_path.c_str(), nullptr};
+
+    std::vector<const char *> env_vec;
+    for (char **env = ::environ; *env; ++env)
+      env_vec.push_back(*env);
+
+    env_vec.push_back(nullptr);
+
+    return execve(arg_vec[0],
+                  const_cast<char **>(&arg_vec[0]),
+                  const_cast<char **>(&env_vec[0]));
+  }
+
+  {
+    int rc = close(wfd);
+    assert(!(rc < 0));
+  }
+
+  //
+  // stdout are contents of VDSO, if exists
+  //
+  std::vector<uint8_t> vdso;
+  vdso.reserve(2 * 4096); /* XXX */
+  {
+    uint8_t byte;
+    while (read(rfd, &byte, 1) > 0)
+      vdso.push_back(byte);
+  }
+
+  //
+  // close read end; we are done with it.
+  //
+  {
+    int rc = close(rfd);
+    assert(!(rc < 0));
+  }
+
+  if (vdso.empty()) {
+    WithColor::error() << "no [vdso] found. bug?\n";
+    return 1;
+  }
+
+  assert(vdso.size() % 4096 == 0);
+
+  {
     char path[0x100];
     snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir);
 
     int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    assert(write(fd, vdso, n) == n);
+    ssize_t ret = robust_write(fd, &vdso[0], vdso.size()) != vdso.size();
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv(
+          "failed to write vdso to temporary path {0} ({1})\n", path,
+          strerror(-ret));
+      return 1;
+    }
+
     close(fd);
 
     binary_paths.push_back(path);
@@ -679,6 +763,44 @@ unsigned GetVDSOSize(void) {
   fclose(fp);
 
   return res;
+}
+
+template <bool IsRead>
+static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = IsRead ? read(fd, &_buf[n], left) :
+                          write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
+
+ssize_t robust_read(int fd, void *const buf, const size_t count) {
+  return robust_read_or_write<true /* r */>(fd, buf, count);
+}
+
+ssize_t robust_write(int fd, const void *const buf, const size_t count) {
+  return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
 static std::mutex mtx;
