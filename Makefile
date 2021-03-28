@@ -135,7 +135,7 @@ mips32_ARCH_NAME  := mipsel
 mips64_ARCH_NAME  := mips64el
 aarch64_ARCH_NAME := aarch64
 
-all: $(UTILBINS) $(TOOLBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY)
+all: $(UTILBINS) $(TOOLBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 
 helpers: $(HELPERS_BITCODE)
 
@@ -164,11 +164,14 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call gen_tcgconstants_template,$(target
 .PHONY: gen-tcgconstants
 gen-tcgconstants: $(foreach target,$(ALL_TARGETS),gen-tcgconstants-$(target))
 
-define bitcode_template
+define target_code_template
+$(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
+	@echo CC $$<
+	$(_LLVM_CC) -o $$@ -Wl,-soname=$(JOVE_RT_SONAME) -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -static -g -Wall -I lib -I lib/arch/$(1) $$<
+
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
 	$(_LLVM_CC) -o $$@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) $$<
-	@ln -sf $(JOVE_RT_SO) $(BINDIR)/$(JOVE_RT_SONAME)
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
@@ -178,7 +181,7 @@ $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
 	@$(_LLVM_CC) -o $$@ -c -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $$<
 endef
-$(foreach target,$(ALL_TARGETS),$(eval $(call bitcode_template,$(target))))
+$(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
