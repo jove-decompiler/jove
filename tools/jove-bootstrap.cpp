@@ -4439,6 +4439,9 @@ public:
   }
 
   Entries getLocalEntries() const {
+    if (LocalNum == 0)
+      return Entries();
+
     size_t Skip = getGotModulePointer() ? 2 : 1;
     if (LocalNum - Skip <= 0)
       return Entries();
