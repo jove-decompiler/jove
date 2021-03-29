@@ -4363,10 +4363,6 @@ public:
             *DtGotSym, DynSymTotal);
       }
 
-      LocalNum = *DtLocalGotNum;
-      GlobalNum = DynSymTotal - *DtGotSym;
-      GotDynSyms = DynSyms.drop_front(*DtGotSym);
-
       GotSec = findNotEmptySectionByAddress(Obj, *DtPltGot);
       if (!GotSec) {
         WithColor::error() << llvm::formatv("There is no not empty GOT section at {0}\n",
@@ -4376,6 +4372,10 @@ public:
             unwrapOrError(Obj->getSectionContents(GotSec));
         GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
                              Content.size() / sizeof(Entry));
+
+        LocalNum = *DtLocalGotNum;
+        GlobalNum = DynSymTotal - *DtGotSym;
+        GotDynSyms = DynSyms.drop_front(*DtGotSym);
       }
     }
 
