@@ -288,7 +288,9 @@ int recover(void) {
     for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
          ++f_idx) {
       function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != invalid_basic_block_index);
+      if (unlikely(!is_function_index_valid(f.Entry)))
+        continue;
+
       basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
       st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
     }
