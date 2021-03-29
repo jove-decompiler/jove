@@ -352,7 +352,7 @@ int init(void) {
     snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir);
 
     int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
-    ssize_t ret = robust_write(fd, &vdso[0], vdso.size()) != vdso.size();
+    ssize_t ret = robust_write(fd, &vdso[0], vdso.size());
     if (ret < 0) {
       WithColor::error() << llvm::formatv(
           "failed to write vdso to temporary path {0} ({1})\n", path,
