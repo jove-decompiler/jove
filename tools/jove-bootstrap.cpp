@@ -444,7 +444,9 @@ int main(int argc, char **argv) {
     for (jove::function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
          ++f_idx) {
       jove::function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != jove::invalid_basic_block_index);
+      if (unlikely(!jove::is_function_index_valid(f.Entry)))
+        continue;
+
       jove::basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
       st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
     }
@@ -4776,9 +4778,8 @@ void on_binary_loaded(pid_t child,
   //
   // if Prog has been loaded, set a breakpoint on the entry point of prog
   //
-  if (binary.IsExecutable) {
-    assert(is_function_index_valid(binary.Analysis.EntryFunction));
-
+  if (binary.IsExecutable &&
+      is_function_index_valid(binary.Analysis.EntryFunction)) {
     basic_block_t entry_bb = boost::vertex(
         binary.Analysis.Functions[binary.Analysis.EntryFunction].Entry,
         binary.Analysis.ICFG);
@@ -5478,7 +5479,9 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
          ++f_idx) {
       function_t &f = binary.Analysis.Functions[f_idx];
-      assert(f.Entry != invalid_basic_block_index);
+      if (unlikely(!is_function_index_valid(f.Entry)))
+        continue;
+
       basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
       st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
     }
