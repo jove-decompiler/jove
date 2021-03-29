@@ -4371,7 +4371,6 @@ public:
       if (!GotSec) {
         WithColor::error() << llvm::formatv("There is no not empty GOT section at {0}\n",
                                             llvm::Twine::utohexstr(*DtPltGot));
-        return;
       } else {
         llvm::ArrayRef<uint8_t> Content =
             unwrapOrError(Obj->getSectionContents(GotSec));
