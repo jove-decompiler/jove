@@ -239,7 +239,7 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
     }
 
     file_size -= ret;
-  } while (file_size > 0);
+  } while (file_size != 0);
 
   return saved_file_size;
 }
