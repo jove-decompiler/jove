@@ -244,25 +244,29 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
   return saved_file_size;
 }
 
-static bool receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
+static ssize_t robust_receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
-  if (robust_read(data_socket, &file_size, sizeof(uint32_t)) < 0)
-    return false;
+  {
+    ssize_t ret = robust_read(data_socket, &file_size, sizeof(uint32_t));
+    if (ret < 0)
+      return ret;
+  }
 
   std::vector<uint8_t> buff;
   buff.resize(file_size);
 
-  if (robust_read(data_socket, &buff[0], buff.size()) < 0)
-    return false;
-
-  bool res = true;
   {
-    int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
-    if (robust_write(fd, &buff[0], buff.size()) < 0)
-      res = false;
-    close(fd);
+    ssize_t ret = robust_read(data_socket, &buff[0], buff.size());
+    if (ret < 0)
+      return ret;
   }
 
+  ssize_t res;
+  {
+    int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    res = robust_write(fd, &buff[0], buff.size());
+    close(fd);
+  }
   return res;
 }
 
@@ -602,8 +606,15 @@ skip_run:
       //
       {
         char magic[4] = {'J', 'O', 'V', 'E'};
-        if (robust_write(remote_fd, &magic[0], sizeof(magic)) < 0)
+
+        ssize_t ret = robust_write(remote_fd, &magic[0], sizeof(magic));
+
+        if (ret < 0) {
+          if (opts::Verbose)
+            WithColor::error() << llvm::formatv(
+                "failed to send magic bytes: {0}\n", strerror(-ret));
           break;
+        }
       }
 
       //
@@ -611,24 +622,39 @@ skip_run:
       //
       {
         uint8_t header = opts::DFSan;
-        if (robust_write(remote_fd, &header, sizeof(header)) < 0)
+        ssize_t ret = robust_write(remote_fd, &header, sizeof(header));
+
+        if (ret < 0) {
+          if (opts::Verbose)
+            WithColor::error() << llvm::formatv(
+                "failed to send header to remote: {0}\n", strerror(-ret));
+
           break;
+        }
       }
 
       //
       // send the jv
       //
       {
-        if (robust_sendfile_with_size(remote_fd, jv_path.c_str()) < 0)
+        ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
+
+        if (ret < 0) {
+          if (opts::Verbose)
+            WithColor::error() << llvm::formatv(
+                "failed to send decompilation: {0}\n", strerror(-ret));
+
           break;
+        }
       }
 
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
-      {
-        if (!receive_file_with_size(remote_fd, jv_path.c_str(), 0666))
-          break;
+      if (!robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666)) {
+        if (opts::Verbose)
+          WithColor::error() << "failed to receive decompilation from remote\n";
+        break;
       }
 
       for (const binary_t &binary : decompilation.Binaries) {
@@ -639,8 +665,13 @@ skip_run:
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        if (!receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777))
+        if (!robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777)) {
+          if (opts::Verbose)
+            WithColor::error()
+                << llvm::formatv("failed to receive file {0} from remote\n",
+                                 chrooted_path.c_str());
           return 1;
+        }
       }
     } else { /* local */
       //
