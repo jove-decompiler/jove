@@ -264,9 +264,23 @@ static ssize_t robust_receive_file_with_size(int data_socket, const char *out, u
   ssize_t res;
   {
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
+    if (fd < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("open of \"{0}\" failed ({1})\n", out,
+                                          strerror(err));
+      return -err;
+    }
+
     res = robust_write(fd, &buff[0], buff.size());
-    close(fd);
+
+    if (close(fd) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("close failed ({1})\n",
+                                          strerror(err));
+      return -err;
+    }
   }
+
   return res;
 }
 
