@@ -105,6 +105,9 @@ static cl::opt<bool> Git("git", cl::desc("git mode"), cl::cat(JoveCategory));
 static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
 } // namespace opts
 
 namespace jove {
@@ -225,9 +228,17 @@ int init(void) {
 
     env_vec.push_back(nullptr);
 
-    return execve(arg_vec[0],
-                  const_cast<char **>(&arg_vec[0]),
-                  const_cast<char **>(&env_vec[0]));
+    print_command(&arg_vec[0]);
+    execve(arg_vec[0],
+           const_cast<char **>(&arg_vec[0]),
+           const_cast<char **>(&env_vec[0]));
+
+    /* if we get here, exec failed */
+    int err = errno;
+    WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
+                                        arg_vec[0],
+                                        strerror(err));
+    return 1;
   }
 
   close(wfd); /* close unused write end */
@@ -308,9 +319,16 @@ int init(void) {
 
     env_vec.push_back(nullptr);
 
-    return execve(arg_vec[0],
-                  const_cast<char **>(&arg_vec[0]),
-                  const_cast<char **>(&env_vec[0]));
+    execve(arg_vec[0],
+           const_cast<char **>(&arg_vec[0]),
+           const_cast<char **>(&env_vec[0]));
+
+    /* if we get here, exec failed */
+    int err = errno;
+    WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
+                                        arg_vec[0],
+                                        strerror(err));
+    return 1;
   }
 
   {
@@ -548,7 +566,14 @@ found:
       std::vector<const char *> arg_vec = {"/usr/bin/git", "init", nullptr};
 
       print_command(&arg_vec[0]);
-      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+      /* if we get here, exec failed */
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
+                                          arg_vec[0],
+                                          strerror(err));
+      return 1;
     }
 
     if (int ret = await_process_completion(pid))
@@ -584,7 +609,14 @@ found:
                                            "decompilation.jv", nullptr};
 
       print_command(&arg_vec[0]);
-      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+      /* if we get here, exec failed */
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
+                                          arg_vec[0],
+                                          strerror(err));
+      return 1;
     }
 
     if (int ret = await_process_completion(pid))
@@ -607,7 +639,14 @@ found:
       };
 
       print_command(&arg_vec[0]);
-      return execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+      execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+
+      /* if we get here, exec failed */
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to exec {0}: {1}\n",
+                                          arg_vec[0],
+                                          strerror(err));
+      return 1;
     }
 
     if (int ret = await_process_completion(pid))
@@ -624,7 +663,8 @@ std::string program_interpreter_of_executable(const char *exepath) {
       obj::createBinary(exepath);
 
   if (!BinaryOrErr) {
-    WithColor::error() << llvm::formatv("{0}: failed to open %s\n", __func__, exepath);
+    WithColor::error() << llvm::formatv("{0}: failed to open {1}\n", __func__,
+                                        exepath);
     return res;
   }
 
@@ -846,7 +886,8 @@ static void worker(void) {
       execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
 
       int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+      WithColor::error() << llvm::formatv("execve of {0} failed: {1}\n",
+                                          argv[0],
                                           strerror(err));
       exit(1);
     }
