@@ -1,7 +1,8 @@
-#if (defined(__x86_64__) && defined(TARGET_X86_64)) || \
-    (defined(__i386__)   && defined(TARGET_I386))   || \
-    (defined(__mips64)   && defined(TARGET_MIPS64)) || \
-    (defined(__mips__)   && defined(TARGET_MIPS32))
+#if (defined(__x86_64__)  && defined(TARGET_X86_64))  || \
+    (defined(__i386__)    && defined(TARGET_I386))    || \
+    (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
+    (defined(__mips64)    && defined(TARGET_MIPS64))  || \
+    (defined(__mips__)    && defined(TARGET_MIPS32))
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -2675,7 +2676,7 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #elif defined(__i386__)
   typedef long RegValue_t;
 #elif defined(__aarch64__)
-  typedef long RegValue_t;
+  typedef unsigned long long RegValue_t;
 #elif defined(__mips__)
   typedef unsigned long long RegValue_t;
 #else
@@ -3280,6 +3281,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__i386__)
     pc = _ptrace_peekdata(child, gpr.esp);
     gpr.esp += sizeof(uint32_t);
+#elif defined(__aarch64__)
+    pc = gpr.regs[30] /* lr */;
 #elif defined(__mips64) || defined(__mips__)
     assert(InsnBytes.size() == 2 * sizeof(uint32_t));
 
