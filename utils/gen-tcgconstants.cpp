@@ -166,8 +166,10 @@ int main(int argc, char **argv) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_AARCH64)
-    const std::array<const char *, 1> not_arg_or_ret_regs{
+    const std::array<const char *, 3> not_arg_or_ret_regs{
       "env",
+      "pc",
+      "PC"
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
@@ -335,7 +337,7 @@ int main(int argc, char **argv) {
     return tcg_index_of_named_global("env");
   };
   auto program_counter_index = [&](void) -> int {
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32) || defined(TARGET_AARCH64)
     return tcg_index_of_named_global("PC");
 #else
     return tcg_index_of_named_global("pc");

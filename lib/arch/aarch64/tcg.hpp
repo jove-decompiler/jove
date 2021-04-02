@@ -15792,7 +15792,7 @@ void a64_translate_init(void)
 
     cpu_pc = tcg_global_mem_new_i64(cpu_env,
                                     offsetof(CPUARMState, pc),
-                                    "pc");
+                                    "PC");
     for (i = 0; i < 32; i++) {
         cpu_X[i] = tcg_global_mem_new_i64(cpu_env,
                                           offsetof(CPUARMState, xregs[i]),
