@@ -611,6 +611,9 @@ extern /* __thread */ struct CPUARMState __jove_env;
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
 
+extern /* __thread */ uint64_t *__jove_callstack;
+extern /* __thread */ uint64_t *__jove_callstack_begin;
+
 extern int    __jove_startup_info_argc;
 extern char **__jove_startup_info_argv;
 extern char **__jove_startup_info_environ;
@@ -632,17 +635,6 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/uio.h>
 #include <signal.h>
 #include <stdbool.h>
-
-typedef unsigned long kernel_sigset_t;
-typedef unsigned long cap_user_header_t;
-typedef unsigned long cap_user_data_t;
-
-struct kernel_sigaction {
-  void *          _sa_handler;
-  unsigned long   _sa_flags;
-  void *          _sa_restorer;
-  kernel_sigset_t _sa_mask;
-};
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
@@ -674,6 +666,20 @@ extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ void _jove_do_tpoff_hack(void);
 extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
 
+_CTOR static void _jove_tpoff_hack(void) {
+  _jove_do_tpoff_hack();
+}
+
+static bool __jove_did_emu_copy_reloc = false;
+
+_CTOR static void _jove_emulate_copy_relocations(void) {
+  if (!__jove_did_emu_copy_reloc) {
+    __jove_did_emu_copy_reloc = true;
+
+    _jove_do_emulate_copy_relocations();
+  }
+}
+
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
   _jove_do_tpoff_hack(); /* for good measure */
@@ -702,6 +708,8 @@ _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                               target_ulong BBAddr);
 
+_NOINL _HIDDEN void _jove_recover_returned(uint32_t CallerBBIdx);
+
 _HIDDEN _NOINL _NORET void _jove_fail1(target_ulong);
 _HIDDEN _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 
@@ -713,6 +721,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 
 _HIDDEN target_ulong _jove_alloc_stack(void);
 _HIDDEN void _jove_free_stack(target_ulong);
+
+#define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
 //
 // utility functions
@@ -749,6 +759,7 @@ void _jove_start(void) {
 }
 
 static void _jove_trace_init(void);
+static void _jove_callstack_init(void);
 
 void _jove_begin(target_ulong x0,
                  target_ulong x1,
@@ -803,6 +814,10 @@ void _jove_begin(target_ulong x0,
   // trace init (if -trace was passed)
   if (_jove_trace_enabled())
     _jove_trace_init();
+
+  // init callstack (if enabled)
+  if (_jove_dfsan_enabled())
+    _jove_callstack_init();
 
   _jove_install_function_table();
   _jove_install_foreign_function_tables();
@@ -1015,7 +1030,34 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
-static void _jove_sigsegv_handler(void);
+void _jove_callstack_init(void) {
+  long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
+                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  void *ptr = (void *)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = (unsigned long)ret;
+  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
+    __builtin_trap();
+    __builtin_unreachable();
+  }
+
+  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
+}
 
 void _jove_trace_init(void) {
   if (__jove_trace)
@@ -1052,33 +1094,9 @@ void _jove_trace_init(void) {
     __builtin_trap();
     __builtin_unreachable();
   }
-
-  //
-  // install SIGSEGV handler
-  //
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
-  sa._sa_handler = (void *)_jove_sigsegv_handler;
-
-  {
-    long ret =
-        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-  }
 }
 
 static void _jove_flush_trace(void);
-
-void _jove_sigsegv_handler(void) {
-  _jove_flush_trace();
-
-  _jove_sys_exit_group(22);
-  __builtin_trap();
-  __builtin_unreachable();
-}
 
 void _jove_flush_trace(void) {
   if (!__jove_trace || !__jove_trace_begin)
@@ -1195,9 +1213,13 @@ size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
 
 void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                               target_ulong CalleeAddr) {
+#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
 
   uint32_t CallerBIdx = _jove_binary_index();
 
@@ -1275,9 +1297,13 @@ found:
 
 void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                target_ulong BBAddr) {
+#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
 
   struct {
     uint32_t BIdx;
@@ -1333,6 +1359,52 @@ found:
   }
 }
 
+void _jove_recover_returned(uint32_t CallerBBIdx) {
+#if 0
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
+    return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
+
+  struct {
+    uint32_t BIdx;
+    uint32_t BBIdx;
+  } Call;
+
+  Call.BIdx = _jove_binary_index();
+  Call.BBIdx = CallerBBIdx;
+
+found:
+  {
+    int recover_fd = _jove_sys_openat(AT_FDCWD, recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    {
+      char ch = 'r';
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(Call.BIdx),
+          _IOV_ENTRY(Call.BBIdx)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
+    }
+  }
+}
+
 void _jove_fail1(target_ulong rdi) {
   __builtin_trap();
   __builtin_unreachable();
@@ -1347,10 +1419,13 @@ void _jove_fail2(target_ulong rdi,
 target_ulong _jove_thunk(target_ulong dstpc   /* x0 */,
                          target_ulong *args   /* x1 */,
                          target_ulong *emuspp /* x2 */) {
-  asm volatile("stp x29, x30, [sp, #-48]!\n" /* push frame */
+  asm volatile("stp x29, x30, [sp, #-128]!\n" /* push frame */
 
                "stp x19, x20, [sp, #16]\n" /* callee-saved registers */
                "stp x21, x22, [sp, #32]\n"
+               "stp x23, x24, [sp, #48]\n"
+               "stp x25, x26, [sp, #64]\n"
+               "stp x27, x28, [sp, #80]\n"
 
                "mov x19, x0\n" /* dstpc in x19 */
                "mov x20, x1\n" /* args in x20 */
@@ -1379,22 +1454,44 @@ target_ulong _jove_thunk(target_ulong dstpc   /* x0 */,
 
                "blr x10\n" /* call dstpc */
 
+               /* -- now we can use x20 -- */
+
                "mov x9, sp\n" /* store modified emusp */
                "str x9, [x21]\n"
 
-               "mov sp, x22\n"   /* restore stack pointer */
+               /* -- now we can use x21 -- */
 
-               "mov x22, x0\n"  /* save return value */
+               "mov x20, x0\n"  /* save return values */
+               "mov x21, x1\n"
+               "mov x23, x2\n"
+               "mov x24, x3\n"
+               "mov x25, x4\n"
+               "mov x26, x5\n"
+               "mov x27, x6\n"
+               "mov x28, x7\n"
+
+               "mov sp, x22\n"   /* restore stack pointer */
 
                "mov x0, x19\n" /* pass allocated stack */
                "bl _jove_free_stack\n"
 
-               "mov x0, x22\n" /* restore return value */
+               /* restore return values */
+               "mov x0, x20\n"
+               "mov x1, x21\n"
+               "mov x2, x23\n"
+               "mov x3, x24\n"
+               "mov x4, x25\n"
+               "mov x5, x26\n"
+               "mov x6, x27\n"
+               "mov x7, x28\n"
 
-               "ldp x19, x20, [sp, #16]\n"
-               "ldp x21, x22, [sp, #32]\n" /* callee-saved registers */
+               "ldp x19, x20, [sp, #16]\n" /* callee-saved registers */
+               "ldp x21, x22, [sp, #32]\n"
+               "ldp x23, x24, [sp, #48]\n"
+               "ldp x25, x26, [sp, #64]\n"
+               "ldp x27, x28, [sp, #80]\n"
 
-               "ldp x29, x30, [sp], #48\n" /* restore frame */
+               "ldp x29, x30, [sp], #128\n" /* restore frame */
 
                "ret\n"
 
@@ -1431,15 +1528,7 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
      && eol[-8]  == '-'
      && eol[-9]  == 'd'
      && eol[-10] == 'l'
-     && eol[-11] == '/'
-     && eol[-12] == 'b'
-     && eol[-13] == 'i'
-     && eol[-14] == 'l'
-     && eol[-15] == '/'
-     && eol[-16] == 'r'
-     && eol[-17] == 's'
-     && eol[-18] == 'u'
-     && eol[-19] == '/') {
+     && eol[-11] == '/') {
       char *space = _memchr(line, ' ', left);
 
       char *rp = space + 1;
