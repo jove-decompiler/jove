@@ -40,6 +40,12 @@ BUILD_TYPE := Release
 nothing:
 	@echo .
 
+#
+# -D "CMAKE_PREFIX_PATH=${COMFORT_FUZZ_HOME}/comfort-env/"
+# -D "PYTHON_EXECUTABLE=/usr/bin/python"
+#
+
+
 .PHONY: build-llvm
 build-llvm:
 	cd $(_LLVM_DIR) && \
@@ -49,16 +55,13 @@ build-llvm:
 	cmake -G Ninja \
 	      -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" \
-	      -D "CMAKE_PREFIX_PATH=${COMFORT_FUZZ_HOME}/comfort-env/" \
-	      -D "PYTHON_EXECUTABLE=/usr/bin/python" \
 	      -D "LLVM_ENABLE_PROJECTS=clang;compiler-rt;clang-tools-extra;libcxx;libcxxabi;lld" \
 	      -D LLVM_ENABLE_RTTI=ON \
+	      -D LLVM_ENABLE_ASSERTIONS=OFF \
 	      -D LLVM_ENABLE_EH=ON \
 	      -D LLVM_BUILD_TESTS=OFF \
 	      -D LLVM_INCLUDE_TESTS=OFF \
 	      -D LLVM_INCLUDE_EXAMPLES=OFF \
-	      -D CMAKE_CXX_COMPILER=$(shell which clang++-10) \
-	      -D CMAKE_C_COMPILER=$(shell which clang-10) \
 	      -D LLVM_BUILD_DOCS=OFF \
 	      -D "LLVM_BINUTILS_INCDIR=/usr/include" \
 	      -D LLVM_ENABLE_BINDINGS=OFF \
@@ -66,9 +69,9 @@ build-llvm:
 	      -D LLVM_INCLUDE_BENCHMARKS=OFF \
 	      -D "LLVM_HOST_TRIPLE=$(GCC_TARGET)" \
 	      -D "LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET)" \
-	      -D "LLVM_TARGETS_TO_BUILD=$(_LLVM_TARGETS_TO_BUILD)" \
+	      -D "LLVM_TARGETS_TO_BUILD=all" \
 	      -D LLVM_ENABLE_LTO=OFF \
-	      -D LLVM_USE_LINKER=lld \
+	      -D LLVM_USE_LINKER=gold \
 	      -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
 	      ../llvm \
 	&& ninja install \
