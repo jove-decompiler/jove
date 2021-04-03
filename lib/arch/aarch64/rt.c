@@ -908,8 +908,10 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   }
 
 #undef emusp
+#undef fp
 #undef sp
 #undef pc
+#undef ra
 
   //
   // if we get here, this is most likely a real crash.
