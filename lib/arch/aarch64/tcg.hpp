@@ -4054,7 +4054,11 @@ static inline bool isar_feature_aa64_crc32(const ARMISARegisters *id)
 
 static inline bool isar_feature_aa64_atomics(const ARMISARegisters *id)
 {
+#if 0
     return FIELD_EX64(id->id_aa64isar0, ID_AA64ISAR0, ATOMIC) != 0;
+#else
+    return true; /* XXX JOVE */
+#endif
 }
 
 static inline bool isar_feature_aa64_rdm(const ARMISARegisters *id)
