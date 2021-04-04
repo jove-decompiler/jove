@@ -191,7 +191,7 @@ VER := $(shell git log -n1 --format="%h")
 
 .PHONY: package
 package:
-	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt
+	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 ifndef PACKAGE_TARBALL
 	xz --threads=0 jove.$(VER)-$(ARCH).tar
 endif
