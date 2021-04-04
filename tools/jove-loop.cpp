@@ -261,6 +261,9 @@ static ssize_t robust_receive_file_with_size(int data_socket, const char *out, u
       return ret;
   }
 
+  //
+  // TODO create any directories needed
+  //
   ssize_t res;
   {
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
@@ -624,9 +627,8 @@ skip_run:
         ssize_t ret = robust_write(remote_fd, &magic[0], sizeof(magic));
 
         if (ret < 0) {
-          if (opts::Verbose)
-            WithColor::error() << llvm::formatv(
-                "failed to send magic bytes: {0}\n", strerror(-ret));
+          WithColor::error() << llvm::formatv(
+              "failed to send magic bytes: {0}\n", strerror(-ret));
           break;
         }
       }
@@ -639,9 +641,8 @@ skip_run:
         ssize_t ret = robust_write(remote_fd, &header, sizeof(header));
 
         if (ret < 0) {
-          if (opts::Verbose)
-            WithColor::error() << llvm::formatv(
-                "failed to send header to remote: {0}\n", strerror(-ret));
+          WithColor::error() << llvm::formatv(
+              "failed to send header to remote: {0}\n", strerror(-ret));
 
           break;
         }
@@ -654,9 +655,8 @@ skip_run:
         ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
 
         if (ret < 0) {
-          if (opts::Verbose)
-            WithColor::error() << llvm::formatv(
-                "failed to send decompilation: {0}\n", strerror(-ret));
+          WithColor::error() << llvm::formatv(
+              "failed to send decompilation: {0}\n", strerror(-ret));
 
           break;
         }
@@ -665,10 +665,14 @@ skip_run:
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
-      if (!robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666)) {
-        if (opts::Verbose)
-          WithColor::error() << "failed to receive decompilation from remote\n";
-        break;
+      {
+        ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
+        if (ret < 0) {
+          WithColor::error() << llvm::formatv(
+              "failed to receive decompilation from remote: {0}\n",
+              strerror(-ret));
+          break;
+        }
       }
 
       for (const binary_t &binary : decompilation.Binaries) {
@@ -679,12 +683,12 @@ skip_run:
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
-        if (!robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777)) {
-          if (opts::Verbose)
-            WithColor::error()
-                << llvm::formatv("failed to receive file {0} from remote\n",
-                                 chrooted_path.c_str());
-          return 1;
+        ssize_t ret = robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777);
+        if (ret < 0) {
+          WithColor::error()
+              << llvm::formatv("failed to receive file {0} from remote: {1}\n",
+                               chrooted_path.c_str(), strerror(-ret));
+          break;
         }
       }
     } else { /* local */
