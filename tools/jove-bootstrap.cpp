@@ -285,6 +285,9 @@ static std::pair<void *, unsigned> GetVDSO(void);
 
 #include "elf.hpp"
 
+static void IgnoreCtrlC(void);
+static void UnIgnoreCtrlC(void);
+
 }
 
 int main(int argc, char **argv) {
@@ -740,6 +743,8 @@ int main(int argc, char **argv) {
       return jove::ChildProc(wfd);
     }
 
+    jove::IgnoreCtrlC();
+
     {
       int rc = close(wfd);
       assert(!(rc < 0));
@@ -925,9 +930,6 @@ static std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 static int await_process_completion(pid_t);
 
 static std::string description_of_program_counter(uintptr_t);
-
-static void IgnoreCtrlC(void);
-static void UnIgnoreCtrlC(void);
 
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
