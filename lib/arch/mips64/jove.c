@@ -1803,6 +1803,7 @@ extern /* -> static */ uintptr_t *_jove_get_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
 extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
 extern /* -> static */ void _jove_do_tpoff_hack(void);
+extern /* -> static */ const char *_jove_dynl_path(void);
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
@@ -2570,6 +2571,10 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
   char *const beg = &maps[0];
   char *const end = &maps[n];
 
+  const char *const dynl_path_beg = _jove_dynl_path();
+  const unsigned    dynl_path_len = _strlen(dynl_path_beg);
+  const char *const dynl_path_end = &dynl_path_beg[dynl_path_len];
+
   char *eol;
   for (char *line = beg; line != end; line = eol + 1) {
     unsigned left = n - (line - beg);
@@ -2582,25 +2587,26 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
     //
     // second hex address
     //
-    if (eol[-1]  == 'o'
-     && eol[-2]  == 's'
-     && eol[-3]  == '.'
-     && _isDigit(eol[-4])
-     && _isDigit(eol[-5])
-     && eol[-6]  == '.'
-     && _isDigit(eol[-7])
-     && eol[-8]  == '-'
-     && eol[-9]  == 'd'
-     && eol[-10] == 'l'
-     && eol[-11] == '/'
-     && eol[-12] == 'b'
-     && eol[-13] == 'i'
-     && eol[-14] == 'l'
-     && eol[-15] == '/'
-     && eol[-16] == 'r'
-     && eol[-17] == 's'
-     && eol[-18] == 'u'
-     && eol[-19] == '/') {
+    bool match = true;
+
+    {
+      const char *s1 = dynl_path_end - 1;
+      const char *s2 = eol - 1;
+      for (;;) {
+        if (*s1 != *s2) {
+          match = false;
+          break;
+        }
+
+        if (s1 == dynl_path_beg)
+          break; /* we're done here */
+
+        --s1;
+        --s2;
+      }
+    }
+
+    if (match) {
       char *space = _memchr(line, ' ', left);
 
       char *rp = space + 1;
