@@ -390,7 +390,7 @@ static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
   return file_size;
 }
 
-static bool receive_file_with_size(int socket, const char *out, unsigned file_perm) {
+static ssize_t receive_file_with_size(int socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
   if (robust_read(socket, &file_size, sizeof(uint32_t)) < 0)
     return false;
@@ -398,15 +398,30 @@ static bool receive_file_with_size(int socket, const char *out, unsigned file_pe
   std::vector<uint8_t> buff;
   buff.resize(file_size);
 
-  if (robust_read(socket, &buff[0], buff.size()) < 0)
-    return false;
+  {
+    ssize_t res = robust_read(socket, &buff[0], buff.size());
+    if (res < 0)
+      return res;
+  }
 
-  bool res = true;
+  ssize_t res = -EBADF;
   {
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
-    if (robust_write(fd, &buff[0], buff.size()) < 0)
-      res = false;
-    close(fd);
+    if (fd < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to receive file {0}: {1}\n",
+                                          out, strerror(err));
+      return -err;
+    }
+
+    res = robust_write(fd, &buff[0], buff.size());
+
+    if (close(fd) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("failed to close received file {0}: {1}\n",
+                                          out, strerror(err));
+      return -err;
+    }
   }
 
   return res;
@@ -466,8 +481,13 @@ void *ConnectionProc(void *arg) {
 
   std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
   {
-    if (!receive_file_with_size(data_socket, tmpjv.c_str(), 0666))
+    ssize_t ret = receive_file_with_size(data_socket, tmpjv.c_str(), 0666);
+    if (ret < 0) {
+      WithColor::error()
+          << llvm::formatv("failed to receive file {0} from remote: {1}\n",
+                           tmpjv.c_str(), strerror(-ret));
       return nullptr;
+    }
   }
 
   //
