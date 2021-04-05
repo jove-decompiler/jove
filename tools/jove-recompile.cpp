@@ -814,15 +814,17 @@ int recompile(void) {
           _arg1 = (fmt(".jove=0x%lx") % Base).str();
           arg_vec.push_back(_arg1.c_str());
 
+#if 0
 #define ALIGN_DOWN(n, m) ((n) / (m) * (m))
 #define ALIGN_UP(n, m) ALIGN_DOWN((n) + (m) - 1, (m))
 
-          arg_vec.push_back("-Ttext-segment");
-          _arg2 = (fmt("0x%lx") % (ALIGN_UP(End, 4096))).str();
+          arg_vec.push_back("--image-base");
+          _arg2 = (fmt("0x%lx") % (ALIGN_DOWN(Base, 4096))).str();
           arg_vec.push_back(_arg2.c_str());
 
 #undef ALIGN_UP
 #undef ALIGN_DOWN
+#endif
         }
       } else {
         assert(b.IsPIC);
