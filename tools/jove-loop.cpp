@@ -33,6 +33,9 @@
 #include <arpa/inet.h>
 #include <sys/mman.h>
 
+#define JOVE_RT_SO "libjove_rt.so"
+#define JOVE_RT_SONAME JOVE_RT_SO ".0"
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 
@@ -162,7 +165,7 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static fs::path jove_recompile_path, jove_run_path, jove_analyze_path;
+static fs::path jove_recompile_path, jove_run_path, jove_analyze_path, jove_rt_path;
 
 static int await_process_completion(pid_t);
 
@@ -413,6 +416,15 @@ int loop(void) {
     WithColor::error() << llvm::formatv(
         "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
 
+    return 1;
+  }
+
+  jove_rt_path = (boost::dll::program_location().parent_path() /
+                  std::string(JOVE_RT_SONAME))
+                     .string();
+  if (!fs::exists(jove_rt_path)) {
+    WithColor::error() << llvm::formatv("could not find JOVE_RT_SONAME ({0})\n",
+                                        jove_rt_path.c_str());
     return 1;
   }
 
@@ -688,7 +700,82 @@ skip_run:
           WithColor::error()
               << llvm::formatv("failed to receive file {0} from remote: {1}\n",
                                chrooted_path.c_str(), strerror(-ret));
-          break;
+          return 1;
+        }
+      }
+
+      //
+      // setup sysroot XXX duplicated code w/ jove-loop
+      //
+
+      //
+      // (1) copy dynamic linker
+      //
+      std::string rtld_soname;
+
+      for (binary_t &b : decompilation.Binaries) {
+        if (!b.IsDynamicLinker)
+          continue;
+
+        //
+        // we have the binary data in the decompilation. let's use it
+        //
+        fs::path rtld_path = fs::path(opts::sysroot) / b.Path;
+
+        fs::create_directories(rtld_path.parent_path());
+
+        {
+          int fd;
+          do {
+            fd = open(rtld_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0777);
+          } while (fd < 0 && errno == EBUSY);
+
+          if (fd < 0) {
+            int err = errno;
+            WithColor::error() << llvm::formatv(
+                "failed to open fd to dynamic linker in sysroot: {0}\n",
+                strerror(err));
+          } else {
+            ssize_t ret = robust_write(fd, &b.Data[0], b.Data.size());
+            if (ret < 0) {
+              WithColor::error() << llvm::formatv(
+                  "failed to write dynamic linker to sysroot: {0}\n",
+                  strerror(-ret));
+            }
+
+            if (close(fd) < 0) {
+              int err = errno;
+              WithColor::error() << llvm::formatv(
+                  "failed to close dynamic linker path in sysroot: {0}\n",
+                  strerror(err));
+            }
+          }
+        }
+      }
+
+      //
+      // (1) copy jove runtime XXX duplicated code w/ jove-loop
+      //
+      {
+        {
+          fs::path chrooted_path =
+              fs::path(opts::sysroot) / "usr" / "lib" / JOVE_RT_SONAME;
+
+          fs::create_directories(chrooted_path.parent_path());
+          fs::copy_file(jove_rt_path, chrooted_path,
+                        fs::copy_option::overwrite_if_exists);
+        }
+
+        {
+          fs::path chrooted_path =
+              fs::path(opts::sysroot) / "usr" / "lib" / JOVE_RT_SO;
+
+          fs::create_directories(chrooted_path.parent_path());
+
+          if (fs::exists(chrooted_path))
+            fs::remove(chrooted_path);
+
+          fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
         }
       }
     } else { /* local */
