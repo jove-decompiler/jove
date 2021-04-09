@@ -155,6 +155,100 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
+
+struct ScopedMount {
+  const char *const source;
+  const char *const target;
+  const char *const filesystemtype;
+  const unsigned long mountflags;
+  const void *const data;
+
+  bool mounted;
+
+  ScopedMount(const char *source,
+              const char *target,
+              const char *filesystemtype,
+              unsigned long mountflags,
+              const void *data)
+      : source(source),
+        target(target),
+        filesystemtype(filesystemtype),
+        mountflags(mountflags),
+        data(data),
+        mounted(false) {
+    if (source && *source == '\0')
+      return;
+
+    for (;;) {
+      int ret = mount(this->source,
+                      this->target,
+                      this->filesystemtype,
+                      this->mountflags,
+                      this->data);
+      if (ret < 0) {
+        int err = errno;
+        switch (err) {
+        case EINTR:
+          continue;
+
+        default:
+          fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", %lx, %p) failed: %s\n",
+                  this->source,
+                  this->target,
+                  this->filesystemtype,
+                  (long)this->mountflags,
+                  this->data,
+                  strerror(err));
+          return;
+        }
+      } else {
+        /* mount suceeded */
+        this->mounted = true;
+        break;
+      }
+    }
+  }
+
+  ~ScopedMount () {
+    if (!this->mounted)
+      return;
+
+    unsigned retries = 0;
+
+    for (;;) {
+      int ret = umount2(this->target, 0);
+
+      if (ret < 0) {
+        int err = errno;
+
+        switch (err) {
+        case EBUSY:
+          if (retries++ < MAX_UMOUNT_RETRIES) {
+            fprintf(stderr, "retrying umount of %s shortly...\n", this->target);
+            usleep(100000);
+          } else {
+            fprintf(stderr, "unmounting %s failed: EBUSY...\n", this->target);
+            return;
+          }
+          /* fallthrough */
+        case EINTR:
+          continue;
+
+        default:
+          fprintf(stderr, "umount(\"%s\") failed: %s\n",
+                  this->target,
+                  strerror(err));
+          return;
+        }
+      } else {
+        /* unmount suceeded */
+        break;
+      }
+    }
+  }
+};
+
 int run(void) {
 #if 0
   if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
@@ -162,69 +256,81 @@ int run(void) {
             strerror(errno));
 #endif
 
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "proc";
+  fs::path proc_path = fs::path(opts::sysroot) / "proc";
+  ScopedMount proc_mnt("proc",
+                       proc_path.c_str(),
+                       "proc",
+                       MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                       nullptr);
 
-    if (mount("proc", subdir.c_str(), "proc", MS_NOSUID | MS_NODEV | MS_NOEXEC,
-              nullptr) < 0)
-      fprintf(stderr, "mounting procfs failed : %s\n", strerror(errno));
-  }
+  fs::path sys_path = fs::path(opts::sysroot) / "sys";
+  ScopedMount sys_mnt("sys",
+                      sys_path.c_str(),
+                      "sysfs",
+                      MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                      nullptr);
 
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "sys";
+  fs::path dev_path = fs::path(opts::sysroot) / "dev";
+  ScopedMount dev_mnt("udev",
+                      dev_path.c_str(),
+                      "devtmpfs",
+                      MS_NOSUID,
+                      "mode=0755");
 
-    if (mount("sys", subdir.c_str(), "sysfs",
-              MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, nullptr) < 0)
-      fprintf(stderr, "mounting sysfs failed : %s\n", strerror(errno));
-  }
+  fs::path dev_pts_path = fs::path(opts::sysroot) / "dev" / "pts";
+  ScopedMount dev_pts_mnt("devpts",
+                          dev_pts_path.c_str(),
+                          "devpts",
+                          MS_NOSUID | MS_NOEXEC,
+                          "mode=0620,gid=5");
 
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev";
+  fs::path dev_shm_path = fs::path(opts::sysroot) / "dev" / "shm";
+  ScopedMount dev_shm_mnt("shm",
+                          dev_shm_path.c_str(),
+                          "tmpfs",
+                          MS_NOSUID | MS_NODEV,
+                          "mode=1777");
 
-    if (mount("udev", subdir.c_str(), "devtmpfs", MS_NOSUID, "mode=0755") < 0)
-      fprintf(stderr, "mounting devtmpfs failed : %s\n", strerror(errno));
-  }
+  fs::path run_path = fs::path(opts::sysroot) / "run";
+  ScopedMount run_mnt("/run",
+                      run_path.c_str(),
+                      "",
+                      MS_BIND,
+                      nullptr);
 
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev" / "pts";
-
-    if (mount("devpts", subdir.c_str(), "devpts", MS_NOSUID | MS_NOEXEC,
-              "mode=0620,gid=5") < 0)
-      fprintf(stderr, "mounting devpts failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev" / "shm";
-
-    if (mount("shm", subdir.c_str(), "tmpfs", MS_NOSUID | MS_NODEV,
-              "mode=1777") < 0)
-      fprintf(stderr, "mounting tmpfs failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "run";
-
-    if (mount("/run", subdir.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting /run failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "var" / "run";
-
-    if (mount("/var/run", subdir.c_str(), "", MS_BIND, nullptr) < 0)
-      fprintf(stderr, "mounting /var/run failed : %s\n", strerror(errno));
-  }
+  fs::path var_run_path = fs::path(opts::sysroot) / "var" / "run";
+  ScopedMount var_run_mnt("/var/run",
+                          var_run_path.c_str(),
+                          "",
+                          MS_BIND,
+                          nullptr);
 
 #if 0
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "tmp";
-
-    if (mount("tmp", subdir.c_str(), "tmpfs",
-              MS_NOSUID | MS_NODEV | MS_STRICTATIME, "mode=1777") < 0)
-      fprintf(stderr, "mounting /tmp failed : %s\n", strerror(errno));
-  }
+  fs::path tmp_path = fs::path(opts::sysroot) / "tmp";
+  ScopedMount tmp_mnt("tmp",
+                      tmp_path.c_str(),
+                      "tmpfs",
+                      MS_NOSUID | MS_NODEV | MS_STRICTATIME,
+                      "mode=1777");
 #endif
 
+  fs::path resolv_conf_path;
+  try {
+    resolv_conf_path = fs::canonical("/etc/resolv.conf");
+  } catch (...) {
+    ; /* absorb */
+  }
+
+  fs::path chrooted_resolv_conf =
+      fs::path(opts::sysroot) / "etc" / "resolv.conf";
+
+  ScopedMount chrooted_resolv_conf_mnt(resolv_conf_path.c_str(),
+                                       chrooted_resolv_conf.c_str(),
+                                       "",
+                                       MS_BIND,
+                                       nullptr);
+
+#if 0
   {
     fs::path chrooted_resolv_conf =
         fs::path(opts::sysroot) / "etc" / "resolv.conf";
@@ -253,6 +359,7 @@ int run(void) {
       ;
     }
   }
+#endif
 
   {
     fs::path chrooted_path =
@@ -521,8 +628,8 @@ int run(void) {
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env.a_vec[0]));
 
-    fprintf(stderr, "execve failed : %s\n", strerror(errno));
-    return 1;
+    fprintf(stderr, "execve failed: %s\n", strerror(errno));
+    exit(1);
   }
 
   //
@@ -550,7 +657,30 @@ int run(void) {
   //
   // wait for process to exit
   //
+#if 1
   int ret = await_process_completion(pid);
+#else
+  int ret = 0;
+
+  //
+  // wait for all children to exit
+  //
+  for (;;) {
+    int status;
+    pid_t child = waitpid(-1, &status, __WALL);
+
+    if (child < 0) {
+      int err = errno;
+      if (err != ECHILD) {
+        fprintf(stderr, "waitpid failed: %s\n", strerror(err));
+      }
+      break;
+    }
+
+    if (WIFEXITED(status))
+      ret = WEXITSTATUS(status);
+  }
+#endif
 
   //
   // cancel the thread reading the fifo
@@ -612,73 +742,6 @@ int run(void) {
     if (umount2(chrooted_path.c_str(), 0) < 0)
       fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
               strerror(errno));
-  }
-
-  {
-    fs::path chrooted_resolv_conf =
-        fs::path(opts::sysroot) / "etc" / "resolv.conf";
-
-    if (umount2(chrooted_resolv_conf.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting /etc/resolv.conf failed : %s\n",
-              strerror(errno));
-  }
-
-#if 0
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "tmp";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting /tmp failed : %s\n", strerror(errno));
-  }
-#endif
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "var" / "run";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting /var/run failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "run";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting /run failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev" / "shm";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting tmpfs failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev" / "pts";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting devpts failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "dev";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting devtmpfs failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "sys";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting sysfs failed : %s\n", strerror(errno));
-  }
-
-  {
-    fs::path subdir = fs::path(opts::sysroot) / "proc";
-
-    if (umount2(subdir.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting procfs failed : %s\n", strerror(errno));
   }
 
 #if 0
