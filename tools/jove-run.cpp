@@ -193,7 +193,7 @@ struct ScopedMount {
           continue;
 
         default:
-          fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", %lx, %p) failed: %s\n",
+          fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", 0x%lx, %p) failed: %s\n",
                   this->source,
                   this->target,
                   this->filesystemtype,
@@ -324,178 +324,91 @@ int run(void) {
   fs::path chrooted_resolv_conf =
       fs::path(opts::sysroot) / "etc" / "resolv.conf";
 
-  ScopedMount chrooted_resolv_conf_mnt(resolv_conf_path.c_str(),
-                                       chrooted_resolv_conf.c_str(),
-                                       "",
-                                       MS_BIND,
-                                       nullptr);
+  ScopedMount resolv_conf_mnt(resolv_conf_path.c_str(),
+                              chrooted_resolv_conf.c_str(),
+                              "",
+                              MS_BIND,
+                              nullptr);
 
-#if 0
-  {
-    fs::path chrooted_resolv_conf =
-        fs::path(opts::sysroot) / "etc" / "resolv.conf";
-
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_resolv_conf)) {
-      int fd = open(chrooted_resolv_conf.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create /etc/resolv.conf : %s\n",
-                strerror(errno));
-      }
-      close(fd);
-    }
-
-    try {
-      fs::path resolv_conf_path = fs::canonical("/etc/resolv.conf");
-
-      if (mount(resolv_conf_path.c_str(), chrooted_resolv_conf.c_str(), "",
-                MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting /etc/resolv.conf failed : %s\n",
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
-  }
-#endif
-
-  {
-    fs::path chrooted_path =
-        fs::path(opts::sysroot) / "etc" / "passwd";
-
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_path)) {
-      int fd = open(chrooted_path.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
-                strerror(errno));
-      }
-      close(fd);
-    }
-
-    try {
-      fs::path path = fs::canonical("/etc/passwd");
-
-      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
+  fs::path etc_passwd_path;
+  try {
+    etc_passwd_path = fs::canonical("/etc/passwd");
+  } catch (...) {
+    ; /* absorb */
   }
 
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "group";
+  fs::path chrooted_etc_passwd =
+      fs::path(opts::sysroot) / "etc" / "passwd";
 
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_path)) {
-      int fd = open(chrooted_path.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
-                strerror(errno));
-      }
-      close(fd);
-    }
+  ScopedMount etc_passwd_mnt(etc_passwd_path.c_str(),
+                             chrooted_etc_passwd.c_str(),
+                             "",
+                             MS_BIND,
+                             nullptr);
 
-    try {
-      fs::path path = fs::canonical("/etc/group");
-
-      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
+  fs::path etc_group_path;
+  try {
+    etc_group_path = fs::canonical("/etc/group");
+  } catch (...) {
+    ; /* absorb */
   }
 
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "shadow";
+  fs::path chrooted_etc_group =
+      fs::path(opts::sysroot) / "etc" / "group";
 
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_path)) {
-      int fd = open(chrooted_path.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
-                strerror(errno));
-      }
-      close(fd);
-    }
+  ScopedMount etc_group_mnt(etc_group_path.c_str(),
+                            chrooted_etc_group.c_str(),
+                            "",
+                            MS_BIND,
+                            nullptr);
 
-    try {
-      fs::path path = fs::canonical("/etc/shadow");
-
-      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
+  fs::path etc_shadow_path;
+  try {
+    etc_shadow_path = fs::canonical("/etc/shadow");
+  } catch (...) {
+    ; /* absorb */
   }
 
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
+  fs::path chrooted_etc_shadow =
+      fs::path(opts::sysroot) / "etc" / "shadow";
 
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_path)) {
-      int fd = open(chrooted_path.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
-                strerror(errno));
-      }
-      close(fd);
-    }
+  ScopedMount etc_shadow_mnt(etc_shadow_path.c_str(),
+                             chrooted_etc_shadow.c_str(),
+                             "",
+                             MS_BIND,
+                             nullptr);
 
-    try {
-      fs::path path = fs::canonical("/etc/nsswitch.conf");
-
-      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
+  fs::path etc_nsswitch_path;
+  try {
+    etc_nsswitch_path = fs::canonical("/etc/nsswitch.conf");
+  } catch (...) {
+    ; /* absorb */
   }
 
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "hosts";
+  fs::path chrooted_etc_nsswitch =
+      fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
 
-    //
-    // ensure file exists to bind mount over
-    //
-    if (!fs::exists(chrooted_path)) {
-      int fd = open(chrooted_path.c_str(),
-                    O_WRONLY | O_CREAT | O_NOCTTY | O_NONBLOCK, 0666);
-      if (fd < 0) {
-        fprintf(stderr, "failed to create %s : %s\n", chrooted_path.c_str(),
-                strerror(errno));
-      }
-      close(fd);
-    }
+  ScopedMount etc_nsswitch_mnt(etc_nsswitch_path.c_str(),
+                              chrooted_etc_nsswitch.c_str(),
+                              "",
+                              MS_BIND,
+                              nullptr);
 
-    try {
-      fs::path path = fs::canonical("/etc/hosts");
-
-      if (mount(path.c_str(), chrooted_path.c_str(), "", MS_BIND, nullptr) < 0)
-        fprintf(stderr, "mounting %s failed : %s\n", path.c_str(),
-                strerror(errno));
-    } catch (...) {
-      ;
-    }
+  fs::path etc_hosts_path;
+  try {
+    etc_hosts_path = fs::canonical("/etc/hosts");
+  } catch (...) {
+    ; /* absorb */
   }
+
+  fs::path chrooted_etc_hosts =
+      fs::path(opts::sysroot) / "etc" / "hosts";
+
+  ScopedMount etc_hosts_mnt(etc_hosts_path.c_str(),
+                            chrooted_etc_hosts.c_str(),
+                            "",
+                            MS_BIND,
+                            nullptr);
 
 #if 0
   {
@@ -703,46 +616,6 @@ int run(void) {
 
   if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
-
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "hosts";
-
-    if (umount2(chrooted_path.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
-              strerror(errno));
-  }
-
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
-
-    if (umount2(chrooted_path.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
-              strerror(errno));
-  }
-
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "shadow";
-
-    if (umount2(chrooted_path.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
-              strerror(errno));
-  }
-
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "group";
-
-    if (umount2(chrooted_path.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
-              strerror(errno));
-  }
-
-  {
-    fs::path chrooted_path = fs::path(opts::sysroot) / "etc" / "passwd";
-
-    if (umount2(chrooted_path.c_str(), 0) < 0)
-      fprintf(stderr, "unmounting %s failed : %s\n", chrooted_path.c_str(),
-              strerror(errno));
-  }
 
 #if 0
   if (umount2(opts::sysroot, 0) < 0)
