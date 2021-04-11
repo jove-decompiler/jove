@@ -165,7 +165,7 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static fs::path jove_recompile_path, jove_run_path, jove_analyze_path, jove_rt_path;
+static fs::path jove_recompile_path, jove_run_path, jove_analyze_path, jove_rt_path, jove_dfsan_path;
 
 static int await_process_completion(pid_t);
 
@@ -425,6 +425,17 @@ int loop(void) {
   if (!fs::exists(jove_rt_path)) {
     WithColor::error() << llvm::formatv("could not find JOVE_RT_SONAME ({0})\n",
                                         jove_rt_path.c_str());
+    return 1;
+  }
+
+  jove_dfsan_path =
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
+       "lib" / "linux" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
+          .string();
+  if (!fs::exists(jove_dfsan_path)) {
+    WithColor::error() << llvm::formatv("could not find {0}\n",
+                                        jove_dfsan_path.c_str());
     return 1;
   }
 
@@ -705,7 +716,7 @@ skip_run:
       }
 
       //
-      // setup sysroot XXX duplicated code w/ jove-loop
+      // setup sysroot XXX duplicated code w/ jove-recompile
       //
 
       //
@@ -754,7 +765,7 @@ skip_run:
       }
 
       //
-      // (1) copy jove runtime XXX duplicated code w/ jove-loop
+      // (1) copy jove runtime XXX duplicated code w/ jove-recompile
       //
       {
         {
@@ -777,6 +788,19 @@ skip_run:
 
           fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
         }
+      }
+
+      //
+      // copy dfsan runtime
+      //
+      if (opts::DFSan) {
+        fs::path chrooted_path =
+            fs::path(opts::sysroot) / "usr" / "lib" /
+            ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so");
+
+        fs::create_directories(chrooted_path.parent_path());
+        fs::copy_file(jove_dfsan_path, chrooted_path,
+                      fs::copy_option::overwrite_if_exists);
       }
     } else { /* local */
       //
