@@ -49,6 +49,12 @@ static cl::opt<unsigned>
     pipefd("pipefd", cl::value_desc("file descriptor"),
            cl::desc("Write-end of a pipe used to communicate app pid"),
            cl::cat(JoveCategory));
+
+static cl::opt<unsigned> Sleep(
+    "sleep", cl::value_desc("seconds"),
+    cl::desc("Time in seconds to sleep for after finishing waiting on child; "
+             "can be useful if the program being recompiled forks"),
+    cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -600,6 +606,11 @@ int run(void) {
       ret = WEXITSTATUS(status);
   }
 #endif
+
+  if (unsigned sec = opts::Sleep) {
+    fprintf(stderr, "sleeping for %u seconds...\n", sec);
+    sleep(sec);
+  }
 
   //
   // cancel the thread reading the fifo
