@@ -5,6 +5,7 @@
 #include <cstring>
 #include <thread>
 #include <cinttypes>
+#include <atomic>
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <sys/wait.h>
@@ -109,6 +110,11 @@ int main(int argc, char **argv) {
 namespace jove {
 
 static fs::path jove_recover_path, jv_path;
+
+//
+// set when jove-recover has been run (if nonzero then either 'f', 'b', 'F', 'r')
+//
+static std::atomic<char> recovered_ch;
 
 static int await_process_completion(pid_t);
 
@@ -622,6 +628,12 @@ int run(void) {
     fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
 #endif
 
+  {
+    char ch = recovered_ch.load();
+    if (ch)
+      return ch;
+  }
+
   return ret;
 }
 
@@ -714,6 +726,7 @@ void *recover_proc(const char *fifo_path) {
     // we assume ch is loaded with a byte from the fifo. it's got to be either
     // 'f', 'b', or 'r'.
     //
+    recovered_ch.store(ch);
     if (ch == 'f') {
       struct {
         uint32_t BIdx;
@@ -872,8 +885,7 @@ void *recover_proc(const char *fifo_path) {
 
       (void)await_process_completion(pid);
     } else {
-      fprintf(stderr, "recover: unknown character (%c)\n", ch);
-      break;
+      fprintf(stderr, "recover: unknown character! (%c)\n", ch);
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
