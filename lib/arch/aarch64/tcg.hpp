@@ -17316,7 +17316,19 @@ static void handle_sys(DisasContext *s, uint32_t insn, bool isread,
             tcg_gen_movi_i64(tcg_rt, ri->resetvalue);
         } else if (ri->readfn) {
             TCGv_ptr tmpptr;
+#if 0
             tmpptr = tcg_const_ptr(ri);
+#else
+            uint8_t magic[8] = {'J', 'O', 'V', 'E', ' ', 'S', 'Y', 'S'};
+            uint64_t magic_i = *((uint64_t *)&magic[0]);
+            if (strcmp(ri->name, "DCZID_EL0") == 0) {
+              // aa64_dczid_read
+              tmpptr = tcg_const_ptr(magic_i + 1);
+            } else {
+              // TODO
+              tmpptr = tcg_const_ptr(0);
+            }
+#endif
             gen_helper_get_cp_reg64(tcg_rt, cpu_env, tmpptr);
             tcg_temp_free_ptr(tmpptr);
         } else {

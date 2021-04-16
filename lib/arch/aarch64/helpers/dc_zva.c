@@ -1203,8 +1203,13 @@ void HELPER(dc_zva)(CPUARMState *env, uint64_t vaddr_in)
      * alignment faults or any memory attribute handling).
      */
 
+#if 0
     ARMCPU *cpu = env_archcpu(env);
     uint64_t blocklen = 4 << cpu->dcz_blocksize;
+#else
+    uint32_t dcz_blocksize = 4; /* XXX hard-coded */
+    uint64_t blocklen = 4 << dcz_blocksize;
+#endif
     uint64_t vaddr = vaddr_in & ~(blocklen - 1);
 
 #ifndef CONFIG_USER_ONLY

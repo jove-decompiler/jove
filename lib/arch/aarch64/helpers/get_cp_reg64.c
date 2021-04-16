@@ -774,8 +774,31 @@ uint64_t HELPER(get_cp_reg64)(CPUARMState *env, void *rip)
 
     return res;
 #else
-    __builtin_trap();
-    __builtin_unreachable();
+    const uint64_t addr = (uint64_t)rip;
+
+    if (addr == 0x0) {
+      // TODO
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    uint8_t magic[8] = {'J', 'O', 'V', 'E', ' ', 'S', 'Y', 'S'};
+    uint64_t magic_i = *((uint64_t *)&magic[0]);
+
+    if (addr == magic_i + 1) {
+      // aa64_dczid_read
+#if 0
+      uint64_t res;
+      asm("mrs %0, DCZID_EL0" : "=&r"(res));
+      return res;
+#else
+      return 4; /* XXX hard-coded */
+#endif
+    } else {
+      // TODO
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 #endif
 }
 
