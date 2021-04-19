@@ -16789,6 +16789,7 @@ static void disas_uncond_b_imm(DisasContext *s, uint32_t insn)
 
     if (insn & (1U << 31)) {
         /* BL Branch with link */
+        tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
         tcg_gen_movi_i64(cpu_reg(s, 30), s->base.pc_next);
 
         s->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
@@ -17584,6 +17585,7 @@ static void disas_uncond_b_reg(DisasContext *s, uint32_t insn)
         gen_a64_set_pc(s, dst);
         /* BLR also needs to load return address */
         if (opc == 1) {
+            tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
             tcg_gen_movi_i64(cpu_reg(s, 30), s->base.pc_next);
         }
         break;
