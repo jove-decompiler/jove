@@ -1451,14 +1451,14 @@ endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_dfsan_template,$(helper),$(target)))))
 
 .PHONY: check-helpers
-check-helpers: $(foreach helper,$($(ARCH)_HELPERS),check-$(helper))
+check-helpers: $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),check-$(target)-$(helper)))
 
 define check_helper_template
-.PHONY: check-$(1)
-check-$(1): $(BINDIR)/$(1).bc $(BINDIR)/check-helper
-	-@$(BINDIR)/check-helper $(1)
+.PHONY: check-$(2)-$(1)
+check-$(2)-$(1): $(BINDIR)/$(2)/helpers/$(1).bc
+	-$(BINDIR)/$(2)/check-helper $(1)
 endef
-$(foreach helper,$($(ARCH)_HELPERS),$(eval $(call check_helper_template,$(helper))))
+$(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call check_helper_template,$(helper),$(target)))))
 
 #
 # qemu configure command
