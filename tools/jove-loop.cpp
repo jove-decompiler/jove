@@ -105,6 +105,12 @@ static cl::opt<std::string> Connect("connect",
 static cl::alias ConnectAlias("c", cl::desc("Alias for -connect."),
                               cl::aliasopt(Connect), cl::cat(JoveCategory));
 
+static cl::opt<unsigned> Sleep(
+    "sleep", cl::value_desc("seconds"),
+    cl::desc("Time in seconds to sleep for after finishing waiting on child; "
+             "can be useful if the program being recompiled forks"),
+    cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -519,6 +525,13 @@ run:
 
           arg_vec.push_back("--env");
           arg_vec.push_back(env_arg.c_str());
+        }
+
+        std::string sleep_arg;
+        if (unsigned Sec = opts::Sleep) {
+          arg_vec.push_back("--sleep");
+          sleep_arg = std::to_string(Sec);
+          arg_vec.push_back(sleep_arg.c_str());
         }
 
         //
