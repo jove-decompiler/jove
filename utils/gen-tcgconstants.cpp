@@ -166,14 +166,18 @@ int main(int argc, char **argv) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_AARCH64)
-    const std::array<const char *, 3> not_arg_or_ret_regs{
+    const std::array<const char *, 3> not_arg_regs{
       "env",
       "pc",
       "PC"
     };
 
-    const auto &not_ret_regs = not_arg_or_ret_regs;
-    const auto &not_arg_regs = not_arg_or_ret_regs;
+    const std::array<const char *, 4> not_ret_regs{
+      "env",
+      "pc",
+      "PC",
+      "lr"
+    };
 #elif defined(TARGET_MIPS64)
     const std::array<const char *, 3> not_arg_or_ret_regs{
       "_frame",
