@@ -728,6 +728,40 @@ skip_run:
         }
       }
 
+      // XXX duplicated code with jove-recompile
+      if (opts::DFSan) {
+        {
+          fs::path dir = fs::path(opts::sysroot) / "jove" / "BinaryBlockAddrTables";
+          fs::remove_all(dir); /* wipe any old tables */
+          fs::create_directories(dir);
+        }
+
+        {
+          std::ofstream ofs((fs::path(opts::sysroot) / "jove" / "BinaryPathsTable.txt").c_str());
+
+          for (const binary_t &binary : decompilation.Binaries)
+            ofs << binary.Path << '\n';
+        }
+
+        for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+          binary_t &binary = decompilation.Binaries[BIdx];
+          auto &ICFG = binary.Analysis.ICFG;
+
+          {
+            std::ofstream ofs((fs::path(opts::sysroot) / "jove" /
+                               "BinaryBlockAddrTables" / std::to_string(BIdx))
+                                  .c_str());
+
+            for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+                 ++BBIdx) {
+              basic_block_t bb = boost::vertex(BBIdx, ICFG);
+              tcg_uintptr_t Addr = ICFG[bb].Term.Addr; /* XXX */
+              ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
+            }
+          }
+        }
+      }
+
       //
       // setup sysroot XXX duplicated code w/ jove-recompile
       //
@@ -775,6 +809,8 @@ skip_run:
             }
           }
         }
+
+        break;
       }
 
       //
