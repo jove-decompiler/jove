@@ -10753,37 +10753,41 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 }
               }
 
-              assert(!Ret->getType()->isVoidTy());
+              llvm::Value *_Ret = nullptr;
+              if (Ret->getType()->isVoidTy()) {
+                WARN();
+                _Ret = llvm::Constant::getNullValue(type_of_arg_info(hook.Ret));
+              } else {
+                _Ret = [&](void) -> llvm::Value * {
+                  llvm::Type *DstTy = type_of_arg_info(hook.Ret);
 
-              llvm::Value *_Ret = [&](void) -> llvm::Value * {
-                llvm::Type *DstTy = type_of_arg_info(hook.Ret);
+                  llvm::Value* _Ret = Ret;
+                  if (!Ret->getType()->isIntegerTy()) {
+                    if (Ret->getType()->isStructTy())
+                      _Ret = IRB.CreateExtractValue(
+                          Ret, llvm::ArrayRef<unsigned>(0), "");
+                  }
 
-                llvm::Value* _Ret = Ret;
-                if (!Ret->getType()->isIntegerTy()) {
-                  if (Ret->getType()->isStructTy())
-                    _Ret = IRB.CreateExtractValue(
-                        Ret, llvm::ArrayRef<unsigned>(0), "");
-                }
+                  assert(_Ret->getType()->isIntegerTy());
+                  unsigned srcBits =
+                      llvm::cast<llvm::IntegerType>(_Ret->getType())
+                          ->getBitWidth();
 
-                assert(_Ret->getType()->isIntegerTy());
-                unsigned srcBits =
-                    llvm::cast<llvm::IntegerType>(_Ret->getType())
-                        ->getBitWidth();
+                  if (hook.Ret.isPointer)
+                    return IRB.CreateIntToPtr(_Ret, DstTy);
 
-                if (hook.Ret.isPointer)
-                  return IRB.CreateIntToPtr(_Ret, DstTy);
+                  assert(DstTy->isIntegerTy());
+                  unsigned dstBits =
+                      llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth();
 
-                assert(DstTy->isIntegerTy());
-                unsigned dstBits =
-                    llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth();
+                  if (dstBits == srcBits)
+                    return _Ret;
 
-                if (dstBits == srcBits)
-                  return _Ret;
+                  assert(dstBits < srcBits);
 
-                assert(dstBits < srcBits);
-
-                return IRB.CreateTrunc(_Ret, DstTy);
-              }();
+                  return IRB.CreateTrunc(_Ret, DstTy);
+                }();
+              }
 
               //
               // return value is first argument
