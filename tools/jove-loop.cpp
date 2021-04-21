@@ -453,14 +453,6 @@ int loop(void) {
                         ? (fs::path(opts::jv) / "decompilation.jv").string()
                         : opts::jv);
 
-  decompilation_t decompilation;
-  {
-    std::ifstream ifs(jv_path.c_str());
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> decompilation;
-  }
-
   while (!Cancelled) {
     pid_t pid;
 
@@ -709,6 +701,14 @@ skip_run:
               strerror(-ret));
           break;
         }
+      }
+
+      decompilation_t decompilation;
+      {
+        std::ifstream ifs(jv_path.c_str());
+
+        boost::archive::text_iarchive ia(ifs);
+        ia >> decompilation;
       }
 
       for (const binary_t &binary : decompilation.Binaries) {
