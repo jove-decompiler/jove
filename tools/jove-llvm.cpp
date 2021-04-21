@@ -4609,6 +4609,10 @@ int CreateFunctionTable(void) {
       *Module, T, true, llvm::GlobalValue::ExternalLinkage, Init,
       (fmt("__jove_b%u") % BinaryIndex).str());
 
+  llvm::GlobalVariable *ConstantTableInternalGV = new llvm::GlobalVariable(
+      *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
+      (fmt("__jove_internal_b%u") % BinaryIndex).str());
+
 #if 0
   {
     llvm::Function *StoresFnTblPtrF =
@@ -4672,7 +4676,7 @@ int CreateFunctionTable(void) {
     IRB.SetCurrentDebugLocation(llvm::DILocation::get(
         *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-    IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+    IRB.CreateRet(IRB.CreateConstInBoundsGEP2_64(ConstantTableInternalGV, 0, 0));
   }
 
   GetFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
