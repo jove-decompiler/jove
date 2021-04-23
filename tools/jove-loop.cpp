@@ -784,9 +784,18 @@ skip_run:
 
         {
           int fd;
-          do {
+          for (;;) {
             fd = open(rtld_path.c_str(), O_WRONLY | O_TRUNC | O_CREAT, 0777);
-          } while (fd < 0 && errno == EBUSY);
+            if (fd < 0) {
+              switch (errno) {
+              case EBUSY:
+              case EINTR:
+                continue;
+              }
+            }
+
+            break;
+          }
 
           if (fd < 0) {
             int err = errno;
