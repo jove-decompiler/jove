@@ -2404,6 +2404,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   return; /* not found */
 
 found:
+#if 0
   {
     char buff[65];
     uint_to_string(Callee.BIdx, &buff[0]);
@@ -2425,6 +2426,7 @@ found:
     char newl = '\n';
     _jove_sys_write(2, &newl, 1);
   }
+#endif
 
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
@@ -2604,6 +2606,7 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
   Call.BIdx = _jove_binary_index();
   Call.BBIdx = CallerBBIdx;
 
+#if 0
   {
     char buff[65];
     uint_to_string(Call.BIdx, &buff[0]);
@@ -2625,6 +2628,7 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
     char newl = '\n';
     _jove_sys_write(2, &newl, 1);
   }
+#endif
 
 found:
   {
