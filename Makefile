@@ -57,13 +57,14 @@ LDFLAGS := -Wl,--no-undefined \
            $(shell pkg-config --libs glib-2.0) \
            -ldl \
            -pthread \
-           -ltinfo \
            -lm \
            -lz \
            -lboost_filesystem \
            -lboost_system \
            -lboost_serialization \
            -fuse-ld=gold
+
+#           -ltinfo \
 
 #
 # important directories
