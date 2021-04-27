@@ -288,6 +288,9 @@ static std::pair<void *, unsigned> GetVDSO(void);
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
 
+static bool ShouldDetach = false;
+static bool ShouldAttach = false;
+
 }
 
 int main(int argc, char **argv) {
@@ -711,6 +714,50 @@ int main(int argc, char **argv) {
 
     jove::set_ptrace_options(child);
 
+    auto sighandler = [](int no) -> void {
+      switch (no) {
+        case SIGUSR1:
+          jove::ShouldDetach = true;
+          break;
+
+        case SIGUSR2:
+          jove::ShouldAttach = true;
+          break;
+
+        default:
+          __builtin_trap();
+          __builtin_unreachable();
+      }
+    };
+
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = SA_RESTART;
+      sa.sa_handler = sighandler;
+
+      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                            __func__, strerror(err));
+      }
+    }
+
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = SA_RESTART;
+      sa.sa_handler = sighandler;
+
+      if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                            __func__, strerror(err));
+      }
+    }
+
     return jove::TracerLoop(child, tcg, dis);
   } else {
     //
@@ -970,26 +1017,6 @@ static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
   return cpu_state._pc_field;
 
 #undef _pc_field
-}
-
-static bool ShouldDetach = false;
-static bool ShouldAttach = false;
-
-static void sighandler(int no) {
-  switch (no) {
-  case SIGUSR1:
-    ShouldDetach = true;
-    break;
-
-  case SIGUSR2:
-    ShouldAttach = true;
-    break;
-
-
-  default:
-    __builtin_trap();
-    __builtin_unreachable();
-  }
 }
 
 static void InvalidateAllFunctionAnalyses(void) {
