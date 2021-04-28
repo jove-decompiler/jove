@@ -913,8 +913,18 @@ void *recover_proc(const char *fifo_path) {
 int await_process_completion(pid_t pid) {
   int wstatus;
   do {
-    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0)
-      abort();
+    if (waitpid(pid, &wstatus, WUNTRACED | WCONTINUED) < 0) {
+      int err = errno;
+      switch (err) {
+      case ECHILD:
+        return 0;
+      case EINTR:
+        continue;
+      default:
+        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        continue;
+      }
+    }
 
     if (WIFEXITED(wstatus)) {
       printf("exited, status=%d\n", WEXITSTATUS(wstatus));
