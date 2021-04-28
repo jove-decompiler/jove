@@ -313,6 +313,9 @@ int InitStateForBinaries(void) {
       f.BIdx = BIdx;
       f.FIdx = FIdx;
 
+      if (unlikely(!is_function_index_valid(f.Entry)))
+        continue;
+
       //
       // BasicBlocks (in DFS order)
       //
