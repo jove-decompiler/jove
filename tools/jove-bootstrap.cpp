@@ -688,6 +688,50 @@ int main(int argc, char **argv) {
 
   jove::disas_t dis(*DisAsm, std::cref(*STI), *IP);
 
+  auto sighandler = [](int no) -> void {
+    switch (no) {
+      case SIGUSR1:
+        jove::ShouldDetach = true;
+        break;
+
+      case SIGUSR2:
+        jove::ShouldAttach = true;
+        break;
+
+      default:
+        __builtin_trap();
+        __builtin_unreachable();
+    }
+  };
+
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = sighandler;
+
+    if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = sighandler;
+
+    if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+    }
+  }
+
   //
   // bootstrap has two modes of execution.
   //
@@ -721,50 +765,6 @@ int main(int argc, char **argv) {
       llvm::errs() << "waited on SIGSTOP.\n";
 
     jove::set_ptrace_options(child);
-
-    auto sighandler = [](int no) -> void {
-      switch (no) {
-        case SIGUSR1:
-          jove::ShouldDetach = true;
-          break;
-
-        case SIGUSR2:
-          jove::ShouldAttach = true;
-          break;
-
-        default:
-          __builtin_trap();
-          __builtin_unreachable();
-      }
-    };
-
-    {
-      struct sigaction sa;
-
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = SA_RESTART;
-      sa.sa_handler = sighandler;
-
-      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                            __func__, strerror(err));
-      }
-    }
-
-    {
-      struct sigaction sa;
-
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = SA_RESTART;
-      sa.sa_handler = sighandler;
-
-      if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                            __func__, strerror(err));
-      }
-    }
 
     return jove::TracerLoop(child, tcg, dis);
   } else {
