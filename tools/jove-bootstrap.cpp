@@ -189,6 +189,14 @@ static cl::alias PIDAlias("p", cl::desc("Alias for -attach."),
                           cl::aliasopt(PID),
                           cl::cat(JoveCategory));
 
+static cl::opt<bool> Fast("fast",
+                          cl::desc("fast mode"),
+                          cl::cat(JoveCategory));
+
+static cl::alias FastAlias("f", cl::desc("Alias for -fast."),
+                           cl::aliasopt(Fast),
+                           cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -4935,9 +4943,13 @@ void on_binary_loaded(pid_t child,
 #endif
 
     try {
-      place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
+      if (opts::Fast && !bbprop.DynTargets.empty()) {
+        ;
+      } else {
+        place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
 
-      ++cnt;
+        ++cnt;
+      }
     } catch (const std::exception &e) {
       WithColor::error() << llvm::formatv(
           "failed to place breakpoint at indirect branch: {0}\n", e.what());
