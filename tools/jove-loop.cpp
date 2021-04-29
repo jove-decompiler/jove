@@ -680,6 +680,9 @@ skip_run:
       // send the jv
       //
       {
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("sending {0}\n", jv_path.c_str());
+
         ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
 
         if (ret < 0) {
@@ -694,6 +697,9 @@ skip_run:
       // ... the remote analyzes and recompiles and sends us a new jv
       //
       {
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("receiving {0}\n", jv_path.c_str());
+
         ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
         if (ret < 0) {
           WithColor::error() << llvm::formatv(
@@ -718,6 +724,9 @@ skip_run:
           continue;
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
+
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777);
         if (ret < 0) {
