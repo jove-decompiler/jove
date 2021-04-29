@@ -966,8 +966,8 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  llvm::errs() << msg;
-  llvm::errs().flush();
+  fprintf(stderr, "%s", msg.c_str());
+  fflush(stderr);
 }
 
 }
