@@ -558,10 +558,7 @@ run:
       {
         uint64_t uint64;
 
-        ssize_t ret;
-        do
-          ret = read(rdFd, &uint64, sizeof(uint64));
-        while (ret < 0 && errno == EINTR);
+        ssize_t ret = robust_read(rdFd, &uint64, sizeof(uint64));
 
         if (ret != sizeof(uint64)) {
           WithColor::warning() << llvm::formatv(
