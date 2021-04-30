@@ -265,29 +265,6 @@ static std::vector<binary_state_t> BinStateVec;
 static boost::dynamic_bitset<> BinFoundVec;
 static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
-static void set_ptrace_options(pid_t child) {
-  //
-  // select ptrace options
-  //
-  int ptrace_options = PTRACE_O_TRACESYSGOOD |
-                    /* PTRACE_O_EXITKILL   | */
-                       PTRACE_O_TRACEEXIT  |
-                       PTRACE_O_TRACEEXEC  |
-                       PTRACE_O_TRACEFORK  |
-                    /* PTRACE_O_TRACEVFORK | */
-                       PTRACE_O_TRACECLONE;
-
-  //
-  // set those options
-  //
-  if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                        __func__,
-                                        strerror(err));
-  }
-}
-
 static bool HasVDSO(void);
 static std::pair<void *, unsigned> GetVDSO(void);
 
@@ -296,8 +273,12 @@ static std::pair<void *, unsigned> GetVDSO(void);
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
 
-static bool ShouldDetach = false;
-static bool ShouldAttach = false;
+static bool ShouldExit = false;
+
+static bool ToggleTurbo = false;
+static unsigned TurboToggle = 0;
+
+static pid_t saved_child;
 
 }
 
@@ -691,16 +672,44 @@ int main(int argc, char **argv) {
   auto sighandler = [](int no) -> void {
     switch (no) {
       case SIGUSR1:
-        jove::ShouldDetach = true;
+        jove::ToggleTurbo = true;
         break;
 
-      case SIGUSR2:
-        jove::ShouldAttach = true;
-        break;
+      //
+      // SIGUSR2: write decompilation and exit
+      //
+      case SIGUSR2: {
+        llvm::errs() << "writing decompilation and exiting...\n";
+
+        //
+        // write decompilation
+        //
+        bool git = fs::is_directory(opts::jv);
+        {
+          std::ofstream ofs(git ? (std::string(opts::jv) + "/decompilation.jv")
+                                : opts::jv);
+
+          boost::archive::text_oarchive oa(ofs);
+          oa << jove::decompilation;
+        }
+
+        exit(0);
+      }
+      /* fallthrough */
 
       default:
         __builtin_trap();
         __builtin_unreachable();
+    }
+
+    if (jove::saved_child) {
+      //
+      // instigate a ptrace-stop
+      //
+      if (kill(SIGWINCH /* SIGSTOP */, jove::saved_child) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("kill failed: {0}\n", strerror(err));
+      }
     }
   };
 
@@ -739,6 +748,8 @@ int main(int argc, char **argv) {
   // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
   //
   if (pid_t child = opts::PID) {
+    jove::saved_child = child;
+
     //
     // mode 1: attach
     //
@@ -764,7 +775,22 @@ int main(int argc, char **argv) {
     if (opts::Verbose)
       llvm::errs() << "waited on SIGSTOP.\n";
 
-    jove::set_ptrace_options(child);
+    {
+      int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                        /* PTRACE_O_EXITKILL   | */
+                           PTRACE_O_TRACEEXIT  |
+                        /* PTRACE_O_TRACEEXEC  | */
+                           PTRACE_O_TRACEFORK  |
+                           PTRACE_O_TRACEVFORK |
+                           PTRACE_O_TRACECLONE;
+
+      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                            __func__,
+                                            strerror(err));
+      }
+    }
 
     return jove::TracerLoop(child, tcg, dis);
   } else {
@@ -798,6 +824,7 @@ int main(int argc, char **argv) {
       return jove::ChildProc(wfd);
     }
 
+    jove::saved_child = child;
     jove::IgnoreCtrlC();
 
     {
@@ -822,7 +849,25 @@ int main(int argc, char **argv) {
     if (opts::Verbose)
       llvm::errs() << "parent: initial stop observed\n";
 
-    jove::set_ptrace_options(child);
+    {
+      //
+      // trace exec for the following
+      //
+      int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                        /* PTRACE_O_EXITKILL   | */
+                           PTRACE_O_TRACEEXIT  |
+                           PTRACE_O_TRACEEXEC  | /* needs to be set here */
+                           PTRACE_O_TRACEFORK  |
+                           PTRACE_O_TRACEVFORK |
+                           PTRACE_O_TRACECLONE;
+
+      if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                            __func__,
+                                            strerror(err));
+      }
+    }
 
     //
     // allow the child to make progress (most importantly, execve)
@@ -1037,6 +1082,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   siginfo_t si;
   long sig = 0;
 
+  bool FirstTime = true;
+
   try {
     for (;;) {
       if (likely(!(child < 0))) {
@@ -1060,7 +1107,11 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
       child = waitpid(-1, &status, __WALL);
 
       if (unlikely(child < 0)) {
-        llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(errno));
+        int err = errno;
+        if (err == EINTR)
+          continue;
+
+        llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
 
@@ -1068,107 +1119,114 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         //
         // this is an opportunity to examine the state of the tracee
         //
-        if (unlikely(ShouldDetach)) {
-          WithColor::note() << "detaching...\n";
+
+        if (unlikely(FirstTime)) { /* is this the first ptrace-stop? */
+          FirstTime = false;
 
           //
-          // detaching is actually nontrivial, because we have to undo the
-          // breakpoints we have planted in DSO(s), otherwise the program will
-          // crash after we detach.
+          // do *not* have ptrace option PTRACE_O_TRACEEXEC set
           //
-          for (const auto &Entry : RetMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Ret = Entry.second;
+          int ptrace_options = PTRACE_O_TRACESYSGOOD |
+                            /* PTRACE_O_EXITKILL   | */
+                               PTRACE_O_TRACEEXIT  |
+                            /* PTRACE_O_TRACEEXEC  | */
+                               PTRACE_O_TRACEFORK  |
+                               PTRACE_O_TRACEVFORK |
+                               PTRACE_O_TRACECLONE;
 
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Ret.words[0]);
-            } catch (...) {
-              ;
-            }
-          }
-
-          for (const auto &Entry : IndBrMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Jmp = Entry.second;
-
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Jmp.words[0]);
-            } catch (...) {
-              ;
-            }
-          }
-
-          for (const auto &Entry : BrkMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Brk = Entry.second;
-
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Brk.words[0]);
-            } catch (...) {
-              ;
-            }
-          }
-
-          //
-          // now stop tracing the child.
-          //
-#if 0
-          if (ptrace(PTRACE_DETACH, child, 0UL, 0UL) < 0) {
+          if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
             int err = errno;
-            WithColor::error() << llvm::formatv("failed to detach from {0}: {1}\n", child, strerror(err));
+            WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                                __func__,
+                                                strerror(err));
           }
-
-          //break;
-          child = -1;
-#endif
-
-          ShouldDetach = false; /* XXX */
-          continue;
         }
 
-        if (unlikely(ShouldAttach)) {
-          WithColor::note() << "attaching...\n";
+        if (unlikely(ShouldExit))
+          throw std::runtime_error("gtfo!\n");
 
-          for (const auto &Entry : RetMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Ret = Entry.second;
+        if (unlikely(ToggleTurbo)) {
+          ToggleTurbo = false;
 
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Ret.words[1]);
-            } catch (...) {
-              ;
+          if (!TurboToggle) {
+            llvm::errs() << "TURBO ON\n";
+
+            for (const auto &Entry : RetMap) {
+              uintptr_t Addr  = Entry.first;
+              const auto &Ret = Entry.second;
+
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Ret.words[0]);
+              } catch (...) {
+                ;
+              }
             }
+
+            for (const auto &Entry : IndBrMap) {
+              uintptr_t Addr  = Entry.first;
+              const auto &Jmp = Entry.second;
+
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Jmp.words[0]);
+              } catch (...) {
+                ;
+              }
+            }
+
+	    for (const auto &Entry : BrkMap) {
+	      uintptr_t Addr  = Entry.first;
+	      const auto &Brk = Entry.second;
+
+	      // write the word back
+	      try {
+		_ptrace_pokedata(child, Addr, Brk.words[0]);
+	      } catch (...) {
+		;
+	      }
+	    }
+          } else {
+            llvm::errs() << "TURBO OFF\n";
+
+            for (const auto &Entry : RetMap) {
+              uintptr_t Addr  = Entry.first;
+              const auto &Ret = Entry.second;
+
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Ret.words[1]);
+              } catch (...) {
+                ;
+              }
+            }
+
+            for (const auto &Entry : IndBrMap) {
+              uintptr_t Addr  = Entry.first;
+              const auto &Jmp = Entry.second;
+
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Jmp.words[1]);
+              } catch (...) {
+                ;
+              }
+            }
+
+	    for (const auto &Entry : BrkMap) {
+	      uintptr_t Addr  = Entry.first;
+	      const auto &Brk = Entry.second;
+
+	      // write the word back
+	      try {
+		_ptrace_pokedata(child, Addr, Brk.words[1]);
+	      } catch (...) {
+		;
+	      }
+	    }
           }
 
-          for (const auto &Entry : IndBrMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Jmp = Entry.second;
-
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Jmp.words[1]);
-            } catch (...) {
-              ;
-            }
-          }
-
-          for (const auto &Entry : BrkMap) {
-            uintptr_t Addr  = Entry.first;
-            const auto &Brk = Entry.second;
-
-            // write the word back
-            try {
-              _ptrace_pokedata(child, Addr, Brk.words[1]);
-            } catch (...) {
-              ;
-            }
-          }
-          ShouldAttach = false; /* XXX */
-          continue;
+          TurboToggle ^= 1;
         }
 
         rendezvous_with_dynamic_linker(child, dis);
@@ -1286,7 +1344,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 if (opts::Verbose)
                   WithColor::note() << "Observed program exit.\n";
 
-                harvest_reloc_targets(child, tcg, dis);
+                //harvest_reloc_targets(child, tcg, dis);
                 break;
 
 
@@ -1454,7 +1512,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
 
-              harvest_reloc_targets(child, tcg, dis);
+              //harvest_reloc_targets(child, tcg, dis);
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
@@ -1468,7 +1526,11 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               break;
             }
           } else {
-            on_breakpoint(child, tcg, dis);
+            try {
+              on_breakpoint(child, tcg, dis);
+            } catch (const std::exception &e) {
+              llvm::errs() << llvm::formatv("on_breakpoint failed: {0}\n", e.what());
+            }
           }
         } else if (ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
           //
@@ -1547,6 +1609,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     // process involves removing edges from the graph, which can be messy.
     //
     bool Changed = false;
+    unsigned NumChanged = 0;
 
     for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
       auto &Binary = decompilation.Binaries[BIdx];
@@ -1591,15 +1654,17 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         return false;
       };
 
-      while (fix_ambiguous_indirect_jumps())
+      while (fix_ambiguous_indirect_jumps()) {
         Changed = true;
+        ++NumChanged;
+      }
     }
 
-    if (Changed)
+    if (Changed) {
+      llvm::note() << llvm::formatv("fixed {0} ambiguous indirect jumps\n",
+                                    NumChanged);
       InvalidateAllFunctionAnalyses();
-
-    if (opts::Verbose && Changed)
-      llvm::errs() << "fixed ambiguous indirect jumps.\n";
+    }
   }
 
   //
@@ -4698,6 +4763,9 @@ void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg, disas_t
       llvm::StringRef SymName = *ExpectedSymName;
 
       auto &SymDynTargets = Binary.Analysis.SymDynTargets[SymName];
+      if (!SymDynTargets.empty())
+        continue;
+
       if (opts::Verbose)
         llvm::errs() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
@@ -4724,16 +4792,22 @@ void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg, disas_t
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                                description_of_program_counter(Resolved.Addr));
 
-        return;
+        continue;
       }
 
       Resolved.BIdx = *(*it).second.begin();
 
       unsigned brkpt_count = 0;
-      Resolved.FIdx = translate_function(
+      basic_block_index_t resolved_bbidx = translate_basic_block(
           child, Resolved.BIdx, tcg, dis,
           rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
 
+      if (!is_basic_block_index_valid(resolved_bbidx))
+        continue;
+
+      Resolved.FIdx = translate_function(
+          child, Resolved.BIdx, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
