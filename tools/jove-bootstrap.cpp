@@ -1339,12 +1339,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 if (opts::Verbose)
                   WithColor::note() << "Observed program exit.\n";
 
-                if (saved_child) {
-                  if (child == saved_child) {
-                    WithColor::note() << "program is exiting. harvesting reloc targets...\n";
+                if (child == saved_child) {
+                  WithColor::note() << "program is exiting. harvesting reloc targets...\n";
 
-                    harvest_reloc_targets(child, tcg, dis);
-                  }
+                  harvest_reloc_targets(child, tcg, dis);
                 }
                 break;
 
