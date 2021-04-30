@@ -1820,6 +1820,25 @@ static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
 static void _jove_init_cpu_state(void);
 
+#define _UNREACHABLE()                                                         \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str);                                        \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
@@ -1837,6 +1856,9 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 // utility functions
 //
 static _INL void *_memset(void *dst, int c, size_t n);
+static _INL char *_strcat(char *s, const char *append);
+static _INL size_t _strlen(const char *s);
+static _INL void uint_to_string(uint32_t x, char *Str);
 
 void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
@@ -1917,8 +1939,7 @@ static _CTOR void _jove_rt_init(void) {
     long ret =
         _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
     if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
+      _UNREACHABLE();
     }
   }
 
@@ -1930,8 +1951,7 @@ static _CTOR void _jove_rt_init(void) {
   {
     long ret = _jove_sys_sigaltstack(&uss, NULL);
     if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
+      _UNREACHABLE();
     }
   }
 
@@ -1944,8 +1964,7 @@ static target_ulong to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   if (sig != SIGSEGV) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
 #define pc    uctx->uc_mcontext.pc
@@ -1981,6 +2000,16 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
       if (saved_pc != fns[2 * FIdx + 0])
         continue;
+
+#if 0
+      {
+        char buff[256];
+        buff[0] = '\0';
+
+        _strcat(buff, "J2A\n");
+        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+      }
+#endif
 
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
@@ -2031,8 +2060,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       }
 
       if (t9 != fns[2 * FIdx + 0]) {
-        __builtin_trap();
-        __builtin_unreachable();
+        _UNREACHABLE();
       }
 
       emut9 = t9;
@@ -2053,16 +2081,14 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mips_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   //
@@ -2072,13 +2098,11 @@ target_ulong _jove_alloc_stack(void) {
   unsigned long end = beg + JOVE_STACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   return beg;
@@ -2086,8 +2110,7 @@ target_ulong _jove_alloc_stack(void) {
 
 void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 }
 
@@ -2096,8 +2119,7 @@ target_ulong _jove_alloc_callstack(void) {
       _jove_sys_mips_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                           MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   unsigned long uret = (unsigned long)ret;
@@ -2109,13 +2131,11 @@ target_ulong _jove_alloc_callstack(void) {
   unsigned long end = beg + JOVE_CALLSTACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   return beg;
@@ -2123,8 +2143,7 @@ target_ulong _jove_alloc_callstack(void) {
 
 void _jove_free_callstack(target_ulong start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 }
 
@@ -2155,6 +2174,56 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
+}
+
+size_t _strlen(const char *str) {
+  const char *s;
+
+  for (s = str; *s; ++s)
+    ;
+  return (s - str);
+}
+
+void uint_to_string(uint32_t x, char *Str) {
+  const unsigned Radix = 10;
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
+}
+
 void _jove_free_stack_later(target_ulong stack) {
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
@@ -2164,6 +2233,5 @@ void _jove_free_stack_later(target_ulong stack) {
     return;
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
