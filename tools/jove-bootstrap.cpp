@@ -278,7 +278,7 @@ static bool ShouldExit = false;
 static bool ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
-static pid_t saved_child;
+static pid_t saved_child = 0;
 
 }
 
@@ -1344,7 +1344,13 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 if (opts::Verbose)
                   WithColor::note() << "Observed program exit.\n";
 
-                //harvest_reloc_targets(child, tcg, dis);
+                if (saved_child) {
+                  if (child == saved_child) {
+                    WithColor::note() << "program is exiting. harvesting reloc targets...\n";
+
+                    harvest_reloc_targets(child, tcg, dis);
+                  }
+                }
                 break;
 
 
@@ -1529,6 +1535,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
             try {
               on_breakpoint(child, tcg, dis);
             } catch (const std::exception &e) {
+              /* TODO rate-limit */
               llvm::errs() << llvm::formatv("on_breakpoint failed: {0}\n", e.what());
             }
           }
