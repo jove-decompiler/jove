@@ -273,8 +273,6 @@ static std::pair<void *, unsigned> GetVDSO(void);
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
 
-static bool ShouldExit = false;
-
 static bool ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
@@ -1141,9 +1139,6 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                                                 strerror(err));
           }
         }
-
-        if (unlikely(ShouldExit))
-          throw std::runtime_error("gtfo!\n");
 
         if (unlikely(ToggleTurbo)) {
           ToggleTurbo = false;
