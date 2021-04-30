@@ -1661,7 +1661,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     }
 
     if (Changed) {
-      llvm::note() << llvm::formatv("fixed {0} ambiguous indirect jumps\n",
+      WithColor::note() << llvm::formatv("fixed {0} ambiguous indirect jumps\n",
                                     NumChanged);
       InvalidateAllFunctionAnalyses();
     }
