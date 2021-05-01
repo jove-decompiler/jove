@@ -1128,6 +1128,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         break;
       }
 
+      saved_child = child;
+
       if (likely(WIFSTOPPED(status))) {
         //
         // this is an opportunity to examine the state of the tracee
