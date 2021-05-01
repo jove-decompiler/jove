@@ -105,6 +105,20 @@ extern "C" unsigned long getauxval(unsigned long type);
 #include <asm/ptrace.h> /* for pt_regs */
 #endif
 
+#define __LOG_COLOR_PREFIX "\033["
+#define __LOG_COLOR_SUFFIX "m"
+
+#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
+#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX
+#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
+#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
+#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
+#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
+
 //#include <linux/ptrace.h>
 
 namespace fs = boost::filesystem;
@@ -273,7 +287,7 @@ static std::pair<void *, unsigned> GetVDSO(void);
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
 
-static bool ToggleTurbo = false;
+static std::atomic<bool> ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
 static pid_t saved_child = 0;
@@ -670,7 +684,7 @@ int main(int argc, char **argv) {
   auto sighandler = [](int no) -> void {
     switch (no) {
       case SIGUSR1:
-        jove::ToggleTurbo = true;
+        jove::ToggleTurbo.store(true);
         break;
 
       //
@@ -704,9 +718,10 @@ int main(int argc, char **argv) {
       //
       // instigate a ptrace-stop
       //
-      if (kill(SIGWINCH /* SIGSTOP */, jove::saved_child) < 0) {
+      if (kill(jove::saved_child, SIGSTOP /* SIGWINCH */) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("kill failed: {0}\n", strerror(err));
+        WithColor::error() << llvm::formatv("kill of {0} failed: {1}\n",
+                                            jove::saved_child, strerror(err));
       }
     }
   };
@@ -1140,11 +1155,11 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           }
         }
 
-        if (unlikely(ToggleTurbo)) {
-          ToggleTurbo = false;
+        if (unlikely(ToggleTurbo.load())) {
+          ToggleTurbo.store(false);
 
           if (!TurboToggle) {
-            llvm::errs() << "TURBO ON\n";
+            llvm::errs() << __LOG_BOLD_GREEN "TURBO ON" __LOG_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
@@ -1182,7 +1197,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 	      }
 	    }
           } else {
-            llvm::errs() << "TURBO OFF\n";
+            llvm::errs() << __LOG_BOLD_RED "TURBO OFF" __LOG_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
