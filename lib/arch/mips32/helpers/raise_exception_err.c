@@ -1747,10 +1747,16 @@ struct CPUMIPSState {
     target_ulong exception_base; /* ExceptionBase input to the core */
 };
 
+static const char *syscall_names[] = {
+#define ___SYSCALL(nr, nm) [nr] = #nm,
+#include "syscalls.inc.h"
+};
+
 #define _HIDDEN __attribute__((visibility("hidden")))
 #define _NOINL  __attribute__((noinline))
 #define _INL    __attribute__((always_inline))
 #define _UNUSED __attribute__((unused))
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
@@ -1809,6 +1815,38 @@ void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #endif /* JOVE_DFSAN */
 
+static size_t _strlen(const char *str) {
+  const char *s;
+
+  for (s = str; *s; ++s)
+    ;
+  return (s - str);
+}
+
+static char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
+}
+
+#define __LOG_COLOR_PREFIX "\033["
+#define __LOG_COLOR_SUFFIX "m"
+
+#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
+#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX "CS-ERROR: "
+#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
+#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
+#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
+#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
+
 __attribute__((always_inline))
 void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                 int error_code)
@@ -1848,6 +1886,77 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #undef env_a4
 #undef env_a5
 #undef env_a6
+
+  if (sysnum != 4004 /* write */ &&
+      sysnum != 4117 /* ipc */) {
+  if (sysnum < ARRAY_SIZE(syscall_names)) {
+    const char *nm = syscall_names[sysnum];
+    if (nm) {
+      char buff[256];
+      buff[0] = '\0';
+
+      _strcat(buff, __LOG_GREEN);
+      _strcat(buff, nm);
+      _strcat(buff, __LOG_NORMAL_COLOR);
+
+      if (sysnum == 4011 /* execve */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4356 /* execveat */ && _a2) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a2);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4005 /* open */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4288 /* openat */ && _a2) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a2);
+        _strcat(buff, "\")");
+      }
+
+      _strcat(buff, "\n");
+
+      _jove_sys_write(2, buff, _strlen(buff));
+    }
+  }
+  }
+
+#if 0
+  if (sysnum == 4006 /* close */ && (_a1 == 0 || _a1 == 1)) {
+    //
+    // fake sucessful return
+    //
+    env->active_tc.gpr[7] = 0;
+    env->active_tc.gpr[2] = 0;
+    return;
+  }
+#endif
+
+#if 0
+  switch (sysnum) {
+    case 4166: /* nanosleep_time32 */
+    case 4265: /* clock_nanosleep_time32 */
+    case 4407: /* clock_nanosleep */
+      //
+      // fake successful return
+      //
+      env->active_tc.gpr[7] = 0;
+      env->active_tc.gpr[2] = 0;
+      return;
+
+    default:
+      break;
+  }
+#endif
 
 #ifdef JOVE_DFSAN
   //
