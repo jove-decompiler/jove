@@ -97,7 +97,9 @@ struct hook_t;
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
   const hook_t *hook = nullptr;                                                \
   llvm::Function *PreHook = nullptr;                                           \
+  llvm::GlobalVariable *PreHookGv = nullptr;                                   \
   llvm::Function *PostHook = nullptr;                                          \
+  llvm::GlobalVariable *PostHookGv = nullptr;                                  \
                                                                                \
   struct {                                                                     \
     llvm::GlobalIFunc *IFunc = nullptr;                                        \
@@ -1316,6 +1318,9 @@ int InitStateForBinaries(void) {
       f.BIdx = BIdx;
       f.FIdx = FIdx;
 
+      if (!is_basic_block_index_valid(f.Entry))
+        continue;
+
       FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = FIdx;
 
       //
@@ -1657,17 +1662,27 @@ static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
 }
 
 template <bool IsPreOrPost>
-static llvm::Function *declareHook(const hook_t &h) {
+static std::pair<llvm::GlobalVariable *, llvm::Function *> declareHook(const hook_t &h) {
   const char *namePrefix = IsPreOrPost ? "__dfs_pre_hook_"
                                        : "__dfs_post_hook_";
+  const char *gvNamePrefix = IsPreOrPost ? "__dfs_pre_hook_gv_"
+                                         : "__dfs_post_hook_gv_";
+
 
   std::string name(namePrefix);
   name.append(h.Sym);
 
+  std::string gvName(gvNamePrefix);
+  gvName.append(h.Sym);
+
   // first check if it already exists
   if (llvm::Function *F = Module->getFunction(name)) {
     assert(F->empty());
-    return F; // it does
+
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(gvName, true);
+    assert(GV);
+
+    return std::make_pair(GV, F);
   }
 
   std::vector<llvm::Type *> argTypes;
@@ -1686,15 +1701,25 @@ static llvm::Function *declareHook(const hook_t &h) {
   llvm::FunctionType *FTy =
       llvm::FunctionType::get(VoidType(), argTypes, false);
 
-  return llvm::Function::Create(FTy, llvm::GlobalValue::ExternalLinkage, name,
-                                Module.get());
+  llvm::Function *F = llvm::Function::Create(
+      FTy, llvm::GlobalValue::ExternalLinkage, name, Module.get());
+
+  llvm::GlobalVariable *GV = new llvm::GlobalVariable(
+        *Module,
+        WordType(),
+        false,
+        llvm::GlobalValue::InternalLinkage,
+        llvm::ConstantExpr::getPtrToInt(F, WordType()),
+        gvName);
+
+  return std::make_pair(GV, F);
 }
 
-static llvm::Function *declarePreHook(const hook_t &h) {
+static std::pair<llvm::GlobalVariable *, llvm::Function *> declarePreHook(const hook_t &h) {
   return declareHook<true>(h);
 }
 
-static llvm::Function *declarePostHook(const hook_t &h) {
+static std::pair<llvm::GlobalVariable *, llvm::Function *> declarePostHook(const hook_t &h) {
   return declareHook<false>(h);
 }
 
@@ -1720,7 +1745,7 @@ int LocateHooks(void) {
 
         if (h.Pre && dfsanPreHooks.insert(IdxPair).second) {
           f.hook = &h;
-          f.PreHook = declarePreHook(h);
+          std::tie(f.PreHookGv, f.PreHook) = declarePreHook(h);
 
           llvm::outs() << llvm::formatv("pre-hook {0} @ ({1}, {2})\n",
                                         h.Sym,
@@ -1730,7 +1755,7 @@ int LocateHooks(void) {
 
         if (h.Post && dfsanPostHooks.insert(IdxPair).second) {
           f.hook = &h;
-          f.PostHook = declarePostHook(h);
+          std::tie(f.PostHookGv, f.PostHook) = declarePostHook(h);
 
           llvm::outs() << llvm::formatv("post-hook {0} @ ({1}, {2})\n",
                                         h.Sym,
@@ -2799,11 +2824,11 @@ int ProcessDynamicSymbols(void) {
                 (fmt(".globl %s\n"
                      ".type  %s,@object\n"
                      ".size  %s, %u\n" 
-                     ".set   %s, __jove_sections + %u")
+                     ".set   %s, __jove_sections_%u + %u")
                  % sym.Name.str()
                  % sym.Name.str()
                  % sym.Name.str() % Sym.st_size
-                 % sym.Name.str() % off).str());
+                 % sym.Name.str() % BinaryIndex % off).str());
 
             if (!sym.Vers.empty())
               VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
@@ -2819,11 +2844,11 @@ int ProcessDynamicSymbols(void) {
                   (fmt(".globl %s\n"
                        ".type  %s,@object\n"
                        ".size  %s, %u\n" 
-                       ".set   %s, __jove_sections + %u")
+                       ".set   %s, __jove_sections_%u + %u")
                    % sym.Name.str()
                    % sym.Name.str()
                    % sym.Name.str() % Sym.st_size
-                   % sym.Name.str() % off).str());
+                   % sym.Name.str() % BinaryIndex % off).str());
             } else {
               if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
                 Module->appendModuleInlineAsm(
@@ -2831,12 +2856,12 @@ int ProcessDynamicSymbols(void) {
                          ".globl  g%lx_%u\n"
                          ".type   g%lx_%u,@object\n"
                          ".size   g%lx_%u, %u\n" 
-                         ".set    g%lx_%u, __jove_sections + %u")
+                         ".set    g%lx_%u, __jove_sections_%u + %u")
                      % Sym.st_value % Sym.st_size
                      % Sym.st_value % Sym.st_size
                      % Sym.st_value % Sym.st_size
                      % Sym.st_value % Sym.st_size % Sym.st_size
-                     % Sym.st_value % Sym.st_size % off).str());
+                     % Sym.st_value % Sym.st_size % BinaryIndex % off).str());
 
                 gdefs.insert({Sym.st_value, Sym.st_size});
               }
@@ -4428,6 +4453,9 @@ int CreateFunctions(void) {
       return 1;
     }
 
+    if (!is_basic_block_index_valid(f.Entry))
+      continue;
+
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') %
                              ICFG[boost::vertex(f.Entry, ICFG)].Addr)
                                 .str();
@@ -4456,10 +4484,10 @@ int CreateFunctions(void) {
         Module->appendModuleInlineAsm(
             (fmt(".globl %s\n"
                  ".type  %s,@function\n"
-                 ".set   %s, __jove_sections + %u")
+                 ".set   %s, __jove_sections_%u + %u")
              % sym.Name.str()
              % sym.Name.str()
-             % sym.Name.str() % off).str());
+             % sym.Name.str() % BinaryIndex % off).str());
 #endif
       } else {
          // make sure version node is defined
@@ -4477,11 +4505,11 @@ int CreateFunctions(void) {
             (fmt(".globl %s\n"
                  ".hidden %s\n"
                  ".type  %s,@function\n"
-                 ".set   %s, __jove_sections + %u")
+                 ".set   %s, __jove_sections_%u + %u")
              % dummy_name
              % dummy_name
              % dummy_name
-             % dummy_name % off).str());
+             % dummy_name % BinaryIndex % off).str());
 
         Module->appendModuleInlineAsm(
             (llvm::Twine(".symver ") + dummy_name + "," + sym.Name +
@@ -4592,6 +4620,13 @@ int CreateFunctionTable(void) {
 
   for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
     const function_t &f = Binary.Analysis.Functions[i];
+
+    if (!is_basic_block_index_valid(f.Entry)) {
+      constantTable[2 * i + 0] = llvm::Constant::getNullValue(WordType());
+      constantTable[2 * i + 1] = llvm::Constant::getNullValue(WordType());
+      continue;
+    }
+
     target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     llvm::Constant *C1 = SectionPointer(Addr);
@@ -4866,6 +4901,9 @@ int CreateSectionGlobalVariables(void) {
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
+        if (!is_basic_block_index_valid(f.Entry))
+          continue;
+
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
@@ -4875,6 +4913,9 @@ int CreateSectionGlobalVariables(void) {
 
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
+        if (!is_basic_block_index_valid(f.Entry))
+          continue;
+
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
@@ -4891,6 +4932,9 @@ int CreateSectionGlobalVariables(void) {
       //
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
+        if (!is_basic_block_index_valid(f.Entry))
+          continue;
+
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
@@ -5926,7 +5970,7 @@ int CreateSectionGlobalVariables(void) {
 
     SectsGlobal = new llvm::GlobalVariable(*Module, SectsGlobalTy, false,
                                            llvm::GlobalValue::ExternalLinkage,
-                                           nullptr, "__jove_sections");
+                                           nullptr, (fmt("__jove_sections_%u") % BinaryIndex).str());
 
     ConstSectsGlobal = new llvm::GlobalVariable(
         *Module, SectsGlobalTy, false, llvm::GlobalValue::ExternalLinkage,
@@ -7416,11 +7460,11 @@ int ProcessDynamicSymbols2(void) {
                     (fmt(".globl %s\n"
                          ".type  %s,@object\n"
                          ".size  %s, %u\n" 
-                         ".set   %s, __jove_sections + %u")
+                         ".set   %s, __jove_sections_%u + %u")
                      % sym.Name.str()
                      % sym.Name.str()
                      % sym.Name.str() % Sym.st_size
-                     % sym.Name.str() % off).str());
+                     % sym.Name.str() % BinaryIndex % off).str());
               } else {
                 if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
                   Module->appendModuleInlineAsm(
@@ -7428,12 +7472,12 @@ int ProcessDynamicSymbols2(void) {
                            ".globl  g%lx_%u\n"
                            ".type   g%lx_%u,@object\n"
                            ".size   g%lx_%u, %u\n" 
-                           ".set    g%lx_%u, __jove_sections + %u")
+                           ".set    g%lx_%u, __jove_sections_%u + %u")
                        % Sym.st_value % Sym.st_size
                        % Sym.st_value % Sym.st_size
                        % Sym.st_value % Sym.st_size
                        % Sym.st_value % Sym.st_size % Sym.st_size
-                       % Sym.st_value % Sym.st_size % off).str());
+                       % Sym.st_value % Sym.st_size % BinaryIndex % off).str());
 
                   gdefs.insert({Sym.st_value, Sym.st_size});
                 }
@@ -8615,6 +8659,9 @@ static int TranslateFunction(function_t &f) {
   llvm::Function *F = f.F;
   llvm::DIBuilder &DIB = *DIBuilder;
 
+  if (unlikely(f.BasicBlocks.empty()))
+    return 0;
+
   basic_block_t entry_bb = f.BasicBlocks.front();
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
 
@@ -8823,7 +8870,8 @@ int TranslateFunctions(void) {
     if (unlikely(ret))
       return ret;
 
-    FPM.run(*f.F);
+    if (likely(f.F))
+      FPM.run(*f.F);
   }
 
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -8907,7 +8955,7 @@ int PrepareToOptimize(void) {
 
 static void ReloadGlobalVariables(void) {
   CPUStateGlobal   = Module->getGlobalVariable("__jove_env",                 true);
-  SectsGlobal      = Module->getGlobalVariable("__jove_sections",            true);
+  SectsGlobal      = Module->getGlobalVariable((fmt("__jove_sections_%u") % BinaryIndex).str(), true);
   ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
 }
 
@@ -10156,7 +10204,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                          llvm::Type *Ty = type_of_arg_info(info);
                          return llvm::Constant::getNullValue(Ty);
                        });
-        IRB.CreateCall(hook_f.PreHook, ArgVec);
+        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookGv), hook_f.PreHook->getType()), ArgVec);
       }
     }
 
@@ -10336,7 +10384,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         //
         // make the call
         //
-        IRB.CreateCall(hook_f.PostHook, HookArgVec);
+        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookGv), hook_f.PostHook->getType()), HookArgVec);
       }
     }
 
@@ -10797,7 +10845,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // make the call
               //
-              IRB.CreateCall(hook_f.PostHook, HookArgVec);
+              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookGv), hook_f.PostHook->getType()), HookArgVec);
             }
           }
 
