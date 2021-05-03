@@ -1792,7 +1792,7 @@ struct kernel_sigaction {
 #include <fcntl.h>
 #include <stdio.h>
 //#include <sys/syscall.h>
-//#include <errno.h>
+#include <errno.h>
 #include <unistd.h>
 #include <inttypes.h>
 #include <sys/mman.h>
@@ -1860,6 +1860,7 @@ static _INL void *_memset(void *dst, int c, size_t n);
 static _INL char *_strcat(char *s, const char *append);
 static _INL size_t _strlen(const char *s);
 static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
+static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 
 void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
@@ -2082,32 +2083,33 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  char buff[2048];
-  buff[0] = '\0';
-
-  _strcat(buff, "\n[");
   {
-    char str[65];
-    uint_to_string(_jove_sys_gettid(), str, 10);
+    char buff[2048];
+    buff[0] = '\0';
 
-    _strcat(buff, str);
-  }
+    _strcat(buff, "\n[");
+    {
+      char str[65];
+      uint_to_string(_jove_sys_gettid(), str, 10);
 
-  _strcat(buff, "] *** crash (jove) ***\n");
+      _strcat(buff, str);
+    }
+
+    _strcat(buff, "] *** crash (jove) ***\n");
 
 #define _FIELD(name, init)                                                     \
-  do {                                                                         \
-    _strcat(buff, name " 0x");                                                 \
-                                                                               \
-    {                                                                          \
-      char buf[65];                                                            \
-      uint_to_string(init, buf, 0x10);                                         \
-                                                                               \
-      _strcat(buff, buf);                                                      \
-    }                                                                          \
-                                                                               \
-    _strcat(buff, "\n");                                                       \
-  } while (false)
+    do {                                                                         \
+      _strcat(buff, name " 0x");                                                 \
+                                                                                 \
+      {                                                                          \
+        char buf[65];                                                            \
+        uint_to_string(init, buf, 0x10);                                         \
+                                                                                 \
+        _strcat(buff, buf);                                                      \
+      }                                                                          \
+                                                                                 \
+      _strcat(buff, "\n");                                                       \
+    } while (false)
 
   _FIELD("pc", saved_pc);
   _FIELD("r0", uctx->uc_mcontext.gregs[0]);
@@ -2145,9 +2147,21 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
 #undef _FIELD
 
-  _strcat(buff, "\n");
+    _strcat(buff, "\n");
 
-  _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+  }
+
+  //
+  // dump /proc/self/maps
+  //
+  {
+    char buff[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
+    buff[n] = '\0';
+
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+  }
 
 #if 0
   {
@@ -2309,4 +2323,43 @@ void _jove_free_stack_later(target_ulong stack) {
   }
 
   _UNREACHABLE();
+}
+
+unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
+  unsigned n;
+
+  {
+    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
+    if (fd < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    // let n denote the number of characters read
+    n = 0;
+
+    for (;;) {
+      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
+
+      if (ret == 0)
+        break;
+
+      if (ret < 0) {
+        if (ret == -EINTR)
+          continue;
+
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
+      n += ret;
+    }
+
+    if (_jove_sys_close(fd) < 0) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+  }
+
+  return n;
 }
