@@ -290,6 +290,7 @@ static void UnIgnoreCtrlC(void);
 static std::atomic<bool> ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
+static pid_t saved_pid = 0;
 static pid_t saved_child = 0;
 
 }
@@ -761,7 +762,7 @@ int main(int argc, char **argv) {
   // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
   //
   if (pid_t child = opts::PID) {
-    jove::saved_child = child;
+    jove::saved_child = jove::saved_pid = child;
 
     //
     // mode 1: attach
@@ -837,7 +838,7 @@ int main(int argc, char **argv) {
       return jove::ChildProc(wfd);
     }
 
-    jove::saved_child = child;
+    jove::saved_child = jove::saved_pid = child;
     jove::IgnoreCtrlC();
 
     {
@@ -1048,6 +1049,13 @@ static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
 static void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
 
+
+static basic_block_index_t translate_basic_block(pid_t,
+                                                 binary_index_t binary_idx,
+                                                 tiny_code_generator_t &,
+                                                 disas_t &,
+                                                 const target_ulong Addr,
+                                                 unsigned &brkpt_count);
 static function_index_t translate_function(pid_t child,
                                            binary_index_t binary_idx,
                                            tiny_code_generator_t &tcg,
@@ -1431,7 +1439,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                   WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
-                    update_view_of_virtual_memory(child);
+                    update_view_of_virtual_memory(saved_pid);
 
                     auto it = AddressSpace.find(handler);
                     if (it == AddressSpace.end()) {
@@ -1441,18 +1449,26 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                       binary_index_t handler_binary_idx = *(*it).second.begin();
 
                       unsigned brkpt_count = 0;
-                      function_index_t f_idx = translate_function(
+
+                      basic_block_index_t entrybb_idx = translate_basic_block(
                           child, handler_binary_idx, tcg, dis,
                           rva_of_va(handler, handler_binary_idx), brkpt_count);
 
-                      if (f_idx == invalid_function_index) {
-                        WithColor::error() << llvm::formatv(
-                            "failed to translate signal handler {0:x}\n", handler);
-                      } else {
-                        binary_t &binary =
-                            decompilation.Binaries[handler_binary_idx];
-                        binary.Analysis.Functions[f_idx].IsSignalHandler = true;
-                        binary.Analysis.Functions[f_idx].IsABI = true;
+                      if (is_basic_block_index_valid(entrybb_idx)) {
+                        function_index_t f_idx = translate_function(
+                            child, handler_binary_idx, tcg, dis,
+                            rva_of_va(handler, handler_binary_idx),
+                            brkpt_count);
+
+                        if (is_function_index_valid(f_idx)) {
+                          binary_t &binary = decompilation.Binaries[handler_binary_idx];
+                          binary.Analysis.Functions[f_idx].IsSignalHandler = true;
+                          binary.Analysis.Functions[f_idx].IsABI = true;
+                        } else {
+                          WithColor::error() << llvm::formatv(
+                              "failed to translate signal handler {0:x}\n",
+                              handler);
+                        }
                       }
                     }
                   }
@@ -1788,13 +1804,6 @@ int await_process_completion(pid_t pid) {
 
   abort();
 }
-
-static basic_block_index_t translate_basic_block(pid_t,
-                                                 binary_index_t binary_idx,
-                                                 tiny_code_generator_t &,
-                                                 disas_t &,
-                                                 const target_ulong Addr,
-                                                 unsigned &brkpt_count);
 
 function_index_t translate_function(pid_t child,
                                     binary_index_t binary_idx,
@@ -3523,7 +3532,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
-      update_view_of_virtual_memory(child);
+      update_view_of_virtual_memory(saved_pid);
       auto desc(description_of_program_counter(addr));
 
       throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
@@ -3848,7 +3857,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = AddressSpace.find(target);
     if (it == AddressSpace.end()) {
       if (opts::Verbose) {
-        update_view_of_virtual_memory(child);
+        update_view_of_virtual_memory(saved_pid);
 
         WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
                                               description_of_program_counter(saved_pc),
@@ -4841,7 +4850,7 @@ void search_address_space_for_binaries(pid_t child, disas_t &dis) {
   if (BinFoundVec.all())
     return; /* there is no need */
 
-  if (unlikely(!update_view_of_virtual_memory(child))) {
+  if (unlikely(!update_view_of_virtual_memory(saved_pid))) {
     WithColor::error() << "failed to read virtual memory maps of child "
                        << child << '\n';
     return;
