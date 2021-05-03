@@ -109,10 +109,6 @@ struct hook_t;
     llvm::AllocaInst *SavedCPUState = nullptr;                                 \
   } _signal_handler;                                                           \
                                                                                \
-  struct {                                                                     \
-    llvm::DISubprogram *Subprogram = nullptr;                                  \
-  } DebugInformation;                                                          \
-                                                                               \
   bool IsNamed = false;                                                        \
                                                                                \
   std::vector<symbol_t> Syms;                                                  \
@@ -8587,6 +8583,10 @@ struct TranslateContext {
   std::vector<llvm::BasicBlock *> LabelVec;
   llvm::AllocaInst *PCAlloca;
 
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInformation;
+
   TranslateContext(function_t &f) : f(f) {
     std::fill(GlobalAllocaArr.begin(),
               GlobalAllocaArr.end(),
@@ -8681,7 +8681,7 @@ static int TranslateFunction(function_t &f) {
   llvm::DISubroutineType *SubProgType =
       DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
-  f.DebugInformation.Subprogram = DIB.createFunction(
+  TC.DebugInformation.Subprogram = DIB.createFunction(
       /* Scope       */ DebugInformation.CompileUnit,
       /* Name        */ F->getName(),
       /* LinkageName */ F->getName(),
@@ -8692,7 +8692,7 @@ static int TranslateFunction(function_t &f) {
       /* Flags       */ llvm::DINode::FlagZero,
       /* SPFlags     */ SubProgFlags);
 
-  F->setSubprogram(f.DebugInformation.Subprogram);
+  F->setSubprogram(TC.DebugInformation.Subprogram);
 
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
 
@@ -8705,7 +8705,7 @@ static int TranslateFunction(function_t &f) {
 
     IRB.SetCurrentDebugLocation(
         llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
-                              f.DebugInformation.Subprogram));
+                              TC.DebugInformation.Subprogram));
 
     if (f.IsSignalHandler) {
       //
@@ -8831,7 +8831,7 @@ static int TranslateFunction(function_t &f) {
     }
   }
 
-  DIB.finalizeSubprogram(f.DebugInformation.Subprogram);
+  DIB.finalizeSubprogram(TC.DebugInformation.Subprogram);
 
   return 0;
 }
@@ -11245,7 +11245,7 @@ static int TranslateTCGOp(TCGOp *op,
       unsigned Line = Addr;
 
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-          *Context, Line, 0 /* Column */, f.DebugInformation.Subprogram));
+          *Context, Line, 0 /* Column */, TC.DebugInformation.Subprogram));
     }
     break;
 
