@@ -1823,7 +1823,7 @@ static void _jove_init_cpu_state(void);
 #define _UNREACHABLE()                                                         \
   do {                                                                         \
     char line_str[65];                                                         \
-    uint_to_string(__LINE__, line_str);                                        \
+    uint_to_string(__LINE__, line_str, 10);                                    \
                                                                                \
     char buff[256];                                                            \
     buff[0] = '\0';                                                            \
@@ -1834,6 +1834,7 @@ static void _jove_init_cpu_state(void);
     _strcat(buff, line_str);                                                   \
     _strcat(buff, ")\n");                                                      \
     _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
     _jove_sys_exit_group(1);                                                   \
                                                                                \
     __builtin_unreachable();                                                   \
@@ -1858,7 +1859,7 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 static _INL void *_memset(void *dst, int c, size_t n);
 static _INL char *_strcat(char *s, const char *append);
 static _INL size_t _strlen(const char *s);
-static _INL void uint_to_string(uint32_t x, char *Str);
+static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
 
 void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
@@ -2081,7 +2082,83 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  _UNREACHABLE();
+  char buff[2048];
+  buff[0] = '\0';
+
+  _strcat(buff, "\n[");
+  {
+    char str[65];
+    uint_to_string(_jove_sys_gettid(), str, 10);
+
+    _strcat(buff, str);
+  }
+
+  _strcat(buff, "] *** crash (jove) ***\n");
+
+#define _FIELD(name, init)                                                     \
+  do {                                                                         \
+    _strcat(buff, name " 0x");                                                 \
+                                                                               \
+    {                                                                          \
+      char buf[65];                                                            \
+      uint_to_string(init, buf, 0x10);                                         \
+                                                                               \
+      _strcat(buff, buf);                                                      \
+    }                                                                          \
+                                                                               \
+    _strcat(buff, "\n");                                                       \
+  } while (false)
+
+  _FIELD("pc", saved_pc);
+  _FIELD("r0", uctx->uc_mcontext.gregs[0]);
+  _FIELD("at", uctx->uc_mcontext.gregs[1]);
+  _FIELD("v0", uctx->uc_mcontext.gregs[2]);
+  _FIELD("v1", uctx->uc_mcontext.gregs[3]);
+  _FIELD("a0", uctx->uc_mcontext.gregs[4]);
+  _FIELD("a1", uctx->uc_mcontext.gregs[5]);
+  _FIELD("a2", uctx->uc_mcontext.gregs[6]);
+  _FIELD("a3", uctx->uc_mcontext.gregs[7]);
+  _FIELD("t0", uctx->uc_mcontext.gregs[8]);
+  _FIELD("t1", uctx->uc_mcontext.gregs[9]);
+  _FIELD("t2", uctx->uc_mcontext.gregs[10]);
+  _FIELD("t3", uctx->uc_mcontext.gregs[11]);
+  _FIELD("t4", uctx->uc_mcontext.gregs[12]);
+  _FIELD("t5", uctx->uc_mcontext.gregs[13]);
+  _FIELD("t6", uctx->uc_mcontext.gregs[14]);
+  _FIELD("t7", uctx->uc_mcontext.gregs[15]);
+  _FIELD("s0", uctx->uc_mcontext.gregs[16]);
+  _FIELD("s1", uctx->uc_mcontext.gregs[17]);
+  _FIELD("s2", uctx->uc_mcontext.gregs[18]);
+  _FIELD("s3", uctx->uc_mcontext.gregs[19]);
+  _FIELD("s4", uctx->uc_mcontext.gregs[20]);
+  _FIELD("s5", uctx->uc_mcontext.gregs[21]);
+  _FIELD("s6", uctx->uc_mcontext.gregs[22]);
+  _FIELD("s7", uctx->uc_mcontext.gregs[23]);
+  _FIELD("t8", uctx->uc_mcontext.gregs[24]);
+  _FIELD("t9", uctx->uc_mcontext.gregs[25]);
+  _FIELD("k0", uctx->uc_mcontext.gregs[26]);
+  _FIELD("k1", uctx->uc_mcontext.gregs[27]);
+  _FIELD("gp", uctx->uc_mcontext.gregs[28]);
+  _FIELD("sp", uctx->uc_mcontext.gregs[29]);
+  _FIELD("s8", uctx->uc_mcontext.gregs[30]);
+  _FIELD("ra", uctx->uc_mcontext.gregs[31]);
+
+#undef _FIELD
+
+  _strcat(buff, "\n");
+
+  _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+
+#if 0
+  {
+    int fd = _jove_sys_open("/tmp/hack.tmp", O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+    _jove_sys_write(fd, buff, _strlen(buff));
+    _jove_sys_close(fd);
+  }
+#endif
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 target_ulong _jove_alloc_stack(void) {
@@ -2192,9 +2269,7 @@ size_t _strlen(const char *str) {
   return (s - str);
 }
 
-void uint_to_string(uint32_t x, char *Str) {
-  const unsigned Radix = 10;
-
+void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
     *Str++ = '0';
