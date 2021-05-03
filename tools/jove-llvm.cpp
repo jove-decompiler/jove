@@ -995,6 +995,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
   }
 
+#if 1
   if (!binary.IsDynamicallyLoaded) {
     llvm::Value *FnsTbl = Decompilation.Binaries[DynTarget.BIdx].FunctionsTable;
     assert(FnsTbl);
@@ -1002,6 +1003,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     return IRB.CreateLoad(IRB.CreateConstGEP2_64(
         FnsTbl, 0, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
   }
+#endif
 
   //
   // check if the functions table pointer is NULL. this can happen if a DSO
