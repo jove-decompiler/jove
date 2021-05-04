@@ -2098,52 +2098,52 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     _strcat(buff, "] *** crash (jove) ***\n");
 
 #define _FIELD(name, init)                                                     \
-    do {                                                                         \
-      _strcat(buff, name " 0x");                                                 \
-                                                                                 \
-      {                                                                          \
-        char buf[65];                                                            \
-        uint_to_string(init, buf, 0x10);                                         \
-                                                                                 \
-        _strcat(buff, buf);                                                      \
-      }                                                                          \
-                                                                                 \
-      _strcat(buff, "\n");                                                       \
-    } while (false)
+  do {                                                                         \
+    _strcat(buff, name " 0x");                                                 \
+                                                                               \
+    {                                                                          \
+      char buf[65];                                                            \
+      uint_to_string(init, buf, 0x10);                                         \
+                                                                               \
+      _strcat(buff, buf);                                                      \
+    }                                                                          \
+                                                                               \
+    _strcat(buff, "\n");                                                       \
+  } while (false)
 
-  _FIELD("pc", saved_pc);
-  _FIELD("r0", uctx->uc_mcontext.gregs[0]);
-  _FIELD("at", uctx->uc_mcontext.gregs[1]);
-  _FIELD("v0", uctx->uc_mcontext.gregs[2]);
-  _FIELD("v1", uctx->uc_mcontext.gregs[3]);
-  _FIELD("a0", uctx->uc_mcontext.gregs[4]);
-  _FIELD("a1", uctx->uc_mcontext.gregs[5]);
-  _FIELD("a2", uctx->uc_mcontext.gregs[6]);
-  _FIELD("a3", uctx->uc_mcontext.gregs[7]);
-  _FIELD("t0", uctx->uc_mcontext.gregs[8]);
-  _FIELD("t1", uctx->uc_mcontext.gregs[9]);
-  _FIELD("t2", uctx->uc_mcontext.gregs[10]);
-  _FIELD("t3", uctx->uc_mcontext.gregs[11]);
-  _FIELD("t4", uctx->uc_mcontext.gregs[12]);
-  _FIELD("t5", uctx->uc_mcontext.gregs[13]);
-  _FIELD("t6", uctx->uc_mcontext.gregs[14]);
-  _FIELD("t7", uctx->uc_mcontext.gregs[15]);
-  _FIELD("s0", uctx->uc_mcontext.gregs[16]);
-  _FIELD("s1", uctx->uc_mcontext.gregs[17]);
-  _FIELD("s2", uctx->uc_mcontext.gregs[18]);
-  _FIELD("s3", uctx->uc_mcontext.gregs[19]);
-  _FIELD("s4", uctx->uc_mcontext.gregs[20]);
-  _FIELD("s5", uctx->uc_mcontext.gregs[21]);
-  _FIELD("s6", uctx->uc_mcontext.gregs[22]);
-  _FIELD("s7", uctx->uc_mcontext.gregs[23]);
-  _FIELD("t8", uctx->uc_mcontext.gregs[24]);
-  _FIELD("t9", uctx->uc_mcontext.gregs[25]);
-  _FIELD("k0", uctx->uc_mcontext.gregs[26]);
-  _FIELD("k1", uctx->uc_mcontext.gregs[27]);
-  _FIELD("gp", uctx->uc_mcontext.gregs[28]);
-  _FIELD("sp", uctx->uc_mcontext.gregs[29]);
-  _FIELD("s8", uctx->uc_mcontext.gregs[30]);
-  _FIELD("ra", uctx->uc_mcontext.gregs[31]);
+    _FIELD("pc", saved_pc);
+    _FIELD("r0", uctx->uc_mcontext.gregs[0]);
+    _FIELD("at", uctx->uc_mcontext.gregs[1]);
+    _FIELD("v0", uctx->uc_mcontext.gregs[2]);
+    _FIELD("v1", uctx->uc_mcontext.gregs[3]);
+    _FIELD("a0", uctx->uc_mcontext.gregs[4]);
+    _FIELD("a1", uctx->uc_mcontext.gregs[5]);
+    _FIELD("a2", uctx->uc_mcontext.gregs[6]);
+    _FIELD("a3", uctx->uc_mcontext.gregs[7]);
+    _FIELD("t0", uctx->uc_mcontext.gregs[8]);
+    _FIELD("t1", uctx->uc_mcontext.gregs[9]);
+    _FIELD("t2", uctx->uc_mcontext.gregs[10]);
+    _FIELD("t3", uctx->uc_mcontext.gregs[11]);
+    _FIELD("t4", uctx->uc_mcontext.gregs[12]);
+    _FIELD("t5", uctx->uc_mcontext.gregs[13]);
+    _FIELD("t6", uctx->uc_mcontext.gregs[14]);
+    _FIELD("t7", uctx->uc_mcontext.gregs[15]);
+    _FIELD("s0", uctx->uc_mcontext.gregs[16]);
+    _FIELD("s1", uctx->uc_mcontext.gregs[17]);
+    _FIELD("s2", uctx->uc_mcontext.gregs[18]);
+    _FIELD("s3", uctx->uc_mcontext.gregs[19]);
+    _FIELD("s4", uctx->uc_mcontext.gregs[20]);
+    _FIELD("s5", uctx->uc_mcontext.gregs[21]);
+    _FIELD("s6", uctx->uc_mcontext.gregs[22]);
+    _FIELD("s7", uctx->uc_mcontext.gregs[23]);
+    _FIELD("t8", uctx->uc_mcontext.gregs[24]);
+    _FIELD("t9", uctx->uc_mcontext.gregs[25]);
+    _FIELD("k0", uctx->uc_mcontext.gregs[26]);
+    _FIELD("k1", uctx->uc_mcontext.gregs[27]);
+    _FIELD("gp", uctx->uc_mcontext.gregs[28]);
+    _FIELD("sp", uctx->uc_mcontext.gregs[29]);
+    _FIELD("s8", uctx->uc_mcontext.gregs[30]);
+    _FIELD("ra", uctx->uc_mcontext.gregs[31]);
 
 #undef _FIELD
 
