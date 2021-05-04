@@ -1962,6 +1962,33 @@ static _CTOR void _jove_rt_init(void) {
   _jove_init_cpu_state();
 }
 
+static ssize_t robust_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      int err = errno;
+
+      if (err == EINTR)
+        continue;
+
+      return -err;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
 static target_ulong to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
@@ -2152,7 +2179,10 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   _strcat(s, "\n");
   _strcat(s, maps);
 
-  _jove_sys_write(2 /* stderr */, s, _strlen(s));
+  //
+  // dump message for user
+  //
+  robust_write(2 /* stderr */, s, _strlen(s));
 
 #if 0
   {
