@@ -831,6 +831,11 @@ int recompile(void) {
         arg_vec.push_back("-shared");
       }
 
+#if 0
+      arg_vec.push_back("-z");
+      arg_vec.push_back("now");
+#endif
+
       // XXX assuming lld
       arg_vec.push_back("--allow-shlib-undefined");
       if (b.IsExecutable)
