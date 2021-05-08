@@ -2781,103 +2781,7 @@ int ProcessDynamicSymbols(void) {
               }
             }
           } else {
-#if 0
-            AddrToSymbolMap[Sym.st_value].insert(SymName);
-
-            {
-              auto it = AddrToSizeMap.find(Sym.st_value);
-              if (it == AddrToSizeMap.end()) {
-                AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
-              } else {
-                if ((*it).second != Sym.st_size) {
-                  // TODO symbol versions
-                  if (opts::Verbose)
-                    WithColor::warning()
-                        << llvm::formatv("binary symbol {0} is defined with "
-                                         "multiple distinct sizes: {1}, {2}\n",
-                                         SymName, Sym.st_size, (*it).second);
-
-                  (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
-                }
-              }
-            }
-
-            boost::icl::interval<uintptr_t>::type intervl =
-                boost::icl::interval<uintptr_t>::right_open(
-                    Sym.st_value, Sym.st_value + Sym.st_size);
-
-            auto it = AddressSpaceObjects.find(intervl);
-            if (it != AddressSpaceObjects.end()) {
-              if (boost::icl::contains(intervl, *it)) {
-                intervl = boost::icl::hull(*it, intervl);
-                AddressSpaceObjects.erase(it);
-              }
-            }
-
-            AddressSpaceObjects.insert({intervl});
-#elif 0
-            unsigned off = Sym.st_value - SectsStartAddr;
-
-            Module->appendModuleInlineAsm(
-                (fmt(".globl %s\n"
-                     ".type  %s,@object\n"
-                     ".size  %s, %u\n" 
-                     ".set   %s, __jove_sections_%u + %u")
-                 % sym.Name.str()
-                 % sym.Name.str()
-                 % sym.Name.str() % Sym.st_size
-                 % sym.Name.str() % BinaryIndex % off).str());
-
-            if (!sym.Vers.empty())
-              VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
-
-#elif 1
-
-
-#if 0
-            unsigned off = Sym.st_value - SectsStartAddr;
-
-            if (sym.Vers.empty()) {
-              Module->appendModuleInlineAsm(
-                  (fmt(".globl %s\n"
-                       ".type  %s,@object\n"
-                       ".size  %s, %u\n" 
-                       ".set   %s, __jove_sections_%u + %u")
-                   % sym.Name.str()
-                   % sym.Name.str()
-                   % sym.Name.str() % Sym.st_size
-                   % sym.Name.str() % BinaryIndex % off).str());
-            } else {
-              if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
-                Module->appendModuleInlineAsm(
-                    (fmt(".hidden g%lx_%u\n"
-                         ".globl  g%lx_%u\n"
-                         ".type   g%lx_%u,@object\n"
-                         ".size   g%lx_%u, %u\n" 
-                         ".set    g%lx_%u, __jove_sections_%u + %u")
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size
-                     % Sym.st_value % Sym.st_size % Sym.st_size
-                     % Sym.st_value % Sym.st_size % BinaryIndex % off).str());
-
-                gdefs.insert({Sym.st_value, Sym.st_size});
-              }
-
-              Module->appendModuleInlineAsm(
-                  (fmt(".symver g%lx_%u, %s%s%s")
-                   % Sym.st_value % Sym.st_size
-                   % sym.Name.str()
-                   % (sym.Visibility.IsDefault ? "@@" : "@")
-                   % sym.Vers.str()).str());
-
-              // make sure version node is defined
-              VersionScript.Table[sym.Vers.str()];
-            }
-#else
             ;
-#endif
-#endif
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
@@ -4646,30 +4550,6 @@ int CreateFunctionTable(void) {
       *Module, T, true, llvm::GlobalValue::InternalLinkage, Init,
       (fmt("__jove_internal_b%u") % BinaryIndex).str());
 
-#if 0
-  {
-    llvm::Function *StoresFnTblPtrF =
-        Module->getFunction("_jove_install_function_table");
-    assert(StoresFnTblPtrF && StoresFnTblPtrF->empty());
-
-    llvm::BasicBlock *EntryB =
-        llvm::BasicBlock::Create(*Context, "", StoresFnTblPtrF);
-
-    {
-      llvm::IRBuilderTy IRB(EntryB);
-
-      IRB.CreateStore(IRB.CreateConstInBoundsGEP2_64(FuncTableGV, 0, 0),
-                      IRB.CreateConstInBoundsGEP2_64(JoveFunctionTablesGlobal,
-                                                     0, BinaryIndex));
-
-      IRB.CreateRetVoid();
-    }
-
-    StoresFnTblPtrF->setLinkage(llvm::GlobalValue::InternalLinkage);
-
-    llvm::appendToGlobalCtors(*Module, StoresFnTblPtrF, 0);
-  }
-#else
   llvm::Function *GetFunctionTableF =
       Module->getFunction("_jove_get_function_table");
   assert(GetFunctionTableF && GetFunctionTableF->empty());
@@ -4713,43 +4593,9 @@ int CreateFunctionTable(void) {
   }
 
   GetFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
-#endif
 
   return 0;
 }
-
-#if 0
-int RenameFunctions(void) {
-  for (const auto &pair : ExportedFunctions) {
-    assert(!pair.second.empty());
-
-    for (const auto &IdxPair : pair.second) {
-      binary_index_t BinIdx;
-      function_index_t FuncIdx;
-      std::tie(BinIdx, FuncIdx) = IdxPair;
-
-      if (BinIdx != BinaryIndex)
-        continue;
-
-      function_t &f =
-          Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx];
-
-      if (!f.IsNamed) {
-        f.IsNamed = true;
-
-        std::string oldName = f.F->getName();
-        f.F->setName(pair.first);
-
-        llvm::GlobalAlias::create(oldName, f.F);
-      } else {
-        llvm::GlobalAlias::create(pair.first, f.F);
-      }
-    }
-  }
-
-  return 0;
-}
-#endif
 
 } // namespace jove
 
@@ -4777,52 +4623,13 @@ llvm::Constant *SectionPointer(target_ulong Addr) {
   assert(SectsStartAddr);
   assert(SectsEndAddr);
 
-#if 0
-  if (!(Addr >= SectsStartAddr))
-    return nullptr;
-#endif
-
   int64_t off =
       static_cast<int64_t>(Addr) -
       static_cast<int64_t>(SectsStartAddr);
 
-#if 0
-
-  llvm::GlobalVariable *SectsGV =
-      ConstantRelocationLocs.find(Addr) != ConstantRelocationLocs.end()
-          ? ConstSectsGlobal
-          : SectsGlobal;
-
-  assert(SectsGV);
-
-  // special case the end
-  if (Addr == SectsEndAddr)
-    return llvm::ConstantExpr::getIntToPtr(
-        llvm::ConstantExpr::getAdd(
-            llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
-            llvm::ConstantInt::get(WordType(), off)),
-        llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
-
-  {
-    llvm::IRBuilderTy IRB(*Context);
-    llvm::SmallVector<llvm::Value *, 4> Indices;
-    llvm::Value *res = llvm::getNaturalGEPWithOffset(
-        IRB, DL, SectsGV, llvm::APInt(64, off), nullptr, Indices, "");
-
-    if (res && llvm::isa<llvm::Constant>(res))
-      return llvm::cast<llvm::Constant>(res);
-  }
-
-  return llvm::ConstantExpr::getIntToPtr(
-      llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(SectsGV, WordType()),
-          llvm::ConstantInt::get(WordType(), off)),
-      llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0));
-#else
   return llvm::ConstantExpr::getAdd(
       llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
       llvm::ConstantInt::getSigned(WordType(), off));
-#endif
 }
 
 int CreateTLSModGlobal(void) {
@@ -4967,45 +4774,14 @@ int CreateSectionGlobalVariables(void) {
 
   auto type_of_addressof_undefined_function_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
-#if 0
-    assert(S.IsUndefined());
-    llvm::FunctionType *FTy;
-
-    {
-      auto &RelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
-
-      auto it = RelocDynTargets.find(R.Addr);
-      if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv(
-            "{0}:{1} have you run jove-dyn? (symbol: {2})\n", __FILE__,
-            __LINE__, S.Name);
-
-        FTy = llvm::FunctionType::get(VoidType(), false);
-      } else {
-        FTy = DetermineFunctionType(*(*it).second.begin());
-      }
-    }
-
-    return llvm::PointerType::get(FTy, 0);
-#else
     return WordType();
-#endif
   };
 
   auto type_of_addressof_defined_function_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-    //auto it = FuncMap.find(S.Addr);
-    //assert(it != FuncMap.end());
-
-#if 0
-    llvm::FunctionType *FTy = DetermineFunctionType(BinaryIndex, (*it).second);
-    return llvm::PointerType::get(FTy, 0);
-#else
     return WordType();
-#endif
   };
 
   auto type_of_addressof_undefined_data_relocation =
@@ -5047,132 +4823,21 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Type * {
     assert(!S.IsUndefined());
 
-#if 0
-    return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
-#else
     return WordType();
-#endif
   };
 
   auto type_of_relative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-#if 0
-    target_ulong Addr;
-    if (R.Addend) {
-      Addr = R.Addend;
-    } else {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      Addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
-    }
-
-    auto it = FuncMap.find(Addr);
-    if (it == FuncMap.end()) {
-      return llvm::PointerType::get(llvm::Type::getInt8Ty(*Context), 0);
-    } else {
-      llvm::FunctionType *FTy =
-          DetermineFunctionType(BinaryIndex, (*it).second);
-
-      return llvm::PointerType::get(FTy, 0);
-    }
-#else
     return WordType();
-#endif
   };
 
   auto type_of_irelative_relocation =
       [&](const relocation_t &R) -> llvm::Type * {
-#if 0
-    llvm::FunctionType *FTy;
-
-    {
-      auto &RelocDynTargets =
-          Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
-
-      auto it = RelocDynTargets.find(R.Addr);
-      if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
-                                            __FILE__, __LINE__);
-        exit(1);
-      }
-
-      FTy = DetermineFunctionType(*(*it).second.begin());
-    }
-
-    return llvm::PointerType::get(FTy, 0);
-#else
     return WordType();
-#endif
   };
 
   auto type_of_tpoff_relocation = [&](const relocation_t &R) -> llvm::Type * {
-#if 0
-    if (R.SymbolIndex < SymbolTable.size()) {
-      const symbol_t &S = SymbolTable[R.SymbolIndex];
-
-      assert(S.IsUndefined());
-      assert(!S.Size);
-
-      auto it = GlobalSymbolDefinedSizeMap.find(S.Name);
-      if (it == GlobalSymbolDefinedSizeMap.end()) {
-        llvm::outs() << "fucked because we don't have the size for " << S.Name
-                     << '\n';
-        return nullptr;
-      }
-
-      unsigned Size = (*it).second;
-
-      llvm::Type *T;
-      if (is_integral_size(Size)) {
-        T = llvm::Type::getIntNTy(*Context, Size * 8);
-      } else {
-        T = llvm::ArrayType::get(llvm::Type::getInt8Ty(*Context), Size);
-      }
-
-      return llvm::PointerType::get(T, 0);
-    }
-
-
-#if defined(TARGET_I386)
-    unsigned tpoff;
-    {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      tpoff = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
-    }
-    //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
-#else
-    unsigned tpoff = R.Addend;
-#endif
-
-    auto it = TLSValueToSymbolMap.find(tpoff);
-    if (it == TLSValueToSymbolMap.end()) {
-      if (!TLSSectsGlobal)
-        return nullptr;
-      return nullptr;
-    }
-
-    llvm::StringRef SymName = *(*it).second.begin();
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(SymName, true);
-    if (!GV)
-      return nullptr;
-
-    TPOFFHack[R.Addr] = GV;
-
-    return GV->getType();
-#else
     return WordType();
-#endif
   };
 
   auto type_of_tpmod_relocation = [&](const relocation_t &R) -> llvm::Type * {
@@ -5526,179 +5191,18 @@ int CreateSectionGlobalVariables(void) {
       if (it == RelocDynTargets.end() || (*it).second.empty()) {
         WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
                                             __FILE__, __LINE__);
-        exit(1);
+        abort();
       }
 
       IdxPair = *(*it).second.begin();
     }
 
-#if 0
-    uintptr_t ResolverAddr = R.Addend;
-    if (!ResolverAddr) {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      ResolverAddr = *reinterpret_cast<const uintptr_t *>(&Sect.Contents[Off]);
-    }
-    assert(ResolverAddr);
-
-    auto it = FuncMap.find(ResolverAddr);
-    assert(it != FuncMap.end());
-
-    function_t &f =
-        Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
-
-    if (!f._resolver.IFunc) {
-      llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
-
-      // TODO refactor this
-      llvm::Function *CallsF = llvm::Function::Create(
-          llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-          llvm::GlobalValue::InternalLinkage,
-          std::string(f.F->getName()) + "_ifunc", Module.get());
-
-      llvm::DIBuilder &DIB = *DIBuilder;
-      llvm::DISubprogram::DISPFlags SubProgFlags =
-          llvm::DISubprogram::SPFlagDefinition |
-          llvm::DISubprogram::SPFlagOptimized;
-
-      if (CallsF->hasPrivateLinkage() || CallsF->hasInternalLinkage())
-        SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-      llvm::DISubroutineType *SubProgType =
-          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-      struct {
-        llvm::DISubprogram *Subprogram;
-      } DebugInfo;
-
-      DebugInfo.Subprogram = DIB.createFunction(
-          /* Scope       */ DebugInformation.CompileUnit,
-          /* Name        */ CallsF->getName(),
-          /* LinkageName */ CallsF->getName(),
-          /* File        */ DebugInformation.File,
-          /* LineNo      */ 0,
-          /* Ty          */ SubProgType,
-          /* ScopeLine   */ 0,
-          /* Flags       */ llvm::DINode::FlagZero,
-          /* SPFlags     */ SubProgFlags);
-
-      CallsF->setSubprogram(DebugInfo.Subprogram);
-
-      llvm::BasicBlock *EntryB =
-          llvm::BasicBlock::Create(*Context, "", CallsF);
-
-      {
-        llvm::IRBuilderTy IRB(EntryB);
-
-        IRB.SetCurrentDebugLocation(
-            llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
-                                  DebugInfo.Subprogram));
-
-        if (DynTargetNeedsThunkPred(IdxPair)) {
-          IRB.CreateCall(JoveInstallForeignFunctionTables)
-              ->setIsNoInline();
-
-          llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
-
-          IRB.CreateRet(IRB.CreateIntToPtr(
-              Res, CallsF->getFunctionType()->getReturnType()));
-        } else if (IdxPair.first == BinaryIndex) {
-          llvm::Value *Res = Decompilation.Binaries[BinaryIndex]
-                                 .Analysis.Functions.at(IdxPair.second)
-                                 .F;
-
-          IRB.CreateRet(IRB.CreateIntToPtr(
-              Res, CallsF->getFunctionType()->getReturnType()));
-        } else {
-          llvm::Value *SPPtr =
-              CPUStateGlobalPointer(tcg_stack_pointer_index);
-
-          llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
-          SavedSP->setName("saved_sp");
-
-          {
-            constexpr unsigned StackAllocaSize = 0x10000;
-
-            llvm::AllocaInst *StackAlloca = IRB.CreateAlloca(
-                llvm::ArrayType::get(IRB.getInt8Ty(), StackAllocaSize));
-
-            llvm::Value *NewSP = IRB.CreateConstInBoundsGEP2_64(
-                StackAlloca, 0, StackAllocaSize - 4096);
-
-            IRB.CreateStore(IRB.CreatePtrToInt(NewSP, WordType()), SPPtr);
-          }
-
-          llvm::Value *SavedTraceP = nullptr;
-          if (opts::Trace) {
-            SavedTraceP = IRB.CreateLoad(TraceGlobal);
-            SavedTraceP->setName("saved_tracep");
-
-            {
-              constexpr unsigned TraceAllocaSize = 4096;
-
-              llvm::AllocaInst *TraceAlloca =
-                  IRB.CreateAlloca(llvm::ArrayType::get(IRB.getInt64Ty(),
-                                                        TraceAllocaSize));
-
-              llvm::Value *NewTraceP =
-                  IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
-
-              IRB.CreateStore(NewTraceP, TraceGlobal);
-            }
-          }
-
-          std::vector<llvm::Value *> ArgVec;
-          ArgVec.resize(f.F->getFunctionType()->getNumParams());
-
-          for (unsigned i = 0; i < ArgVec.size(); ++i)
-            ArgVec[i] = llvm::UndefValue::get(
-                f.F->getFunctionType()->getParamType(i));
-
-          // llvm::ValueToValueMapTy Map;
-          // ResolverF = llvm::CloneFunction(f.F, Map);
-
-          llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
-
-          IRB.CreateStore(SavedSP, SPPtr);
-
-          if (opts::Trace)
-            IRB.CreateStore(SavedTraceP, TraceGlobal);
-
-          if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
-            WithColor::warning() << llvm::formatv(
-                "ifunc resolver {0} returns void\n", *f.F);
-
-            IRB.CreateRet(llvm::Constant::getNullValue(
-                CallsF->getFunctionType()->getReturnType()));
-          } else {
-            IRB.CreateRet(IRB.CreateIntToPtr(
-                Call, CallsF->getFunctionType()->getReturnType()));
-          }
-        }
-      }
-
-      DIB.finalizeSubprogram(DebugInfo.Subprogram);
-
-      f._resolver.IFunc = llvm::GlobalIFunc::create(
-          FTy, 0, llvm::GlobalValue::ExternalLinkage, "", CallsF, Module.get());
-
-      IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
-    }
-
-    return f._resolver.IFunc;
-#else
     binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
     auto &ICFG = binary.Analysis.ICFG;
     function_t &f = binary.Analysis.Functions.at(IdxPair.second);
     target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     return SectionPointer(Addr);
-#endif
   };
 
   auto constant_of_tpoff_relocation =
@@ -5789,13 +5293,6 @@ int CreateSectionGlobalVariables(void) {
                                             }));
 #endif
 
-#if 0
-      llvm::IRBuilderTy IRB(*Context);
-      llvm::SmallVector<llvm::Value *, 4> Indices;
-      llvm::Value *res = llvm::getNaturalGEPWithOffset(
-          IRB, DL, TLSSectsGlobal, llvm::APInt(64, tpoff), GlbTy, Indices, "");
-#endif
-
       llvm::Constant *res = llvm::ConstantExpr::getAdd(
           llvm::ConstantExpr::getPtrToInt(TLSSectsGlobal, WordType()),
           llvm::ConstantInt::get(WordType(), tpoff));
@@ -5841,12 +5338,11 @@ int CreateSectionGlobalVariables(void) {
         else
           return constant_of_addressof_defined_function_relocation(R, S);
 
-#if 1
       default:
         WithColor::warning() << llvm::formatv(
             "addressof {0} has unknown symbol type; treating as data\n",
             S.Name);
-#endif
+        /* fallthrough */
 
       case symbol_t::TYPE::DATA:
         if (S.IsUndefined())
@@ -6494,15 +5990,13 @@ int CreateSectionGlobalVariables(void) {
         function_t &f = Binary.Analysis.Functions[(*it).second];
 
         if (!f.IsABI) {
-          WithColor::note() << llvm::formatv("!IsABI for {0}\n", f.F->getName());
-          f.IsABI = true;
-
-          ABIChanged = true;
+          WithColor::error() << llvm::formatv(
+              "!IsABI for {0}; did you run jove-bootstrap -s?\n",
+              f.F->getName());
+          abort();
         }
 
-#if 1
-        // casting to a llvm::Function* is a complete hack here. hoping the
-        // following gets merged:
+        // casting to a llvm::Function* is a complete hack here.
         // https://reviews.llvm.org/D64962
         if (Sect.initArray)
           llvm::appendToGlobalCtors(
@@ -6517,22 +6011,12 @@ int CreateSectionGlobalVariables(void) {
                   C, VoidFunctionPointer()),
               0);
 
-#else
-        F = f.F;
-#endif
       } else {
         WithColor::warning() << llvm::formatv(
             "unable to match against constant expression in init array\n");
         continue;
       }
     }
-  }
-
-  if (ABIChanged) {
-    WriteDecompilation();
-
-    execve(cmdline.argv[0], cmdline.argv, ::environ);
-    abort();
   }
 
   if (Decompilation.Binaries[BinaryIndex].IsExecutable &&
@@ -6912,57 +6396,6 @@ int ProcessDynamicSymbols2(void) {
           if (Sym.getType() == llvm::ELF::STT_TLS) {
             ;
           } else {
-#if 0
-            AddrToSymbolMap[Sym.st_value].insert(SymName);
-
-            {
-              auto it = AddrToSizeMap.find(Sym.st_value);
-              if (it == AddrToSizeMap.end()) {
-                AddrToSizeMap.insert({Sym.st_value, Sym.st_size});
-              } else {
-                if ((*it).second != Sym.st_size) {
-                  // TODO symbol versions
-                  if (opts::Verbose)
-                    WithColor::warning()
-                        << llvm::formatv("binary symbol {0} is defined with "
-                                         "multiple distinct sizes: {1}, {2}\n",
-                                         SymName, Sym.st_size, (*it).second);
-
-                  (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
-                }
-              }
-            }
-
-            boost::icl::interval<uintptr_t>::type intervl =
-                boost::icl::interval<uintptr_t>::right_open(
-                    Sym.st_value, Sym.st_value + Sym.st_size);
-
-            auto it = AddressSpaceObjects.find(intervl);
-            if (it != AddressSpaceObjects.end()) {
-              if (boost::icl::contains(intervl, *it)) {
-                intervl = boost::icl::hull(*it, intervl);
-                AddressSpaceObjects.erase(it);
-              }
-            }
-
-            AddressSpaceObjects.insert({intervl});
-#elif 0
-            unsigned off = Sym.st_value - SectsStartAddr;
-
-            Module->appendModuleInlineAsm(
-                (fmt(".globl %s\n"
-                     ".type  %s,@object\n"
-                     ".size  %s, %u\n" 
-                     ".set   %s, __jove_sections + %u")
-                 % sym.Name.str()
-                 % sym.Name.str()
-                 % sym.Name.str() % Sym.st_size
-                 % sym.Name.str() % off).str());
-
-            if (!sym.Vers.empty())
-              VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
-
-#elif 1
             auto it = AddrToSymbolMap.find(Sym.st_value);
             if (it == AddrToSymbolMap.end()) {
               unsigned off = Sym.st_value - SectsStartAddr;
@@ -7020,7 +6453,6 @@ int ProcessDynamicSymbols2(void) {
               if (!sym.Vers.empty())
                 VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
             }
-#endif
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
@@ -8931,21 +8363,7 @@ int RecoverControlFlow(void) {
     }
   }
 
-#if 0
-  if (!Changed && !ABIChanged)
-    return 0;
-
-  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  for (function_index_t fidx : FuncIdxAreABIVec)
-    Binary.Analysis.Functions.at(fidx).IsABI = true;
-
-  WriteDecompilation();
-
-  execve(cmdline.argv[0], cmdline.argv, ::environ);
-  abort();
-#else
   return 0;
-#endif
 }
 
 int await_process_completion(pid_t pid) {
@@ -9610,20 +9028,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
       break;
     }
   }
-
-#if 0
-  if (T.Type == TERMINATOR::UNCONDITIONAL_JUMP &&
-      f.IsABI) {
-    auto eit_pair = boost::out_edges(bb, ICFG);
-    assert(eit_pair.first != eit_pair.second &&
-           std::next(eit_pair.first) == eit_pair.second);
-    control_flow_t cf = *eit_pair.first;
-    basic_block_t succ = boost::target(cf, ICFG);
-
-    if (succ == boost::vertex(f.Entry, ICFG))
-      store_global(tcg_stack_pointer_index);
-  }
-#endif
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
@@ -11852,56 +11256,6 @@ static int TranslateTCGOp(TCGOp *op,
     __EQV_OP(INDEX_op_eqv_i64, 64)
 
 #undef __EQV_OP
-
-#if 0
-  case INDEX_op_add2_i32: {
-    assert(nb_oargs == 2);
-
-    TCGTemp *t0_low = arg_temp(op->args[0]);
-    TCGTemp *t0_high = arg_temp(op->args[1]);
-
-    TCGTemp *t1_low = arg_temp(op->args[nb_oargs + 0]);
-    TCGTemp *t1_high = arg_temp(op->args[nb_oargs + 1]);
-
-    TCGTemp *t2_low = arg_temp(op->args[nb_oargs + 2]);
-    TCGTemp *t2_high = arg_temp(op->args[nb_oargs + 3]);
-
-    assert(t0_low->type == TCG_TYPE_I32);
-    assert(t0_high->type == TCG_TYPE_I32);
-
-    assert(t1_low->type == TCG_TYPE_I32);
-    assert(t1_low->type == TCG_TYPE_I32);
-
-    assert(t2_low->type == TCG_TYPE_I32);
-    assert(t2_high->type == TCG_TYPE_I32);
-
-    llvm::Value *t1_low_v = get(t1_low);
-    llvm::Value *t1_high_v = get(t1_high);
-
-    llvm::Value *t2_low_v = get(t2_low);
-    llvm::Value *t2_high_v = get(t2_high);
-
-    llvm::Value *t1 =
-        IRB.CreateOr(IRB.CreateZExt(t1_low_v, IRB.getInt64Ty()),
-                     IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getInt64Ty()),
-                                   llvm::APInt(64, 32)));
-
-    llvm::Value *t2 =
-        IRB.CreateOr(IRB.CreateZExt(t1_low_v, IRB.getInt64Ty()),
-                     IRB.CreateShl(IRB.CreateZExt(t1_high_v, IRB.getInt64Ty()),
-                                   llvm::APInt(64, 32)));
-
-    llvm::Value *t0 = IRB.CreateAdd(t1, t2);
-
-    llvm::Value *t0_low_v = IRB.CreateTrunc(t0, IRB.getInt32Ty());
-    llvm::Value *t0_high_v = IRB.CreateTrunc(
-        IRB.CreateLShr(t0, llvm::APInt(64, 32)), IRB.getInt32Ty());
-
-    set(t0_low_v, t0_low);
-    set(t0_high_v, t0_high);
-    break;
-  }
-#endif
 
   case INDEX_op_mb: {
     llvm::StringRef AsmText;
