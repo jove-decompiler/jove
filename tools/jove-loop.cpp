@@ -722,6 +722,8 @@ skip_run:
 
         fs::path chrooted_path(fs::path(opts::sysroot) / binary.Path);
 
+        fs::create_directories(chrooted_path.parent_path());
+
         if (opts::Verbose)
           llvm::errs() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
