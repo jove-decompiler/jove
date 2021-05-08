@@ -422,6 +422,26 @@ int run(void) {
                             MS_BIND,
                             nullptr);
 
+  fs::path firmadyne_libnvram_path;
+  try {
+    firmadyne_libnvram_path = fs::canonical("/firmadyne/libnvram");
+  } catch (...) {
+    ; /* absorb */
+  }
+
+#if 0
+  fs::path chrooted_firmadyne_libnvram =
+      fs::path(opts::sysroot) / "firmadyne" / "libnvram";
+
+  fs::create_directories(chrooted_firmadyne_libnvram);
+
+  ScopedMount firmadyne_libnvram_mnt(firmadyne_libnvram_path.c_str(),
+                                     chrooted_firmadyne_libnvram.c_str(),
+                                     "",
+                                     MS_BIND,
+                                     nullptr);
+#endif
+
 #if 0
   {
     std::string input;
