@@ -5880,33 +5880,6 @@ int CreateSectionGlobalVariables(void) {
 
   llvm::StructType *SectsGlobalTy;
 
-#if 0 /* defined(__mips__) */
-    {
-      auto it = std::find_if(
-          std::begin(SectTable),
-          std::end(SectTable),
-          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
-      if (it != SectTable.end()) {
-        section_t &GOTSect = *it;
-
-        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
-                                           GOTSect.Addr);
-
-        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
-
-        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
-          if (GOTSect.Stuff.Types.find(Off) !=
-              GOTSect.Stuff.Types.end()) /* XXX */
-            continue;
-
-          GOTSect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
-              Off, Off + sizeof(uintptr_t)));
-          GOTSect.Stuff.Types[Off] = WordType();
-        }
-      }
-    }
-#endif
-
   auto declare_sections = [&](void) -> void {
     //
     // create global variable for sections
@@ -6317,33 +6290,6 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
-#if 0 /* defined(__mips__) */
-    {
-      auto it = std::find_if(
-          std::begin(SectTable),
-          std::end(SectTable),
-          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
-      if (it != SectTable.end()) {
-        section_t &GOTSect = *it;
-
-        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
-                                           GOTSect.Addr);
-
-        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
-
-        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
-          if (GOTSect.Stuff.Types.find(Off) !=
-              GOTSect.Stuff.Types.end()) /* XXX */
-            continue;
-
-          GOTSect.Stuff.Intervals.insert(boost::icl::interval<uintptr_t>::right_open(
-              Off, Off + sizeof(uintptr_t)));
-          GOTSect.Stuff.Types[Off] = WordType();
-        }
-      }
-    }
-#endif
-
     declare_sections();
 
     for (relocation_t &R : RelocationTable) {
@@ -6385,48 +6331,6 @@ int CreateSectionGlobalVariables(void) {
         }
       }
     }
-
-#if 0 /* defined(__mips__) */
-    {
-      auto it = std::find_if(
-          std::begin(SectTable),
-          std::end(SectTable),
-          [](const section_t &sect) -> bool { return sect.Name == ".got"; });
-      if (it != SectTable.end()) {
-        section_t &GOTSect = *it;
-
-        WithColor::note() << llvm::formatv("found .got section @ {0:x}\n",
-                                           GOTSect.Addr);
-
-        assert(GOTSect.Size % sizeof(uintptr_t) == 0);
-
-        for (unsigned Off = 0; Off < GOTSect.Size ; Off += sizeof(uintptr_t)) {
-          if (GOTSect.Stuff.Constants.find(Off) !=
-              GOTSect.Stuff.Constants.end()) /* XXX */
-            continue;
-          if (GOTSect.Stuff.Types.find(Off) ==
-              GOTSect.Stuff.Types.end())
-            continue;
-
-          if (!(*GOTSect.Stuff.Types.find(Off)).second->isIntegerTy(WordBits())) {
-            WithColor::warning() << llvm::formatv("{0}:{1}\n", __FILE__, __LINE__);
-            continue;
-          }
-
-          uintptr_t Addr = *reinterpret_cast<const uintptr_t *>(&GOTSect.Contents[Off]);
-
-          if (Addr) {
-            if (llvm::Constant *C = SectionPointer(Addr))
-              GOTSect.Stuff.Constants[Off] = C;
-            else
-              GOTSect.Stuff.Constants[Off] = llvm::Constant::getNullValue(WordType());
-          } else {
-              GOTSect.Stuff.Constants[Off] = llvm::Constant::getNullValue(WordType());
-          }
-        }
-      }
-    }
-#endif
 
     define_sections();
 
