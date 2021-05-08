@@ -18,7 +18,9 @@ LLVM_COMPONENTS := object \
                    coroutines \
                    symbolize
 
-VER := $(shell git log -n1 --format="%h")
+JOVE_VER := v0.74
+
+JOVE_GITVER := $(shell git log -n1 --format="%h")
 
 #
 # targets
@@ -26,7 +28,7 @@ VER := $(shell git log -n1 --format="%h")
 ALL_TARGETS := i386 x86_64 aarch64 mips32 mips64
 
 #
-# build flags
+# build flags for tools and utils
 #
 CXXFLAGS := -std=gnu++17 \
             -Wall \
@@ -46,7 +48,7 @@ CXXFLAGS := -std=gnu++17 \
             -I $(_LLVM_INSTALL_DIR)/include \
             -D _GNU_SOURCE \
             -D BOOST_ICL_USE_STATIC_BOUNDED_INTERVALS \
-            -D JOVE_VERSION=\"$(VER)\"
+            -D JOVE_VERSION=\"$(JOVE_VER)\"\"-\"\"$(JOVE_GITVER)\"
 
 LDFLAGS := -Wl,--no-undefined \
            $(shell $(_LLVM_CONFIG) --ldflags) \
@@ -188,13 +190,11 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(UTILDEPS)
 -include $(HELPERDEPS)
 
-VER := $(shell git log -n1 --format="%h")
-
 .PHONY: package
 package:
-	tar cvf jove.$(VER)-$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
+	tar cvf jove.$(JOVE_VER).$(JOVE_GITVER).$(ARCH).tar $(TOOLBINS) $(UTILBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) bin/dfsan_abilist.txt $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 ifndef PACKAGE_TARBALL
-	xz --threads=0 jove.$(VER)-$(ARCH).tar
+	xz --threads=0 jove.$(JOVE_VER).$(JOVE_GITVER).$(ARCH).tar
 endif
 
 .PHONY: clean
