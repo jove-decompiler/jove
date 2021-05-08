@@ -1833,6 +1833,38 @@ static char *_strcat(char *s, const char *append) {
   return (save);
 }
 
+static void uint_to_string(uint32_t x, char *Str) {
+  const unsigned Radix = 10;
+
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
+}
+
 #define __LOG_COLOR_PREFIX "\033["
 #define __LOG_COLOR_SUFFIX "m"
 
@@ -1887,27 +1919,28 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #undef env_a5
 #undef env_a6
 
+#if 0
   if (sysnum != 4004 /* write */ &&
       sysnum != 4117 /* ipc */) {
   if (sysnum < ARRAY_SIZE(syscall_names)) {
     const char *nm = syscall_names[sysnum];
     if (nm) {
-      char buff[256];
+      char buff[2048];
       buff[0] = '\0';
 
+      //
+      // print syscall name
+      //
       _strcat(buff, __LOG_GREEN);
       _strcat(buff, nm);
       _strcat(buff, __LOG_NORMAL_COLOR);
 
-      if (sysnum == 4011 /* execve */ && _a1) {
+      //
+      // print syscall arguments
+      //
+      if (sysnum == 4039 /* mkdir */ && _a1) {
         _strcat(buff, "(\"");
         _strcat(buff, (const char *)_a1);
-        _strcat(buff, "\")");
-      }
-
-      if (sysnum == 4356 /* execveat */ && _a2) {
-        _strcat(buff, "(\"");
-        _strcat(buff, (const char *)_a2);
         _strcat(buff, "\")");
       }
 
@@ -1923,12 +1956,102 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
         _strcat(buff, "\")");
       }
 
+      if (sysnum == 4039 /* mkdir */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4040 /* rmdir */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4033 /* access */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4006 /* close */ ||
+          sysnum == 4001 /* exit */ ||
+          sysnum == 4246 /* exit_group */) {
+        _strcat(buff, "(");
+
+        {
+          char buf[256];
+          uint_to_string(_a1, buf);
+
+          _strcat(buff, buf);
+        }
+
+        _strcat(buff, ")");
+      }
+
+      if (sysnum == 4011 /* execve */ && _a1) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a1);
+        _strcat(buff, "\" ");
+
+        {
+          const char **argv = (const char **)_a2;
+          while (*argv) {
+            _strcat(buff, *argv);
+            ++argv;
+
+            _strcat(buff, " ");
+          }
+        }
+
+        {
+          const char **envp = (const char **)_a3;
+          while (*envp) {
+            _strcat(buff, *envp);
+            ++envp;
+
+            _strcat(buff, " ");
+          }
+        }
+
+        _strcat(buff, "\")");
+      }
+
+      if (sysnum == 4356 /* execveat */ && _a2) {
+        _strcat(buff, "(\"");
+        _strcat(buff, (const char *)_a2);
+        _strcat(buff, "\" ");
+
+        {
+          const char **argv = (const char **)_a3;
+          while (*argv) {
+            _strcat(buff, *argv);
+            ++argv;
+
+            _strcat(buff, " ");
+          }
+        }
+
+        {
+          const char **envp = (const char **)_a4;
+          while (*envp) {
+            _strcat(buff, *envp);
+            ++envp;
+
+            _strcat(buff, " ");
+          }
+        }
+
+        _strcat(buff, "\")");
+      }
+
       _strcat(buff, "\n");
 
       _jove_sys_write(2, buff, _strlen(buff));
     }
   }
   }
+#endif
 
 #if 0
   if (sysnum == 4006 /* close */ && (_a1 == 0 || _a1 == 1)) {
