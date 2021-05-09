@@ -2063,8 +2063,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
         newsp &= 0xfffffff0; // align the stack
 
-        newsp -= sizeof(uintptr_t);
-
         ((uintptr_t *)newsp)[0] = 0xdeadbeef;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
