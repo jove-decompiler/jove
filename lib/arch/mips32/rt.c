@@ -1856,11 +1856,15 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 //
 // utility functions
 //
+static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
 static _INL char *_strcat(char *s, const char *append);
 static _INL size_t _strlen(const char *s);
 static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n);
+static _INL unsigned _getHexDigit(char cdigit);
+static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 
 void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
@@ -2111,7 +2115,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   // if we get here, this is most likely a real crash.
   //
   char maps[4096 * 8];
-  unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
 
   char s[4096 * 16];
@@ -2135,6 +2139,17 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uint_to_string(init, _buff, 0x10);                                       \
                                                                                \
       _strcat(s, _buff);                                                       \
+    }                                                                          \
+    {                                                                          \
+      char _buff[256];                                                         \
+      _buff[0] = '\0';                                                         \
+                                                                               \
+      _description_of_address_for_maps(_buff, init, maps, n);                  \
+      if (_strlen(_buff) != 0) {                                               \
+        _strcat(s, " <");                                                      \
+        _strcat(s, _buff);                                                     \
+        _strcat(s, ">");                                                       \
+      }                                                                        \
     }                                                                          \
                                                                                \
     _strcat(s, "\n");                                                          \
@@ -2334,6 +2349,67 @@ void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
   return;
 }
 
+unsigned _getHexDigit(char cdigit) {
+  unsigned radix = 0x10;
+
+  unsigned r;
+
+  if (radix == 16 || radix == 36) {
+    r = cdigit - '0';
+    if (r <= 9)
+      return r;
+
+    r = cdigit - 'A';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    r = cdigit - 'a';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    radix = 10;
+  }
+
+  r = cdigit - '0';
+  if (r < radix)
+    return r;
+
+  return -1U;
+}
+
+uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
+  const unsigned radix = 0x10;
+
+  uint64_t res = 0;
+
+  char *p = str_begin;
+  size_t slen = str_end - str_begin;
+
+  // Figure out if we can shift instead of multiply
+  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
+
+  // Enter digit traversal loop
+  for (char *e = str_end; p != e; ++p) {
+    unsigned digit = _getHexDigit(*p);
+
+    if (!(digit < radix))
+      return 0;
+
+    // Shift or multiply the value by the radix
+    if (slen > 1) {
+      if (shift)
+        res <<= shift;
+      else
+        res *= radix;
+    }
+
+    // Add in the digit we just interpreted
+    res += digit;
+  }
+
+  return res;
+}
+
 void _jove_free_stack_later(target_ulong stack) {
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
@@ -2383,4 +2459,82 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
   }
 
   return n;
+}
+
+void *_memchr(const void *s, int c, size_t n) {
+  if (n != 0) {
+    const unsigned char *p = s;
+
+    do {
+      if (*p++ == (unsigned char)c)
+        return ((void *)(p - 1));
+    } while (--n != 0);
+  }
+  return (NULL);
+}
+
+void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+    }
+
+    unsigned left = eol - line;
+
+    struct {
+      uint64_t min, max;
+    } vm;
+
+    {
+      char *dash = _memchr(line, '-', left);
+      vm.min = _u64ofhexstr(line, dash);
+
+      char *space = _memchr(line, ' ', left);
+      vm.max = _u64ofhexstr(dash + 1, space);
+    }
+
+    //
+    // does the given address exist within this mapping?
+    //
+    if (Addr >= vm.min && Addr < vm.max) {
+      //
+      // we have a match. If this mapping has a file path, we'll make it the
+      // description
+      //
+      char *fwdslash = _memchr(line, '/', left);
+      char *leftsqbr = _memchr(line, '[', left);
+
+      if (fwdslash) {
+        *eol = '\0';
+        _strcat(out, fwdslash);
+        *eol = '\n';
+      } else if (leftsqbr) {
+        *eol = '\0';
+        _strcat(out, leftsqbr);
+        *eol = '\n';
+      } else {
+        *out = '\0';
+        return;
+      }
+
+      _strcat(out, "+0x");
+
+      ssize_t Offset = Addr - vm.min;
+      char offsetStr[65];
+      uint_to_string(Offset, offsetStr, 0x10);
+
+      _strcat(out, offsetStr);
+
+      return;
+    }
+  }
 }
