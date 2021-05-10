@@ -3564,8 +3564,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   }
 
   //
-  // if the instruction is a call, we need to emulate the semantics of
-  // saving the return address on the stack for certain architectures
+  // if the instruction is a call, we need to emulate whatever happens to the
+  // return address
   //
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
 #if defined(__x86_64__)
