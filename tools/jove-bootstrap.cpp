@@ -2602,10 +2602,10 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   auto &gpr = _scoped_cpu_state.gpr;
   auto &pc = pc_of_cpu_state(_scoped_cpu_state.gpr);
 
+#if defined(__x86_64__) || defined(__i386__)
   //
   // rewind before the breakpoint instruction (why is this x86-specific?)
   //
-#if defined(__x86_64__) || defined(__i386__)
   pc -= 1; /* int3 */
 #endif
 
@@ -3622,44 +3622,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     WithColor::error() << llvm::formatv("failed to emulate delay slot? {0}\n", e.what());
   }
 #endif
-
-  if (opts::VeryVerbose)
-    llvm::errs() << llvm::formatv("{0}: target={1:x} {2} [{3}]"
-#if defined(__mips64) || defined(__mips__)
-                                  " ; {4} [{5}]"
-#endif
-                                  "\n",
-
-                                  __func__,
-                                  target,
-                                  Inst,
-                                  StringOfMCInst(Inst, dis),
-#if defined(__mips64) || defined(__mips__)
-                                  IndBrInfo.DelaySlotInst,
-                                  StringOfMCInst(IndBrInfo.DelaySlotInst, dis),
-#endif
-                                  0 /* XXX unused */
-                                  );
-
-  if (opts::VeryVerbose && ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-#if defined(__mips64) || defined(__mips__)
-    auto ra = gpr.regs[31];
-
-    auto it = AddressSpace.find(ra);
-    if (it == AddressSpace.end()) {
-      WithColor::warning() << llvm::formatv("{0}: unknown binary for ra {1}\n",
-                                            __func__,
-                                            description_of_program_counter(ra));
-      return;
-    }
-
-    binary_index_t binary_idx = *(*it).second.begin();
-
-    llvm::errs() << llvm::formatv("{0}: return address is {1:x}\n",
-                                  __func__,
-                                  rva_of_va(ra, binary_idx));
-#endif
-  }
 
   //
   // update the decompilation based on the target
