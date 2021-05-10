@@ -1982,29 +1982,6 @@ on_insn_boundary:
 
       assert(boost::icl::disjoint(intervl1, intervl2));
 
-      if (false) {
-        llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
-                     << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
-
-        llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
-                     << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
-
-        llvm::outs() << "orig_intervl: ["
-                     << (fmt("%#lx") % orig_intervl.lower()).str() << ", "
-                     << (fmt("%#lx") % orig_intervl.upper()).str() << ")\n";
-      }
-
-#if 0
-      if ((*it).first.lower() == 0x1070 ||
-          (*it).first.upper() == 0x109e) {
-        llvm::outs()
-          << "ISTHISIT?    ["
-          << (fmt("%#lx") % (*it).first.lower()).str()
-          << ", "
-          << (fmt("%#lx") % (*it).first.upper()).str() << ")\n";
-      }
-#endif
-
       unsigned n = BBMap.iterative_size();
       BBMap.erase((*it).first);
       assert(BBMap.iterative_size() == n - 1);
@@ -2012,50 +1989,8 @@ on_insn_boundary:
       assert(BBMap.find(intervl1) == BBMap.end());
       assert(BBMap.find(intervl2) == BBMap.end());
 
-      {
-        auto _it = BBMap.find(intervl1);
-        if (_it != BBMap.end()) {
-          const auto &intervl = (*_it).first;
-          WithColor::error() << "can't add interval1 to BBMap: ["
-                             << (fmt("%#lx") % intervl1.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl1.upper()).str()
-                             << "), BBMap already contains ["
-                             << (fmt("%#lx") % intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
-          abort();
-        }
-      }
-
-      {
-        auto _it = BBMap.find(intervl2);
-        if (_it != BBMap.end()) {
-          const auto &intervl = (*_it).first;
-          llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
-
-          WithColor::error() << "can't add interval2 to BBMap: ["
-                             << (fmt("%#lx") % intervl2.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl2.upper()).str()
-                             << "), BBMap already contains ["
-                             << (fmt("%#lx") % intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
-          abort();
-        }
-      }
-
       BBMap.add({intervl1, 1 + bbidx});
       BBMap.add({intervl2, 1 + newbbidx});
-
-      {
-        auto _it = BBMap.find(intervl1);
-        assert(_it != BBMap.end());
-        assert((*_it).second == 1 + bbidx);
-      }
-
-      {
-        auto _it = BBMap.find(intervl2);
-        assert(_it != BBMap.end());
-        assert((*_it).second == 1 + newbbidx);
-      }
 
       return newbbidx;
     }
@@ -2601,82 +2536,6 @@ void place_breakpoint_at_indirect_branch(pid_t child,
 
   indbr.words[1] = word;
 
-#if 0 /* defined(__mips64) || defined(__mips__) */
-  {
-    /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
-    if (indbr.InsnBytes.size() != sizeof(uint64_t)) {
-      binary_t &Binary = decompilation.Binaries[indbr.binary_idx];
-      const auto &ICFG = Binary.Analysis.ICFG;
-      throw std::runtime_error(
-        (fmt("indbr.InsnBytes.size() = %u @ %#lx\n"
-             "%s BB %#lx\n"
-             "%s")
-         % static_cast<unsigned>(indbr.InsnBytes.size())
-         % Addr
-         % Binary.Path
-         % indbr.TermAddr
-         % StringOfMCInst(Inst, dis)).str());
-    }
-
-    assert(indbr.InsnBytes.size() == sizeof(uint64_t));
-    uint64_t key = *((uint64_t *)indbr.InsnBytes.data());
-
-    if (indbr.IsCall) {
-      assert(Inst.getOpcode() == llvm::Mips::JALR);
-      assert(Inst.getNumOperands() == 2);
-      assert(Inst.getOperand(0).isReg());
-      assert(Inst.getOperand(0).getReg() == llvm::Mips::RA);
-      assert(Inst.getOperand(1).isReg());
-
-#if 0
-        if (Inst.getNumOperands() != 1) {
-          WithColor::error() << llvm::formatv(
-              "{0}: unknown number ({1}) of operands [{2}]\n", __func__,
-              Inst.getNumOperands(), StringOfMCInst(Inst, dis));
-        }
-#endif
-
-      uint32_t first_insn_replacement =
-          encoding_of_jump_to_reg(Inst.getOperand(1).getReg());
-
-      ((uint32_t *)&key)[0] = first_insn_replacement;
-    }
-
-    auto it = TrampolineMap.find(key);
-    if (it == TrampolineMap.end()) {
-      assert(ExecutableRegionAddress);
-
-      uint64_t val = key;
-      if (sizeof(long) == sizeof(val)) { /* we can do it with one poke */
-        _ptrace_pokedata(child, ExecutableRegionAddress, val);
-      } else if (sizeof(long) == sizeof(uint32_t)) { /* two pokes will suffice */
-        uint32_t val0 = ((uint32_t *)&val)[0];
-        uint32_t val1 = ((uint32_t *)&val)[1];
-
-        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
-        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
-      } else {
-        // XXX BUILD_BUG would be better here
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      TrampolineMap.insert({key, ExecutableRegionAddress});
-
-      ExecutableRegionAddress += sizeof(key);
-      ExecutableRegionUsed += sizeof(key);
-
-#define EXECUTABLE_REGION_SIZE (4096 * 16)
-
-      if (opts::VeryVerbose)
-        WithColor::note() << llvm::formatv(
-            "executable region in tracee has {0} bytes left (used {1} bytes)\n",
-            EXECUTABLE_REGION_SIZE - ExecutableRegionUsed,
-            ExecutableRegionUsed);
-    }
-  }
-#endif
-
   // write the word back
   _ptrace_pokedata(child, Addr, word);
 
@@ -2721,47 +2580,6 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 #endif
 
   r.words[1] = word;
-
-#if 0 /* defined(__mips64) || defined(__mips__) */
-  {
-    /* key is the encoding of INDIRECT BRANCH ; DELAY SLOT INSTRUCTION */
-    assert(r.InsnBytes.size() == sizeof(uint64_t));
-    uint64_t key = *((uint64_t *)r.InsnBytes.data());
-
-    auto it = TrampolineMap.find(key);
-    if (it == TrampolineMap.end()) {
-      assert(ExecutableRegionAddress);
-
-      uint64_t val = key;
-      if (sizeof(long) == sizeof(val)) { /* we can do it with one poke */
-        _ptrace_pokedata(child, ExecutableRegionAddress, val);
-      } else if (sizeof(long) == sizeof(uint32_t)) { /* two pokes will suffice */
-        uint32_t val0 = ((uint32_t *)&val)[0];
-        uint32_t val1 = ((uint32_t *)&val)[1];
-
-        _ptrace_pokedata(child, ExecutableRegionAddress, val0);
-        _ptrace_pokedata(child, ExecutableRegionAddress + 4, val1);
-      } else {
-        // XXX BUILD_BUG would be better here
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      TrampolineMap.insert({key, ExecutableRegionAddress});
-
-      ExecutableRegionAddress += sizeof(key);
-      ExecutableRegionUsed += sizeof(key);
-
-#define EXECUTABLE_REGION_SIZE (4096 * 16)
-
-      if (opts::VeryVerbose)
-        WithColor::note() << llvm::formatv(
-            "executable region in tracee has {0} bytes left (used {1} bytes)\n",
-            EXECUTABLE_REGION_SIZE - ExecutableRegionUsed,
-            ExecutableRegionUsed);
-    }
-  }
-#endif
 
   // write the word back
   _ptrace_pokedata(child, Addr, word);
@@ -3690,12 +3508,6 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         long B = Inst.getOperand(3).getImm();
 
         return LoadAddr(x + A * y + B);
-#if 0
-        return LoadAddr(RegValue(Inst.getOperand(0).getReg()) +
-                        Inst.getOperand(1).getImm() *
-                            RegValue(Inst.getOperand(2).getReg()) +
-                        Inst.getOperand(3).getImm());
-#endif
       } else {
         /* e.g. call dword ptr gs:[16] */
         return LoadAddr(RegValue(Inst.getOperand(4).getReg()) +
@@ -3964,12 +3776,8 @@ static void harvest_irelative_reloc_targets(pid_t child,
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
-    if (!BinFoundVec[BIdx]) {
-#if 0
-      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
-#endif
+    if (!BinFoundVec[BIdx])
       continue;
-    }
 
     //
     // parse the ELF
@@ -4085,16 +3893,8 @@ static void harvest_addressof_reloc_targets(pid_t child,
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
-    if (!BinFoundVec[BIdx]) {
-#if 0
-      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
-#endif
+    if (!BinFoundVec[BIdx])
       continue;
-    }
-
-#if 0
-    llvm::outs() << "harvesting relocation targets for " << Binary.Path << '\n';
-#endif
 
     //
     // parse the ELF
@@ -4265,18 +4065,10 @@ static void harvest_ctor_and_dtors(pid_t child,
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
-    if (!BinFoundVec[BIdx]) {
-#if 0
-      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
-#endif
+    if (!BinFoundVec[BIdx])
       continue;
-    }
 
     unsigned brkpt_count = 0;
-
-#if 0
-    llvm::outs() << "harvesting relocation targets for " << Binary.Path << '\n';
-#endif
 
     //
     // parse the ELF
@@ -4647,18 +4439,10 @@ void harvest_global_GOT_entries(pid_t child, tiny_code_generator_t &tcg, disas_t
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
 
-    if (!BinFoundVec[BIdx]) {
-#if 0
-      WithColor::warning() << __func__ << ": skipping " << Binary.Path << '\n';
-#endif
+    if (!BinFoundVec[BIdx])
       continue;
-    }
 
     unsigned brkpt_count = 0;
-
-#if 0
-    llvm::outs() << "harvesting relocation targets for " << Binary.Path << '\n';
-#endif
 
     //
     // parse the ELF
@@ -4927,11 +4711,6 @@ void on_binary_loaded(pid_t child,
         binary.Analysis.ICFG);
     uintptr_t entry_rva = binary.Analysis.ICFG[entry_bb].Addr;
     uintptr_t Addr = va_of_rva(entry_rva, BIdx);
-
-#if 0
-    llvm::outs() << llvm::formatv("entry_rva={0:x} Addr={1:x}\n",
-                                  entry_rva, Addr);
-#endif
 
     breakpoint_t &brk = BrkMap[Addr];
     brk.callback = harvest_reloc_targets;
@@ -5249,29 +5028,6 @@ int ChildProc(int pipefd) {
   for (char **env = ::environ; *env; ++env)
     env_vec.push_back(*env);
   env_vec.push_back("LD_BIND_NOW=1");
-
-#if 0 /* defined(__mips64) || defined(__mips__) */
-  std::string jove_dyn_preload_lib_path =
-      fs::canonical(boost::dll::program_location().parent_path() /
-                    "libjove_dyn_preload.so")
-          .string();
-
-  if (!fs::exists(jove_dyn_preload_lib_path)) {
-    WithColor::error() << llvm::formatv(
-        "could not find libjove_dyn_preload.so at {0}\n",
-        jove_dyn_preload_lib_path.c_str());
-
-    return 1;
-  }
-
-  std::string jove_dyn_preload_lib_arg =
-      "LD_PRELOAD=" + jove_dyn_preload_lib_path;
-  env_vec.push_back(jove_dyn_preload_lib_arg.c_str());
-
-  std::string fifo_path_arg = std::string("JOVE_DYN_FIFO_PATH=") + fifo_path;
-  env_vec.push_back(fifo_path_arg.c_str());
-#endif
-
 
 #if defined(__x86_64__)
   // <3 glibc
