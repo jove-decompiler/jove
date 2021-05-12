@@ -1871,6 +1871,26 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
+#define _UNREACHABLE()                                                         \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str, 10);                                    \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 //
 // utility functions
 //
@@ -1891,7 +1911,7 @@ static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
-static _INL void uint_to_string(uint32_t x, char *Str);
+static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
 
 //
 // definitions
@@ -2121,8 +2141,7 @@ uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
@@ -2130,10 +2149,8 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
 
   {
     int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (fd < 0)
+      _UNREACHABLE();
 
     // let n denote the number of characters read
     n = 0;
@@ -2148,17 +2165,14 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
         if (ret == -EINTR)
           continue;
 
-        __builtin_trap();
-        __builtin_unreachable();
+        _UNREACHABLE();
       }
 
       n += ret;
     }
 
-    if (_jove_sys_close(fd) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (_jove_sys_close(fd) < 0)
+      _UNREACHABLE();
   }
 
   return n;
@@ -2190,35 +2204,27 @@ static void _jove_sigsegv_handler(void);
 void _jove_trace_init(void) {
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (fd < 0)
+    _UNREACHABLE();
 
   off_t size = 1UL << 30; /* 1 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_ftruncate(fd, size) < 0)
+    _UNREACHABLE();
 
   {
     long ret =
         _jove_sys_mips_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
-    if (ret < 0 && ret > -4096) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0 && ret > -4096)
+      _UNREACHABLE();
 
     void *ptr = (void *)ret;
 
     __jove_trace_begin = __jove_trace = ptr;
   }
 
-  if (_jove_sys_close(fd) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE();
 }
 
 void _jove_callstack_init(void) {
@@ -2233,8 +2239,7 @@ void _jove_sigsegv_handler(void) {
   _jove_flush_trace();
 
   _jove_sys_exit_group(22);
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 void _jove_flush_trace(void) {
@@ -2245,10 +2250,8 @@ void _jove_flush_trace(void) {
   len *= sizeof(uint64_t);
 
   long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0)
+    _UNREACHABLE();
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
@@ -2430,10 +2433,8 @@ found:
 
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'f';
@@ -2447,10 +2448,8 @@ found:
         *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FIdx;
 
-        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
-          __builtin_trap();
-          __builtin_unreachable();
-        }
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
+          _UNREACHABLE();
       }
 
       _jove_sys_close(recover_fd);
@@ -2496,10 +2495,8 @@ void _jove_recover_function(uint32_t IndCallBBIdx,
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'F';
@@ -2512,10 +2509,8 @@ found:
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
         *((uintptr_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
 
-        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
-          __builtin_trap();
-          __builtin_unreachable();
-        }
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
+          _UNREACHABLE();
       }
 
       _jove_sys_close(recover_fd);
@@ -2561,10 +2556,8 @@ void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'b';
@@ -2577,10 +2570,8 @@ found:
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndBr.BBIdx;
         *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
 
-        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
-          __builtin_trap();
-          __builtin_unreachable();
-        }
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
+          _UNREACHABLE();
       }
 
       _jove_sys_close(recover_fd);
@@ -2633,10 +2624,8 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'r';
@@ -2648,10 +2637,8 @@ found:
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = Call.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = Call.BBIdx;
 
-        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff)) {
-          __builtin_trap();
-          __builtin_unreachable();
-        }
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
+          _UNREACHABLE();
       }
 
       _jove_sys_close(recover_fd);
@@ -2841,8 +2828,7 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
@@ -2872,8 +2858,7 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 static bool __jove_installed_foreign_function_tables = false;
@@ -2911,10 +2896,8 @@ void _jove_install_foreign_function_tables(void) {
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mips_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   //
   // create guard pages on both sides
@@ -2922,33 +2905,25 @@ target_ulong _jove_alloc_stack(void) {
   unsigned long beg = (unsigned long)ret;
   unsigned long end = beg + JOVE_STACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_stack(target_ulong beg) {
-  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 target_ulong _jove_alloc_callstack(void) {
   long ret = _jove_sys_mips_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   unsigned long uret = (unsigned long)ret;
 
@@ -2958,24 +2933,18 @@ target_ulong _jove_alloc_callstack(void) {
   unsigned long beg = uret;
   unsigned long end = beg + JOVE_CALLSTACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_callstack(target_ulong start) {
-  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 static bool _jove_is_readable_mem(target_ulong Addr);
@@ -2999,10 +2968,9 @@ bool _jove_is_readable_mem(target_ulong Addr) {
   pid_t pid;
   {
     long ret = _jove_sys_getpid();
-    if (unlikely(ret < 0)) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (unlikely(ret < 0))
+      _UNREACHABLE();
+
     pid = ret;
   }
 
@@ -3125,13 +3093,10 @@ bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
-void uint_to_string(uint32_t x, char *Str) {
-  const unsigned Radix = 10;
-
+void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
     *Str++ = '0';
@@ -3213,10 +3178,8 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
                                                     PROT_READ | PROT_WRITE,
                                                     MAP_PRIVATE | MAP_ANONYMOUS,
                                                     -1L, 0);
-    if (IS_ERR_VALUE(shadow_base)) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (IS_ERR_VALUE(shadow_base))
+      _UNREACHABLE();
 
     shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
 
@@ -3227,10 +3190,8 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
       unsigned long ret = _jove_sys_mprotect(shadow_base,
                                              JOVE_PAGE_SIZE,
                                              PROT_NONE);
-      if (IS_ERR_VALUE(ret)) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (IS_ERR_VALUE(ret))
+        _UNREACHABLE();
     }
 
     //
@@ -3240,10 +3201,8 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
       unsigned long ret = _jove_sys_mprotect(shadow_base + N - JOVE_PAGE_SIZE,
                                              JOVE_PAGE_SIZE,
                                              PROT_NONE);
-      if (IS_ERR_VALUE(ret)) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (IS_ERR_VALUE(ret))
+        _UNREACHABLE();
     }
 
     *shadowp = shadow;
