@@ -1902,6 +1902,7 @@ static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
 static _INL bool _isDigit(char);
 static _INL int _atoi(const char *s);
 static _INL size_t _strlen(const char *s);
+static _INL char *_strcat(char *s, const char *append);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
@@ -2311,6 +2312,17 @@ unsigned _getDigit(char cdigit, uint8_t radix) {
 
   return -1U;
 }
+
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
+}
+
 
 size_t _strlen(const char *str) {
   const char *s;
