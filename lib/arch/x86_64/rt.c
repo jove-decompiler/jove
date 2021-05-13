@@ -646,6 +646,26 @@ _NAKED static void _jove_inverse_thunk(void);
 static void _jove_callstack_init(void);
 static void _jove_init_cpu_state(void);
 
+#define _UNREACHABLE()                                                         \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str, 10);                                    \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
@@ -664,10 +684,18 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 //
 // utility functions
 //
+static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n);
 static _INL void *_memset(void *dst, int c, size_t n);
+static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL size_t _strlen(const char *s);
+static _INL char *_strcat(char *s, const char *append);
 static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
+static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
+static _INL ssize_t _robust_write(int fd, void *const buf, const size_t count);
+static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
+static _INL unsigned _getHexDigit(char cdigit);
 
 //
 // definitions
@@ -764,10 +792,8 @@ static _CTOR void _jove_rt_init(void) {
 
   long ret =
       _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0)
+    _UNREACHABLE();
 
   target_ulong newstack = _jove_alloc_stack();
 
@@ -776,10 +802,8 @@ static _CTOR void _jove_rt_init(void) {
                  .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
   {
     long ret = _jove_sys_sigaltstack(&uss, NULL);
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0)
+      _UNREACHABLE();
   }
 
   _jove_callstack_init();
@@ -839,6 +863,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
         newsp &= 0xfffffffffffffff0; // align the stack
 
+        newsp -= sizeof(uintptr_t); /* return address */
+
         ((uintptr_t *)newsp)[0] = _jove_inverse_thunk;
         ((uintptr_t *)newsp)[1] = saved_retaddr;
         ((uintptr_t *)newsp)[2] = saved_sp;
@@ -869,8 +895,135 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  __builtin_trap();
-  __builtin_unreachable();
+  char maps[4096 * 8];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  char s[4096 * 16];
+  s[0] = '\0';
+
+  _strcat(s, "*** crash (jove) *** [");
+  {
+    char buff[65];
+    uint_to_string(_jove_sys_gettid(), buff, 10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, "]\n");
+
+#define _FIELD(name, init)                                                     \
+  do {                                                                         \
+    _strcat(s, name " 0x");                                                    \
+                                                                               \
+    {                                                                          \
+      char _buff[65];                                                          \
+      uint_to_string(init, _buff, 0x10);                                       \
+                                                                               \
+      _strcat(s, _buff);                                                       \
+    }                                                                          \
+    {                                                                          \
+      char _buff[256];                                                         \
+      _buff[0] = '\0';                                                         \
+                                                                               \
+      _description_of_address_for_maps(_buff, init, maps, n);                  \
+      if (_strlen(_buff) != 0) {                                               \
+        _strcat(s, " <");                                                      \
+        _strcat(s, _buff);                                                     \
+        _strcat(s, ">");                                                       \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
+    _strcat(s, "\n");                                                          \
+  } while (false)
+
+  _FIELD("pc ", saved_pc);
+  _FIELD("rax", uctx->uc_mcontext.gregs[REG_RAX]);
+  _FIELD("rcx", uctx->uc_mcontext.gregs[REG_RCX]);
+  _FIELD("rdx", uctx->uc_mcontext.gregs[REG_RDX]);
+  _FIELD("rbx", uctx->uc_mcontext.gregs[REG_RBX]);
+  _FIELD("rsp", uctx->uc_mcontext.gregs[REG_RSP]);
+  _FIELD("rbp", uctx->uc_mcontext.gregs[REG_RBP]);
+  _FIELD("rsi", uctx->uc_mcontext.gregs[REG_RSI]);
+  _FIELD("rdi", uctx->uc_mcontext.gregs[REG_RDI]);
+  _FIELD("r8 ", uctx->uc_mcontext.gregs[REG_R8]);
+  _FIELD("r9 ", uctx->uc_mcontext.gregs[REG_R9]);
+  _FIELD("r10", uctx->uc_mcontext.gregs[REG_R10]);
+  _FIELD("r11", uctx->uc_mcontext.gregs[REG_R11]);
+  _FIELD("r12", uctx->uc_mcontext.gregs[REG_R12]);
+  _FIELD("r13", uctx->uc_mcontext.gregs[REG_R13]);
+  _FIELD("r14", uctx->uc_mcontext.gregs[REG_R14]);
+  _FIELD("r15", uctx->uc_mcontext.gregs[REG_R15]);
+
+#undef _FIELD
+
+  _strcat(s, "\n");
+  _strcat(s, maps);
+
+  //
+  // dump message for user
+  //
+  _robust_write(2 /* stderr */, s, _strlen(s));
+
+  _UNREACHABLE();
+}
+
+unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
+  unsigned n;
+
+  {
+    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
+    if (fd < 0)
+      _UNREACHABLE();
+
+    // let n denote the number of characters read
+    n = 0;
+
+    for (;;) {
+      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
+
+      if (ret == 0)
+        break;
+
+      if (ret < 0) {
+        if (ret == -EINTR)
+          continue;
+
+        _UNREACHABLE();
+      }
+
+      n += ret;
+    }
+
+    if (_jove_sys_close(fd) < 0)
+      _UNREACHABLE();
+  }
+
+  return n;
+}
+
+ssize_t _robust_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = _jove_sys_write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      if (ret == -EINTR)
+        continue;
+
+      return ret;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
 }
 
 void *_memcpy(void *dest, const void *src, size_t n) {
@@ -897,10 +1050,8 @@ void *_memset(void *dst, int c, size_t n) {
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   unsigned long uret = (unsigned long)ret;
 
@@ -910,33 +1061,25 @@ target_ulong _jove_alloc_stack(void) {
   unsigned long beg = uret;
   unsigned long end = beg + JOVE_STACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_stack(target_ulong beg) {
-  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 target_ulong _jove_alloc_callstack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   void *ptr = (void *)ret;
 
@@ -946,24 +1089,18 @@ target_ulong _jove_alloc_callstack(void) {
   unsigned long beg = (unsigned long)ret;
   unsigned long end = beg + JOVE_CALLSTACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_callstack(target_ulong start) {
-  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 void _jove_free_stack_later(target_ulong stack) {
@@ -975,8 +1112,37 @@ void _jove_free_stack_later(target_ulong stack) {
     return;
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
+}
+
+void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
 }
 
 void _addrtostr(uintptr_t addr, char *Str, size_t n) {
@@ -1043,12 +1209,34 @@ void _addrtostr(uintptr_t addr, char *Str, size_t n) {
   *Str = '\0';
 }
 
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
+}
+
 size_t _strlen(const char *str) {
   const char *s;
 
   for (s = str; *s; ++s)
     ;
   return (s - str);
+}
+
+void *_memchr(const void *s, int c, size_t n) {
+  if (n != 0) {
+    const unsigned char *p = s;
+
+    do {
+      if (*p++ == (unsigned char)c)
+        return ((void *)(p - 1));
+    } while (--n != 0);
+  }
+  return (NULL);
 }
 
 void _jove_init_cpu_state(void) {
@@ -1071,6 +1259,133 @@ uintptr_t _jove_callstack_location(void) {
 
 uintptr_t _jove_callstack_begin_location(void) {
   return &__jove_callstack_begin;
+}
+
+unsigned _getHexDigit(char cdigit) {
+  unsigned radix = 0x10;
+
+  unsigned r;
+
+  if (radix == 16 || radix == 36) {
+    r = cdigit - '0';
+    if (r <= 9)
+      return r;
+
+    r = cdigit - 'A';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    r = cdigit - 'a';
+    if (r <= radix - 11U)
+      return r + 10;
+
+    radix = 10;
+  }
+
+  r = cdigit - '0';
+  if (r < radix)
+    return r;
+
+  return -1U;
+}
+
+uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
+  const unsigned radix = 0x10;
+
+  uint64_t res = 0;
+
+  char *p = str_begin;
+  size_t slen = str_end - str_begin;
+
+  // Figure out if we can shift instead of multiply
+  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
+
+  // Enter digit traversal loop
+  for (char *e = str_end; p != e; ++p) {
+    unsigned digit = _getHexDigit(*p);
+
+    if (!(digit < radix))
+      return 0;
+
+    // Shift or multiply the value by the radix
+    if (slen > 1) {
+      if (shift)
+        res <<= shift;
+      else
+        res *= radix;
+    }
+
+    // Add in the digit we just interpreted
+    res += digit;
+  }
+
+  return res;
+}
+
+void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+    }
+
+    unsigned left = eol - line;
+
+    struct {
+      uint64_t min, max;
+    } vm;
+
+    {
+      char *dash = _memchr(line, '-', left);
+      vm.min = _u64ofhexstr(line, dash);
+
+      char *space = _memchr(line, ' ', left);
+      vm.max = _u64ofhexstr(dash + 1, space);
+    }
+
+    //
+    // does the given address exist within this mapping?
+    //
+    if (Addr >= vm.min && Addr < vm.max) {
+      //
+      // we have a match. If this mapping has a file path, we'll make it the
+      // description
+      //
+      char *fwdslash = _memchr(line, '/', left);
+      char *leftsqbr = _memchr(line, '[', left);
+
+      if (fwdslash) {
+        *eol = '\0';
+        _strcat(out, fwdslash);
+        *eol = '\n';
+      } else if (leftsqbr) {
+        *eol = '\0';
+        _strcat(out, leftsqbr);
+        *eol = '\n';
+      } else {
+        *out = '\0';
+        return;
+      }
+
+      _strcat(out, "+0x");
+
+      ssize_t Offset = Addr - vm.min;
+      char offsetStr[65];
+      uint_to_string(Offset, offsetStr, 0x10);
+
+      _strcat(out, offsetStr);
+
+      return;
+    }
+  }
 }
 
 asm ( "	nop\n" ".align 16\n" ".LSTART_" "restore_rt" ":\n" "	.type __" "restore_rt" ",@function\n" "__" "restore_rt" ":\n" "	movq $" "15" ", %rax\n" "	syscall\n" ".LEND_" "restore_rt" ":\n" ".section .eh_frame,\"a\",@progbits\n" ".LSTARTFRAME_" "restore_rt" ":\n" "	.long .LENDCIE_" "restore_rt" "-.LSTARTCIE_" "restore_rt" "\n" ".LSTARTCIE_" "restore_rt" ":\n" "	.long 0\n" "	.byte 1\n" "	.string \"zRS\"\n" "	.uleb128 1\n" "	.sleb128 -8\n" "	.uleb128 16\n" "	.uleb128 .LENDAUGMNT_" "restore_rt" "-.LSTARTAUGMNT_" "restore_rt" "\n" ".LSTARTAUGMNT_" "restore_rt" ":\n" "	.byte 0x1b\n" ".LENDAUGMNT_" "restore_rt" ":\n" "	.align " "8" "\n" ".LENDCIE_" "restore_rt" ":\n" "	.long .LENDFDE_" "restore_rt" "-.LSTARTFDE_" "restore_rt" "\n" ".LSTARTFDE_" "restore_rt" ":\n" "	.long .LSTARTFDE_" "restore_rt" "-.LSTARTFRAME_" "restore_rt" "\n" "	.long (.LSTART_" "restore_rt" "-1)-.\n" "	.long .LEND_" "restore_rt" "-(.LSTART_" "restore_rt" "-1)\n" "	.uleb128 0\n" "	.byte 0x0f\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "	.byte 0x06\n" "2:" "	.byte 0x10\n" "	.uleb128 " "8" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "40" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "9" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "48" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "10" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "56" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "11" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "64" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "12" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "72" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "13" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "80" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "14" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "88" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "15" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "96" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "5" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "104" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "4" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "112" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "6" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "120" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "3" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "128" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "1" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "136" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "0" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "144" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "2" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "152" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "7" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "16" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "168" "\n" "2:" "	.align " "8" "\n" ".LENDFDE_" "restore_rt" ":\n" "	.previous\n" );
