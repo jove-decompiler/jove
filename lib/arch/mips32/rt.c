@@ -1973,15 +1973,13 @@ static ssize_t robust_write(int fd, void *const buf, const size_t count) {
   do {
     unsigned left = count - n;
 
-    ssize_t ret = write(fd, &_buf[n], left);
+    ssize_t ret = _jove_sys_write(fd, &_buf[n], left);
 
     if (ret == 0)
       return -EIO;
 
     if (ret < 0) {
-      int err = errno;
-
-      if (err == EINTR)
+      if (ret == -EINTR)
         continue;
 
       return -err;
