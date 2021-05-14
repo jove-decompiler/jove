@@ -760,8 +760,29 @@ int recompile(void) {
     std::string mapfp(chrooted_path.string() + ".map");
 
     if (opts::ForeignLibs && !b.IsExecutable) {
+      //
+      // original lib
+      //
       std::ofstream ofs(chrooted_path.c_str());
       ofs.write(&b.Data[0], b.Data.size());
+
+      if (!b.dynl.soname.empty()) {
+        //
+        // create symlink
+        //
+        if (binary_filename != b.dynl.soname) {
+          fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
+          if (fs::exists(dst))
+            fs::remove(dst);
+
+          try {
+            fs::create_symlink(binary_filename, dst);
+          } catch (...) {
+              ;
+          }
+        }
+      }
+
       continue;
     }
 
@@ -922,6 +943,9 @@ int recompile(void) {
       if (!b.dynl.soname.empty()) {
         arg_vec.push_back(soname_arg.c_str());
 
+        //
+        // create symlink
+        //
         if (binary_filename != b.dynl.soname) {
           fs::path dst = chrooted_path.parent_path() / b.dynl.soname;
           if (fs::exists(dst))
