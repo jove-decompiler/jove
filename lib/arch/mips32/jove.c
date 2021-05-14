@@ -1748,7 +1748,9 @@ extern char **__jove_startup_info_environ;
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
-/* -> static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
+/* -> static */ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
+  [0 ... _JOVE_MAX_BINARIES - 1] = NULL
+};
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -1805,6 +1807,12 @@ extern /* -> static */ void _jove_do_tpoff_hack(void);
 extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
 extern /* -> static */ const char *_jove_dynl_path(void);
 
+extern /* -> static */ uint32_t    _jove_foreign_lib_count(void);
+extern /* -> static */ const char *_jove_foreign_lib_path(uint32_t Idx);
+extern /* -> static */ uintptr_t  *_jove_foreign_lib_function_table(uint32_t Idx);
+
+_CTOR static void _jove_install_foreign_function_tables(void);
+
 _CTOR static void _jove_tpoff_hack(void) {
   _jove_do_tpoff_hack();
 }
@@ -1820,6 +1828,8 @@ _CTOR static void _jove_emulate_copy_relocations(void) {
 }
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
+  _jove_install_foreign_function_tables();
+
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
   _jove_do_tpoff_hack(); /* for good measure */
 
@@ -1829,8 +1839,6 @@ _CTOR _HIDDEN void _jove_install_function_table(void) {
     _jove_do_emulate_copy_relocations();
   }
 }
-
-_CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
@@ -2416,6 +2424,99 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
     }
   }
 
+  unsigned N = _jove_foreign_lib_count();
+  if (N > 0) {
+    //
+    // see if this is a function in a foreign DSO
+    //
+    char maps[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    maps[n] = '\0';
+
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      if (!(CalleeAddr >= min && CalleeAddr < max))
+        continue;
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match) {
+          uintptr_t *ForeignFnTbl = _jove_foreign_lib_function_table(i);
+
+          for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
+            if (CalleeAddr == ForeignFnTbl[FIdx]) {
+              Callee.BIdx = i + 3;
+              Callee.FIdx = FIdx;
+
+              goto found;
+            }
+          }
+        }
+      }
+    }
+  }
+
+
   return; /* not found */
 
 found:
@@ -2882,16 +2983,12 @@ void _jove_install_foreign_function_tables(void) {
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
-  uintptr_t dynl_load_bias;
-  uintptr_t vdso_load_bias;
-  {
-    char buff[4096 * 16];
-    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-    buff[n] = '\0';
+  char maps[4096 * 16];
+  unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
 
-    dynl_load_bias = _parse_dynl_load_bias(buff, n);
-    vdso_load_bias = _parse_vdso_load_bias(buff, n);
-  }
+  uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n);
+  uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n);
 
   uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
   uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
@@ -2903,6 +3000,86 @@ void _jove_install_foreign_function_tables(void) {
 
   __jove_foreign_function_tables[1] = dynl_fn_tbl;
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
+
+  unsigned N = _jove_foreign_lib_count();
+  if (N > 0) {
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match) {
+          uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
+
+          uintptr_t load_bias = min - off;
+          for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+            foreign_fn_tbl[FIdx] += load_bias;
+
+          __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
+          break;
+        }
+      }
+    }
+  }
 }
 
 target_ulong _jove_alloc_stack(void) {
