@@ -571,7 +571,9 @@ extern char **__jove_startup_info_environ;
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
-/* -> static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
+/* -> static */ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
+  [0 ... _JOVE_MAX_BINARIES - 1] = NULL
+};
 
 #define _NSIG		64
 
@@ -652,6 +654,12 @@ extern /* -> static */ void _jove_do_tpoff_hack(void);
 extern /* -> static */ void _jove_do_emulate_copy_relocations(void);
 extern /* -> static */ const char *_jove_dynl_path(void);
 
+extern /* -> static */ uint32_t    _jove_foreign_lib_count(void);
+extern /* -> static */ const char *_jove_foreign_lib_path(uint32_t Idx);
+extern /* -> static */ uintptr_t  *_jove_foreign_lib_function_table(uint32_t Idx);
+
+_CTOR static void _jove_install_foreign_function_tables(void);
+
 _CTOR static void _jove_tpoff_hack(void) {
   _jove_do_tpoff_hack();
 }
@@ -667,6 +675,8 @@ _CTOR static void _jove_emulate_copy_relocations(void) {
 }
 
 _CTOR _HIDDEN void _jove_install_function_table(void) {
+  _jove_install_foreign_function_tables();
+
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
   _jove_do_tpoff_hack(); /* for good measure */
 
@@ -676,8 +686,6 @@ _CTOR _HIDDEN void _jove_install_function_table(void) {
     _jove_do_emulate_copy_relocations();
   }
 }
-
-_CTOR static void _jove_install_foreign_function_tables(void);
 
 _HIDDEN
 _NAKED void _jove_start(void);
@@ -708,6 +716,26 @@ _NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
 _NOINL void _jove_check_return_address(target_ulong RetAddr,
                                        target_ulong NativeRetAddr);
 
+#define _UNREACHABLE()                                                         \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str, 10);                                    \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
@@ -727,6 +755,8 @@ static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
 static _INL bool _isDigit(char);
 static _INL int _atoi(const char *s);
 static _INL size_t _strlen(const char *s);
+static _INL char *_strcat(char *s, const char *append);
+static _INL void uint_to_string(uint64_t x, char *Str, unsigned Radix);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
@@ -922,6 +952,36 @@ unsigned _getHexDigit(char cdigit) {
   return -1U;
 }
 
+void uint_to_string(uint64_t x, char *Str, unsigned Radix) {
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
+}
+
 uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
   const unsigned radix = 0x10;
 
@@ -986,8 +1046,7 @@ uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
@@ -995,10 +1054,8 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
 
   {
     int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (fd < 0)
+      _UNREACHABLE();
 
     // let n denote the number of characters read
     n = 0;
@@ -1013,17 +1070,14 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
         if (ret == -EINTR)
           continue;
 
-        __builtin_trap();
-        __builtin_unreachable();
+        _UNREACHABLE();
       }
 
       n += ret;
     }
 
-    if (_jove_sys_close(fd) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (_jove_sys_close(fd) < 0)
+      _UNREACHABLE();
   }
 
   return n;
@@ -1058,35 +1112,27 @@ void _jove_trace_init(void) {
 
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (fd < 0)
+    _UNREACHABLE();
 
   off_t size = 1UL << 31; /* 2 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_ftruncate(fd, size) < 0)
+    _UNREACHABLE();
 
   {
     long ret =
         _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
-    if (ret < 0 && ret > -4096) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0 && ret > -4096)
+      _UNREACHABLE();
 
     void *ptr = (void *)ret;
 
     __jove_trace_begin = __jove_trace = ptr;
   }
 
-  if (_jove_sys_close(fd) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE();
 
   //
   // install SIGSEGV handler
@@ -1103,20 +1149,16 @@ void _jove_trace_init(void) {
   {
     long ret =
         _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0)
+      _UNREACHABLE();
   }
 }
 
 void _jove_callstack_init(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   void *ptr = (void *)ret;
 
@@ -1126,15 +1168,11 @@ void _jove_callstack_init(void) {
   unsigned long beg = (unsigned long)ret;
   unsigned long end = beg + JOVE_CALLSTACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
@@ -1144,9 +1182,7 @@ static void _jove_flush_trace(void);
 void _jove_sigsegv_handler(void) {
   _jove_flush_trace();
 
-  _jove_sys_exit_group(22);
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 void _jove_flush_trace(void) {
@@ -1157,10 +1193,8 @@ void _jove_flush_trace(void) {
   len *= sizeof(uint64_t);
 
   long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0)
+    _UNREACHABLE();
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
@@ -1219,6 +1253,16 @@ unsigned _getDigit(char cdigit, uint8_t radix) {
     return r;
 
   return -1U;
+}
+
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
 }
 
 size_t _strlen(const char *str) {
@@ -1313,15 +1357,105 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
     }
   }
 
+  unsigned N = _jove_foreign_lib_count();
+  if (N > 0) {
+    //
+    // see if this is a function in a foreign DSO
+    //
+    char maps[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    maps[n] = '\0';
+
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      if (!(CalleeAddr >= min && CalleeAddr < max))
+        continue;
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match) {
+          uintptr_t *ForeignFnTbl = _jove_foreign_lib_function_table(i);
+
+          for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
+            if (CalleeAddr == ForeignFnTbl[FIdx]) {
+              Callee.BIdx = i + 3;
+              Callee.FIdx = FIdx;
+
+              goto found;
+            }
+          }
+        }
+      }
+    }
+  }
+
   return; /* not found */
 
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'f';
@@ -1335,10 +1469,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1383,10 +1515,8 @@ void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'b';
@@ -1399,10 +1529,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1430,10 +1558,8 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE();
 
     {
       char ch = 'r';
@@ -1445,10 +1571,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1591,8 +1715,7 @@ uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
@@ -1622,8 +1745,7 @@ uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 static bool __jove_installed_foreign_function_tables = false;
@@ -1635,16 +1757,12 @@ void _jove_install_foreign_function_tables(void) {
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */
-  uintptr_t dynl_load_bias;
-  uintptr_t vdso_load_bias;
-  {
-    char buff[4096 * 16];
-    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-    buff[n] = '\0';
+  char maps[4096 * 16];
+  unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
 
-    dynl_load_bias = _parse_dynl_load_bias(buff, n);
-    vdso_load_bias = _parse_vdso_load_bias(buff, n);
-  }
+  uintptr_t dynl_load_bias = _parse_dynl_load_bias(maps, n);
+  uintptr_t vdso_load_bias = _parse_vdso_load_bias(maps, n);
 
   uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
   uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
@@ -1656,14 +1774,93 @@ void _jove_install_foreign_function_tables(void) {
 
   __jove_foreign_function_tables[1] = dynl_fn_tbl;
   __jove_foreign_function_tables[2] = vdso_fn_tbl;
+
+  unsigned N = _jove_foreign_lib_count();
+  if (N > 0) {
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match) {
+          uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
+
+          uintptr_t load_bias = min - off;
+          for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+            foreign_fn_tbl[FIdx] += load_bias;
+
+          __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
+          break;
+        }
+      }
+    }
+  }
 }
 
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   //
@@ -1673,13 +1870,11 @@ target_ulong _jove_alloc_stack(void) {
   unsigned long end = beg + JOVE_STACK_SIZE;
 
   if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 
   return beg;
@@ -1687,8 +1882,7 @@ target_ulong _jove_alloc_stack(void) {
 
 void _jove_free_stack(target_ulong beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
+    _UNREACHABLE();
   }
 }
 
@@ -1714,8 +1908,7 @@ bool _jove_is_readable_mem(target_ulong Addr) {
   {
     long ret = _jove_sys_getpid();
     if (unlikely(ret < 0)) {
-      __builtin_trap();
-      __builtin_unreachable();
+      _UNREACHABLE();
     }
     pid = ret;
   }
@@ -1839,6 +2032,5 @@ bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }

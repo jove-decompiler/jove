@@ -377,6 +377,12 @@ static cl::opt<bool>
                                     cl::desc("Check for stack overrun"),
                                     cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    ForeignLibs("foreign-libs",
+                cl::desc("only recompile the executable itself; "
+                         "treat all other binaries as \"foreign\""),
+                cl::cat(JoveCategory));
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 static cl::opt<bool>
     MipsT9Hack("mips-t9-hack",
@@ -687,7 +693,7 @@ static struct {
 
 // set {int}0x08053ebc = 0xf7fa83f0
 static std::map<std::pair<target_ulong, unsigned>,
-                std::pair<binary_index_t, unsigned>>
+                std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
     CopyRelocMap;
 
 #if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
@@ -706,6 +712,7 @@ constexpr target_ulong Cookie = 0xd27b9f5a;
 //
 static int ParseDecompilation(void);
 static int FindBinary(void);
+static int CheckBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int LocateHooks(void);
@@ -747,6 +754,7 @@ static void DumpModule(const char *);
 int llvm(void) {
   return ParseDecompilation()
       || FindBinary()
+      || CheckBinary()
       || InitStateForBinaries()
       || CreateModule()
       || (opts::DFSan ? LocateHooks() : 0)
@@ -947,14 +955,30 @@ int FindBinary(void) {
 
   WithColor::error() << "binary " << opts::Binary
                      << " not found in given decompilation\n";
+
   return 1;
+}
+
+int CheckBinary(void) {
+  if (opts::ForeignLibs) {
+    if (!Decompilation.Binaries[BinaryIndex].IsExecutable) {
+      WithColor::error() << "--foreign-libs specified but given binary is not "
+                            "the executable\n";
+      return 1;
+    }
+  }
+
+  return 0;
 }
 
 static bool
 DynTargetNeedsThunkPred(std::pair<binary_index_t, function_index_t> DynTarget) {
   binary_index_t BIdx = DynTarget.first;
-
   const binary_t &binary = Decompilation.Binaries[BIdx];
+
+  if (opts::ForeignLibs)
+    return !binary.IsExecutable;
+
   return binary.IsDynamicLinker || binary.IsVDSO;
 }
 
@@ -991,7 +1015,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
   }
 
-#if 1
+#if 0
   if (!binary.IsDynamicallyLoaded) {
     llvm::Value *FnsTbl = Decompilation.Binaries[DynTarget.BIdx].FunctionsTable;
     assert(FnsTbl);
@@ -3152,6 +3176,21 @@ int ProcessDynamicTargets(void) {
     }
   }
 
+#if 0
+  //
+  // _start is *not* an ABI XXX
+  //
+  for (auto &binary : Decompilation.Binaries) {
+    auto &A = binary.Analysis;
+    if (binary.IsExecutable) {
+      if (is_function_index_valid(A.EntryFunction))
+        A.Functions.at(A.EntryFunction).IsABI = false;
+
+      break;
+    }
+  }
+#endif
+
   return 0;
 }
 
@@ -4448,6 +4487,8 @@ int CreateFunctionTables(void) {
       continue;
     if (binary.IsDynamicallyLoaded)
       continue;
+    if (opts::ForeignLibs && !binary.IsExecutable)
+      continue;
 
     binary.SectsF = llvm::Function::Create(
         llvm::FunctionType::get(WordType(), false),
@@ -4639,7 +4680,7 @@ int CreateTLSModGlobal(void) {
   return 0;
 }
 
-static std::pair<binary_index_t, unsigned>
+static std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S);
 
 int CreateSectionGlobalVariables(void) {
@@ -4885,18 +4926,18 @@ int CreateSectionGlobalVariables(void) {
     //
     struct {
       binary_index_t BIdx;
-      unsigned SectsOffset;
+      std::pair<target_ulong, unsigned> OffsetPair;
     } CopyFrom;
 
     //
     // find out who to copy from
     //
-    std::tie(CopyFrom.BIdx, CopyFrom.SectsOffset) = decipher_copy_relocation(S);
+    std::tie(CopyFrom.BIdx, CopyFrom.OffsetPair) = decipher_copy_relocation(S);
 
     if (is_binary_index_valid(CopyFrom.BIdx))
       CopyRelocMap.emplace(std::pair<target_ulong, unsigned>(S.Addr, S.Size),
-                           std::pair<binary_index_t, unsigned>(
-                               CopyFrom.BIdx, CopyFrom.SectsOffset));
+                           std::pair<binary_index_t, std::pair<target_ulong, unsigned>>(
+                               CopyFrom.BIdx, CopyFrom.OffsetPair));
 
     return VoidType();
   };
@@ -6404,7 +6445,7 @@ int ProcessDynamicSymbols2(void) {
                 Module->appendModuleInlineAsm(
                     (fmt(".globl %s\n"
                          ".type  %s,@object\n"
-                         ".size  %s, %u\n" 
+                         ".size  %s, %u\n"
                          ".set   %s, __jove_sections_%u + %u")
                      % sym.Name.str()
                      % sym.Name.str()
@@ -6416,7 +6457,7 @@ int ProcessDynamicSymbols2(void) {
                       (fmt(".hidden g%lx_%u\n"
                            ".globl  g%lx_%u\n"
                            ".type   g%lx_%u,@object\n"
-                           ".size   g%lx_%u, %u\n" 
+                           ".size   g%lx_%u, %u\n"
                            ".set    g%lx_%u, __jove_sections_%u + %u")
                        % Sym.st_value % Sym.st_size
                        % Sym.st_value % Sym.st_size
@@ -6466,7 +6507,7 @@ int ProcessDynamicSymbols2(void) {
   return 0;
 }
 
-std::pair<binary_index_t, unsigned>
+std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S) {
   auto &Binary = Decompilation.Binaries[BinaryIndex];
   assert(Binary.IsExecutable);
@@ -6799,7 +6840,7 @@ decipher_copy_relocation(const symbol_t &S) {
 
         assert(Sym.st_value > _SectsStartAddr);
 
-        return {BIdx, Sym.st_value - _SectsStartAddr};
+        return {BIdx, {Sym.st_value, Sym.st_value - _SectsStartAddr}};
       }
     }
   }
@@ -6807,7 +6848,7 @@ decipher_copy_relocation(const symbol_t &S) {
   WithColor::warning() << llvm::formatv(
       "failed to decipher copy relocation {0} {1}\n", S.Name, S.Vers);
 
-  return {invalid_binary_index, 0};
+  return {invalid_binary_index, {0, 0}};
 }
 
 static llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
@@ -6936,25 +6977,60 @@ int CreateCopyRelocationHack(void) {
     }
 
     for (const auto &pair : CopyRelocMap) {
-      auto &binary_from = Decompilation.Binaries.at(pair.second.first);
+      binary_index_t BIdxFrom = pair.second.first;
+      auto &BinaryFrom = Decompilation.Binaries.at(BIdxFrom);
 
-      assert(binary_from.SectsF);
+      WARN_ON(pair.second.first < 3);
 
-      IRB.CreateMemCpy(
-          IRB.CreateIntToPtr(SectionPointer(pair.first.first),
-                             IRB.getInt8PtrTy()),
-          llvm::MaybeAlign(),
-          IRB.CreateIntToPtr(
-              IRB.CreateAdd(IRB.CreateCall(binary_from.SectsF),
-                            IRB.getIntN(WordBits(), pair.second.second)),
-              IRB.getInt8PtrTy()),
-          llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+      if (BinaryFrom.SectsF) {
+        IRB.CreateMemCpy(
+            IRB.CreateIntToPtr(SectionPointer(pair.first.first),
+                               IRB.getInt8PtrTy()),
+            llvm::MaybeAlign(),
+            IRB.CreateIntToPtr(
+                IRB.CreateAdd(IRB.CreateCall(BinaryFrom.SectsF),
+                              IRB.getIntN(WordBits(), pair.second.second.second)),
+                IRB.getInt8PtrTy()),
+            llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+      } else {
+        assert(opts::ForeignLibs);
 
+        auto &ICFG = BinaryFrom.Analysis.ICFG;
+
+        assert(!BinaryFrom.Analysis.Functions.empty());
+
+        //
+        // get the load address
+        //
+        llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
+            JoveForeignFunctionTablesGlobal, 0, BIdxFrom));
+
+        llvm::Value *FirstEntry = IRB.CreateLoad(FnsTbl);
+
+        llvm::Value *LoadBias = IRB.CreateSub(FirstEntry,
+          IRB.getIntN(WordBits(), ICFG[boost::vertex(BinaryFrom.Analysis.Functions[0].Entry, ICFG)].Addr));
+
+        llvm::errs() << llvm::formatv("FnsTbl: {0} Type: {1}\n", *FnsTbl,
+                                      *FnsTbl->getType());
+
+        IRB.CreateMemCpy(
+            IRB.CreateIntToPtr(SectionPointer(pair.first.first),
+                               IRB.getInt8PtrTy()),
+            llvm::MaybeAlign(),
+            IRB.CreateIntToPtr(
+                IRB.CreateAdd(LoadBias,
+                              IRB.getIntN(WordBits(), pair.second.second.first)),
+                IRB.getInt8PtrTy()),
+            llvm::MaybeAlign(), pair.first.second, true /* Volatile */);
+      }
+
+#if 1
       WithColor::note() << llvm::formatv("COPY RELOC HACK {0} {1} {2} {3}\n",
                                          pair.first.first,
                                          pair.first.second,
-                                         pair.second.first,
-                                         pair.second.second);
+                                         pair.second.second.first,
+                                         pair.second.second.second);
+#endif
     }
 
     IRB.CreateRetVoid();
@@ -7500,6 +7576,222 @@ int FixupHelperStubs(void) {
     }
 
     GetVDSOFunctionTableF->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_foreign_lib_count");
+    assert(F && F->empty());
+
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+      uint32_t res =
+          opts::ForeignLibs ? (Decompilation.Binaries.size()
+                               - 1 /* rtld */
+                               - 1 /* vdso */
+                               - 1 /* exe  */) : 0;
+
+      IRB.CreateRet(llvm::ConstantInt::get(IRB.getInt32Ty(), res));
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_foreign_lib_path");
+    assert(F && F->empty());
+
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(DefaultBB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 7 /* Line */, 7 /* Column */, DebugInfo.Subprogram));
+
+      IRB.CreateRet(llvm::Constant::getNullValue(F->getFunctionType()->getReturnType()));
+    }
+
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+      assert(F->arg_begin() != F->arg_end());
+      llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
+                                              Decompilation.Binaries.size() - 3);
+      if (opts::ForeignLibs) {
+        for (binary_index_t BIdx = 3; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+          llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(*Context, "", F);
+          {
+            llvm::IRBuilderTy CaseIRB(CaseBB);
+
+            CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
+                *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+            CaseIRB.CreateRet(
+                CaseIRB.CreateGlobalStringPtr(Decompilation.Binaries[BIdx].Path));
+          }
+
+          SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
+        }
+      }
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  {
+    llvm::Function *F = Module->getFunction("_jove_foreign_lib_function_table");
+    assert(F && F->empty());
+
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    llvm::BasicBlock *DefaultBB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(DefaultBB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 7 /* Line */, 7 /* Column */, DebugInfo.Subprogram));
+
+      IRB.CreateRet(llvm::Constant::getNullValue(F->getFunctionType()->getReturnType()));
+    }
+
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+      assert(F->arg_begin() != F->arg_end());
+      llvm::SwitchInst *SI = IRB.CreateSwitch(F->arg_begin(), DefaultBB,
+                                              Decompilation.Binaries.size() - 3);
+      if (opts::ForeignLibs) {
+        for (binary_index_t BIdx = 3; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+          binary_t &binary = Decompilation.Binaries[BIdx];
+          auto &ICFG = binary.Analysis.ICFG;
+
+          llvm::ArrayType *TblTy =
+            llvm::ArrayType::get(WordType(),
+                                 binary.Analysis.Functions.size() + 1);
+
+          std::vector<llvm::Constant *> constantTable;
+          constantTable.resize(binary.Analysis.Functions.size() + 1);
+
+          for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
+            function_t &f = binary.Analysis.Functions[FIdx];
+
+            constantTable[FIdx] = llvm::ConstantInt::get(
+                WordType(), ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+          }
+
+          constantTable.back() = llvm::Constant::getNullValue(WordType());
+
+          llvm::Constant *Init = llvm::ConstantArray::get(TblTy, constantTable);
+
+          llvm::GlobalVariable *ConstantTableGV = new llvm::GlobalVariable(
+              *Module, TblTy, false, llvm::GlobalValue::InternalLinkage, Init,
+              (fmt("__jove_foreign_function_table_%u") % BIdx).str());
+
+          llvm::BasicBlock *CaseBB = llvm::BasicBlock::Create(*Context, "", F);
+          {
+            llvm::IRBuilderTy CaseIRB(CaseBB);
+
+            CaseIRB.SetCurrentDebugLocation(llvm::DILocation::get(
+                *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+            CaseIRB.CreateRet(
+                CaseIRB.CreateConstInBoundsGEP2_64(ConstantTableGV, 0, 0));
+          }
+
+          SI->addCase(llvm::ConstantInt::get(IRB.getInt32Ty(), BIdx - 3),  CaseBB);
+        }
+      }
+    }
+
+    F->setLinkage(llvm::GlobalValue::InternalLinkage);
   }
 
   return 0;
@@ -8456,7 +8748,7 @@ int WriteVersionScript(void) {
 
     ofs << "};\n";
   }
- 
+
   return 0;
 }
 

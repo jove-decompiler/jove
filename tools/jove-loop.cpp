@@ -111,6 +111,18 @@ static cl::opt<unsigned> Sleep(
              "can be useful if the program being recompiled forks"),
     cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    ForeignLibs("foreign-libs",
+                cl::desc("only recompile the executable itself; "
+                         "treat all other binaries as \"foreign\""),
+                cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    OutsideChroot("outside-chroot",
+                  cl::desc("run program under real sysroot (useful when "
+                           "combined with --foreign-libs)"),
+                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -505,6 +517,9 @@ run:
             "--sysroot",
             opts::sysroot.c_str(),
         };
+
+        if (opts::OutsideChroot)
+          arg_vec.push_back("--outside-chroot");
 
         std::string env_arg;
 
@@ -919,6 +934,9 @@ skip_run:
 
         if (opts::Trace)
           arg_vec.push_back("--trace");
+
+        if (opts::ForeignLibs)
+          arg_vec.push_back("--foreign-libs");
 
         arg_vec.push_back(nullptr);
 

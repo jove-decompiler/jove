@@ -161,6 +161,12 @@ static cl::opt<bool> SkipLLVM(
     cl::desc("Skip running jove-llvm (careful when using this option)"),
     cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    ForeignLibs("foreign-libs",
+                cl::desc("only recompile the executable itself; "
+                         "treat all other binaries as \"foreign\""),
+                cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -211,7 +217,7 @@ static std::mutex Q_mtx;
 
 static void worker(const dso_graph_t &dso_graph);
 
-static bool worker_failed = false;
+static std::atomic<bool> worker_failed(false);
 
 static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
 
@@ -700,8 +706,13 @@ int recompile(void) {
   }
 
   Q.reserve(top_sorted.size());
-  for (dso_t dso : boost::adaptors::reverse(top_sorted))
+  for (dso_t dso : boost::adaptors::reverse(top_sorted)) {
+    binary_index_t BIdx = dso_graph[dso].BIdx;
+    if (opts::ForeignLibs && !Decompilation.Binaries[BIdx].IsExecutable)
+      continue;
+
     Q.push_back(dso);
+  }
 
   //
   // run jove-llvm and llc on all DSOs
@@ -719,7 +730,7 @@ int recompile(void) {
       t.join();
   }
 
-  if (worker_failed)
+  if (worker_failed.load())
     return 1;
 
   //
@@ -747,6 +758,12 @@ int recompile(void) {
 
     std::string objfp(chrooted_path.string() + ".o");
     std::string mapfp(chrooted_path.string() + ".map");
+
+    if (opts::ForeignLibs && !b.IsExecutable) {
+      std::ofstream ofs(chrooted_path.c_str());
+      ofs.write(&b.Data[0], b.Data.size());
+      continue;
+    }
 
     if (!fs::exists(objfp)) {
       WithColor::warning() << llvm::formatv("{0} doesn't exist; skipping {1}\n",
@@ -1009,6 +1026,7 @@ void worker(const dso_graph_t &dso_graph) {
     std::string dfsan_modid_fp(chrooted_path.string() + ".modid");
 
     std::string bytecode_loc = (fs::path(opts::Output) / "dfsan").string();
+
     //
     // run jove-llvm
     //
@@ -1047,7 +1065,9 @@ void worker(const dso_graph_t &dso_graph) {
       if (opts::CheckEmulatedStackReturnAddress)
         arg_vec.push_back("--check-emulated-stack-return-address");
       if (opts::Trace)
-        arg_vec.push_back("-trace");
+        arg_vec.push_back("--trace");
+      if (opts::ForeignLibs)
+        arg_vec.push_back("--foreign-libs");
 
       arg_vec.push_back(nullptr);
 
@@ -1080,7 +1100,7 @@ void worker(const dso_graph_t &dso_graph) {
     // check exit code
     //
     if (int ret = await_process_completion(pid)) {
-      worker_failed = true;
+      worker_failed.store(true);
       WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
       continue;
     }
@@ -1201,7 +1221,7 @@ void worker(const dso_graph_t &dso_graph) {
       }
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-      if (opts::DFSan) {
+      if (opts::DFSan) { /* XXX */
         arg_vec.push_back("--stack-alignment=16");
         arg_vec.push_back("--stackrealign");
       }
@@ -1320,7 +1340,7 @@ void write_dso_graphviz(std::ostream &out, const dso_graph_t &dso_graph) {
 }
 
 void handle_sigint(int no) {
-  Cancel = true;
+  Cancel.store(true);
 }
 
 int await_process_completion(pid_t pid) {

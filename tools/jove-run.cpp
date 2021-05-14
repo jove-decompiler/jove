@@ -55,11 +55,20 @@ static cl::opt<unsigned> Sleep(
     cl::desc("Time in seconds to sleep for after finishing waiting on child; "
              "can be useful if the program being recompiled forks"),
     cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    OutsideChroot("outside-chroot",
+                  cl::desc("run program under real sysroot (useful when "
+                           "combined with --foreign-libs)"),
+                  cl::cat(JoveCategory));
 }
 
 namespace jove {
 
+static fs::path jove_recover_path, jv_path;
+
 static int run(void);
+static int run_outside_chroot(void);
 
 } // namespace jove
 
@@ -110,12 +119,27 @@ int main(int argc, char **argv) {
   });
   cl::ParseCommandLineOptions(_argc, _argv, "jove-run\n");
 
-  return jove::run();
+  //
+  // get paths to stuff
+  //
+  jove::jove_recover_path =
+      boost::dll::program_location().parent_path() / "jove-recover";
+  if (!fs::exists(jove::jove_recover_path)) {
+    fprintf(stderr, "couldn't find jove-recover at %s\n",
+            jove::jove_recover_path.c_str());
+    return 1;
+  }
+
+  jove::jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
+  if (!fs::exists(jove::jv_path)) {
+    fprintf(stderr, "recover: no jv found\n");
+    return 1;
+  }
+
+  return opts::OutsideChroot ? jove::run_outside_chroot() : jove::run();
 }
 
 namespace jove {
-
-static fs::path jove_recover_path, jv_path;
 
 //
 // set when jove-recover has been run (if nonzero then either 'f', 'b', 'F', 'r')
@@ -457,23 +481,6 @@ int run(void) {
   }
 
   //
-  // get paths to stuff
-  //
-  jove_recover_path =
-      boost::dll::program_location().parent_path() / "jove-recover";
-  if (!fs::exists(jove_recover_path)) {
-    fprintf(stderr, "couldn't find jove-recover at %s\n",
-            jove_recover_path.c_str());
-    return 1;
-  }
-
-  jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
-  if (!fs::exists(jv_path)) {
-    fprintf(stderr, "recover: no jv found\n");
-    return 1;
-  }
-
-  //
   // create thread reading from fifo
   //
   pthread_t recover_thd;
@@ -574,7 +581,7 @@ int run(void) {
            const_cast<char **>(&env.a_vec[0]));
 
     fprintf(stderr, "execve failed: %s\n", strerror(errno));
-    exit(1);
+    return 1;
   }
 
   //
@@ -626,6 +633,181 @@ int run(void) {
       ret = WEXITSTATUS(status);
   }
 #endif
+
+  if (unsigned sec = opts::Sleep) {
+    fprintf(stderr, "sleeping for %u seconds...\n", sec);
+    sleep(sec);
+  }
+
+  //
+  // cancel the thread reading the fifo
+  //
+  if (pthread_cancel(recover_thd) != 0) {
+    fprintf(stderr, "error: failed to cancel recover_proc thread\n");
+
+    void *retval;
+    if (pthread_join(recover_thd, &retval) != 0)
+      fprintf(stderr, "error: pthread_join failed\n");
+  } else {
+    void *recover_retval;
+    if (pthread_join(recover_thd, &recover_retval) != 0)
+      fprintf(stderr, "error: pthread_join failed\n");
+    else if (recover_retval != PTHREAD_CANCELED)
+      fprintf(stderr,
+              "warning: expected retval to equal PTHREAD_CANCELED, but is %p\n",
+              recover_retval);
+  }
+
+  if (unlink(recover_fifo_path.c_str()) < 0)
+    fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
+
+#if 0
+  if (umount2(opts::sysroot, 0) < 0)
+    fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
+#endif
+
+  {
+    char ch = recovered_ch.load();
+    if (ch)
+      return ch;
+  }
+
+  return ret;
+}
+
+int run_outside_chroot(void) {
+  //
+  // this is a stripped-down version of run() XXX code duplication
+  //
+  fs::path recover_fifo_path = "/jove-recover.fifo";
+  unlink(recover_fifo_path.c_str());
+  if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
+    fprintf(stderr, "mkfifo failed : %s\n", strerror(errno));
+    return 1;
+  }
+
+  //
+  // create thread reading from fifo
+  //
+  pthread_t recover_thd;
+  if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
+                     (void *)recover_fifo_path.c_str()) != 0) {
+    fprintf(stderr, "failed to create recover_proc thread\n");
+    return 1;
+  }
+
+  //
+  // now actually fork and exec the given executable
+  //
+  int pid = fork();
+  if (!pid) {
+    //
+    // compute new environment
+    //
+    struct {
+      std::vector<std::string> s_vec;
+      std::vector<const char *> a_vec;
+    } env;
+
+    for (char **p = ::environ; *p; ++p) {
+      const std::string s(*p);
+
+      auto beginswith = [&](const std::string &x) -> bool {
+        return s.compare(0, x.size(), x) == 0;
+      };
+
+      //
+      // filter pre-existing environment entries
+      //
+      if (beginswith("JOVE_RECOVER_FIFO="))
+        continue;
+
+      env.s_vec.push_back(s);
+    }
+
+    env.s_vec.push_back("JOVE_RECOVER_FIFO=/jove-recover.fifo");
+
+#if defined(__x86_64__)
+    // <3 glibc
+    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-AVX_Usable,"
+                        "-AVX2_Usable,"
+                        "-AVX512F_Usable,"
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Unaligned_Load,"
+                        "-ERMS,"
+                        "-AVX_Fast_Unaligned_Load");
+#elif defined(__i386__)
+    // <3 glibc
+    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Rep_String,"
+                        "-Fast_Unaligned_Load,"
+                        "-SSE2");
+#endif
+
+    //
+    // disable lazy linking (please)
+    //
+    env.s_vec.push_back("LD_BIND_NOW=1");
+
+    for (std::string &s : opts::Envs)
+      env.s_vec.push_back(s);
+
+    for (const std::string &s : env.s_vec)
+      env.a_vec.push_back(s.c_str());
+    env.a_vec.push_back(nullptr);
+
+    fs::path prog_path = fs::path(opts::sysroot) / opts::Prog.c_str();
+
+    std::vector<const char *> arg_vec = {
+        prog_path.c_str(),
+    };
+
+    for (std::string &s : opts::Args)
+      arg_vec.push_back(s.c_str());
+
+    arg_vec.push_back(nullptr);
+
+    print_command(&arg_vec[0]);
+    execve(arg_vec[0],
+           const_cast<char **>(&arg_vec[0]),
+           const_cast<char **>(&env.a_vec[0]));
+
+    fprintf(stderr, "execve failed: %s\n", strerror(errno));
+    return 1;
+  }
+
+  IgnoreCtrlC();
+
+  //
+  // if we were given a pipefd, then communicate the app child's PID
+  //
+  if (int pipefd = opts::pipefd) {
+    ssize_t ret;
+
+    uint64_t uint64 = pid;
+    ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
+
+    if (ret != sizeof(uint64_t))
+      WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
+                                          ret);
+
+    if (close(pipefd) < 0) {
+      int err = errno;
+      WithColor::warning() << llvm::formatv("failed to close pipefd: {0}\n",
+                                            strerror(err));
+    }
+  }
+
+  //
+  // wait for process to exit
+  //
+  int ret = await_process_completion(pid);
 
   if (unsigned sec = opts::Sleep) {
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
@@ -941,7 +1123,7 @@ int await_process_completion(pid_t pid) {
       case EINTR:
         continue;
       default:
-        fprintf(stderr, "waitpid failed: %s\n", strerror(errno));
+        fprintf(stderr, "waitpid failed: %s\n", strerror(err));
         continue;
       }
     }

@@ -292,6 +292,21 @@ int ProcessDynamicTargets(void) {
     }
   }
 
+#if 0
+  //
+  // _start is *not* an ABI XXX
+  //
+  for (auto &binary : Decompilation.Binaries) {
+    auto &A = binary.Analysis;
+    if (binary.IsExecutable) {
+      if (is_function_index_valid(A.EntryFunction))
+        A.Functions[A.EntryFunction].IsABI = false;
+
+      break;
+    }
+  }
+#endif
+
   return 0;
 }
 
