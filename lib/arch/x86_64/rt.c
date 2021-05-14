@@ -692,7 +692,7 @@ static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL size_t _strlen(const char *s);
 static _INL char *_strcat(char *s, const char *append);
 static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
-static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
+static _INL void uint_to_string(uint64_t x, char *Str, unsigned Radix);
 static _INL ssize_t _robust_write(int fd, void *const buf, const size_t count);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
@@ -1115,7 +1115,7 @@ void _jove_free_stack_later(target_ulong stack) {
   _UNREACHABLE();
 }
 
-void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
+void uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
     *Str++ = '0';
@@ -1343,12 +1343,23 @@ void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, con
       uint64_t min, max;
     } vm;
 
+    char *pp;
     {
       char *dash = _memchr(line, '-', left);
       vm.min = _u64ofhexstr(line, dash);
 
       char *space = _memchr(line, ' ', left);
       vm.max = _u64ofhexstr(dash + 1, space);
+
+      pp = space + 4;
+    }
+
+    uint64_t off;
+    {
+      char *offset = pp + 2;
+      char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+      off = _u64ofhexstr(offset, offset_end);
     }
 
     //
@@ -1377,7 +1388,7 @@ void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, con
 
       _strcat(out, "+0x");
 
-      ssize_t Offset = Addr - vm.min;
+      ssize_t Offset = Addr - (vm.min - off);
       char offsetStr[65];
       uint_to_string(Offset, offsetStr, 0x10);
 
