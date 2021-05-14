@@ -677,7 +677,15 @@ skip_run:
       // send header
       //
       {
-        uint8_t header = opts::DFSan;
+        std::bitset<8> headerBits;
+
+        if (opts::DFSan)
+          headerBits.set(0);
+        if (opts::ForeignLibs)
+          headerBits.set(1);
+
+        uint8_t header = headerBits.to_ullong();
+
         ssize_t ret = robust_write(remote_fd, &header, sizeof(header));
 
         if (ret < 0) {

@@ -471,13 +471,20 @@ void *ConnectionProc(void *arg) {
   //
   // read header
   //
+  struct {
+    bool dfsan, foreign_libs;
+  } options;
+
   uint8_t header;
   if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
     return nullptr;
   }
 
-  bool dfsan = header;
+  std::bitset<8> headerBits(header);
+
+  options.dfsan        = headerBits.test(0);
+  options.foreign_libs = headerBits.test(1);
 
   std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
   {
@@ -532,8 +539,10 @@ void *ConnectionProc(void *arg) {
         "-o", sysroot_dir.c_str(),
     };
 
-    if (dfsan)
+    if (options.dfsan)
       arg_vec.push_back("--dfsan");
+    if (options.foreign_libs)
+      arg_vec.push_back("--foreign-libs");
 
     arg_vec.push_back(nullptr);
 
