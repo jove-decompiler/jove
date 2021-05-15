@@ -794,8 +794,16 @@ skip_run:
       }
 
       //
-      // setup sysroot XXX duplicated code w/ jove-recompile
+      // XXX duplicated code with jove-recompile
       //
+
+      //
+      // create symlink back to jv
+      //
+      if (fs::exists(fs::path(opts::sysroot) / ".jv")) // delete any stale symlinks
+        fs::remove(fs::path(opts::sysroot) / ".jv");
+
+      fs::create_symlink(fs::canonical(jv_path), fs::path(opts::sysroot) / ".jv");
 
       //
       // (1) copy dynamic linker
