@@ -4142,12 +4142,10 @@ int PrepareToTranslateCode(void) {
 }
 
 static bool shouldExpandOperationWithSize(llvm::Value *Size) {
-#if 0
-  ConstantInt *CI = dyn_cast<ConstantInt>(Size);
+  constexpr unsigned MaxStaticSize = 32;
+
+  llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
   return !CI || (CI->getZExtValue() > MaxStaticSize);
-#else
-  return true;
-#endif
 }
 
 // from AMDGPULowerIntrinsics.cpp
