@@ -2213,6 +2213,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   }
 #endif
 
+  for (;;)
+    _jove_sys_sched_yield();
+
   __builtin_trap();
   __builtin_unreachable();
 }
