@@ -1929,7 +1929,13 @@ void _jove_inverse_thunk(void) {
                : /* Clobbers */);
 }
 
-static _CTOR void _jove_rt_init(void) {
+static bool _jove_rt_inited = false;
+
+void _jove_rt_init(void) {
+  if (_jove_rt_inited)
+    return;
+  _jove_rt_inited = true;
+
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
 
@@ -1964,6 +1970,10 @@ static _CTOR void _jove_rt_init(void) {
   _jove_callstack_init();
   _jove_trace_init();
   _jove_init_cpu_state();
+}
+
+static _CTOR void _do_jove_rt_init(void) {
+  _jove_rt_init();
 }
 
 ssize_t _robust_write(int fd, void *const buf, const size_t count) {
