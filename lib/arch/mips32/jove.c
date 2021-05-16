@@ -1953,6 +1953,11 @@ void _jove_start(void) {
 static void _jove_trace_init(void);
 static void _jove_callstack_init(void);
 
+extern void _jove_rt_init(void);
+typedef void _jove_rt_init_t(void);
+
+static _jove_rt_init_t *_clunk = _jove_rt_init;
+
 void _jove_begin(target_ulong a0,
                  target_ulong a1,
                  target_ulong v0,     /* formerly a2 */
@@ -1960,6 +1965,14 @@ void _jove_begin(target_ulong a0,
   __jove_env.active_tc.gpr[4] = a0;
   __jove_env.active_tc.gpr[5] = a1;
   __jove_env.active_tc.gpr[2] = v0;
+
+  //
+  // clunk is for preventing JUMP_SLOT relocations (which are not supported by
+  // all dynamic linkers)
+  //
+  // this little bit is so the compiler won't optimize _clunk away
+  //
+  __jove_env.active_tc.gpr[1] = (uintptr_t)&_clunk;
 
   //
   // _jove_startup_info
@@ -1994,6 +2007,14 @@ void _jove_begin(target_ulong a0,
 
     __jove_env.active_tc.gpr[29] = (target_ulong)env_sp;
   }
+
+  //
+  // we call _jove_rt_init here in case the dynamic linker transfers control
+  // to the entry function before calling the ctors of libjove_rt (ae: i have
+  // witnessed this happnening)
+  //
+  if (_clunk)
+    _clunk(); /* _jove_rt_init */
 
   // init trace (if enabled)
   if (_jove_trace_enabled())
