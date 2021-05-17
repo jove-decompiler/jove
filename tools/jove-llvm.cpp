@@ -9917,25 +9917,55 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           Ret->setCallingConv(llvm::CallingConv::C);
 
-          if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
-            std::vector<unsigned> glbv;
-            ExplodeFunctionRets(callee, glbv);
+          if (foreign) {
+#if defined(TARGET_X86_64)
+            assert(Ret->getType()->isIntegerTy(64));
+            set(Ret, CallConvRetArray.front());
+#elif defined(TARGET_I386)
+            assert(Ret->getType()->isIntegerTy(32));
+            set(Ret, CallConvRetArray.front());
+#elif defined(TARGET_AARCH64)
+            /* TODO */
+            assert(Ret->getType()->isStructTy());
+#elif defined(TARGET_MIPS32)
+            assert(Ret->getType()->isIntegerTy(64));
+            {
+              llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty());
+              llvm::Value *Y = IRB.CreateTrunc(
+                  IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty());
 
-            if (glbv.size() == 1
-                || Ret->getType()->isIntegerTy(WordBits()) /* _jove_thunk */) {
-              set(Ret, glbv.front());
-            } else {
-              assert(glbv.size() > 1);
-              assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
+              set(X, CallConvRetArray.at(0));
+              set(Y, CallConvRetArray.at(1));
+            }
+#elif defined(TARGET_MIPS64)
+            assert(Ret->getType()->isIntegerTy(64));
+            set(Ret, CallConvRetArray.front());
+#else
+#error
+#endif
+          } else {
+            if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
+              std::vector<unsigned> glbv;
+              ExplodeFunctionRets(callee, glbv);
 
-              for (unsigned i = 0; i < glbv.size(); ++i) {
-                unsigned glb = glbv[i];
+              assert(glbv.size() > 0);
 
-                llvm::Value *Val = IRB.CreateExtractValue(
-                    Ret, llvm::ArrayRef<unsigned>(i),
-                    (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+              if (Ret->getType()->isIntegerTy(WordBits())) {
+                assert(glbv.size() == 1);
+                set(Ret, glbv.front());
+              } else {
+                assert(glbv.size() > 1);
+                assert(DetermineFunctionType(callee)->getReturnType()->isStructTy());
 
-                set(Val, glb);
+                for (unsigned i = 0; i < glbv.size(); ++i) {
+                  unsigned glb = glbv[i];
+
+                  llvm::Value *Val = IRB.CreateExtractValue(
+                      Ret, llvm::ArrayRef<unsigned>(i),
+                      (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+
+                  set(Val, glb);
+                }
               }
             }
           }

@@ -1847,9 +1847,9 @@ _HIDDEN void _jove_begin(target_ulong a0,
                          target_ulong v0,     /* formerly a2 */
                          target_ulong sp_addr /* formerly a3 */);
 
-_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
-                                       target_ulong *args,
-                                       target_ulong *emuspp);
+_NAKED _NOINL uint64_t _jove_thunk(target_ulong dstpc,
+                                   target_ulong *args,
+                                   target_ulong *emuspp);
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -2791,9 +2791,9 @@ void _jove_fail2(target_ulong a0,
   asm volatile("break");
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
-                         target_ulong *args   /* a1 ($5) */,
-                         target_ulong *emuspp /* a2 ($6) */) {
+uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
+                     target_ulong *args   /* a1 ($5) */,
+                     target_ulong *emuspp /* a2 ($6) */) {
   asm volatile("addiu $sp,$sp,-80\n" // allocate stack space
 
                "sw $s8, 72($sp)\n" /* callee-saved registers */
