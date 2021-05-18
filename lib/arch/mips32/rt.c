@@ -2001,6 +2001,13 @@ ssize_t _robust_write(int fd, void *const buf, const size_t count) {
   return n;
 }
 
+typedef int32_t	old_time32_t;
+
+struct old_timespec32 {
+	old_time32_t	tv_sec;
+	int32_t		tv_nsec;
+};
+
 static target_ulong to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
@@ -2213,8 +2220,13 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   }
 #endif
 
-  for (;;)
-    _jove_sys_sched_yield();
+  for (;;) {
+    struct old_timespec32 t;
+    t.tv_sec = 10;
+    t.tv_nsec = 0;
+
+    _jove_sys_nanosleep_time32(&t, NULL);
+  }
 
   __builtin_trap();
   __builtin_unreachable();
