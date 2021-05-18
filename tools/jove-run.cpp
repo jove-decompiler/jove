@@ -811,7 +811,10 @@ int run_outside_chroot(void) {
 
   if (unsigned sec = opts::Sleep) {
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
-    sleep(sec);
+    for (unsigned t = 0; t < sec; ++t) {
+      sleep(1);
+      fprintf(stderr, "%s", ".");
+    }
   }
 
   //
