@@ -2813,6 +2813,10 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "move $s2, $sp\n" // save sp in $s2
                "move $s3, $a0\n" // dstpc in $s3
 
+#if 0
+               //
+               // allocate stack
+               //
                ".set noreorder\n"
 #if 0
                "la $t9, _jove_alloc_stack\n"
@@ -2826,6 +2830,9 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
 
                "lui $a0,0x8\n"
                "addu $v0,$v0,$a0\n" // v0 = newstack+0x80000
+#else
+               "move $v0, $zero\n"
+#endif
 
                "lw $sp, 0($s1)\n" // sp=*emuspp
                "sw $v0, 0($s1)\n" // *emuspp=stack storage
@@ -2850,6 +2857,7 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "sw $sp, 0($s1)\n" // store modified emusp
                "move $sp, $s2\n"  // restore stack pointer
 
+#if 0
                //
                // free stack
                //
@@ -2863,6 +2871,7 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                "jalr $t9\n"
                "nop\n"
                ".set reorder\n"
+#endif
 
                //
                // restore return values
