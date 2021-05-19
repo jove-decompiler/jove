@@ -1608,8 +1608,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #endif
 
           if (sig)
-            llvm::errs() << "delivering signal number " << stopsig << " ["
-                         << child << "]\n";
+            llvm::errs() << llvm::formatv("delivering {0} ({1}) [{2}]\n",
+                                          strsignal(sig), sig, child);
         }
       } else {
         //
