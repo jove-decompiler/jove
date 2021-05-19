@@ -1129,8 +1129,13 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
       if (unlikely(child < 0)) {
         int err = errno;
-        if (err == EINTR)
+        if (err == EINTR) {
+          //
+          // the user may have sent us a signal to deliberately disrupt waitpid().
+          // TODO examine /proc/<pid>/task/<pid>/children
+          //
           continue;
+        }
 
         llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
@@ -1755,11 +1760,15 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 }
 
 void IgnoreCtrlC(void) {
+  auto sighandler = [](int no) -> void {
+    ; // do nothing
+  };
+
   struct sigaction sa;
 
   sigemptyset(&sa.sa_mask);
   sa.sa_flags = 0;
-  sa.sa_handler = SIG_IGN;
+  sa.sa_handler = sighandler;
 
   if (sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;
