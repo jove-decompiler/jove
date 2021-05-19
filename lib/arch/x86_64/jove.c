@@ -962,7 +962,7 @@ void uint_to_string(uint64_t x, char *Str, unsigned Radix) {
     return;
   }
 
-  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
   char Buffer[65];
   char *BufPtr = &Buffer[sizeof(Buffer)];

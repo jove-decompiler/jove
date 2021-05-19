@@ -1845,7 +1845,7 @@ static void uint_to_string(uint32_t x, char *Str) {
     return;
   }
 
-  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
 
   char Buffer[65];
   char *BufPtr = &Buffer[sizeof(Buffer)];
