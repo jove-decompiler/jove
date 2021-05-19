@@ -654,9 +654,9 @@ _HIDDEN void _jove_begin(target_ulong sp_addr);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
-_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
-                                       target_ulong *args,
-                                       target_ulong *emuspp);
+_NAKED _NOINL uint64_t _jove_thunk(target_ulong dstpc,
+                                   target_ulong *args,
+                                   target_ulong *emuspp);
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -1484,9 +1484,9 @@ void _jove_fail2(target_ulong x,
   asm volatile("hlt");
 }
 
-target_ulong _jove_thunk(target_ulong dstpc,
-                         target_ulong *args,
-                         target_ulong *emuspp) {
+uint64_t _jove_thunk(target_ulong dstpc,
+                     target_ulong *args,
+                     target_ulong *emuspp) {
   asm volatile("push %%ebp\n" /* callee-saved registers */
                "push %%edi\n"
                "push %%esi\n"
