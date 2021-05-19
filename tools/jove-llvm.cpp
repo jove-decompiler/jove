@@ -9918,7 +9918,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
           Ret->setCallingConv(llvm::CallingConv::C);
 
           if (foreign) {
-#if defined(TARGET_X86_64) || defined(TARGET_MIPS64)
+#if defined(TARGET_X86_64)
+            //assert(Ret->getType()->isIntegerTy(128));
+            assert(Ret->getType()->isStructTy());
+            {
+              llvm::Value *X = IRB.CreateExtractValue(Ret, 0);
+              llvm::Value *Y = IRB.CreateExtractValue(Ret, 1);
+
+              set(X, CallConvRetArray.at(0));
+              set(Y, CallConvRetArray.at(1));
+            }
+#elif defined(TARGET_MIPS64)
             assert(Ret->getType()->isIntegerTy(64));
             set(Ret, CallConvRetArray.front());
 #elif defined(TARGET_AARCH64)

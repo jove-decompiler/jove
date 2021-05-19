@@ -698,9 +698,9 @@ static void _jove_begin(target_ulong rdi,
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
-_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
-                                       target_ulong *args,
-                                       target_ulong *emuspp);
+_NAKED _NOINL unsigned __int128 _jove_thunk(target_ulong dstpc,
+                                            target_ulong *args,
+                                            target_ulong *emuspp);
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -1589,9 +1589,9 @@ void _jove_fail2(target_ulong rdi,
   asm volatile("hlt");
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
-                         target_ulong *args   /* rsi */,
-                         target_ulong *emuspp /* rdx */) {
+unsigned __int128 _jove_thunk(target_ulong dstpc   /* rdi */,
+                              target_ulong *args   /* rsi */,
+                              target_ulong *emuspp /* rdx */) {
   asm volatile("pushq %%r15\n" /* callee-saved registers */
                "pushq %%r14\n"
                "pushq %%r13\n"
@@ -1625,11 +1625,13 @@ target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                "movq %%r15, %%rsp\n"   /* restore stack pointer */
 
                "movq %%rax, %%r15\n" /* save return value */
+               "movq %%rdx, %%r14\n" /* save return value */
 
                "movq %%r12, %%rdi\n" /* pass allocated stack */
                "call %P[jove_free_stack]\n"
 
                "movq %%r15, %%rax\n" /* restore return value */
+               "movq %%r14, %%rdx\n" /* restore return value */
 
                "popq %%r12\n"
                "popq %%r13\n"
