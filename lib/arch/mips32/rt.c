@@ -2493,6 +2493,8 @@ void *_memchr(const void *s, int c, size_t n) {
 }
 
 void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
+  out[0] = '\0'; /* empty */
+
   char *const beg = &maps[0];
   char *const end = &maps[n];
 
@@ -2556,6 +2558,4 @@ void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, con
       return;
     }
   }
-
-  out[0] = '\0'; /* empty */
 }

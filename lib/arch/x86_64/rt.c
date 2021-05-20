@@ -923,8 +923,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     }                                                                          \
     {                                                                          \
       char _buff[256];                                                         \
-      _buff[0] = '\0';                                                         \
-                                                                               \
       _description_of_address_for_maps(_buff, init, maps, n);                  \
       if (_strlen(_buff) != 0) {                                               \
         _strcat(s, " <");                                                      \
@@ -1323,6 +1321,8 @@ uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
 }
 
 void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
+  out[0] = '\0'; /* empty */
+
   char *const beg = &maps[0];
   char *const end = &maps[n];
 
