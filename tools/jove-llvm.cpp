@@ -9922,8 +9922,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
             //assert(Ret->getType()->isIntegerTy(128));
             assert(Ret->getType()->isStructTy());
             {
-              llvm::Value *X = IRB.CreateExtractValue(Ret, 0);
-              llvm::Value *Y = IRB.CreateExtractValue(Ret, 1);
+              llvm::Value *X = IRB.CreateExtractValue(Ret, 0, (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(0)].name).str());
+              llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(1)].name).str());
 
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
@@ -9938,9 +9938,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
             assert(Ret->getType()->isIntegerTy(64));
             {
-              llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty());
-              llvm::Value *Y = IRB.CreateTrunc(
-                  IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty());
+              llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
+                  (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(0)].name).str());
+
+              llvm::Value *Y = IRB.CreateTrunc(IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
+                  (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(1)].name).str());
 
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
