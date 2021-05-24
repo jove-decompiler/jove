@@ -902,7 +902,7 @@ static void worker(void) {
       std::string stdoutfp = tmpdir + path + ".txt";
       int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       dup2(outfd, STDOUT_FILENO);
-      //dup2(outfd, STDERR_FILENO);
+      dup2(outfd, STDERR_FILENO);
 
       close(STDIN_FILENO);
       execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
