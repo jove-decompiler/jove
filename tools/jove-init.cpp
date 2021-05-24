@@ -84,6 +84,9 @@ static unsigned num_cpus(void);
 namespace opts {
 static cl::OptionCategory JoveCategory("Specific Options");
 
+static cl::opt<std::string> TemporaryDir("tmpdir", cl::value_desc("directory"),
+                                         cl::cat(JoveCategory));
+
 static cl::opt<std::string> Input(cl::Positional, cl::desc("prog"),
                                   cl::Required, cl::value_desc("filename"),
                                   cl::cat(JoveCategory));
@@ -143,8 +146,8 @@ namespace jove {
 static void spawn_workers(void);
 
 static std::queue<std::string> Q;
-static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
-                        'X', 'X', 'X', 'X', 'X', '\0'};
+
+static std::string tmpdir;
 
 static int await_process_completion(pid_t);
 
@@ -267,9 +270,28 @@ int init(void) {
   //
   // prepare to process the binaries by creating a unique temporary directory
   //
-  if (!mkdtemp(tmpdir)) {
-    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
-    return 1;
+  if (opts::TemporaryDir.empty()) {
+    tmpdir = "/tmp/XXXXXX";
+
+    if (!mkdtemp(&tmpdir[0])) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
+      return 1;
+    }
+  } else {
+    srand(time(nullptr));
+    tmpdir = (fs::path(opts::TemporaryDir) / std::to_string(rand())).string();
+
+    if (opts::Verbose)
+      llvm::errs() << "temporary dir: " << tmpdir.c_str() << '\n';
+
+    if (mkdir(tmpdir.c_str(), 0777) < 0) {
+      int err = errno;
+      if (err != EEXIST) {
+        WithColor::error() << llvm::formatv("could not create temporary directory: {0}\n", strerror(err));
+        return 1;
+      }
+    }
   }
 
   //
@@ -367,7 +389,7 @@ int init(void) {
 
   {
     char path[0x100];
-    snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir);
+    snprintf(path, sizeof(path), "%s/linux-vdso.so", tmpdir.c_str());
 
     int fd = open(path, O_CREAT | O_TRUNC | O_WRONLY, 0666);
     ssize_t ret = robust_write(fd, &vdso[0], vdso.size());
