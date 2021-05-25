@@ -299,7 +299,7 @@ static ssize_t robust_receive_file_with_size(int data_socket, const char *out, u
 
     if (close(fd) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("close failed ({1})\n",
+      WithColor::error() << llvm::formatv("close failed ({0})\n",
                                           strerror(err));
       return -err;
     }
