@@ -1800,6 +1800,20 @@ struct kernel_sigaction {
 #include <signal.h>
 #include <ucontext.h>
 
+#define __LOG_COLOR_PREFIX "\033["
+#define __LOG_COLOR_SUFFIX "m"
+
+#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
+#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX "CS-ERROR: "
+#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
+#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
+#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
+#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
+
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define _CTOR   __attribute__((constructor(0)))
@@ -1850,6 +1864,8 @@ static target_ulong _jove_alloc_stack(void);
 _HIDDEN void _jove_free_stack(target_ulong);
 
 _HIDDEN void _jove_free_stack_later(target_ulong);
+_HIDDEN uintptr_t _jove_handle_signal_delivery(target_ulong SignalDelivery,
+                                               struct CPUMIPSState *SavedState);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
@@ -1858,6 +1874,7 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 //
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
+static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL char *_strcat(char *s, const char *append);
 static _INL size_t _strlen(const char *s);
 static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
@@ -1905,6 +1922,19 @@ void _jove_inverse_thunk(void) {
                "nop"            "\n"
                ".set reorder"   "\n"
 
+               //
+               // signal handling
+               //
+               "lw $a0,64($sp)" "\n"
+               "lw $a1,72($sp)" "\n"
+               "lw $t9,68($sp)" "\n"
+               ".set noreorder" "\n"
+               "jalr $t9"       "\n" // _jove_handle_signal_delivery(...)
+               "nop"            "\n"
+               ".set reorder"   "\n"
+
+               "move $a3, $v0"  "\n"
+
                "lw $v0,48($sp)" "\n"
                "lw $v1,52($sp)" "\n" /* preserve return registers */
 
@@ -1912,7 +1942,7 @@ void _jove_inverse_thunk(void) {
                // restore emulated stack pointer
                //
                "lw $a0,28($sp)" "\n" // a0 = &emusp
-               "lw $a3,0($a0)"  "\n" // a3 = emusp
+               //"lw $a3,0($a0)"  "\n" // a3 = emusp
 
                "lw $a1,12($sp)" "\n" // saved_emusp in $a1
                "sw $a1,0($a0)"  "\n" // restore emusp
@@ -1944,7 +1974,7 @@ void _jove_rt_init(void) {
 #undef sa_flags
 
   sa.sa_handler = _jove_rt_signal_handler;
-  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+  sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER;
   //sa.sa_restorer = _jove_do_rt_sigreturn;
 
   {
@@ -2049,55 +2079,98 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       if (saved_pc != fns[2 * FIdx + 0])
         continue;
 
-#if 0
-      {
-        char buff[256];
-        buff[0] = '\0';
-
-        _strcat(buff, "J2A\n");
-        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
-      }
-#endif
-
       uintptr_t saved_sp = sp;
       uintptr_t saved_emusp = emusp;
       uintptr_t saved_retaddr = ra;
       uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
       uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
+#if 0
+      {
+        char buff[256];
+        buff[0] = '\0';
+
+
+        _strcat(buff, __LOG_BOLD_BLUE "saved_emusp: 0x");
+
+        {
+          char buf[65];
+          uint_to_string(saved_emusp, buf, 0x10);
+
+          _strcat(buff, buf);
+        }
+
+        _strcat(buff, __LOG_NORMAL_COLOR "\n");
+
+        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+      }
+#endif
+
       //
-      // real stack becomes emulated stack
+      // if the kernel just delivered a signal, then $ra should point to the
+      // code that calls sigreturn. this turns out in most cases to reside in
+      // [vdso]
       //
-      emusp = saved_sp;
+      bool SignalDelivery = false;
+
+      if ((((uint32_t *)saved_retaddr)[0] == 0x24021017 ||
+           ((uint32_t *)saved_retaddr)[0] == 0x24021061) &&
+           ((uint32_t *)saved_retaddr)[1] == 0x0000000c) {
+        SignalDelivery = true;
+
+        char buff[256];
+        buff[0] = '\0';
+
+        _strcat(buff, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
+
+        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+      }
 
       {
         const uintptr_t newstack = _jove_alloc_stack();
 
-        uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 16 * sizeof(uintptr_t);
+        uintptr_t _newsp =
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t) - sizeof(struct CPUMIPSState);
 
-        newsp &= 0xfffffff0; // align the stack
+        _newsp &= 0xfffffff0; // align the stack
 
-        ((uintptr_t *)newsp)[0] = 0xdeadbeef;
-        ((uintptr_t *)newsp)[1] = saved_retaddr;
-        ((uintptr_t *)newsp)[2] = saved_sp;
-        ((uintptr_t *)newsp)[3] = saved_emusp;
-        ((uintptr_t *)newsp)[4] = saved_callstack;
-        ((uintptr_t *)newsp)[5] = saved_callstack_begin;
-        ((uintptr_t *)newsp)[6] = newstack;
-        ((uintptr_t *)newsp)[7] = &emusp;
-        ((uintptr_t *)newsp)[8] = &__jove_callstack_begin;
-        ((uintptr_t *)newsp)[9] = saved_callstack;
-        ((uintptr_t *)newsp)[10] = _jove_free_stack_later;
-        ((uintptr_t *)newsp)[11] = _jove_free_callstack;
-        ((uintptr_t *)newsp)[12] = 0; /* saved v0 */
-        ((uintptr_t *)newsp)[13] = 0; /* saved v1 */
-        ((uintptr_t *)newsp)[14] = &__jove_callstack_begin;
-        ((uintptr_t *)newsp)[15] = &__jove_callstack;
+        uintptr_t *const newsp = (uintptr_t *)_newsp;
 
-        sp = newsp;
+        newsp[0] = 0xdeadbeef;
+        newsp[1] = saved_retaddr;
+        newsp[2] = saved_sp;
+        newsp[3] = saved_emusp;
+        newsp[4] = saved_callstack;
+        newsp[5] = saved_callstack_begin;
+        newsp[6] = newstack;
+        newsp[7] = &emusp;
+        newsp[8] = &__jove_callstack_begin;
+        newsp[9] = saved_callstack;
+        newsp[10] = _jove_free_stack_later;
+        newsp[11] = _jove_free_callstack;
+        newsp[12] = 0; /* saved v0 */
+        newsp[13] = 0; /* saved v1 */
+        newsp[14] = &__jove_callstack_begin;
+        newsp[15] = &__jove_callstack;
+        newsp[16] = SignalDelivery;
+        newsp[17] = _jove_handle_signal_delivery;
+        newsp[18] = &newsp[19];
+
+        if (SignalDelivery) {
+          //
+          // save the emulated CPU state
+          //
+          _memcpy(&newsp[19], &__jove_env, sizeof(struct CPUMIPSState));
+        }
+
+        sp = _newsp;
         ra = _jove_inverse_thunk;
       }
+
+      //
+      // native stack becomes emulated stack
+      //
+      emusp = saved_sp;
 
       {
         const uintptr_t new_callsp = _jove_alloc_callstack();
@@ -2320,6 +2393,16 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
+void *_memcpy(void *dest, const void *src, size_t n) {
+  unsigned char *d = dest;
+  const unsigned char *s = src;
+
+  for (; n; n--)
+    *d++ = *s++;
+
+  return dest;
+}
+
 char *_strcat(char *s, const char *append) {
   char *save = s;
 
@@ -2439,6 +2522,42 @@ void _jove_free_stack_later(target_ulong stack) {
   }
 
   _UNREACHABLE();
+}
+
+uintptr_t _jove_handle_signal_delivery(target_ulong SignalDelivery,
+                                       struct CPUMIPSState *SavedState) {
+  //
+  // save the emusp *before* we restore env
+  //
+  uintptr_t res = __jove_env.active_tc.gpr[29];
+
+  if (SignalDelivery) {
+#if 0
+    {
+      char buff[256];
+      buff[0] = '\0';
+
+      _strcat(buff, __LOG_BOLD_BLUE "copying cpu state..." __LOG_NORMAL_COLOR "\n");
+
+      _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+    }
+#endif
+
+    _memcpy(&__jove_env, SavedState, sizeof(struct CPUMIPSState));
+
+#if 0
+    {
+      char buff[256];
+      buff[0] = '\0';
+
+      _strcat(buff, __LOG_BOLD_BLUE "done copying cpu state" __LOG_NORMAL_COLOR "\n");
+
+      _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+    }
+#endif
+  }
+
+  return res;
 }
 
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
