@@ -25,7 +25,7 @@ jove-init -o $HOME/.jove/ls --git /usr/bin/ls
 jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q --syscalls -- -la /
 
 mkdir ls.sysroot
-sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot --use-ld=lld /usr/bin/ls -- -la /
+sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
 For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
@@ -62,7 +62,7 @@ sudo jove-bootstrap -d $HOME/.jove/dnsmasq -q --syscalls /usr/sbin/dnsmasq -- -C
 mkdir dnsmasq.sysroot
 cp mydnsmasq.conf dnsmasq.sysroot/
 
-sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot --use-ld=lld /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
+sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
 ## `miniupnpd`
@@ -99,7 +99,7 @@ mkdir miniupnpd.sysroot
 cp myminiupnpd.conf miniupnpd.sysroot/
 mkdir -p miniupnpd.sysroot/var/run
 
-sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot --use-ld=lld /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 ```
 
 ## `nginx`
@@ -112,6 +112,8 @@ worker_processes  1;
 
 daemon off;
 master_process off;
+
+error_log stderr;
 
 events {
     worker_connections  1024;
@@ -151,7 +153,7 @@ mkdir -p nginx.sysroot/var/lib/nginx
 mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
-sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot --use-ld=lld /usr/sbin/nginx -- -c /mynginx.conf
+sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 # Building
 ```bash
