@@ -7943,16 +7943,6 @@ static int TranslateFunction(function_t &f) {
         llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
                               TC.DebugInformation.Subprogram));
 
-    if (f.IsSignalHandler) {
-      //
-      // save the emulated CPU state
-      //
-      f._signal_handler.SavedCPUState = IRB.CreateAlloca(CPUStateType);
-      llvm::CallInst *MemCpyCall = IRB.CreateMemCpy(
-          f._signal_handler.SavedCPUState, llvm::MaybeAlign(), CPUStateGlobal,
-          llvm::MaybeAlign(), sizeof(CPUArchState));
-    }
-
     //
     // create Alloca's upfront for globals we know will be used
     //
@@ -9328,17 +9318,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
   }
 
   case TERMINATOR::RETURN:
-    if (f.IsSignalHandler) {
-      assert(f._signal_handler.SavedCPUState);
-
-      //
-      // undo changes to the emulated CPU state (this will not affect emusp)
-      //
-      IRB.CreateMemCpy(CPUStateGlobal, llvm::MaybeAlign(),
-                       f._signal_handler.SavedCPUState, llvm::MaybeAlign(),
-                       sizeof(CPUArchState));
-    }
-
     if (f.IsABI)
       store_stack_pointers();
     break;
