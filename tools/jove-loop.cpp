@@ -71,6 +71,9 @@ static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
 static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
                            cl::cat(JoveCategory));
 
+static cl::opt<bool> Optimize("optimize", cl::desc("Run optimizations on bitcode"),
+                              cl::cat(JoveCategory));
+
 static cl::opt<bool>
     ForceRecompile("force-recompile",
                    cl::desc("Skip running the prog the first time"),
@@ -947,6 +950,9 @@ skip_run:
 
         if (opts::DFSan)
           arg_vec.push_back("--dfsan");
+
+        if (opts::Optimize)
+          arg_vec.push_back("--optimize");
 
         if (opts::Trace)
           arg_vec.push_back("--trace");
