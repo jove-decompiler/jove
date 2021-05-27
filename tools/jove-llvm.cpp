@@ -10562,7 +10562,7 @@ static int TranslateTCGOp(TCGOp *op,
       if (temp_idx(ts) == tcg_env_index) {
         assert(hf.EnvArgNo == iarg_idx);
 
-        if (hf.Analysis.Simple)
+        if (hf.Analysis.Simple && opts::Optimize)
           ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
         else
           ArgVec.push_back(CPUStateGlobal);
