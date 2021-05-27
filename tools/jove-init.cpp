@@ -111,6 +111,10 @@ static cl::opt<bool>
 
 static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    RedirectStderr("redirect-stderr",
+            cl::desc("Like we do with stdout for jove-add, pipe it to a txt"));
 } // namespace opts
 
 namespace jove {
@@ -902,7 +906,8 @@ static void worker(void) {
       std::string stdoutfp = tmpdir + path + ".txt";
       int outfd = open(stdoutfp.c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
       dup2(outfd, STDOUT_FILENO);
-      dup2(outfd, STDERR_FILENO);
+      if (opts::RedirectStderr)
+        dup2(outfd, STDERR_FILENO);
 
       close(STDIN_FILENO);
       execve(argv[0], const_cast<char **>(&argv[0]), ::environ);
