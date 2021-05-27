@@ -737,7 +737,7 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
   } while (false)
 
 #define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+#define JOVE_STACK_SIZE (2048 * JOVE_PAGE_SIZE)
 
 static target_ulong _jove_alloc_stack(void);
 static void _jove_free_stack(target_ulong);
