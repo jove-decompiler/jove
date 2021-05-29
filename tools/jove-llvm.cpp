@@ -621,7 +621,18 @@ static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
+#ifdef TARGET_MIPS32
+
+#define __THUNK(n, i, data)                                                    \
+  static llvm::Function *JoveThunk##i##Func;
+
+BOOST_PP_REPEAT(5, __THUNK, void)
+
+#undef __THUNK
+
+#else
 static llvm::Function *JoveThunkFunc;
+#endif
 static llvm::Function *JoveFail1Func;
 
 static llvm::Function *JoveAllocStackFunc;
@@ -1562,10 +1573,24 @@ int CreateModule(void) {
       Module->getFunction("_jove_install_foreign_function_tables");
   assert(JoveInstallForeignFunctionTables);
 
+#ifdef TARGET_MIPS32
+
+#define __THUNK(n, i, data)                                                    \
+  JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
+  assert(JoveThunk##i##Func);                                                  \
+  assert(!JoveThunk##i##Func->empty());                                        \
+  JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  BOOST_PP_REPEAT(5, __THUNK, void)
+
+#undef __THUNK
+
+#else
   JoveThunkFunc = Module->getFunction("_jove_thunk");
   assert(JoveThunkFunc);
   assert(!JoveThunkFunc->empty());
   JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+#endif
 
   JoveFail1Func = Module->getFunction("_jove_fail1");
   assert(JoveFail1Func && !JoveFail1Func->empty());
@@ -9808,11 +9833,46 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           llvm::CallInst *Ret;
           if (foreign) {
-            unsigned NumWords = CallConvArgArray.size();
+            //
+            // callstack stuff
+            //
+            save_callstack_pointers();
 
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-            NumWords += 2; /* XXX */
-#endif
+#ifdef TARGET_MIPS32
+            {
+              std::vector<llvm::Value *> ArgVec;
+
+              std::vector<unsigned> glbv;
+              ExplodeFunctionArgs(callee, glbv);
+
+              if (!glbv.empty()) {
+                ArgVec.resize(glbv.size());
+                std::transform(glbv.begin(),
+                               glbv.end(),
+                               ArgVec.begin(),
+                               [&](unsigned glb) -> llvm::Value * {
+                                 return get(glb);
+                               });
+              }
+
+              ArgVec.push_back(GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
+              ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index));
+
+              llvm::Function *const JoveThunkFuncArray[] = {
+                JoveThunk0Func,
+                JoveThunk1Func,
+                JoveThunk2Func,
+                JoveThunk3Func,
+                JoveThunk4Func,
+              };
+
+              assert(glbv.size() >= 0 &&
+                     glbv.size() <= 4);
+
+              Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
+            }
+#else
+            unsigned NumWords = CallConvArgArray.size();
 
             llvm::AllocaInst *ArgArrAlloca =
                 IRB.CreateAlloca(llvm::ArrayType::get(WordType(), NumWords));
@@ -9826,40 +9886,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
               IRB.CreateStore(Val, Ptr);
             }
 
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-            //
-            // XXX
-            //
-            for (unsigned i = CallConvArgArray.size(); i < NumWords; ++i) {
-              llvm::Value *Val = nullptr;
-              switch (i - CallConvArgArray.size()) {
-              case 0:
-                Val = IRB.CreatePtrToInt(JoveAllocStackFunc, WordType());
-                break;
-
-              case 1:
-                Val = IRB.CreatePtrToInt(JoveFreeStackFunc, WordType());
-                break;
-
-              default:
-                __builtin_trap();
-                __builtin_unreachable();
-              }
-              assert(Val);
-
-              llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
-
-              IRB.CreateStore(Val, Ptr);
-            }
-#endif
-
             llvm::Value *CallArgs[] = {
                 GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
                 IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                 CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
-            save_callstack_pointers();
             Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
+#endif
+            //
+            // callstack stuff
+            //
             restore_callstack_pointers();
 
             if (opts::CallStack)
@@ -11609,7 +11645,7 @@ const translate_tcg_op_proc_t TranslateTCGOpTable[250] = {
 
 BOOST_PP_REPEAT(178, __PROC_CASE, void)
 
-#undef __REG_CASE
+#undef __PROC_CASE
 
 };
 

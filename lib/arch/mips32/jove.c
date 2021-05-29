@@ -1847,9 +1847,36 @@ _HIDDEN void _jove_begin(target_ulong a0,
                          target_ulong v0,     /* formerly a2 */
                          target_ulong sp_addr /* formerly a3 */);
 
+#if 0
 _NAKED _NOINL uint64_t _jove_thunk(target_ulong dstpc,
                                    target_ulong *args,
                                    target_ulong *emuspp);
+#else
+_NAKED _NOINL uint64_t _jove_thunk0(target_ulong dstpc,
+                                    target_ulong *emuspp);
+
+_NAKED _NOINL uint64_t _jove_thunk1(target_ulong a0,
+                                    target_ulong dstpc,
+                                    target_ulong *emuspp);
+
+_NAKED _NOINL uint64_t _jove_thunk2(target_ulong a0,
+                                    target_ulong a1,
+                                    target_ulong dstpc,
+                                    target_ulong *emuspp);
+
+_NAKED _NOINL uint64_t _jove_thunk3(target_ulong a0,
+                                    target_ulong a1,
+                                    target_ulong a2,
+                                    target_ulong dstpc,
+                                    target_ulong *emuspp);
+
+_NAKED _NOINL uint64_t _jove_thunk4(target_ulong a0,
+                                    target_ulong a1,
+                                    target_ulong a2,
+                                    target_ulong a3,
+                                    target_ulong dstpc,
+                                    target_ulong *emuspp);
+#endif
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -2791,6 +2818,8 @@ void _jove_fail2(target_ulong a0,
   _UNREACHABLE();
 }
 
+#if 0
+
 uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                      target_ulong *args   /* a1 ($5) */,
                      target_ulong *emuspp /* a2 ($6) */) {
@@ -2900,6 +2929,207 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
                : /* InputOperands */
                : /* Clobbers */);
 }
+
+#else
+
+uint64_t _jove_thunk0(target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile("addiu $sp,$sp,-32\n"
+               "sw $ra, 20($sp)\n"
+               "sw $s0, 24($sp)\n"
+               "sw $s1, 28($sp)\n"
+
+               "move $s0, $sp\n" // save sp
+               "move $s1, $a1\n" // emuspp in $s1
+
+               "lw $sp, 0($a1)\n" // sp=*emuspp
+               "sw $zero, 0($a1)\n" // *emuspp=NULL
+
+               /* args: nothing to do */
+
+               ".set noreorder\n"
+               "jalr $a0\n"      // call dstpc
+               "move $t9, $a0\n" // [delay slot] set t9
+               ".set reorder\n"
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+               "move $sp, $s0\n"  // restore stack pointer
+
+               "lw $ra, 20($sp)\n"
+               "lw $s0, 24($sp)\n"
+               "lw $s1, 28($sp)\n"
+
+               ".set noreorder\n"
+               "jr $ra\n"
+               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
+               ".set reorder\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk1(target_ulong a0,
+                      target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile("addiu $sp,$sp,-32\n"
+               "sw $ra, 20($sp)\n"
+               "sw $s0, 24($sp)\n"
+               "sw $s1, 28($sp)\n"
+
+               "move $s0, $sp\n" // save sp in $s0
+               "move $s1, $a2\n" // emuspp in $s1
+
+               "lw $sp, 0($a2)\n" // sp=*emuspp
+               "sw $zero, 0($a2)\n" // *emuspp=NULL
+
+               /* args: nothing to do */
+
+               ".set noreorder\n"
+               "jalr $a1\n"      // call dstpc
+               "move $t9, $a1\n" // [delay slot] set t9
+               ".set reorder\n"
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+               "move $sp, $s0\n"  // restore stack pointer
+
+               "lw $ra, 20($sp)\n"
+               "lw $s0, 24($sp)\n"
+               "lw $s1, 28($sp)\n"
+
+               ".set noreorder\n"
+               "jr $ra\n"
+               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
+               ".set reorder\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk2(target_ulong a0,
+                      target_ulong a1,
+                      target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile("addiu $sp,$sp,-32\n"
+               "sw $ra, 20($sp)\n"
+               "sw $s0, 24($sp)\n"
+               "sw $s1, 28($sp)\n"
+
+               "move $s0, $sp\n" // save sp in $s0
+               "move $s1, $a3\n" // emuspp in $s1
+
+               "lw $sp, 0($a3)\n" // sp=*emuspp
+               "sw $zero, 0($a3)\n" // *emuspp=NULL
+
+               /* args: nothing to do */
+
+               ".set noreorder\n"
+               "jalr $a2\n"      // call dstpc
+               "move $t9, $a2\n" // [delay slot] set t9
+               ".set reorder\n"
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+               "move $sp, $s0\n"  // restore stack pointer
+
+               "lw $ra, 20($sp)\n"
+               "lw $s0, 24($sp)\n"
+               "lw $s1, 28($sp)\n"
+
+               ".set noreorder\n"
+               "jr $ra\n"
+               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
+               ".set reorder\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk3(target_ulong a0,
+                      target_ulong a1,
+                      target_ulong a2,
+                      target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile("addiu $sp,$sp,-32\n"
+               "sw $ra, 20($sp)\n"
+               "sw $s0, 24($sp)\n"
+               "sw $s1, 28($sp)\n"
+
+               "move $s0, $sp\n" // save sp in $s0
+               "lw $s1, 48($sp)\n" // emuspp in $s1
+
+               "lw $sp, 0($s1)\n" // sp=*emuspp
+               "sw $zero, 0($s1)\n" // *emuspp=NULL
+
+               /* args: nothing to do */
+
+               ".set noreorder\n"
+               "jalr $a3\n"      // call dstpc
+               "move $t9, $a3\n" // [delay slot] set t9
+               ".set reorder\n"
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+               "move $sp, $s0\n"  // restore stack pointer
+
+               "lw $ra, 20($sp)\n"
+               "lw $s0, 24($sp)\n"
+               "lw $s1, 28($sp)\n"
+
+               ".set noreorder\n"
+               "jr $ra\n"
+               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
+               ".set reorder\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk4(target_ulong a0,
+                      target_ulong a1,
+                      target_ulong a2,
+                      target_ulong a3,
+                      target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile("addiu $sp,$sp,-32\n"
+               "sw $ra, 20($sp)\n"
+               "sw $s0, 24($sp)\n"
+               "sw $s1, 28($sp)\n"
+
+               "move $s0, $sp\n" // save sp in $s0
+               "lw $s1, 52($sp)\n" // emuspp in $s1
+
+               /* args: nothing to do */
+
+               "lw $t9, 48($sp)\n" /* do this now before sp is clobbered */
+
+               "lw $sp, 0($s1)\n" // sp=*emuspp
+               "sw $zero, 0($s1)\n" // *emuspp=NULL
+
+               ".set noreorder\n"
+               "jalr $t9\n"      // call dstpc
+               "nop\n"
+               ".set reorder\n"
+
+               "sw $sp, 0($s1)\n" // store modified emusp
+               "move $sp, $s0\n"  // restore stack pointer
+
+               "lw $ra, 20($sp)\n"
+               "lw $s0, 24($sp)\n"
+               "lw $s1, 28($sp)\n"
+
+               ".set noreorder\n"
+               "jr $ra\n"
+               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
+               ".set reorder\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+#endif
 
 bool _isDigit(char C) { return C >= '0' && C <= '9'; }
 
