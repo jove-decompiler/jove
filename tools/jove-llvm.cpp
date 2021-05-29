@@ -9872,26 +9872,28 @@ int TranslateBasicBlock(TranslateContext &TC) {
               Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
             }
 #else
-            unsigned NumWords = CallConvArgArray.size();
+            {
+              unsigned NumWords = CallConvArgArray.size();
 
-            llvm::AllocaInst *ArgArrAlloca =
-                IRB.CreateAlloca(llvm::ArrayType::get(WordType(), NumWords));
+              llvm::AllocaInst *ArgArrAlloca =
+                  IRB.CreateAlloca(llvm::ArrayType::get(WordType(), NumWords));
 
-            for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
-              unsigned glb = CallConvArgArray[i];
+              for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
+                unsigned glb = CallConvArgArray[i];
 
-              llvm::Value *Val = get(glb);
-              llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
+                llvm::Value *Val = get(glb);
+                llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
 
-              IRB.CreateStore(Val, Ptr);
+                IRB.CreateStore(Val, Ptr);
+              }
+
+              llvm::Value *CallArgs[] = {
+                  GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
+                  IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
+                  CPUStateGlobalPointer(tcg_stack_pointer_index)};
+
+              Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
             }
-
-            llvm::Value *CallArgs[] = {
-                GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
-                IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
-                CPUStateGlobalPointer(tcg_stack_pointer_index)};
-
-            Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
 #endif
             //
             // callstack stuff
