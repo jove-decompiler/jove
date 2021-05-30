@@ -285,6 +285,8 @@ struct ScopedMount {
   }
 };
 
+static void touch(const fs::path &);
+
 int run(void) {
 #if 0
   if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
@@ -360,6 +362,9 @@ int run(void) {
   fs::path chrooted_resolv_conf =
       fs::path(opts::sysroot) / "etc" / "resolv.conf";
 
+  if (!resolv_conf_path.empty())
+    touch(chrooted_resolv_conf);
+
   ScopedMount resolv_conf_mnt(resolv_conf_path.c_str(),
                               chrooted_resolv_conf.c_str(),
                               "",
@@ -375,6 +380,9 @@ int run(void) {
 
   fs::path chrooted_etc_passwd =
       fs::path(opts::sysroot) / "etc" / "passwd";
+
+  if (!etc_passwd_path.empty())
+    touch(chrooted_etc_passwd);
 
   ScopedMount etc_passwd_mnt(etc_passwd_path.c_str(),
                              chrooted_etc_passwd.c_str(),
@@ -392,6 +400,9 @@ int run(void) {
   fs::path chrooted_etc_group =
       fs::path(opts::sysroot) / "etc" / "group";
 
+  if (!etc_group_path.empty())
+    touch(chrooted_etc_group);
+
   ScopedMount etc_group_mnt(etc_group_path.c_str(),
                             chrooted_etc_group.c_str(),
                             "",
@@ -407,6 +418,9 @@ int run(void) {
 
   fs::path chrooted_etc_shadow =
       fs::path(opts::sysroot) / "etc" / "shadow";
+
+  if (!etc_shadow_path.empty())
+    touch(chrooted_etc_shadow);
 
   ScopedMount etc_shadow_mnt(etc_shadow_path.c_str(),
                              chrooted_etc_shadow.c_str(),
@@ -424,6 +438,9 @@ int run(void) {
   fs::path chrooted_etc_nsswitch =
       fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
 
+  if (!etc_nsswitch_path.empty())
+    touch(chrooted_etc_nsswitch);
+
   ScopedMount etc_nsswitch_mnt(etc_nsswitch_path.c_str(),
                               chrooted_etc_nsswitch.c_str(),
                               "",
@@ -440,12 +457,16 @@ int run(void) {
   fs::path chrooted_etc_hosts =
       fs::path(opts::sysroot) / "etc" / "hosts";
 
+  if (!etc_hosts_path.empty())
+    touch(chrooted_etc_hosts);
+
   ScopedMount etc_hosts_mnt(etc_hosts_path.c_str(),
                             chrooted_etc_hosts.c_str(),
                             "",
                             MS_BIND,
                             nullptr);
 
+#if 0
   fs::path firmadyne_libnvram_path;
   try {
     firmadyne_libnvram_path = fs::canonical("/firmadyne/libnvram");
@@ -453,7 +474,6 @@ int run(void) {
     ; /* absorb */
   }
 
-#if 0
   fs::path chrooted_firmadyne_libnvram =
       fs::path(opts::sysroot) / "firmadyne" / "libnvram";
 
@@ -861,6 +881,12 @@ static size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
   for (unsigned i = 0; i < n; ++i)
     expected += iov[i].iov_len;
   return expected;
+}
+
+void touch(const fs::path &p) {
+  fs::create_directories(p.parent_path());
+  if (!fs::exists(p))
+    close(open(p.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0666));
 }
 
 void *recover_proc(const char *fifo_path) {
