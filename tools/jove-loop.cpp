@@ -26,6 +26,8 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Object/ELF.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <sys/socket.h>
 #include <sys/sendfile.h>
 #include <netinet/in.h>
@@ -33,11 +35,39 @@
 #include <arpa/inet.h>
 #include <sys/mman.h>
 
+#ifndef likely
+#define likely(x)   __builtin_expect(!!(x), 1)
+#endif
+
+#ifndef unlikely
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#endif
+
+static void __warn(const char *file, int line);
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
+
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
 
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
+namespace obj = llvm::object;
 
 using llvm::WithColor;
 
@@ -193,6 +223,8 @@ static int await_process_completion(pid_t);
 static void IgnoreCtrlC(void);
 
 static void print_command(const char **argv);
+
+static std::string soname_of_binary(binary_t &);
 
 static std::atomic<bool> Cancelled(false);
 
@@ -902,6 +934,30 @@ skip_run:
         fs::copy_file(jove_dfsan_path, chrooted_path,
                       fs::copy_option::overwrite_if_exists);
       }
+
+      //
+      // create symlinks as necessary
+      //
+      for (binary_t &b : decompilation.Binaries) {
+        std::string soname = soname_of_binary(b);
+
+        if (soname.empty())
+          continue;
+
+        fs::path chrooted_path = fs::path(opts::sysroot) / b.Path;
+        std::string binary_filename = fs::path(b.Path).filename().string();
+
+        WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
+
+        if (binary_filename != soname) {
+          fs::path dst = chrooted_path.parent_path() / soname;
+
+          if (fs::exists(dst))
+            fs::remove(dst);
+
+          fs::create_symlink(binary_filename, dst);
+        }
+      }
     } else { /* local */
       //
       // analyze
@@ -998,6 +1054,159 @@ void print_command(const char **argv) {
   llvm::errs().flush();
 }
 
+#include "elf.hpp"
+
+std::string soname_of_binary(binary_t &b) {
+  //
+  // parse the ELF
+  //
+  llvm::StringRef Buffer(reinterpret_cast<const char *>(&b.Data[0]),
+                         b.Data.size());
+  llvm::StringRef Identifier(b.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+
+  std::string res;
+
+  if (!BinOrErr) {
+    WithColor::error() << "failed to create binary from" << b.Path << '\n';
+    return res;
+  }
+
+  std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+  if (!llvm::isa<ELFO>(Bin.get())) {
+    WithColor::error() << "is not ELF of expected type\n";
+    return res;
+  }
+
+  ELFO &O = *llvm::cast<ELFO>(Bin.get());
+
+  const ELFF &E = *O.getELFFile();
+
+  DynRegionInfo DynamicTable(O.getFileName());
+  loadDynamicTable(&E, &O, DynamicTable);
+
+  if (WARN_ON(!DynamicTable.Addr)) {
+    return res;
+  }
+
+  //
+  // parse dynamic table
+  //
+  DynRegionInfo DynSymRegion(O.getFileName());
+
+  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  llvm::StringRef DynamicStringTable;
+  {
+    const char *StringTableBegin = nullptr;
+    uint64_t StringTableSize = 0;
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_STRTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
+        break;
+      case llvm::ELF::DT_STRSZ:
+        if (uint64_t sz = Dyn.getVal())
+          StringTableSize = sz;
+        break;
+      case llvm::ELF::DT_SYMTAB:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+            WithColor::warning()
+                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                   "the location of the dynamic symbol table\n";
+
+          DynSymRegion.Addr = Ptr;
+          DynSymRegion.EntSize = sizeof(Elf_Sym);
+        }
+        break;
+
+      default:
+        break;
+      }
+    }
+
+    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
+                                  b.Path, DynamicStringTable.size());
+
+  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+    switch (Sec.sh_type) {
+    case llvm::ELF::SHT_DYNSYM:
+      DynSymRegion = createDRIFrom(&Sec, &O);
+      //DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+      llvm::Expected<llvm::StringRef> ExpectedDynamicStringTable = E.getStringTableForSymtab(Sec);
+      if (!ExpectedDynamicStringTable) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedDynamicStringTable.takeError(), OS, "");
+        }
+
+        WithColor::warning() << llvm::formatv(
+            "{0}: could not get string table for symtab: {1}\n", __func__, Buf);
+        break;
+      }
+
+      DynamicStringTable = *ExpectedDynamicStringTable;
+      break;
+    }
+  }
+
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
+                                  b.Path, DynamicStringTable.size());
+
+  struct {
+    bool Found;
+    uint64_t Offset;
+  } SOName = {false, 0};
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+      break; /* marks end of dynamic table. */
+
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_SONAME:
+      SOName.Offset = Dyn.getVal();
+      SOName.Found = true;
+      break;
+    }
+  }
+
+  if (SOName.Found) {
+    if (SOName.Offset >= DynamicStringTable.size()) {
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("[{0}] bad SOName.Offset {1}\n", b.Path, SOName.Offset);
+    } else {
+      const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("[{0}] out.soname=\"{1}\"\n", b.Path, soname_cstr);
+
+      res = soname_cstr;
+    }
+  }
+
+  return res;
+}
+
 int await_process_completion(pid_t pid) {
   int wstatus;
   do {
@@ -1031,4 +1240,8 @@ void IgnoreCtrlC(void) {
   sigaction(SIGINT, &sa, nullptr);
 }
 
+}
+
+void __warn(const char *file, int line) {
+  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
 }
