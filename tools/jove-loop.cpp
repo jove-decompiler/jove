@@ -923,6 +923,21 @@ skip_run:
       }
 
       //
+      // create basic directories (for chroot) XXX duplicated code from recompile
+      //
+      {
+        fs::create_directories(fs::path(opts::sysroot) / "proc");
+        fs::create_directories(fs::path(opts::sysroot) / "sys");
+        fs::create_directories(fs::path(opts::sysroot) / "dev");
+        fs::create_directories(fs::path(opts::sysroot) / "run");
+        fs::create_directories(fs::path(opts::sysroot) / "tmp");
+        fs::create_directories(fs::path(opts::sysroot) / "etc");
+        fs::create_directories(fs::path(opts::sysroot) / "usr" / "bin");
+        fs::create_directories(fs::path(opts::sysroot) / "usr" / "lib");
+        fs::create_directories(fs::path(opts::sysroot) / "var" / "run");
+      }
+
+      //
       // copy dfsan runtime
       //
       if (opts::DFSan) {
