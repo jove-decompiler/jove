@@ -11418,12 +11418,7 @@ TCGTemp *tcg_global_mem_new_internal(TCGType type, TCGv_ptr base,
         indirect_reg = 1;
     }
 
-    /* XXX jove */
-#if 0
     if (TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64) {
-#else
-    if (false /* TCG_TARGET_REG_BITS == 32 && type == TCG_TYPE_I64 */) {
-#endif
         TCGTemp *ts2 = tcg_global_alloc(s);
         char buf[64];
 
