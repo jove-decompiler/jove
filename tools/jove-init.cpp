@@ -964,9 +964,10 @@ int await_process_completion(pid_t pid) {
 unsigned num_cpus(void) {
   cpu_set_t cpu_mask;
   if (sched_getaffinity(0, sizeof(cpu_mask), &cpu_mask) < 0) {
-    WithColor::error() << "sched_getaffinity failed : " << strerror(errno)
-                       << '\n';
-    abort();
+    int err = errno;
+    WithColor::error() << llvm::formatv("sched_getaffinity failed: {0}\n",
+                                        strerror(err));
+    return 1;
   }
 
   return CPU_COUNT(&cpu_mask);
