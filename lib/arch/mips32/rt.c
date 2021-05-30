@@ -2178,11 +2178,14 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
       }
 
+      /* TODO consider warning if t9 does not equal expected section pointer */
+#if 0
       if (t9 != fns[2 * FIdx + 0]) {
         _UNREACHABLE();
       }
+#endif
 
-      emut9 = t9;
+      emut9 = fns[2 * FIdx + 0];
 
       pc = t9 = fns[2 * FIdx + 1];
 
