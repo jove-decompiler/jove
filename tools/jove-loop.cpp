@@ -1157,9 +1157,11 @@ std::string soname_of_binary(binary_t &b) {
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
 
+#if 0
   if (opts::Verbose)
     llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
                                   b.Path, DynamicStringTable.size());
+#endif
 
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
     switch (Sec.sh_type) {
@@ -1184,9 +1186,11 @@ std::string soname_of_binary(binary_t &b) {
     }
   }
 
+#if 0
   if (opts::Verbose)
     llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
                                   b.Path, DynamicStringTable.size());
+#endif
 
   struct {
     bool Found;
@@ -1212,8 +1216,10 @@ std::string soname_of_binary(binary_t &b) {
     } else {
       const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
 
+#if 0
       if (opts::Verbose)
         llvm::errs() << llvm::formatv("[{0}] out.soname=\"{1}\"\n", b.Path, soname_cstr);
+#endif
 
       res = soname_cstr;
     }
