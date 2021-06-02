@@ -30,12 +30,12 @@ constexpr int tcg_lladdr_index = 176;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 static const tcg_global_set_t NotArgs("00000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000011");
 static const tcg_global_set_t NotRets("00000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100100000000000000000000000000011");
-static const tcg_global_set_t CallConvArgs("00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000111111111111000000000000000000000000000000000000000000000000000000000000000000000000111100000");
-typedef std::array<unsigned, 16> CallConvArgArrayTy;
-static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92};
-constexpr tcg_global_set_t CallConvRets(35175782154264);
-typedef std::array<unsigned, 14> CallConvRetArrayTy;
-static const CallConvRetArrayTy CallConvRetArray{3, 4, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44};
+constexpr tcg_global_set_t CallConvArgs(480);
+typedef std::array<unsigned, 4> CallConvArgArrayTy;
+static const CallConvArgArrayTy CallConvArgArray{5, 6, 7, 8};
+constexpr tcg_global_set_t CallConvRets(24);
+typedef std::array<unsigned, 2> CallConvRetArrayTy;
+static const CallConvRetArrayTy CallConvRetArray{3, 4};
 constexpr tcg_global_set_t CalleeSavedRegs(33423360);
 static const uint8_t tcg_global_by_offset_lookup_table[11133] = {
 [0 ... 11132] = 0xff,
