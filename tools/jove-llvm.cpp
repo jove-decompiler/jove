@@ -9845,15 +9845,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
               std::vector<unsigned> glbv;
               ExplodeFunctionArgs(callee, glbv);
 
-              if (!glbv.empty()) {
-                ArgVec.resize(glbv.size());
-                std::transform(glbv.begin(),
-                               glbv.end(),
-                               ArgVec.begin(),
-                               [&](unsigned glb) -> llvm::Value * {
-                                 return get(glb);
-                               });
-              }
+              glbv.resize(std::min<unsigned>(glbv.size(), 4));
+
+              ArgVec.resize(glbv.size());
+              std::transform(glbv.begin(),
+                             glbv.end(),
+                             ArgVec.begin(),
+                             [&](unsigned glb) -> llvm::Value * {
+                               return get(glb);
+                             });
 
               ArgVec.push_back(GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
               ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index));
@@ -9865,9 +9865,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 JoveThunk3Func,
                 JoveThunk4Func,
               };
-
-              assert(glbv.size() >= 0 &&
-                     glbv.size() <= 4);
 
               Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
             }
