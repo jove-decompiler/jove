@@ -35,8 +35,34 @@ int main(int argc, char **argv) {
     const std::array<const char *, 8> arg_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
     const std::array<const char *, 8> ret_regs = {"x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7"};
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    const std::array<const char *, 4> arg_regs = {"a0", "a1", "a2", "a3"};
-    const std::array<const char *, 2> ret_regs = {"v0", "v1"};
+    const std::array<const char *, 16> arg_regs = {"a0", "a1", "a2", "a3",
+      "w12.d0_0",
+      "w12.d0_1",
+      "w12.d1_0",
+      "w12.d1_1",
+      "w13.d0_0",
+      "w13.d0_1",
+      "w13.d1_0",
+      "w13.d1_1",
+      "w14.d0_0",
+      "w14.d0_1",
+      "w14.d1_0",
+      "w14.d1_1"
+    };
+    const std::array<const char *, 14> ret_regs = {"v0", "v1",
+      "w0.d0_0",
+      "w0.d0_1",
+      "w0.d1_0",
+      "w0.d1_1",
+      "w1.d0_0",
+      "w1.d0_1",
+      "w1.d1_0",
+      "w1.d1_1",
+      "w2.d0_0",
+      "w2.d0_1",
+      "w2.d1_0",
+      "w2.d1_1"
+    };
 #else
 #error
 #endif
