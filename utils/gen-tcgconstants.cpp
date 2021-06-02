@@ -337,6 +337,160 @@ int main(int argc, char **argv) {
     printf("};\n");
   };
 
+  auto print_pinned_env_globals = [&](void) -> void {
+#if defined(TARGET_MIPS32)
+    const std::array<const char *, 129> pinned_env_glbs{
+      "w0.d0_0",
+      "w0.d0_1",
+      "w0.d1_0",
+      "w0.d1_1",
+      "w1.d0_0",
+      "w1.d0_1",
+      "w1.d1_0",
+      "w1.d1_1",
+      "w2.d0_0",
+      "w2.d0_1",
+      "w2.d1_0",
+      "w2.d1_1",
+      "w3.d0_0",
+      "w3.d0_1",
+      "w3.d1_0",
+      "w3.d1_1",
+      "w4.d0_0",
+      "w4.d0_1",
+      "w4.d1_0",
+      "w4.d1_1",
+      "w5.d0_0",
+      "w5.d0_1",
+      "w5.d1_0",
+      "w5.d1_1",
+      "w6.d0_0",
+      "w6.d0_1",
+      "w6.d1_0",
+      "w6.d1_1",
+      "w7.d0_0",
+      "w7.d0_1",
+      "w7.d1_0",
+      "w7.d1_1",
+      "w8.d0_0",
+      "w8.d0_1",
+      "w8.d1_0",
+      "w8.d1_1",
+      "w9.d0_0",
+      "w9.d0_1",
+      "w9.d1_0",
+      "w9.d1_1",
+      "w10.d0_0",
+      "w10.d0_1",
+      "w10.d1_0",
+      "w10.d1_1",
+      "w11.d0_0",
+      "w11.d0_1",
+      "w11.d1_0",
+      "w11.d1_1",
+      "w12.d0_0",
+      "w12.d0_1",
+      "w12.d1_0",
+      "w12.d1_1",
+      "w13.d0_0",
+      "w13.d0_1",
+      "w13.d1_0",
+      "w13.d1_1",
+      "w14.d0_0",
+      "w14.d0_1",
+      "w14.d1_0",
+      "w14.d1_1",
+      "w15.d0_0",
+      "w15.d0_1",
+      "w15.d1_0",
+      "w15.d1_1",
+      "w16.d0_0",
+      "w16.d0_1",
+      "w16.d1_0",
+      "w16.d1_1",
+      "w17.d0_0",
+      "w17.d0_1",
+      "w17.d1_0",
+      "w17.d1_1",
+      "w18.d0_0",
+      "w18.d0_1",
+      "w18.d1_0",
+      "w18.d1_1",
+      "w19.d0_0",
+      "w19.d0_1",
+      "w19.d1_0",
+      "w19.d1_1",
+      "w20.d0_0",
+      "w20.d0_1",
+      "w20.d1_0",
+      "w20.d1_1",
+      "w21.d0_0",
+      "w21.d0_1",
+      "w21.d1_0",
+      "w21.d1_1",
+      "w22.d0_0",
+      "w22.d0_1",
+      "w22.d1_0",
+      "w22.d1_1",
+      "w23.d0_0",
+      "w23.d0_1",
+      "w23.d1_0",
+      "w23.d1_1",
+      "w24.d0_0",
+      "w24.d0_1",
+      "w24.d1_0",
+      "w24.d1_1",
+      "w25.d0_0",
+      "w25.d0_1",
+      "w25.d1_0",
+      "w25.d1_1",
+      "w26.d0_0",
+      "w26.d0_1",
+      "w26.d1_0",
+      "w26.d1_1",
+      "w27.d0_0",
+      "w27.d0_1",
+      "w27.d1_0",
+      "w27.d1_1",
+      "w28.d0_0",
+      "w28.d0_1",
+      "w28.d1_0",
+      "w28.d1_1",
+      "w29.d0_0",
+      "w29.d0_1",
+      "w29.d1_0",
+      "w29.d1_1",
+      "w30.d0_0",
+      "w30.d0_1",
+      "w30.d1_0",
+      "w30.d1_1",
+      "w31.d0_0",
+      "w31.d0_1",
+      "w31.d1_0",
+      "w31.d1_1",
+      "fcr31"
+    };
+#else
+    const std::array<const char *, 0> pinned_env_glbs{};
+#endif
+
+    {
+      jove::tcg_global_set_t s;
+      for (const char *nm : pinned_env_glbs) {
+        int idx = tcg_index_of_named_global(nm);
+        assert(idx >= 0 && idx < s.size());
+        s.set(idx);
+      }
+
+      try {
+        printf("constexpr tcg_global_set_t PinnedEnvGlbs(%llu);\n", s.to_ullong());
+      } catch (...) {
+        std::string str = s.to_string();
+        printf("static const tcg_global_set_t PinnedEnvGlbs(\"%s\");\n", str.c_str());
+      }
+    }
+  };
+
   auto env_index = [&](void) -> int {
     return tcg_index_of_named_global("env");
   };
@@ -623,6 +777,7 @@ int main(int argc, char **argv) {
   print_call_conv_sets();
   print_callee_saved_registers();
   print_lookup_by_mem_offset();
+  print_pinned_env_globals();
 
   printf("}\n");
 

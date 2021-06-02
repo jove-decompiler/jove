@@ -8988,6 +8988,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto set = [&](llvm::Value *V, unsigned glb) -> void {
     assert(glb != tcg_env_index);
 
+    if (unlikely(PinnedEnvGlbs.test(glb))) {
+      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+      assert(GlbPtr);
+
+      llvm::StoreInst *SI = IRB.CreateStore(V, GlbPtr);
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      return;
+    }
+
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
     if (!Ptr) {
       llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
@@ -9021,6 +9030,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
     case tcg_gs_base_index:
       return insertThreadPointerInlineAsm(IRB);
 #endif
+    }
+
+    if (unlikely(PinnedEnvGlbs.test(glb))) {
+      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
+      assert(GlbPtr);
+
+      llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      return LI;
     }
 
     llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
@@ -10369,6 +10387,15 @@ static int TranslateTCGOp(TCGOp *op,
     if (ts->temp_global) {
       assert(idx != tcg_env_index);
 
+      if (unlikely(PinnedEnvGlbs.test(idx))) {
+        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
+        assert(GlbPtr);
+
+        llvm::StoreInst *SI = IRB.CreateStore(V, GlbPtr);
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+        return;
+      }
+
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
       if (!Ptr) {
         llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
@@ -10412,6 +10439,15 @@ static int TranslateTCGOp(TCGOp *op,
       case tcg_gs_base_index:
         return insertThreadPointerInlineAsm(IRB);
 #endif
+      }
+
+      if (unlikely(PinnedEnvGlbs.test(idx))) {
+        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
+        assert(GlbPtr);
+
+        llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+        return LI;
       }
 
       llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(idx);
