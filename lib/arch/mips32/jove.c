@@ -2969,7 +2969,8 @@ uint64_t _jove_thunk0(target_ulong dstpc,
 
                "move $s1, $a1\n" // emuspp in $s1
 
-               "ldc1 $f12, 628($a1)\n" // floating point argument
+               "ldc1 $f12, 628($a1)\n" // floating point argument #1
+               "ldc1 $f14, 660($a1)\n" // floating point argument #2
 
                "lw $sp, 0($a1)\n" // sp=*emuspp
                "sw $zero, 0($a1)\n" // *emuspp=NULL
@@ -2992,7 +2993,8 @@ uint64_t _jove_thunk1(target_ulong a0,
 
                "move $s1, $a2\n" // emuspp in $s1
 
-               "ldc1 $f12, 628($a2)\n" // floating point argument
+               "ldc1 $f12, 628($a2)\n" // floating point argument #1
+               "ldc1 $f14, 660($a2)\n" // floating point argument #2
 
                "lw $sp, 0($a2)\n" // sp=*emuspp
                "sw $zero, 0($a2)\n" // *emuspp=NULL
@@ -3016,7 +3018,8 @@ uint64_t _jove_thunk2(target_ulong a0,
 
                "move $s1, $a3\n" // emuspp in $s1
 
-               "ldc1 $f12, 628($a3)\n" // floating point argument
+               "ldc1 $f12, 628($a3)\n" // floating point argument #1
+               "ldc1 $f14, 660($a3)\n" // floating point argument #2
 
                "lw $sp, 0($a3)\n" // sp=*emuspp
                "sw $zero, 0($a3)\n" // *emuspp=NULL
@@ -3041,7 +3044,8 @@ uint64_t _jove_thunk3(target_ulong a0,
 
                "lw $s1, 48($sp)\n" // emuspp in $s1
 
-               "ldc1 $f12, 628($s1)\n" // floating point argument
+               "ldc1 $f12, 628($s1)\n" // floating point argument #1
+               "ldc1 $f14, 660($s1)\n" // floating point argument #2
 
                "lw $sp, 0($s1)\n" // sp=*emuspp
                "sw $zero, 0($s1)\n" // *emuspp=NULL
@@ -3067,7 +3071,8 @@ uint64_t _jove_thunk4(target_ulong a0,
 
                "lw $s1, 52($sp)\n" // emuspp in $s1
 
-               "ldc1 $f12, 628($s1)\n" // floating point argument
+               "ldc1 $f12, 628($s1)\n" // floating point argument #1
+               "ldc1 $f14, 660($s1)\n" // floating point argument #2
 
                /* args: nothing to do */
 
