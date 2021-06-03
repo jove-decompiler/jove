@@ -2943,6 +2943,8 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
   "move $s0, $sp\n" /* save sp in $s0 */
 
 #define JOVE_THUNK_EPILOGUE                                                    \
+  "sdc1 $f0, 436($s1)\n" /* see NOTE below on magic offset */                  \
+                                                                               \
   "sw $sp, 0($s1)\n" /* store modified emusp */                                \
   "move $sp, $s0\n"  /* restore stack pointer */                               \
                                                                                \
@@ -2954,6 +2956,12 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
   "addiu $sp,$sp,32\n"                                                         \
                                                                                \
   ".set reorder\n"
+
+//
+// NOTE: the magic offset is
+// offsetof(CPUMIPSState, active_fpu.fpr[0].d) -
+// offsetof(CPUMIPSState, active_tc.gpr[29]);
+//
 
 uint64_t _jove_thunk0(target_ulong dstpc,
                       target_ulong *emuspp) {
