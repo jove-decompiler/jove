@@ -2932,15 +2932,33 @@ uint64_t _jove_thunk(target_ulong dstpc   /* a0 ($4) */,
 
 #else
 
+#define JOVE_THUNK_PROLOGUE                                                    \
+  ".set noreorder\n"                                                           \
+                                                                               \
+  "addiu $sp,$sp,-32\n"                                                        \
+  "sw $ra, 20($sp)\n"                                                          \
+  "sw $s0, 24($sp)\n"                                                          \
+  "sw $s1, 28($sp)\n"                                                          \
+                                                                               \
+  "move $s0, $sp\n" /* save sp in $s0 */
+
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "sw $sp, 0($s1)\n" /* store modified emusp */                                \
+  "move $sp, $s0\n"  /* restore stack pointer */                               \
+                                                                               \
+  "lw $ra, 20($sp)\n"                                                          \
+  "lw $s0, 24($sp)\n"                                                          \
+  "lw $s1, 28($sp)\n"                                                          \
+                                                                               \
+  "jr $ra\n"                                                                   \
+  "addiu $sp,$sp,32\n"                                                         \
+                                                                               \
+  ".set reorder\n"
+
 uint64_t _jove_thunk0(target_ulong dstpc,
                       target_ulong *emuspp) {
-  asm volatile(".set noreorder\n"
-               "addiu $sp,$sp,-32\n"
-               "sw $ra, 20($sp)\n"
-               "sw $s0, 24($sp)\n"
-               "sw $s1, 28($sp)\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s0, $sp\n" // save sp
                "move $s1, $a1\n" // emuspp in $s1
 
                "lw $sp, 0($a1)\n" // sp=*emuspp
@@ -2951,17 +2969,7 @@ uint64_t _jove_thunk0(target_ulong dstpc,
                "jalr $a0\n"      // call dstpc
                "move $t9, $a0\n" // [delay slot] set t9
 
-               "sw $sp, 0($s1)\n" // store modified emusp
-               "move $sp, $s0\n"  // restore stack pointer
-
-               "lw $ra, 20($sp)\n"
-               "lw $s0, 24($sp)\n"
-               "lw $s1, 28($sp)\n"
-
-               "jr $ra\n"
-               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
-               ".set reorder\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -2970,13 +2978,8 @@ uint64_t _jove_thunk0(target_ulong dstpc,
 uint64_t _jove_thunk1(target_ulong a0,
                       target_ulong dstpc,
                       target_ulong *emuspp) {
-  asm volatile(".set noreorder\n"
-               "addiu $sp,$sp,-32\n"
-               "sw $ra, 20($sp)\n"
-               "sw $s0, 24($sp)\n"
-               "sw $s1, 28($sp)\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s0, $sp\n" // save sp in $s0
                "move $s1, $a2\n" // emuspp in $s1
 
                "lw $sp, 0($a2)\n" // sp=*emuspp
@@ -2987,17 +2990,7 @@ uint64_t _jove_thunk1(target_ulong a0,
                "jalr $a1\n"      // call dstpc
                "move $t9, $a1\n" // [delay slot] set t9
 
-               "sw $sp, 0($s1)\n" // store modified emusp
-               "move $sp, $s0\n"  // restore stack pointer
-
-               "lw $ra, 20($sp)\n"
-               "lw $s0, 24($sp)\n"
-               "lw $s1, 28($sp)\n"
-
-               "jr $ra\n"
-               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
-               ".set reorder\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -3007,13 +3000,8 @@ uint64_t _jove_thunk2(target_ulong a0,
                       target_ulong a1,
                       target_ulong dstpc,
                       target_ulong *emuspp) {
-  asm volatile(".set noreorder\n"
-               "addiu $sp,$sp,-32\n"
-               "sw $ra, 20($sp)\n"
-               "sw $s0, 24($sp)\n"
-               "sw $s1, 28($sp)\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s0, $sp\n" // save sp in $s0
                "move $s1, $a3\n" // emuspp in $s1
 
                "lw $sp, 0($a3)\n" // sp=*emuspp
@@ -3024,17 +3012,7 @@ uint64_t _jove_thunk2(target_ulong a0,
                "jalr $a2\n"      // call dstpc
                "move $t9, $a2\n" // [delay slot] set t9
 
-               "sw $sp, 0($s1)\n" // store modified emusp
-               "move $sp, $s0\n"  // restore stack pointer
-
-               "lw $ra, 20($sp)\n"
-               "lw $s0, 24($sp)\n"
-               "lw $s1, 28($sp)\n"
-
-               "jr $ra\n"
-               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
-               ".set reorder\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -3045,13 +3023,8 @@ uint64_t _jove_thunk3(target_ulong a0,
                       target_ulong a2,
                       target_ulong dstpc,
                       target_ulong *emuspp) {
-  asm volatile(".set noreorder\n"
-               "addiu $sp,$sp,-32\n"
-               "sw $ra, 20($sp)\n"
-               "sw $s0, 24($sp)\n"
-               "sw $s1, 28($sp)\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s0, $sp\n" // save sp in $s0
                "lw $s1, 48($sp)\n" // emuspp in $s1
 
                "lw $sp, 0($s1)\n" // sp=*emuspp
@@ -3062,17 +3035,7 @@ uint64_t _jove_thunk3(target_ulong a0,
                "jalr $a3\n"      // call dstpc
                "move $t9, $a3\n" // [delay slot] set t9
 
-               "sw $sp, 0($s1)\n" // store modified emusp
-               "move $sp, $s0\n"  // restore stack pointer
-
-               "lw $ra, 20($sp)\n"
-               "lw $s0, 24($sp)\n"
-               "lw $s1, 28($sp)\n"
-
-               "jr $ra\n"
-               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
-               ".set reorder\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
@@ -3084,13 +3047,8 @@ uint64_t _jove_thunk4(target_ulong a0,
                       target_ulong a3,
                       target_ulong dstpc,
                       target_ulong *emuspp) {
-  asm volatile(".set noreorder\n"
-               "addiu $sp,$sp,-32\n"
-               "sw $ra, 20($sp)\n"
-               "sw $s0, 24($sp)\n"
-               "sw $s1, 28($sp)\n"
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "move $s0, $sp\n" // save sp in $s0
                "lw $s1, 52($sp)\n" // emuspp in $s1
 
                /* args: nothing to do */
@@ -3103,17 +3061,7 @@ uint64_t _jove_thunk4(target_ulong a0,
                "jalr $t9\n"      // call dstpc
                "nop\n"
 
-               "sw $sp, 0($s1)\n" // store modified emusp
-               "move $sp, $s0\n"  // restore stack pointer
-
-               "lw $ra, 20($sp)\n"
-               "lw $s0, 24($sp)\n"
-               "lw $s1, 28($sp)\n"
-
-               "jr $ra\n"
-               "addiu $sp,$sp,32\n" // [delay slot] deallocate stack space
-               ".set reorder\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
