@@ -444,7 +444,7 @@ void function_t::Analyze(void) {
       }
     } while (change);
 
-    this->Analysis.args = G[entryV].IN & ~NotArgs;
+    this->Analysis.args = G[entryV].IN & ~(NotArgs | PinnedEnvGlbs);
 
     //
     // reaching definitions
@@ -483,7 +483,7 @@ void function_t::Analyze(void) {
               [&](tcg_global_set_t res, flow_vertex_t V) -> tcg_global_set_t {
                 return res & G[V].OUT;
               }) &
-          ~NotRets;
+          ~(NotRets | PinnedEnvGlbs);
     }
   }
 
