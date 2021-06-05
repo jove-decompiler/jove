@@ -718,6 +718,8 @@ skip_run:
           headerBits.set(0);
         if (opts::ForeignLibs)
           headerBits.set(1);
+        if (opts::Trace)
+          headerBits.set(2);
 
         uint8_t header = headerBits.to_ullong();
 
