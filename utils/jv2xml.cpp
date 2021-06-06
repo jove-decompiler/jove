@@ -69,9 +69,8 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static decompilation_t Decompilation;
-
 int jv2xml(void) {
+  decompilation_t Decompilation;
   bool git = fs::is_directory(opts::jv);
 
   //
@@ -84,15 +83,30 @@ int jv2xml(void) {
     ia >> Decompilation;
   }
 
-  std::ostringstream oss;
-
-  {
-    boost::archive::xml_oarchive oa(oss);
-
-    oa << BOOST_SERIALIZATION_NVP(Decompilation);
+  //
+  // destructively modify data so the output is printable
+  //
+  for (auto &binary : Decompilation.Binaries) {
+    for (unsigned i = 0; i < binary.Data.size(); ++i) {
+      binary.Data[i] = ' ';
+    }
   }
 
-  llvm::outs() << oss.str();
+  std::string res;
+  {
+    std::ostringstream oss;
+
+    {
+      boost::archive::xml_oarchive oa(oss);
+
+      oa << BOOST_SERIALIZATION_NVP(Decompilation);
+    }
+
+    res = oss.str();
+  }
+
+  llvm::outs() << res;
+
   return 0;
 }
 
