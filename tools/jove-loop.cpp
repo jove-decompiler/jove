@@ -156,6 +156,12 @@ static cl::opt<bool>
                            "combined with --foreign-libs)"),
                   cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    PinnedGlobals("pinned-globals", cl::CommaSeparated,
+                  cl::value_desc("glb_1,glb_2,...,glb_n"),
+                  cl::desc("force specified TCG globals to always go through CPUState"),
+                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -494,6 +500,7 @@ int loop(void) {
 
   if (!opts::Connect.empty() && opts::Connect.find(':') == std::string::npos) {
     WithColor::error() << "usage: --connect IPADDRESS:PORT\n";
+    return 1;
   }
 
   std::string jv_path(fs::is_directory(opts::jv)
@@ -730,6 +737,37 @@ skip_run:
               "failed to send header to remote: {0}\n", strerror(-ret));
 
           break;
+        }
+      }
+
+      //
+      // --pinned-globals XXX
+      //
+      {
+        uint8_t NPinnedGlobals = opts::PinnedGlobals.size();
+
+        ssize_t ret = robust_write(remote_fd, &NPinnedGlobals, sizeof(NPinnedGlobals));
+
+        if (ret < 0) {
+          WithColor::error() << llvm::formatv(
+              "failed to send NPinnedGlobals to remote: {0}\n",
+              strerror(-ret));
+
+          break;
+        }
+
+        for (const std::string &PinnedGlobalStr : opts::PinnedGlobals) {
+          uint8_t PinnedGlobalStrLen = PinnedGlobalStr.size();
+
+          if (robust_write(remote_fd, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) < 0) {
+            WithColor::error() << "failed to send PinnedGlobalStr to remote: {0}\n";
+            return 0;
+          }
+
+          if (robust_write(remote_fd, PinnedGlobalStr.c_str(), PinnedGlobalStr.size()) < 0) {
+            WithColor::error() << "failed to send PinnedGlobalStr\n";
+            return 0;
+          }
         }
       }
 
@@ -1032,6 +1070,18 @@ skip_run:
 
         if (opts::ForeignLibs)
           arg_vec.push_back("--foreign-libs");
+
+        std::string pinned_globals_arg;
+        if (!opts::PinnedGlobals.empty()) {
+          pinned_globals_arg = "--pinned-globals=";
+          for (const std::string &PinnedGlbStr : opts::PinnedGlobals) {
+            pinned_globals_arg.append(PinnedGlbStr);
+            pinned_globals_arg.push_back(',');
+          }
+          pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+          arg_vec.push_back(pinned_globals_arg.c_str());
+        }
 
         arg_vec.push_back(nullptr);
 

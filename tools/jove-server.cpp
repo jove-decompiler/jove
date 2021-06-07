@@ -481,6 +481,48 @@ void *ConnectionProc(void *arg) {
     return nullptr;
   }
 
+  //
+  // --pinned-globals XXX
+  //
+  std::vector<std::string> PinnedGlobals;
+  {
+    uint8_t NPinnedGlobals = 0;
+    if (robust_read(data_socket, &NPinnedGlobals, sizeof(NPinnedGlobals)) != sizeof(NPinnedGlobals)) {
+      WithColor::error() << "failed to read NPinnedGlobals\n";
+      return nullptr;
+    }
+
+    PinnedGlobals.resize(NPinnedGlobals);
+  }
+
+  if (opts::Verbose)
+    llvm::errs() << llvm::formatv("NPinnedGlobals: {0}\n", PinnedGlobals.size());
+
+  for (unsigned i = 0; i < PinnedGlobals.size(); ++i) {
+    std::string &PinnedGlobalStr = PinnedGlobals[i];
+
+    {
+      uint8_t PinnedGlobalStrLen;
+      if (robust_read(data_socket, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) != sizeof(PinnedGlobalStrLen)) {
+        WithColor::error() << "failed to read PinnedGlobalStrLen\n";
+        return nullptr;
+      }
+
+      PinnedGlobalStr.resize(PinnedGlobalStrLen);
+    }
+
+    if (PinnedGlobalStr.size() == 0)
+      continue;
+
+    if (robust_read(data_socket, &PinnedGlobalStr[0], PinnedGlobalStr.size()) != PinnedGlobalStr.size()) {
+      WithColor::error() << "failed to read PinnedGlobalStr\n";
+      return nullptr;
+    }
+  }
+
+  //
+  // parse the header
+  //
   std::bitset<8> headerBits(header);
 
   options.dfsan        = headerBits.test(0);
@@ -546,6 +588,18 @@ void *ConnectionProc(void *arg) {
       arg_vec.push_back("--foreign-libs");
     if (options.trace)
       arg_vec.push_back("--trace");
+
+    std::string pinned_globals_arg = "--pinned-globals=";
+    if (!PinnedGlobals.empty()) {
+      for (const std::string &PinnedGlbStr : PinnedGlobals) {
+        pinned_globals_arg.append(PinnedGlbStr);
+        pinned_globals_arg.push_back(',');
+      }
+      assert(!pinned_globals_arg.empty());
+      pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+      arg_vec.push_back(pinned_globals_arg.c_str());
+    }
 
     arg_vec.push_back(nullptr);
 

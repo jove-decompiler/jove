@@ -392,6 +392,12 @@ static cl::opt<bool>
                cl::cat(JoveCategory));
 #endif
 
+static cl::list<std::string>
+    PinnedGlobals("pinned-globals", cl::CommaSeparated,
+                  cl::value_desc("glb_1,glb_2,...,glb_n"),
+                  cl::desc("force specified TCG globals to always go through CPUState"),
+                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -707,13 +713,7 @@ static std::map<std::pair<target_ulong, unsigned>,
                 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
     CopyRelocMap;
 
-#if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
-constexpr target_ulong Cookie = 0xbd47c92caa6cbcb4;
-#elif defined(TARGET_I386) || defined(TARGET_MIPS32)
-constexpr target_ulong Cookie = 0xd27b9f5a;
-#else
-#error
-#endif
+static tcg_global_set_t CmdlinePinnedEnvGlbs = PinnedEnvGlbs;
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -721,6 +721,7 @@ constexpr target_ulong Cookie = 0xd27b9f5a;
 //
 // Stages
 //
+static int ProcessCommandLine(void);
 static int ParseDecompilation(void);
 static int FindBinary(void);
 static int CheckBinary(void);
@@ -763,13 +764,15 @@ static int DoOptimize(void);
 static void DumpModule(const char *);
 
 int llvm(void) {
-  return ParseDecompilation()
+  return 0
+      || ParseDecompilation()
       || FindBinary()
       || CheckBinary()
       || InitStateForBinaries()
       || CreateModule()
       || (opts::DFSan ? LocateHooks() : 0)
       || PrepareToTranslateCode()
+      || ProcessCommandLine() /* must do this after TCG is ready */
       || ProcessDynamicTargets()
       || ProcessBinaryRelocations()
       || ProcessIFuncResolvers()
@@ -906,6 +909,30 @@ static std::error_code unlockFile(int FD) {
   if (::fcntl(FD, F_SETLK, &Lock) != -1)
     return std::error_code();
   return std::error_code(errno, std::generic_category());
+}
+
+int ProcessCommandLine(void) {
+  auto tcg_index_of_named_global = [&](const char *nm) -> int {
+    for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
+      if (strcmp(TCG->_ctx.temps[i].name, nm) == 0)
+        return i;
+    }
+
+    return -1;
+  };
+
+  for (const std::string &PinnedGlobalName : opts::PinnedGlobals) {
+    int idx = tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0) {
+      WithColor::warning() << llvm::formatv(
+          "unknown global {0} (--pinned-globals); ignoring\n", idx);
+      continue;
+    }
+
+    CmdlinePinnedEnvGlbs.set(idx);
+  }
+
+  return 0;
 }
 
 int ParseDecompilation(void) {
@@ -8930,7 +8957,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto set = [&](llvm::Value *V, unsigned glb) -> void {
     assert(glb != tcg_env_index);
 
-    if (unlikely(PinnedEnvGlbs.test(glb))) {
+    if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
       llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
       assert(GlbPtr);
 
@@ -8963,7 +8990,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 #endif
     }
 
-    if (unlikely(PinnedEnvGlbs.test(glb))) {
+    if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
       llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
       assert(GlbPtr);
 
@@ -10361,7 +10388,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (ts->temp_global) {
       assert(idx != tcg_env_index);
 
-      if (unlikely(PinnedEnvGlbs.test(idx))) {
+      if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
         llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
         assert(GlbPtr);
 
@@ -10404,7 +10431,7 @@ static int TranslateTCGOp(TCGOp *op,
 #endif
       }
 
-      if (unlikely(PinnedEnvGlbs.test(idx))) {
+      if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
         llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
         assert(GlbPtr);
 

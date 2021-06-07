@@ -167,6 +167,12 @@ static cl::opt<bool>
                          "treat all other binaries as \"foreign\""),
                 cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    PinnedGlobals("pinned-globals", cl::CommaSeparated,
+                  cl::value_desc("glb_1,glb_2,...,glb_n"),
+                  cl::desc("force specified TCG globals to always go through CPUState"),
+                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -1092,6 +1098,18 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--trace");
       if (opts::ForeignLibs)
         arg_vec.push_back("--foreign-libs");
+
+      std::string pinned_globals_arg;
+      if (!opts::PinnedGlobals.empty()) {
+        pinned_globals_arg = "--pinned-globals=";
+        for (const std::string &PinnedGlbStr : opts::PinnedGlobals) {
+          pinned_globals_arg.append(PinnedGlbStr);
+          pinned_globals_arg.push_back(',');
+        }
+        pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+        arg_vec.push_back(pinned_globals_arg.c_str());
+      }
 
       arg_vec.push_back(nullptr);
 
