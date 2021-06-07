@@ -488,8 +488,6 @@ void function_t::Analyze(void) {
   }
 
   if (this->IsABI) {
-    this->Analysis.rets &= CallConvRets;
-
 #if 0
     //
     // for ABI's, if we need a return register whose index > 0, then we will
@@ -531,8 +529,6 @@ void function_t::Analyze(void) {
   // infer that all the preceeding paramter registers are live as well
   //
   if (this->IsABI) {
-    this->Analysis.args &= CallConvArgs;
-
     std::vector<unsigned> glbv;
     explode_tcg_global_set(glbv, this->Analysis.args);
     std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
