@@ -168,7 +168,7 @@ static cl::alias VeryVerboseAlias("vv", cl::desc("Alias for -veryverbose."),
                                   cl::cat(JoveCategory));
 
 static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
-                           cl::cat(JoveCategory));
+                           cl::cat(JoveCategory), cl::init(true));
 
 static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
                             cl::aliasopt(Quiet), cl::cat(JoveCategory));
