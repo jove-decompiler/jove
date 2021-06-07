@@ -35,7 +35,7 @@ class JoveUnwindCommand(gdb.Command):
 
                         #print(path)
 
-                        use_addr2line = True
+                        use_addr2line = False
 
                         if not use_addr2line:
                             completedProcess = subprocess.run(\
