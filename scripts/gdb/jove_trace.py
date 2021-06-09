@@ -301,6 +301,7 @@ class JoveTraceCommand(gdb.Command):
         gdb.events.clear_objfiles.connect (clear_objfiles_handler)
         gdb.events.exited.connect (exit_handler)
 
+        gdb.execute("set environment LD_BIND_NOW=1", True, False)
         gdb.execute("run", True, False)
 
         #gdb.events.stop.connect (signal_stop_handler)
