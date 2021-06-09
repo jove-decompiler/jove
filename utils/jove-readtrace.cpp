@@ -67,7 +67,7 @@ int readtrace(void) {
     return 1;
   }
 
-  off_t size = 1UL << 31; /* 2 GiB */
+  off_t size = 1UL << 30; /* 2 GiB */
   void *trace_begin = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
   if (trace_begin == MAP_FAILED) {
     int err = errno;
