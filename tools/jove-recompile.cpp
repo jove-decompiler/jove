@@ -1159,77 +1159,68 @@ void worker(const dso_graph_t &dso_graph) {
                     fs::copy_option::overwrite_if_exists);
     }
 
-#if 0
     //
     // run llvm-dis on bitcode
     //
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    std::thread t1([&](void) -> void {
+      pid_t pid = fork();
+      if (!pid) {
+        IgnoreCtrlC();
 
-      const char *arg_arr[] = {
-        llvm_dis_path.c_str(),
+        const char *arg_arr[] = {
+          llvm_dis_path.c_str(),
 
-        "-o", llfp.c_str(),
-        bcfp.c_str(),
+          "-o", llfp.c_str(),
+          bcfp.c_str(),
 
-        nullptr
-      };
+          nullptr
+        };
 
-      print_command(&arg_arr[0]);
+        print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+        close(STDIN_FILENO);
+        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                            strerror(err));
+        exit(1);
+      }
 
-    if (int ret = await_process_completion(pid)) {
-      worker_failed = true;
-      WithColor::error() << "llvm-dis failed for " << binary_filename << '\n';
-      continue;
-    }
-#endif
-
-#if 0
+      (void)await_process_completion(pid);
+    });
 
     //
     // run opt on bitcode to generate stripped ll
     //
-    pid = fork();
-    if (!pid) {
-      IgnoreCtrlC();
+    std::thread t2([&](void) -> void {
+      pid_t pid = fork();
+      if (!pid) {
+        IgnoreCtrlC();
 
-      const char *arg_arr[] = {
-        opt_path.c_str(),
+        const char *arg_arr[] = {
+          opt_path.c_str(),
 
-        "-o", ll_strip_fp.c_str(),
-        "-S", "--strip-debug",
-        bcfp.c_str(),
+          "-o", ll_strip_fp.c_str(),
+          "-S", "--strip-debug",
+          bcfp.c_str(),
 
-        nullptr
-      };
+          nullptr
+        };
 
-      print_command(&arg_arr[0]);
+        print_command(&arg_arr[0]);
 
-      close(STDIN_FILENO);
-      execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+        close(STDIN_FILENO);
+        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
 
-      int err = errno;
-      WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                          strerror(err));
-      exit(1);
-    }
+        int err = errno;
+        WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                            strerror(err));
+        exit(1);
+      }
 
-    if (int ret = await_process_completion(pid)) {
-      worker_failed = true;
-      WithColor::error() << "opt failed for " << binary_filename << '\n';
-      continue;
-    }
-#endif
+      (void)await_process_completion(pid);
+    });
 
     //
     // run llc
@@ -1295,6 +1286,9 @@ void worker(const dso_graph_t &dso_graph) {
                                           binary_filename);
       continue;
     }
+
+    t1.join(); /* opt */
+    t2.join(); /* llvm-dis */
   }
 }
 
