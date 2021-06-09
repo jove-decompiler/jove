@@ -70,11 +70,13 @@ def on_loaded_binary (loaded_path, start, end, offset):
         if IsRTLD == 1:
             continue
 
+        IsPIC = int(e.findall("IsPIC")[0].text)
+
         path = e.findall("Path")[0].text
         if path in loaded_path:
             seen_bin_list += [BIdx]
 
-            print("%s @ [0x%x, 0x%x) off=0x%x" % (path, start, end, offset))
+            print("%s @ [0x%x, 0x%x) off=0x%x IsPIC=%d" % (path, start, end, offset, IsPIC))
 
             #
             # place breakpoints
@@ -83,7 +85,19 @@ def on_loaded_binary (loaded_path, start, end, offset):
             vert_el = icfg_e.findall("vertex_property")
             for BBIdx, vert_e in enumerate(vert_el, 0):
                 bb_addr = int(vert_e.findall("Addr")[0].text)
-                brkpoints.append(JoveTraceBreakpoint(BIdx, BBIdx, start - offset + bb_addr))
+                if IsPIC == 1:
+                  brkpoints.append(JoveTraceBreakpoint(BIdx, BBIdx, start - offset + bb_addr))
+                else:
+                  brkpoints.append(JoveTraceBreakpoint(BIdx, BBIdx, bb_addr))
+
+def safe_execute(command):
+    """Execute command, ignoring any gdb errors."""
+    result = None
+    try:
+        result = gdb.execute(command, to_string=True)
+    except gdb.error:
+        pass
+    return result
 
 def scan_for_binaries ():
     t = gdb.selected_thread()
@@ -93,27 +107,41 @@ def scan_for_binaries ():
 
     pid = t.ptid[0]
 
+    Local = False
+
     #
     # parse virtual memory mappings of process
     #
-    try:
-        maps_file = open("/proc/%d/maps" % (pid), 'r')
-    except:
-        print("[ERROR] scan_for_binaries: couldn't open /proc/%d/maps" % (pid))
-        raise
+    if Local:
+      try:
+          maps_file = open("/proc/%d/maps" % (pid), 'r')
+      except:
+          print("[ERROR] scan_for_binaries: couldn't open /proc/%d/maps" % (pid))
+          raise
 
-    for line in maps_file.readlines():  # for each mapped region
-        m = re.match(r'([0-9A-Fa-f]+)-([0-9A-Fa-f]+) ([-r])([-w])([-x])([-p]) ([0-9A-Fa-f]+) ', line)
-        if m.group(5) == 'x':  # is executable region?
-            start = int(m.group(1), 16)
-            end = int(m.group(2), 16)
-            offset = int(m.group(7), 16)
-            part = line.partition('/') # XXX this is a bit sloppy
-            if part[1] == '/': # is this a file?
-                path = "/" + part[2].strip()
-                on_loaded_binary (path, start, end, offset)
-
-    maps_file.close()
+      for line in maps_file.readlines():  # for each mapped region
+          m = re.match(r'([0-9A-Fa-f]+)-([0-9A-Fa-f]+) ([-r])([-w])([-x])([-p]) ([0-9A-Fa-f]+) ', line)
+          if m.group(5) == 'x':  # is executable region?
+              start = int(m.group(1), 16)
+              end = int(m.group(2), 16)
+              offset = int(m.group(7), 16)
+              part = line.partition('/') # XXX this is a bit sloppy
+              if part[1] == '/': # is this a file?
+                  path = "/" + part[2].strip()
+                  on_loaded_binary(path, start, end, offset)
+    else:
+        mappings = safe_execute('info proc mappings')
+        if mappings is not None:
+            lines = mappings.split("\n")
+            l2 = lines[4:-1]
+            l3 = list(map(lambda line: line.split(), l2))
+            l4 = list(filter(lambda x: len(x) == 5 and x[4][0] == '/', l3))
+            for i in range(0, len(l4)):
+                path = l4[i][4]
+                start  = int(l4[i][0], 16)
+                end    = int(l4[i][1], 16)
+                offset = int(l4[i][3], 16)
+                on_loaded_binary(path, start, end, offset)
 
 def signal_stop_handler (event):
     if (isinstance (event, gdb.SignalEvent)):
