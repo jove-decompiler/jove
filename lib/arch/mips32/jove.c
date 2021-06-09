@@ -1906,7 +1906,7 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
-#define _UNREACHABLE()                                                         \
+#define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     char line_str[65];                                                         \
     uint_to_string(__LINE__, line_str, 10);                                    \
@@ -1914,7 +1914,8 @@ _HIDDEN void _jove_free_callstack(target_ulong);
     char buff[256];                                                            \
     buff[0] = '\0';                                                            \
                                                                                \
-    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, "JOVE UNREACHABLE: " __VA_ARGS__);                           \
+    _strcat(buff, " (");                                                       \
     _strcat(buff, __FILE__);                                                   \
     _strcat(buff, ":");                                                        \
     _strcat(buff, line_str);                                                   \
@@ -2207,7 +2208,7 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
   {
     int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
     if (fd < 0)
-      _UNREACHABLE();
+      _UNREACHABLE("could not open file from procfs. is it mounted?");
 
     // let n denote the number of characters read
     n = 0;
@@ -2595,7 +2596,7 @@ found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
-      _UNREACHABLE();
+      _UNREACHABLE("could not open recover fifo");
 
     {
       char ch = 'f';
@@ -2657,7 +2658,7 @@ found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
-      _UNREACHABLE();
+      _UNREACHABLE("could not open recover fifo");
 
     {
       char ch = 'F';
@@ -2718,7 +2719,7 @@ found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
-      _UNREACHABLE();
+      _UNREACHABLE("could not open recover fifo");
 
     {
       char ch = 'b';
@@ -2786,7 +2787,7 @@ found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
-      _UNREACHABLE();
+      _UNREACHABLE("could not open recover fifo");
 
     {
       char ch = 'r';
@@ -2810,12 +2811,12 @@ found:
 
 
 void _jove_fail1(target_ulong a0) {
-  _UNREACHABLE();
+  _UNREACHABLE("_jove_fail1");
 }
 
 void _jove_fail2(target_ulong a0,
                  target_ulong a1) {
-  _UNREACHABLE();
+  _UNREACHABLE("_jove_fail2");
 }
 
 #if 0

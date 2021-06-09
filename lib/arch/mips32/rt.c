@@ -1834,7 +1834,7 @@ static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
 static void _jove_init_cpu_state(void);
 
-#define _UNREACHABLE()                                                         \
+#define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     char line_str[65];                                                         \
     uint_to_string(__LINE__, line_str, 10);                                    \
@@ -1842,7 +1842,8 @@ static void _jove_init_cpu_state(void);
     char buff[256];                                                            \
     buff[0] = '\0';                                                            \
                                                                                \
-    _strcat(buff, "JOVE UNREACHABLE (");                                       \
+    _strcat(buff, "JOVE UNREACHABLE: " __VA_ARGS__);                           \
+    _strcat(buff, " (");                                                       \
     _strcat(buff, __FILE__);                                                   \
     _strcat(buff, ":");                                                        \
     _strcat(buff, line_str);                                                   \
@@ -2184,6 +2185,10 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         _UNREACHABLE();
       }
 #endif
+
+      if (fns[2 * FIdx + 1] == NULL) {
+        _UNREACHABLE("called recompiled function is not ABI");
+      }
 
       emut9 = fns[2 * FIdx + 0];
 
