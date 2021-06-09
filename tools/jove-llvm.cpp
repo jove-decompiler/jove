@@ -588,9 +588,6 @@ static std::unordered_map<std::string,
                           std::set<std::pair<binary_index_t, function_index_t>>>
     ExportedFunctions;
 
-static std::set<std::pair<binary_index_t, function_index_t>>
-    BinaryDynamicTargets;
-
 //static std::vector<llvm::CallInst *> MemCopiesToExpand;
 
 static llvm::Triple TheTriple;
@@ -3173,22 +3170,6 @@ int ProcessDynamicTargets(void) {
 
         callee.IsABI = true;
       }
-    }
-  }
-
-  //
-  // for the binary under consideration, we'll build a set of dynamic
-  // targets that can be used for the purposes of dynamic symbol resolution
-  //
-  {
-    auto &binary = Decompilation.Binaries[BinaryIndex];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    auto it_pair = boost::vertices(ICFG);
-    for (auto it = it_pair.first; it != it_pair.second; ++it) {
-      auto &DynTargets = ICFG[*it].DynTargets;
-
-      BinaryDynamicTargets.insert(DynTargets.begin(), DynTargets.end());
     }
   }
 
