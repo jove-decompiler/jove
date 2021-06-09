@@ -4619,7 +4619,9 @@ int CreateFunctionTable(void) {
     target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
     llvm::Constant *C1 = SectionPointer(Addr);
-    llvm::Constant *C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+    llvm::Constant *C2 = f.IsABI
+                             ? llvm::ConstantExpr::getPtrToInt(f.F, WordType())
+                             : llvm::Constant::getNullValue(WordType());
 
     constantTable[2 * i + 0] = C1;
     constantTable[2 * i + 1] = C2;
