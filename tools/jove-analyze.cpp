@@ -274,6 +274,7 @@ int ProcessDynamicTargets(void) {
     }
   }
 
+#if 0
   //
   // resolved symbols are ABIs
   //
@@ -291,6 +292,7 @@ int ProcessDynamicTargets(void) {
       }
     }
   }
+#endif
 
 #if 0
   //
