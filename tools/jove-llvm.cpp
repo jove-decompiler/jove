@@ -9220,25 +9220,13 @@ int TranslateBasicBlock(TranslateContext &TC) {
     return 0;
   }
 
-  auto store_global = [&](unsigned glb) -> void {
-    if (!GlobalAllocaArr[glb])
-      return;
+  auto store_stack_pointer = [&](void) -> void {
+    auto store_global = [&](unsigned glb) -> void {
+      llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
+      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+    };
 
-    llvm::LoadInst *LI = IRB.CreateLoad(GlobalAllocaArr[glb]);
-    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-    llvm::StoreInst *SI = IRB.CreateStore(LI, CPUStateGlobalPointer(glb));
-    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-  };
-
-  auto store_stack_pointers = [&](void) -> void {
     store_global(tcg_stack_pointer_index);
-
-#if defined(TARGET_MIPS32)
-    store_global(tcg_t9_index);
-    store_global(tcg_ra_index);
-    store_global(tcg_gp_index);
-#endif
   };
 
   struct {
@@ -9288,13 +9276,13 @@ int TranslateBasicBlock(TranslateContext &TC) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
     if (callee.IsABI)
-      store_stack_pointers();
+      store_stack_pointer();
     break;
   }
 
   case TERMINATOR::RETURN:
     if (f.IsABI)
-      store_stack_pointers();
+      store_stack_pointer();
     break;
 
   case TERMINATOR::INDIRECT_JUMP:
@@ -9302,7 +9290,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       break;
 
   case TERMINATOR::INDIRECT_CALL:
-    store_stack_pointers();
+    store_stack_pointer();
     break;
 
   default:
@@ -9891,7 +9879,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                              });
             }
 
-            {
+            if (callee.IsABI) {
               //
               // store globals which are not passed as parameters to env
               //
@@ -9899,21 +9887,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
               explode_tcg_global_set(glbv, DetermineFunctionArgs(callee) & ~CallConvArgs);
 
               for (unsigned glb : glbv) {
-                llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
-
-                if (!Ptr) {
-                  llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
-
-                  Ptr = CreateAllocaForGlobal(tmpIRB, glb);
-                }
-
                 llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
                 assert(GlbPtr);
 
-                llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
-                LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-                llvm::StoreInst *SI = IRB.CreateStore(LI, GlbPtr);
+                llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               }
             }
@@ -10128,26 +10105,22 @@ int TranslateBasicBlock(TranslateContext &TC) {
     break;
   }
 
-  auto reload_stack_pointers = [&](void) -> void {
-    auto reload = [&](unsigned glb) -> void {
-      if (!GlobalAllocaArr[glb])
-        return;
-
+  auto reload_stack_pointer = [&](void) -> void {
+    auto reload_global = [&](unsigned glb) -> void {
       llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-      llvm::StoreInst *SI = IRB.CreateStore(LI, GlobalAllocaArr[glb]);
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+      set(LI, glb);
     };
 
-    reload(tcg_stack_pointer_index);
+    reload_global(tcg_stack_pointer_index);
   };
 
   switch (T.Type) {
   case TERMINATOR::CALL: {
     function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
     if (callee.IsABI)
-      reload_stack_pointers();
+      reload_stack_pointer();
     break;
   }
 
@@ -10156,7 +10129,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       break;
 
   case TERMINATOR::INDIRECT_CALL:
-    reload_stack_pointers();
+    reload_stack_pointer();
     break;
 
   default:
