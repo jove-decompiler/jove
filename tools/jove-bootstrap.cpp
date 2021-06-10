@@ -1681,7 +1681,6 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                                                          ICFG[succ].Addr, brkpt_count);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
-              Binary.Analysis.Functions.at(FIdx).IsABI = true;
             }
 
             boost::clear_out_edges(bb, ICFG);
