@@ -472,7 +472,7 @@ void *ConnectionProc(void *arg) {
   // read header
   //
   struct {
-    bool dfsan, foreign_libs, trace;
+    bool dfsan, foreign_libs, trace, optimize;
   } options;
 
   uint8_t header;
@@ -528,6 +528,7 @@ void *ConnectionProc(void *arg) {
   options.dfsan        = headerBits.test(0);
   options.foreign_libs = headerBits.test(1);
   options.trace        = headerBits.test(2);
+  options.optimize     = headerBits.test(3);
 
   std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
   {
@@ -588,6 +589,8 @@ void *ConnectionProc(void *arg) {
       arg_vec.push_back("--foreign-libs");
     if (options.trace)
       arg_vec.push_back("--trace");
+    if (options.optimize)
+      arg_vec.push_back("--optimize");
 
     std::string pinned_globals_arg = "--pinned-globals=";
     if (!PinnedGlobals.empty()) {
