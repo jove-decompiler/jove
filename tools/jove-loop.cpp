@@ -727,6 +727,8 @@ skip_run:
           headerBits.set(1);
         if (opts::Trace)
           headerBits.set(2);
+        if (opts::Optimize)
+          headerBits.set(3);
 
         uint8_t header = headerBits.to_ullong();
 
