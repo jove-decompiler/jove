@@ -683,6 +683,27 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
+#define _UNREACHABLE(...)                                                      \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str, 10);                                    \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE: " __VA_ARGS__);                           \
+    _strcat(buff, " (");                                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
+
 //
 // utility functions
 //
@@ -694,6 +715,7 @@ static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
 static _INL bool _isDigit(char);
 static _INL int _atoi(const char *s);
 static _INL size_t _strlen(const char *s);
+static _INL char *_strcat(char *s, const char *append);
 static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
@@ -703,6 +725,7 @@ static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
+static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
 
 //
 // definitions
@@ -947,8 +970,7 @@ uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
     }
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
@@ -956,10 +978,8 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
 
   {
     int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (fd < 0)
+      _UNREACHABLE("couldn't read file from procfs. is it mounted?");
 
     // let n denote the number of characters read
     n = 0;
@@ -974,17 +994,14 @@ unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
         if (ret == -EINTR)
           continue;
 
-        __builtin_trap();
-        __builtin_unreachable();
+        _UNREACHABLE();
       }
 
       n += ret;
     }
 
-    if (_jove_sys_close(fd) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (_jove_sys_close(fd) < 0)
+      _UNREACHABLE();
   }
 
   return n;
@@ -1016,35 +1033,27 @@ static void _jove_sigsegv_handler(void);
 void _jove_trace_init(void) {
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (fd < 0)
+    _UNREACHABLE();
 
   off_t size = 1UL << 30; /* 1 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_ftruncate(fd, size) < 0)
+    _UNREACHABLE();
 
   {
     long ret = _jove_sys_mmap_pgoff(0x0, size, PROT_READ | PROT_WRITE,
                                     MAP_SHARED, fd, 0);
 
-    if (ret < 0 && ret > -4096) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0 && ret > -4096)
+      _UNREACHABLE();
 
     void *ptr = (void *)ret;
 
     __jove_trace_begin = __jove_trace = ptr;
   }
 
-  if (_jove_sys_close(fd) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE();
 
 #if 0
   //
@@ -1057,10 +1066,8 @@ void _jove_trace_init(void) {
   {
     long ret =
         _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (ret < 0)
+      _UNREACHABLE();
   }
 #endif
 }
@@ -1145,6 +1152,16 @@ unsigned _getDigit(char cdigit, uint8_t radix) {
     return r;
 
   return -1U;
+}
+
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
 }
 
 size_t _strlen(const char *str) {
@@ -1336,10 +1353,8 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open jove-recover.fifo");
 
     {
       char ch = 'f';
@@ -1353,10 +1368,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1401,10 +1414,8 @@ void _jove_recover_basic_block(uint32_t IndBrBBIdx,
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open jove-recover.fifo");
 
     {
       char ch = 'b';
@@ -1417,10 +1428,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1448,10 +1457,8 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
 found:
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open jove-recover.fifo");
 
     {
       char ch = 'r';
@@ -1463,10 +1470,8 @@ found:
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
 
       _jove_sys_close(recover_fd);
       _jove_sys_exit_group(ch);
@@ -1952,6 +1957,36 @@ bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
 
   __builtin_trap();
   __builtin_unreachable();
+}
+
+void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
 }
 
 void _jove_callstack_init(void) {
