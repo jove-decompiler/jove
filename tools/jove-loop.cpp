@@ -721,14 +721,10 @@ skip_run:
       {
         std::bitset<8> headerBits;
 
-        if (opts::DFSan)
-          headerBits.set(0);
-        if (opts::ForeignLibs)
-          headerBits.set(1);
-        if (opts::Trace)
-          headerBits.set(2);
-        if (opts::Optimize)
-          headerBits.set(3);
+        headerBits.set(0, opts::DFSan);
+        headerBits.set(1, opts::ForeignLibs);
+        headerBits.set(2, opts::Trace);
+        headerBits.set(3, opts::Optimize);
 
         uint8_t header = headerBits.to_ullong();
 
