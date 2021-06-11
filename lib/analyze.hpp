@@ -134,17 +134,11 @@ static tcg_global_set_t identity_flow(tcg_global_set_t x) {
 }
 
 static tcg_global_set_t mask_CallConvRets_flow(tcg_global_set_t x) {
-  tcg_global_set_t mask(CallConvRets);
-  mask.set(tcg_stack_pointer_index);
-
-  return x & mask;
+  return x & CallConvRets;
 }
 
 static tcg_global_set_t mask_CallConvArgs_flow(tcg_global_set_t x) {
-  tcg_global_set_t mask(CallConvArgs);
-  mask.set(tcg_stack_pointer_index);
-
-  return x & mask;
+  return x & CallConvArgs;
 }
 
 struct flow_edge_properties_t {
@@ -549,6 +543,15 @@ void function_t::Analyze(void) {
         this->Analysis.args.set(CallConvArgArray[i]);
     }
   }
+
+  //
+  // all internal functions will be passed the stack pointer, and will return
+  // it as well. XXX if we know this to be a leaf function, we can do better
+  //
+  if (!this->IsABI) {
+    this->Analysis.args.set(tcg_stack_pointer_index);
+    this->Analysis.rets.set(tcg_stack_pointer_index);
+  }
 }
 
 const helper_function_t &LookupHelper(TCGOp *op);
@@ -633,24 +636,6 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 
     size += len;
   } while (size < Size);
-
-  switch (this->Term.Type) {
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::INDIRECT_CALL: {
-    tcg_global_set_t iglbs, oglbs;
-    iglbs.set(tcg_stack_pointer_index);
-    oglbs.set(tcg_stack_pointer_index);
-
-    this->Analysis.live.use |= (iglbs & ~this->Analysis.live.def);
-    this->Analysis.live.def |= (oglbs & ~this->Analysis.live.use);
-
-    this->Analysis.reach.def |= oglbs;
-    break;
-  }
-
-  default:
-    break;
-  }
 
 #if 0
   if (false /* opts::PrintDefAndUse */) {
