@@ -9394,25 +9394,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
       //
       // store globals which are not passed as parameters to env
       //
+      tcg_global_set_t glbs(DetermineFunctionArgs(callee) & ~CallConvArgs);
+      glbs.reset(tcg_stack_pointer_index);
+
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, DetermineFunctionArgs(callee) & ~CallConvArgs);
+      explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        llvm::AllocaInst *&Ptr = GlobalAllocaArr.at(glb);
-
-        if (!Ptr) {
-          llvm::IRBuilderTy tmpIRB(&f.F->getEntryBlock().front());
-
-          Ptr = CreateAllocaForGlobal(tmpIRB, glb);
-        }
-
         llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
         assert(GlbPtr);
 
-        llvm::LoadInst *LI = IRB.CreateLoad(Ptr);
-        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-        llvm::StoreInst *SI = IRB.CreateStore(LI, GlbPtr);
+        llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
@@ -9883,8 +9875,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // store globals which are not passed as parameters to env
               //
+              tcg_global_set_t glbs(DetermineFunctionArgs(callee) & ~CallConvArgs);
+              glbs.reset(tcg_stack_pointer_index);
+
               std::vector<unsigned> glbv;
-              explode_tcg_global_set(glbv, DetermineFunctionArgs(callee) & ~CallConvArgs);
+              explode_tcg_global_set(glbv, glbs);
 
               for (unsigned glb : glbv) {
                 llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
