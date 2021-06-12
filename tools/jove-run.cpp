@@ -61,6 +61,13 @@ static cl::opt<bool>
                   cl::desc("run program under real sysroot (useful when "
                            "combined with --foreign-libs)"),
                   cl::cat(JoveCategory));
+
+static cl::opt<bool> Verbose("verbose",
+                             cl::desc("Output helpful messages for debugging"),
+                             cl::cat(JoveCategory));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -229,13 +236,14 @@ struct ScopedMount {
           continue;
 
         default:
-          fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", 0x%lx, %p) failed: %s\n",
-                  this->source,
-                  this->target,
-                  this->filesystemtype,
-                  (long)this->mountflags,
-                  this->data,
-                  strerror(err));
+          if (opts::Verbose)
+            fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", 0x%lx, %p) failed: %s\n",
+                    this->source,
+                    this->target,
+                    this->filesystemtype,
+                    (long)this->mountflags,
+                    this->data,
+                    strerror(err));
           return;
         }
       } else {

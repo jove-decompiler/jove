@@ -560,6 +560,9 @@ run:
             opts::sysroot.c_str(),
         };
 
+        if (opts::Verbose)
+          arg_vec.push_back("--verbose");
+
         if (opts::OutsideChroot)
           arg_vec.push_back("--outside-chroot");
 
