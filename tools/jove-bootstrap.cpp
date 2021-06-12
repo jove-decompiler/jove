@@ -1365,17 +1365,14 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
             auto on_syscall_enter = [&](void) -> void {
               switch (no) {
+              case __NR_exit:
               case __NR_exit_group:
-                if (opts::Verbose)
-                  WithColor::note() << "Observed program exit.\n";
+                WithColor::note() << "Observed program exit.\n";
 
-                if (child == saved_child) {
-                  WithColor::note() << "program is exiting. harvesting reloc targets...\n";
+                WARN_ON(child != saved_child);
 
-                  harvest_reloc_targets(child, tcg, dis);
-                }
+                harvest_reloc_targets(child, tcg, dis);
                 break;
-
 
               default:
                 break;
