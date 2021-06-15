@@ -1069,10 +1069,6 @@ static void on_return(pid_t child,
                       tiny_code_generator_t &,
                       disas_t &);
 
-#if defined(__mips64) || defined(__mips__)
-static constexpr unsigned FastEmuJumpReg = llvm::Mips::RA;
-#endif
-
 static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
 #if defined(__x86_64__)
   #define _pc_field rip
@@ -1588,15 +1584,19 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
 #if defined(__mips64) || defined(__mips__)
           //
-          // FastEmuJumpReg
+          // recognize the 'jr $zero' hack. This trickery is to avoid emulating
+          // the delay slot instruction of a return instruction.
           //
           if (stopsig == SIGSEGV) {
             cpu_state_t cpu_state;
             _ptrace_get_cpu_state(child, cpu_state);
 
             if (cpu_state.cp0_epc == 0) {
-              assert(FastEmuJumpReg == llvm::Mips::RA);
-
+              //
+              // from here on out we are assuming a 'jr $ra' was replaced with
+              // 'jr $zero', so we simply set the program counter to the return
+              // address register.
+              //
               uintptr_t RetAddr = cpu_state.regs[31 /* ra */];
 
               cpu_state.cp0_epc = RetAddr;
@@ -2577,7 +2577,11 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
 
 #if defined(__mips64) || defined(__mips__)
   //
-  // FastEmuJumpReg
+  // by overwriting the return instruction with 'jr $zero' rather than the
+  // conventional trap, we can get by without having to emulate the delay slot
+  // instruction. hooray! the downside with this trick is that one piece of
+  // information is lost: the program counter. for returns instructions, this
+  // doesn't really matter.
   //
   ((uint32_t *)&word)[0] = encoding_of_jump_to_reg(llvm::Mips::ZERO);
 #else
