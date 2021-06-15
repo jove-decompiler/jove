@@ -1493,10 +1493,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           syscall_state.pc = pc;
           syscall_state.dir = dir;
 
-          if (opts::PrintLinkMap)
+          if (unlikely(opts::PrintLinkMap))
             scan_rtld_link_map(child, tcg, dis);
 
-          if (!BinFoundVec.all())
+          if (unlikely(!BinFoundVec.all()))
             search_address_space_for_binaries(child, dis);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
@@ -1628,22 +1628,13 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     WithColor::error() << llvm::formatv("exception! {0}\n", what);
   }
 
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = SIG_IGN;
-
-    sigaction(SIGINT, &sa, nullptr);
-  }
+  IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
   {
     //
     // fix ambiguous indirect jumps. why do we do this here? because this
     // process involves removing edges from the graph, which can be messy.
     //
-    bool Changed = false;
     unsigned NumChanged = 0;
 
     for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
@@ -1674,10 +1665,12 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               basic_block_t succ = boost::target(cf, ICFG);
 
               unsigned brkpt_count = 0;
-              function_index_t FIdx = translate_function(child, BIdx, tcg, dis,
-                                                         ICFG[succ].Addr, brkpt_count);
+              function_index_t FIdx = translate_function(
+                  child, BIdx, tcg, dis, ICFG[succ].Addr, brkpt_count);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
+
+	      (void)brkpt_count;
             }
 
             boost::clear_out_edges(bb, ICFG);
@@ -1688,16 +1681,16 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         return false;
       };
 
-      while (fix_ambiguous_indirect_jumps()) {
-        Changed = true;
+      while (fix_ambiguous_indirect_jumps())
         ++NumChanged;
-      }
     }
 
-    if (Changed) {
-      WithColor::note() << llvm::formatv("fixed {0} ambiguous indirect jumps\n",
-                                    NumChanged);
+    if (unlikely(NumChanged)) {
       InvalidateAllFunctionAnalyses();
+
+      WithColor::note() << llvm::formatv(
+          "fixed {0} ambiguous indirect jump{1}\n", NumChanged,
+          NumChanged > 1 ? "s" : "");
     }
   }
 
@@ -1719,8 +1712,6 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   if (git) {
     pid_t pid = fork();
     if (!pid) { /* child */
-      IgnoreCtrlC();
-
       std::string msg("[jove-bootstrap] ");
 
       for (const std::string &env : opts::Envs) {
@@ -3654,7 +3645,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   bool isNewTarget = false;
 
-  const char *print_prefix = "(call) ";
+  const char *print_prefix = "(call)";
 
   unsigned brkpt_count = 0;
 
@@ -3719,22 +3710,21 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       if (isNewTarget)
         ICFG[bb].InvalidateAnalysis();
 
-      print_prefix = "(goto) ";
+      print_prefix = "(goto)";
     }
   } else {
     abort();
   }
 
-  if (brkpt_count > 0) {
-    binary_t &binary = decompilation.Binaries[binary_idx];
-    llvm::errs() << "placed " << brkpt_count << " breakpoints in "
-                 << binary.Path << '\n';
-  }
+  if (unlikely(brkpt_count))
+    llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                  brkpt_count, brkpt_count > 1 ? "s" : "",
+                                  decompilation.Binaries[binary_idx].Path);
 
-  if (!opts::Quiet || isNewTarget)
-    llvm::errs() << print_prefix
-                 << description_of_program_counter(saved_pc) << " -> "
-                 << description_of_program_counter(target) << '\n';
+  if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
+    llvm::errs() << llvm::formatv("{0} {1} -> {1}\n", print_prefix,
+                                  description_of_program_counter(saved_pc),
+                                  description_of_program_counter(target));
 }
 
 //
