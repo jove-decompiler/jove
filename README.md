@@ -159,7 +159,7 @@ sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /myngin
 ```bash
 # on debian testing:
 apt-get update
-apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64
+apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu
 apt-get install cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl
 apt-get build-dep llvm
 apt-get build-dep libz3-dev
