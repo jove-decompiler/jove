@@ -174,7 +174,7 @@ $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$<
+	$(_LLVM_CC) -o $$@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$<
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
