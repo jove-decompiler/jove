@@ -21,15 +21,15 @@ export PATH=$PATH:/opt/jove32/bin
 
 cd jove/bin
 
-jove-init -o $HOME/.jove/ls --git /usr/bin/ls
-jove-bootstrap -d $HOME/.jove/ls /usr/bin/ls -q --syscalls -- -la /
+jove-init -o ls.jv --git /usr/bin/ls
+jove-bootstrap -d ls.jv /usr/bin/ls -s -- -la /
 
 mkdir ls.sysroot
-sudo jove-loop -d $HOME/.jove/ls --sysroot ls.sysroot /usr/bin/ls -- -la /
+jove-loop -d ls.jv --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
 For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
-sudo apt-get install debian-goodies
+apt-get install debian-goodies
 
 for b in $(jove-dump $HOME/.jove/ls --list-binaries) ; do find-dbgsym-packages $b ; done
 ```
@@ -56,18 +56,18 @@ dhcp-range=localhost,172.0.0.3,172.0.0.150,100h
 dhcp-leasefile=/tmp/dnsmasq.leases
 EOF
 
-sudo jove-init -o $HOME/.jove/dnsmasq --git /usr/sbin/dnsmasq
-sudo jove-bootstrap -d $HOME/.jove/dnsmasq -q --syscalls /usr/sbin/dnsmasq -- -C mydnsmasq.conf -d -q -k --dhcp-alternate-port
+jove-init -o dnsmasq.jv --git /usr/sbin/dnsmasq
+jove-bootstrap -d dnsmasq.jv -s /usr/sbin/dnsmasq -- -C mydnsmasq.conf -d -q -k --dhcp-alternate-port
 
 mkdir dnsmasq.sysroot
 cp mydnsmasq.conf dnsmasq.sysroot/
 
-sudo ./jove-loop -d $HOME/.jove/dnsmasq --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
+jove-loop -d dnsmasq.jv --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
 ## `miniupnpd`
 ```bash
-sudo apt-get install miniupnpd
+apt-get install miniupnpd
 
 cd jove/bin
 
@@ -92,14 +92,14 @@ allow 12345 192.168.7.113/32 54321
 allow 0-65535 0.0.0.0/0 0-65535
 EOF
 
-sudo jove-init -o $HOME/.jove/miniupnpd --git /usr/sbin/miniupnpd
-sudo jove-bootstrap -d $HOME/.jove/miniupnpd -q --syscalls /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+jove-init -o miniupnpd.jv --git /usr/sbin/miniupnpd
+jove-bootstrap -d miniupnpd.jv -s /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 
 mkdir miniupnpd.sysroot
 cp myminiupnpd.conf miniupnpd.sysroot/
 mkdir -p miniupnpd.sysroot/var/run
 
-sudo ./jove-loop -d $HOME/.jove/miniupnpd --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+jove-loop -d miniupnpd.jv --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 ```
 
 ## `nginx`
@@ -143,8 +143,8 @@ EOF
 
 sudo apt-get install nginx-light
 
-sudo jove-init -o $HOME/.jove/nginx --git /usr/sbin/nginx
-sudo jove-bootstrap -d $HOME/.jove/nginx -q --syscalls /usr/sbin/nginx -- -c mynginx.conf
+jove-init -o nginx.jv --git /usr/sbin/nginx
+jove-bootstrap -d nginx.jv -s /usr/sbin/nginx -- -c mynginx.conf
 
 mkdir nginx.sysroot
 cp mynginx.conf nginx.sysroot/
@@ -153,15 +153,18 @@ mkdir -p nginx.sysroot/var/lib/nginx
 mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
-sudo jove-loop -d $HOME/.jove/nginx --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
+sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 # Building
 ```bash
-sudo apt-get update
-sudo apt-get install cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl
+# on debian testing:
+apt-get update
+apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64
+apt-get install cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl
+apt-get build-dep llvm
+apt-get build-dep libz3-dev
+
 # on archlinux: sudo pacman -Syu ninja cmake graphviz libxml2 gmsl
-sudo apt-get build-dep llvm
-sudo apt-get build-dep libz3-dev
 
 cd jove/
 git submodule update --init --recursive
