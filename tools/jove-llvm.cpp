@@ -3152,10 +3152,6 @@ int ProcessDynamicSymbols(void) {
 }
 
 int ProcessDynamicTargets(void) {
-  //
-  // Note that every function which is seen to be the target of an indirect
-  // branch must conform to the system ABI calling convention
-  //
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
