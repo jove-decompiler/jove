@@ -2778,420 +2778,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto emulate_delay_slot = [&](llvm::MCInst &I,
                                 const std::vector<uint8_t> &InsnBytes,
                                 unsigned reg) -> void {
-    auto is_opcode_emulated = [](unsigned opc) -> bool {
-      return opc == llvm::Mips::LW
-          || opc == llvm::Mips::SW
-          || opc == llvm::Mips::LB
-          || opc == llvm::Mips::OR
-          || opc == llvm::Mips::ADDiu
-          || opc == llvm::Mips::ADDu
-          || opc == llvm::Mips::SLL
-          || opc == llvm::Mips::SUBu
-          || opc == llvm::Mips::MOVZ_I_I
-          || opc == llvm::Mips::MFLO
-          || opc == llvm::Mips::XOR
-          || opc == llvm::Mips::LUi
-          || opc == llvm::Mips::AND
-          || opc == llvm::Mips::SB
-          || opc == llvm::Mips::ORi
-          || opc == llvm::Mips::MOVN_I_I
-          || opc == llvm::Mips::ANDi
-          || opc == llvm::Mips::SRL
-          || opc == llvm::Mips::MUL
-          || opc == llvm::Mips::SLTu
-          || opc == llvm::Mips::SLTiu
-          || opc == llvm::Mips::LHu
-          || opc == llvm::Mips::SH
-          || opc == llvm::Mips::NOP;
-    };
-
     const unsigned opc = I.getOpcode();
 
-    if (is_opcode_emulated(opc)) {
-      if (opts::VeryVerbose)
-        llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                      StringOfMCInst(I, dis));
-
-      //
-      // emulate delay slot instruction
-      //
-      switch (opc) {
-      case llvm::Mips::LW:
-      case llvm::Mips::SW: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        auto &Reg = RegValue(I.getOperand(0).getReg());
-        long Base = RegValue(I.getOperand(1).getReg());
-        long Offs = I.getOperand(2).getImm();
-        long Addr = Base + Offs;
-
-        if (opc == llvm::Mips::LW)
-          Reg = _ptrace_peekdata(child, Addr);
-        else /* SW */
-          _ptrace_pokedata(child, Addr, Reg);
-
-        break;
-      }
-
-      case llvm::Mips::LB: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        auto &Reg = RegValue(I.getOperand(0).getReg());
-        long Base = RegValue(I.getOperand(1).getReg());
-        long Offs = I.getOperand(2).getImm();
-        long Addr = Base + Offs;
-
-        unsigned long word = _ptrace_peekdata(child, Addr);
-
-        int8_t byte = *((int8_t *)&word);
-
-        Reg = byte;
-        break;
-      }
-
-      case llvm::Mips::LHu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        long Base = RegValue(b);
-        long Offs = I.getOperand(2).getImm();
-        long Addr = Base + Offs;
-
-        unsigned long word = _ptrace_peekdata(child, Addr);
-
-        static_assert(sizeof(word) >= sizeof(uint16_t));
-
-        RegValue(a) = static_cast<unsigned long>(((uint16_t *)&word)[0]);
-
-        break;
-      }
-
-      case llvm::Mips::SH: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        int64_t Base = RegValue(b);
-        int64_t Offs = I.getOperand(2).getImm();
-        int64_t Addr = Base + Offs;
-
-        unsigned long word = _ptrace_peekdata(child, Addr);
-        ((uint16_t *)&word)[0] = RegValue(a);
-        _ptrace_pokedata(child, Addr, word);
-
-        break;
-      }
-
-      case llvm::Mips::OR: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        RegValue(a) = RegValue(b) | RegValue(c);
-        break;
-      }
-
-      case llvm::Mips::ADDiu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
-        break;
-      }
-
-      case llvm::Mips::ADDu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
-                      static_cast<unsigned long>(RegValue(c));
-        break;
-      }
-
-      case llvm::Mips::SUBu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) -
-                      static_cast<unsigned long>(RegValue(c));
-        break;
-      }
-
-      case llvm::Mips::SLL: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) << x;
-        break;
-      }
-
-      case llvm::Mips::SRL: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) >> x;
-        break;
-      }
-
-      case llvm::Mips::MOVZ_I_I: {
-        assert(I.getNumOperands() == 4);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-        assert(I.getOperand(3).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-        unsigned d = I.getOperand(3).getReg();
-
-        WARN_ON(a != d);
-
-        if (RegValue(c) == 0)
-          RegValue(a) = RegValue(b);
-
-        break;
-      }
-
-      case llvm::Mips::MFLO: {
-        assert(I.getNumOperands() == 1);
-        assert(I.getOperand(0).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-
-        RegValue(a) = gpr.lo;
-
-        break;
-      }
-
-      case llvm::Mips::XOR: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        RegValue(a) = RegValue(b) ^ RegValue(c);
-
-        break;
-      }
-
-      case llvm::Mips::LUi: {
-        assert(I.getNumOperands() == 2);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-
-        unsigned long x = I.getOperand(1).getImm();
-
-        RegValue(a) = x << 16;
-
-        break;
-      }
-
-      case llvm::Mips::AND: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        RegValue(a) = RegValue(b) & RegValue(c);
-
-        break;
-      }
-
-      case llvm::Mips::MUL: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        int64_t x = RegValue(b);
-        int64_t y = RegValue(c);
-        int64_t z = x * y;
-
-        RegValue(a) = ((uint32_t *)&z)[0];
-
-        break;
-      }
-
-      case llvm::Mips::SLTu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-
-        unsigned long x = RegValue(b);
-        unsigned long y = RegValue(c);
-
-        RegValue(a) = x < y;
-        break;
-      }
-
-      case llvm::Mips::SLTiu: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).isReg();
-        unsigned b = I.getOperand(1).isReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-
-        RegValue(a) = static_cast<unsigned long>(RegValue(b)) < x;
-        break;
-      }
-
-      case llvm::Mips::SB: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        int64_t Base = RegValue(b);
-        int64_t Offset = I.getOperand(2).getImm();
-        int64_t Addr = Base + Offset;
-
-        unsigned long word = _ptrace_peekdata(child, Addr);
-        ((uint8_t *)&word)[0] = RegValue(a);
-        _ptrace_pokedata(child, Addr, word);
-
-        break;
-      }
-
-      case llvm::Mips::ORi: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-        RegValue(a) = RegValue(b) | x;
-        break;
-      }
-
-      case llvm::Mips::MOVN_I_I: {
-        assert(I.getNumOperands() == 4);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isReg());
-        assert(I.getOperand(3).isReg());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-        unsigned c = I.getOperand(2).getReg();
-        unsigned d = I.getOperand(3).getReg();
-
-        WARN_ON(a != d);
-
-        if (RegValue(c) != 0)
-          RegValue(a) = RegValue(b);
-
-        break;
-      }
-
-      case llvm::Mips::ANDi: {
-        assert(I.getNumOperands() == 3);
-        assert(I.getOperand(0).isReg());
-        assert(I.getOperand(1).isReg());
-        assert(I.getOperand(2).isImm());
-
-        unsigned a = I.getOperand(0).getReg();
-        unsigned b = I.getOperand(1).getReg();
-
-        unsigned long x = I.getOperand(2).getImm();
-
-        RegValue(a) = RegValue(b) & x;
-
-        break;
-      }
-
-      case llvm::Mips::NOP:
-        break;
-
-      default:
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      pc = RegValue(reg);
-    } else {
+    //
+    // emulate delay slot instruction
+    //
+    switch (opc) {
+    default: { /* fallback to code cave XXX */
       if (opts::Verbose)
         llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
                                       StringOfMCInst(I, dis));
@@ -3209,7 +2802,384 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       }
 
       pc = jumpr_insn_addr;
+      return;
     }
+
+    case llvm::Mips::LW:
+    case llvm::Mips::SW: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      auto &Reg = RegValue(I.getOperand(0).getReg());
+      long Base = RegValue(I.getOperand(1).getReg());
+      long Offs = I.getOperand(2).getImm();
+      long Addr = Base + Offs;
+
+      if (opc == llvm::Mips::LW)
+        Reg = _ptrace_peekdata(child, Addr);
+      else /* SW */
+        _ptrace_pokedata(child, Addr, Reg);
+
+      break;
+    }
+
+    case llvm::Mips::LB: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      auto &Reg = RegValue(I.getOperand(0).getReg());
+      long Base = RegValue(I.getOperand(1).getReg());
+      long Offs = I.getOperand(2).getImm();
+      long Addr = Base + Offs;
+
+      unsigned long word = _ptrace_peekdata(child, Addr);
+
+      int8_t byte = *((int8_t *)&word);
+
+      Reg = byte;
+      break;
+    }
+
+    case llvm::Mips::LHu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      long Base = RegValue(b);
+      long Offs = I.getOperand(2).getImm();
+      long Addr = Base + Offs;
+
+      unsigned long word = _ptrace_peekdata(child, Addr);
+
+      static_assert(sizeof(word) >= sizeof(uint16_t));
+
+      RegValue(a) = static_cast<unsigned long>(((uint16_t *)&word)[0]);
+
+      break;
+    }
+
+    case llvm::Mips::SH: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      int64_t Base = RegValue(b);
+      int64_t Offs = I.getOperand(2).getImm();
+      int64_t Addr = Base + Offs;
+
+      unsigned long word = _ptrace_peekdata(child, Addr);
+      ((uint16_t *)&word)[0] = RegValue(a);
+      _ptrace_pokedata(child, Addr, word);
+
+      break;
+    }
+
+    case llvm::Mips::OR: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      RegValue(a) = RegValue(b) | RegValue(c);
+      break;
+    }
+
+    case llvm::Mips::ADDiu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) + x;
+      break;
+    }
+
+    case llvm::Mips::ADDu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) +
+                    static_cast<unsigned long>(RegValue(c));
+      break;
+    }
+
+    case llvm::Mips::SUBu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) -
+                    static_cast<unsigned long>(RegValue(c));
+      break;
+    }
+
+    case llvm::Mips::SLL: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) << x;
+      break;
+    }
+
+    case llvm::Mips::SRL: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) >> x;
+      break;
+    }
+
+    case llvm::Mips::MOVZ_I_I: {
+      assert(I.getNumOperands() == 4);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+      assert(I.getOperand(3).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+      unsigned d = I.getOperand(3).getReg();
+
+      WARN_ON(a != d);
+
+      if (RegValue(c) == 0)
+        RegValue(a) = RegValue(b);
+
+      break;
+    }
+
+    case llvm::Mips::MFLO: {
+      assert(I.getNumOperands() == 1);
+      assert(I.getOperand(0).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+
+      RegValue(a) = gpr.lo;
+
+      break;
+    }
+
+    case llvm::Mips::XOR: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      RegValue(a) = RegValue(b) ^ RegValue(c);
+
+      break;
+    }
+
+    case llvm::Mips::LUi: {
+      assert(I.getNumOperands() == 2);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+
+      unsigned long x = I.getOperand(1).getImm();
+
+      RegValue(a) = x << 16;
+
+      break;
+    }
+
+    case llvm::Mips::AND: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      RegValue(a) = RegValue(b) & RegValue(c);
+
+      break;
+    }
+
+    case llvm::Mips::MUL: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      int64_t x = RegValue(b);
+      int64_t y = RegValue(c);
+      int64_t z = x * y;
+
+      RegValue(a) = ((uint32_t *)&z)[0];
+
+      break;
+    }
+
+    case llvm::Mips::SLTu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+
+      unsigned long x = RegValue(b);
+      unsigned long y = RegValue(c);
+
+      RegValue(a) = x < y;
+      break;
+    }
+
+    case llvm::Mips::SLTiu: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).isReg();
+      unsigned b = I.getOperand(1).isReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+
+      RegValue(a) = static_cast<unsigned long>(RegValue(b)) < x;
+      break;
+    }
+
+    case llvm::Mips::SB: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      int64_t Base = RegValue(b);
+      int64_t Offset = I.getOperand(2).getImm();
+      int64_t Addr = Base + Offset;
+
+      unsigned long word = _ptrace_peekdata(child, Addr);
+      ((uint8_t *)&word)[0] = RegValue(a);
+      _ptrace_pokedata(child, Addr, word);
+
+      break;
+    }
+
+    case llvm::Mips::ORi: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+      RegValue(a) = RegValue(b) | x;
+      break;
+    }
+
+    case llvm::Mips::MOVN_I_I: {
+      assert(I.getNumOperands() == 4);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isReg());
+      assert(I.getOperand(3).isReg());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+      unsigned c = I.getOperand(2).getReg();
+      unsigned d = I.getOperand(3).getReg();
+
+      WARN_ON(a != d);
+
+      if (RegValue(c) != 0)
+        RegValue(a) = RegValue(b);
+
+      break;
+    }
+
+    case llvm::Mips::ANDi: {
+      assert(I.getNumOperands() == 3);
+      assert(I.getOperand(0).isReg());
+      assert(I.getOperand(1).isReg());
+      assert(I.getOperand(2).isImm());
+
+      unsigned a = I.getOperand(0).getReg();
+      unsigned b = I.getOperand(1).getReg();
+
+      unsigned long x = I.getOperand(2).getImm();
+
+      RegValue(a) = RegValue(b) & x;
+
+      break;
+    }
+
+    case llvm::Mips::NOP:
+      break;
+    }
+
+    if (opts::VeryVerbose)
+      llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
+                                    StringOfMCInst(I, dis));
+
+    pc = RegValue(reg);
   };
 #endif
 
