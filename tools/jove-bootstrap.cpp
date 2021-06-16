@@ -3645,7 +3645,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   bool isNewTarget = false;
 
-  const char *print_prefix = "(call)";
+  const char *control_flow_description = "call";
 
   unsigned brkpt_count = 0;
 
@@ -3710,7 +3710,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       if (isNewTarget)
         ICFG[bb].InvalidateAnalysis();
 
-      print_prefix = "(goto)";
+      control_flow_description = "goto";
     }
   } else {
     abort();
@@ -3718,11 +3718,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   if (unlikely(brkpt_count))
     llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                  brkpt_count, brkpt_count > 1 ? "s" : "",
+                                  brkpt_count,
+                                  brkpt_count > 1 ? "s" : "",
                                   decompilation.Binaries[binary_idx].Path);
 
   if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
-    llvm::errs() << llvm::formatv("{0} {1} -> {1}\n", print_prefix,
+    llvm::errs() << llvm::formatv("({0}) {1} -> {1}\n",
+                                  control_flow_description,
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(target));
 }
@@ -4102,8 +4104,10 @@ static void harvest_ctor_and_dtors(pid_t child,
     }
 
     if (brkpt_count > 0) {
-      llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
-                                    brkpt_count, Binary.Path);
+      llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                    brkpt_count,
+                                    brkpt_count > 1 ? "s" : "",
+                                    Binary.Path);
     }
   }
 }
@@ -4860,7 +4864,9 @@ void on_binary_loaded(pid_t child,
   }
 
   if (cnt > 0)
-    llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n", cnt,
+    llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                  cnt,
+                                  cnt > 1 ? "s" : "",
                                   binary.Path);
 }
 
@@ -5864,9 +5870,10 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         }
 
         if (brkpt_count > 0)
-          llvm::errs() << llvm::formatv("placed {0} breakpoints in {1}\n",
-                                        brkpt_count, binary.Path);
-
+          llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                        brkpt_count,
+                                        brkpt_count > 1 ? "s" : "",
+                                        binary.Path);
       }
     }
   }
