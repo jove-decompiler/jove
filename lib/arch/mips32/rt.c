@@ -2119,19 +2119,24 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
            ((uint32_t *)saved_retaddr)[1] == 0x0000000c) {
         SignalDelivery = true;
 
+#if 0
         char buff[256];
         buff[0] = '\0';
 
         _strcat(buff, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
 
         _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+#endif
       }
 
       {
         const uintptr_t newstack = _jove_alloc_stack();
 
         uintptr_t _newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t) - sizeof(struct CPUMIPSState);
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 19 * sizeof(uintptr_t);
+
+        if (SignalDelivery)
+          _newsp -= sizeof(struct CPUMIPSState);
 
         _newsp &= 0xfffffff0; // align the stack
 
@@ -2157,12 +2162,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         newsp[17] = _jove_handle_signal_delivery;
         newsp[18] = &newsp[19];
 
-        if (SignalDelivery) {
-          //
-          // save the emulated CPU state
-          //
+        if (SignalDelivery)
           _memcpy(&newsp[19], &__jove_env, sizeof(struct CPUMIPSState));
-        }
 
         sp = _newsp;
         ra = _jove_inverse_thunk;
