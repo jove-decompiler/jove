@@ -18934,6 +18934,14 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         /* Jump to immediate */
         btgt = ((ctx->base.pc_next + insn_bytes) & (int32_t)0xF0000000) |
             (uint32_t)offset;
+
+        if (opc == OPC_J) {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
+          ctx->base.tb->jove.T._unconditional_jump.Target = btgt;
+        } else {
+          ctx->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+          ctx->base.tb->jove.T._call.Target = btgt;
+        }
         break;
     case OPC_JR:
     case OPC_JALR:
@@ -19131,10 +19139,16 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         {
             int64_t NextPC = ctx->base.pc_next + post_delay + lowbit;
 
-            if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::INDIRECT_CALL)
+            switch (ctx->base.tb->jove.T.Type) {
+            case jove::TERMINATOR::INDIRECT_CALL:
                 ctx->base.tb->jove.T._indirect_call.NextPC = NextPC;
-            else if (ctx->base.tb->jove.T.Type == jove::TERMINATOR::CALL)
+                break;
+            case jove::TERMINATOR::CALL:
                 ctx->base.tb->jove.T._call.NextPC = NextPC;
+                break;
+            default:
+                break;
+            }
         }
 
         tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
