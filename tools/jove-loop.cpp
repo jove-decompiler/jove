@@ -978,6 +978,9 @@ skip_run:
       // create symlinks as necessary
       //
       for (binary_t &b : decompilation.Binaries) {
+        if (b.IsVDSO)
+          continue;
+
         std::string soname = soname_of_binary(b);
 
         if (soname.empty())
@@ -986,7 +989,8 @@ skip_run:
         fs::path chrooted_path = fs::path(opts::sysroot) / b.Path;
         std::string binary_filename = fs::path(b.Path).filename().string();
 
-        WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
+        if (opts::Verbose)
+          WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
 
         if (binary_filename != soname) {
           fs::path dst = chrooted_path.parent_path() / soname;
