@@ -1029,7 +1029,16 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   _robust_write(2 /* stderr */, s, _strlen(s));
 
-  _UNREACHABLE();
+  for (;;) {
+    struct timespec t;
+    t.tv_sec = 10;
+    t.tv_nsec = 0;
+
+    _jove_sys_nanosleep(&t, NULL);
+  }
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
