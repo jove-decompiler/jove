@@ -10713,26 +10713,10 @@ static int TranslateTCGOp(TCGOp *op,
     if (likely(src->type == dst->type)) {
       set(get(src), dst);
     } else {
-      unsigned dst_ty = dst->type;
-      unsigned src_ty = src->type;
+      assert(dst->type == TCG_TYPE_I32);
+      assert(src->type == TCG_TYPE_I64);
 
-      if (dst_ty == TCG_TYPE_I64) {
-        assert(src_ty == TCG_TYPE_I32);
-
-        // XXX TODO is this right?
-        set(IRB.CreateZExt(get(src), IRB.getInt64Ty()), dst);
-
-        WithColor::warning() <<
-          llvm::formatv("TODO: INDEX_op_mov_i32 i64 ({0}) <- i32 ({1})\n",
-                        TCG->_ctx.temps[temp_idx(dst)].name,
-                        TCG->_ctx.temps[temp_idx(src)].name);
-      } else if (dst_ty == TCG_TYPE_I32) {
-        assert(src_ty == TCG_TYPE_I64);
-
-        set(IRB.CreateTrunc(get(src), IRB.getInt32Ty()), dst);
-      } else {
-        abort();
-      }
+      set(IRB.CreateTrunc(get(src), IRB.getInt32Ty()), dst);
     }
     break;
   }
