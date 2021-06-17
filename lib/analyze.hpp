@@ -129,31 +129,10 @@ struct flow_vertex_properties_t {
   tcg_global_set_t IN, OUT;
 };
 
-static tcg_global_set_t identity_flow(tcg_global_set_t x) {
-  return x;
-}
-
-static tcg_global_set_t mask_CallConvRets_flow(tcg_global_set_t x) {
-  return x & CallConvRets;
-}
-
-static tcg_global_set_t mask_CallConvArgs_flow(tcg_global_set_t x) {
-  return x & CallConvArgs;
-}
-
 struct flow_edge_properties_t {
   struct {
-    tcg_global_set_t (*flow)(tcg_global_set_t);
-  } live;
-
-  struct {
-    tcg_global_set_t (*flow)(tcg_global_set_t);
+    tcg_global_set_t mask = ~tcg_global_set_t();
   } reach;
-
-  flow_edge_properties_t () {
-    live.flow = identity_flow;
-    reach.flow = identity_flow;
-  }
 };
 
 typedef boost::adjacency_list<boost::setS,              /* OutEdgeList */
@@ -183,24 +162,19 @@ struct edge_copier {
   void operator()(control_flow_t, flow_edge_t) const {}
 };
 
-static basic_block_properties_t empty_bb_prop;
+static const basic_block_properties_t EmptyBBProp{};
 
-static flow_vertex_t copy_function_cfg(
-    bool &NeedsUpdate, flow_graph_t &G, function_t &f,
-    std::vector<flow_vertex_t> &exitVertices,
-    std::unordered_map<function_t *,
-                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
-        &memoize) {
+static flow_vertex_t copy_function_cfg(flow_graph_t &G,
+                                       function_t &f,
+                                       std::vector<flow_vertex_t> &exitVertices,
+                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<flow_vertex_t>>> &memoize) {
   //
   // make sure basic blocks have been analyzed
   //
   auto &Binary = Decompilation.Binaries.at(f.BIdx);
   auto &ICFG = Binary.Analysis.ICFG;
-  for (basic_block_t bb : f.BasicBlocks) {
-    NeedsUpdate = NeedsUpdate || ICFG[bb].Analysis.Stale;
-
+  for (basic_block_t bb : f.BasicBlocks)
     ICFG[bb].Analyze(f.BIdx);
-  }
 
   //
   // have we already copied this function's CFG?
@@ -277,14 +251,10 @@ static flow_vertex_t copy_function_cfg(
                      : Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
       std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV = copy_function_cfg(
-          NeedsUpdate, G, callee, calleeExitVertices, memoize);
+      flow_vertex_t calleeEntryV =
+          copy_function_cfg(G, callee, calleeExitVertices, memoize);
 
-      {
-        flow_edge_t E = boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        if (callee.IsABI)
-          G[E].live.flow = mask_CallConvArgs_flow;
-      }
+      boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
       auto eit_pair = boost::out_edges(bb, ICFG);
       if (eit_pair.first == eit_pair.second)
@@ -300,7 +270,7 @@ static flow_vertex_t copy_function_cfg(
       for (flow_vertex_t exitV : calleeExitVertices) {
         flow_edge_t E = boost::add_edge(exitV, succV, G).first;
         if (callee.IsABI)
-          G[E].reach.flow = mask_CallConvRets_flow;
+          G[E].reach.mask = CallConvRets;
       }
 
       break;
@@ -325,21 +295,17 @@ static flow_vertex_t copy_function_cfg(
                                .Analysis.Functions[DynTarget.second];
 
       std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV = copy_function_cfg(
-          NeedsUpdate, G, callee, calleeExitVertices, memoize);
+      flow_vertex_t calleeEntryV =
+          copy_function_cfg(G, callee, calleeExitVertices, memoize);
       flow_vertex_t newExitV = boost::add_vertex(G);
-      G[newExitV].bbprop = &empty_bb_prop;
+      G[newExitV].bbprop = &EmptyBBProp;
 
-      {
-        flow_edge_t E =
-            boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G).first;
-        assert(callee.IsABI);
-        G[E].live.flow = mask_CallConvArgs_flow;
-      }
+      boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
       for (flow_vertex_t V : calleeExitVertices) {
         flow_edge_t E = boost::add_edge(V, newExitV, G).first;
-        G[E].reach.flow = mask_CallConvRets_flow;
+        if (callee.IsABI)
+          G[E].reach.mask = CallConvRets;
       }
 
       exitVertices.erase(it);
@@ -376,12 +342,10 @@ void function_t::Analyze(void) {
 
     std::unordered_map<function_t *,
                        std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
-        _unused;
+        memoize;
 
-    bool NeedsUpdate = false;
     std::vector<flow_vertex_t> exitVertices;
-    flow_vertex_t entryV =
-        copy_function_cfg(NeedsUpdate, G, *this, exitVertices, _unused);
+    flow_vertex_t entryV = copy_function_cfg(G, *this, exitVertices, memoize);
 
     //
     // build vector of vertices in DFS order
@@ -424,8 +388,10 @@ void function_t::Analyze(void) {
 
         auto eit_pair = boost::out_edges(V, G);
         G[V].OUT = std::accumulate(
-            eit_pair.first, eit_pair.second, tcg_global_set_t(),
-            [&](tcg_global_set_t res, flow_edge_t E) {
+            eit_pair.first,
+            eit_pair.second,
+            tcg_global_set_t(),
+            [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
               return res | G[boost::target(E, G)].IN;
             });
 
@@ -456,9 +422,11 @@ void function_t::Analyze(void) {
 
         auto eit_pair = boost::in_edges(V, G);
         G[V].IN = std::accumulate(
-            eit_pair.first, eit_pair.second, tcg_global_set_t(),
-            [&](tcg_global_set_t glbs, flow_edge_t E) {
-              return glbs | G[E].reach.flow(G[boost::source(E, G)].OUT);
+            eit_pair.first,
+            eit_pair.second,
+            tcg_global_set_t(),
+            [&](tcg_global_set_t res, flow_edge_t E) -> tcg_global_set_t {
+              return res | (G[boost::source(E, G)].OUT & G[E].reach.mask);
             });
         G[V].OUT = G[V].bbprop->Analysis.reach.def | G[V].IN;
 
