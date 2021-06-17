@@ -425,7 +425,7 @@ void function_t::Analyze(void) {
         auto eit_pair = boost::out_edges(V, G);
         G[V].OUT = std::accumulate(
             eit_pair.first, eit_pair.second, tcg_global_set_t(),
-            [&](tcg_global_set_t res, control_flow_t E) {
+            [&](tcg_global_set_t res, flow_edge_t E) {
               return res | G[boost::target(E, G)].IN;
             });
 
@@ -525,10 +525,6 @@ void function_t::Analyze(void) {
   if (this->IsABI) {
     std::vector<unsigned> glbv;
     explode_tcg_global_set(glbv, this->Analysis.args);
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-    });
 
     auto rit = std::accumulate(
         glbv.begin(), glbv.end(), CallConvArgArray.crend(),
@@ -545,7 +541,7 @@ void function_t::Analyze(void) {
   }
 
   //
-  // all internal functions will be passed the stack pointer, and will return
+  // all non-ABI functions will be passed the stack pointer, and will return
   // it as well. XXX if we know this to be a leaf function, we can do better
   //
   if (!this->IsABI) {
@@ -771,12 +767,12 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     nb_cargs = def.nb_cargs;
   }
 
-  uintptr_t addr = op->args[nb_oargs + nb_iargs];
+  uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
 
-  auto it = HelperFuncMap.find(addr);
+  auto it = HelperFuncMap.find(helper_addr);
   if (it == HelperFuncMap.end()) {
     TCGContext *s = &TCG->_ctx;
-    const char *helper_nm = tcg_find_helper(s, addr);
+    const char *helper_nm = tcg_find_helper(s, helper_addr);
     assert(helper_nm);
 
     if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
@@ -901,32 +897,30 @@ const helper_function_t &LookupHelper(TCGOp *op) {
         EnvArgNo = std::distance(inputs_beg, it);
     }
 
-    helper_function_t &hf = HelperFuncMap[addr];
+    helper_function_t &hf = HelperFuncMap[helper_addr];
     hf.F = helperF;
     hf.EnvArgNo = EnvArgNo;
     hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
 
     //
-    // force Analysis.Simple=1 for system calls
+    // is this a system call?
     //
+    const uintptr_t syscall_helper_addr = (uintptr_t)
 #if defined(TARGET_X86_64)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_syscall))
+        helper_syscall
 #elif defined(TARGET_I386)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_raise_interrupt))
+        helper_raise_interrupt
 #elif defined(TARGET_AARCH64)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_exception_with_syndrome))
+        helper_exception_with_syndrome
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    if (reinterpret_cast<void *>(addr) ==
-        reinterpret_cast<void *>(helper_raise_exception_err))
+        helper_raise_exception_err
 #else
 #error
 #endif
-    {
-      hf.Analysis.Simple = true; /* XXX */
-    }
+        ;
+
+    if (helper_addr == syscall_helper_addr)
+      hf.Analysis.Simple = true; /* force */
 
     {
       std::string InGlbsStr;
