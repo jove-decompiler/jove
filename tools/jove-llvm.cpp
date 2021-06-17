@@ -3160,9 +3160,12 @@ int ProcessDynamicTargets(void) {
          ++BBIdx) {
       basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-      for (const auto &dyn_targ : ICFG[bb].DynTargets) {
-        function_t &callee = Decompilation.Binaries[dyn_targ.first]
-                                 .Analysis.Functions[dyn_targ.second];
+      for (const auto &DynTarget : ICFG[bb].DynTargets) {
+        if (DynTarget.first == BIdx)
+          continue;
+
+        function_t &callee = Decompilation.Binaries[DynTarget.first]
+                                .Analysis.Functions[DynTarget.second];
 
         callee.IsABI = true;
       }
@@ -9225,6 +9228,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
     store_global(tcg_stack_pointer_index);
   };
 
+  auto reload_stack_pointer = [&](void) -> void {
+    auto reload_global = [&](unsigned glb) -> void {
+      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      set(LI, glb);
+    };
+
+    reload_global(tcg_stack_pointer_index);
+  };
+
   struct {
     bool IsTailCall;
   } _indirect_jump;
@@ -9266,31 +9280,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
     default:
       break;
     }
-  }
-
-  switch (T.Type) {
-  case TERMINATOR::CALL: {
-    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
-    if (callee.IsABI)
-      store_stack_pointer();
-    break;
-  }
-
-  case TERMINATOR::RETURN:
-    if (f.IsABI)
-      store_stack_pointer();
-    break;
-
-  case TERMINATOR::INDIRECT_JUMP:
-    if (!_indirect_jump.IsTailCall) /* otherwise fallthrough */
-      break;
-
-  case TERMINATOR::INDIRECT_CALL:
-    store_stack_pointer();
-    break;
-
-  default:
-    break;
   }
 
 #if 1
@@ -9358,6 +9347,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
+    if (callee.IsABI)
+      store_stack_pointer();
+
     std::vector<llvm::Value *> ArgVec;
     {
       std::vector<unsigned> glbv;
@@ -9403,6 +9395,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
         llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
+
+      store_stack_pointer();
     }
 
     llvm::CallInst *Ret = IRB.CreateCall(callee.F, ArgVec);
@@ -9417,6 +9411,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
       for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
         Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
+
+      reload_stack_pointer();
     }
 
     if (!DetermineFunctionType(callee)->getReturnType()->isVoidTy()) {
@@ -9786,6 +9782,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           llvm::CallInst *Ret;
           if (foreign) {
+            store_stack_pointer();
+
             //
             // callstack stuff
             //
@@ -9849,6 +9847,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
             // callstack stuff
             //
             restore_callstack_pointers();
+            reload_stack_pointer();
 
             if (opts::CallStack)
               IRB.CreateStore(
@@ -9884,6 +9883,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               }
+
+              store_stack_pointer();
             }
 
             Ret = IRB.CreateCall(
@@ -9899,6 +9900,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
             for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
               Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
+            if (callee.IsABI)
+              reload_stack_pointer();
           }
 
           Ret->setCallingConv(llvm::CallingConv::C);
@@ -10096,37 +10099,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
     break;
   }
 
-  auto reload_stack_pointer = [&](void) -> void {
-    auto reload_global = [&](unsigned glb) -> void {
-      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-      set(LI, glb);
-    };
-
-    reload_global(tcg_stack_pointer_index);
-  };
-
-  switch (T.Type) {
-  case TERMINATOR::CALL: {
-    function_t &callee = Binary.Analysis.Functions[ICFG[bb].Term._call.Target];
-    if (callee.IsABI)
-      reload_stack_pointer();
-    break;
-  }
-
-  case TERMINATOR::INDIRECT_JUMP:
-    if (!_indirect_jump.IsTailCall) /* otherwise fallthrough */
-      break;
-
-  case TERMINATOR::INDIRECT_CALL:
-    reload_stack_pointer();
-    break;
-
-  default:
-    break;
-  }
-
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     llvm::Value *Args[] = {
@@ -10211,6 +10183,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
       break;
 
   case TERMINATOR::RETURN: {
+    if (f.IsABI)
+      store_stack_pointer();
+
     if (DetermineFunctionType(f)->getReturnType()->isVoidTy()) {
       IRB.CreateRetVoid();
       break;

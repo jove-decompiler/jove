@@ -243,9 +243,12 @@ int ProcessDynamicTargets(void) {
          ++BBIdx) {
       basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
-      for (const auto &dyn_targ : ICFG[bb].DynTargets) {
-        function_t &callee = Decompilation.Binaries[dyn_targ.first]
-                                 .Analysis.Functions[dyn_targ.second];
+      for (const auto &DynTarget : ICFG[bb].DynTargets) {
+        if (DynTarget.first == BIdx)
+          continue;
+
+        function_t &callee = Decompilation.Binaries[DynTarget.first]
+                                .Analysis.Functions[DynTarget.second];
 
         callee.IsABI = true;
       }
