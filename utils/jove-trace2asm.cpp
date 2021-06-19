@@ -1,4 +1,3 @@
-#include <memory>
 #include <boost/icl/split_interval_map.hpp>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
@@ -35,8 +34,9 @@ class Binary;
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap; \
 
-#include "jove/jove.h"
+#include "tcgcommon.hpp"
 
+#include <memory>
 #include <cstdlib>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/WithColor.h>
@@ -104,6 +104,10 @@ static cl::opt<bool> SkipRepeated("skip-repeated",
                                   cl::desc("Skip repeated blocks"),
                                   cl::cat(JoveCategory));
 
+static cl::opt<bool> tcg("tcg",
+                         cl::desc("Translate to TCG"),
+                         cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -139,6 +143,10 @@ typedef boost::format fmt;
 #include "elf.hpp"
 
 static int await_process_completion(pid_t);
+
+static bool is_dumping_ops = false;
+
+static std::string dumped_ops; /* XXX hack */
 
 int trace2asm(void) {
   //
@@ -202,6 +210,8 @@ int trace2asm(void) {
     boost::archive::text_iarchive ia(ifs);
     ia >> decompilation;
   }
+
+  jove::tiny_code_generator_t tcg;
 
 #if 0
   llvm::InitializeAllTargets();
@@ -491,6 +501,41 @@ int trace2asm(void) {
     return res;
   };
 
+  auto translate_basic_block = [&](binary_index_t BIdx,
+                                   basic_block_index_t BBIdx) -> std::string {
+    auto &binary = decompilation.Binaries[BIdx];
+    auto &ICFG = binary.Analysis.ICFG;
+    auto &SectMap = binary.SectMap;
+    basic_block_t bb = boost::vertex(BBIdx, ICFG);
+
+    tcg_uintptr_t Addr = ICFG[bb].Addr;
+    unsigned Size = ICFG[bb].Size;
+
+    auto it = SectMap.find(Addr);
+    if (it == SectMap.end()) {
+      WithColor::warning() << llvm::formatv(
+          "no section for given address {0:x}", Addr);
+      return "ERROR";
+    }
+
+    const auto &SectProp = *(*it).second.begin();
+    const uintptr_t SectBase = (*it).first.lower();
+
+    tcg.set_section(SectBase, SectProp.contents.data());
+
+    jove::terminator_info_t T;
+    unsigned BBSize;
+
+    std::tie(BBSize, T) = tcg.translate(Addr);
+
+    dumped_ops.clear();
+    is_dumping_ops = true;
+    tcg.dump_operations();
+    is_dumping_ops = false;
+
+    return dumped_ops;
+  };
+
   //
   // disassemble every block in the trace
   //
@@ -505,6 +550,8 @@ int trace2asm(void) {
       continue;
 
     llvm::outs() << '\n' << disassemble_basic_block(BIdx, BBIdx) << '\n';
+    if (opts::tcg)
+      llvm::outs() << '\n' << translate_basic_block(BIdx, BBIdx) << '\n';
   }
 
   return 1;
@@ -537,6 +584,15 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
+}
+
+void _qemu_log(const char *cstr) {
+  if (is_dumping_ops) {
+    dumped_ops.append(cstr);
+    return;
+  }
+
+  llvm::outs() << cstr;
 }
 
 }
