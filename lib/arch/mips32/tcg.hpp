@@ -12157,6 +12157,8 @@ static void tcg_dump_ops(TCGContext *s, bool have_prefs)
                 }
                 col += qemu_log(",%s", t);
             }
+        } else if (c == INDEX_op_exit_tb) { /* XXX [jove] for diffable tcg */
+            qemu_log(" %s", def->name);
         } else {
             col += qemu_log(" %s ", def->name);
 
