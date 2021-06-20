@@ -246,8 +246,15 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   std::string res = (fmt("%08x [%u]\n\n") % G[V].Addr % G[V].Size).str();
 
+  tcg_uintptr_t End = G[V].Addr + G[V].Size;
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  if (G[V].Term.Type != TERMINATOR::NONE)
+    End += 4; /* delay slot */
+#endif
+
   uint64_t InstLen = 0;
-  for (uintptr_t A = G[V].Addr; A < G[V].Addr + G[V].Size; A += InstLen) {
+  for (uintptr_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
     std::string errmsg;
@@ -526,15 +533,15 @@ int cfg(void) {
       continue;
 
     FunctionIndex = FIdx;
-    break;
+    goto Found;
   }
 
-  if (FunctionIndex == invalid_function_index) {
-    WithColor::error() << llvm::formatv(
-        "failed to find function matching given address ({0:x})\n", FuncAddr);
-    return 1;
-  }
+  WithColor::error() << llvm::formatv(
+      "failed to find function with address 0x{0:x} in {1}\n", FuncAddr,
+      binary.Path);
+  return 1;
 
+Found:
   const function_t &f = binary.Analysis.Functions[FunctionIndex];
 
   boost::unordered_set<basic_block_t> blocks;
