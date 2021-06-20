@@ -462,8 +462,15 @@ int trace2asm(void) {
     //std::string res = (fmt("%08x [%u]\n\n") % ICFG[bb].Addr % ICFG[bb].Size).str();
     std::string res;
 
+    tcg_uintptr_t End = Addr + Size;
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    if (ICFG[bb].Term.Type != TERMINATOR::NONE)
+      End += 4; /* delay slot */
+#endif
+
     uint64_t InstLen = 0;
-    for (uintptr_t A = Addr; A < Addr + Size; A += InstLen) {
+    for (uintptr_t A = Addr; A < End; A += InstLen) {
       llvm::MCInst Inst;
 
       std::string errmsg;
@@ -523,17 +530,36 @@ int trace2asm(void) {
 
     tcg.set_section(SectBase, SectProp.contents.data());
 
-    jove::terminator_info_t T;
-    unsigned BBSize;
+    std::string res;
 
-    std::tie(BBSize, T) = tcg.translate(Addr);
+    unsigned count = 0;
+    unsigned size = 0;
+    do {
+      unsigned len;
+      jove::terminator_info_t T;
 
-    dumped_ops.clear();
-    is_dumping_ops = true;
-    tcg.dump_operations();
-    is_dumping_ops = false;
+      std::tie(len, T) = tcg.translate(Addr + size, Addr + Size);
+      ++count;
 
-    return dumped_ops;
+      dumped_ops.clear();
+      is_dumping_ops = true;
+      tcg.dump_operations();
+      is_dumping_ops = false;
+
+      res.append(dumped_ops);
+
+      size += len;
+    } while (size < Size);
+
+    res.push_back('\n');
+    res.append(std::to_string(count));
+    res.push_back(' ');
+    res.append("time");
+    if (count > 1)
+      res.push_back('s');
+    res.push_back('\n');
+
+    return res;
   };
 
   //
