@@ -58,6 +58,7 @@ class Binary;
 #include <sstream>
 #include <fstream>
 #include <unordered_set>
+#include <random>
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -168,6 +169,12 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    PinnedGlobals("pinned-globals", cl::CommaSeparated,
+                  cl::value_desc("glb_1,glb_2,...,glb_n"),
+                  cl::desc("force specified TCG globals to always go through CPUState"),
+                  cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -196,6 +203,7 @@ namespace jove {
 
 typedef boost::format fmt;
 
+static int ProcessCommandLine(void);
 static int ParseDecompilation(void);
 static int ProcessDynamicTargets(void);
 static int InitStateForBinaries(void);
@@ -211,6 +219,7 @@ int analyze(void) {
       || InitStateForBinaries()
       || CreateModule()
       || PrepareToTranslateCode()
+      || ProcessCommandLine() /* must do this after TCG is ready */
       || AnalyzeBlocks()
       || AnalyzeFunctions()
       || WriteDecompilation();
@@ -222,6 +231,30 @@ void _qemu_log(const char *cstr) {
 
 bool isDFSan(void) {
   return false;
+}
+
+int ProcessCommandLine(void) {
+  auto tcg_index_of_named_global = [&](const char *nm) -> int {
+    for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
+      if (strcmp(TCG->_ctx.temps[i].name, nm) == 0)
+        return i;
+    }
+
+    return -1;
+  };
+
+  for (const std::string &PinnedGlobalName : opts::PinnedGlobals) {
+    int idx = tcg_index_of_named_global(PinnedGlobalName.c_str());
+    if (idx < 0) {
+      WithColor::warning() << llvm::formatv(
+          "unknown global {0} (--pinned-globals); ignoring\n", idx);
+      continue;
+    }
+
+    CmdlinePinnedEnvGlbs.set(idx);
+  }
+
+  return 0;
 }
 
 int ParseDecompilation(void) {

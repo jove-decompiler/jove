@@ -132,6 +132,7 @@ struct hook_t;
 #include <sstream>
 #include <fstream>
 #include <unordered_set>
+#include <random>
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -709,8 +710,6 @@ static struct {
 static std::map<std::pair<target_ulong, unsigned>,
                 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
     CopyRelocMap;
-
-static tcg_global_set_t CmdlinePinnedEnvGlbs = PinnedEnvGlbs;
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)

@@ -12,6 +12,8 @@ static std::unique_ptr<llvm::Module> Module;
 
 typedef boost::format fmt;
 
+static tcg_global_set_t CmdlinePinnedEnvGlbs = PinnedEnvGlbs;
+
 struct helper_function_t {
   llvm::Function *F;
   int EnvArgNo;
@@ -238,7 +240,15 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       auto &DynTargets = ICFG[bb].DynTargets;
       if (DynTargets.empty())
         continue;
-      auto &DynTarget = *DynTargets.begin();
+
+      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
+      std::sample(DynTargets.begin(), DynTargets.end(),
+                  std::back_inserter(DynTargetSampled), 1,
+                  std::mt19937{std::random_device{}()});
+
+      assert(DynTargetSampled.size() == 1);
+
+      auto &DynTarget = DynTargetSampled.front();
 
       callee_ptr = &Decompilation.Binaries[DynTarget.first]
                         .Analysis.Functions[DynTarget.second];
@@ -286,7 +296,15 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       const auto &DynTargets = ICFG[bb].DynTargets;
       if (DynTargets.empty())
         continue;
-      auto &DynTarget = *DynTargets.begin();
+
+      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
+      std::sample(DynTargets.begin(), DynTargets.end(),
+                  std::back_inserter(DynTargetSampled), 1,
+                  std::mt19937{std::random_device{}()});
+
+      assert(DynTargetSampled.size() == 1);
+
+      auto &DynTarget = DynTargetSampled.front();
 
       auto eit_pair = boost::out_edges(bb, ICFG);
       assert(eit_pair.first == eit_pair.second);
@@ -404,7 +422,7 @@ void function_t::Analyze(void) {
       }
     } while (change);
 
-    this->Analysis.args = G[entryV].IN & ~(NotArgs | PinnedEnvGlbs);
+    this->Analysis.args = G[entryV].IN & ~(NotArgs | CmdlinePinnedEnvGlbs);
 
     //
     // reaching definitions
@@ -445,7 +463,7 @@ void function_t::Analyze(void) {
               [&](tcg_global_set_t res, flow_vertex_t V) -> tcg_global_set_t {
                 return res & G[V].OUT;
               }) &
-          ~(NotRets | PinnedEnvGlbs);
+          ~(NotRets | CmdlinePinnedEnvGlbs);
     }
   }
 
