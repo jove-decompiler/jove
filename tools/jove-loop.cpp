@@ -951,17 +951,19 @@ skip_run:
       // delete any pre-existing runtime libraries so that we can be sure that
       // the newest version is the one that the dynamic linker reads
       //
-      fs::remove(fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so.0");
-      fs::remove(fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so");
-      fs::remove(fs::path(opts::sysroot) / "lib" / "libjove_rt.so.0");
-      fs::remove(fs::path(opts::sysroot) / "lib" / "libjove_rt.so");
+      const char *Prefix = opts::OutsideChroot ? "/" : opts::sysroot.c_str();
+
+      fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0");
+      fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
+      fs::remove(fs::path(Prefix) / "lib" / "libjove_rt.so.0");
+      fs::remove(fs::path(Prefix) / "lib" / "libjove_rt.so");
 
       //
       // get jove runtime from remote
       //
       {
         fs::path chrooted_path =
-            fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so.0";
+            fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0";
 
         if (opts::Verbose)
           llvm::errs() << "receiving jove runtime\n";
@@ -977,18 +979,18 @@ skip_run:
 
         try {
           fs::create_symlink("libjove_rt.so.0",
-                             fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so");
+                             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
         } catch (...) {
           ;
         }
 
         // XXX some dynamic linkers only look in /lib
         fs::copy_file(chrooted_path,
-                      fs::path(opts::sysroot) / "lib" / "libjove_rt.so.0",
+                      fs::path(Prefix) / "lib" / "libjove_rt.so.0",
                       fs::copy_option::overwrite_if_exists);
         try {
           fs::create_symlink("libjove_rt.so.0",
-                             fs::path(opts::sysroot) / "lib" / "libjove_rt.so");
+                             fs::path(Prefix) / "lib" / "libjove_rt.so");
         } catch (...) {
           ;
         }
