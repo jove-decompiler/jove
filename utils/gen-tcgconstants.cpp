@@ -355,7 +355,7 @@ int main(int argc, char **argv) {
 
   auto print_pinned_env_globals = [&](void) -> void {
 #if defined(TARGET_MIPS32)
-    const std::array<const char *, 129> pinned_env_glbs{
+    const std::array<const char *, 131> pinned_env_glbs{
       "w0.d0_0",
       "w0.d0_1",
       "w0.d1_0",
@@ -484,6 +484,8 @@ int main(int argc, char **argv) {
       "w31.d0_1",
       "w31.d1_0",
       "w31.d1_1",
+      "hflags",
+      "fcr0",
       "fcr31"
     };
 #else

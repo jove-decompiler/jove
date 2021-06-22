@@ -7,8 +7,6 @@
 namespace jove {
 
 //
-// TCG Globals:
-//
 // I64 _frame
 // I64 env
 // I64 at

@@ -7,8 +7,6 @@
 namespace jove {
 
 //
-// TCG Globals:
-//
 // I32 _frame
 // I32 env
 // I32 cc_op
