@@ -920,6 +920,22 @@ skip_run:
         break;
       }
 
+      //
+      // create basic directories (for chroot) XXX duplicated code from recompile
+      //
+      if (!opts::OutsideChroot) {
+        fs::create_directories(fs::path(opts::sysroot) / "proc");
+        fs::create_directories(fs::path(opts::sysroot) / "sys");
+        fs::create_directories(fs::path(opts::sysroot) / "dev");
+        fs::create_directories(fs::path(opts::sysroot) / "run");
+        fs::create_directories(fs::path(opts::sysroot) / "tmp");
+        fs::create_directories(fs::path(opts::sysroot) / "etc");
+        fs::create_directories(fs::path(opts::sysroot) / "usr" / "bin");
+        fs::create_directories(fs::path(opts::sysroot) / "usr" / "lib");
+        fs::create_directories(fs::path(opts::sysroot) / "var" / "run");
+        fs::create_directories(fs::path(opts::sysroot) / "lib"); /* XXX */
+      }
+
 #if 0
       //
       // (1) copy jove runtime XXX duplicated code w/ jove-recompile
@@ -984,11 +1000,12 @@ skip_run:
           ;
         }
 
-        // XXX some dynamic linkers only look in /lib
-        fs::copy_file(chrooted_path,
-                      fs::path(Prefix) / "lib" / "libjove_rt.so.0",
-                      fs::copy_option::overwrite_if_exists);
         try {
+          // XXX some dynamic linkers only look in /lib
+          fs::copy_file(chrooted_path,
+                        fs::path(Prefix) / "lib" / "libjove_rt.so.0",
+                        fs::copy_option::overwrite_if_exists);
+
           fs::create_symlink("libjove_rt.so.0",
                              fs::path(Prefix) / "lib" / "libjove_rt.so");
         } catch (...) {
@@ -996,21 +1013,6 @@ skip_run:
         }
       }
 #endif
-
-      //
-      // create basic directories (for chroot) XXX duplicated code from recompile
-      //
-      if (!opts::OutsideChroot) {
-        fs::create_directories(fs::path(opts::sysroot) / "proc");
-        fs::create_directories(fs::path(opts::sysroot) / "sys");
-        fs::create_directories(fs::path(opts::sysroot) / "dev");
-        fs::create_directories(fs::path(opts::sysroot) / "run");
-        fs::create_directories(fs::path(opts::sysroot) / "tmp");
-        fs::create_directories(fs::path(opts::sysroot) / "etc");
-        fs::create_directories(fs::path(opts::sysroot) / "usr" / "bin");
-        fs::create_directories(fs::path(opts::sysroot) / "usr" / "lib");
-        fs::create_directories(fs::path(opts::sysroot) / "var" / "run");
-      }
 
       //
       // copy dfsan runtime
