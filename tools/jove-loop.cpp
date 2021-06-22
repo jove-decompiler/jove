@@ -978,18 +978,18 @@ skip_run:
       // get jove runtime from remote
       //
       {
-        fs::path chrooted_path =
+        fs::path rt_path =
             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0";
 
         if (opts::Verbose)
           llvm::errs() << "receiving jove runtime\n";
 
         ssize_t ret =
-            robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777);
+            robust_receive_file_with_size(remote_fd, rt_path.c_str(), 0777);
         if (ret < 0) {
           WithColor::error() << llvm::formatv(
-              "failed to receive file {0} from remote: {1}\n",
-              chrooted_path.c_str(), strerror(-ret));
+              "failed to receive runtime {0} from remote: {1}\n",
+              rt_path.c_str(), strerror(-ret));
           return 1;
         }
 
@@ -1000,16 +1000,22 @@ skip_run:
           ;
         }
 
-        try {
-          // XXX some dynamic linkers only look in /lib
-          fs::copy_file(chrooted_path,
-                        fs::path(Prefix) / "lib" / "libjove_rt.so.0",
-                        fs::copy_option::overwrite_if_exists);
+        //
+        // /lib could just be a symlink to usr/lib, in which case we don't want
+        // the following
+        //
+        if (!fs::equivalent(rt_path, fs::path(Prefix) / "lib" / "libjove_rt.so.0")) {
+          try {
+            // XXX some dynamic linkers only look in /lib
+            fs::copy_file(rt_path,
+                          fs::path(Prefix) / "lib" / "libjove_rt.so.0",
+                          fs::copy_option::overwrite_if_exists);
 
-          fs::create_symlink("libjove_rt.so.0",
-                             fs::path(Prefix) / "lib" / "libjove_rt.so");
-        } catch (...) {
-          ;
+            fs::create_symlink("libjove_rt.so.0",
+                               fs::path(Prefix) / "lib" / "libjove_rt.so");
+          } catch (...) {
+            ;
+          }
         }
       }
 #endif
