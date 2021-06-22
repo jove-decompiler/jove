@@ -87,7 +87,7 @@ namespace jove {
 
 static std::string tmpdir;
 
-static fs::path jove_recompile_path, jove_analyze_path;
+static fs::path jove_recompile_path, jove_analyze_path, libjove_rt_path;
 
 static int await_process_completion(pid_t);
 
@@ -168,6 +168,16 @@ int server(void) {
   if (!fs::exists(jove_recompile_path)) {
     WithColor::error() << llvm::formatv(
         "could not find jove-recompile at {0}\n", jove_analyze_path.c_str());
+
+    return 1;
+  }
+
+  libjove_rt_path = (boost::dll::program_location().parent_path() /
+                         std::string("libjove_rt.so.0"))
+                            .string();
+  if (!fs::exists(libjove_rt_path)) {
+    WithColor::error() << llvm::formatv(
+        "could not find jove runtime at {0}\n", libjove_rt_path.c_str());
 
     return 1;
   }
@@ -471,10 +481,6 @@ void *ConnectionProc(void *arg) {
   //
   // read header
   //
-  struct {
-    bool dfsan, foreign_libs, trace, optimize;
-  } options;
-
   uint8_t header;
   if (robust_read(data_socket, &header, sizeof(header)) != sizeof(header)) {
     WithColor::error() << "failed to read header\n";
@@ -523,6 +529,10 @@ void *ConnectionProc(void *arg) {
   //
   // parse the header
   //
+  struct {
+    bool dfsan, foreign_libs, trace, optimize;
+  } options;
+
   std::bitset<8> headerBits(header);
 
   options.dfsan        = headerBits.test(0);
@@ -546,16 +556,28 @@ void *ConnectionProc(void *arg) {
   //
   pid_t pid = fork();
   if (!pid) {
-    const char *arg_arr[] = {
+    std::vector<const char *>arg_vec = {
         jove_analyze_path.c_str(),
 
-        "-d", tmpjv.c_str(),
-
-        nullptr
+        "-d", tmpjv.c_str()
     };
 
-    print_command(&arg_arr[0]);
-    execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+    std::string pinned_globals_arg = "--pinned-globals=";
+    if (!PinnedGlobals.empty()) {
+      for (const std::string &PinnedGlbStr : PinnedGlobals) {
+        pinned_globals_arg.append(PinnedGlbStr);
+        pinned_globals_arg.push_back(',');
+      }
+      assert(!pinned_globals_arg.empty());
+      pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+      arg_vec.push_back(pinned_globals_arg.c_str());
+    }
+
+    arg_vec.push_back(nullptr);
+
+    print_command(&arg_vec[0]);
+    execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n",
@@ -660,6 +682,19 @@ void *ConnectionProc(void *arg) {
       llvm::errs() << llvm::formatv("sending {0}\n", chrooted_path.c_str());
 
     ssize_t ret = robust_sendfile_with_size(data_socket, chrooted_path.c_str());
+
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv(
+          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+  }
+
+  {
+    if (opts::Verbose)
+      llvm::errs() << "sending jove runtime\n";
+
+    ssize_t ret = robust_sendfile_with_size(data_socket, libjove_rt_path.c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(

@@ -920,6 +920,7 @@ skip_run:
         break;
       }
 
+#if 0
       //
       // (1) copy jove runtime XXX duplicated code w/ jove-recompile
       //
@@ -945,6 +946,54 @@ skip_run:
           fs::create_symlink(JOVE_RT_SONAME, chrooted_path);
         }
       }
+#else
+      //
+      // delete any pre-existing runtime libraries so that we can be sure that
+      // the newest version is the one that the dynamic linker reads
+      //
+      fs::remove(fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so.0");
+      fs::remove(fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so");
+      fs::remove(fs::path(opts::sysroot) / "lib" / "libjove_rt.so.0");
+      fs::remove(fs::path(opts::sysroot) / "lib" / "libjove_rt.so");
+
+      //
+      // get jove runtime from remote
+      //
+      {
+        fs::path chrooted_path =
+            fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so.0";
+
+        if (opts::Verbose)
+          llvm::errs() << "receiving jove runtime\n";
+
+        ssize_t ret =
+            robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777);
+        if (ret < 0) {
+          WithColor::error() << llvm::formatv(
+              "failed to receive file {0} from remote: {1}\n",
+              chrooted_path.c_str(), strerror(-ret));
+          return 1;
+        }
+
+        try {
+          fs::create_symlink("libjove_rt.so.0",
+                             fs::path(opts::sysroot) / "usr" / "lib" / "libjove_rt.so");
+        } catch (...) {
+          ;
+        }
+
+        // XXX some dynamic linkers only look in /lib
+        fs::copy_file(chrooted_path,
+                      fs::path(opts::sysroot) / "lib" / "libjove_rt.so.0",
+                      fs::copy_option::overwrite_if_exists);
+        try {
+          fs::create_symlink("libjove_rt.so.0",
+                             fs::path(opts::sysroot) / "lib" / "libjove_rt.so");
+        } catch (...) {
+          ;
+        }
+      }
+#endif
 
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
