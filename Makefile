@@ -209,11 +209,27 @@ endif
 
 .PHONY: clean
 clean:
-	rm -rf $(TOOLBINS) $(UTILBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(TOOLDEPS) $(UTILDEPS) $(HELPERDEPS) $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE)
+	rm -rf $(TOOLBINS) \
+	       $(UTILBINS) \
+	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
+	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
+	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+	       $(TOOLDEPS) \
+	       $(UTILDEPS) \
+	       $(HELPERDEPS) \
+	       $(HELPERS_BITCODE) \
+	       $(HELPERS_ASSEMBLY) \
+	       $(HELPERS_DFSAN_ASSEMBLY) \
+	       $(HELPERS_DFSAN_BITCODE)
 
 .PHONY: clean-helpers
 clean-helpers:
-	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/helpers) $(HELPERDEPS) $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE)
+	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/helpers) \
+	       $(HELPERDEPS) \
+	       $(HELPERS_BITCODE) \
+	       $(HELPERS_ASSEMBLY) \
+	       $(HELPERS_DFSAN_ASSEMBLY) \
+	       $(HELPERS_DFSAN_BITCODE)
 
 #
 # for extricating QEMU code
