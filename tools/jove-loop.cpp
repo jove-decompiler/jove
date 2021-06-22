@@ -1000,7 +1000,7 @@ skip_run:
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
       //
-      {
+      if (!opts::OutsideChroot) {
         fs::create_directories(fs::path(opts::sysroot) / "proc");
         fs::create_directories(fs::path(opts::sysroot) / "sys");
         fs::create_directories(fs::path(opts::sysroot) / "dev");
