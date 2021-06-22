@@ -39,6 +39,7 @@ CXXFLAGS := -std=gnu++17 \
             -fno-omit-frame-pointer \
             -fvisibility=hidden \
             -fexceptions \
+            -fno-semantic-interposition \
             -fwrapv \
             -fno-common \
             -Ofast \
