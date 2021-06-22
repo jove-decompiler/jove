@@ -30,6 +30,8 @@ all: $(BINS) $(ASMS)
 
 multi_threaded_LDFLAGS := -pthread
 multi_threaded_simple_LDFLAGS := -pthread
+complex_num_f_LDFLAGS := -lm
+complex_num_d_LDFLAGS := -lm
 
 define test_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).c
