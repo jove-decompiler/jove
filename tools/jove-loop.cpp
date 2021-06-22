@@ -92,6 +92,11 @@ static cl::opt<bool>
                    cl::desc("Skip running the prog the first time"),
                    cl::cat(JoveCategory));
 
+static cl::alias ForceRecompileAlias("f",
+                                     cl::desc("Alias for --force-recompile."),
+                                     cl::aliasopt(ForceRecompile),
+                                     cl::cat(JoveCategory));
+
 static cl::opt<bool> JustRun("just-run",
                              cl::desc("Just run, nothing else"),
                              cl::cat(JoveCategory));
@@ -493,9 +498,12 @@ int loop(void) {
   while (!Cancelled) {
     pid_t pid;
 
-    if (opts::ForceRecompile) {
-      opts::ForceRecompile = false; /* XXX just the first time */
-      goto skip_run;
+    static bool FirstTime = true;
+    if (unlikely(FirstTime)) {
+      FirstTime = false;
+
+      if (opts::ForceRecompile)
+        goto skip_run;
     }
 
     {
