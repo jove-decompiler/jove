@@ -556,7 +556,7 @@ void *ConnectionProc(void *arg) {
   //
   pid_t pid = fork();
   if (!pid) {
-    std::vector<const char *>arg_vec = {
+    std::vector<const char *> arg_vec = {
         jove_analyze_path.c_str(),
 
         "-d", tmpjv.c_str()
