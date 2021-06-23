@@ -1073,16 +1073,28 @@ skip_run:
       //
       pid = fork();
       if (!pid) {
-        const char *arg_arr[] = {
+        std::vector<const char *> arg_vec = {
             jove_analyze_path.c_str(),
 
             "-d", opts::jv.c_str(),
-
-            nullptr
         };
 
-        print_command(&arg_arr[0]);
-        execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
+        std::string pinned_globals_arg = "--pinned-globals=";
+        if (!opts::PinnedGlobals.empty()) {
+          for (const std::string &PinnedGlbStr : opts::PinnedGlobals) {
+            pinned_globals_arg.append(PinnedGlbStr);
+            pinned_globals_arg.push_back(',');
+          }
+          assert(!pinned_globals_arg.empty());
+          pinned_globals_arg.resize(pinned_globals_arg.size() - 1);
+
+          arg_vec.push_back(pinned_globals_arg.c_str());
+        }
+
+        arg_vec.push_back(nullptr);
+
+        print_command(&arg_vec[0]);
+        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
         int err = errno;
         WithColor::error() << llvm::formatv("execve failed: {0}\n",
