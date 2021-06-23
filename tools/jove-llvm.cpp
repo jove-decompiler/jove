@@ -9892,15 +9892,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
+            if (callee.IsABI) {
 #if defined(TARGET_I386)
-            //
-            // on i386 ABIs have first three registers
-            //
-            for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
-              Ret->addParamAttr(j, llvm::Attribute::InReg);
+              //
+              // on i386 ABIs have first three registers
+              //
+              for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+                Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
-            if (callee.IsABI)
+
               reload_stack_pointer();
+            }
           }
 
           Ret->setCallingConv(llvm::CallingConv::C);
