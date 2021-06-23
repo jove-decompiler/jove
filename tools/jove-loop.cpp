@@ -140,8 +140,7 @@ static cl::opt<bool>
 
 static cl::opt<bool>
     OutsideChroot("outside-chroot",
-                  cl::desc("run program under real sysroot (useful when "
-                           "combined with --foreign-libs)"),
+                  cl::desc("run program under real sysroot (implies --foreign-libs)"),
                   cl::cat(JoveCategory));
 
 static cl::list<std::string>
@@ -716,7 +715,7 @@ skip_run:
         std::bitset<8> headerBits;
 
         headerBits.set(0, opts::DFSan);
-        headerBits.set(1, opts::ForeignLibs);
+        headerBits.set(1, opts::ForeignLibs || opts::OutsideChroot);
         headerBits.set(2, opts::Trace);
         headerBits.set(3, opts::Optimize);
 
@@ -1123,7 +1122,7 @@ skip_run:
         if (opts::Trace)
           arg_vec.push_back("--trace");
 
-        if (opts::ForeignLibs)
+        if (opts::ForeignLibs || opts::OutsideChroot)
           arg_vec.push_back("--foreign-libs");
 
         std::string pinned_globals_arg;
