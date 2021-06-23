@@ -94,6 +94,11 @@ namespace opts {
                                               cl::desc("<address>"),
                                               cl::Required,
                                               cl::cat(JoveCategory));
+
+  static cl::opt<bool>
+      PrintTerminatorType("terminator-type",
+                          cl::desc("Print terminator type at end of BB"),
+                          cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -220,7 +225,7 @@ struct graphviz_label_writer {
 #endif
     }
 
-    out << "label=\"";
+    out << "label=\"\\l";
     out << src;
     out << "\"]";
   }
@@ -244,7 +249,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   TCG->set_section(SectBase, SectProp.contents.data());
 
-  std::string res = (fmt("%08x [%u]\n\n") % G[V].Addr % G[V].Size).str();
+  std::string res;
 
   tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
@@ -284,12 +289,24 @@ static std::string disassemble_basic_block(const cfg_t &G,
     }
     boost::trim(line);
 
-    res.append((fmt("%08x   ") % A).str());
+    const char *addr_fmt_c_str = nullptr;
+    if (sizeof(tcg_uintptr_t) == 4) {
+      addr_fmt_c_str = "%08x   ";
+    } else if (sizeof(tcg_uintptr_t) == 8) {
+      addr_fmt_c_str = "%16x   ";
+    } else {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
+
+    assert(addr_fmt_c_str);
+
+    res.append((fmt(addr_fmt_c_str) % A).str());
     res.append(line);
     res.push_back('\n');
   }
 
-  if (G[V].Term.Type != TERMINATOR::NONE) {
+  if (opts::PrintTerminatorType && G[V].Term.Type != TERMINATOR::NONE) {
     res.push_back('\n');
     res.append(description_of_terminator(G[V].Term.Type));
     res.push_back('\n');
@@ -326,7 +343,7 @@ struct graphviz_prop_writer {
            "node [\n"
            "fontname = \"Courier\"\n"
            "fontsize = 10\n"
-           "shape = \"record\"\n"
+           "shape = \"box\"\n"
            "]\n"
            "\n"
            "edge [\n"
