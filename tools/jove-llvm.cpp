@@ -7983,9 +7983,6 @@ static int TranslateFunction(function_t &f) {
 
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
 
-  //
-  // initialize the globals which are used as function arguments
-  //
   {
     llvm::IRBuilderTy IRB(EntryB);
 
@@ -7993,6 +7990,9 @@ static int TranslateFunction(function_t &f) {
         llvm::DILocation::get(*Context, ICFG[entry_bb].Addr, 0 /* Column */,
                               TC.DebugInformation.Subprogram));
 
+    //
+    // Create Alloca for program counter
+    //
     {
       llvm::AllocaInst *AI;
       if (tcg_program_counter_index >= 0) {
@@ -8005,6 +8005,9 @@ static int TranslateFunction(function_t &f) {
       TC.PCAlloca = AI;
     }
 
+    //
+    // initialize globals which are passed by value to function
+    //
     {
       std::vector<unsigned> glbv;
       ExplodeFunctionArgs(f, glbv);
