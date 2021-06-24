@@ -8920,6 +8920,8 @@ typedef int (*translate_tcg_op_proc_t)(TCGOp *,
 
 extern const translate_tcg_op_proc_t TranslateTCGOpTable[250];
 
+static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
+
 static std::string
 dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
 
@@ -9146,6 +9148,13 @@ int TranslateBasicBlock(TranslateContext &TC) {
     QTAILQ_FOREACH_SAFE(op, &s->ops, link, op_next) {
       unsigned opc = op->opc;
       assert(opc < ARRAY_SIZE(TranslateTCGOpTable));
+
+      if (unlikely(!seenOpTable[opc])) {
+        WithColor::note() << llvm::formatv("[TCG opcode] {0}\n",
+                                           tcg_op_defs[opc].name);
+
+        seenOpTable[opc] = true;
+      }
 
       translate_tcg_op_proc_t translate_tcg_op_proc = TranslateTCGOpTable[opc];
       if (unlikely(!translate_tcg_op_proc)) {
@@ -10278,8 +10287,6 @@ dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
   return (fmt("%s+%#lx") % fs::path(b.Path).filename().string() % Addr).str();
 }
 
-static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
-
 static const unsigned bits_of_memop_lookup_table[] = {8, 16, 32, 64};
 
 static unsigned bits_of_memop(MemOp op) {
@@ -10410,17 +10417,6 @@ static int TranslateTCGOp(TCGOp *op,
   int nb_oargs = def.nb_oargs;
   int nb_iargs = def.nb_iargs;
   int nb_cargs = def.nb_cargs;
-
-#if 0
-  if (likely(opc < ARRAY_SIZE(seenOpTable))) {
-    bool seen = seenOpTable[opc];
-    if (!seen) {
-      WithColor::note() << llvm::formatv("[opcode] {0}\n", def.name);
-
-      seenOpTable[opc] = true;
-    }
-  }
-#endif
 
   switch (opc) {
   case INDEX_op_insn_start:
@@ -10948,19 +10944,28 @@ static int TranslateTCGOp(TCGOp *op,
 #elif defined(TARGET_MIPS32)
 #define __ARCH_LD_OP(off)                                                      \
   {                                                                            \
-    if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
-      uint8_t idx = tcg_global_by_offset_lookup_table[off];                    \
-      if (idx != 0xff) {                                                       \
-        llvm::errs() << "[tonpetty] __ARCH_LD_OP: "                            \
-                     << TCG->_ctx.temps[idx].name << '\n';                     \
-      }                                                                        \
-    }                                                                          \
     if (off == offsetof(CPUMIPSState, active_tc.CP0_UserLocal)) {              \
       TCGTemp *dst = arg_temp(op->args[0]);                                    \
       assert(dst->type == TCG_TYPE_I32);                                       \
       set(insertThreadPointerInlineAsm(IRB), dst);                             \
       break;                                                                   \
     }                                                                          \
+                                                                               \
+    if (off == offsetof(CPUMIPSState, lladdr)) {                               \
+      TCGTemp *dst = arg_temp(op->args[0]);                                    \
+      assert(dst->type == TCG_TYPE_I32);                                       \
+      set(get(&TCG->_ctx.temps[tcg_lladdr_index]), dst);                       \
+      break;                                                                   \
+    }                                                                          \
+                                                                               \
+    if (off == offsetof(CPUMIPSState, llval)) {                                \
+      TCGTemp *dst = arg_temp(op->args[0]);                                    \
+      assert(dst->type == TCG_TYPE_I32);                                       \
+      set(get(&TCG->_ctx.temps[tcg_llval_index]), dst);                        \
+      break;                                                                   \
+    }                                                                          \
+                                                                               \
+    { llvm::errs() << llvm::formatv("CURIOSITY: load(env+{0})\n", off); }      \
   }
 #else
 #define __ARCH_LD_OP(off)                                                      \
@@ -11021,14 +11026,6 @@ static int TranslateTCGOp(TCGOp *op,
 #if defined(TARGET_MIPS32)
 #define __ARCH_ST_OP(off)                                                      \
   {                                                                            \
-    if (off < sizeof(tcg_global_by_offset_lookup_table)) {                     \
-      uint8_t idx = tcg_global_by_offset_lookup_table[off];                    \
-      if (idx != 0xff) {                                                       \
-        llvm::errs() << "[tonpetty] __ARCH_ST_OP: "                            \
-                     << TCG->_ctx.temps[idx].name << '\n';                     \
-      }                                                                        \
-    }                                                                          \
-                                                                               \
     if (off == offsetof(CPUMIPSState, lladdr)) {                               \
       set(Val, &TCG->_ctx.temps[tcg_lladdr_index]);                            \
       break;                                                                   \
@@ -11038,6 +11035,8 @@ static int TranslateTCGOp(TCGOp *op,
       set(Val, &TCG->_ctx.temps[tcg_llval_index]);                             \
       break;                                                                   \
     }                                                                          \
+                                                                               \
+    { llvm::errs() << llvm::formatv("CURIOSITY: store(env+{0})\n", off); }     \
   }
 #else
 #define __ARCH_ST_OP(off)                                                      \
