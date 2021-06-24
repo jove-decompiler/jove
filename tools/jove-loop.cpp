@@ -143,6 +143,10 @@ static cl::opt<bool>
                   cl::desc("run program under real sysroot (implies --foreign-libs)"),
                   cl::cat(JoveCategory));
 
+static cl::alias
+    OutsideChrootAlias("x", cl::desc("Exe only. Alias for --outside-chroot."),
+                       cl::aliasopt(OutsideChroot), cl::cat(JoveCategory));
+
 static cl::list<std::string>
     PinnedGlobals("pinned-globals", cl::CommaSeparated,
                   cl::value_desc("glb_1,glb_2,...,glb_n"),
