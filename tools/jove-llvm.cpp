@@ -10626,7 +10626,7 @@ static int TranslateTCGOp(TCGOp *op,
       // store our globals to the (maybe local) env
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.Analysis.InGlbs | hf.Analysis.OutGlbs);
+      explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
@@ -10651,7 +10651,7 @@ static int TranslateTCGOp(TCGOp *op,
       // load the altered globals
       //
       std::vector<unsigned> glbv;
-      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs);
+      explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
         llvm::SmallVector<llvm::Value *, 4> Indices;
         llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
