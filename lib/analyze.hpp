@@ -258,7 +258,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
             DynTargets.cbegin(),
             DynTargets.cend(),
             invalid_dynamic_target,
-            [&](dynamic_target_t X, dynamic_target_t res) -> dynamic_target_t {
+            [&](dynamic_target_t res, dynamic_target_t X) -> dynamic_target_t {
               if (!is_dynamic_target_valid(res))
                 return X;
 
@@ -341,7 +341,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
             DynTargets.cbegin(),
             DynTargets.cend(),
             invalid_dynamic_target,
-            [&](dynamic_target_t X, dynamic_target_t res) -> dynamic_target_t {
+            [&](dynamic_target_t res, dynamic_target_t X) -> dynamic_target_t {
               if (!is_dynamic_target_valid(res))
                 return X;
 
