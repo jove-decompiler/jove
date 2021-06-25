@@ -241,6 +241,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       if (DynTargets.empty())
         continue;
 
+#if 0
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
       std::sample(DynTargets.begin(), DynTargets.end(),
                   std::back_inserter(DynTargetSampled), 1,
@@ -249,6 +250,32 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       assert(DynTargetSampled.size() == 1);
 
       auto &DynTarget = DynTargetSampled.front();
+#elif 0
+      auto &DynTarget = *DynTargets.begin();
+#else
+      dynamic_target_t DynTarget =
+        std::accumulate(
+            DynTargets.cbegin(),
+            DynTargets.cend(),
+            invalid_dynamic_target,
+            [&](dynamic_target_t X, dynamic_target_t res) -> dynamic_target_t {
+              if (!is_dynamic_target_valid(res))
+                return X;
+
+              if (res.first == f.BIdx && X.first != f.BIdx)
+                return X;
+
+#if 0
+              if ((res.first == 2 ||
+                   res.first == 1) && (X.first != 2 &&
+                                       X.first != 1))
+                return X;
+#endif
+
+              return res;
+            });
+#endif
+      assert(is_dynamic_target_valid(DynTarget));
 
       callee_ptr = &Decompilation.Binaries[DynTarget.first]
                         .Analysis.Functions[DynTarget.second];
@@ -297,6 +324,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       if (DynTargets.empty())
         continue;
 
+#if 0
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
       std::sample(DynTargets.begin(), DynTargets.end(),
                   std::back_inserter(DynTargetSampled), 1,
@@ -305,6 +333,32 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       assert(DynTargetSampled.size() == 1);
 
       auto &DynTarget = DynTargetSampled.front();
+#elif 0
+      auto &DynTarget = *DynTargets.begin();
+#else
+      dynamic_target_t DynTarget =
+        std::accumulate(
+            DynTargets.cbegin(),
+            DynTargets.cend(),
+            invalid_dynamic_target,
+            [&](dynamic_target_t X, dynamic_target_t res) -> dynamic_target_t {
+              if (!is_dynamic_target_valid(res))
+                return X;
+
+              if (res.first == f.BIdx && X.first != f.BIdx)
+                return X;
+
+#if 0
+              if ((res.first == 2 ||
+                   res.first == 1) && (X.first != 2 &&
+                                       X.first != 1))
+                return X;
+#endif
+
+              return res;
+            });
+#endif
+      assert(is_dynamic_target_valid(DynTarget));
 
       auto eit_pair = boost::out_edges(bb, ICFG);
       assert(eit_pair.first == eit_pair.second);
@@ -420,7 +474,7 @@ void function_t::Analyze(void) {
 
         change = change || _IN != G[V].IN;
       }
-    } while (change);
+    } while (likely(change));
 
     this->Analysis.args = G[entryV].IN & ~(NotArgs | CmdlinePinnedEnvGlbs);
 
@@ -450,7 +504,7 @@ void function_t::Analyze(void) {
 
         change = change || _OUT != G[V].OUT;
       }
-    } while (change);
+    } while (likely(change));
 
     if (exitVertices.empty()) {
       this->Analysis.rets.reset();
