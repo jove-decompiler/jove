@@ -61,8 +61,8 @@ constexpr function_index_t
 constexpr basic_block_index_t
     invalid_basic_block_index = std::numeric_limits<basic_block_index_t>::max();
 constexpr dynamic_target_t
-    invalid_dynamic_target(std::numeric_limits<binary_index_t>::max(),
-                           std::numeric_limits<binary_index_t>::max());
+    invalid_dynamic_target(invalid_binary_index,
+                           invalid_function_index);
 
 inline bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
