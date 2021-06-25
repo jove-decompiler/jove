@@ -319,9 +319,18 @@ static ssize_t robust_receive_file_with_size(int data_socket, const char *out, u
   //
   ssize_t res;
   {
+try_to_open:
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
     if (fd < 0) {
       int err = errno;
+      if (err == ETXTBSY) {
+        WithColor::note() << llvm::formatv("failed to open \"{0}\": {1}...\n",
+                                           out, strerror(err));
+        sleep(1);
+
+        goto try_to_open;
+      }
+
       WithColor::error() << llvm::formatv("open of \"{0}\" failed ({1})\n", out,
                                           strerror(err));
       return -err;
