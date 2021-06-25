@@ -1166,6 +1166,7 @@ void worker(const dso_graph_t &dso_graph) {
       pid_t pid = fork();
       if (!pid) {
         IgnoreCtrlC();
+        nice(10);
 
         const char *arg_arr[] = {
           llvm_dis_path.c_str(),
@@ -1197,6 +1198,7 @@ void worker(const dso_graph_t &dso_graph) {
       pid_t pid = fork();
       if (!pid) {
         IgnoreCtrlC();
+        nice(10);
 
         const char *arg_arr[] = {
           opt_path.c_str(),
