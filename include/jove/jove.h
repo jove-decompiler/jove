@@ -52,12 +52,17 @@ typedef uint32_t binary_index_t;
 typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
 
-constexpr binary_index_t invalid_binary_index =
-    std::numeric_limits<binary_index_t>::max();
-constexpr function_index_t invalid_function_index =
-    std::numeric_limits<function_index_t>::max();
-constexpr basic_block_index_t invalid_basic_block_index =
-    std::numeric_limits<basic_block_index_t>::max();
+typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
+
+constexpr binary_index_t
+    invalid_binary_index = std::numeric_limits<binary_index_t>::max();
+constexpr function_index_t
+    invalid_function_index = std::numeric_limits<function_index_t>::max();
+constexpr basic_block_index_t
+    invalid_basic_block_index = std::numeric_limits<basic_block_index_t>::max();
+constexpr dynamic_target_t
+    invalid_dynamic_target(std::numeric_limits<binary_index_t>::max(),
+                           std::numeric_limits<binary_index_t>::max());
 
 inline bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
@@ -67,6 +72,10 @@ inline bool is_function_index_valid(function_index_t idx) {
 }
 inline bool is_basic_block_index_valid(basic_block_index_t idx) {
   return idx != invalid_basic_block_index;
+}
+inline bool is_dynamic_target_valid(dynamic_target_t X) {
+  return is_binary_index_valid(X.first) &&
+         is_function_index_valid(X.second);
 }
 
 struct basic_block_properties_t {
@@ -92,7 +101,7 @@ struct basic_block_properties_t {
     } _return;
   } Term;
 
-  std::set<std::pair<binary_index_t, function_index_t>> DynTargets;
+  std::set<dynamic_target_t> DynTargets;
   bool DynTargetsComplete; // XXX
 
   struct {
@@ -220,12 +229,9 @@ struct binary_t {
     std::vector<function_t> Functions;
     interprocedural_control_flow_graph_t ICFG;
 
-    std::map<tcg_uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
-        RelocDynTargets;
-    std::map<tcg_uintptr_t, std::set<std::pair<binary_index_t, function_index_t>>>
-        IFuncDynTargets;
-    std::map<std::string, std::set<std::pair<binary_index_t, function_index_t>>>
-        SymDynTargets;
+    std::map<tcg_uintptr_t, std::set<dynamic_target_t>> RelocDynTargets;
+    std::map<tcg_uintptr_t, std::set<dynamic_target_t>> IFuncDynTargets;
+    std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
   JOVE_EXTRA_BIN_PROPERTIES;
