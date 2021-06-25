@@ -2388,7 +2388,7 @@ void _jove_trace_init(void) {
 }
 
 void _jove_init_cpu_state(void) {
-  // TODO
+  __jove_env.hflags = 226;
 }
 
 void *_memset(void *dst, int c, size_t n) {
