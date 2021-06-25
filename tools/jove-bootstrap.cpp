@@ -903,7 +903,8 @@ int main(int argc, char **argv) {
         ret = read(rfd, &byte, 1);
       } while (!(ret <= 0));
 
-      /* if we got here, the other end of the pipe must have been closed. */
+      /* if we got here, the other end of the pipe must have been closed,
+       * most likely by close-on-exec */
       close(rfd);
     }
 
