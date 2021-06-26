@@ -2456,7 +2456,7 @@ int ProcessExportedFunctions(void) {
   return 0;
 }
 
-static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
+static llvm::Constant *CPUStateGlobalPointer(unsigned glb, llvm::Value *Env = nullptr);
 
 int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
@@ -7884,7 +7884,7 @@ static llvm::AllocaInst *CreateAllocaForGlobal(llvm::IRBuilderTy &IRB,
 
 static int TranslateBasicBlock(TranslateContext &);
 
-llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
+llvm::Constant *CPUStateGlobalPointer(unsigned glb, llvm::Value *Env) {
   assert(glb < tcg_num_globals);
 
   if (glb == tcg_env_index)
@@ -7916,7 +7916,8 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy, Indices, "");
+      IRB, DL, Env ? Env : CPUStateGlobal, llvm::APInt(64, off),
+      GlbTy, Indices, "");
 
   if (res) {
     assert(llvm::isa<llvm::Constant>(res));
@@ -10631,12 +10632,8 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::SmallVector<llvm::Value *, 4> Indices;
-        llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-            IRB, DL, Env, llvm::APInt(64, s->temps[glb].mem_offset),
-            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
-            std::string(s->temps[glb].name) + "_ptr_");
-        IRB.CreateStore(get(&s->temps[glb]), GlobPtr);
+        llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), CPUStateGlobalPointer(glb, Env));
+        SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
 
@@ -10656,12 +10653,10 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::SmallVector<llvm::Value *, 4> Indices;
-        llvm::Value *GlobPtr = llvm::getNaturalGEPWithOffset(
-            IRB, DL, Env, llvm::APInt(64, s->temps[glb].mem_offset),
-            IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)), Indices,
-            std::string(s->temps[glb].name) + "_ptr_");
-        set(IRB.CreateLoad(GlobPtr), &s->temps[glb]);
+        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, Env));
+        LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+        set(LI, &s->temps[glb]);
       }
     }
 
