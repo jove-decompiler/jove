@@ -225,7 +225,7 @@ static std::string soname_of_binary(binary_t &);
 
 static std::atomic<bool> Cancelled(false);
 
-static std::atomic<pid_t> app_pid;
+static std::atomic<pid_t> app_pid, run_pid;
 
 template <bool IsRead>
 static ssize_t robust_read_or_write(int fd, void *const buf, const size_t count) {
@@ -367,6 +367,17 @@ static void sighandler(int no) {
   case SIGINT:
     llvm::errs() << "Received SIGINT. Cancelling..\n";
     Cancelled.store(true);
+
+    if (pid_t pid = run_pid.load()) {
+      // tell run to exit sleep loop
+      if (kill(pid, SIGUSR1) < 0) {
+        int err = errno;
+        WithColor::warning() << llvm::formatv(
+            "failed to send SIGUSR1 to jove-run: {0}\n", strerror(err));
+      }
+    } else {
+      ;
+    }
     break;
 
   default:
@@ -609,6 +620,8 @@ run:
         return 1;
       }
 
+      run_pid.store(pid);
+
       if (close(wrFd) < 0) {
         int err = errno;
         WithColor::error() << llvm::formatv("failed to close wrFd: {0}\n",
@@ -651,6 +664,7 @@ run:
           break;
       }
 
+      run_pid.store(0); /* reset */
       app_pid.store(0); /* reset */
     }
 

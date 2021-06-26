@@ -198,6 +198,19 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
   return robust_read_or_write<false /* w */>(fd, const_cast<void *>(buf), count);
 }
 
+static std::atomic<bool> interrupt_sleep;
+
+static void sighandler(int no) {
+  switch (no) {
+  case SIGUSR1:
+    interrupt_sleep.store(true);
+    break;
+
+  default:
+    abort();
+  }
+}
+
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
 struct ScopedMount {
@@ -663,9 +676,33 @@ int run(void) {
 #endif
 
   if (unsigned sec = opts::Sleep) {
+    //
+    // install SIGUSR1 handler to interrupt sleeping
+    //
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = SA_RESTART;
+      sa.sa_handler = sighandler;
+
+      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
+                                            __func__, strerror(err));
+      }
+    }
+
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
+
+      if (interrupt_sleep.load()) {
+        if (opts::Verbose)
+          WithColor::note() << "sleep interrupted\n";
+        break;
+      }
+
       fprintf(stderr, "%s", ".");
     }
   }
@@ -841,9 +878,33 @@ int run_outside_chroot(void) {
   int ret = await_process_completion(pid);
 
   if (unsigned sec = opts::Sleep) {
+    //
+    // install SIGUSR1 handler to interrupt sleeping
+    //
+    {
+      struct sigaction sa;
+
+      sigemptyset(&sa.sa_mask);
+      sa.sa_flags = SA_RESTART;
+      sa.sa_handler = sighandler;
+
+      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
+                                            __func__, strerror(err));
+      }
+    }
+
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
+
+      if (interrupt_sleep.load()) {
+        if (opts::Verbose)
+          WithColor::note() << "sleep interrupted\n";
+        break;
+      }
+
       fprintf(stderr, "%s", ".");
     }
   }
