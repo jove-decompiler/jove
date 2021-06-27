@@ -1238,15 +1238,19 @@ void worker(const dso_graph_t &dso_graph) {
         bcfp.c_str(),
 
         "--filetype=obj",
-        "--frame-pointer=all",
 
         "--disable-simplify-libcalls",
-#if 0
-        "--emulated-tls",
-#endif
-        "--fast-isel",
-        "-O0",
       };
+
+      if (!opts::Optimize) {
+        arg_vec.push_back("--frame-pointer=all");
+        arg_vec.push_back("--fast-isel");
+        arg_vec.push_back("-O0");
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+        arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
+#endif
+      }
 
       if (b.IsPIC) {
         arg_vec.push_back("--relocation-model=pic");
@@ -1260,10 +1264,6 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--stack-alignment=16");
         arg_vec.push_back("--stackrealign");
       }
-#endif
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-      arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
 #endif
 
       arg_vec.push_back(nullptr);
