@@ -7936,7 +7936,7 @@ llvm::Value *BuildCPUStateGlobalPointer(llvm::IRBuilderTy &IRB, llvm::Value *Env
 
   // fallback
   return IRB.CreateIntToPtr(
-      IRB.CreateAdd(IRB.CreatePtrToInt(CPUStateGlobal, WordType()),
+      IRB.CreateAdd(IRB.CreatePtrToInt(Env, WordType()),
                     llvm::ConstantInt::get(WordType(), off)),
       llvm::PointerType::get(GlbTy, 0));
 }
