@@ -610,6 +610,10 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
   assert(sectprop.x);
   TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
 
+  this->Analysis.live.use.reset();
+  this->Analysis.live.def.reset();
+  this->Analysis.reach.def.reset();
+
   TCGContext *s = &TCG->_ctx;
 
   unsigned size = 0;
