@@ -809,212 +809,203 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 
   uintptr_t helper_addr = op->args[nb_oargs + nb_iargs];
 
-  auto it = HelperFuncMap.find(helper_addr);
-  if (it == HelperFuncMap.end()) {
-    TCGContext *s = &TCG->_ctx;
-    const char *helper_nm = tcg_find_helper(s, helper_addr);
-    assert(helper_nm);
+  {
+    auto it = HelperFuncMap.find(helper_addr);
+    if (it != HelperFuncMap.end())
+      return (*it).second;
+  }
 
-    if (llvm::Function *F = Module->getFunction(std::string("helper_") + helper_nm)) {
-      if (F->user_begin() == F->user_end()) {
-        F->eraseFromParent();
-      } else {
-        static int i = 0;
-        F->setName(std::string("helper_") + helper_nm + std::string("_") +
-                   std::to_string(i++));
-      }
-    }
+  TCGContext *s = &TCG->_ctx;
+  const char *helper_nm = tcg_find_helper(s, helper_addr);
+  assert(helper_nm);
 
-    assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
-           "helper function already exists");
+  assert(!Module->getFunction(std::string("helper_") + helper_nm) &&
+         "helper function already exists");
 
-    std::string suffix = isDFSan() ? ".dfsan.bc" : ".bc";
+  std::string suffix = isDFSan() ? ".dfsan.bc" : ".bc";
 
-    std::string helperModulePath =
-        (boost::dll::program_location().parent_path() / "helpers" / (std::string(helper_nm) + suffix)).string();
+  std::string helperModulePath =
+      (boost::dll::program_location().parent_path() / "helpers" / (std::string(helper_nm) + suffix)).string();
 
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
-        llvm::MemoryBuffer::getFile(helperModulePath);
-    if (!BufferOr) {
-      WithColor::error() << "could not open bitcode for helper_" << helper_nm
-                         << " at " << helperModulePath << " (" << BufferOr.getError().message() << ")\n";
-      exit(1);
-    }
+  llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
+      llvm::MemoryBuffer::getFile(helperModulePath);
+  if (!BufferOr) {
+    WithColor::error() << "could not open bitcode for helper_" << helper_nm
+                       << " at " << helperModulePath << " (" << BufferOr.getError().message() << ")\n";
+    exit(1);
+  }
 
-    llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
-        llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
-    if (!helperModuleOr) {
-      llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
-                                  "could not parse helper bitcode: ");
-      exit(1);
-    }
+  llvm::Expected<std::unique_ptr<llvm::Module>> helperModuleOr =
+      llvm::parseBitcodeFile(BufferOr.get()->getMemBufferRef(), *Context);
+  if (!helperModuleOr) {
+    llvm::logAllUnhandledErrors(helperModuleOr.takeError(), llvm::errs(),
+                                "could not parse helper bitcode: ");
+    exit(1);
+  }
 
-    std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
+  std::unique_ptr<llvm::Module> &helperModule = helperModuleOr.get();
+
+  //
+  // process helper bitcode
+  //
+  {
+    llvm::Module &helperM = *helperModule;
 
     //
-    // process helper bitcode
+    // internalize all functions except the desired helper
     //
-    {
-      llvm::Module &helperM = *helperModule;
+    for (llvm::Function &F : helperM.functions()) {
+      if (F.isIntrinsic())
+        continue;
 
-      //
-      // internalize all functions except the desired helper
-      //
-      for (llvm::Function &F : helperM.functions()) {
-        if (F.isIntrinsic())
-          continue;
+      // is declaration?
+      if (F.empty())
+        continue;
 
-        // is declaration?
-        if (F.empty())
-          continue;
-
-        // is helper function?
-        if (F.getName() == std::string("helper_") + helper_nm) {
-          assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
-          continue;
-        }
-
-#if 1
-        F.setLinkage(llvm::GlobalValue::InternalLinkage);
-#else
-        F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
-        F.setVisibility(llvm::GlobalValue::HiddenVisibility);
-#endif
+      // is helper function?
+      if (F.getName() == std::string("helper_") + helper_nm) {
+        assert(F.getLinkage() == llvm::GlobalValue::ExternalLinkage);
+        continue;
       }
 
-      //
-      // internalize global variables
-      //
-      for (llvm::GlobalVariable &GV : helperM.globals()) {
-        if (!GV.hasInitializer())
-          continue;
+#if 1
+      F.setLinkage(llvm::GlobalValue::InternalLinkage);
+#else
+      F.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
+      F.setVisibility(llvm::GlobalValue::HiddenVisibility);
+#endif
+    }
+
+    //
+    // internalize global variables
+    //
+    for (llvm::GlobalVariable &GV : helperM.globals()) {
+      if (!GV.hasInitializer())
+        continue;
 
 #if 1
-        GV.setLinkage(llvm::GlobalValue::InternalLinkage);
+      GV.setLinkage(llvm::GlobalValue::InternalLinkage);
 #else
-        GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
+      GV.setLinkage(llvm::GlobalValue::LinkOnceODRLinkage);
 #endif
-      }
     }
+  }
 
-    llvm::Linker::linkModules(*Module, std::move(helperModule));
+  llvm::Linker::linkModules(*Module, std::move(helperModule));
 
-    llvm::Function *helperF =
-        Module->getFunction(std::string("helper_") + helper_nm);
+  llvm::Function *helperF =
+      Module->getFunction(std::string("helper_") + helper_nm);
 
-    if (!helperF) {
-      WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
-                                          helper_nm);
-      abort();
-    }
+  if (unlikely(!helperF)) {
+    WithColor::error() << llvm::formatv("cannot find helper function {0}\n",
+                                        helper_nm);
+    exit(1);
+  }
 
 #if 0
-    if (helperF->arg_size() != nb_iargs) {
-      WithColor::error() << llvm::formatv(
-          "helper {0} takes {1} args but nb_iargs={2}\n", helper_nm,
-          helperF->arg_size(), nb_iargs);
-      exit(1);
-    }
+  if (helperF->arg_size() != nb_iargs) {
+    WithColor::error() << llvm::formatv(
+        "helper {0} takes {1} args but nb_iargs={2}\n", helper_nm,
+        helperF->arg_size(), nb_iargs);
+    exit(1);
+  }
 #else
-    assert(nb_iargs >= helperF->arg_size());
+  assert(nb_iargs >= helperF->arg_size());
 #endif
 
-    assert(helperF->getLinkage() == llvm::GlobalValue::ExternalLinkage);
-    helperF->setVisibility(llvm::GlobalValue::HiddenVisibility);
+  assert(helperF->getLinkage() == llvm::GlobalValue::ExternalLinkage);
+  helperF->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
-    //
-    // analyze helper
-    //
-    int EnvArgNo = -1;
-    {
-      TCGArg *const inputs_beg = &op->args[nb_oargs + 0];
-      TCGArg *const inputs_end = &op->args[nb_oargs + nb_iargs];
-      TCGArg *it =
-          std::find(inputs_beg, inputs_end,
-                    reinterpret_cast<TCGArg>(&s->temps[tcg_env_index]));
+  //
+  // analyze helper
+  //
+  int EnvArgNo = -1;
+  {
+    TCGArg *const inputs_beg = &op->args[nb_oargs + 0];
+    TCGArg *const inputs_end = &op->args[nb_oargs + nb_iargs];
+    TCGArg *it =
+        std::find(inputs_beg, inputs_end,
+                  reinterpret_cast<TCGArg>(&s->temps[tcg_env_index]));
 
-      if (it != inputs_end)
-        EnvArgNo = std::distance(inputs_beg, it);
-    }
+    if (it != inputs_end)
+      EnvArgNo = std::distance(inputs_beg, it);
+  }
 
-    helper_function_t &hf = HelperFuncMap[helper_addr];
-    hf.F = helperF;
-    hf.EnvArgNo = EnvArgNo;
-    hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
+  helper_function_t &hf = HelperFuncMap[helper_addr];
+  hf.F = helperF;
+  hf.EnvArgNo = EnvArgNo;
+  hf.Analysis.Simple = AnalyzeHelper(hf); /* may modify hf.Analysis.InGlbs */
 
-    //
-    // is this a system call?
-    //
-    const uintptr_t syscall_helper_addr = (uintptr_t)
+  //
+  // is this a system call?
+  //
+  const uintptr_t syscall_helper_addr = (uintptr_t)
 #if defined(TARGET_X86_64)
-        helper_syscall
+      helper_syscall
 #elif defined(TARGET_I386)
-        helper_raise_interrupt
+      helper_raise_interrupt
 #elif defined(TARGET_AARCH64)
-        helper_exception_with_syndrome
+      helper_exception_with_syndrome
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-        helper_raise_exception_err
+      helper_raise_exception_err
 #else
 #error
 #endif
-        ;
+      ;
 
-    if (helper_addr == syscall_helper_addr)
-      hf.Analysis.Simple = true; /* force */
+  if (helper_addr == syscall_helper_addr)
+    hf.Analysis.Simple = true; /* force */
+
+  {
+    std::string InGlbsStr;
 
     {
-      std::string InGlbsStr;
+      std::vector<unsigned> iglbv;
+      explode_tcg_global_set(iglbv, hf.Analysis.InGlbs);
 
-      {
-        std::vector<unsigned> iglbv;
-        explode_tcg_global_set(iglbv, hf.Analysis.InGlbs);
+      //InGlbsStr.push_back('{');
+      for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
+        unsigned glb = *it;
 
-        //InGlbsStr.push_back('{');
-        for (auto it = iglbv.begin(); it != iglbv.end(); ++it) {
-          unsigned glb = *it;
-
-          InGlbsStr.append(TCG->_ctx.temps[glb].name);
-          if (std::next(it) != iglbv.end())
-            InGlbsStr.append(", ");
-        }
-        //InGlbsStr.push_back('}');
+        InGlbsStr.append(TCG->_ctx.temps[glb].name);
+        if (std::next(it) != iglbv.end())
+          InGlbsStr.append(", ");
       }
-
-      std::string OutGlbsStr;
-
-      {
-        std::vector<unsigned> oglbv;
-        explode_tcg_global_set(oglbv, hf.Analysis.OutGlbs);
-
-        //OutGlbsStr.push_back('{');
-        for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
-          unsigned glb = *it;
-
-          OutGlbsStr.append(TCG->_ctx.temps[glb].name);
-          if (std::next(it) != oglbv.end())
-            OutGlbsStr.append(", ");
-        }
-        //OutGlbsStr.push_back('}');
-      }
-
-      const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
-
-      if (!InGlbsStr.empty() || !OutGlbsStr.empty()) {
-        WithColor::note() << llvm::formatv("[helper] ({0}) {1} : {2} -> {3}\n",
-                                           IsSimpleStr,
-                                           helper_nm,
-                                           InGlbsStr,
-                                           OutGlbsStr);
-      } else {
-        WithColor::note() << llvm::formatv("[helper] ({0}) {1}\n", IsSimpleStr,
-                                           helper_nm);
-      }
+      //InGlbsStr.push_back('}');
     }
 
-    return hf;
-  } else {
-    return (*it).second;
+    std::string OutGlbsStr;
+
+    {
+      std::vector<unsigned> oglbv;
+      explode_tcg_global_set(oglbv, hf.Analysis.OutGlbs);
+
+      //OutGlbsStr.push_back('{');
+      for (auto it = oglbv.begin(); it != oglbv.end(); ++it) {
+        unsigned glb = *it;
+
+        OutGlbsStr.append(TCG->_ctx.temps[glb].name);
+        if (std::next(it) != oglbv.end())
+          OutGlbsStr.append(", ");
+      }
+      //OutGlbsStr.push_back('}');
+    }
+
+    const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
+
+    if (!InGlbsStr.empty() || !OutGlbsStr.empty()) {
+      WithColor::note() << llvm::formatv("[helper] ({0}) {1} : {2} -> {3}\n",
+                                         IsSimpleStr,
+                                         helper_nm,
+                                         InGlbsStr,
+                                         OutGlbsStr);
+    } else {
+      WithColor::note() << llvm::formatv("[helper] ({0}) {1}\n", IsSimpleStr,
+                                         helper_nm);
+    }
   }
+
+  return hf;
 }
 
 
