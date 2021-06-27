@@ -2457,7 +2457,7 @@ int ProcessExportedFunctions(void) {
 }
 
 static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
-static llvm::Value *BuildCPUStateGlobalPointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
+static llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
 
 int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
@@ -7914,7 +7914,7 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
       llvm::PointerType::get(GlbTy, 0));
 }
 
-llvm::Value *BuildCPUStateGlobalPointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb) {
+llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb) {
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
@@ -10614,7 +10614,7 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), BuildCPUStateGlobalPointer(IRB, Env, glb));
+        llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), BuildCPUStatePointer(IRB, Env, glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
@@ -10635,7 +10635,7 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::LoadInst *LI = IRB.CreateLoad(BuildCPUStateGlobalPointer(IRB, Env, glb));
+        llvm::LoadInst *LI = IRB.CreateLoad(BuildCPUStatePointer(IRB, Env, glb));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
         set(LI, &s->temps[glb]);
