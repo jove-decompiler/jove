@@ -2456,7 +2456,8 @@ int ProcessExportedFunctions(void) {
   return 0;
 }
 
-static llvm::Constant *CPUStateGlobalPointer(unsigned glb, llvm::Value *Env = nullptr);
+static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
+static llvm::Value *BuildCPUStateGlobalPointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
 
 int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
@@ -7869,10 +7870,7 @@ static llvm::AllocaInst *CreateAllocaForGlobal(llvm::IRBuilderTy &IRB,
       std::string(TCG->_ctx.temps[glb].name) + "_ptr");
 
   if (InitializeFromEnv) {
-    llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
-    assert(GlbPtr);
-
-    llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
     llvm::StoreInst *SI = IRB.CreateStore(LI, res);
@@ -7884,40 +7882,23 @@ static llvm::AllocaInst *CreateAllocaForGlobal(llvm::IRBuilderTy &IRB,
 
 static int TranslateBasicBlock(TranslateContext &);
 
-llvm::Constant *CPUStateGlobalPointer(unsigned glb, llvm::Value *Env) {
+llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
   assert(glb < tcg_num_globals);
-
-  if (glb == tcg_env_index)
-    return CPUStateGlobal;
+  assert(glb != tcg_env_index);
 
   unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
   llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
 
   struct TCGTemp *base_tmp = TCG->_ctx.temps[glb].mem_base;
-  if (!base_tmp || temp_idx(base_tmp) != tcg_env_index) {
-#if 1
-    // we don't know how to locate it.
+  if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
     return nullptr;
-#else
-    static int i = 0;
-
-    return llvm::ConstantExpr::getPointerCast(
-        new llvm::GlobalVariable(*Module, WordType(), false,
-                                 llvm::GlobalValue::ExternalLinkage, nullptr,
-                                 (fmt("CPUStateGlobalPointer_fail_%s_%i")
-                                  % TCG->_ctx.temps[glb].name
-                                  % i++).str()),
-        llvm::PointerType::get(GlbTy, 0));
-#endif
-  }
 
   unsigned off = TCG->_ctx.temps[glb].mem_offset;
 
   llvm::IRBuilderTy IRB(*Context);
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, Env ? Env : CPUStateGlobal, llvm::APInt(64, off),
-      GlbTy, Indices, "");
+      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy, Indices, "");
 
   if (res) {
     assert(llvm::isa<llvm::Constant>(res));
@@ -7925,19 +7906,38 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb, llvm::Value *Env) {
                                               llvm::PointerType::get(GlbTy, 0));
   }
 
-  //
   // fallback
-  //
-#if 0
-  WithColor::error() << llvm::formatv(
-      "failed to get CPUState global pointer for {0}\n",
-      TCG->_ctx.temps[glb].name);
-#endif
-
   return llvm::ConstantExpr::getIntToPtr(
       llvm::ConstantExpr::getAdd(
           llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),
           llvm::ConstantInt::get(WordType(), off)),
+      llvm::PointerType::get(GlbTy, 0));
+}
+
+llvm::Value *BuildCPUStateGlobalPointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb) {
+  assert(glb < tcg_num_globals);
+  assert(glb != tcg_env_index);
+
+  unsigned bits = bitsOfTCGType(TCG->_ctx.temps[glb].type);
+  llvm::Type *GlbTy = llvm::IntegerType::get(*Context, bits);
+
+  struct TCGTemp *base_tmp = TCG->_ctx.temps[glb].mem_base;
+  if (unlikely(!base_tmp || temp_idx(base_tmp) != tcg_env_index))
+    return nullptr;
+
+  unsigned off = TCG->_ctx.temps[glb].mem_offset;
+
+  llvm::SmallVector<llvm::Value *, 4> Indices;
+  llvm::Value *res = llvm::getNaturalGEPWithOffset(
+      IRB, DL, Env, llvm::APInt(64, off), GlbTy, Indices, "");
+
+  if (res)
+    return IRB.CreatePointerCast(res, llvm::PointerType::get(GlbTy, 0));
+
+  // fallback
+  return IRB.CreateIntToPtr(
+      IRB.CreateAdd(IRB.CreatePtrToInt(CPUStateGlobal, WordType()),
+                    llvm::ConstantInt::get(WordType(), off)),
       llvm::PointerType::get(GlbTy, 0));
 }
 
@@ -8947,10 +8947,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     assert(glb != tcg_env_index);
 
     if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
-      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
-      assert(GlbPtr);
-
-      llvm::StoreInst *SI = IRB.CreateStore(V, GlbPtr);
+      llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(glb));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return;
     }
@@ -8980,10 +8977,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
-      llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
-      assert(GlbPtr);
-
-      llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     }
@@ -9401,10 +9395,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
-        assert(GlbPtr);
-
-        llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
+        llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
 
@@ -9889,10 +9880,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               explode_tcg_global_set(glbv, glbs);
 
               for (unsigned glb : glbv) {
-                llvm::Constant *GlbPtr = CPUStateGlobalPointer(glb);
-                assert(GlbPtr);
-
-                llvm::StoreInst *SI = IRB.CreateStore(get(glb), GlbPtr);
+                llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               }
 
@@ -10325,10 +10313,7 @@ static int TranslateTCGOp(TCGOp *op,
       assert(idx != tcg_env_index);
 
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
-        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
-        assert(GlbPtr);
-
-        llvm::StoreInst *SI = IRB.CreateStore(V, GlbPtr);
+        llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return;
       }
@@ -10368,10 +10353,7 @@ static int TranslateTCGOp(TCGOp *op,
       }
 
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
-        llvm::Constant *GlbPtr = CPUStateGlobalPointer(idx);
-        assert(GlbPtr);
-
-        llvm::LoadInst *LI = IRB.CreateLoad(GlbPtr);
+        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return LI;
       }
@@ -10632,7 +10614,7 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, (hf.Analysis.InGlbs | hf.Analysis.OutGlbs) & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), CPUStateGlobalPointer(glb, Env));
+        llvm::StoreInst *SI = IRB.CreateStore(get(&s->temps[glb]), BuildCPUStateGlobalPointer(IRB, Env, glb));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
     }
@@ -10653,7 +10635,7 @@ static int TranslateTCGOp(TCGOp *op,
       std::vector<unsigned> glbv;
       explode_tcg_global_set(glbv, hf.Analysis.OutGlbs & ~CmdlinePinnedEnvGlbs);
       for (unsigned glb : glbv) {
-        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, Env));
+        llvm::LoadInst *LI = IRB.CreateLoad(BuildCPUStateGlobalPointer(IRB, Env, glb));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
         set(LI, &s->temps[glb]);
