@@ -175,17 +175,22 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
   // Information in the PT_DYNAMIC program header has priority over the information
   // in a section header.
   if (IsPhdrTableValid) {
-    if (!IsSecTableValid)
+    if (!IsSecTableValid) {
+#ifdef WARN
       WithColor::warning()
           << llvm::formatv("SHT_DYNAMIC dynamic table is invalid: PT_DYNAMIC "
                            "will be used for {0}\n",
                            ObjF->getFileName());
+#endif
+    }
 
     DynamicTable = FromPhdr;
   } else {
+#ifdef WARN
     WithColor::warning() <<
       llvm::formatv("PT_DYNAMIC dynamic table is invalid: SHT_DYNAMIC will be used for {0}\n",
                     ObjF->getFileName());
+#endif
 
     DynamicTable = FromSec;
   }
