@@ -178,10 +178,23 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   for (basic_block_t bb : f.BasicBlocks)
     ICFG[bb].Analyze(f.BIdx);
 
-  //
-  // have we already copied this function's CFG?
-  //
-  {
+  bool is_leaf = !f.ExitBasicBlocks.empty() &&
+                 std::all_of(f.ExitBasicBlocks.begin(),
+                             f.ExitBasicBlocks.end(),
+                             [&](basic_block_t bb) -> bool
+                             { return ICFG[bb].Term.Type == TERMINATOR::RETURN; }) &&
+                 std::none_of(f.BasicBlocks.begin(),
+                              f.BasicBlocks.end(),
+                              [&](basic_block_t bb) -> bool {
+                                return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+                                        boost::out_degree(bb, ICFG) == 0)
+                                    || (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+                              });
+
+  if (!is_leaf) {
+    //
+    // have we already copied this function's CFG?
+    //
     auto it = memoize.find(&f);
     if (it != memoize.end()) {
       exitVertices = (*it).second.second;
@@ -265,13 +278,6 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
               if (res.first == f.BIdx && X.first != f.BIdx)
                 return X;
 
-#if 0
-              if ((res.first == 2 ||
-                   res.first == 1) && (X.first != 2 &&
-                                       X.first != 1))
-                return X;
-#endif
-
               return res;
             });
 #endif
@@ -347,13 +353,6 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
 
               if (res.first == f.BIdx && X.first != f.BIdx)
                 return X;
-
-#if 0
-              if ((res.first == 2 ||
-                   res.first == 1) && (X.first != 2 &&
-                                       X.first != 1))
-                return X;
-#endif
 
               return res;
             });
