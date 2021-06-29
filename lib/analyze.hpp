@@ -275,15 +275,13 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
         }
       }
 
-      if (eit_pair.first == eit_pair.second)
-        break;
+      if (eit_pair.first != eit_pair.second) {
+        assert(std::next(eit_pair.first) == eit_pair.second);
 
-      assert(eit_pair.first != eit_pair.second &&
-             std::next(eit_pair.first) == eit_pair.second);
+        flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
 
-      flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
-
-      boost::remove_edge(Orig2CopyMap[bb], succV, G);
+        boost::remove_edge(Orig2CopyMap[bb], succV, G);
+      }
       break;
     }
 
@@ -326,15 +324,8 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
         exitVertices.erase(it);
       }
 
-      /* Note: this is an exit block. */
-
       const auto &DynTargets = ICFG[bb].DynTargets;
-      if (DynTargets.empty()) {
-#ifdef WARN
-        WARN();
-#endif
-        continue;
-      }
+      assert(!DynTargets.empty());
 
 #if 0
       flow_vertex_t newExitV = boost::add_vertex(G);
