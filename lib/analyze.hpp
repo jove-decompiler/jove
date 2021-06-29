@@ -449,6 +449,12 @@ void function_t::Analyze(void) {
     this->Analysis.args = G[entryV].IN & ~(NotArgs | CmdlinePinnedEnvGlbs);
 
     //
+    // all non-ABI functions will be passed the stack pointer.
+    //
+    if (!this->IsABI)
+      this->Analysis.args.set(tcg_stack_pointer_index);
+
+    //
     // reaching definitions
     //
     for (flow_vertex_t V : Vertices) {
@@ -488,11 +494,17 @@ void function_t::Analyze(void) {
                 return res & G[V].OUT;
               }) &
           ~(NotRets | CmdlinePinnedEnvGlbs);
+
+      //
+      // all non-ABI functions with an exit block will return the stack pointer.
+      //
+      if (!this->IsABI)
+        this->Analysis.rets.set(tcg_stack_pointer_index);
     }
   }
 
-  if (this->IsABI) {
 #if 0
+  if (this->IsABI) {
     //
     // for ABI's, if we need a return register whose index > 0, then we will
     // infer that all the preceeding return registers are live as well
@@ -525,8 +537,8 @@ void function_t::Analyze(void) {
     } else {
       this->Analysis.rets.reset();
     }
-#endif
   }
+#endif
 
   //
   // for ABI's, if we need a register parameter whose index > 0, then we will
@@ -548,15 +560,6 @@ void function_t::Analyze(void) {
       for (unsigned i = 0; i <= idx; ++i)
         this->Analysis.args.set(CallConvArgArray[i]);
     }
-  }
-
-  //
-  // all non-ABI functions will be passed the stack pointer, and will return
-  // it as well. XXX if we know this to be a leaf function, we can do better
-  //
-  if (!this->IsABI) {
-    this->Analysis.args.set(tcg_stack_pointer_index);
-    this->Analysis.rets.set(tcg_stack_pointer_index);
   }
 }
 
