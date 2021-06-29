@@ -2007,7 +2007,7 @@ static _CTOR void _do_jove_rt_init(void) {
   _jove_rt_init();
 }
 
-ssize_t _robust_write(int fd, void *const buf, const size_t count) {
+static ssize_t _robust_write(int fd, void *const buf, const size_t count) {
   uint8_t *const _buf = (uint8_t *)buf;
 
   unsigned n = 0;

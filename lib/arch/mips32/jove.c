@@ -1931,6 +1931,7 @@ _HIDDEN void _jove_free_callstack(target_ulong);
 // utility functions
 //
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
+static _INL void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n);
 static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
@@ -2809,14 +2810,160 @@ found:
   }
 }
 
+static ssize_t _robust_write(int fd, void *const buf, const size_t count) {
+  uint8_t *const _buf = (uint8_t *)buf;
+
+  unsigned n = 0;
+  do {
+    unsigned left = count - n;
+
+    ssize_t ret = _jove_sys_write(fd, &_buf[n], left);
+
+    if (ret == 0)
+      return -EIO;
+
+    if (ret < 0) {
+      if (ret == -EINTR)
+        continue;
+
+      return ret;
+    }
+
+    n += ret;
+  } while (n != count);
+
+  return n;
+}
+
+typedef int32_t	old_time32_t;
+
+struct old_timespec32 {
+	old_time32_t	tv_sec;
+	int32_t		tv_nsec;
+};
 
 void _jove_fail1(target_ulong a0) {
-  _UNREACHABLE("_jove_fail1");
+  char maps[4096 * 8];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  {
+    char s[4096 * 8];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_fail1: 0x");
+    {
+      char buff[65];
+      uint_to_string(a0, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    {
+      char buff[65];
+      _description_of_address_for_maps(buff, a0, maps, n);
+      _strcat(s, " <");
+      _strcat(s, buff);
+      _strcat(s, "> [");
+    }
+
+    {
+      char buff[65];
+      uint_to_string(_jove_sys_gettid(), buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, "]\n");
+    _strcat(s, maps);
+
+    //
+    // dump message for user
+    //
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
+  for (;;) {
+    struct old_timespec32 t;
+    t.tv_sec = 10;
+    t.tv_nsec = 0;
+
+    _jove_sys_nanosleep_time32(&t, NULL);
+  }
+
+  __builtin_unreachable();
 }
 
 void _jove_fail2(target_ulong a0,
                  target_ulong a1) {
   _UNREACHABLE("_jove_fail2");
+}
+
+void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
+  out[0] = '\0'; /* empty */
+
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+    }
+
+    unsigned left = eol - line;
+
+    struct {
+      uint64_t min, max;
+    } vm;
+
+    {
+      char *dash = _memchr(line, '-', left);
+      vm.min = _u64ofhexstr(line, dash);
+
+      char *space = _memchr(line, ' ', left);
+      vm.max = _u64ofhexstr(dash + 1, space);
+    }
+
+    //
+    // does the given address exist within this mapping?
+    //
+    if (Addr >= vm.min && Addr < vm.max) {
+      //
+      // we have a match. If this mapping has a file path, we'll make it the
+      // description
+      //
+      char *fwdslash = _memchr(line, '/', left);
+      char *leftsqbr = _memchr(line, '[', left);
+
+      if (fwdslash) {
+        *eol = '\0';
+        _strcat(out, fwdslash);
+        *eol = '\n';
+      } else if (leftsqbr) {
+        *eol = '\0';
+        _strcat(out, leftsqbr);
+        *eol = '\n';
+      } else {
+        *out = '\0';
+        return;
+      }
+
+      _strcat(out, "+0x");
+
+      ssize_t Offset = Addr - vm.min;
+      char offsetStr[65];
+      uint_to_string(Offset, offsetStr, 0x10);
+
+      _strcat(out, offsetStr);
+
+      return;
+    }
+  }
 }
 
 #if 0
