@@ -246,52 +246,49 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   // indirect jumps
   //
   for (basic_block_t bb : f.BasicBlocks) {
-    function_t *callee_ptr = nullptr;
-
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
       auto &DynTargets = ICFG[bb].DynTargets;
       if (DynTargets.empty())
         continue;
 
-#if 0
-      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
-      std::sample(DynTargets.begin(), DynTargets.end(),
-                  std::back_inserter(DynTargetSampled), 1,
-                  std::mt19937{std::random_device{}()});
+      auto eit_pair = boost::out_edges(bb, ICFG);
 
-      assert(DynTargetSampled.size() == 1);
+      for (const auto &DynTarget : DynTargets) {
+        function_t &callee = Decompilation.Binaries[DynTarget.first]
+                                .Analysis.Functions[DynTarget.second];
 
-      auto &DynTarget = DynTargetSampled.front();
-#elif 0
-      auto &DynTarget = *DynTargets.begin();
-#else
-      dynamic_target_t DynTarget =
-        std::accumulate(
-            DynTargets.cbegin(),
-            DynTargets.cend(),
-            invalid_dynamic_target,
-            [&](dynamic_target_t res, dynamic_target_t X) -> dynamic_target_t {
-              if (!is_dynamic_target_valid(res))
-                return X;
+        std::vector<flow_vertex_t> calleeExitVertices;
+        flow_vertex_t calleeEntryV =
+            copy_function_cfg(G, callee, calleeExitVertices, memoize);
+        boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
-              if (res.first == f.BIdx && X.first != f.BIdx)
-                return X;
+        if (eit_pair.first != eit_pair.second) {
+          flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
 
-              return res;
-            });
-#endif
-      assert(is_dynamic_target_valid(DynTarget));
+          for (flow_vertex_t exitV : calleeExitVertices) {
+            flow_edge_t E = boost::add_edge(exitV, succV, G).first;
 
-      callee_ptr = &Decompilation.Binaries[DynTarget.first]
-                        .Analysis.Functions[DynTarget.second];
-      /* fallthrough */
+            if (callee.IsABI)
+              G[E].reach.mask = CallConvRets;
+          }
+        }
+      }
+
+      if (eit_pair.first == eit_pair.second)
+        break;
+
+      assert(eit_pair.first != eit_pair.second &&
+             std::next(eit_pair.first) == eit_pair.second);
+
+      flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
+
+      boost::remove_edge(Orig2CopyMap[bb], succV, G);
+      break;
     }
 
     case TERMINATOR::CALL: {
-      function_t &callee =
-          callee_ptr ? *callee_ptr
-                     : Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+      function_t &callee = Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
       std::vector<flow_vertex_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
@@ -320,67 +317,50 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
     }
 
     case TERMINATOR::INDIRECT_JUMP: {
-      auto it = std::find(exitVertices.begin(),
-                          exitVertices.end(),
-                          Orig2CopyMap[bb]);
-      if (it == exitVertices.end())
-        continue;
-
-      const auto &DynTargets = ICFG[bb].DynTargets;
-      if (DynTargets.empty())
-        continue;
-
-#if 0
-      std::vector<std::pair<binary_index_t, function_index_t>> DynTargetSampled;
-      std::sample(DynTargets.begin(), DynTargets.end(),
-                  std::back_inserter(DynTargetSampled), 1,
-                  std::mt19937{std::random_device{}()});
-
-      assert(DynTargetSampled.size() == 1);
-
-      auto &DynTarget = DynTargetSampled.front();
-#elif 0
-      auto &DynTarget = *DynTargets.begin();
-#else
-      dynamic_target_t DynTarget =
-        std::accumulate(
-            DynTargets.cbegin(),
-            DynTargets.cend(),
-            invalid_dynamic_target,
-            [&](dynamic_target_t res, dynamic_target_t X) -> dynamic_target_t {
-              if (!is_dynamic_target_valid(res))
-                return X;
-
-              if (res.first == f.BIdx && X.first != f.BIdx)
-                return X;
-
-              return res;
-            });
-#endif
-      assert(is_dynamic_target_valid(DynTarget));
-
-      auto eit_pair = boost::out_edges(bb, ICFG);
-      assert(eit_pair.first == eit_pair.second);
-
-      function_t &callee = Decompilation.Binaries[DynTarget.first]
-                               .Analysis.Functions[DynTarget.second];
-
-      std::vector<flow_vertex_t> calleeExitVertices;
-      flow_vertex_t calleeEntryV =
-          copy_function_cfg(G, callee, calleeExitVertices, memoize);
-      flow_vertex_t newExitV = boost::add_vertex(G);
-      G[newExitV].bbprop = &EmptyBBProp;
-
-      boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
-
-      for (flow_vertex_t V : calleeExitVertices) {
-        flow_edge_t E = boost::add_edge(V, newExitV, G).first;
-        if (callee.IsABI)
-          G[E].reach.mask = CallConvRets;
+      {
+        auto it = std::find(exitVertices.begin(),
+                            exitVertices.end(),
+                            Orig2CopyMap[bb]);
+        if (it == exitVertices.end())
+          continue;
+        exitVertices.erase(it);
       }
 
-      exitVertices.erase(it);
-      exitVertices.push_back(newExitV);
+      /* Note: this is an exit block. */
+
+      const auto &DynTargets = ICFG[bb].DynTargets;
+      if (DynTargets.empty()) {
+#ifdef WARN
+        WARN();
+#endif
+        continue;
+      }
+
+#if 0
+      flow_vertex_t newExitV = boost::add_vertex(G);
+      G[newExitV].bbprop = &EmptyBBProp;
+#endif
+
+      for (const auto &DynTarget : DynTargets) {
+        function_t &callee = Decompilation.Binaries[DynTarget.first]
+                                .Analysis.Functions[DynTarget.second];
+
+        std::vector<flow_vertex_t> calleeExitVertices;
+        flow_vertex_t calleeEntryV =
+            copy_function_cfg(G, callee, calleeExitVertices, memoize);
+        boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
+
+        for (flow_vertex_t V : calleeExitVertices) {
+#if 0
+          flow_edge_t E = boost::add_edge(V, newExitV, G).first;
+
+          if (callee.IsABI)
+            G[E].reach.mask = CallConvRets;
+#endif
+
+          exitVertices.push_back(V);
+        }
+      }
       break;
     }
 
