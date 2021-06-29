@@ -9671,6 +9671,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;
       DynTargetsDoCallBVec.resize(DynTargetsVec.size());
 
+      std::vector<llvm::Value *> DynTargetsCallableAddrVec;
+      DynTargetsCallableAddrVec.resize(DynTargetsVec.size());
+
       std::transform(DynTargetsVec.begin(), DynTargetsVec.end(),
                      DynTargetsDoCallBVec.begin(),
                      [&](std::pair<binary_index_t, function_index_t> IdxPair)
@@ -9704,10 +9707,13 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 f.F);
 
+          llvm::Value *CallableDynTargetAddress = GetDynTargetAddress<true>(IRB, DynTargetsVec[i], B);
+          DynTargetsCallableAddrVec[i] = CallableDynTargetAddress;
+
           llvm::Value *EQV_1 = IRB.CreateICmpEQ(
               PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
           llvm::Value *EQV_2 = IRB.CreateICmpEQ(
-              PC, GetDynTargetAddress<true>(IRB, DynTargetsVec[i], B));
+              PC, CallableDynTargetAddress);
 
           IRB.CreateCondBr(IRB.CreateOr(EQV_1, EQV_2), DynTargetsDoCallBVec[i], B);
         } while (++i != DynTargetsVec.size());
@@ -9809,7 +9815,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                return get(glb);
                              });
 
-              ArgVec.push_back(GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
+              ArgVec.push_back(DynTargetsCallableAddrVec[i]);
               ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index));
 
               llvm::Function *const JoveThunkFuncArray[] = {
@@ -9839,7 +9845,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               }
 
               llvm::Value *CallArgs[] = {
-                  GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
+                  DynTargetsCallableAddrVec[i],
                   IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
                   CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
@@ -9889,7 +9895,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
             Ret = IRB.CreateCall(
                 IRB.CreateIntToPtr(
-                    GetDynTargetAddress<true>(IRB, DynTargetsVec[i]),
+                    DynTargetsCallableAddrVec[i],
                     llvm::PointerType::get(DetermineFunctionType(callee), 0)),
                 ArgVec);
 
