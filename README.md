@@ -158,9 +158,8 @@ sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /myngin
 # Building
 ```bash
 # on debian testing:
-apt-get build-dep libz3-dev
+apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl libz3-dev
 apt-get build-dep llvm
-apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl
 
 # on archlinux: sudo pacman -Syu ninja cmake graphviz libxml2 gmsl
 
@@ -168,6 +167,7 @@ cd jove/
 git submodule update --init --recursive
 
 cd third_party/
+ulimit -s unlimited
 make build-llvm
 
 cd ..
