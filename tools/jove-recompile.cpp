@@ -287,15 +287,19 @@ int recompile(void) {
     return 1;
   }
 
-  jove_dfsan_path =
-      (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
-       "lib" / "linux" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
-          .string();
-  if (!fs::exists(jove_dfsan_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n",
-                                        jove_dfsan_path);
-    return 1;
+  {
+    const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
+
+    jove_dfsan_path =
+        (boost::dll::program_location().parent_path().parent_path().parent_path() /
+         "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
+         "lib" / "linux" / dfsan_rt_filename)
+            .string();
+    if (!fs::exists(jove_dfsan_path)) {
+      WithColor::error() << llvm::formatv("could not find {0}\n",
+                                          jove_dfsan_path);
+      return 1;
+    }
   }
 
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
@@ -438,11 +442,23 @@ int recompile(void) {
   }
 
   //
-  // setup sysroot
+  // create basic directories for sysroot
   //
+  {
+    fs::create_directories(fs::path(opts::Output) / "proc");
+    fs::create_directories(fs::path(opts::Output) / "sys");
+    fs::create_directories(fs::path(opts::Output) / "dev");
+    fs::create_directories(fs::path(opts::Output) / "run");
+    fs::create_directories(fs::path(opts::Output) / "tmp");
+    fs::create_directories(fs::path(opts::Output) / "etc");
+    fs::create_directories(fs::path(opts::Output) / "usr" / "bin");
+    fs::create_directories(fs::path(opts::Output) / "usr" / "lib");
+    fs::create_directories(fs::path(opts::Output) / "lib"); /* XXX? */
+    fs::create_directories(fs::path(opts::Output) / "var" / "run");
+  }
 
   //
-  // (1) copy dynamic linker
+  // copy dynamic linker
   //
   std::string rtld_soname;
 
@@ -501,7 +517,7 @@ int recompile(void) {
   }
 
   //
-  // (2) copy jove runtime
+  // copy jove runtime
   //
   {
     {
@@ -527,31 +543,28 @@ int recompile(void) {
   }
 
   //
-  // (3) copy jove dfsan runtime
+  // copy jove dfsan runtime
   //
   if (opts::DFSan) {
-    fs::path chrooted_path =
-        fs::path(opts::Output) / "usr" / "lib" /
-        ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so");
+    const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
 
-    fs::create_directories(chrooted_path.parent_path());
-    fs::copy_file(jove_dfsan_path, chrooted_path,
-                  fs::copy_option::overwrite_if_exists);
-  }
+    {
+      fs::path chrooted_path =
+          fs::path(opts::Output) / "usr" / "lib" / dfsan_rt_filename;
 
-  //
-  // (4) create basic directories (for chroot)
-  //
-  {
-    fs::create_directories(fs::path(opts::Output) / "proc");
-    fs::create_directories(fs::path(opts::Output) / "sys");
-    fs::create_directories(fs::path(opts::Output) / "dev");
-    fs::create_directories(fs::path(opts::Output) / "run");
-    fs::create_directories(fs::path(opts::Output) / "tmp");
-    fs::create_directories(fs::path(opts::Output) / "etc");
-    fs::create_directories(fs::path(opts::Output) / "usr" / "bin");
-    fs::create_directories(fs::path(opts::Output) / "usr" / "lib");
-    fs::create_directories(fs::path(opts::Output) / "var" / "run");
+      fs::copy_file(jove_dfsan_path, chrooted_path,
+                    fs::copy_option::overwrite_if_exists);
+    }
+
+    if (!fs::equivalent(fs::path(opts::Output) / "usr" / "lib" / dfsan_rt_filename,
+                        fs::path(opts::Output) / "lib" / dfsan_rt_filename)) {
+      /* XXX some dynamic linkers only look in /lib */
+      fs::path chrooted_path =
+          fs::path(opts::Output) / "lib" / dfsan_rt_filename;
+
+      fs::copy_file(jove_dfsan_path, chrooted_path,
+                    fs::copy_option::overwrite_if_exists);
+    }
   }
 
   //
