@@ -87,7 +87,7 @@ namespace jove {
 
 static std::string tmpdir;
 
-static fs::path jove_recompile_path, jove_analyze_path, libjove_rt_path;
+static fs::path jove_recompile_path, jove_analyze_path, libjove_rt_path, dfsan_rt_path;
 
 static int await_process_completion(pid_t);
 
@@ -180,6 +180,22 @@ int server(void) {
         "could not find jove runtime at {0}\n", libjove_rt_path.c_str());
 
     return 1;
+  }
+
+  {
+    const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
+
+    dfsan_rt_path =
+	(boost::dll::program_location().parent_path().parent_path().parent_path() /
+	 "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
+	 "lib" / "linux" / dfsan_rt_filename).string();
+
+    if (!fs::exists(dfsan_rt_path)) {
+      WithColor::error() << llvm::formatv(
+	  "could not find jove dfsan runtime at {0}\n", dfsan_rt_path.c_str());
+
+      return 1;
+    }
   }
 
   //
@@ -695,6 +711,19 @@ void *ConnectionProc(void *arg) {
       llvm::errs() << "sending jove runtime\n";
 
     ssize_t ret = robust_sendfile_with_size(data_socket, libjove_rt_path.c_str());
+
+    if (ret < 0) {
+      WithColor::error() << llvm::formatv(
+          "robust_sendfile_with_size failed: {0}\n", strerror(-ret));
+      return nullptr;
+    }
+  }
+
+  if (options.dfsan) {
+    if (opts::Verbose)
+      llvm::errs() << "sending jove dfsan runtime\n";
+
+    ssize_t ret = robust_sendfile_with_size(data_socket, dfsan_rt_path.c_str());
 
     if (ret < 0) {
       WithColor::error() << llvm::formatv(

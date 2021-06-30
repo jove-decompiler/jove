@@ -1038,7 +1038,8 @@ skip_run:
         // /lib could just be a symlink to usr/lib, in which case we don't want
         // the following
         //
-        if (!fs::equivalent(rt_path, fs::path(Prefix) / "lib" / "libjove_rt.so.0")) {
+        if (!fs::equivalent(rt_path,
+                            fs::path(Prefix) / "lib" / "libjove_rt.so.0")) {
           try {
             // XXX some dynamic linkers only look in /lib
             fs::copy_file(rt_path,
@@ -1055,16 +1056,44 @@ skip_run:
 #endif
 
       //
-      // copy dfsan runtime
+      // get dfsan runtime from remote
       //
       if (opts::DFSan) {
-        fs::path chrooted_path =
-            fs::path(opts::sysroot) / "usr" / "lib" /
-            ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so");
+	const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
 
-        fs::create_directories(chrooted_path.parent_path());
-        fs::copy_file(jove_dfsan_path, chrooted_path,
-                      fs::copy_option::overwrite_if_exists);
+	fs::remove(fs::path(Prefix) / "usr" / "lib" / dfsan_rt_filename);
+	fs::remove(fs::path(Prefix) / "lib" / dfsan_rt_filename);
+
+        fs::path dfsan_rt_path =
+            fs::path(Prefix) / "usr" / "lib" / dfsan_rt_filename;
+
+        if (opts::Verbose)
+          llvm::errs() << "receiving jove dfsan runtime\n";
+
+        ssize_t ret =
+            robust_receive_file_with_size(remote_fd, dfsan_rt_path.c_str(), 0777);
+        if (ret < 0) {
+          WithColor::error() << llvm::formatv(
+              "failed to receive runtime {0} from remote: {1}\n",
+              dfsan_rt_path.c_str(), strerror(-ret));
+          return 1;
+        }
+
+        //
+        // /lib could just be a symlink to usr/lib, in which case we don't want
+        // the following
+        //
+        if (!fs::equivalent(dfsan_rt_path,
+                            fs::path(Prefix) / "lib" / dfsan_rt_filename)) {
+          try {
+            // XXX some dynamic linkers only look in /lib
+            fs::copy_file(dfsan_rt_path,
+                          fs::path(Prefix) / "lib" / dfsan_rt_filename,
+                          fs::copy_option::overwrite_if_exists);
+          } catch (...) {
+	    ;
+	  }
+        }
       }
 
       //
