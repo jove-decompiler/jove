@@ -1776,42 +1776,108 @@ void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 // declare dfsan syscall hooks
 //
 #define ___SYSCALL0(nr, nm)                                                    \
-  void SYSEXIT(nm)(long sysret);
-#define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  void SYSEXIT(nm)(long sysret, t1 a1);
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2);
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3);
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4);
-#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);
-#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);
+  void SYSEXIT(nm)(long sysret);                                               \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
 
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  void SYSEXIT(nm)(long sysret, t1 a1);                                        \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2);                                 \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3);                          \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4);                   \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);            \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  void SYSEXIT(nm)(long sysret, t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);     \
+  _HIDDEN typeof(SYSEXIT(nm)) *SYSEXIT(nm##_clunk) = SYSEXIT(nm);
+
+#define ___DFSAN
 #define ___DFSAN_SYSEXITS
 #include "syscalls.inc.h"
 #undef ___DFSAN_SYSEXITS
+#undef ___DFSAN
 
 #define ___SYSCALL0(nr, nm)                                                    \
-  void SYSENTR(nm)();
-#define ___SYSCALL1(nr, nm, t1, a1)                                            \
-  void SYSENTR(nm)(t1 a1);
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
-  void SYSENTR(nm)(t1 a1, t2 a2);
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
-  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3);
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
-  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4);
-#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
-  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);
-#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
-  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);
+  void SYSENTR(nm)();                                                          \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
 
+#define ___SYSCALL1(nr, nm, t1, a1)                                            \
+  void SYSENTR(nm)(t1 a1);                                                     \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
+  void SYSENTR(nm)(t1 a1, t2 a2);                                              \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3);                                       \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4);                                \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5);                         \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
+  void SYSENTR(nm)(t1 a1, t2 a2, t3 a3, t4 a4, t5 a5, t6 a6);                  \
+  _HIDDEN typeof(SYSENTR(nm)) *SYSENTR(nm##_clunk) = SYSENTR(nm);
+
+#define ___DFSAN
 #define ___DFSAN_SYSENTRS
 #include "syscalls.inc.h"
 #undef ___DFSAN_SYSENTRS
+#undef ___DFSAN
+
+#if 0
+
+__attribute__((visibility("hidden"))) int foo(void **x) {
+  /* the following is so the compiler doesn't optimize away the clunks */
+
+#define ___SYSCALL0(nr, nm)                                                 *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL1(nr, nm, t1, a1)                                         *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                 *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                 *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)         *x = &SYSENTR(nm##_clunk);
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6) *x = &SYSENTR(nm##_clunk);
+
+#define ___DFSAN
+#define ___DFSAN_SYSENTRS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSENTRS
+#undef ___DFSAN
+
+#define ___SYSCALL0(nr, nm)                                                 *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL1(nr, nm, t1, a1)                                         *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                 *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                 *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)         *x = &SYSEXIT(nm##_clunk);
+#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6) *x = &SYSEXIT(nm##_clunk);
+
+#define ___DFSAN
+#define ___DFSAN_SYSEXITS
+#include "syscalls.inc.h"
+#undef ___DFSAN_SYSEXITS
+#undef ___DFSAN
+}
+
+#endif
 
 #endif /* JOVE_DFSAN */
 
@@ -2088,31 +2154,31 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
   case nr:                                                                     \
-    SYSENTR(nm)();                                                             \
+    SYSENTR(nm##_clunk)();                                                     \
     break;
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1);                                                      \
+    SYSENTR(nm##_clunk)((t1)_a1);                                              \
     break;
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1, (t2)_a2);                                              \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2);                                     \
     break;
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3);                                    \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3);                            \
     break;
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                           \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                   \
     break;
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);                  \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);          \
     break;
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   case nr:                                                                     \
-    SYSENTR(nm)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6);         \
+    SYSENTR(nm##_clunk)((t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
     break;
 
 #define ___DFSAN
@@ -2306,31 +2372,31 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
   switch (sysnum) {
 #define ___SYSCALL0(nr, nm)                                                    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret);                                                       \
+    SYSEXIT(nm##_clunk)(sysret);                                               \
     break;
 #define ___SYSCALL1(nr, nm, t1, a1)                                            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1);                                              \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1);                                      \
     break;
 #define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2);                                     \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2);                             \
     break;
 #define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3);                            \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3);                    \
     break;
 #define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);                   \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4);           \
     break;
 #define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)            \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);          \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5);  \
     break;
 #define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6)    \
   case nr:                                                                     \
-    SYSEXIT(nm)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
+    SYSEXIT(nm##_clunk)(sysret, (t1)_a1, (t2)_a2, (t3)_a3, (t4)_a4, (t5)_a5, (t6)_a6); \
     break;
 
 #define ___DFSAN
