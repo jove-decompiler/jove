@@ -97,9 +97,9 @@ struct hook_t;
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
   const hook_t *hook = nullptr;                                                \
   llvm::Function *PreHook = nullptr;                                           \
-  llvm::GlobalVariable *PreHookGv = nullptr;                                   \
+  llvm::GlobalVariable *PreHookClunk = nullptr;                                \
   llvm::Function *PostHook = nullptr;                                          \
-  llvm::GlobalVariable *PostHookGv = nullptr;                                  \
+  llvm::GlobalVariable *PostHookClunk = nullptr;                               \
                                                                                \
   struct {                                                                     \
     llvm::GlobalIFunc *IFunc = nullptr;                                        \
@@ -1733,23 +1733,22 @@ static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
 
 template <bool IsPreOrPost>
 static std::pair<llvm::GlobalVariable *, llvm::Function *> declareHook(const hook_t &h) {
-  const char *namePrefix = IsPreOrPost ? "__dfs_pre_hook_"
-                                       : "__dfs_post_hook_";
-  const char *gvNamePrefix = IsPreOrPost ? "__dfs_pre_hook_gv_"
-                                         : "__dfs_post_hook_gv_";
-
+  const char *namePrefix =
+    IsPreOrPost ? "__dfs_pre_hook_" : "__dfs_post_hook_";
+  const char *clunkNamePrefix =
+    IsPreOrPost ? "__dfs_pre_hook_clunk_" : "__dfs_post_hook_clunk_";
 
   std::string name(namePrefix);
   name.append(h.Sym);
 
-  std::string gvName(gvNamePrefix);
-  gvName.append(h.Sym);
+  std::string clunkName(clunkNamePrefix);
+  clunkName.append(h.Sym);
 
   // first check if it already exists
   if (llvm::Function *F = Module->getFunction(name)) {
     assert(F->empty());
 
-    llvm::GlobalVariable *GV = Module->getGlobalVariable(gvName, true);
+    llvm::GlobalVariable *GV = Module->getGlobalVariable(clunkName, true);
     assert(GV);
 
     return std::make_pair(GV, F);
@@ -1780,7 +1779,7 @@ static std::pair<llvm::GlobalVariable *, llvm::Function *> declareHook(const hoo
         false,
         llvm::GlobalValue::InternalLinkage,
         llvm::ConstantExpr::getPtrToInt(F, WordType()),
-        gvName);
+        clunkName);
 
   return std::make_pair(GV, F);
 }
@@ -1815,7 +1814,7 @@ int LocateHooks(void) {
 
         if (h.Pre && dfsanPreHooks.insert(IdxPair).second) {
           f.hook = &h;
-          std::tie(f.PreHookGv, f.PreHook) = declarePreHook(h);
+          std::tie(f.PreHookClunk, f.PreHook) = declarePreHook(h);
 
           llvm::outs() << llvm::formatv("pre-hook {0} @ ({1}, {2})\n",
                                         h.Sym,
@@ -1825,7 +1824,7 @@ int LocateHooks(void) {
 
         if (h.Post && dfsanPostHooks.insert(IdxPair).second) {
           f.hook = &h;
-          std::tie(f.PostHookGv, f.PostHook) = declarePostHook(h);
+          std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
 
           llvm::outs() << llvm::formatv("post-hook {0} @ ({1}, {2})\n",
                                         h.Sym,
@@ -9347,7 +9346,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                          llvm::Type *Ty = type_of_arg_info(info);
                          return llvm::Constant::getNullValue(Ty);
                        });
-        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookGv), hook_f.PreHook->getType()), ArgVec);
+        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookClunk), hook_f.PreHook->getType()), ArgVec);
       }
     }
 
@@ -9550,7 +9549,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         //
         // make the call
         //
-        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookGv), hook_f.PostHook->getType()), HookArgVec);
+        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
       }
     }
 
@@ -10089,7 +10088,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // make the call
               //
-              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookGv), hook_f.PostHook->getType()), HookArgVec);
+              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
             }
           }
 
