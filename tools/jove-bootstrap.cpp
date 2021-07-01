@@ -3224,13 +3224,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       assert(Inst.getNumOperands() == 1);
       assert(Inst.getOperand(0).isImm());
 
+      auto &sp =
 #if defined(__x86_64__)
-      gpr.rsp += Inst.getOperand(0).getImm();
-#elif defined(__i386__)
-      gpr.esp += Inst.getOperand(0).getImm();
+          gpr.rsp
 #else
-#error
+          gpr.esp
 #endif
+          ;
+
+      sp += Inst.getOperand(0).getImm();
     }
 #endif
   };
