@@ -1056,6 +1056,43 @@ skip_run:
 #endif
 
       //
+      // additional stuff for DFSan XXX taken from recompile
+      //
+      if (opts::DFSan) {
+        fs::create_directories(fs::path(Prefix) / "jove");
+        fs::create_directories(fs::path(Prefix) / "dfsan");
+
+        {
+          std::ofstream ofs(
+              (fs::path(Prefix) / "jove" / "BinaryPathsTable.txt").c_str());
+
+          for (const binary_t &binary : decompilation.Binaries)
+            ofs << binary.Path << '\n';
+        }
+
+        fs::create_directories(fs::path(Prefix) / "jove" /
+                               "BinaryBlockAddrTables");
+
+        for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+          binary_t &binary = decompilation.Binaries[BIdx];
+          auto &ICFG = binary.Analysis.ICFG;
+
+          {
+            std::ofstream ofs((fs::path(Prefix) / "jove" /
+                               "BinaryBlockAddrTables" / std::to_string(BIdx))
+                                  .c_str());
+
+            for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
+                 ++BBIdx) {
+              basic_block_t bb = boost::vertex(BBIdx, ICFG);
+              tcg_uintptr_t Addr = ICFG[bb].Term.Addr; /* XXX */
+              ofs.write(reinterpret_cast<char *>(&Addr), sizeof(Addr));
+            }
+          }
+        }
+      }
+
+      //
       // get dfsan runtime from remote
       //
       if (opts::DFSan) {
