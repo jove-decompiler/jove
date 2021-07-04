@@ -828,7 +828,7 @@ static _CTOR void _jove_rt_init(void) {
 
 static target_ulong to_free[16];
 
-void _jove_rt_signal_handler(int sig, siginfo_t *siginfo, ucontext_t *uctx) {
+void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define ra    uctx->uc_mcontext.regs[30]
 #define pc    uctx->uc_mcontext.pc
 #define sp    uctx->uc_mcontext.sp
