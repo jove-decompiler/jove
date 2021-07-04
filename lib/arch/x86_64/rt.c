@@ -835,7 +835,7 @@ static _CTOR void _jove_rt_init(void) {
 
 static target_ulong to_free[16];
 
-void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
+void _jove_rt_signal_handler(int sig, siginfo_t *siginfo, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.gregs[REG_RIP]
 #define sp    uctx->uc_mcontext.gregs[REG_RSP]
 #define emusp           __jove_env.regs[R_ESP]
@@ -905,6 +905,19 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 
         _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
 #endif
+      }
+
+      if (siginfo && siginfo->si_pid) {
+        if (!SignalDelivery) {
+          char buff[256];
+          buff[0] = '\0';
+
+          _strcat(buff, __LOG_BOLD_YELLOW "siginfo && siginfo->si_pid but unrecognized sigreturn instruction sequence\n" __LOG_NORMAL_COLOR);
+
+          _robust_write(2 /* stderr */, buff, _strlen(buff));
+        }
+
+        SignalDelivery = true;
       }
 
       {
