@@ -365,8 +365,6 @@ static void sighandler(int no) {
     break;
 
   case SIGINT:
-    llvm::errs() << "Received SIGINT. Cancelling..\n";
-
     if (pid_t pid = run_pid.load()) {
       // tell run to exit sleep loop
       if (kill(pid, SIGUSR1) < 0) {
@@ -375,6 +373,8 @@ static void sighandler(int no) {
             "failed to send SIGUSR1 to jove-run: {0}\n", strerror(err));
       }
     } else {
+      llvm::errs() << "Received SIGINT. Cancelling..\n";
+
       Cancelled.store(true);
     }
     break;
