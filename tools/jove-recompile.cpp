@@ -511,9 +511,9 @@ int recompile(void) {
 
         fs::create_symlink(binary_filename, dst);
       }
-
-      break;
     }
+
+    break;
   }
 
   //
