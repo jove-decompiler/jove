@@ -1856,7 +1856,7 @@ static void _jove_init_cpu_state(void);
   } while (false)
 
 #define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (1024 * JOVE_PAGE_SIZE)
+#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
 static target_ulong _jove_alloc_callstack(void);
 _HIDDEN void _jove_free_callstack(target_ulong);
