@@ -161,7 +161,7 @@ sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /myngin
 apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl libz3-dev
 apt-get build-dep llvm
 
-# on archlinux: sudo pacman -Syu ninja cmake graphviz libxml2 gmsl
+# on archlinux: yay -Syu ninja cmake graphviz libxml2 gmsl perl-graph-easy
 
 cd jove/
 git submodule update --init --recursive
