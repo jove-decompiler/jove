@@ -31,15 +31,11 @@ class jove_open_trace_file_t(ida_kernwin.action_handler_t):
         global trace
         global pos
 
-        bbaddrs.clear()
-        trace.clear()
-        pos = 0
-
         jv_fn = ida_kernwin.ask_file(0, "*.jv", "Load decompilation")
         if not jv_fn:
             return
 
-        print("parsing decompilation %s..." % jv_fn)
+        print("parsing decompilation...")
 
         jv2xml_path = subprocess.Popen(["/usr/bin/which", "jv2xml"], stdout=subprocess.PIPE).communicate()[0].strip()
         xml = subprocess.Popen([jv2xml_path, jv_fn], stdout=subprocess.PIPE).communicate()[0]
@@ -65,11 +61,24 @@ class jove_open_trace_file_t(ida_kernwin.action_handler_t):
             print("error: malformed xml")
             return
 
-        e = l[0]
-        BIdx = 0 # the exe TODO
+        trace_fn = ida_kernwin.ask_file(0, "*.txt", "Load trace.txt")
+        if not trace_fn:
+            return
+
+        #
+        # reset globals
+        #
+        bbaddrs.clear()
+        trace.clear()
+        pos = 0
+
+        BIdx = 0 # just the exe
+        e = l[BIdx]
 
         path = e.findall("Path")[0].text
         print(path)
+
+        print("processing basic blocks...")
 
         icfg_e = e.findall("Analysis.ICFG")[0]
         vert_el = icfg_e.findall("vertex_property")
@@ -77,24 +86,19 @@ class jove_open_trace_file_t(ida_kernwin.action_handler_t):
             bbaddr = int(vert_e.findall("Addr")[0].text)
             bbaddrs.append(bbaddr)
 
-        print("processed %d basic blocks" % len(bbaddrs))
-
-        trace_fn = ida_kernwin.ask_file(0, "*.txt", "Load trace.txt")
-        if not trace_fn:
-            return
-
-        print("opening trace file %s ..." % trace_fn)
+        print("opening trace file...")
 
         with open(trace_fn) as f:
             lines = f.readlines()
             for line in lines:
                 prefix = "JV_0_"
 
-                if len(line) < len(prefix) or line.find(prefix) == -1:
+                if len(line) < len(prefix) or line.find(prefix) != 0:
                     continue
 
+                print(line.strip())
+
                 bbidx = int(line[len(prefix):])
-                print("bbidx: %d" % bbidx);
                 trace.append(bbidx)
 
     def update(self, ctx):
@@ -108,14 +112,14 @@ class jove_next_trace_block_t(ida_kernwin.action_handler_t):
         global trace
         global pos
 
-        if trace is None:
-            print("jove_next_trace_block_t::activate: error: no trace file opened")
+        if len(trace) == 0:
+            print("[jove] no trace file opened?")
             return
 
         pos = min(pos + 1, len(trace) - 1)
 
         Addr = bbaddrs[trace[pos]]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos, len(trace)));
+        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -130,7 +134,7 @@ class jove_prev_trace_block_t(ida_kernwin.action_handler_t):
         global pos
 
         if trace is None:
-            print("jove_prev_trace_block_t::activate: error: no trace file opened")
+            print("[jove] no trace file opened?")
             return
 
         pos = max(pos - 1, 0)
@@ -151,7 +155,7 @@ class jove_skip_ahead_t(ida_kernwin.action_handler_t):
         global pos
 
         if trace is None:
-            print("jove_skip_ahead_t::activate: error: no trace file opened")
+            print("[jove] no trace file opened?")
             return
 
         x = float(pos) / float(len(trace));
@@ -159,7 +163,7 @@ class jove_skip_ahead_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbaddrs[trace[pos]]
-        print("Basic Block @ 0x%x (%d / %d)" % (Addr, pos, len(trace)));
+        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -174,7 +178,7 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         global pos
 
         if trace is None:
-            print("jove_skip_behind_t::activate: error: no trace file opened")
+            print("[jove] no trace file opened?")
             return
 
         x = float(pos) / float(len(trace));
@@ -182,7 +186,7 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbaddrs[trace[pos]]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos, len(trace)));
+        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
