@@ -127,7 +127,7 @@ class jove_prev_trace_block_t(ida_kernwin.action_handler_t):
         global trace
         global pos
 
-        if trace is None:
+        if len(trace) == 0:
             print("[jove] no trace file opened?")
             return
 
