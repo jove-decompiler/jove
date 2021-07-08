@@ -2445,7 +2445,7 @@ void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
   char Buffer[65];
   char *BufPtr = &Buffer[sizeof(Buffer)];
 
-  uint64_t N = x;
+  uint32_t N = x;
 
   while (N) {
     *--BufPtr = Digits[N % Radix];
