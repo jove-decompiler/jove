@@ -1358,6 +1358,98 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   }
 
   unsigned N = _jove_foreign_lib_count();
+
+  bool FoundAll = true;
+  for (unsigned j = 3; j < N; ++j) {
+    if (__jove_foreign_function_tables[j] == NULL) {
+      FoundAll = false;
+      break;
+    }
+  }
+
+  if (!FoundAll) {
+    char maps[4096 * 16];
+    unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+    maps[n] = '\0';
+
+    char *const beg = &maps[0];
+    char *const end = &maps[n];
+
+    char *eol;
+    for (char *line = beg; line != end; line = eol + 1) {
+      unsigned left = n - (line - beg);
+
+      //
+      // find the end of the current line
+      //
+      eol = _memchr(line, '\n', left);
+
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      if (*xp != 'x') /* is the mapping executable? */
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+
+      uint64_t min = _u64ofhexstr(line, dash);
+      uint64_t max = _u64ofhexstr(dash + 1, space);
+
+      //
+      // found the mapping where the address is located
+      //
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        char *offset_end = _memchr(offset, ' ', n - (offset - beg));
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      //
+      // search the foreign libs
+      //
+      for (unsigned i = 0; i < N; ++i) {
+        const char *foreign_dso_path_beg = _jove_foreign_lib_path(i);
+        const unsigned foreign_dso_path_len = _strlen(foreign_dso_path_beg);
+        const char *foreign_dso_path_end = &foreign_dso_path_beg[foreign_dso_path_len];
+
+        bool match = true;
+        {
+          const char *s1 = foreign_dso_path_end - 1;
+          const char *s2 = eol - 1;
+          for (;;) {
+            if (*s1 != *s2) {
+              match = false;
+              break;
+            }
+
+            if (s1 == foreign_dso_path_beg)
+              break; /* we're done here */
+
+            --s1;
+            --s2;
+          }
+        }
+
+        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
+          uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
+
+          uintptr_t load_bias = min - off;
+          for (unsigned FIdx = 0; foreign_fn_tbl[FIdx]; ++FIdx)
+            foreign_fn_tbl[FIdx] += load_bias;
+
+          __jove_foreign_function_tables[i + 3] = foreign_fn_tbl; /* install */
+          break;
+        }
+      }
+    }
+  }
+
   if (N > 0) {
     //
     // see if this is a function in a foreign DSO
