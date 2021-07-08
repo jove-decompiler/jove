@@ -79,6 +79,37 @@ static cl::list<std::string>
          cl::value_desc("binary_1,binary_2,...,binary_n"),
          cl::desc("Binaries to include in trace"), cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    OutsideChroot("outside-chroot",
+                  cl::desc("Do not chroot(2)."),
+                  cl::cat(JoveCategory));
+
+static cl::alias
+    OutsideChrootAlias("x",
+                       cl::desc("Exe only. Alias for --outside-chroot."),
+                       cl::aliasopt(OutsideChroot), cl::cat(JoveCategory));
+
+static cl::opt<std::string> PathToTracefs("tracefs",
+                                          cl::desc("Provide path to mounted tracefs filesystem"),
+                                          cl::init("/sys/kernel/debug/tracing"),
+                                          cl::value_desc("directory"),
+                                          cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    NoParseTrace("no-parse-trace",
+                 cl::desc("Do not parse /sys/kernel/debug/tracing/trace at the very end."),
+                 cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Verbose("verbose",
+            cl::desc("Print extra information for debugging purposes"),
+            cl::cat(JoveCategory));
+
+static cl::alias VerboseAlias("v", cl::desc("Alias for -verbose."),
+                              cl::aliasopt(Verbose), cl::cat(JoveCategory));
+
+static bool OnlyExecutable;
+
 } // namespace opts
 
 namespace jove {
@@ -86,13 +117,51 @@ static int trace(void);
 }
 
 int main(int argc, char **argv) {
-  llvm::InitLLVM X(argc, argv);
+  int _argc = argc;
+  char **_argv = argv;
+
+  // argc/argv replacement to handle '--'
+  struct {
+    std::vector<std::string> s;
+    std::vector<const char *> a;
+  } arg_vec;
+
+  {
+    int prog_args_idx = -1;
+
+    for (int i = 0; i < argc; ++i) {
+      if (strcmp(argv[i], "--") == 0) {
+        prog_args_idx = i;
+        break;
+      }
+    }
+
+    if (prog_args_idx != -1) {
+      for (int i = 0; i < prog_args_idx; ++i)
+        arg_vec.s.push_back(argv[i]);
+
+      for (std::string &s : arg_vec.s)
+        arg_vec.a.push_back(s.c_str());
+      arg_vec.a.push_back(nullptr);
+
+      _argc = prog_args_idx;
+      _argv = const_cast<char **>(&arg_vec.a[0]);
+
+      for (int i = prog_args_idx + 1; i < argc; ++i) {
+        //llvm::outs() << llvm::formatv("argv[{0}] = {1}\n", i, argv[i]);
+
+        opts::Args.push_back(argv[i]);
+      }
+    }
+  }
+
+  llvm::InitLLVM X(_argc, _argv);
 
   cl::HideUnrelatedOptions({&opts::JoveCategory, &llvm::ColorCategory});
   cl::AddExtraVersionPrinter([](llvm::raw_ostream &OS) -> void {
     OS << "jove version " JOVE_VERSION "\n";
   });
-  cl::ParseCommandLineOptions(argc, argv, "Jove Trace\n");
+  cl::ParseCommandLineOptions(argc, argv, "UProbes-based Tracer\n");
 
   if (!fs::exists(opts::Prog)) {
     WithColor::error() << "program does not exist\n";
@@ -104,12 +173,12 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  opts::OnlyExecutable = opts::OutsideChroot;
+
   return jove::trace();
 }
 
 namespace jove {
-
-static decompilation_t Decompilation;
 
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
@@ -117,256 +186,131 @@ static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
 static int await_process_completion(pid_t);
 
 int trace(void) {
-  bool git = fs::is_directory(opts::jv);
-
   //
-  // parse the existing decompilation file
+  // establish that a mounted tracefs filesystem exists
   //
-  {
-    std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> Decompilation;
-  }
-
-#if 0
-  //
-  // run program with LD_TRACE_LOADED_OBJECTS=1 and no arguments. capture the
-  // standard output, which will tell us what binaries are needed by prog.
-  //
-  int pipefd[2];
-  if (pipe(pipefd) < 0) {
-    WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(errno));
-    return 1;
-  }
-
-  const pid_t pid = fork();
-
-  //
-  // are we the child?
-  //
-  if (!pid) {
-    close(pipefd[0]); /* close unused read end */
-
-    /* make stdout be the write end of the pipe */
-    if (dup2(pipefd[1], STDOUT_FILENO) < 0) {
-      WithColor::error() << llvm::formatv("dup2 failed: {0}\n",
-                                          strerror(errno));
-      exit(1);
-    }
-
-    const char *argv[] = {opts::Prog.c_str(), nullptr};
-
-    std::vector<const char *> envv;
-    for (char **env = ::environ; *env; ++env)
-      envv.push_back(*env);
-    envv.push_back("LD_TRACE_LOADED_OBJECTS=1");
-    envv.push_back(nullptr);
-
-    return execve(argv[0],
-                  const_cast<char **>(&argv[0]),
-                  const_cast<char **>(&envv[0]));
-  }
-
-  close(pipefd[1]); /* close unused write end */
-
-  //
-  // slurp up the result of executing the binary
-  //
-  std::string dynlink_stdout;
-  {
-    char ch;
-    while (read(pipefd[0], &ch, 1) > 0)
-      dynlink_stdout += ch;
-  }
-
-  close(pipefd[0]); /* close read end */
-
-  //
-  // check exit code
-  //
-  if (int ret = await_process_completion(pid)) {
-    WithColor::error() << llvm::formatv("LD_TRACE_LOADED_OBJECTS=1 {0}\n",
-                                        opts::Prog);
-    return 1;
-  }
-
-  std::vector<fs::path> binary_paths = {opts::Prog};
-
-  //
-  // get the path to the dynamic linker
-  //
-  {
-    std::string::size_type pos = dynlink_stdout.find("\t/");
-    if (pos == std::string::npos) {
-      WithColor::error()
-          << "could not find interpreter path in output from dynamic linker\n";
-      return 1;
-    }
-
-    ++pos; /* skip '\t' */
-
-    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
-    std::string dynl_path = dynlink_stdout.substr(pos, space_pos - pos);
-
-    // (don't canonicalize)
-    binary_paths.push_back(dynl_path);
-  }
-
-  //
-  // consider everything else, except vdso
-  //
-  std::string::size_type pos = 0;
-  for (;;) {
-    std::string::size_type arrow_pos = dynlink_stdout.find(" => /", pos);
-
-    if (arrow_pos == std::string::npos)
-      break;
-
-    pos = arrow_pos + strlen(" => /") - 1;
-
-    std::string::size_type space_pos = dynlink_stdout.find(" (0x", pos);
-
-    if (space_pos == std::string::npos)
-      break;
-
-    std::string path = dynlink_stdout.substr(pos, space_pos - pos);
-
-    assert(std::find(binary_paths.begin(), binary_paths.end(), path) ==
-           binary_paths.end());
-
-    // (don't canonicalize)
-    binary_paths.push_back(path);
-  }
-#endif
-
-  fs::path sysroot;
-  if (!opts::ExistingSysroot.empty()) {
-    sysroot = opts::ExistingSysroot;
-    if (!fs::exists(sysroot)) {
-      WithColor::error() << llvm::formatv(
-          "provided sysroot '{0}' does not exist\n", sysroot.c_str());
-    }
-  } else {
-    //
-    // creating a unique temporary directory that will serve as a sysroot
-    //
-    if (!mkdtemp(tmpdir)) {
-      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n",
-                                          strerror(errno));
-      return 1;
-    }
-
-    sysroot = tmpdir;
-
-    WithColor::note() << llvm::formatv("sysroot: {0}\n", sysroot.c_str());
-
-#if 0
-  //
-  // copy the binaries to the sysroot, making symbolic links as necessary
-  //
-  for (const fs::path &p : binary_paths) {
-    if (!fs::exists(p)) {
-      WithColor::error() << llvm::formatv(
-          "path from dynamic linker '{0}' is bogus\n", p.c_str());
-      return 1;
-    }
-
-    //llvm::outs() << llvm::formatv("binary path: {0}\n", p.c_str());
-
-    fs::path chrooted(sysroot / p);
-
-    //llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
-
-    fs::create_directories(chrooted.parent_path());
-
-    if (fs::is_symlink(p)) {
-      fs::copy_symlink(p, chrooted);
-
-      fs::path _p = p.parent_path() / fs::read_symlink(p);
-      fs::path _chrooted(sysroot / _p);
-
-      fs::create_directories(_chrooted.parent_path());
-      fs::copy_file(_p, _chrooted);
-    } else {
-      assert(fs::is_regular_file(p));
-      fs::copy_file(p, chrooted);
-    }
-  }
-#endif
-
-    //
-    // build sysroot
-    //
-    for (const binary_t &binary : Decompilation.Binaries) {
-      fs::path p(binary.Path);
-      if (!fs::exists(p)) {
-        WithColor::error() << llvm::formatv("binary '{0}' doesn't exist\n",
-                                            binary.Path);
-        return 1;
-      }
-
-      fs::path chrooted(sysroot / binary.Path);
-
-      // llvm::outs() << llvm::formatv("chrooted: {0}\n", chrooted.c_str());
-
-      fs::create_directories(chrooted.parent_path());
-
-      if (fs::is_symlink(p)) {
-        fs::copy_symlink(p, chrooted);
-
-        fs::path _p = p.parent_path() / fs::read_symlink(p);
-        fs::path _chrooted(sysroot / _p);
-
-        fs::create_directories(_chrooted.parent_path());
-        fs::copy_file(_p, _chrooted);
-      } else {
-        assert(fs::is_regular_file(p));
-        fs::copy_file(p, chrooted);
-      }
-    }
-  }
-
-  //
-  // check for tracefs filesystem
-  //
-#define PATH_TO_TRACEFS "/sys/kernel/debug/tracing"
   {
     struct statfs buf;
-    if (statfs(PATH_TO_TRACEFS "/README", &buf) < 0) {
+    if (statfs(opts::PathToTracefs.c_str(), &buf) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("statfs failed: {0}\n",
-                                          strerror(err));
+      WithColor::error() << llvm::formatv(
+          "failed to access tracefs at {0}: {1}\n", opts::PathToTracefs.c_str(),
+          strerror(err));
       return 1;
     }
 
     if (buf.f_type != TRACEFS_MAGIC) {
-      WithColor::error() << "no tracefs found at " PATH_TO_TRACEFS "\n";
+      WithColor::error() << llvm::formatv(
+          "tracefs at {0} has unknown filesystem type\n",
+          opts::PathToTracefs);
       return 1;
     }
   }
 
+  //
+  // parse the decompilation
+  //
+  decompilation_t Decompilation;
+  {
+    bool git = fs::is_directory(opts::jv);
+
+    {
+      std::ifstream ifs(git ? (opts::jv + "/decompilation.jv") : opts::jv);
+
+      boost::archive::text_iarchive ia(ifs);
+      ia >> Decompilation;
+    }
+  }
+
+  //
+  // establish temporary directory that may or may not be used as a sysroot
+  //
+  fs::path SysrootPath;
+  if (!opts::ExistingSysroot.empty()) {
+    if (!fs::exists(opts::ExistingSysroot)) {
+      WithColor::error() << llvm::formatv(
+          "provided directory for sysroot '{0}' does not exist\n",
+          opts::ExistingSysroot.c_str());
+      return 1;
+    }
+
+    SysrootPath = opts::ExistingSysroot;
+  } else {
+    //
+    // create a unique temporary directory
+    //
+    if (!mkdtemp(tmpdir)) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("mkdtemp failed: {0}\n", strerror(err));
+      return 1;
+    }
+
+    SysrootPath = tmpdir;
+  }
+
+  if (opts::Verbose)
+    WithColor::note() << llvm::formatv("sysroot: {0}\n", SysrootPath.c_str());
+
+  //
+  // recreate sysroot as best we can TODO refactor
+  //
+  for (const binary_t &binary : Decompilation.Binaries) {
+    fs::path chrooted_path(SysrootPath / binary.Path);
+    fs::create_directories(chrooted_path.parent_path());
+
+    {
+      std::ofstream ofs(chrooted_path.c_str());
+      ofs.write(&binary.Data[0], binary.Data.size());
+    }
+  }
+
+  // XXX this should be declared elsewhere
+  constexpr unsigned MAX_RETRIES = 10;
+  unsigned c = 0;
+
   if (opts::SkipUProbe)
     goto skip_uprobe;
 
-  //
-  // open with O_TRUNC to clear any uprobe_events already registered
-  //
   {
-clear_events:
-    int fd = open(PATH_TO_TRACEFS "/uprobe_events", O_TRUNC | O_WRONLY);
-    if (fd < 0) {
+open_events:
+    int events_fd;
+
+    {
+      std::string s(opts::PathToTracefs);
+      s.append("/uprobe_events");
+
+      //
+      // open with O_TRUNC to clear any uprobe_events already registered
+      //
+      events_fd = open(s.c_str(), O_TRUNC | O_WRONLY);
+    }
+
+    if (events_fd < 0) {
       int err = errno;
       if (err == EBUSY) {
         //
         // try disabling any existing uprobe tracepoints
         //
-        fd = open(PATH_TO_TRACEFS "/events/jove/enable", O_WRONLY);
-        if (!(fd < 0)) {
-          bool succeeded = write(fd, "0\n", sizeof("0\n")) == sizeof("0\n");
-          close(fd);
-          if (succeeded) {
-            goto clear_events; // if all that succeeded, try again
+        int fd;
+        {
+          std::string s(opts::PathToTracefs);
+          s.append("/events/jove/enable");
+
+          fd = open(s.c_str(), O_WRONLY);
+        }
+
+        if (fd < 0) {
+          ;
+        } else {
+          ssize_t ret = write(fd, "0\n", sizeof("0\n"));
+
+          (void)close(fd);
+
+          if (ret == sizeof("0\n")) {
+            //
+            // if all that succeeded, start over again
+            //
+            goto open_events;
           }
         }
       }
@@ -377,15 +321,16 @@ clear_events:
     }
 
     //
-    // create a uprobe_event for every basic block in every DSO except the
-    // dynamic linker
+    // plant uprobe tracepoints on every basic block under consideration
     //
-    for (unsigned BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
       const binary_t &binary = Decompilation.Binaries[BIdx];
 
       if (binary.IsDynamicLinker)
         continue;
       if (binary.IsVDSO)
+        continue;
+      if (opts::OnlyExecutable && !binary.IsExecutable)
         continue;
 
       std::string binaryName = fs::path(binary.Path).filename().string();
@@ -399,16 +344,15 @@ clear_events:
           continue;
       }
 
-      fs::path chrooted(sysroot / binary.Path);
-      if (!fs::exists(chrooted)) {
-        WithColor::error() << llvm::formatv("binary does not exist at {0}\n",
-                                            chrooted.c_str());
+      fs::path chrooted_path(SysrootPath / binary.Path);
+      if (!fs::exists(chrooted_path)) {
+        WithColor::error() << llvm::formatv("(BUG) {0} does not exist\n", chrooted_path.c_str());
         return 1;
       }
 
       const auto &ICFG = binary.Analysis.ICFG;
 
-      for (unsigned BBIdx = 0; BBIdx < boost::num_vertices(ICFG); ++BBIdx) {
+      for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG); ++BBIdx) {
         basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
         //
@@ -421,71 +365,85 @@ clear_events:
         //
 
         char buff[0x100];
-        snprintf(buff, sizeof(buff),
-                 "p:jove/JV_%u_%u %s:0x%" PRIx64 "\n",
+        unsigned N = snprintf(buff, sizeof(buff),
+                 "p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n",
                  BIdx,
                  BBIdx,
-                 chrooted.c_str(),
+                 chrooted_path.c_str(),
                  static_cast<uint64_t>(ICFG[bb].Addr));
 
-        if (write(fd, buff, strlen(buff)) < 0) {
+        ssize_t ret = write(events_fd, buff, N);
+        if (ret < 0) {
           int err = errno;
+
+          (void)close(events_fd);
 
           if (err == ENODEV) {
             WithColor::warning()
                 << "failed to write to uprobe_events: No such device\n";
 
-            if (close(fd) < 0) {
-              int err = errno;
-              WithColor::error() << llvm::formatv(
-                  "failed to close uprobe_events: {0}\n", strerror(err));
-
-              return 1;
-            }
-
-            // we hit the ceiling
-            goto enable_uprobe;
+            goto enable_uprobe; /* did we hit the ceiling? */
           }
 
           WithColor::error() << llvm::formatv(
               "failed to write to uprobe_events: {0}\n", strerror(err));
           return 1;
         }
+
+        if (ret != N) {
+          (void)close(events_fd);
+
+          WithColor::error()
+              << llvm::formatv("only wrote {0} bytes to uprobe_events\n", ret);
+          return 1;
+        }
       }
     }
 
-    if (close(fd) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("failed to close uprobe_events: {0}\n",
-                                          strerror(err));
-      return 1;
-    }
+enable_uprobe:
+    (void)close(events_fd);
   }
 
-enable_uprobe:
   //
   // enable the uprobe_events we just added
   //
   {
-    int fd = open(PATH_TO_TRACEFS "/events/jove/enable", O_WRONLY);
+    std::string s(opts::PathToTracefs);
+    s.append("/events/jove/enable");
+
+    int fd = open(s.c_str(), O_WRONLY);
+
     if (fd < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv(
-          "failed to open uprobe_events enable: {0}\n", strerror(err));
+      WithColor::error() << llvm::formatv("failed to open {0}: {1}\n",
+                                          s.c_str(), strerror(err));
       return 1;
     }
 
-    if (write(fd, "1\n", 2) < 0) {
+do_enable_uprobe:
+    ssize_t ret = write(fd, "1\n", sizeof("1\n"));
+    if (ret < 0) {
       int err = errno;
+      if (err == EINVAL && ++c < MAX_RETRIES) {
+        WithColor::error() << llvm::formatv(
+            "failed to write to {0}, trying again...\n", s.c_str());
+        usleep(1000);
+        goto do_enable_uprobe;
+      }
+
+      (void)close(fd);
+
       WithColor::error() << llvm::formatv(
-          "failed to write to uprobe_events enable: {0}\n", strerror(err));
+          "failed to write to {0}: {1}\n", s.c_str(), strerror(err));
       return 1;
     }
 
-    if (close(fd) < 0) {
-      int err = errno;
+    (void)close(fd);
+
+    if (ret != sizeof("1\n")) {
       WithColor::error() << llvm::formatv(
-          "failed to close uprobe_events enable: {0}\n", strerror(err));
+          "only wrote {0} bytes to uprobe_events enable\n", ret);
+
       return 1;
     }
   }
@@ -495,7 +453,10 @@ skip_uprobe:
   // clear /sys/kernel/debug/tracing/trace
   //
   {
-    int fd = open(PATH_TO_TRACEFS "/trace", O_TRUNC | O_WRONLY);
+    std::string s(opts::PathToTracefs);
+    s.append("/trace");
+
+    int fd = open(s.c_str(), O_TRUNC | O_WRONLY);
     if (!(fd < 0))
       close(fd);
   }
@@ -504,88 +465,93 @@ skip_uprobe:
     goto skip_exec;
 
   //
-  // fork, chroot, exec
+  // fork, (optionally) chroot, exec
   //
   {
     pid_t child = fork();
     if (!child) {
-      if (chroot(sysroot.c_str()) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
-                                            strerror(err));
-        return 1;
-      }
+      if (!opts::OutsideChroot) {
+        if (chroot(SysrootPath.c_str()) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("failed to chroot: {0}\n",
+                                              strerror(err));
+          return 1;
+        }
 
-      if (chdir("/") < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("chdir failed : {0}\n",
-                                            strerror(err));
-        return 1;
+        if (chdir("/") < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("chdir failed : {0}\n",
+                                              strerror(err));
+          return 1;
+        }
       }
 
       //
       // arguments
       //
-      std::vector<const char *> argv;
-      argv.push_back(opts::Prog.c_str());
+      std::vector<const char *> arg_vec;
+
+      fs::path exe_path = opts::OutsideChroot
+                              ? SysrootPath / Decompilation.Binaries[0].Path
+                              : Decompilation.Binaries[0].Path;
+
+      arg_vec.push_back(exe_path.c_str());
 
       for (const std::string &arg : opts::Args)
-        argv.push_back(arg.c_str());
+        arg_vec.push_back(arg.c_str());
 
-      argv.push_back(nullptr);
+      arg_vec.push_back(nullptr);
 
       //
       // environment
       //
-      std::vector<const char *> envv;
+      std::vector<const char *> env_vec;
       for (char **env = ::environ; *env; ++env)
-        envv.push_back(*env);
+        env_vec.push_back(*env);
 
 #if defined(__x86_64__)
       // <3 glibc
-      envv.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                     "-AVX_Usable,"
-                     "-AVX2_Usable,"
-                     "-AVX512F_Usable,"
-                     "-SSE4_1,"
-                     "-SSE4_2,"
-                     "-SSSE3,"
-                     "-Fast_Unaligned_Load,"
-                     "-ERMS,"
-                     "-AVX_Fast_Unaligned_Load");
+      env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-AVX_Usable,"
+                        "-AVX2_Usable,"
+                        "-AVX512F_Usable,"
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Unaligned_Load,"
+                        "-ERMS,"
+                        "-AVX_Fast_Unaligned_Load");
 #elif defined(__i386__)
       // <3 glibc
-      envv.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                     "-SSE4_1,"
-                     "-SSE4_2,"
-                     "-SSSE3,"
-                     "-Fast_Rep_String,"
-                     "-Fast_Unaligned_Load,"
-                     "-SSE2");
+      env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Rep_String,"
+                        "-Fast_Unaligned_Load,"
+                        "-SSE2");
 #endif
 
-      //envv.push_back("LD_BIND_NOW=1");
+      env_vec.push_back("LD_BIND_NOW=1");
 
       for (const std::string &env : opts::Envs)
-        envv.push_back(env.c_str());
+        env_vec.push_back(env.c_str());
 
-      envv.push_back(nullptr);
+      env_vec.push_back(nullptr);
 
-      execve(argv[0],
-             const_cast<char **>(&argv[0]),
-             const_cast<char **>(&envv[0]));
+      execve(arg_vec[0],
+             const_cast<char **>(&arg_vec[0]),
+             const_cast<char **>(&env_vec[0]));
 
-      {
-        int err = errno;
-        WithColor::error() << llvm::formatv("execve failed : {0}\n",
-                                            strerror(err));
-        return 1;
-      }
+      int err = errno;
+      WithColor::error() << llvm::formatv("execve failed: {0}\n",
+                                          strerror(err));
+      return 1;
     }
 
     int ret = await_process_completion(child);
 
-    {
+    if (!opts::NoParseTrace) {
       //
       // parse /sys/kernel/debug/tracing/trace
       //
@@ -606,7 +572,8 @@ skip_uprobe:
       //
 
       std::ofstream ofs(opts::Output);
-      std::ifstream trace_ifs(PATH_TO_TRACEFS "/trace");
+      fs::path the_trace_path = fs::path(opts::PathToTracefs) / "trace";
+      std::ifstream trace_ifs(the_trace_path.c_str());
 
       std::string line;
       while (std::getline(trace_ifs, line)) {
