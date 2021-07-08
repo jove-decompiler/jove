@@ -264,10 +264,6 @@ int trace(void) {
     }
   }
 
-  // XXX this should be declared elsewhere
-  constexpr unsigned MAX_RETRIES = 10;
-  unsigned c = 0;
-
   if (opts::SkipUProbe)
     goto skip_uprobe;
 
@@ -419,6 +415,9 @@ enable_uprobe:
                                           s.c_str(), strerror(err));
       return 1;
     }
+
+  constexpr unsigned MAX_RETRIES = 10;
+  unsigned c = 0;
 
 do_enable_uprobe:
     ssize_t ret = write(fd, "1\n", sizeof("1\n"));
