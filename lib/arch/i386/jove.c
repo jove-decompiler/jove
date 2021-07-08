@@ -1747,7 +1747,7 @@ void _jove_install_foreign_function_tables(void) {
           }
         }
 
-        if (match) {
+        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
           uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
 
           uintptr_t load_bias = min - off;

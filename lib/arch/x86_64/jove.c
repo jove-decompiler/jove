@@ -1433,7 +1433,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
           }
         }
 
-        if (match) {
+        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
           uintptr_t *ForeignFnTbl = _jove_foreign_lib_function_table(i);
 
           for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
