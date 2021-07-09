@@ -1,3 +1,27 @@
+#include <memory>
+
+//
+// forward decls
+//
+namespace llvm {
+class Function;
+class BasicBlock;
+class AllocaInst;
+class Type;
+class Value;
+class LoadInst;
+class CallInst;
+class DISubprogram;
+class GlobalIFunc;
+class GlobalVariable;
+namespace object {
+class Binary;
+}
+}
+
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "jove/jove.h"
 
 #include <cstdlib>
@@ -19,8 +43,10 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/FormatVariadic.h>
+#include <llvm/Object/ELFObjectFile.h>
 
 namespace fs = boost::filesystem;
+namespace obj = llvm::object;
 namespace cl = llvm::cl;
 
 using llvm::WithColor;
@@ -68,6 +94,12 @@ static cl::opt<bool> SkipUProbe("skip-uprobe",
 static cl::opt<bool> SkipExec("skip-exec",
                               cl::desc("Skip executing prog"),
                               cl::cat(JoveCategory));
+
+static cl::opt<unsigned> Sleep(
+    "sleep", cl::value_desc("seconds"),
+    cl::desc("Time in seconds to sleep for after finishing waiting on child; "
+             "can be useful if the program being recompiled forks"),
+    cl::cat(JoveCategory));
 
 static cl::list<std::string>
     Excludes("exclude-binaries", cl::CommaSeparated,
@@ -180,8 +212,12 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
+#include "elf.hpp"
+
 static char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X',
                         'X', 'X', 'X', 'X', 'X', '\0'};
+
+static void InitStateForBinaries(decompilation_t &);
 
 static int await_process_completion(pid_t);
 
@@ -221,6 +257,8 @@ int trace(void) {
       ia >> Decompilation;
     }
   }
+
+  InitStateForBinaries(Decompilation);
 
   //
   // establish temporary directory that may or may not be used as a sysroot
@@ -262,6 +300,14 @@ int trace(void) {
       std::ofstream ofs(chrooted_path.c_str());
       ofs.write(&binary.Data[0], binary.Data.size());
     }
+
+    fs::permissions(chrooted_path, fs::others_read
+                                 | fs::others_exe
+                                 | fs::group_read
+                                 | fs::group_exe
+                                 | fs::owner_read
+                                 | fs::owner_write
+                                 | fs::owner_exe);
   }
 
   if (opts::SkipUProbe)
@@ -317,7 +363,7 @@ open_events:
     }
 
     //
-    // plant uprobe tracepoints on every basic block under consideration
+    // register uprobes
     //
     for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
       const binary_t &binary = Decompilation.Binaries[BIdx];
@@ -342,9 +388,16 @@ open_events:
 
       fs::path chrooted_path(SysrootPath / binary.Path);
       if (!fs::exists(chrooted_path)) {
-        WithColor::error() << llvm::formatv("(BUG) {0} does not exist\n", chrooted_path.c_str());
-        return 1;
+        WithColor::warning() << llvm::formatv(
+            "{0} does not exist; not placing uprobe tracepoints\n",
+            chrooted_path.c_str());
+        continue;
       }
+
+      assert(binary.ObjectFile.get() != nullptr);
+      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+      const ELFF &E = *O.getELFFile();
 
       const auto &ICFG = binary.Analysis.ICFG;
 
@@ -360,13 +413,34 @@ open_events:
         // p:jove/JV_0_1 /tmp/XdoHpm/usr/bin/ls:0x0000000000005aee
         //
 
+        uintptr_t Off;
+        if (binary.IsPIC) {
+          Off = ICFG[bb].Addr;
+        } else {
+          assert(binary.IsExecutable);
+
+          //
+          // instead of a virtual address, we need to provide an offset from the
+          // start of the file.
+          //
+          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(ICFG[bb].Addr);
+          if (!ExpectedPtr) {
+            //WARN();
+            continue;
+          }
+
+          const uint8_t *Ptr = *ExpectedPtr;
+
+          Off = (uintptr_t)Ptr - (uintptr_t)E.base();
+        }
+
         char buff[0x100];
         unsigned N = snprintf(buff, sizeof(buff),
                  "p:jove/JV_%" PRIu32 "_%" PRIu32 " %s:0x%" PRIx64 "\n",
                  BIdx,
                  BBIdx,
                  chrooted_path.c_str(),
-                 static_cast<uint64_t>(ICFG[bb].Addr));
+                 static_cast<uint64_t>(Off));
 
         ssize_t ret = write(events_fd, buff, N);
         if (ret < 0) {
@@ -550,7 +624,19 @@ skip_uprobe:
 
     int ret = await_process_completion(child);
 
+    if (unsigned sec = opts::Sleep) {
+      llvm::errs() << llvm::formatv("sleeping for {0} seconds...\n", sec);
+
+      for (unsigned t = 0; t < sec; ++t) {
+        sleep(1);
+
+        llvm::errs() << '.';
+      }
+    }
+
     if (!opts::NoParseTrace) {
+      llvm::errs() << "parsing trace...\n";
+
       //
       // parse /sys/kernel/debug/tracing/trace
       //
@@ -624,6 +710,33 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
+}
+
+void InitStateForBinaries(decompilation_t &Decompilation) {
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+    auto &binary = Decompilation.Binaries[BIdx];
+    auto &ICFG = binary.Analysis.ICFG;
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
+                           binary.Data.size());
+    llvm::StringRef Identifier(binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      if (!binary.IsVDSO)
+        WithColor::error() << "failed to create binary from " << binary.Path
+                           << '\n';
+    } else {
+      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+      binary.ObjectFile = std::move(BinRef);
+    }
+  }
 }
 
 }
