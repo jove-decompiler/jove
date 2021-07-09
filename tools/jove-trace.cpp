@@ -529,9 +529,7 @@ skip_uprobe:
     std::string s(opts::PathToTracefs);
     s.append("/trace");
 
-    int fd = open(s.c_str(), O_TRUNC | O_WRONLY);
-    if (!(fd < 0))
-      close(fd);
+    (void)close(open(s.c_str(), O_TRUNC | O_WRONLY));
   }
 
   if (opts::SkipExec)
