@@ -167,7 +167,6 @@ struct hook_t;
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
 #include <llvm/Object/ELFObjectFile.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
