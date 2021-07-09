@@ -533,7 +533,7 @@ skip_uprobe:
   }
 
   if (opts::SkipExec)
-    goto skip_exec;
+    return 0;
 
   //
   // fork, (optionally) chroot, exec
@@ -683,7 +683,6 @@ skip_uprobe:
     return ret;
   }
 
-skip_exec:
   return 0;
 }
 
