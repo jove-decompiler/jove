@@ -188,7 +188,8 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
                               [&](basic_block_t bb) -> bool {
                                 return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
                                         boost::out_degree(bb, ICFG) == 0)
-                                    || (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL);
+                                    || (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
+                                    || (ICFG[bb].Term.Type == TERMINATOR::CALL);
                               });
 
   if (!is_leaf) {
