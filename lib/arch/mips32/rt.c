@@ -1,3 +1,6 @@
+#define _LARGEFILE64_SOURCE /* for O_LARGEFILE */
+#define _GNU_SOURCE         /* for what? TODO */
+
 #define CONFIG_USER_ONLY 1
 
 #  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
@@ -1786,12 +1789,11 @@ struct kernel_sigaction {
 	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
 };
 
-#define _GNU_SOURCE
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <stdio.h>
-//#include <sys/syscall.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
 #include <inttypes.h>
@@ -1832,6 +1834,7 @@ _NAKED static void _jove_inverse_thunk(void);
 
 static void _jove_callstack_init(void);
 static void _jove_trace_init(void);
+static void _jove_flush_trace(void);
 static void _jove_init_cpu_state(void);
 
 #define _UNREACHABLE(...)                                                      \
@@ -1848,7 +1851,7 @@ static void _jove_init_cpu_state(void);
     _strcat(buff, ":");                                                        \
     _strcat(buff, line_str);                                                   \
     _strcat(buff, ")\n");                                                      \
-    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+    _robust_write(2 /* stderr */, buff, _strlen(buff));                        \
                                                                                \
     _jove_sys_exit_group(1);                                                   \
                                                                                \
@@ -1857,6 +1860,7 @@ static void _jove_init_cpu_state(void);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+#define JOVE_TRACE_BUFF_SIZE (64 * JOVE_PAGE_SIZE)
 
 static target_ulong _jove_alloc_callstack(void);
 _HIDDEN void _jove_free_callstack(target_ulong);
@@ -1882,7 +1886,8 @@ static _INL void uint_to_string(uint32_t x, char *Str, unsigned Radix);
 static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
 static _INL void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n);
 static _INL unsigned _getHexDigit(char cdigit);
-static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
+static _INL uint32_t _u32ofhexstr(char *str_begin, char *str_end);
+static _INL ssize_t _robust_write(int fd, void *const buf, const size_t count);
 
 void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
@@ -1960,12 +1965,11 @@ void _jove_inverse_thunk(void) {
                : /* Clobbers */);
 }
 
-static bool _jove_rt_inited = false;
-
 void _jove_rt_init(void) {
-  if (_jove_rt_inited)
+  static bool __has_inited = false;
+  if (__has_inited)
     return;
-  _jove_rt_inited = true;
+  __has_inited = true;
 
   struct kernel_sigaction sa;
   _memset(&sa, 0, sizeof(sa));
@@ -2003,11 +2007,7 @@ void _jove_rt_init(void) {
   _jove_init_cpu_state();
 }
 
-static _CTOR void _do_jove_rt_init(void) {
-  _jove_rt_init();
-}
-
-static ssize_t _robust_write(int fd, void *const buf, const size_t count) {
+ssize_t _robust_write(int fd, void *const buf, const size_t count) {
   uint8_t *const _buf = (uint8_t *)buf;
 
   unsigned n = 0;
@@ -2042,8 +2042,84 @@ struct old_timespec32 {
 static target_ulong to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-  if (sig != SIGSEGV) {
+  if (sig != SIGSEGV)
     _UNREACHABLE();
+
+  //
+  // if we are in trace mode, we may have hit a guard page. check for this
+  // possbility first.
+  //
+  if (si) {
+    uintptr_t FaultAddr = (uintptr_t)si->si_addr;
+
+#if 0
+    {
+      char s[4096];
+      s[0] = '\0';
+
+      _strcat(s, "_jove_rt_signal_handler: si_addr=0x");
+      {
+        char buff[65];
+        uint_to_string(FaultAddr, buff, 0x10);
+
+        _strcat(s, buff);
+      }
+      _strcat(s, "\n");
+
+      _robust_write(2 /* stderr */, s, _strlen(s));
+    }
+#endif
+
+    if (FaultAddr) {
+      void *TraceBegin = __jove_trace_begin;
+
+      uintptr_t TraceGuardPageBeg = (uintptr_t)TraceBegin + JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE;
+      uintptr_t TraceGuardPageEnd = TraceGuardPageBeg + JOVE_PAGE_SIZE;
+
+#if 0
+      {
+        char s[4096];
+        s[0] = '\0';
+
+        _strcat(s, "_jove_rt_signal_handler: TraceGuardPageBeg=0x");
+        {
+          char buff[65];
+          uint_to_string(TraceGuardPageBeg, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, " TraceGuardPageEnd=0x");
+        {
+          char buff[65];
+          uint_to_string(TraceGuardPageEnd, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+        _strcat(s, " FaultAddr=0x");
+        {
+          char buff[65];
+          uint_to_string(FaultAddr, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+
+        _strcat(s, "\n");
+
+        _robust_write(2 /* stderr */, s, _strlen(s));
+      }
+#endif
+
+      if (FaultAddr >= TraceGuardPageBeg &&
+          FaultAddr <= TraceGuardPageEnd) {
+        void *Trace = __jove_trace;
+
+        if (Trace != TraceBegin)
+          _jove_flush_trace();
+
+        uctx->uc_mcontext.pc += 4; /* skip faulting instruction */
+        return;
+      }
+    }
   }
 
 #define pc    uctx->uc_mcontext.pc
@@ -2382,9 +2458,63 @@ void _jove_callstack_init(void) {
 }
 
 void _jove_trace_init(void) {
-  static uint64_t zeros[20 * 4096] = {0};
+  long ret = _jove_sys_mips_mmap(0x0, JOVE_TRACE_BUFF_SIZE,
+                                 PROT_READ | PROT_WRITE,
+                                 MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE("failed to allocate trace buffer");
 
-  __jove_trace = &zeros[0];
+  unsigned long beg = (unsigned long)ret;
+  unsigned long end = beg + JOVE_TRACE_BUFF_SIZE;
+
+  //
+  // create guard page
+  //
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page for trace");
+
+  //
+  // install
+  //
+  __jove_trace_begin = __jove_trace = (void *)ret;
+}
+
+void _jove_flush_trace(void) {
+  void *TraceBegin = __jove_trace_begin;
+
+  int fd;
+  {
+    char path[4096];
+    path[0] = '\0';
+
+    _strcat(path, "/mnt/jove.");
+    {
+      char buff[65];
+      uint_to_string(_jove_sys_gettid(), buff, 10);
+
+      _strcat(path, buff);
+    }
+    _strcat(path, ".trace.bin");
+
+    fd = _jove_sys_open(path, O_WRONLY | O_APPEND | O_CREAT | O_LARGEFILE, 0666);
+
+    if (fd < 0)
+      _UNREACHABLE("_jove_flush_trace: failed to open trace file");
+  }
+
+  unsigned n = JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE /* guard page */;
+  ssize_t ret = _robust_write(fd, TraceBegin, n);
+
+  if (ret != n)
+    _UNREACHABLE("_jove_flush_trace: could not flush trace file");
+
+  if (_jove_sys_close(fd) < 0)
+    _UNREACHABLE("_jove_flush_trace: failed to close trace file");
+
+  //
+  // reset
+  //
+  __jove_trace = TraceBegin;
 }
 
 void _jove_init_cpu_state(void) {
@@ -2488,10 +2618,10 @@ unsigned _getHexDigit(char cdigit) {
   return -1U;
 }
 
-uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
+uint32_t _u32ofhexstr(char *str_begin, char *str_end) {
   const unsigned radix = 0x10;
 
-  uint64_t res = 0;
+  uint32_t res = 0;
 
   char *p = str_begin;
   size_t slen = str_end - str_begin;
@@ -2645,10 +2775,10 @@ void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, con
 
     {
       char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
+      vm.min = _u32ofhexstr(line, dash);
 
       char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
+      vm.max = _u32ofhexstr(dash + 1, space);
     }
 
     //

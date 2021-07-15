@@ -2261,29 +2261,8 @@ void *_memset(void *dst, int c, size_t n) {
 static void _jove_sigsegv_handler(void);
 
 void _jove_trace_init(void) {
-  int fd =
-      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0)
-    _UNREACHABLE();
-
-  off_t size = 1UL << 30; /* 1 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0)
-    _UNREACHABLE();
-
-  {
-    long ret =
-        _jove_sys_mips_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    if (ret < 0 && ret > -4096)
-      _UNREACHABLE();
-
-    void *ptr = (void *)ret;
-
-    __jove_trace_begin = __jove_trace = ptr;
-  }
-
-  if (_jove_sys_close(fd) < 0)
-    _UNREACHABLE();
+  if (!__jove_trace_begin || !__jove_trace)
+    _UNREACHABLE("in --trace mode but runtime did not initialize buffer");
 }
 
 void _jove_callstack_init(void) {
