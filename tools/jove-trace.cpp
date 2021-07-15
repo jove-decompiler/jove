@@ -605,6 +605,9 @@ skip_uprobe:
 
       env_vec.push_back("LD_BIND_NOW=1");
 
+      if (fs::exists("/firmadyne/libnvram.so"))
+        env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+
       for (const std::string &env : opts::Envs)
         env_vec.push_back(env.c_str());
 
