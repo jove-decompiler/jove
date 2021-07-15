@@ -68,8 +68,8 @@ int readtrace(void) {
     uint32_t BBIdx;
   } Trace;
 
-  while (ifs.read(reinterpret_cast<char *>(&Trace.BIdx), sizeof(uint32_t)) &&
-         ifs.read(reinterpret_cast<char *>(&Trace.BBIdx), sizeof(uint32_t))) {
+  while (ifs.read(reinterpret_cast<char *>(&Trace.BBIdx), sizeof(uint32_t)) &&
+         ifs.read(reinterpret_cast<char *>(&Trace.BIdx), sizeof(uint32_t))) {
     llvm::outs() << llvm::formatv("JV_{0}_{1}\n", Trace.BIdx, Trace.BBIdx);
   }
 #else
