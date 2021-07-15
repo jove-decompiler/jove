@@ -18,6 +18,7 @@ import xml.etree.cElementTree as ET
 
 ida_kernwin.create_menu("JoveToplevelMenu", "Jove", "View")
 
+trace_filename = None
 decompilation = None
 bbvec = []
 trace = []
@@ -28,6 +29,7 @@ class jove_open_trace_file_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global pos
 
@@ -36,10 +38,11 @@ class jove_open_trace_file_t(ida_kernwin.action_handler_t):
             return
 
         #
-        # reset globals
+        # reset global state
         #
         trace.clear()
         pos = 0
+        trace_filename = trace_fn
 
         print("opening trace file %s..." % trace_fn)
         with open(trace_fn) as f:
@@ -61,18 +64,19 @@ class jove_next_trace_block_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global bbvec
         global pos
 
-        if len(trace) == 0:
+        if len(trace) == 0 or not trace_filename:
             print("[jove] no trace file opened?")
             return
 
         pos = min(pos + 1, len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
+        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -83,18 +87,19 @@ class jove_prev_trace_block_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global bbvec
         global pos
 
-        if len(trace) == 0:
+        if len(trace) == 0 or not trace_filename:
             print("[jove] no trace file opened?")
             return
 
         pos = max(pos - 1, 0)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
+        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -105,11 +110,12 @@ class jove_skip_ahead_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global bbvec
         global pos
 
-        if len(trace) == 0:
+        if len(trace) == 0 or not trace_filename:
             print("[jove] no trace file opened?")
             return
 
@@ -118,7 +124,7 @@ class jove_skip_ahead_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
+        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -129,11 +135,12 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global bbvec
         global pos
 
-        if len(trace) == 0:
+        if len(trace) == 0 or not trace_filename:
             print("[jove] no trace file opened?")
             return
 
@@ -142,7 +149,7 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d)" % (Addr, pos + 1, len(trace)));
+        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -153,11 +160,12 @@ class jove_skip_to_ret_t(ida_kernwin.action_handler_t):
         ida_kernwin.action_handler_t.__init__(self)
 
     def activate(self, ctx):
+        global trace_filename
         global trace
         global bbvec
         global pos
 
-        if len(trace) == 0:
+        if len(trace) == 0 or not trace_filename:
             print("[jove] no trace file opened?")
             return
 
@@ -172,7 +180,7 @@ class jove_skip_to_ret_t(ida_kernwin.action_handler_t):
             bbaddr = bbvec[trace[pos]][0]
             termty = bbvec[trace[pos]][1]
             if termty == 6:
-                print("Found Return Block @ 0x%x (%d / %d)" % (bbaddr, pos + 1, len(trace)));
+                print("Found Return Block @ 0x%x (%d / %d) in %s" % (bbaddr, pos + 1, len(trace), trace_filename));
                 ida_kernwin.jumpto(bbaddr)
                 return
 
