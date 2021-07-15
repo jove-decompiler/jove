@@ -76,7 +76,7 @@ class jove_next_trace_block_t(ida_kernwin.action_handler_t):
         pos = min(pos + 1, len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -99,7 +99,7 @@ class jove_prev_trace_block_t(ida_kernwin.action_handler_t):
         pos = max(pos - 1, 0)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -124,7 +124,7 @@ class jove_skip_ahead_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -149,7 +149,7 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block @ 0x%x (%d / %d) in %s" % (Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -180,7 +180,7 @@ class jove_skip_to_ret_t(ida_kernwin.action_handler_t):
             bbaddr = bbvec[trace[pos]][0]
             termty = bbvec[trace[pos]][1]
             if termty == 6:
-                print("Found Return Block @ 0x%x (%d / %d) in %s" % (bbaddr, pos + 1, len(trace), trace_filename));
+                print("Found Return Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], bbaddr, pos + 1, len(trace), trace_filename));
                 ida_kernwin.jumpto(bbaddr)
                 return
 
