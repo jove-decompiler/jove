@@ -1776,9 +1776,10 @@ static std::pair<llvm::GlobalVariable *, llvm::Function *> declareHook(const hoo
         *Module,
         WordType(),
         false,
-        llvm::GlobalValue::InternalLinkage,
+        llvm::GlobalValue::ExternalLinkage,
         llvm::ConstantExpr::getPtrToInt(F, WordType()),
         clunkName);
+  GV->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
   return std::make_pair(GV, F);
 }
