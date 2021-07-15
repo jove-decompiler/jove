@@ -2049,7 +2049,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   // if we are in trace mode, we may have hit a guard page. check for this
   // possbility first.
   //
-  if (si) {
+  void *TraceBegin = __jove_trace_begin;
+
+  if (si && TraceBegin) {
     uintptr_t FaultAddr = (uintptr_t)si->si_addr;
 
 #if 0
@@ -2071,8 +2073,6 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
 
     if (FaultAddr) {
-      void *TraceBegin = __jove_trace_begin;
-
       uintptr_t TraceGuardPageBeg = (uintptr_t)TraceBegin + JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE;
       uintptr_t TraceGuardPageEnd = TraceGuardPageBeg + JOVE_PAGE_SIZE;
 
