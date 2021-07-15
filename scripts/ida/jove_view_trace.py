@@ -76,7 +76,7 @@ class jove_next_trace_block_t(ida_kernwin.action_handler_t):
         pos = min(pos + 1, len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename))
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -149,7 +149,7 @@ class jove_skip_behind_t(ida_kernwin.action_handler_t):
         pos = min(int(x * len(trace)), len(trace) - 1)
 
         Addr = bbvec[trace[pos]][0]
-        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename));
+        print("Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], Addr, pos + 1, len(trace), trace_filename))
         ida_kernwin.jumpto(Addr)
 
     def update(self, ctx):
@@ -169,19 +169,61 @@ class jove_skip_to_ret_t(ida_kernwin.action_handler_t):
             print("[jove] no trace file opened?")
             return
 
-        assert(pos >= 0 and pos < len(trace))
+        saved_pos = pos
+        assert(saved_pos >= 0 and saved_pos < len(trace))
+
         while True:
             pos += 1
-            if pos == len(trace):
-                pos = len(trace) - 1
-                print("[jove] end of trace")
+            if pos >= len(trace):
+                print("No return Block found")
+                pos = saved_pos # not found: undo change to pos
                 return
 
             bbaddr = bbvec[trace[pos]][0]
             termty = bbvec[trace[pos]][1]
             if termty == 6:
-                print("Found Return Block %d @ 0x%x (%d / %d) in %s" % (trace[pos], bbaddr, pos + 1, len(trace), trace_filename));
+                print("Found return block %d @ 0x%x (%d / %d) in %s" % (trace[pos], bbaddr, pos + 1, len(trace), trace_filename))
                 ida_kernwin.jumpto(bbaddr)
+                return
+
+    def update(self, ctx):
+        return ida_kernwin.AST_ENABLE_ALWAYS
+
+class jove_skip_to_bb_t(ida_kernwin.action_handler_t):
+    def __init__(self):
+        ida_kernwin.action_handler_t.__init__(self)
+
+    def activate(self, ctx):
+        global trace_filename
+        global trace
+        global bbvec
+        global pos
+
+        if len(trace) == 0 or not trace_filename:
+            print("[jove] no trace file opened?")
+            return
+
+        BBIdxFromUser = ida_kernwin.ask_text(0, "", "Skip to next occurence of specified basic block")
+        if not BBIdxFromUser:
+          return
+
+        saved_pos = pos
+        assert(saved_pos >= 0 and saved_pos < len(trace))
+
+        BBIdx = int(BBIdxFromUser)
+        print("Searching for next occurence of basic block %d in %s" % (BBIdx, trace_filename))
+
+        while True:
+            pos += 1
+            if pos >= len(trace):
+                print("No such block found in trace")
+                pos = saved_pos # not found: undo change to pos
+                return
+
+            if trace[pos] == BBIdx:
+                BBAddr = bbvec[BBIdx][0]
+                print("Found block %d @ 0x%x" % (BBIdx, BBAddr))
+                ida_kernwin.jumpto(BBAddr)
                 return
 
     def update(self, ctx):
@@ -207,15 +249,15 @@ else:
         e = decompilation.getroot()
 
         l = e.findall("Decompilation")
-        assert(len(l) == 1);
+        assert(len(l) == 1)
         e = l[0]
 
         l = e.findall("Binaries")
-        assert(len(l) == 1);
+        assert(len(l) == 1)
         e = l[0]
 
         l = e.findall("item")
-        assert(len(l) >= 3);
+        assert(len(l) >= 3)
 
         BIdx = 0 # just the exe
         e = l[BIdx]
@@ -231,12 +273,13 @@ else:
             bbvec.append((bbaddr, termty))
 
         actions_variants = [
-          ("jove_action_open_trace",  "Open trace...",                   "",             jove_open_trace_file_t()),
-          ("jove_action_trace_next",  "Jump to next block in trace",     "Ctrl+Shift+N", jove_next_trace_block_t()),
-          ("jove_action_trace_prev",  "Jump to previous block in trace", "Ctrl+Shift+B", jove_prev_trace_block_t()),
-          ("jove_action_skip_ahead",  "Skip ahead",                      "Ctrl+Shift+M", jove_skip_ahead_t()),
-          ("jove_action_skip_behind", "Skip behind",                     "Ctrl+Shift+V", jove_skip_behind_t()),
-          ("jove_action_skip_to_ret", "Skip to return",                  "Ctrl+Shift+F", jove_skip_to_ret_t()),
+          ("jove_action_open_trace",  "Open trace...",                               "",             jove_open_trace_file_t()),
+          ("jove_action_trace_next",  "Jump to next block in trace",                 "Ctrl+Shift+N", jove_next_trace_block_t()),
+          ("jove_action_trace_prev",  "Jump to previous block in trace",             "Ctrl+Shift+B", jove_prev_trace_block_t()),
+          ("jove_action_skip_ahead",  "Skip ahead",                                  "Ctrl+Shift+M", jove_skip_ahead_t()),
+          ("jove_action_skip_behind", "Skip behind",                                 "Ctrl+Shift+V", jove_skip_behind_t()),
+          ("jove_action_skip_to_ret", "Skip to return",                              "Ctrl+Shift+F", jove_skip_to_ret_t()),
+          ("jove_action_skip_to_bb",  "Skip to next occurence of given basic block", "",             jove_skip_to_bb_t()),
         ]
 
         for action_name, label, shortcut, obj in actions_variants:
