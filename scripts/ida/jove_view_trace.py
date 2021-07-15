@@ -230,54 +230,18 @@ else:
             termty = int(vert_e.findall("Term.Type")[0].text)
             bbvec.append((bbaddr, termty))
 
-        #print(bbvec)
+        actions_variants = [
+          ("jove_action_open_trace",  "Open trace...",                   "",             jove_open_trace_file_t()),
+          ("jove_action_trace_next",  "Jump to next block in trace",     "Ctrl+Shift+N", jove_next_trace_block_t()),
+          ("jove_action_trace_prev",  "Jump to previous block in trace", "Ctrl+Shift+B", jove_prev_trace_block_t()),
+          ("jove_action_skip_ahead",  "Skip ahead",                      "Ctrl+Shift+M", jove_skip_ahead_t()),
+          ("jove_action_skip_behind", "Skip behind",                     "Ctrl+Shift+V", jove_skip_behind_t()),
+          ("jove_action_skip_to_ret", "Skip to return",                  "Ctrl+Shift+F", jove_skip_to_ret_t()),
+        ]
 
-        ACTION_0_NAME = "jove_action_open_trace"
-        ACTION_1_NAME = "jove_action_trace_next"
-        ACTION_2_NAME = "jove_action_trace_prev"
-        ACTION_3_NAME = "jove_action_skip_ahead"
-        ACTION_4_NAME = "jove_action_skip_behind"
-        ACTION_5_NAME = "jove_action_skip_to_ret"
-
-        ACTION_1_SHORTCUT = "Ctrl+Shift+N"
-        ACTION_2_SHORTCUT = "Ctrl+Shift+B"
-        ACTION_3_SHORTCUT = "Ctrl+Shift+M"
-        ACTION_4_SHORTCUT = "Ctrl+Shift+V"
-        ACTION_5_SHORTCUT = "Ctrl+Shift+F"
-
-        desc_0 = ida_kernwin.action_desc_t(ACTION_0_NAME, "Open trace...", jove_open_trace_file_t())
-        desc_1 = ida_kernwin.action_desc_t(ACTION_1_NAME, "Jump to next block in trace", jove_next_trace_block_t(), ACTION_1_SHORTCUT)
-        desc_2 = ida_kernwin.action_desc_t(ACTION_2_NAME, "Jump to previous block in trace", jove_prev_trace_block_t(), ACTION_2_SHORTCUT)
-        desc_3 = ida_kernwin.action_desc_t(ACTION_3_NAME, "Skip ahead", jove_skip_ahead_t(), ACTION_3_SHORTCUT)
-        desc_4 = ida_kernwin.action_desc_t(ACTION_4_NAME, "Skip behind", jove_skip_behind_t(), ACTION_4_SHORTCUT)
-        desc_5 = ida_kernwin.action_desc_t(ACTION_5_NAME, "Skip to return", jove_skip_to_ret_t(), ACTION_5_SHORTCUT)
-
-        if ida_kernwin.register_action(desc_0):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_0_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_0_NAME)
-
-        if ida_kernwin.register_action(desc_1):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_1_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_1_NAME)
-
-        if ida_kernwin.register_action(desc_2):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_2_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_2_NAME)
-
-        if ida_kernwin.register_action(desc_3):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_3_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_3_NAME)
-
-        if ida_kernwin.register_action(desc_4):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_4_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_4_NAME)
-
-        if ida_kernwin.register_action(desc_5):
-            ida_kernwin.attach_action_to_menu("Jove", ACTION_5_NAME, ida_kernwin.SETMENU_INS)
-        else:
-            print("Failed to register action \"%s\"" % ACTION_5_NAME)
+        for action_name, label, shortcut, obj in actions_variants:
+            desc = ida_kernwin.action_desc_t(action_name, label, obj, shortcut)
+            if ida_kernwin.register_action(desc):
+                ida_kernwin.attach_action_to_menu("Jove", action_name, ida_kernwin.SETMENU_INS)
+            else:
+                print("Failed to register action \"%s\"" % action_name)
