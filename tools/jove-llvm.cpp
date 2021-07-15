@@ -9017,14 +9017,14 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     {
       llvm::StoreInst *SI =
-          IRB.CreateStore(IRB.getInt64(comb), PtrLoad, true /* Volatile */);
+          IRB.CreateStore(PtrInc, TraceGlobal, true /* Volatile */);
 
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
 
     {
       llvm::StoreInst *SI =
-          IRB.CreateStore(PtrInc, TraceGlobal, true /* Volatile */);
+          IRB.CreateStore(IRB.getInt64(comb), PtrLoad, true /* Volatile */);
 
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     }
