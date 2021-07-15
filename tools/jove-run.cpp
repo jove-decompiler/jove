@@ -823,6 +823,9 @@ int run_outside_chroot(void) {
     //
     env.s_vec.push_back("LD_BIND_NOW=1");
 
+    if (fs::exists("/firmadyne/libnvram.so"))
+      env.s_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+
     for (std::string &s : opts::Envs)
       env.s_vec.push_back(s);
 
