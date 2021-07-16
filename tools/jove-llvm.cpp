@@ -5101,16 +5101,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-    //auto it = FuncMap.find(S.Addr);
-    //assert(it != FuncMap.end());
-
-#if 0
-    return Decompilation.Binaries[BinaryIndex]
-        .Analysis.Functions[(*it).second]
-        .F;
-#else
     return SectionPointer(S.Addr);
-#endif
   };
 
   auto constant_of_addressof_undefined_data_relocation =
@@ -5163,6 +5154,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
+#if 0
     if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
@@ -5170,6 +5162,9 @@ int CreateSectionGlobalVariables(void) {
     AddrToSizeMap[S.Addr] = S.Size;
 
     return nullptr;
+#else
+    return SectionPointer(S.Addr);
+#endif
   };
 
   auto constant_of_relative_relocation =
