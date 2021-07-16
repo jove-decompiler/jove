@@ -204,18 +204,22 @@ int main(int argc, char **argv) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_MIPS32)
-    const std::array<const char *, 3> not_arg_regs{
+    const std::array<const char *, 5> not_arg_regs{
       "_frame",
       "env",
       "PC",
+      "btarget",
+      "bcond",
     };
 
-    const std::array<const char *, 5> not_ret_regs{
+    const std::array<const char *, 7> not_ret_regs{
       "_frame",
       "env",
       "PC",
       "ra",
       "gp",
+      "btarget",
+      "bcond",
     };
 #else
 #error
