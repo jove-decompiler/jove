@@ -2314,7 +2314,14 @@ int ProcessExportedFunctions(void) {
       }
 
       function_t &f = binary.Analysis.Functions[FuncIdx];
-      f.IsABI = true;
+      if (!f.IsABI) {
+        llvm::errs() << llvm::formatv(
+            "ProcessExportedFunctions: !IsABI for 0x{0:x} in {1}\n",
+            binary.Analysis.ICFG[boost::vertex(f.Entry, binary.Analysis.ICFG)].Addr,
+            binary.Path);
+      }
+
+      //f.IsABI = true;
 
       f.Syms.resize(f.Syms.size() + 1);
       symbol_t &res = f.Syms.back();
@@ -4410,15 +4417,13 @@ int CreateFunctions(void) {
        ++FuncIdx) {
     function_t &f = Binary.Analysis.Functions[FuncIdx];
 
-    if (!f.IsABI && !f.Syms.empty()) {
-      WithColor::error() << llvm::formatv(
-          "!f.IsABI && !f.Syms.empty() where f.Syms[0] is {0} {1}\n",
-          f.Syms.front().Name, f.Syms.front().Vers);
-      return 1;
-    }
-
     if (!is_basic_block_index_valid(f.Entry))
       continue;
+
+    if (!f.IsABI && !f.Syms.empty())
+      WithColor::warning() << llvm::formatv(
+          "!f.IsABI && !f.Syms.empty() where f.Syms[0] is {0} {1}\n",
+          f.Syms.front().Name, f.Syms.front().Vers);
 
     std::string jove_name = (fmt("%c%lx") % (f.IsABI ? 'J' : 'j') %
                              ICFG[boost::vertex(f.Entry, ICFG)].Addr)
