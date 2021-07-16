@@ -10112,15 +10112,24 @@ int TranslateBasicBlock(TranslateContext &TC) {
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedReturnAddress) {
     assert(JoveCheckReturnAddrFunc);
 
-    llvm::Value *Args[] = {
-        IRB.CreateLoad(TC.PCAlloca),
-        IRB.CreatePtrToInt(
-            IRB.CreateCall(llvm::Intrinsic::getDeclaration(
-                               Module.get(), llvm::Intrinsic::returnaddress),
-                           IRB.getInt32(0)),
-            WordType())};
+    llvm::Value *NativeRetAddr =
+        IRB.CreateCall(llvm::Intrinsic::getDeclaration(
+                           Module.get(), llvm::Intrinsic::returnaddress),
+                       IRB.getInt32(0));
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    llvm::Value *Args[] = {IRB.CreateLoad(TC.PCAlloca),
+                           IRB.CreatePtrToInt(NativeRetAddr, WordType())};
 
     IRB.CreateCall(JoveCheckReturnAddrFunc, Args);
+#elif defined(TARGET_MIPS32)
+    llvm::Value *Args[] = {get(tcg_btarget_index), /* XXX why? */
+                           IRB.CreatePtrToInt(NativeRetAddr, WordType())};
+
+    IRB.CreateCall(JoveCheckReturnAddrFunc, Args);
+#else
+    // TODO
+#endif
   }
 
   switch (T.Type) {

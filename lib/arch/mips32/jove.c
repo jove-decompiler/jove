@@ -2986,9 +2986,9 @@ void _jove_fail2(target_ulong a0,
       _description_of_address_for_maps(buff, a0, maps, n);
       _strcat(s, " <");
       _strcat(s, buff);
-      _strcat(s, "> [");
+      _strcat(s, ">");
     }
-    _strcat(s, "\n            0x");
+    _strcat(s, "\n             0x");
     {
       char buff[65];
       uint_to_string(a0, buff, 0x10);
@@ -3529,10 +3529,14 @@ static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  if (_jove_is_readable_mem(NativeRetAddr))
+  if (RetAddr == 0x0 /* XXX? */ || _jove_is_readable_mem(RetAddr))
     return;
 
+#if 1
   _jove_fail2(RetAddr, NativeRetAddr);
+#else
+  _UNREACHABLE("stack smashing detected");
+#endif
 }
 
 bool _jove_is_readable_mem(target_ulong Addr) {
