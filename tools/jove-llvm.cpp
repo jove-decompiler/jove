@@ -10120,21 +10120,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
   case TERMINATOR::CONDITIONAL_JUMP: {
     auto eit_pair = boost::out_edges(bb, ICFG);
 
-#if 0
-    if (boost::out_degree(bb, ICFG) != 2) {
-      WithColor::error() << llvm::formatv(
-          "conditional jump @ {0:x} goes to {1} places\n", ICFG[bb].Addr,
-          boost::out_degree(bb, ICFG));
-
-      for (auto eit = eit_pair.first; eit != eit_pair.second; ++eit) {
-        control_flow_t cf = *eit;
-        basic_block_t succ = boost::target(cf, ICFG);
-
-        WithColor::note() << llvm::formatv("  -> {0:x} \n", ICFG[succ].Addr);
-      }
-    }
-#endif
-
     assert(boost::out_degree(bb, ICFG) == 2 ||
            boost::out_degree(bb, ICFG) == 1);
 
@@ -10299,9 +10284,6 @@ static int TranslateTCGOp(TCGOp *op,
   auto &TempAllocaVec = TC.TempAllocaVec;
   auto &LabelVec = TC.LabelVec;
 
-  if (!(opc < ARRAY_SIZE(tcg_op_defs)))
-    return 1;
-
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   const auto &ICFG = Binary.Analysis.ICFG;
   auto &PCAlloca = TC.PCAlloca;
@@ -10393,12 +10375,6 @@ static int TranslateTCGOp(TCGOp *op,
             llvm::ConstantInt::get(WordType(), SectsStartAddr)));
   };
 
-#if 0
-  const TCGOpcode opc = op->opc;
-#else
-  assert(op->opc == opc);
-#endif
-
   const TCGOpDef &def = tcg_op_defs[opc];
 
   int nb_oargs = def.nb_oargs;
@@ -10482,33 +10458,6 @@ static int TranslateTCGOp(TCGOp *op,
     //
     // build the vector of arguments to pass
     //
-    if (opts::Verbose) {
-      auto StringOfTCGTemp = [](TCGTemp *ts) -> std::string {
-        return std::to_string(bitsOfTCGType(ts->type));
-      };
-
-      std::string arguments_str;
-#if 0
-      for (int i = 0; i < nb_oargs) {
-        TCGTemp *ts = arg_temp(op->args[i]);
-
-        arguments_str.append(" ");
-        arguments_str.append(StringOfTCGTemp(ts));
-      }
-#endif
-
-      for (int i = 0; i < nb_iargs; ++i) {
-        TCGTemp *ts = arg_temp(op->args[nb_oargs + i]);
-
-        if (i != 0)
-          arguments_str.append(" ");
-
-        arguments_str.append(StringOfTCGTemp(ts));
-      }
-
-      llvm::errs() << llvm::formatv("{0} helper_{1}({2}) nb_oargs={3} nb_iargs={4}\n", *hf.F->getType(), helper_nm, arguments_str, nb_oargs, nb_iargs);
-    }
-
     std::vector<llvm::Value *> ArgVec;
     ArgVec.reserve(nb_iargs);
 
@@ -10572,14 +10521,6 @@ static int TranslateTCGOp(TCGOp *op,
             assert(ts->type == TCG_TYPE_I32);
             llvm::Value *hi = get(ts);
             ++iarg_idx;
-
-#if 0
-            WithColor::note()
-                << llvm::formatv("{0}:{1} lo={2} hi={3} [{4}]\n",
-                                 __FILE__,
-                                 __LINE__,
-                                 *lo, *hi, helper_nm);
-#endif
 
             llvm::Value *combined =
                 IRB.CreateOr(IRB.CreateZExt(lo, IRB.getInt64Ty()),
@@ -11530,11 +11471,6 @@ static int TranslateTCGOp(TCGOp *op,
   }
 
   default:
-#if 0
-    WithColor::error() << "unhandled TCG instruction (" << def.name << ")\n";
-    TCG->dump_operations();
-    llvm::errs() << *f.F << '\n';
-#endif
     return 1;
   }
 
