@@ -9602,8 +9602,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                     IRB.CreateLoad(TC.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
-      IRB.CreateCall(
-          llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+
+      if (JoveFail1Func) {
+        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
+        IRB.CreateCall(JoveFail1Func, FailArgs);
+      } else {
+        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
+                                                       llvm::Intrinsic::trap));
+      }
+
       IRB.CreateUnreachable();
       break;
     }
