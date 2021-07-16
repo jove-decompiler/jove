@@ -2966,7 +2966,68 @@ void _jove_fail1(target_ulong a0) {
 
 void _jove_fail2(target_ulong a0,
                  target_ulong a1) {
-  _UNREACHABLE("_jove_fail2");
+  char maps[4096 * 8];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  {
+    char s[4096 * 8];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_fail2: 0x");
+    {
+      char buff[65];
+      uint_to_string(a0, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    {
+      char buff[65];
+      _description_of_address_for_maps(buff, a0, maps, n);
+      _strcat(s, " <");
+      _strcat(s, buff);
+      _strcat(s, "> [");
+    }
+    _strcat(s, "\n            0x");
+    {
+      char buff[65];
+      uint_to_string(a0, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    {
+      char buff[65];
+      _description_of_address_for_maps(buff, a1, maps, n);
+      _strcat(s, " <");
+      _strcat(s, buff);
+      _strcat(s, "> [");
+    }
+
+    {
+      char buff[65];
+      uint_to_string(_jove_sys_gettid(), buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, "]\n");
+    _strcat(s, maps);
+
+    //
+    // dump message for user
+    //
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
+  for (;;) {
+    struct old_timespec32 t;
+    t.tv_sec = 10;
+    t.tv_nsec = 0;
+
+    _jove_sys_nanosleep_time32(&t, NULL);
+  }
+
+  __builtin_unreachable();
 }
 
 void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
@@ -3468,14 +3529,8 @@ static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
-  if (likely(RetAddr == Cookie))
+  if (_jove_is_readable_mem(NativeRetAddr))
     return;
-
-  if (_jove_is_readable_mem(NativeRetAddr) &&
-      _jove_is_foreign_code(NativeRetAddr))
-    return; /* the return address is bogus because foreign code is calling into
-               recompiled code */
 
   _jove_fail2(RetAddr, NativeRetAddr);
 }
