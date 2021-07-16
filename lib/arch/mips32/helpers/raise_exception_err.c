@@ -1986,8 +1986,6 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #undef env_a6
 
 #if 0
-  if (sysnum != 4004 /* write */ &&
-      sysnum != 4117 /* ipc */) {
   if (sysnum < ARRAY_SIZE(syscall_names)) {
     const char *nm = syscall_names[sysnum];
     if (nm) {
@@ -2115,7 +2113,6 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
       _jove_sys_write(2, buff, _strlen(buff));
     }
-  }
   }
 #endif
 
