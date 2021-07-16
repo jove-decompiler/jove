@@ -10370,6 +10370,9 @@ static int TranslateTCGOp(TCGOp *op,
             llvm::ConstantInt::get(WordType(), SectsStartAddr)));
   };
 
+  if (opc >= ARRAY_SIZE(tcg_op_defs))
+    return 1;
+
   const TCGOpDef &def = tcg_op_defs[opc];
 
   int nb_oargs = def.nb_oargs;
@@ -11477,7 +11480,7 @@ const translate_tcg_op_proc_t TranslateTCGOpTable[250] = {
 
 #define __PROC_CASE(n, i, data) [i] = TranslateTCGOp<i>,
 
-BOOST_PP_REPEAT(178, __PROC_CASE, void)
+BOOST_PP_REPEAT(250, __PROC_CASE, void)
 
 #undef __PROC_CASE
 
