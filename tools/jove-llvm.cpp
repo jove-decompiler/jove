@@ -10103,6 +10103,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
   }
 
   if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedReturnAddress) {
+    assert(JoveCheckReturnAddrFunc);
+
     llvm::Value *Args[] = {
         IRB.CreateLoad(TC.PCAlloca),
         IRB.CreatePtrToInt(
