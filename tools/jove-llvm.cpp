@@ -370,12 +370,7 @@ static cl::opt<std::string>
                                  "found from DFSanModuleID metadata"),
                         cl::value_desc("filename"), cl::cat(JoveCategory));
 
-static bool CallStack;
-
-static cl::opt<bool>
-    CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
-                                    cl::desc("Check for stack overrun"),
-                                    cl::cat(JoveCategory));
+static bool CallStack, CheckEmulatedReturnAddress;
 
 static cl::opt<bool>
     ForeignLibs("foreign-libs",
@@ -425,6 +420,7 @@ int main(int argc, char **argv) {
 
   jove::cmdline.argv = argv;
   opts::CallStack = opts::DFSan;
+  opts::CheckEmulatedReturnAddress = opts::DFSan;
 
   return jove::llvm();
 }
@@ -10106,8 +10102,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     break;
   }
 
-  if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedStackReturnAddress) {
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
+  if (T.Type == TERMINATOR::RETURN && opts::CheckEmulatedReturnAddress) {
     llvm::Value *Args[] = {
         IRB.CreateLoad(TC.PCAlloca),
         IRB.CreatePtrToInt(
@@ -10117,7 +10112,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
             WordType())};
 
     IRB.CreateCall(JoveCheckReturnAddrFunc, Args);
-#endif
   }
 
   switch (T.Type) {
