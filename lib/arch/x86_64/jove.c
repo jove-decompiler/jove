@@ -698,9 +698,53 @@ static void _jove_begin(target_ulong rdi,
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
+#if 0
 _NAKED _NOINL unsigned __int128 _jove_thunk(target_ulong dstpc,
                                             target_ulong *args,
                                             target_ulong *emuspp);
+#else
+_NAKED _NOINL unsigned __int128 _jove_thunk0(target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk1(target_ulong rdi,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk2(target_ulong rdi,
+                                             target_ulong rsi,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk3(target_ulong rdi,
+                                             target_ulong rsi,
+                                             target_ulong rdx,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk4(target_ulong rdi,
+                                             target_ulong rsi,
+                                             target_ulong rdx,
+                                             target_ulong rcx,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk5(target_ulong rdi,
+                                             target_ulong rsi,
+                                             target_ulong rdx,
+                                             target_ulong rcx,
+                                             target_ulong r8,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_NAKED _NOINL unsigned __int128 _jove_thunk6(target_ulong rdi,
+                                             target_ulong rsi,
+                                             target_ulong rdx,
+                                             target_ulong rcx,
+                                             target_ulong r8,
+                                             target_ulong r9,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+#endif
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -739,8 +783,8 @@ _NOINL void _jove_check_return_address(target_ulong RetAddr,
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (2048 * JOVE_PAGE_SIZE)
 
-static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
+_HIDDEN target_ulong _jove_alloc_stack(void);
+_HIDDEN void _jove_free_stack(target_ulong);
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 
@@ -1525,7 +1569,7 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
           }
         }
 
-        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
+        if (match) {
           uintptr_t *ForeignFnTbl = _jove_foreign_lib_function_table(i);
 
           for (unsigned FIdx = 0; ForeignFnTbl[FIdx]; ++FIdx) {
@@ -1681,6 +1725,8 @@ void _jove_fail2(target_ulong rdi,
   asm volatile("hlt");
 }
 
+#if 0
+
 unsigned __int128 _jove_thunk(target_ulong dstpc   /* rdi */,
                               target_ulong *args   /* rsi */,
                               target_ulong *emuspp /* rdx */) {
@@ -1738,6 +1784,210 @@ unsigned __int128 _jove_thunk(target_ulong dstpc   /* rdi */,
                [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
+
+#else
+
+#define JOVE_THUNK_PROLOGUE                                                    \
+  "pushq %%r15\n"                                                              \
+  "pushq %%r14\n"                                                              \
+  "pushq %%r13\n"                                                              \
+  "pushq %%r12\n"                                                              \
+                                                                               \
+  "movq %%rsp, %%r15\n" /* save sp in r15 */
+
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "movq %%rsp, (%%r14)\n" /* store modified emusp */                           \
+  "movq %%r15, %%rsp\n" /* restore stack pointer */                            \
+                                                                               \
+  "popq %%r12\n"                                                               \
+  "popq %%r13\n"                                                               \
+  "popq %%r14\n"                                                               \
+  "popq %%r15\n"                                                               \
+  "retq\n"
+
+unsigned __int128 _jove_thunk0(target_ulong dstpc   /* rdi */,
+                               target_ulong *emuspp /* rsi */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%rdi, %%r12\n" /* dstpc in r12 */
+               "movq %%rsi, %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%rdi\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk1(target_ulong rdi,
+                               target_ulong dstpc   /* rsi */,
+                               target_ulong *emuspp /* rdx */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%rsi, %%r12\n" /* dstpc in r12 */
+               "movq %%rdx, %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%rsi\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk2(target_ulong rdi,
+                               target_ulong rsi,
+                               target_ulong dstpc   /* rdx */,
+                               target_ulong *emuspp /* rcx */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%rdx, %%r12\n" /* dstpc in r12 */
+               "movq %%rcx, %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%rdx\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk3(target_ulong rdi,
+                               target_ulong rsi,
+                               target_ulong rdx,
+                               target_ulong dstpc   /* rcx */,
+                               target_ulong *emuspp /* r8 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%rdx, %%r12\n" /* dstpc in r12 */
+               "movq %%r8, %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%rcx\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk4(target_ulong rdi,
+                               target_ulong rsi,
+                               target_ulong rdx,
+                               target_ulong rcx,
+                               target_ulong dstpc   /* r8 */,
+                               target_ulong *emuspp /* r9 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%r8, %%r12\n" /* dstpc in r12 */
+               "movq %%r9, %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%r8\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk5(target_ulong rdi,
+                               target_ulong rsi,
+                               target_ulong rdx,
+                               target_ulong rcx,
+                               target_ulong r8,
+                               target_ulong dstpc   /* r9 */,
+                               target_ulong *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq %%r9, %%r12\n" /* dstpc in r12 */
+               "movq 40(%%rsp), %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%r9\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+unsigned __int128 _jove_thunk6(target_ulong rdi,
+                               target_ulong rsi,
+                               target_ulong rdx,
+                               target_ulong rcx,
+                               target_ulong r8,
+                               target_ulong r9,
+                               target_ulong dstpc,
+                               target_ulong *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movq 40(%%rsp), %%r12\n" /* dstpc in r12 */
+               "movq 48(%%rsp), %%r14\n" /* emuspp in r14 */
+
+               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "xorq %%rax, %%rax\n"
+               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addq $8, %%rsp\n" /* replace return address on the stack */
+               "callq *%%r12\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+#endif
 
 bool _isDigit(char C) { return C >= '0' && C <= '9'; }
 
@@ -1935,7 +2185,7 @@ void _jove_install_foreign_function_tables(void) {
           }
         }
 
-        if (match) {
+        if (match && __jove_foreign_function_tables[i + 3] == NULL) {
           uintptr_t *foreign_fn_tbl = _jove_foreign_lib_function_table(i);
 
           uintptr_t load_bias = min - off;

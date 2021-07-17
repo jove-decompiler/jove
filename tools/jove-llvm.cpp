@@ -620,12 +620,14 @@ static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
-#if defined(TARGET_MIPS32) || defined(TARGET_I386)
+#if defined(TARGET_MIPS32) || defined(TARGET_X86_64) || defined(TARGET_I386)
 
 #define __THUNK(n, i, data)                                                    \
   static llvm::Function *JoveThunk##i##Func;
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_X86_64)
+BOOST_PP_REPEAT(7, __THUNK, void)
+#elif defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
@@ -1597,7 +1599,7 @@ int CreateModule(void) {
       Module->getFunction("_jove_install_foreign_function_tables");
   assert(JoveInstallForeignFunctionTables);
 
-#if defined(TARGET_MIPS32) || defined(TARGET_I386)
+#if defined(TARGET_X86_64) || defined(TARGET_MIPS32) || defined(TARGET_I386)
 
 #define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
@@ -1605,7 +1607,9 @@ int CreateModule(void) {
   assert(!JoveThunk##i##Func->empty());                                        \
   JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_X86_64)
+BOOST_PP_REPEAT(7, __THUNK, void)
+#elif defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
@@ -9812,7 +9816,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
             //
             save_callstack_pointers();
 
-#if defined(TARGET_MIPS32) || defined(TARGET_I386)
+#if defined(TARGET_MIPS32) || defined(TARGET_X86_64) || defined(TARGET_I386)
             {
               std::vector<llvm::Value *> ArgVec;
 
@@ -9833,7 +9837,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
               llvm::Function *const JoveThunkFuncArray[] = {
 #define __THUNK(n, i, data) JoveThunk##i##Func,
 
-#if defined(TARGET_MIPS32)
+#if defined(TARGET_X86_64)
+BOOST_PP_REPEAT(7, __THUNK, void)
+#elif defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
