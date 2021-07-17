@@ -18,7 +18,7 @@ LLVM_COMPONENTS := object \
                    coroutines \
                    symbolize
 
-JOVE_VER := v0.77
+JOVE_VER := v0.78
 
 JOVE_GITVER := $(shell git log -n1 --format="%h")
 
