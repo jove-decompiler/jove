@@ -1265,6 +1265,11 @@ void worker(const dso_graph_t &dso_graph) {
 #endif
       }
 
+      if (opts::DFSan) {
+        //arg_vec.push_back("--regalloc=basic");
+        arg_vec.push_back("--regalloc=fast");
+      }
+
       if (b.IsPIC) {
         arg_vec.push_back("--relocation-model=pic");
       } else {
