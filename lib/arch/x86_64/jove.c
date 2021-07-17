@@ -1809,7 +1809,6 @@ unsigned __int128 _jove_thunk0(target_ulong dstpc   /* rdi */,
                                target_ulong *emuspp /* rsi */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%rdi, %%r12\n" /* dstpc in r12 */
                "movq %%rsi, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
@@ -1833,7 +1832,6 @@ unsigned __int128 _jove_thunk1(target_ulong rdi,
                                target_ulong *emuspp /* rdx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%rsi, %%r12\n" /* dstpc in r12 */
                "movq %%rdx, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
@@ -1858,7 +1856,6 @@ unsigned __int128 _jove_thunk2(target_ulong rdi,
                                target_ulong *emuspp /* rcx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%rdx, %%r12\n" /* dstpc in r12 */
                "movq %%rcx, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
@@ -1884,7 +1881,6 @@ unsigned __int128 _jove_thunk3(target_ulong rdi,
                                target_ulong *emuspp /* r8 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%rdx, %%r12\n" /* dstpc in r12 */
                "movq %%r8, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
@@ -1911,7 +1907,6 @@ unsigned __int128 _jove_thunk4(target_ulong rdi,
                                target_ulong *emuspp /* r9 */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%r8, %%r12\n" /* dstpc in r12 */
                "movq %%r9, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
@@ -1939,7 +1934,6 @@ unsigned __int128 _jove_thunk5(target_ulong rdi,
                                target_ulong *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq %%r9, %%r12\n" /* dstpc in r12 */
                "movq 40(%%rsp), %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
