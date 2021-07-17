@@ -1304,11 +1304,12 @@ void worker(const dso_graph_t &dso_graph) {
       worker_failed = true;
       WithColor::error() << llvm::formatv("llc failed for {0}\n",
                                           binary_filename);
+
+      t1.join(); t2.join();
       continue;
     }
 
-    t1.join(); /* opt */
-    t2.join(); /* llvm-dis */
+    t1.join(); t2.join();
   }
 }
 
