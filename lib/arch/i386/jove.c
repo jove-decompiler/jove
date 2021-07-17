@@ -654,9 +654,35 @@ _HIDDEN void _jove_begin(target_ulong sp_addr);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
 
+#if 0
 _NAKED _NOINL uint64_t _jove_thunk(target_ulong dstpc,
                                    target_ulong *args,
                                    target_ulong *emuspp);
+#else
+_REGPARM _NAKED _NOINL uint64_t _jove_thunk0(target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_REGPARM _NAKED _NOINL uint64_t _jove_thunk1(target_ulong eax,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_REGPARM _NAKED _NOINL uint64_t _jove_thunk2(target_ulong eax,
+                                             target_ulong edx,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_REGPARM _NAKED _NOINL uint64_t _jove_thunk3(target_ulong eax,
+                                             target_ulong edx,
+                                             target_ulong ecx,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+
+_REGPARM _NAKED _NOINL uint64_t _jove_thunk4(target_ulong eax,
+                                             target_ulong edx,
+                                             target_ulong ecx,
+                                             target_ulong dstpc,
+                                             target_ulong *emuspp);
+#endif
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -1581,6 +1607,8 @@ void _jove_fail2(target_ulong x,
   asm volatile("hlt");
 }
 
+#if 0
+
 uint64_t _jove_thunk(target_ulong dstpc,
                      target_ulong *args,
                      target_ulong *emuspp) {
@@ -1640,6 +1668,127 @@ uint64_t _jove_thunk(target_ulong dstpc,
                : /* InputOperands */
                : /* Clobbers */);
 }
+
+#else
+
+#define JOVE_THUNK_PROLOGUE                                                    \
+  "push %%ebp\n"                                                               \
+  "push %%edi\n"                                                               \
+  "push %%esi\n"                                                               \
+  "push %%ebx\n"                                                               \
+                                                                               \
+  "movl %%esp, %%ebp\n" /* save sp in ebp */
+
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "movl %%esp, (%%edi)\n" /* store modified emusp */                           \
+  "movl %%ebp, %%esp\n"   /* restore stack pointer */                          \
+                                                                               \
+  "popl %%ebx\n"                                                               \
+  "popl %%esi\n"                                                               \
+  "popl %%edi\n"                                                               \
+  "popl %%ebp\n"                                                               \
+  "ret\n"
+
+uint64_t _jove_thunk0(target_ulong dstpc,  /* eax */
+                      target_ulong *emuspp /* edx */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movl %%edx, %%edi\n" /* emuspp in edi */
+
+               "movl (%%edi), %%esp\n" /* sp=*emusp */
+
+               "xorl %%ebx, %%ebx\n"
+               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addl $4, %%esp\n" /* replace return address on the stack */
+               "call *%%eax\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk1(target_ulong eax,
+                      target_ulong dstpc,  /* edx */
+                      target_ulong *emuspp /* ecx */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movl %%ecx, %%edi\n" /* emuspp in edi */
+
+               "movl (%%edi), %%esp\n" /* sp=*emusp */
+
+               "xorl %%ebx, %%ebx\n"
+               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addl $4, %%esp\n" /* replace return address on the stack */
+               "call *%%edx\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk2(target_ulong eax,
+                      target_ulong edx,
+                      target_ulong dstpc,  /* ecx */
+                      target_ulong *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movl 20(%%esp), %%edi\n" /* emuspp in edi */
+
+               "movl (%%edi), %%esp\n" /* sp=*emusp */
+
+               "xorl %%ebx, %%ebx\n"
+               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addl $4, %%esp\n" /* replace return address on the stack */
+               "call *%%ecx\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk3(target_ulong eax,
+                      target_ulong edx,
+                      target_ulong ecx,
+                      target_ulong dstpc,
+                      target_ulong *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "movl 20(%%esp), %%esi\n" /* dstpc in esi */
+               "movl 24(%%esp), %%edi\n" /* emuspp in edi */
+
+               "movl (%%edi), %%esp\n" /* sp=*emusp */
+
+               "xorl %%ebx, %%ebx\n"
+               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+
+               /* args: nothing to do */
+
+               "addl $4, %%esp\n" /* replace return address on the stack */
+               "call *%%esi\n"   /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+#endif
 
 bool _isDigit(char C) { return C >= '0' && C <= '9'; }
 

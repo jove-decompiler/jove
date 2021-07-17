@@ -620,12 +620,18 @@ static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
-#ifdef TARGET_MIPS32
+#if defined(TARGET_MIPS32) || defined(TARGET_I386)
 
 #define __THUNK(n, i, data)                                                    \
   static llvm::Function *JoveThunk##i##Func;
 
+#if defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
+#elif defined(TARGET_I386)
+BOOST_PP_REPEAT(4, __THUNK, void)
+#else
+#error
+#endif
 
 #undef __THUNK
 
@@ -1591,7 +1597,7 @@ int CreateModule(void) {
       Module->getFunction("_jove_install_foreign_function_tables");
   assert(JoveInstallForeignFunctionTables);
 
-#ifdef TARGET_MIPS32
+#if defined(TARGET_MIPS32) || defined(TARGET_I386)
 
 #define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
@@ -1599,7 +1605,13 @@ int CreateModule(void) {
   assert(!JoveThunk##i##Func->empty());                                        \
   JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-  BOOST_PP_REPEAT(5, __THUNK, void)
+#if defined(TARGET_MIPS32)
+BOOST_PP_REPEAT(5, __THUNK, void)
+#elif defined(TARGET_I386)
+BOOST_PP_REPEAT(4, __THUNK, void)
+#else
+#error
+#endif
 
 #undef __THUNK
 
@@ -9800,14 +9812,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
             //
             save_callstack_pointers();
 
-#ifdef TARGET_MIPS32
+#if defined(TARGET_MIPS32) || defined(TARGET_I386)
             {
               std::vector<llvm::Value *> ArgVec;
 
               std::vector<unsigned> glbv;
               ExplodeFunctionArgs(callee, glbv);
-
-              glbv.resize(std::min<unsigned>(glbv.size(), 4));
 
               ArgVec.resize(glbv.size());
               std::transform(glbv.begin(),
@@ -9821,12 +9831,20 @@ int TranslateBasicBlock(TranslateContext &TC) {
               ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index));
 
               llvm::Function *const JoveThunkFuncArray[] = {
-                JoveThunk0Func,
-                JoveThunk1Func,
-                JoveThunk2Func,
-                JoveThunk3Func,
-                JoveThunk4Func,
+#define __THUNK(n, i, data) JoveThunk##i##Func,
+
+#if defined(TARGET_MIPS32)
+BOOST_PP_REPEAT(5, __THUNK, void)
+#elif defined(TARGET_I386)
+BOOST_PP_REPEAT(4, __THUNK, void)
+#else
+#error
+#endif
+
+#undef __THUNK
               };
+
+              assert(glbv.size() < ARRAY_SIZE(JoveThunkFuncArray));
 
               Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
             }
@@ -9854,6 +9872,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
               Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
             }
 #endif
+
+#if defined(TARGET_I386)
+            //
+            // on i386 ABIs have first three registers
+            //
+            for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+              Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
+
             //
             // callstack stuff
             //
