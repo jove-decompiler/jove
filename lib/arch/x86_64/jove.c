@@ -1811,9 +1811,9 @@ unsigned __int128 _jove_thunk0(target_ulong dstpc   /* rdi */,
 
                "movq %%rsi, %%r14\n" /* emuspp in r14 */
 
-               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "movq (%%rsi), %%rsp\n" /* sp=emusp */
                "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq %%rax, (%%rsi)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -1834,9 +1834,9 @@ unsigned __int128 _jove_thunk1(target_ulong rdi,
 
                "movq %%rdx, %%r14\n" /* emuspp in r14 */
 
-               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "movq (%%rdx), %%rsp\n" /* sp=emusp */
                "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq %%rax, (%%rdx)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -1858,9 +1858,9 @@ unsigned __int128 _jove_thunk2(target_ulong rdi,
 
                "movq %%rcx, %%r14\n" /* emuspp in r14 */
 
-               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "movq (%%rcx), %%rsp\n" /* sp=emusp */
                "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq %%rax, (%%rcx)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -1883,9 +1883,9 @@ unsigned __int128 _jove_thunk3(target_ulong rdi,
 
                "movq %%r8, %%r14\n" /* emuspp in r14 */
 
-               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "movq (%%r8), %%rsp\n" /* sp=emusp */
                "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq %%rax, (%%r8)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -1909,9 +1909,9 @@ unsigned __int128 _jove_thunk4(target_ulong rdi,
 
                "movq %%r9, %%r14\n" /* emuspp in r14 */
 
-               "movq (%%r14), %%rsp\n" /* sp=emusp */
+               "movq (%%r9), %%rsp\n" /* sp=emusp */
                "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq %%rax, (%%r9)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
