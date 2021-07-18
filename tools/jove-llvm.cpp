@@ -5175,7 +5175,7 @@ int CreateSectionGlobalVariables(void) {
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
 
-#if 0
+#if !defined(TARGET_MIPS64) && !defined(TARGET_MIPS32) /* XXX copy relocations */
     if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
