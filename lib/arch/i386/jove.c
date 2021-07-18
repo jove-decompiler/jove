@@ -676,12 +676,6 @@ _REGPARM _NAKED _NOINL uint64_t _jove_thunk3(target_ulong eax,
                                              target_ulong ecx,
                                              target_ulong dstpc,
                                              target_ulong *emuspp);
-
-_REGPARM _NAKED _NOINL uint64_t _jove_thunk4(target_ulong eax,
-                                             target_ulong edx,
-                                             target_ulong ecx,
-                                             target_ulong dstpc,
-                                             target_ulong *emuspp);
 #endif
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
