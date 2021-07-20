@@ -562,10 +562,6 @@ extern /* __thread */ uint64_t *__jove_trace_begin;
 extern /* __thread */ uint64_t *__jove_callstack;
 extern /* __thread */ uint64_t *__jove_callstack_begin;
 
-extern int    __jove_startup_info_argc;
-extern char **__jove_startup_info_argv;
-extern char **__jove_startup_info_environ;
-
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
@@ -740,8 +736,6 @@ static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
-static _INL char *_findenv(const char *name, int len, int *offset);
-static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
@@ -802,24 +796,6 @@ void _jove_begin(target_ulong sp_addr) {
   __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
 
   //
-  // _jove_startup_info
-  //
-  {
-    uintptr_t addr = sp_addr;
-
-    __jove_startup_info_argc = *((long *)addr);
-
-    addr += sizeof(long);
-
-    __jove_startup_info_argv = (char **)addr;
-
-    addr += __jove_startup_info_argc * sizeof(char *);
-    addr += sizeof(char *);
-
-    __jove_startup_info_environ = (char **)addr;
-  }
-
-  //
   // setup the stack
   //
   {
@@ -847,34 +823,6 @@ void _jove_begin(target_ulong sp_addr) {
   _jove_install_foreign_function_tables();
 
   return _jove_call_entry();
-}
-
-char *_findenv(const char *name, int len, int *offset) {
-  int i;
-  const char *np;
-  char **p, *cp;
-
-  if (name == NULL || __jove_startup_info_environ == NULL)
-    return (NULL);
-  for (p = __jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
-    for (np = name, i = len; i && *cp; i--)
-      if (*cp++ != *np++)
-        break;
-    if (i == 0 && *cp++ == '=') {
-      *offset = p - __jove_startup_info_environ;
-      return (cp);
-    }
-  }
-  return (NULL);
-}
-
-char *_getenv(const char *name) {
-  int offset = 0;
-  const char *np;
-
-  for (np = name; *np && *np != '='; ++np)
-    ;
-  return (_findenv(name, (int)(np - name), &offset));
 }
 
 uintptr_t _get_stack_end(void) {
@@ -1048,8 +996,6 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
-static void _jove_sigsegv_handler(void);
-
 void _jove_trace_init(void) {
   int fd =
       _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
@@ -1074,46 +1020,6 @@ void _jove_trace_init(void) {
 
   if (_jove_sys_close(fd) < 0)
     _UNREACHABLE();
-
-#if 0
-  //
-  // install SIGSEGV handler
-  //
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
-  sa._sa_handler = (void *)_jove_sigsegv_handler;
-
-  {
-    long ret =
-        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0)
-      _UNREACHABLE();
-  }
-#endif
-}
-
-static void _jove_flush_trace(void);
-
-void _jove_sigsegv_handler(void) {
-  _jove_flush_trace();
-
-  _jove_sys_exit_group(22);
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-void _jove_flush_trace(void) {
-  if (!__jove_trace || !__jove_trace_begin)
-    return;
-
-  size_t len = __jove_trace - __jove_trace_begin;
-  len *= sizeof(uint64_t);
-
-  long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
@@ -1601,70 +1507,6 @@ void _jove_fail2(target_ulong x,
   asm volatile("hlt");
 }
 
-#if 0
-
-uint64_t _jove_thunk(target_ulong dstpc,
-                     target_ulong *args,
-                     target_ulong *emuspp) {
-  asm volatile("push %%ebp\n" /* callee-saved registers */
-               "push %%edi\n"
-               "push %%esi\n"
-               "push %%ebx\n"
-
-               "movl 0x14(%%esp), %%ebx\n" /* dstpc in ebx */
-               "movl 0x18(%%esp), %%esi\n" /* args in esi */
-               "movl 0x1c(%%esp), %%edi\n" /* emuspp in edi */
-
-               "call _jove_alloc_stack\n"
-               "pushl %%eax\n"
-
-               "movl %%esp, %%ebp\n" /* save sp in ebp */
-
-               "addl $0x80000, %%eax\n"
-
-               "movl (%%edi), %%esp\n" /* sp=*emusp */
-               "movl %%eax, (%%edi)\n" /* *emusp=stack storage */
-
-               /* -- unpack args -- */
-               "movl 0x0(%%esi), %%eax\n"
-               "movl 0x4(%%esi), %%edx\n"
-               "movl 0x8(%%esi), %%ecx\n"
-
-               "addl $4, %%esp\n" /* replace return address on the stack */
-               "call *%%ebx\n"   /* call dstpc */
-
-               "movl %%eax, %%esi\n" /* save return value in esi */
-               "movl %%edx, %%ebx\n" /* save return value in ebx */
-
-               "movl %%esp, (%%edi)\n" /* store modified emusp */
-               "movl %%ebp, %%esp\n"   /* restore stack pointer */
-
-               //
-               // free stack
-               //
-               "call _jove_free_stack\n"
-               "addl $4, %%esp\n"
-
-               //
-               // restore return values
-               //
-               "movl %%esi, %%eax\n"
-               "movl %%ebx, %%edx\n"
-
-               "popl %%ebx\n"
-               "popl %%esi\n"
-               "popl %%edi\n"
-               "popl %%ebp\n" /* callee-saved registers */
-
-               "ret\n"
-
-               : /* OutputOperands */
-               : /* InputOperands */
-               : /* Clobbers */);
-}
-
-#else
-
 #define JOVE_THUNK_PROLOGUE                                                    \
   "push %%ebp\n"                                                               \
   "push %%edi\n"                                                               \
@@ -1781,8 +1623,6 @@ uint64_t _jove_thunk3(target_ulong eax,
                : /* InputOperands */
                : /* Clobbers */);
 }
-
-#endif
 
 bool _isDigit(char C) { return C >= '0' && C <= '9'; }
 
@@ -2116,82 +1956,6 @@ bool _jove_is_readable_mem(target_ulong Addr) {
                                         0);
 
   return ret == sizeof(byte);
-}
-
-static bool _is_foreign_code_of_maps(char *maps, const unsigned n,
-                                     target_ulong Addr);
-
-bool _jove_is_foreign_code(target_ulong Addr) {
-  char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _is_foreign_code_of_maps(buff, n, Addr);
-  return res;
-}
-
-// precondition: Addr must point to valid virtual memory area
-bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    {
-      unsigned left = eol - line;
-
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-    }
-
-    if (Addr >= vm.min && Addr < vm.max) {
-      return (eol[-1] == ']'
-           && eol[-2] == 'o'
-           && eol[-3] == 's'
-           && eol[-4] == 'd'
-           && eol[-5] == 'v'
-           && eol[-6] == '[')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && _isDigit(eol[-4])
-           && _isDigit(eol[-5])
-           && eol[-6]  == '.'
-           && _isDigit(eol[-7])
-           && eol[-8]  == '-'
-           && eol[-9]  == 'd'
-           && eol[-10] == 'l'
-           && eol[-11] == '/'
-           && eol[-12] == 'b'
-           && eol[-13] == 'i'
-           && eol[-14] == 'l'
-           && eol[-15] == '/'
-           && eol[-16] == 'r'
-           && eol[-17] == 's'
-           && eol[-18] == 'u'
-           && eol[-19] == '/');
-    }
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
 }
 
 void uint_to_string(uint32_t x, char *Str, unsigned Radix) {

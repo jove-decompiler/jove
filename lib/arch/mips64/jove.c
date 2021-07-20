@@ -1745,10 +1745,6 @@ extern /* __thread */ uint64_t *__jove_trace_begin;
 extern /* __thread */ uint64_t *__jove_callstack;
 extern /* __thread */ uint64_t *__jove_callstack_begin;
 
-extern int    __jove_startup_info_argc;
-extern char **__jove_startup_info_argv;
-extern char **__jove_startup_info_environ;
-
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
@@ -1858,8 +1854,6 @@ static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
-static _INL char *_findenv(const char *name, int len, int *offset);
-static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
@@ -1896,24 +1890,6 @@ void _jove_begin(target_ulong a0,
   __jove_env.active_tc.gpr[2] = v0;
 
   //
-  // _jove_startup_info
-  //
-  {
-    uintptr_t addr = sp_addr;
-
-    __jove_startup_info_argc = *((long *)addr);
-
-    addr += sizeof(long);
-
-    __jove_startup_info_argv = (char **)addr;
-
-    addr += __jove_startup_info_argc * sizeof(char *);
-    addr += sizeof(char *);
-
-    __jove_startup_info_environ = (char **)addr;
-  }
-
-  //
   // setup the stack
   //
   {
@@ -1941,34 +1917,6 @@ void _jove_begin(target_ulong a0,
   _jove_install_foreign_function_tables();
 
   return _jove_call_entry();
-}
-
-char *_findenv(const char *name, int len, int *offset) {
-  int i;
-  const char *np;
-  char **p, *cp;
-
-  if (name == NULL || __jove_startup_info_environ == NULL)
-    return (NULL);
-  for (p = __jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
-    for (np = name, i = len; i && *cp; i--)
-      if (*cp++ != *np++)
-        break;
-    if (i == 0 && *cp++ == '=') {
-      *offset = p - __jove_startup_info_environ;
-      return (cp);
-    }
-  }
-  return (NULL);
-}
-
-char *_getenv(const char *name) {
-  int offset = 0;
-  const char *np;
-
-  for (np = name; *np && *np != '='; ++np)
-    ;
-  return (_findenv(name, (int)(np - name), &offset));
 }
 
 uintptr_t _get_stack_end(void) {
@@ -2362,9 +2310,13 @@ size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
 
 void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                               target_ulong CalleeAddr) {
+#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
 
   uint32_t CallerBIdx = _jove_binary_index();
 
@@ -2442,9 +2394,13 @@ found:
 
 void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                target_ulong BBAddr) {
+#if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
     return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
 
   struct {
     uint32_t BIdx;
@@ -2512,51 +2468,7 @@ void _jove_fail2(target_ulong rdi,
 target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
                          target_ulong *args   /* rsi */,
                          target_ulong *emuspp /* rdx */) {
-  asm volatile("pushq %%r15\n" /* callee-saved registers */
-               "pushq %%r14\n"
-               "pushq %%r13\n"
-               "pushq %%r12\n"
-
-               "movq %%rdi, %%r12\n" /* dstpc in r12 */
-               "movq %%rsi, %%r13\n" /* args in r13 */
-               "movq %%rdx, %%r14\n" /* emuspp in r14 */
-               "movq %%rsp, %%r15\n" /* save sp in r15 */
-
-               "call %P[jove_alloc_stack]\n"
-               "movq %%r12, %%r10\n" /* dstpc in r10 */
-               "movq %%rax, %%r12\n" /* allocated stack in r12 */
-               "addq $0x80000, %%rax\n"
-
-               "movq (%%r14), %%rsp\n" /* sp=*emusp */
-               "movq %%rax, (%%r14)\n" /* *emusp=stack storage */
-
-               /* unpack args */
-               "movq 40(%%r13), %%r9\n"
-               "movq 32(%%r13), %%r8\n"
-               "movq 24(%%r13), %%rcx\n"
-               "movq 16(%%r13), %%rdx\n"
-               "movq  8(%%r13), %%rsi\n"
-               "movq  0(%%r13), %%rdi\n"
-
-               "addq $8, %%rsp\n" /* replace return address on the stack */
-               "callq *%%r10\n"   /* call dstpc */
-
-               "movq %%rsp, (%%r14)\n" /* store modified emusp */
-               "movq %%r15, %%rsp\n"   /* restore stack pointer */
-
-               "movq %%rax, %%r15\n" /* save return value */
-
-               "movq %%r12, %%rdi\n" /* pass allocated stack */
-               "call %P[jove_free_stack]\n"
-
-               "movq %%r15, %%rax\n" /* restore return value */
-
-               "popq %%r12\n"
-               "popq %%r13\n"
-               "popq %%r14\n"
-               "popq %%r15\n" /* callee-saved registers */
-
-               "retq\n"
+  asm volatile("move $31, $0\n"
 
                : /* OutputOperands */
                : /* InputOperands */
@@ -2781,108 +2693,4 @@ bool _jove_is_readable_mem(target_ulong Addr) {
                                         0);
 
   return ret == sizeof(byte);
-}
-
-static bool _is_foreign_code_of_maps(char *maps, const unsigned n,
-                                     target_ulong Addr);
-
-bool _jove_is_foreign_code(target_ulong Addr) {
-  char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _is_foreign_code_of_maps(buff, n, Addr);
-  return res;
-}
-
-// precondition: Addr must point to valid virtual memory area
-bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    {
-      unsigned left = eol - line;
-
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-    }
-
-    if (Addr >= vm.min && Addr < vm.max) {
-      return (eol[-1] == ']'
-           && eol[-2] == 'o'
-           && eol[-3] == 's'
-           && eol[-4] == 'd'
-           && eol[-5] == 'v'
-           && eol[-6] == '[')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && _isDigit(eol[-4])
-           && _isDigit(eol[-5])
-           && eol[-6]  == '.'
-           && _isDigit(eol[-7])
-           && eol[-8]  == '-'
-           && eol[-9]  == 'd'
-           && eol[-10] == 'l'
-           && eol[-11] == '/'
-           && eol[-12] == 'b'
-           && eol[-13] == 'i'
-           && eol[-14] == 'l'
-           && eol[-15] == '/'
-           && eol[-16] == 'r'
-           && eol[-17] == 's'
-           && eol[-18] == 'u'
-           && eol[-19] == '/')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && eol[-4]  == '4'
-           && eol[-5]  == '6'
-           && eol[-6]  == '_'
-           && eol[-7]  == '6'
-           && eol[-8]  == '8'
-           && eol[-9]  == 'x'
-           && eol[-10] == '-'
-           && eol[-11] == 'n'
-           && eol[-12] == 'a'
-           && eol[-13] == 's'
-           && eol[-14] == 'f'
-           && eol[-15] == 'd'
-           && eol[-16] == '.'
-           && eol[-17] == 't'
-           && eol[-18] == 'r'
-           && eol[-19] == '_'
-           && eol[-20] == 'g'
-           && eol[-21] == 'n'
-           && eol[-22] == 'a'
-           && eol[-23] == 'l'
-           && eol[-24] == 'c'
-           && eol[-25] == 'b'
-           && eol[-26] == 'i'
-           && eol[-27] == 'l');
-    }
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
 }

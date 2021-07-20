@@ -614,10 +614,6 @@ extern /* __thread */ uint64_t *__jove_trace_begin;
 extern /* __thread */ uint64_t *__jove_callstack;
 extern /* __thread */ uint64_t *__jove_callstack_begin;
 
-extern int    __jove_startup_info_argc;
-extern char **__jove_startup_info_argv;
-extern char **__jove_startup_info_environ;
-
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
@@ -740,8 +736,6 @@ static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
-static _INL char *_findenv(const char *name, int len, int *offset);
-static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
@@ -779,24 +773,6 @@ void _jove_begin(target_ulong x0,
   __jove_env.xregs[6] = x6;
 
   //
-  // _jove_startup_info
-  //
-  {
-    uintptr_t addr = sp_addr;
-
-    __jove_startup_info_argc = *((long *)addr);
-
-    addr += sizeof(long);
-
-    __jove_startup_info_argv = (char **)addr;
-
-    addr += __jove_startup_info_argc * sizeof(char *);
-    addr += sizeof(char *);
-
-    __jove_startup_info_environ = (char **)addr;
-  }
-
-  //
   // setup the stack
   //
   {
@@ -824,34 +800,6 @@ void _jove_begin(target_ulong x0,
   _jove_install_foreign_function_tables();
 
   return _jove_call_entry();
-}
-
-char *_findenv(const char *name, int len, int *offset) {
-  int i;
-  const char *np;
-  char **p, *cp;
-
-  if (name == NULL || __jove_startup_info_environ == NULL)
-    return (NULL);
-  for (p = __jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
-    for (np = name, i = len; i && *cp; i--)
-      if (*cp++ != *np++)
-        break;
-    if (i == 0 && *cp++ == '=') {
-      *offset = p - __jove_startup_info_environ;
-      return (cp);
-    }
-  }
-  return (NULL);
-}
-
-char *_getenv(const char *name) {
-  int offset = 0;
-  const char *np;
-
-  for (np = name; *np && *np != '='; ++np)
-    ;
-  return (_findenv(name, (int)(np - name), &offset));
 }
 
 uintptr_t _get_stack_end(void) {

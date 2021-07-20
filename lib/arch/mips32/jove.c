@@ -1741,10 +1741,6 @@ extern /* __thread */ uint64_t *__jove_trace_begin;
 extern /* __thread */ uint64_t *__jove_callstack;
 extern /* __thread */ uint64_t *__jove_callstack_begin;
 
-extern int    __jove_startup_info_argc;
-extern char **__jove_startup_info_argv;
-extern char **__jove_startup_info_environ;
-
 #define _JOVE_MAX_BINARIES 512
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
@@ -1847,11 +1843,6 @@ _HIDDEN void _jove_begin(target_ulong a0,
                          target_ulong v0,     /* formerly a2 */
                          target_ulong sp_addr /* formerly a3 */);
 
-#if 0
-_NAKED _NOINL uint64_t _jove_thunk(target_ulong dstpc,
-                                   target_ulong *args,
-                                   target_ulong *emuspp);
-#else
 _NAKED _NOINL uint64_t _jove_thunk0(target_ulong dstpc,
                                     target_ulong *emuspp);
 
@@ -1876,7 +1867,6 @@ _NAKED _NOINL uint64_t _jove_thunk4(target_ulong a0,
                                     target_ulong a3,
                                     target_ulong dstpc,
                                     target_ulong *emuspp);
-#endif
 
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
@@ -1944,8 +1934,6 @@ static _INL unsigned _getDigit(char cdigit, uint8_t radix);
 static _INL void *_memchr(const void *s, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
 static _INL void *_memset(void *dst, int c, size_t n);
-static _INL char *_findenv(const char *name, int len, int *offset);
-static _INL char *_getenv(const char *name);
 static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
 static _INL unsigned _getHexDigit(char cdigit);
 static _INL uintptr_t _get_stack_end(void);
@@ -2004,24 +1992,6 @@ void _jove_begin(target_ulong a0,
   __jove_env.active_tc.gpr[1] = (uintptr_t)&_clunk;
 
   //
-  // _jove_startup_info
-  //
-  {
-    uintptr_t addr = sp_addr;
-
-    __jove_startup_info_argc = *((long *)addr);
-
-    addr += sizeof(long);
-
-    __jove_startup_info_argv = (char **)addr;
-
-    addr += __jove_startup_info_argc * sizeof(char *);
-    addr += sizeof(char *);
-
-    __jove_startup_info_environ = (char **)addr;
-  }
-
-  //
   // setup the stack
   //
   {
@@ -2057,34 +2027,6 @@ void _jove_begin(target_ulong a0,
   _jove_install_foreign_function_tables();
 
   return _jove_call_entry();
-}
-
-char *_findenv(const char *name, int len, int *offset) {
-  int i;
-  const char *np;
-  char **p, *cp;
-
-  if (name == NULL || __jove_startup_info_environ == NULL)
-    return (NULL);
-  for (p = __jove_startup_info_environ + *offset; (cp = *p) != NULL; ++p) {
-    for (np = name, i = len; i && *cp; i--)
-      if (*cp++ != *np++)
-        break;
-    if (i == 0 && *cp++ == '=') {
-      *offset = p - __jove_startup_info_environ;
-      return (cp);
-    }
-  }
-  return (NULL);
-}
-
-char *_getenv(const char *name) {
-  int offset = 0;
-  const char *np;
-
-  for (np = name; *np && *np != '='; ++np)
-    ;
-  return (_findenv(name, (int)(np - name), &offset));
 }
 
 uintptr_t _get_stack_end(void) {
@@ -2258,8 +2200,6 @@ void *_memset(void *dst, int c, size_t n) {
   return (dst);
 }
 
-static void _jove_sigsegv_handler(void);
-
 void _jove_trace_init(void) {
   if (!__jove_trace_begin || !__jove_trace)
     _UNREACHABLE("in --trace mode but runtime did not initialize buffer");
@@ -2269,27 +2209,6 @@ void _jove_callstack_init(void) {
   uintptr_t ptr = _jove_alloc_callstack();
 
   __jove_callstack_begin = __jove_callstack = (void *)(ptr + JOVE_PAGE_SIZE);
-}
-
-static void _jove_flush_trace(void);
-
-void _jove_sigsegv_handler(void) {
-  _jove_flush_trace();
-
-  _jove_sys_exit_group(22);
-  _UNREACHABLE();
-}
-
-void _jove_flush_trace(void) {
-  if (!__jove_trace || !__jove_trace_begin)
-    return;
-
-  size_t len = __jove_trace - __jove_trace_begin;
-  len *= sizeof(uint64_t);
-
-  long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
-  if (ret < 0)
-    _UNREACHABLE();
 }
 
 static char *ulongtostr(char *dst, unsigned long N) {
@@ -2641,30 +2560,6 @@ void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   return; /* not found */
 
 found:
-#if 0
-  {
-    char buff[65];
-    uint_to_string(Callee.BIdx, &buff[0]);
-    _jove_sys_write(2, buff, _strlen(buff));
-  }
-
-  {
-    char newl = '\n';
-    _jove_sys_write(2, &newl, 1);
-  }
-
-  {
-    char buff[65];
-    uint_to_string(Callee.FIdx, &buff[0]);
-    _jove_sys_write(2, buff, _strlen(buff));
-  }
-
-  {
-    char newl = '\n';
-    _jove_sys_write(2, &newl, 1);
-  }
-#endif
-
   {
     int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
     if (recover_fd < 0)
@@ -2830,30 +2725,6 @@ void _jove_recover_returned(uint32_t CallerBBIdx) {
 
   Call.BIdx = _jove_binary_index();
   Call.BBIdx = CallerBBIdx;
-
-#if 0
-  {
-    char buff[65];
-    uint_to_string(Call.BIdx, &buff[0]);
-    _jove_sys_write(2, buff, _strlen(buff));
-  }
-
-  {
-    char newl = '\n';
-    _jove_sys_write(2, &newl, 1);
-  }
-
-  {
-    char buff[65];
-    uint_to_string(Call.BBIdx, &buff[0]);
-    _jove_sys_write(2, buff, _strlen(buff));
-  }
-
-  {
-    char newl = '\n';
-    _jove_sys_write(2, &newl, 1);
-  }
-#endif
 
 found:
   {
@@ -3566,109 +3437,6 @@ bool _jove_is_readable_mem(target_ulong Addr) {
                                         0);
 
   return ret == sizeof(byte);
-}
-
-static bool _is_foreign_code_of_maps(char *maps, const unsigned n,
-                                     target_ulong Addr);
-
-bool _jove_is_foreign_code(target_ulong Addr) {
-  char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _is_foreign_code_of_maps(buff, n, Addr);
-  return res;
-}
-
-// precondition: Addr must point to valid virtual memory area
-bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    {
-      unsigned left = eol - line;
-
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-    }
-
-    if (Addr >= vm.min && Addr < vm.max) {
-      return (eol[-1] == ']'
-           && eol[-2] == 'o'
-           && eol[-3] == 's'
-           && eol[-4] == 'd'
-           && eol[-5] == 'v'
-           && eol[-6] == '[')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && _isDigit(eol[-4])
-           && _isDigit(eol[-5])
-           && eol[-6]  == '.'
-           && _isDigit(eol[-7])
-           && eol[-8]  == '-'
-           && eol[-9]  == 'd'
-           && eol[-10] == 'l'
-           && eol[-11] == '/'
-           && eol[-12] == 'b'
-           && eol[-13] == 'i'
-           && eol[-14] == 'l'
-           && eol[-15] == '/'
-           && eol[-16] == 'r'
-           && eol[-17] == 's'
-           && eol[-18] == 'u'
-           && eol[-19] == '/')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && eol[-4]  == '4'
-           && eol[-5]  == '6'
-           && eol[-6]  == '_'
-           && eol[-7]  == '6'
-           && eol[-8]  == '8'
-           && eol[-9]  == 'x'
-           && eol[-10] == '-'
-           && eol[-11] == 'n'
-           && eol[-12] == 'a'
-           && eol[-13] == 's'
-           && eol[-14] == 'f'
-           && eol[-15] == 'd'
-           && eol[-16] == '.'
-           && eol[-17] == 't'
-           && eol[-18] == 'r'
-           && eol[-19] == '_'
-           && eol[-20] == 'g'
-           && eol[-21] == 'n'
-           && eol[-22] == 'a'
-           && eol[-23] == 'l'
-           && eol[-24] == 'c'
-           && eol[-25] == 'b'
-           && eol[-26] == 'i'
-           && eol[-27] == 'l');
-    }
-  }
-
-  _UNREACHABLE();
 }
 
 void uint_to_string(uint32_t x, char *Str, unsigned Radix) {

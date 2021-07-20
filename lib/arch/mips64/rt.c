@@ -1750,7 +1750,3 @@ struct CPUMIPSState {
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
     [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
-
-int    __jove_startup_info_argc = 0;
-char **__jove_startup_info_argv = NULL;
-char **__jove_startup_info_environ = NULL;
