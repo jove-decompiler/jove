@@ -360,7 +360,8 @@ static void sighandler(int no) {
             "failed to redirect SIGTERM: {0}\n", strerror(err));
       }
     } else {
-      WithColor::warning() << "received SIGTERM but no app to redirect to!\n";
+      WithColor::warning() << "received SIGTERM but no app to redirect to! exiting...\n";
+      exit(0);
     }
     break;
 
