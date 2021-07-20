@@ -652,8 +652,6 @@ static llvm::GlobalVariable *ConstSectsGlobal;
 static target_ulong SectsStartAddr, SectsEndAddr;
 static llvm::GlobalVariable *TLSSectsGlobal;
 
-static std::vector<function_index_t> FuncIdxAreABIVec;
-
 static llvm::GlobalVariable *TLSModGlobal;
 
 static llvm::MDNode *AliasScopeMetadata;
