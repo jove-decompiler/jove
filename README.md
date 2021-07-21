@@ -15,7 +15,7 @@ export PATH=$PATH:/opt/jove/mips64
 export PATH=$PATH:/opt/jove/aarch64
 ```
 
-Some tools, such as `jove-bootstrap`, will only work if the target architecture equals the host's.
+Some tools, such as `jove-bootstrap`, will only work if the target architecture matches the host's.
 
 # Examples
 
