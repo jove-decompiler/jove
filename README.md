@@ -3,7 +3,7 @@ https://images.aarno-labs.com/jove/
 
 ## Installation
 ```bash
-# Assuming we are on 64-bit x86:
+# (Assuming this is an x86_64 host)
 mkdir /opt/jove
 tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
 
@@ -183,8 +183,7 @@ jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
 # 
 ```
 
-assuming host is network-connected to guest with IP equal to 192.168.1.2, run
-this on the host:
+assuming host is network-connected to guest with IP 192.168.1.2, run on the host:
 ```bash
 mkdir /mnt/wndr4500/sysroot
 jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
