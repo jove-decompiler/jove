@@ -55,29 +55,19 @@ build-llvm:
 	cmake -G Ninja \
 	      -D CMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_INSTALL_DIR)" \
-	      -D "LLVM_ENABLE_PROJECTS=clang;compiler-rt;clang-tools-extra;libcxx;libcxxabi;lld" \
+	      -D "LLVM_ENABLE_PROJECTS=compiler-rt;clang;lld" \
 	      -D LLVM_ENABLE_RTTI=ON \
 	      -D LLVM_ENABLE_ASSERTIONS=OFF \
 	      -D LLVM_ENABLE_EH=ON \
-	      -D LLVM_BUILD_TESTS=OFF \
-	      -D LLVM_INCLUDE_TESTS=OFF \
-	      -D LLVM_INCLUDE_EXAMPLES=OFF \
 	      -D LLVM_BUILD_DOCS=OFF \
-	      -D "LLVM_BINUTILS_INCDIR=/usr/include" \
+	      -D LLVM_BINUTILS_INCDIR=/usr/include \
 	      -D LLVM_ENABLE_BINDINGS=OFF \
+	      -D LLVM_ENABLE_PIC=ON \
 	      -D LLVM_ENABLE_Z3_SOLVER=ON \
-	      -D LLVM_INCLUDE_BENCHMARKS=OFF \
-	      -D "LLVM_HOST_TRIPLE=$(GCC_TARGET)" \
-	      -D "LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET)" \
-	      -D "LLVM_TARGETS_TO_BUILD=all" \
+	      -D LLVM_HOST_TRIPLE=$(GCC_TARGET) \
+	      -D LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET) \
+	      -D LLVM_TARGETS_TO_BUILD=Mips \
 	      -D LLVM_ENABLE_LTO=OFF \
 	      -D LLVM_USE_LINKER=gold \
-	      -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
 	      ../llvm \
-	&& ninja install \
-	&& echo "stupid hacks that shouldn't be necessary" \
-	&& mkdir -p $(_LLVM_DIR)/$(BUILD_TYPE) \
-	&& ln -sf ../install/lib $(_LLVM_DIR)/$(BUILD_TYPE)/lib \
-	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libgtest.a \
-	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libgtest_main.a \
-	&& touch $(_LLVM_DIR)/$(BUILD_TYPE)/lib/libLLVMTestingSupport.a
+	&& ninja install
