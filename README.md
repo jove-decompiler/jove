@@ -180,11 +180,16 @@ jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /us
 # or, attach to an existing process
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
 
-# assuming host is network-connected with IP equal to 192.168.1.2
+# 
+```
 
+assuming host is network-connected to guest with IP equal to 192.168.1.2, run
+this on the host:
+```bash
 mkdir /mnt/wndr4500/sysroot
 jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 ```
+
 Note: passing `-x` to `jove-loop` instructs to only recompile the executable itself (not including any shared libraries it is linked to). This will make it possible to run the recompiled program without requiring a chroot.
 # Building
 ```bash
