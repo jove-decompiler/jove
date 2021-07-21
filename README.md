@@ -171,7 +171,7 @@ And then get a shell
 telnet 192.168.1.1 3333
 ```
 
-We assume a jove installation exists at /mnt.
+We assume /mnt is the root directory of a mipsel jove installation.
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
 
