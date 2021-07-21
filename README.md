@@ -156,12 +156,21 @@ cp -r /usr/share/nginx nginx.sysroot/usr/share/
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 ## `httpd` (Netgear WNDR4500 firmadyne emulation)
-First, to cross-compile we will run the following on an x86_64 machine (assuming it is network-connected and has IP address 192.168.1.2):
+First, to cross-compile we will run the following on an x86_64 machine (assuming it is network-connected and has IP address 192.168.1.2 which is visible to guest):
 ```bash
 export PATH=$PATH:$HOME/jove/bin/mips32
 nice jove-server --tmpdir ~/tmp --port 9999
 ```
-Then, start the QEMU emulation. We assume a scratch partition is mounted at /mnt. Inside the emulation:
+Then, start the QEMU emulation (I prefer passing "-serial pty" to QEMU). Blindly paste
+```bash
+/usr/sbin/telnetd -p3333 -l/bin/sh
+```
+And then get a shell
+```bash
+telnet 192.168.1.1 3333
+```
+
+We assume a scratch partition is mounted at /mnt. Inside the emulation:
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
 
