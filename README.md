@@ -156,7 +156,7 @@ cp -r /usr/share/nginx nginx.sysroot/usr/share/
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 ## `httpd` (Netgear WNDR4500)
-When running jove under firmadyne, use the version of libnvram in the third_party directory.
+When running jove under firmadyne, use the version of `libnvram` in the third_party directory.
 
 Assuming the plan is to cross-recompile from an x86_64 host to a mips32 target:
 ```bash
