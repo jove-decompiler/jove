@@ -3,7 +3,7 @@ https://images.aarno-labs.com/jove/
 
 ## Installation
 ```bash
-# 64-bit x86
+# Assuming we are on 64-bit x86:
 mkdir /opt/jove
 tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
 
