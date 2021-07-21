@@ -5,11 +5,9 @@ https://images.aarno-labs.com/jove/
 ```bash
 # 64-bit x86
 mkdir /opt/jove
-tar -xvf /home/aeden/jove.1e205848-x86_64.tar.xz -C /opt/jove
+tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
 
-# 32-bit x86
-mkdir /opt/jove32
-tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
+export PATH=$PATH:/opt/jove/{i386,x86_64,mips32,mips64,aarch64} # choose your target architecture. to run jove-bootstrap, target must equal host.
 ```
 
 # Examples
