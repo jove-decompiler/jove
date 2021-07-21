@@ -18,11 +18,6 @@ export PATH=$PATH:/opt/jove/aarch64
 Some tools, such as `jove-bootstrap`, will only work if the target architecture equals the host's.
 
 # Examples
-```bash
-export PATH=$PATH:/opt/jove/bin
-# or
-export PATH=$PATH:/opt/jove32/bin
-```
 
 ## `ls`
 ```bash
