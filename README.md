@@ -13,14 +13,14 @@ tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 ```
 
 # Examples
-## `ls`
 ```bash
 export PATH=$PATH:/opt/jove/bin
 # or
 export PATH=$PATH:/opt/jove32/bin
+```
 
-cd jove/bin
-
+## `ls`
+```bash
 jove-init -o ls.jv --git /usr/bin/ls
 jove-bootstrap -d ls.jv /usr/bin/ls -s -- -la /
 
@@ -170,7 +170,7 @@ And then get a shell
 telnet 192.168.1.1 3333
 ```
 
-We assume a scratch partition is mounted at /mnt. Inside the emulation:
+We assume a jove installation exists at /mnt.
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
 
