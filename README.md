@@ -171,12 +171,11 @@ jove-init -o /mnt/httpd.jv /usr/sbin/httpd
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 # or, attach to an existing process
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
-
+```
 # then do
+```bash
 mkdir /mnt/wndr4500/sysroot
 jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
-```
-
 ```
 # Building
 ```bash
