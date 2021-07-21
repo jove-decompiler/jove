@@ -19,7 +19,7 @@ Some tools, such as `jove-bootstrap`, will only work if the target architecture 
 
 # Examples
 
-## `ls`
+## `ls` (debian)
 ```bash
 jove-init -o ls.jv --git /usr/bin/ls
 jove-bootstrap -d ls.jv /usr/bin/ls -s -- -la /
@@ -38,7 +38,7 @@ If you installed `easy-graph`, do this to view control-flow-graphs of every func
 for f in $(jove-dump --list-functions=libc $HOME/.jove/ls) ; do jove-cfg -d $HOME/.jove/ls -b libc $f ; sleep 10s ; done
 ```
 
-## `dnsmasq`
+## `dnsmasq` (debian)
 ```bash
 sudo apt-get install dnsmasq
 
@@ -65,7 +65,7 @@ cp mydnsmasq.conf dnsmasq.sysroot/
 jove-loop -d dnsmasq.jv --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
-## `miniupnpd`
+## `miniupnpd` (debian)
 ```bash
 apt-get install miniupnpd
 
@@ -102,7 +102,7 @@ mkdir -p miniupnpd.sysroot/var/run
 jove-loop -d miniupnpd.jv --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 ```
 
-## `nginx`
+## `nginx` (debian)
 ```bash
 sudo apt-get install nginx-light
 cd jove/bin
@@ -155,8 +155,8 @@ cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
-## `httpd` (Netgear WNDR4500 firmadyne emulation)
-First, to cross-compile we will run the following on an x86_64 machine (assuming it is network-connected and has IP address 192.168.1.2 which is visible to guest):
+## `httpd` (Netgear WNDR4500)
+First, to cross-compile to mips32 on an x86_64 host: (assuming it is network-connected and has IP address 192.168.1.2 which is visible to guest)
 ```bash
 export PATH=$PATH:$HOME/jove/bin/mips32
 nice jove-server --tmpdir ~/tmp --port 9999
