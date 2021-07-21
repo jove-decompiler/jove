@@ -161,7 +161,7 @@ First, to cross-compile we will run the following on an x86_64 machine (assuming
 export PATH=$PATH:$HOME/jove/bin/mips32
 nice jove-server --tmpdir ~/tmp --port 9999
 ```
-Then, start the QEMU emulation. We assume a scratch partition is mounted at /mnt. Inside the emulation run
+Then, start the QEMU emulation. We assume a scratch partition is mounted at /mnt. Inside the emulation:
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
 
@@ -172,8 +172,9 @@ jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /us
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
 
 mkdir /mnt/wndr4500/sysroot
-jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
+jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 ```
+Note: passing `-x` to `jove-loop` instructs to only recompile the executable itself (not including any shared libraries it is linked to). This will make it possible to run the recompiled program without requiring a chroot.
 # Building
 ```bash
 # on debian testing:
