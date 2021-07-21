@@ -7,8 +7,11 @@ https://images.aarno-labs.com/jove/
 mkdir /opt/jove
 tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
 
-export PATH=$PATH:/opt/jove/{i386,x86_64,mips32,mips64,aarch64} # choose your target architecture. to run jove-bootstrap, target must equal host.
+# choose target architecture. and change $PATH accordingly.
+export PATH=$PATH:/opt/jove/{i386,x86_64,mips32,mips64,aarch64}
 ```
+
+Some tools, such as `jove-bootstrap`, will only work if the target architecture it is compiled for equals the hosts.
 
 # Examples
 ```bash
