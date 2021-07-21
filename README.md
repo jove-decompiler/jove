@@ -7,7 +7,7 @@ https://images.aarno-labs.com/jove/
 mkdir /opt/jove
 tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
 
-# Choose a target architecture:
+# Choose one of the target architectures:
 export PATH=$PATH:/opt/jove/i386
 export PATH=$PATH:/opt/jove/x86_64
 export PATH=$PATH:/opt/jove/mips32
