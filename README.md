@@ -156,7 +156,7 @@ cp -r /usr/share/nginx nginx.sysroot/usr/share/
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 ## `httpd` (Netgear WNDR4500)
-First, to cross-compile to mips32 on an x86_64 host: (assuming it is network-connected and has IP address 192.168.1.2 which is visible to guest)
+We are going to cross-recompile to mips32 on an x86_64 host:
 ```bash
 export PATH=$PATH:$HOME/jove/bin/mips32
 nice jove-server --tmpdir ~/tmp --port 9999
@@ -179,6 +179,8 @@ jove-init -o /mnt/httpd.jv /usr/sbin/httpd
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 # or, attach to an existing process
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
+
+# assuming host is network-connected with IP equal to 192.168.1.2
 
 mkdir /mnt/wndr4500/sysroot
 jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
