@@ -12,7 +12,7 @@ mkdir /opt/jove32
 tar -xvf /home/aeden/jove.1e205848-i386.tar.xz -C /opt/jove32
 ```
 
-# Usage
+# Examples
 ## `ls`
 ```bash
 export PATH=$PATH:/opt/jove/bin
@@ -154,6 +154,30 @@ mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
+
+## `httpd` (Netgear WNDR4500 firmadyne emulation)
+First, to cross-compile we will run the following on an x86_64 machine:
+```bash
+# to cross-compile, run the following on an x86_64 server
+nice jove-server --tmpdir ~/tmp --port 9999
+```
+
+Then, start the QEMU emulation. We assume a scratch partition is mounted at /mnt.
+```bash
+export PATH=$PATH:/mnt/bin/mips32
+
+jove-init -o /mnt/httpd.jv /usr/sbin/httpd
+
+mkdir /mnt/wndr4500/sysroot
+
+jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
+# or, attach to an existing process
+jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
+
+# then do
+jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
+```
+
 ```
 # Building
 ```bash
