@@ -158,7 +158,6 @@ sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /myngin
 ## `httpd` (Netgear WNDR4500 firmadyne emulation)
 First, to cross-compile we will run the following on an x86_64 machine:
 ```bash
-# to cross-compile, run the following on an x86_64 server
 nice jove-server --tmpdir ~/tmp --port 9999
 ```
 
