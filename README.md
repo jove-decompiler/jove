@@ -161,8 +161,6 @@ First, to cross-compile we will run the following on an x86_64 machine (assuming
 export PATH=$PATH:$HOME/jove/bin/mips32
 nice jove-server --tmpdir ~/tmp --port 9999
 ```
-We'll assume 
-
 Then, start the QEMU emulation. We assume a scratch partition is mounted at /mnt. Inside the emulation run
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
