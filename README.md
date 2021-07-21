@@ -154,7 +154,7 @@ mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
 sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
-
+```
 ## `httpd` (Netgear WNDR4500 firmadyne emulation)
 First, to cross-compile we will run the following on an x86_64 machine:
 ```bash
