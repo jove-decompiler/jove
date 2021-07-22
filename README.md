@@ -210,3 +210,9 @@ make build-llvm
 cd ..
 make -j$(nproc)
 ```
+
+# FAQ
+### What is jove?
+A: Given a dynamically linked executable `E`, jove produces source code for `E` that, when compiled and run, produce the same outputs.
+### What's the catch?
+A: You have to run the program in question under `jove-bootstrap` (the ptrace(2)-based dynamic analysis) for all the inputs that you should expect of the recompiled program to take.
