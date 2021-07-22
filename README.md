@@ -190,7 +190,7 @@ assuming host is network-connected to guest with IP 192.168.1.2, run in the gues
 jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 ```
 
-Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This will make it possible to run the recompiled program without the use of a chroot.
+Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This makes it possible to run the recompiled program without the use of a chroot.
 
 # Building
 ```bash
