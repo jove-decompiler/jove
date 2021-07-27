@@ -1136,28 +1136,30 @@ skip_run:
       //
       // create symlinks as necessary
       //
-      for (binary_t &b : decompilation.Binaries) {
-        if (b.IsVDSO)
-          continue;
+      if (!opts::OutsideChroot) {
+        for (binary_t &b : decompilation.Binaries) {
+          if (b.IsVDSO)
+            continue;
 
-        std::string soname = soname_of_binary(b);
+          std::string soname = soname_of_binary(b);
 
-        if (soname.empty())
-          continue;
+          if (soname.empty())
+            continue;
 
-        fs::path chrooted_path = fs::path(opts::sysroot) / b.Path;
-        std::string binary_filename = fs::path(b.Path).filename().string();
+          fs::path chrooted_path = fs::path(opts::sysroot) / b.Path;
+          std::string binary_filename = fs::path(b.Path).filename().string();
 
-        if (opts::Verbose)
-          WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
+          if (opts::Verbose)
+            WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
 
-        if (binary_filename != soname) {
-          fs::path dst = chrooted_path.parent_path() / soname;
+          if (binary_filename != soname) {
+            fs::path dst = chrooted_path.parent_path() / soname;
 
-          if (fs::exists(dst))
-            fs::remove(dst);
+            if (fs::exists(dst))
+              fs::remove(dst);
 
-          fs::create_symlink(binary_filename, dst);
+            fs::create_symlink(binary_filename, dst);
+          }
         }
       }
     } else { /* local */
