@@ -1730,6 +1730,75 @@ static const hook_t HookArray[] = {
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
   },
+#define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
+  {                                                                            \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t2),               \
+                .isPointer = std::is_pointer<t2>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t3),               \
+                .isPointer = std::is_pointer<t3>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t4),               \
+                .isPointer = std::is_pointer<t4>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
+  },
+#define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
+  {                                                                            \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t2),               \
+                .isPointer = std::is_pointer<t2>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t3),               \
+                .isPointer = std::is_pointer<t3>::value},                      \
+               {.Size = std::is_pointer<t4>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t4),               \
+                .isPointer = std::is_pointer<t4>::value},                      \
+               {.Size = std::is_pointer<t5>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t5),               \
+                .isPointer = std::is_pointer<t5>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
+  },
+#define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
+  {                                                                            \
+      .Sym = #sym,                                                             \
+      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t1),               \
+                .isPointer = std::is_pointer<t1>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t2),               \
+                .isPointer = std::is_pointer<t2>::value},                      \
+               {.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t3),               \
+                .isPointer = std::is_pointer<t3>::value},                      \
+               {.Size = std::is_pointer<t4>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t4),               \
+                .isPointer = std::is_pointer<t4>::value},                      \
+               {.Size = std::is_pointer<t5>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t5),               \
+                .isPointer = std::is_pointer<t5>::value},                      \
+               {.Size = std::is_pointer<t6>::value ? sizeof(target_ulong)      \
+                                                   : sizeof(t6),               \
+                .isPointer = std::is_pointer<t6>::value}},                     \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
+  },
 #include "dfsan_hooks.inc.h"
 };
 
@@ -4192,6 +4261,9 @@ int PrepareToTranslateCode(void) {
 }
 
 static bool shouldExpandOperationWithSize(llvm::Value *Size) {
+  if (opts::DFSan) /* erase all notions of contiguous memory */
+    return true;
+
   constexpr unsigned MaxStaticSize = 32;
 
   llvm::ConstantInt *CI = llvm::dyn_cast<llvm::ConstantInt>(Size);
