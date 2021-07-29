@@ -1750,6 +1750,8 @@ uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
     [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
+uint16_t *__df32_shadow_mem[65536];
+
 //
 // struct sigaction
 //

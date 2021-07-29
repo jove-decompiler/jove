@@ -1975,6 +1975,16 @@ typedef void _jove_rt_init_t(void);
 
 static _jove_rt_init_t *_clunk = _jove_rt_init;
 
+#ifdef JOVE_DFSAN
+typedef uint16_t dfsan_label;
+
+#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * 65536 + 2 * JOVE_PAGE_SIZE)
+
+extern dfsan_label *__df32_shadow_mem[65536];
+
+static dfsan_label *__df32_shadow_for(uint32_t);
+#endif
+
 void _jove_begin(target_ulong a0,
                  target_ulong a1,
                  target_ulong v0,     /* formerly a2 */
@@ -1990,6 +2000,9 @@ void _jove_begin(target_ulong a0,
   // this little bit is so the compiler won't optimize _clunk away
   //
   __jove_env.active_tc.gpr[1] = (uintptr_t)&_clunk;
+#ifdef JOVE_DFSAN
+  __jove_env.active_tc.HI[0] = (uintptr_t)__df32_shadow_for;
+#endif
 
   //
   // setup the stack
@@ -3469,9 +3482,7 @@ void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
   return;
 }
 
-typedef uint16_t dfsan_label;
-
-extern dfsan_label *__df32_shadow_mem[65536];
+#ifdef JOVE_DFSAN
 
 //#define DF32_INLINED_SHADOW_FOR
 
@@ -3481,20 +3492,17 @@ extern dfsan_label *__df32_shadow_mem[65536];
 // this is the shortest version of the function without the guard pages or error
 // handling, suitable for inlining across the board
 //
-_INL dfsan_label *__df32_shadow_for(uint32_t A) {
+dfsan_label *__df32_shadow_for(uint32_t A) {
   dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
-    static const unsigned N = sizeof(dfsan_label) * 65536 +
-      2 * JOVE_PAGE_SIZE /* XXX extra space */;
-
-    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, N,
+    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, JOVE_SHADOW_SIZE,
                                                     PROT_READ | PROT_WRITE,
                                                     MAP_PRIVATE | MAP_ANONYMOUS,
                                                     -1L, 0);
 
-    shadow = (dfsan_label *)shadow_base;
+    shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
 
     *shadowp = shadow;
   }
@@ -3504,25 +3512,19 @@ _INL dfsan_label *__df32_shadow_for(uint32_t A) {
 
 #else
 
-#ifdef JOVE_DFSAN
-_HIDDEN
-#else
-static
-#endif
 dfsan_label *__df32_shadow_for(uint32_t A) {
   dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
-    static const unsigned N = sizeof(dfsan_label) * 65536 +
-      2 * JOVE_PAGE_SIZE /* guard pages */;
-
-    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, N,
+    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, JOVE_SHADOW_SIZE,
                                                     PROT_READ | PROT_WRITE,
                                                     MAP_PRIVATE | MAP_ANONYMOUS,
                                                     -1L, 0);
-    if (IS_ERR_VALUE(shadow_base))
-      _UNREACHABLE();
+    if (IS_ERR_VALUE(shadow_base)) {
+      __builtin_trap();
+      __builtin_unreachable();
+    }
 
     shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
 
@@ -3533,19 +3535,23 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
       unsigned long ret = _jove_sys_mprotect(shadow_base,
                                              JOVE_PAGE_SIZE,
                                              PROT_NONE);
-      if (IS_ERR_VALUE(ret))
-        _UNREACHABLE();
+      if (IS_ERR_VALUE(ret)) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
     }
 
     //
     // guard page #2
     //
     {
-      unsigned long ret = _jove_sys_mprotect(shadow_base + N - JOVE_PAGE_SIZE,
-                                             JOVE_PAGE_SIZE,
-                                             PROT_NONE);
-      if (IS_ERR_VALUE(ret))
-        _UNREACHABLE();
+      unsigned long ret =
+          _jove_sys_mprotect(shadow_base + JOVE_SHADOW_SIZE - JOVE_PAGE_SIZE,
+                             JOVE_PAGE_SIZE, PROT_NONE);
+      if (IS_ERR_VALUE(ret)) {
+        __builtin_trap();
+        __builtin_unreachable();
+      }
     }
 
     *shadowp = shadow;
@@ -3555,3 +3561,5 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
 }
 
 #endif /* DF32_INLINED_SHADOW_FOR */
+
+#endif /* JOVE_DFSAN */
