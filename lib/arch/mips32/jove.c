@@ -3490,6 +3490,8 @@ void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
 
 #ifdef JOVE_DFSAN
 
+/* XXX code duplication in compiler-rt/lib/dfsan/dfsan.cpp */
+
 dfsan_label *__df32_shadow_for(uint32_t A) {
   const uint16_t AddrUpperBits = A >> 16;
   const uint16_t AddrLowerBits = A & 0xFFFF;
