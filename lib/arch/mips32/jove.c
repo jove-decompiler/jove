@@ -1978,9 +1978,15 @@ static _jove_rt_init_t *_clunk = _jove_rt_init;
 #ifdef JOVE_DFSAN
 typedef uint16_t dfsan_label;
 
-#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * 65536 + 2 * JOVE_PAGE_SIZE)
+#define JOVE_SHADOW_NUM_REGIONS 32
+#define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
+#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE + 2 * JOVE_PAGE_SIZE)
 
-extern dfsan_label *__df32_shadow_mem[65536];
+struct shadow_t {
+  uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
+};
+
+extern struct shadow_t __df32_shadow_mem[65536];
 
 static dfsan_label *__df32_shadow_for(uint32_t);
 #endif
@@ -3513,7 +3519,13 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
 #else
 
 dfsan_label *__df32_shadow_for(uint32_t A) {
-  dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
+  const uint16_t AddrUpperBits = A >> 16;
+  const uint16_t AddrLowerBits = A & 0xFFFF;
+
+  unsigned Region = AddrLowerBits / JOVE_SHADOW_REGION_SIZE;
+  unsigned Offset = AddrLowerBits % JOVE_SHADOW_REGION_SIZE;
+
+  struct dfsan_label **shadowp = &__df32_shadow_mem[AddrUpperBits].X[Region];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
@@ -3557,7 +3569,7 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
     *shadowp = shadow;
   }
 
-  return &shadow[A & 0xFFFF];
+  return &shadow[Offset];
 }
 
 #endif /* DF32_INLINED_SHADOW_FOR */
