@@ -1980,7 +1980,7 @@ typedef uint16_t dfsan_label;
 
 #define JOVE_SHADOW_NUM_REGIONS 32
 #define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
-#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE + 2 * JOVE_PAGE_SIZE)
+#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE)
 
 struct shadow_t {
   uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
@@ -3490,34 +3490,6 @@ void uint_to_string(uint32_t x, char *Str, unsigned Radix) {
 
 #ifdef JOVE_DFSAN
 
-//#define DF32_INLINED_SHADOW_FOR
-
-#ifdef DF32_INLINED_SHADOW_FOR
-
-//
-// this is the shortest version of the function without the guard pages or error
-// handling, suitable for inlining across the board
-//
-dfsan_label *__df32_shadow_for(uint32_t A) {
-  dfsan_label **shadowp = &__df32_shadow_mem[A >> 16];
-
-  dfsan_label *shadow = *shadowp;
-  if (unlikely(!shadow)) {
-    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, JOVE_SHADOW_SIZE,
-                                                    PROT_READ | PROT_WRITE,
-                                                    MAP_PRIVATE | MAP_ANONYMOUS,
-                                                    -1L, 0);
-
-    shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
-
-    *shadowp = shadow;
-  }
-
-  return &shadow[A & 0xFFFF];
-}
-
-#else
-
 dfsan_label *__df32_shadow_for(uint32_t A) {
   const uint16_t AddrUpperBits = A >> 16;
   const uint16_t AddrLowerBits = A & 0xFFFF;
@@ -3538,40 +3510,12 @@ dfsan_label *__df32_shadow_for(uint32_t A) {
       __builtin_unreachable();
     }
 
-    shadow = (dfsan_label *)(shadow_base + JOVE_PAGE_SIZE);
-
-    //
-    // guard page #1
-    //
-    {
-      unsigned long ret = _jove_sys_mprotect(shadow_base,
-                                             JOVE_PAGE_SIZE,
-                                             PROT_NONE);
-      if (IS_ERR_VALUE(ret)) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-    }
-
-    //
-    // guard page #2
-    //
-    {
-      unsigned long ret =
-          _jove_sys_mprotect(shadow_base + JOVE_SHADOW_SIZE - JOVE_PAGE_SIZE,
-                             JOVE_PAGE_SIZE, PROT_NONE);
-      if (IS_ERR_VALUE(ret)) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-    }
+    shadow = (dfsan_label *)shadow_base;
 
     *shadowp = shadow;
   }
 
   return &shadow[Offset];
 }
-
-#endif /* DF32_INLINED_SHADOW_FOR */
 
 #endif /* JOVE_DFSAN */
