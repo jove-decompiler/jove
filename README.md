@@ -21,7 +21,7 @@ Some tools, such as `jove-bootstrap`, will only work if the target architecture 
 
 ## `ls` (debian)
 ```bash
-jove-init -o ls.jv --git /usr/bin/ls
+jove-init -o ls.jv /usr/bin/ls
 jove-bootstrap -d ls.jv /usr/bin/ls -s -- -la /
 
 mkdir ls.sysroot
@@ -56,7 +56,7 @@ dhcp-range=localhost,172.0.0.3,172.0.0.150,100h
 dhcp-leasefile=/tmp/dnsmasq.leases
 EOF
 
-jove-init -o dnsmasq.jv --git /usr/sbin/dnsmasq
+jove-init -o dnsmasq.jv /usr/sbin/dnsmasq
 jove-bootstrap -d dnsmasq.jv -s /usr/sbin/dnsmasq -- -C mydnsmasq.conf -d -q -k --dhcp-alternate-port
 
 mkdir dnsmasq.sysroot
@@ -92,7 +92,7 @@ allow 12345 192.168.7.113/32 54321
 allow 0-65535 0.0.0.0/0 0-65535
 EOF
 
-jove-init -o miniupnpd.jv --git /usr/sbin/miniupnpd
+jove-init -o miniupnpd.jv /usr/sbin/miniupnpd
 jove-bootstrap -d miniupnpd.jv -s /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 
 mkdir miniupnpd.sysroot
@@ -143,7 +143,7 @@ EOF
 
 sudo apt-get install nginx-light
 
-jove-init -o nginx.jv --git /usr/sbin/nginx
+jove-init -o nginx.jv /usr/sbin/nginx
 jove-bootstrap -d nginx.jv -s /usr/sbin/nginx -- -c mynginx.conf
 
 mkdir nginx.sysroot
