@@ -520,16 +520,44 @@ int recover(void) {
 
     auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
 
-    bool wasDynTargetsEmpty =
-        ICFG[boost::vertex(Caller.BBIdx, ICFG)].DynTargets.empty();
+    basic_block_t CallerBB = boost::vertex(Caller.BBIdx, ICFG);
+    bool wasDynTargetsEmpty = ICFG[CallerBB].DynTargets.empty();
 
-    bool isNewTarget = ICFG[boost::vertex(Caller.BBIdx, ICFG)]
+    bool isNewTarget = ICFG[CallerBB]
                            .DynTargets.insert({Callee.BIdx, Callee.FIdx})
                            .second;
 
     // TODO only invalidate the functions which contain...
     if (wasDynTargetsEmpty && isNewTarget)
       InvalidateAllFunctionAnalyses();
+
+    //
+    // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
+    //
+    if (ICFG[CallerBB].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+        IsDefinitelyTailCall(ICFG, CallerBB) &&
+        boost::out_degree(CallerBB, ICFG) > 0) {
+      //
+      // we thought this was a goto, but now we know it's definitely a tail call.
+      // translate all sucessors as functions, then store them into the dynamic
+      // targets set for this bb. afterwards, delete the edges in the ICFG that
+      // would originate from this basic block.
+      //
+      icfg_t::out_edge_iterator e_it, e_it_end;
+      for (std::tie(e_it, e_it_end) = boost::out_edges(CallerBB, ICFG);
+           e_it != e_it_end; ++e_it) {
+        control_flow_t cf(*e_it);
+
+        basic_block_t succ = boost::target(cf, ICFG);
+
+        function_index_t FIdx =
+            translate_function(Caller.BIdx, tcg, dis, ICFG[succ].Addr);
+        assert(is_function_index_valid(FIdx));
+        ICFG[CallerBB].DynTargets.insert({Caller.BIdx, FIdx});
+      }
+
+      boost::clear_out_edges(CallerBB, ICFG);
+    }
 
     msg = (fmt("[jove-recover] (call) %s -> %s") %
            DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
