@@ -229,6 +229,4 @@ contain the following files which are a natural result of the llvm build process
 ../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
 ../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
 ../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
-../../../third_party/llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
-../../../third_party/llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
 ```
