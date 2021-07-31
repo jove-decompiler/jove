@@ -197,6 +197,8 @@ jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wn
 Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This makes it possible to run the recompiled program without the use of a chroot.
 
 # Building
+You must build llvm [1]. It is probably necessary to do this in order to recompile code on an x86_64 host (assuming you're using the binaries from https://images.aarno-labs.com/jove/).
+
 ```bash
 # on debian testing:
 apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl libz3-dev
@@ -213,4 +215,20 @@ make build-llvm
 
 cd ..
 make -j$(nproc)
+```
+
+[1] This will continue to be the case until distribution-provided llvm packages
+contain the following files which are a natural result of the llvm build process:
+
+```
+../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenRegisterInfo.inc
+../../../third_party/llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
+../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
+../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
+../../../third_party/llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
+../../../third_party/llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
 ```
