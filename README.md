@@ -17,6 +17,12 @@ export PATH=$PATH:/opt/jove/aarch64
 
 Some tools, such as `jove-bootstrap`, will only work if the target architecture matches the host's.
 
+# FAQ
+### What is jove?
+A: Given a dynamically linked executable `E`, jove produces source code for `E` that, when compiled and run, produce the same outputs.
+### What's the catch?
+A: You have to run the program in question under `jove-bootstrap` (the ptrace(2)-based dynamic analysis) for all the inputs that you should require of the recompiled program.
+
 # Examples
 
 ## `ls` (debian)
@@ -172,17 +178,15 @@ And then get a shell
 telnet 192.168.1.1 3333
 ```
 
-We assume /mnt is the root directory of a mipsel jove installation.
+We assume /mnt is the root directory of a mounted QEMU harddisk containing a `mipsel` jove installation.
 ```bash
 export PATH=$PATH:/mnt/bin/mips32
 
 jove-init -o /mnt/httpd.jv /usr/sbin/httpd
 
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
-# or, attach to an existing process
+# or, attach to an existing process...
 jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
-
-# 
 ```
 
 assuming host is network-connected to guest with IP 192.168.1.2, run in the guest:
@@ -210,9 +214,3 @@ make build-llvm
 cd ..
 make -j$(nproc)
 ```
-
-# FAQ
-### What is jove?
-A: Given a dynamically linked executable `E`, jove produces source code for `E` that, when compiled and run, produce the same outputs.
-### What's the catch?
-A: You have to run the program in question under `jove-bootstrap` (the ptrace(2)-based dynamic analysis) for all the inputs that you should require of the recompiled program.
