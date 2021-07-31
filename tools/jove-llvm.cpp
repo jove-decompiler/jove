@@ -9694,6 +9694,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs);
 
+      //
+      // it may be the case that this indirect jump is, actually, a tail call.
+      //
+      IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs);
+
       if (JoveFail1Func) {
         llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
         IRB.CreateCall(JoveFail1Func, FailArgs);
