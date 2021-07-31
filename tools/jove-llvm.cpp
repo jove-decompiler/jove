@@ -11610,7 +11610,7 @@ BOOST_PP_REPEAT(250, __PROC_CASE, void)
 
 };
 
-}
+} // namespace jove
 
 void __warn(const char *file, int line) {
   WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
