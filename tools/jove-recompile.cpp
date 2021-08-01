@@ -1255,19 +1255,17 @@ void worker(const dso_graph_t &dso_graph) {
         "--disable-simplify-libcalls",
       };
 
-      if (!opts::Optimize) {
-        arg_vec.push_back("--frame-pointer=all");
+      if (!opts::Optimize || opts::DFSan) {
         arg_vec.push_back("--fast-isel");
         arg_vec.push_back("-O0");
+      }
+
+      if (!opts::Optimize) {
+        arg_vec.push_back("--frame-pointer=all");
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
         arg_vec.push_back("--disable-mips-delay-filler"); /* make our life easier */
 #endif
-      }
-
-      if (opts::DFSan) {
-        //arg_vec.push_back("--regalloc=basic");
-        arg_vec.push_back("--regalloc=fast");
       }
 
       if (b.IsPIC) {
