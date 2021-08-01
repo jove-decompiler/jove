@@ -911,7 +911,7 @@ int run_outside_chroot(void) {
       if (recovered_ch.load()) {
         if (opts::Verbose)
           WithColor::note() << "sleep interrupted by jove-recover\n";
-        sleep(std::min(sec - t, 3));
+        sleep(std::min<unsigned>(sec - t, 3));
         break;
       }
 
