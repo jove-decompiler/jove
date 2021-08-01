@@ -218,7 +218,7 @@ make -j$(nproc)
 ```
 
 [1] This will continue to be the case until distribution-provided llvm packages
-contain the following files which are a natural result of the llvm build process:
+contain the following files (which are a natural result of the llvm build process):
 
 ```
 ../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
