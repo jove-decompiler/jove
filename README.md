@@ -212,10 +212,15 @@ git submodule update --init --recursive
 cd third_party/
 ulimit -s unlimited
 make build-llvm
+```
+At this point, one can fully utilize the jove binaries in Downloads. To build jove itself,
 
+```
 cd ..
 make -j$(nproc)
 ```
+
+And you are done.
 
 [1] This will continue to be the case until distribution-provided llvm packages
 contain the following files (which are a natural result of the llvm build process):
