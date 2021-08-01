@@ -113,6 +113,8 @@ struct hook_t;
                                                                                \
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
+  bool IsLeaf;                                                                 \
+                                                                               \
   void Analyze(void);                                                          \
                                                                                \
   llvm::Function *F = nullptr;
@@ -1084,7 +1086,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
 
 #include "elf.hpp"
 
-// TODO this whole function needs to be obliterated
+// XXX duplicated code
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -1132,6 +1134,26 @@ int InitStateForBinaries(void) {
                    [&](basic_block_t bb) -> bool {
                      return IsExitBlock(ICFG, bb);
                    });
+
+      //
+      // Is it a leaf?
+      //
+      f.IsLeaf = !f.ExitBasicBlocks.empty() &&
+
+		 std::all_of(f.ExitBasicBlocks.begin(),
+			     f.ExitBasicBlocks.end(),
+			     [&](basic_block_t bb) -> bool {
+			       return ICFG[bb].Term.Type == TERMINATOR::RETURN;
+			     }) &&
+
+		 std::none_of(f.BasicBlocks.begin(),
+			      f.BasicBlocks.end(),
+		     [&](basic_block_t bb) -> bool {
+		       return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+			       boost::out_degree(bb, ICFG) == 0) ||
+			      (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) ||
+			      (ICFG[bb].Term.Type == TERMINATOR::CALL);
+		     });
     }
 
     //

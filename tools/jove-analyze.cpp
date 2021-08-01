@@ -45,6 +45,8 @@ class Binary;
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
                                                                                \
+  bool IsLeaf;                                                                 \
+                                                                               \
   void Analyze(void);
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
@@ -549,30 +551,57 @@ int AnalyzeBlocks(void) {
   return 0;
 }
 
-static std::vector<std::pair<binary_index_t, function_index_t>> Q;
 
-static void worker(std::atomic<std::pair<binary_index_t, function_index_t> *>&);
+static void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
+                   std::atomic<dynamic_target_t *>& Q2_ptr,
+                   dynamic_target_t *Q1_end,
+                   dynamic_target_t *Q2_end);
 
 static int GuessParallelism();
 
 int AnalyzeFunctions(void) {
+  // let N be the count of all functions (in all binaries)
+  unsigned N = std::accumulate(
+      Decompilation.Binaries.begin(),
+      Decompilation.Binaries.end(), 0,
+      [&](unsigned res, const binary_t &binary) -> unsigned {
+        return res + binary.Analysis.Functions.size();
+      });
+
+  std::vector<dynamic_target_t> Q1, Q2;
+
+  // prepare for what's next
+  Q1.reserve(N);
+  Q2.reserve(N);
+
+  //
+  // Put every function pair (b, f) in Q1.
+  //
+  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx)
+    for (function_index_t FIdx = 0; FIdx < Decompilation.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
+      Q1.emplace_back(BIdx, FIdx);
+
+  //
+  // Put all the functions with stale analyses in Q2.
+  //
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     binary_t &binary = Decompilation.Binaries[BIdx];
     for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size();
          ++FIdx) {
       function_t &f = binary.Analysis.Functions[FIdx];
       if (f.Analysis.Stale)
-        Q.emplace_back(BIdx, FIdx);
+        Q2.emplace_back(BIdx, FIdx);
     }
   }
 
-  if (Q.empty())
+  if (Q1.empty() &&
+      Q2.empty())
     return 0;
 
-  // initialize Q ptr
-  std::atomic<std::pair<binary_index_t, function_index_t> *> Q_ptr(Q.data());
+  std::atomic<dynamic_target_t *> Q1_ptr(Q1.data());
+  std::atomic<dynamic_target_t *> Q2_ptr(Q2.data());
 
-  WithColor::note() << llvm::formatv("Analyzing {0} functions...\n", Q.size());
+  WithColor::note() << llvm::formatv("Analyzing {0} functions...\n", Q2.size());
 
   {
     std::vector<std::thread> workers;
@@ -581,7 +610,11 @@ int AnalyzeFunctions(void) {
 
     workers.reserve(N);
     for (unsigned i = 0; i < N; ++i)
-      workers.push_back(std::thread(worker, std::ref(Q_ptr)));
+      workers.push_back(std::thread(worker,
+                                    std::ref(Q1_ptr),
+                                    std::ref(Q2_ptr),
+                                    Q1.data() + Q1.size(),
+                                    Q2.data() + Q2.size()));
 
     for (std::thread &t : workers)
       t.join();
@@ -590,19 +623,53 @@ int AnalyzeFunctions(void) {
   return 0;
 }
 
-void worker(std::atomic<std::pair<binary_index_t, function_index_t> *>& Q_ptr) {
-  assert(!Q.empty());
+void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
+            std::atomic<dynamic_target_t *>& Q2_ptr,
+            dynamic_target_t *Q1_end,
+            dynamic_target_t *Q2_end) {
 
-  for (;;) {
-    std::pair<binary_index_t, function_index_t> *p = Q_ptr++;
+  //
+  // Process Q1
+  //
+  for (dynamic_target_t *p = Q1_ptr++; p < Q1_end; p = Q1_ptr++) {
+    dynamic_target_t IdxPair = *p;
 
-    if (p >= Q.data() + Q.size())
-      break;
+    binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
+    auto &ICFG = binary.Analysis.ICFG;
 
-    auto IdxPair = *p;
-    Decompilation.Binaries.at(IdxPair.first)
-        .Analysis.Functions.at(IdxPair.second)
-        .Analyze();
+    function_t &f = binary.Analysis.Functions.at(IdxPair.second);
+
+    //
+    // Is it a leaf?
+    //
+    f.IsLeaf = !f.ExitBasicBlocks.empty() &&
+
+               std::all_of(f.ExitBasicBlocks.begin(),
+                           f.ExitBasicBlocks.end(),
+                           [&](basic_block_t bb) -> bool {
+                             return ICFG[bb].Term.Type == TERMINATOR::RETURN;
+                           }) &&
+
+               std::none_of(f.BasicBlocks.begin(),
+                            f.BasicBlocks.end(),
+                   [&](basic_block_t bb) -> bool {
+                     return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+                             boost::out_degree(bb, ICFG) == 0) ||
+                            (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) ||
+                            (ICFG[bb].Term.Type == TERMINATOR::CALL);
+                   });
+  }
+
+  //
+  // Process Q2
+  //
+  for (dynamic_target_t *p = Q2_ptr++; p < Q2_end; p = Q2_ptr++) {
+    dynamic_target_t IdxPair = *p;
+
+    function_t &f = Decompilation.Binaries.at(IdxPair.first)
+                       .Analysis.Functions.at(IdxPair.second);
+
+    f.Analyze();
   }
 }
 
