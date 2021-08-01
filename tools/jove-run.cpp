@@ -908,6 +908,13 @@ int run_outside_chroot(void) {
         break;
       }
 
+      if (recovered_ch.load()) {
+        if (opts::Verbose)
+          WithColor::note() << "sleep interrupted by jove-recover\n";
+        sleep(std::min(sec - t, 3));
+        break;
+      }
+
       fprintf(stderr, "%s", ".");
     }
   }
