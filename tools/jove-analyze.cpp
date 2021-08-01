@@ -551,11 +551,10 @@ int AnalyzeBlocks(void) {
   return 0;
 }
 
-
-static void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
-                   std::atomic<dynamic_target_t *>& Q2_ptr,
-                   dynamic_target_t *Q1_end,
-                   dynamic_target_t *Q2_end);
+static void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
+                    dynamic_target_t *Q_end);
+static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
+                    dynamic_target_t *Q_end);
 
 static int GuessParallelism();
 
@@ -568,70 +567,89 @@ int AnalyzeFunctions(void) {
         return res + binary.Analysis.Functions.size();
       });
 
-  std::vector<dynamic_target_t> Q1, Q2;
+  {
+    std::vector<dynamic_target_t> Q;
+    Q.reserve(N);
 
-  // prepare for what's next
-  Q1.reserve(N);
-  Q2.reserve(N);
+    //
+    // Build queue with all function pairs (b, f)
+    //
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx)
+      for (function_index_t FIdx = 0; FIdx < Decompilation.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
+        Q.emplace_back(BIdx, FIdx);
 
-  //
-  // Put every function pair (b, f) in Q1.
-  //
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx)
-    for (function_index_t FIdx = 0; FIdx < Decompilation.Binaries[BIdx].Analysis.Functions.size(); ++FIdx)
-      Q1.emplace_back(BIdx, FIdx);
+    if (!Q.empty()) {
+      //
+      // Determine IsLeaf for every function
+      //
+      std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-  //
-  // Put all the functions with stale analyses in Q2.
-  //
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    binary_t &binary = Decompilation.Binaries[BIdx];
-    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size();
-         ++FIdx) {
-      function_t &f = binary.Analysis.Functions[FIdx];
-      if (f.Analysis.Stale)
-        Q2.emplace_back(BIdx, FIdx);
+      WithColor::note() << llvm::formatv("Analyzing {0} functions [1]...\n", Q.size());
+
+      {
+        std::vector<std::thread> workers;
+
+        unsigned NumThreads = GuessParallelism();
+
+        workers.reserve(NumThreads);
+        for (unsigned i = 0; i < NumThreads; ++i)
+          workers.push_back(std::thread(worker1,
+                                        std::ref(Q_ptr),
+                                        Q.data() + Q.size()));
+
+        for (std::thread &t : workers)
+          t.join();
+      }
     }
   }
 
-  if (Q1.empty() &&
-      Q2.empty())
-    return 0;
-
-  std::atomic<dynamic_target_t *> Q1_ptr(Q1.data());
-  std::atomic<dynamic_target_t *> Q2_ptr(Q2.data());
-
-  WithColor::note() << llvm::formatv("Analyzing {0} functions...\n", Q2.size());
-
   {
-    std::vector<std::thread> workers;
+    std::vector<dynamic_target_t> Q;
+    Q.reserve(N);
 
-    unsigned N = GuessParallelism();
+    //
+    // Build queue with functions having stale analyses in Q2.
+    //
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      binary_t &binary = Decompilation.Binaries[BIdx];
+      for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
+        function_t &f = binary.Analysis.Functions[FIdx];
+        if (f.Analysis.Stale)
+          Q.emplace_back(BIdx, FIdx);
+      }
+    }
 
-    workers.reserve(N);
-    for (unsigned i = 0; i < N; ++i)
-      workers.push_back(std::thread(worker,
-                                    std::ref(Q1_ptr),
-                                    std::ref(Q2_ptr),
-                                    Q1.data() + Q1.size(),
-                                    Q2.data() + Q2.size()));
+    if (!Q.empty()) {
+      //
+      // Analyze every function
+      //
+      std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-    for (std::thread &t : workers)
-      t.join();
+      WithColor::note() << llvm::formatv("Analyzing {0} functions [2]...\n", Q.size());
+
+      {
+          std::vector<std::thread> workers;
+
+          unsigned NumThreads = GuessParallelism();
+
+          workers.reserve(NumThreads);
+          for (unsigned i = 0; i < NumThreads; ++i)
+            workers.push_back(std::thread(worker2,
+                                          std::ref(Q_ptr),
+                                          Q.data() + Q.size()));
+
+          for (std::thread &t : workers)
+            t.join();
+      }
+    }
   }
 
   return 0;
 }
 
-void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
-            std::atomic<dynamic_target_t *>& Q2_ptr,
-            dynamic_target_t *Q1_end,
-            dynamic_target_t *Q2_end) {
-
-  //
-  // Process Q1
-  //
-  for (dynamic_target_t *p = Q1_ptr++; p < Q1_end; p = Q1_ptr++) {
+void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
+             dynamic_target_t *Q_end) {
+  for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t IdxPair = *p;
 
     binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
@@ -639,9 +657,6 @@ void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
 
     function_t &f = binary.Analysis.Functions.at(IdxPair.second);
 
-    //
-    // Is it a leaf?
-    //
     f.IsLeaf = !f.ExitBasicBlocks.empty() &&
 
                std::all_of(f.ExitBasicBlocks.begin(),
@@ -659,11 +674,11 @@ void worker(std::atomic<dynamic_target_t *>& Q1_ptr,
                             (ICFG[bb].Term.Type == TERMINATOR::CALL);
                    });
   }
+}
 
-  //
-  // Process Q2
-  //
-  for (dynamic_target_t *p = Q2_ptr++; p < Q2_end; p = Q2_ptr++) {
+void worker2(std::atomic<dynamic_target_t *>& Q_ptr,
+             dynamic_target_t *Q_end) {
+  for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t IdxPair = *p;
 
     function_t &f = Decompilation.Binaries.at(IdxPair.first)
