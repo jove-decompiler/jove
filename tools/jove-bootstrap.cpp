@@ -4086,7 +4086,198 @@ static void harvest_ctor_and_dtors(pid_t child,
 }
 
 #if defined(__mips64) || defined(__mips__)
-static void harvest_global_GOT_entries(pid_t, tiny_code_generator_t &, disas_t &);
+static void harvest_global_GOT_entries(pid_t child,
+                                       tiny_code_generator_t &tcg,
+                                       disas_t &dis) {
+  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+    auto &Binary = decompilation.Binaries[BIdx];
+
+    if (!BinFoundVec[BIdx])
+      continue;
+
+    unsigned brkpt_count = 0;
+
+    //
+    // parse the ELF
+    //
+    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
+                           Binary.Data.size());
+    llvm::StringRef Identifier(Binary.Path);
+    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+
+    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+        obj::createBinary(MemBuffRef);
+    if (!BinOrErr) {
+      if (!Binary.IsVDSO)
+        WithColor::error() << llvm::formatv(
+            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
+      continue;
+    }
+
+    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+
+    assert(llvm::isa<ELFO>(Bin.get()));
+    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    const ELFF &E = *O.getELFFile();
+
+    DynRegionInfo DynamicTable(O.getFileName());
+    loadDynamicTable(&E, &O, DynamicTable);
+
+    assert(DynamicTable.Addr);
+
+    DynRegionInfo DynSymRegion(O.getFileName());
+    llvm::StringRef DynSymtabName;
+    llvm::StringRef DynamicStringTable;
+
+    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
+    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        DynSymRegion = createDRIFrom(&Sec, &O);
+        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
+        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+        break;
+      }
+    }
+
+    //
+    // parse dynamic table
+    //
+    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    };
+
+    {
+      const char *StringTableBegin = nullptr;
+      uint64_t StringTableSize = 0;
+
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
+
+        switch (Dyn.d_tag) {
+          case llvm::ELF::DT_STRTAB:
+            if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+              StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
+            break;
+          case llvm::ELF::DT_STRSZ:
+            if (uint64_t sz = Dyn.getVal())
+              StringTableSize = sz;
+            break;
+          case llvm::ELF::DT_SYMTAB:
+            if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
+              const uint8_t *Ptr = *ExpectedPtr;
+
+              if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
+                WithColor::warning()
+                    << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+                       "the location of the dynamic symbol table\n";
+
+              DynSymRegion.Addr = Ptr;
+              DynSymRegion.EntSize = sizeof(Elf_Sym);
+            }
+            break;
+          default:
+            break;
+        }
+
+        if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
+          DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+      }
+    }
+
+    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    MipsGOTParser Parser(&E,
+                         dynamic_table(),
+                         dynamic_symbols());
+
+    for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
+      const target_ulong Addr = Parser.getGotAddress(&Ent);
+
+      const Elf_Sym *Sym = Parser.getGotSym(&Ent);
+      assert(Sym);
+
+      bool is_undefined =
+          Sym->isUndefined() || Sym->st_shndx == llvm::ELF::SHN_UNDEF;
+      if (!is_undefined)
+        continue;
+      if (Sym->getType() != llvm::ELF::STT_FUNC)
+        continue;
+
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(DynamicStringTable);
+      if (!ExpectedSymName) {
+        std::string Buf;
+        {
+          llvm::raw_string_ostream OS(Buf);
+          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+        }
+
+        WithColor::note() << llvm::formatv("MipsGOTParser: could not get sym name: {0}\n",
+                                           Buf);
+        continue;
+      }
+
+      llvm::StringRef SymName = *ExpectedSymName;
+
+      auto &SymDynTargets = Binary.Analysis.SymDynTargets[SymName];
+      if (!SymDynTargets.empty())
+        continue;
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
+
+      struct {
+        uintptr_t Addr;
+
+        binary_index_t BIdx;
+        function_index_t FIdx;
+      } Resolved;
+
+      try {
+        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(Addr, BIdx));
+      } catch (const std::exception &e) {
+        if (opts::Verbose)
+          WithColor::warning() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
+
+        continue;
+      }
+
+      auto it = AddressSpace.find(Resolved.Addr);
+      if (it == AddressSpace.end()) {
+        if (opts::Verbose)
+          WithColor::warning()
+              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                               description_of_program_counter(Resolved.Addr));
+
+        continue;
+      }
+
+      Resolved.BIdx = *(*it).second.begin();
+
+      unsigned brkpt_count = 0;
+      basic_block_index_t resolved_bbidx = translate_basic_block(
+          child, Resolved.BIdx, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+
+      if (!is_basic_block_index_valid(resolved_bbidx))
+        continue;
+
+      Resolved.FIdx = translate_function(
+          child, Resolved.BIdx, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+      if (is_function_index_valid(Resolved.FIdx)) {
+        SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
+      }
+    }
+  }
+}
+
 #endif
 
 void harvest_reloc_targets(pid_t child,
