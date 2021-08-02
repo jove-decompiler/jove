@@ -159,6 +159,8 @@ namespace jove {
 
 static int loop(void);
 
+static void sighandler(int no);
+
 } // namespace jove
 
 int main(int argc, char **argv) {
@@ -207,6 +209,27 @@ int main(int argc, char **argv) {
     OS << "jove version " JOVE_VERSION "\n";
   });
   cl::ParseCommandLineOptions(_argc, _argv, "Jove Loop\n");
+
+  //
+  // signal handlers
+  //
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = jove::sighandler;
+
+    if (sigaction(SIGINT, &sa, nullptr) < 0 ||
+        sigaction(SIGTERM, &sa, nullptr) < 0 ||
+        sigaction(SIGSEGV, &sa, nullptr) < 0 ||
+        sigaction(SIGBUS, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                          __func__, strerror(err));
+      return 1;
+    }
+  }
 
   return jove::loop();
 }
@@ -349,7 +372,7 @@ try_to_open:
   return res;
 }
 
-static void sighandler(int no) {
+void sighandler(int no) {
   switch (no) {
   case SIGTERM:
     if (pid_t pid = app_pid.load()) {
@@ -379,6 +402,17 @@ static void sighandler(int no) {
       Cancelled.store(true);
     }
     break;
+
+  case SIGBUS:
+  case SIGSEGV: {
+    const char *msg = "jove-loop crashed! attach with a debugger..";
+    robust_write(STDERR_FILENO, msg, strlen(msg));
+
+    for (;;)
+      sleep(1);
+
+    __builtin_unreachable();
+  }
 
   default:
     abort();
@@ -419,37 +453,6 @@ static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
 
 
 int loop(void) {
-  //
-  // install signal handler for Ctrl-C to gracefully cancel
-  //
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGINT, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGTERM, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-
   if (!fs::exists(opts::sysroot))
     fs::create_directory(opts::sysroot);
 

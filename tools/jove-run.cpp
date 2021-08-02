@@ -74,6 +74,8 @@ namespace jove {
 
 static fs::path jove_recover_path, jv_path;
 
+static void sighandler(int no);
+
 static int run(void);
 static int run_outside_chroot(void);
 
@@ -143,6 +145,25 @@ int main(int argc, char **argv) {
     return 1;
   }
 
+  //
+  // signal handlers
+  //
+  {
+    struct sigaction sa;
+
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_RESTART;
+    sa.sa_handler = jove::sighandler;
+
+    if (sigaction(SIGSEGV, &sa, nullptr) < 0 ||
+        sigaction(SIGBUS, &sa, nullptr) < 0 ||
+        sigaction(SIGUSR1, &sa, nullptr) < 0) {
+      int err = errno;
+      WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
+                                          __func__, strerror(err));
+    }
+  }
+
   return opts::OutsideChroot ? jove::run_outside_chroot() : jove::run();
 }
 
@@ -200,13 +221,29 @@ static ssize_t robust_write(int fd, const void *const buf, const size_t count) {
 
 static std::atomic<bool> interrupt_sleep;
 
-static void sighandler(int no) {
+void sighandler(int no) {
   switch (no) {
+  case SIGBUS:
+  case SIGSEGV: {
+#if 0
+    WithColor::error() << llvm::formatv("jove-run crashed! run gdb -p {0}\n", gettid());
+#endif
+
+    const char *msg = "jove-run crashed! attach with a debugger..";
+    robust_write(STDERR_FILENO, msg, strlen(msg));
+
+    for (;;)
+      sleep(1);
+
+    __builtin_unreachable();
+  }
+
   case SIGUSR1:
     interrupt_sleep.store(true);
     break;
 
   default:
+    WithColor::error() << llvm::formatv("unhandled signal {0}\n", no);
     abort();
   }
 }
@@ -676,23 +713,6 @@ int run(void) {
 #endif
 
   if (unsigned sec = opts::Sleep) {
-    //
-    // install SIGUSR1 handler to interrupt sleeping
-    //
-    {
-      struct sigaction sa;
-
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = SA_RESTART;
-      sa.sa_handler = sighandler;
-
-      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
-                                            __func__, strerror(err));
-      }
-    }
-
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
