@@ -739,6 +739,9 @@ _NAKED _NOINL unsigned __int128 _jove_thunk6(target_ulong rdi,
 _NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                              target_ulong CalleeAddr);
 
+_NOINL _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
+                                           target_ulong FuncAddr);
+
 _NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
                                               target_ulong BBAddr);
 
@@ -1520,6 +1523,66 @@ found:
           _IOV_ENTRY(CallerBBIdx),
           _IOV_ENTRY(Callee.BIdx),
           _IOV_ENTRY(Callee.FIdx)
+      };
+
+      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
+      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected)
+        _UNREACHABLE();
+
+      _jove_sys_close(recover_fd);
+      _jove_sys_exit_group(ch);
+    }
+  }
+}
+
+void _jove_recover_function(uint32_t IndCallBBIdx,
+                            target_ulong FuncAddr) {
+#if 0
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
+    return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
+
+  struct {
+    uint32_t BIdx;
+    uint32_t BBIdx;
+  } IndCall;
+
+  struct {
+    uintptr_t Beg;
+    uintptr_t End;
+  } SectionsGlobal;
+
+  uintptr_t SectsStartFileAddr;
+
+  IndCall.BIdx = _jove_binary_index();
+  IndCall.BBIdx = IndCallBBIdx;
+
+  SectionsGlobal.Beg = _jove_sections_global_beg_addr();
+  SectionsGlobal.End = _jove_sections_global_end_addr();
+  SectsStartFileAddr = _jove_sections_start_file_addr();
+
+  if (!(FuncAddr >= SectionsGlobal.Beg && FuncAddr < SectionsGlobal.End))
+    return; /* not found */
+
+  uintptr_t FileAddr = (FuncAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
+
+found:
+  {
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open recover fifo");
+
+    {
+      char ch = 'F';
+
+      struct iovec iov_arr[] = {
+          _IOV_ENTRY(ch),
+          _IOV_ENTRY(IndCall.BIdx),
+          _IOV_ENTRY(IndCall.BBIdx),
+          _IOV_ENTRY(FileAddr),
       };
 
       size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
