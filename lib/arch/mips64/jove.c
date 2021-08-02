@@ -2649,18 +2649,11 @@ void _jove_free_stack(target_ulong beg) {
 }
 
 static bool _jove_is_readable_mem(target_ulong Addr);
-static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
-  if (likely(RetAddr == Cookie))
+  if (likely(_jove_is_readable_mem(RetAddr)))
     return;
-
-  if (_jove_is_readable_mem(NativeRetAddr) &&
-      _jove_is_foreign_code(NativeRetAddr))
-    return; /* the return address is bogus because foreign code is calling into
-               recompiled code */
 
   _jove_fail2(RetAddr, NativeRetAddr);
 }

@@ -1498,12 +1498,14 @@ found:
 }
 
 void _jove_fail1(target_ulong x) {
+  /* TODO */
   asm volatile("mov 0x4(%esp), %eax\n" /* x in eax */
                "hlt");
 }
 
 void _jove_fail2(target_ulong x,
                  target_ulong y) {
+  /* TODO */
   asm volatile("hlt");
 }
 
@@ -1911,18 +1913,11 @@ void _jove_free_callstack(target_ulong start) {
 
 
 static bool _jove_is_readable_mem(target_ulong Addr);
-static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  static const target_ulong Cookie = 0xd27b9f5a;
-  if (likely(RetAddr == Cookie))
+  if (likely(_jove_is_readable_mem(RetAddr)))
     return;
-
-  if (_jove_is_readable_mem(NativeRetAddr) &&
-      _jove_is_foreign_code(NativeRetAddr))
-    return; /* the return address is bogus because foreign code is calling into
-               recompiled code */
 
   __builtin_trap();
   __builtin_unreachable();

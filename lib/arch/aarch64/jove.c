@@ -1621,18 +1621,11 @@ void _jove_free_stack(target_ulong beg) {
 }
 
 static bool _jove_is_readable_mem(target_ulong Addr);
-static bool _jove_is_foreign_code(target_ulong Addr);
 
 void _jove_check_return_address(target_ulong RetAddr,
                                 target_ulong NativeRetAddr) {
-  static const target_ulong Cookie = 0xbd47c92caa6cbcb4;
-  if (likely(RetAddr == Cookie))
+  if (likely(_jove_is_readable_mem(RetAddr)))
     return;
-
-  if (_jove_is_readable_mem(NativeRetAddr) &&
-      _jove_is_foreign_code(NativeRetAddr))
-    return; /* the return address is bogus because foreign code is calling into
-               recompiled code */
 
   __builtin_trap();
   __builtin_unreachable();
@@ -1666,80 +1659,4 @@ bool _jove_is_readable_mem(target_ulong Addr) {
                                         0);
 
   return ret == sizeof(byte);
-}
-
-static bool _is_foreign_code_of_maps(char *maps, const unsigned n,
-                                     target_ulong Addr);
-
-bool _jove_is_foreign_code(target_ulong Addr) {
-  char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _is_foreign_code_of_maps(buff, n, Addr);
-  return res;
-}
-
-// precondition: Addr must point to valid virtual memory area
-bool _is_foreign_code_of_maps(char *maps, const unsigned n, target_ulong Addr) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    {
-      unsigned left = eol - line;
-
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-    }
-
-    if (Addr >= vm.min && Addr < vm.max) {
-      return (eol[-1] == ']'
-           && eol[-2] == 'o'
-           && eol[-3] == 's'
-           && eol[-4] == 'd'
-           && eol[-5] == 'v'
-           && eol[-6] == '[')
-        ||
-             (eol[-1]  == 'o'
-           && eol[-2]  == 's'
-           && eol[-3]  == '.'
-           && _isDigit(eol[-4])
-           && _isDigit(eol[-5])
-           && eol[-6]  == '.'
-           && _isDigit(eol[-7])
-           && eol[-8]  == '-'
-           && eol[-9]  == 'd'
-           && eol[-10] == 'l'
-           && eol[-11] == '/'
-           && eol[-12] == 'b'
-           && eol[-13] == 'i'
-           && eol[-14] == 'l'
-           && eol[-15] == '/'
-           && eol[-16] == 'r'
-           && eol[-17] == 's'
-           && eol[-18] == 'u'
-           && eol[-19] == '/');
-    }
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
 }
