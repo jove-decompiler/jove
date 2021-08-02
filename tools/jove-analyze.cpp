@@ -348,46 +348,18 @@ int ProcessDynamicTargets(void) {
 
 #include "elf.hpp"
 
-// TODO this whole function needs to be obliterated
+// XXX code duplication
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &SectMap = binary.SectMap;
 
-    //
-    // FuncMap
-    //
-    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size();
-         ++FIdx) {
+    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
       function_t &f = binary.Analysis.Functions[FIdx];
+
       f.BIdx = BIdx;
       f.FIdx = FIdx;
-
-      if (unlikely(!is_function_index_valid(f.Entry)))
-        continue;
-
-      //
-      // BasicBlocks (in DFS order)
-      //
-      std::map<basic_block_t, boost::default_color_type> color;
-      dfs_visitor<interprocedural_control_flow_graph_t> vis(f.BasicBlocks);
-      depth_first_visit(
-          ICFG, boost::vertex(f.Entry, ICFG), vis,
-          boost::associative_property_map<
-              std::map<basic_block_t, boost::default_color_type>>(color));
-
-      //
-      // ExitBasicBlocks
-      //
-      std::copy_if(f.BasicBlocks.begin(),
-                   f.BasicBlocks.end(),
-                   std::back_inserter(f.ExitBasicBlocks),
-                   [&](basic_block_t bb) -> bool {
-                     return IsExitBlock(ICFG, bb);
-                   });
-
-      f.Returns = f.Returns || !f.ExitBasicBlocks.empty();
     }
 
     //
@@ -656,6 +628,28 @@ void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
     auto &ICFG = binary.Analysis.ICFG;
 
     function_t &f = binary.Analysis.Functions.at(IdxPair.second);
+
+    //
+    // BasicBlocks (in DFS order)
+    //
+    std::map<basic_block_t, boost::default_color_type> color;
+    dfs_visitor<interprocedural_control_flow_graph_t> vis(f.BasicBlocks);
+    depth_first_visit(
+        ICFG, boost::vertex(f.Entry, ICFG), vis,
+        boost::associative_property_map<
+            std::map<basic_block_t, boost::default_color_type>>(color));
+
+    //
+    // ExitBasicBlocks
+    //
+    std::copy_if(f.BasicBlocks.begin(),
+                 f.BasicBlocks.end(),
+                 std::back_inserter(f.ExitBasicBlocks),
+                 [&](basic_block_t bb) -> bool {
+                   return IsExitBlock(ICFG, bb);
+                 });
+
+    f.Returns = f.Returns || !f.ExitBasicBlocks.empty();
 
     f.IsLeaf = !f.ExitBasicBlocks.empty() &&
 
