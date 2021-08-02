@@ -628,18 +628,18 @@ int AnalyzeFunctions(void) {
       WithColor::note() << llvm::formatv("Analyzing {0} functions [2]...\n", Q.size());
 
       {
-          std::vector<std::thread> workers;
+        std::vector<std::thread> workers;
 
-          unsigned NumThreads = GuessParallelism();
+        unsigned NumThreads = GuessParallelism();
 
-          workers.reserve(NumThreads);
-          for (unsigned i = 0; i < NumThreads; ++i)
-            workers.push_back(std::thread(worker2,
-                                          std::ref(Q_ptr),
-                                          Q.data() + Q.size()));
+        workers.reserve(NumThreads);
+        for (unsigned i = 0; i < NumThreads; ++i)
+          workers.push_back(std::thread(worker2,
+                                        std::ref(Q_ptr),
+                                        Q.data() + Q.size()));
 
-          for (std::thread &t : workers)
-            t.join();
+        for (std::thread &t : workers)
+          t.join();
       }
     }
   }
