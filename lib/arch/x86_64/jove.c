@@ -1687,7 +1687,68 @@ void _jove_fail1(target_ulong rdi) {
 
 void _jove_fail2(target_ulong rdi,
                  target_ulong rsi) {
-  asm volatile("hlt");
+  char maps[4096 * 32];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  {
+    char s[4096 * 32];
+    s[0] = '\0';
+
+    _strcat(s, "_jove_fail2: 0x");
+    {
+      char buff[65];
+      uint_to_string(rdi, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    {
+      char buff[65];
+      _description_of_address_for_maps(buff, rdi, maps, n);
+      _strcat(s, " <");
+      _strcat(s, buff);
+      _strcat(s, ">");
+    }
+    _strcat(s, "\n             0x");
+    {
+      char buff[65];
+      uint_to_string(rdi, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    {
+      char buff[65];
+      _description_of_address_for_maps(buff, rsi, maps, n);
+      _strcat(s, " <");
+      _strcat(s, buff);
+      _strcat(s, "> [");
+    }
+
+    {
+      char buff[65];
+      uint_to_string(_jove_sys_gettid(), buff, 10);
+
+      _strcat(s, buff);
+    }
+
+    _strcat(s, "]\n");
+    _strcat(s, maps);
+
+    //
+    // dump message for user
+    //
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+
+  for (;;) {
+    struct timespec t;
+    t.tv_sec = 10;
+    t.tv_nsec = 0;
+
+    _jove_sys_nanosleep(&t, NULL);
+  }
+
+  __builtin_unreachable();
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \
