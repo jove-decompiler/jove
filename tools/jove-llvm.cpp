@@ -1142,7 +1142,7 @@ int InitStateForBinaries(void) {
                              f.ExitBasicBlocks.end(),
                              [&](basic_block_t bb) -> bool {
                                auto T = ICFG[bb].Term.Type;
-                               return T == TERMINATOR::RETURN;
+                               return T == TERMINATOR::RETURN
                                    || T == TERMINATOR::UNREACHABLE;
                              }) &&
 

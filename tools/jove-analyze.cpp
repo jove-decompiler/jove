@@ -655,7 +655,7 @@ void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
                            f.ExitBasicBlocks.end(),
                            [&](basic_block_t bb) -> bool {
                              auto T = ICFG[bb].Term.Type;
-                             return T == TERMINATOR::RETURN;
+                             return T == TERMINATOR::RETURN
                                  || T == TERMINATOR::UNREACHABLE;
                            }) &&
 
