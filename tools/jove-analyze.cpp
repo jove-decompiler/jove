@@ -651,21 +651,22 @@ void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
 
     f.Returns = f.Returns || !f.ExitBasicBlocks.empty();
 
-    f.IsLeaf = !f.ExitBasicBlocks.empty() &&
-
-               std::all_of(f.ExitBasicBlocks.begin(),
+    f.IsLeaf = std::all_of(f.ExitBasicBlocks.begin(),
                            f.ExitBasicBlocks.end(),
                            [&](basic_block_t bb) -> bool {
-                             return ICFG[bb].Term.Type == TERMINATOR::RETURN;
+                             auto T = ICFG[bb].Term.Type;
+                             return T == TERMINATOR::RETURN;
+                                 || T == TERMINATOR::UNREACHABLE;
                            }) &&
 
                std::none_of(f.BasicBlocks.begin(),
                             f.BasicBlocks.end(),
                    [&](basic_block_t bb) -> bool {
-                     return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-                             boost::out_degree(bb, ICFG) == 0) ||
-                            (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) ||
-                            (ICFG[bb].Term.Type == TERMINATOR::CALL);
+                     auto T = ICFG[bb].Term.Type;
+                     return (T == TERMINATOR::INDIRECT_JUMP &&
+                             boost::out_degree(bb, ICFG) == 0)
+                          || T == TERMINATOR::INDIRECT_CALL
+                          || T == TERMINATOR::CALL;
                    });
   }
 }

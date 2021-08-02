@@ -1138,24 +1138,23 @@ int InitStateForBinaries(void) {
       //
       // Is it a leaf?
       //
-      f.IsLeaf =
-          !f.ExitBasicBlocks.empty() &&
+      f.IsLeaf = std::all_of(f.ExitBasicBlocks.begin(),
+                             f.ExitBasicBlocks.end(),
+                             [&](basic_block_t bb) -> bool {
+                               auto T = ICFG[bb].Term.Type;
+                               return T == TERMINATOR::RETURN;
+                                   || T == TERMINATOR::UNREACHABLE;
+                             }) &&
 
-          std::all_of(f.ExitBasicBlocks.begin(),
-                      f.ExitBasicBlocks.end(),
-                      [&](basic_block_t bb) -> bool {
-                        return ICFG[bb].Term.Type == TERMINATOR::RETURN;
-                      }) &&
-
-          std::none_of(
-              f.BasicBlocks.begin(),
-              f.BasicBlocks.end(),
-              [&](basic_block_t bb) -> bool {
-                return (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
-                        boost::out_degree(bb, ICFG) == 0) ||
-                       (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) ||
-                       (ICFG[bb].Term.Type == TERMINATOR::CALL);
-              });
+                 std::none_of(f.BasicBlocks.begin(),
+                              f.BasicBlocks.end(),
+                     [&](basic_block_t bb) -> bool {
+                       auto T = ICFG[bb].Term.Type;
+                       return (T == TERMINATOR::INDIRECT_JUMP &&
+                               boost::out_degree(bb, ICFG) == 0)
+                            || T == TERMINATOR::INDIRECT_CALL
+                            || T == TERMINATOR::CALL;
+                     });
     }
 
     //
