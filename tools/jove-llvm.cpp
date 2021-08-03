@@ -1620,6 +1620,8 @@ static std::pair<llvm::GlobalVariable *, llvm::Function *> declarePostHook(const
   return declareHook<false>(h);
 }
 
+static std::string dyn_target_desc(dynamic_target_t IdxPair);
+
 //
 // the duty of this function is to map symbol names to (BIdx, FIdx) pairs
 //
@@ -1636,7 +1638,7 @@ int LocateHooks(void) {
       if (it == SymDynTargets.end())
         continue;
 
-      for (std::pair<binary_index_t, function_index_t> IdxPair : (*it).second) {
+      for (dynamic_target_t IdxPair : (*it).second) {
         function_t &f = Decompilation.Binaries.at(IdxPair.first)
                             .Analysis.Functions.at(IdxPair.second);
 
@@ -1644,20 +1646,18 @@ int LocateHooks(void) {
           f.hook = &h;
           std::tie(f.PreHookClunk, f.PreHook) = declarePreHook(h);
 
-          llvm::outs() << llvm::formatv("pre-hook {0} @ ({1}, {2})\n",
+          llvm::outs() << llvm::formatv("[pre-hook] {0} @ {1}\n",
                                         h.Sym,
-                                        IdxPair.first,
-                                        IdxPair.second);
+                                        dyn_target_desc(IdxPair));
         }
 
         if (h.Post && dfsanPostHooks.insert(IdxPair).second) {
           f.hook = &h;
           std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
 
-          llvm::outs() << llvm::formatv("post-hook {0} @ ({1}, {2})\n",
+          llvm::outs() << llvm::formatv("[post-hook] {0} @ {1}\n",
                                         h.Sym,
-                                        IdxPair.first,
-                                        IdxPair.second);
+                                        dyn_target_desc(IdxPair));
         }
       }
     }
@@ -8761,9 +8761,6 @@ extern const translate_tcg_op_proc_t TranslateTCGOpTable[250];
 
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
 
-static std::string
-dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair);
-
 int TranslateBasicBlock(TranslateContext &TC) {
   auto &GlobalAllocaArr = TC.GlobalAllocaArr;
   auto &TempAllocaVec = TC.TempAllocaVec;
@@ -10125,8 +10122,7 @@ llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &IRB) {
   return IRB.CreateCall(IA);
 }
 
-std::string
-dyn_target_desc(const std::pair<binary_index_t, function_index_t> &IdxPair) {
+std::string dyn_target_desc(dynamic_target_t IdxPair) {
   struct {
     binary_index_t BIdx;
     function_index_t FIdx;
