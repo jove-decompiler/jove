@@ -726,7 +726,6 @@ static int FindBinary(void);
 static int CheckBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
-static int LocateHooks(void);
 static int PrepareToTranslateCode(void);
 static int ProcessDynamicTargets(void);
 static int ProcessBinaryRelocations(void);
@@ -736,6 +735,7 @@ static int CreateFunctions(void);
 static int CreateFunctionTables(void);
 static int ProcessBinaryTLSSymbols(void);
 static int ProcessDynamicSymbols(void);
+static int LocateHooks(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
 static int ProcessDynamicSymbols2(void);
@@ -769,7 +769,6 @@ int llvm(void) {
       || CheckBinary()
       || InitStateForBinaries()
       || CreateModule()
-      || (opts::DFSan ? LocateHooks() : 0)
       || PrepareToTranslateCode()
       || ProcessCommandLine() /* must do this after TCG is ready */
       || ProcessDynamicTargets()
@@ -780,6 +779,7 @@ int llvm(void) {
       || CreateFunctionTables()
       || ProcessBinaryTLSSymbols()
       || ProcessDynamicSymbols()
+      || (opts::DFSan ? LocateHooks() : 0)
       || CreateTLSModGlobal()
       || CreateSectionGlobalVariables()
       || ProcessDynamicSymbols2()
@@ -1436,7 +1436,17 @@ struct hook_t {
 #define PRE 1
 #define POST 2
 
-static const hook_t HookArray[] = {
+static constexpr unsigned NumHooks = 0
+#define ___HOOK1(hook_kind, rett, sym, t1)                     +1
+#define ___HOOK2(hook_kind, rett, sym, t1, t2)                 +1
+#define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)             +1
+#define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)         +1
+#define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)     +1
+#define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6) +1
+#include "dfsan_hooks.inc.h"
+  ;
+
+static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
@@ -1549,7 +1559,7 @@ static const hook_t HookArray[] = {
       .Post = !!(hook_kind & POST),                                            \
   },
 #include "dfsan_hooks.inc.h"
-};
+}};
 
 static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
   if (info.isPointer)
@@ -1628,6 +1638,7 @@ static std::string dyn_target_desc(dynamic_target_t IdxPair);
 int LocateHooks(void) {
   assert(opts::DFSan);
 
+#if 0
   for (unsigned i = 0; i < ARRAY_SIZE(HookArray); ++i) {
     const hook_t &h = HookArray[i];
 
@@ -1662,20 +1673,42 @@ int LocateHooks(void) {
       }
     }
   }
+#else
+  for (const hook_t &h : HookArray) {
+    auto it = ExportedFunctions.find(h.Sym);
+    if (it == ExportedFunctions.end()) {
+      if (opts::Verbose)
+        WithColor::warning() << llvm::formatv("failed to find hook for {0}\n",
+                                              h.Sym);
+      continue;
+    }
 
-#if 0
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-  }
+    assert(!(*it).second.empty());
 
-  for (const auto &binary : Decompilation.Binaries) {
-    auto &SymDynTargets = binary.Analysis.SymDynTargets;
-    auto it = SymDynTargets.find(
+    for (dynamic_target_t IdxPair : (*it).second) {
+      function_t &f = Decompilation.Binaries.at(IdxPair.first)
+                         .Analysis.Functions.at(IdxPair.second);
 
-    auto _it = SymDynTargets.find(SymName);
-    if (_it != SymDynTargets.end()) {
-      IdxPair = *(*_it).second.begin();
-      break;
+      if (f.hook) {
+        WithColor::warning() << llvm::formatv("hook already installed for {0}\n", h.Sym);
+        continue;
+      }
+
+      llvm::outs() << llvm::formatv("[hook] {0} @ {1}\n",
+                                    h.Sym,
+                                    dyn_target_desc(IdxPair));
+
+      f.hook = &h;
+
+      if (h.Pre) {
+        dfsanPreHooks.insert(IdxPair);
+        std::tie(f.PreHookClunk, f.PreHook) = declarePreHook(h);
+      }
+
+      if (h.Post) {
+        dfsanPostHooks.insert(IdxPair);
+        std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
+      }
     }
   }
 #endif
@@ -4427,21 +4460,17 @@ int CreateFunctionTable(void) {
   for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
     const function_t &f = Binary.Analysis.Functions[i];
 
+    llvm::Constant *&C1 = constantTable[2 * i + 0];
+    llvm::Constant *&C2 = constantTable[2 * i + 1];
+
     if (!is_basic_block_index_valid(f.Entry)) {
-      constantTable[2 * i + 0] = llvm::Constant::getNullValue(WordType());
-      constantTable[2 * i + 1] = llvm::Constant::getNullValue(WordType());
+      C1 = llvm::Constant::getNullValue(WordType());
+      C2 = llvm::Constant::getNullValue(WordType());
       continue;
     }
 
-    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-
-    llvm::Constant *C1 = SectionPointer(Addr);
-    llvm::Constant *C2 = f.IsABI
-                             ? llvm::ConstantExpr::getPtrToInt(f.F, WordType())
-                             : llvm::Constant::getNullValue(WordType());
-
-    constantTable[2 * i + 0] = C1;
-    constantTable[2 * i + 1] = C2;
+    C1 = SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
+    C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
   }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
