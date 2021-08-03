@@ -61,6 +61,7 @@ class Binary;
 #include <fstream>
 #include <unordered_set>
 #include <random>
+#include <chrono>
 #include <boost/filesystem.hpp>
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
@@ -506,7 +507,9 @@ int PrepareToTranslateCode(void) {
 }
 
 int AnalyzeBlocks(void) {
-  WithColor::note() << "Analyzing basic blocks...\n";
+  unsigned cnt = 0;
+
+  auto t1 = std::chrono::high_resolution_clock::now();
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
@@ -516,8 +519,20 @@ int AnalyzeBlocks(void) {
     for (std::tie(vi, vi_end) = boost::vertices(ICFG); vi != vi_end; ++vi) {
       basic_block_t bb = *vi;
 
+      if (ICFG[bb].Analysis.Stale)
+        ++cnt;
+
       ICFG[bb].Analyze(BIdx);
     }
+  }
+
+  auto t2 = std::chrono::high_resolution_clock::now();
+
+  if (cnt) {
+    std::chrono::duration<double> s_double = t2 - t1;
+
+    WithColor::note() << llvm::formatv("Analyzing {0} basic blocks... {1} s\n",
+                                       cnt, s_double.count());
   }
 
   return 0;
@@ -551,12 +566,11 @@ int AnalyzeFunctions(void) {
         Q.emplace_back(BIdx, FIdx);
 
     if (!Q.empty()) {
-      //
-      // Determine IsLeaf for every function
-      //
       std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-      WithColor::note() << llvm::formatv("Analyzing {0} functions [1]...\n", Q.size());
+      WithColor::note() << llvm::formatv("Analyzing {0} functions [1]...", Q.size());
+
+      auto t1 = std::chrono::high_resolution_clock::now();
 
       {
         std::vector<std::thread> workers;
@@ -572,6 +586,15 @@ int AnalyzeFunctions(void) {
         for (std::thread &t : workers)
           t.join();
       }
+
+      assert(Q_ptr.load() >= Q.data() + Q.size()); /* consumed all */
+
+      auto t2 = std::chrono::high_resolution_clock::now();
+
+      //std::chrono::duration<double, std::milli> ms_double = t2 - t1;
+      std::chrono::duration<double> s_double = t2 - t1;
+
+      llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
     }
   }
 
@@ -597,7 +620,9 @@ int AnalyzeFunctions(void) {
       //
       std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-      WithColor::note() << llvm::formatv("Analyzing {0} functions [2]...\n", Q.size());
+      WithColor::note() << llvm::formatv("Analyzing {0} functions [2]...", Q.size());
+
+      auto t1 = std::chrono::high_resolution_clock::now();
 
       {
         std::vector<std::thread> workers;
@@ -613,6 +638,14 @@ int AnalyzeFunctions(void) {
         for (std::thread &t : workers)
           t.join();
       }
+
+      assert(Q_ptr.load() >= Q.data() + Q.size()); /* consumed all */
+
+      auto t2 = std::chrono::high_resolution_clock::now();
+
+      std::chrono::duration<double> s_double = t2 - t1;
+
+      llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
     }
   }
 
