@@ -894,12 +894,35 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         SignalDelivery = true;
 
 #if 0
-        char buff[256];
-        buff[0] = '\0';
+        char s[256];
+        s[0] = '\0';
 
-        _strcat(buff, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
+        _strcat(s, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
 
-        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+        _jove_sys_write(2 /* stderr */, s, _strlen(s));
+#endif
+      } else {
+#if 0
+        char s[256];
+        s[0] = '\0';
+
+        _strcat(s, "NotASignalDelivery. ");
+
+        for (unsigned i = 0; i < 9; ++i)
+        {
+          char buff[65];
+          uint_to_string(((uint8_t *)saved_retaddr)[i], buff, 0x10);
+
+          _strcat(s, "0x");
+          _strcat(s, buff);
+
+          if (i != 9 - 1)
+            _strcat(s, " ");
+        }
+
+        _strcat(s, "\n");
+
+        _jove_sys_write(2 /* stderr */, s, _strlen(s));
 #endif
       }
 
