@@ -193,14 +193,16 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 .PHONY: package
 package:
-	tar cvf jove.$(JOVE_VER).$(JOVE_GITVER).$(ARCH).tar \
+	tar cvf jove-$(JOVE_VER).$(ARCH).tar \
 	        $(TOOLBINS) \
 	        $(UTILBINS) \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
 	        $(HELPERS_BITCODE) \
+	        $(HELPERS_ASSEMBLY) \
 	        $(HELPERS_DFSAN_BITCODE) \
+	        $(HELPERS_DFSAN_ASSEMBLY) \
 	        bin/dfsan_abilist.txt \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 ifndef PACKAGE_TARBALL
