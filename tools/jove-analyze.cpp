@@ -551,7 +551,7 @@ int AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
       Decompilation.Binaries.begin(),
-      Decompilation.Binaries.end(), 0,
+      Decompilation.Binaries.end(), 0u,
       [&](unsigned res, const binary_t &binary) -> unsigned {
         return res + binary.Analysis.Functions.size();
       });
