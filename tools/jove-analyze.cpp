@@ -523,6 +523,8 @@ int AnalyzeBlocks(void) {
         ++cnt;
 
       ICFG[bb].Analyze(BIdx);
+
+      assert(!ICFG[bb].Analysis.Stale);
     }
   }
 
