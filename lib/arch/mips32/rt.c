@@ -1824,6 +1824,9 @@ struct kernel_sigaction {
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 #define _CTOR   __attribute__((constructor(0)))
 #define _INL    __attribute__((always_inline))
 #define _UNUSED __attribute__((unused))
@@ -1866,7 +1869,7 @@ static void _jove_init_cpu_state(void);
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
-#define JOVE_TRACE_BUFF_SIZE (64 * JOVE_PAGE_SIZE)
+#define JOVE_TRACE_BUFF_SIZE (32 * JOVE_PAGE_SIZE)
 
 static target_ulong _jove_alloc_callstack(void);
 _HIDDEN void _jove_free_callstack(target_ulong);
@@ -2382,6 +2385,11 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   }
 #endif
 
+  //
+  // flush trace
+  //
+  _jove_flush_trace();
+
   for (;;) {
     struct old_timespec32 t;
     t.tv_sec = 10;
@@ -2486,7 +2494,11 @@ void _jove_trace_init(void) {
 }
 
 void _jove_flush_trace(void) {
-  void *TraceBegin = __jove_trace_begin;
+  uint64_t *TraceBegin = __jove_trace_begin;
+  uint64_t *TracePtr   = __jove_trace;
+
+  if (unlikely(TraceBegin == TracePtr))
+    return;
 
   int fd;
   {
@@ -2508,11 +2520,90 @@ void _jove_flush_trace(void) {
       _UNREACHABLE("_jove_flush_trace: failed to open trace file");
   }
 
+#if 0
   unsigned n = JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE /* guard page */;
+#else
+  --TracePtr;
+  unsigned n = (TracePtr - TraceBegin) * sizeof(uint64_t);
+#endif
   ssize_t ret = _robust_write(fd, TraceBegin, n);
 
   if (ret != n)
     _UNREACHABLE("_jove_flush_trace: could not flush trace file");
+
+#if 0
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, __LOG_YELLOW "flushed ");
+    {
+      char buff[65];
+      uint_to_string(n, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, " bytes" __LOG_NORMAL_COLOR "\n");
+
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+#endif
+
+#if 0
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, __LOG_MAGENTA "TraceBegin=0x");
+    {
+      char buff[65];
+      uint_to_string((uintptr_t)TraceBegin, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, __LOG_NORMAL_COLOR "\n");
+
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+#endif
+
+#if 0
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    _strcat(s, __LOG_MAGENTA "TracePtr=0x");
+    {
+      char buff[65];
+      uint_to_string((uintptr_t)TracePtr, buff, 0x10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, __LOG_NORMAL_COLOR "\n");
+
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+#endif
+
+#if 0
+  {
+    char s[1024];
+    s[0] = '\0';
+
+    unsigned NumTracepoints = TracePtr - TraceBegin;
+
+    _strcat(s, __LOG_MAGENTA "NumTracepoints=");
+    {
+      char buff[65];
+      uint_to_string(NumTracepoints, buff, 10);
+
+      _strcat(s, buff);
+    }
+    _strcat(s, __LOG_NORMAL_COLOR "\n");
+
+    _robust_write(2 /* stderr */, s, _strlen(s));
+  }
+#endif
 
   if (_jove_sys_close(fd) < 0)
     _UNREACHABLE("_jove_flush_trace: failed to close trace file");
