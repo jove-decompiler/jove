@@ -1543,7 +1543,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
 
-              //harvest_reloc_targets(child, tcg, dis);
+              if (child == saved_child) {
+                WithColor::note() << "Observed program exit.\n";
+                harvest_reloc_targets(child, tcg, dis);
+              }
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
