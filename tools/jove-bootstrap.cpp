@@ -3188,7 +3188,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
 
   //
-  // helper function to emulate the semantics of a return instruction
+  // helper function to emulate a return instruction
   //
   auto emulate_return = [&](llvm::MCInst &Inst,
 #if defined(__mips64) || defined(__mips__)
