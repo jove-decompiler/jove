@@ -211,30 +211,6 @@ static std::string DescribeBasicBlock(binary_index_t, basic_block_index_t);
 
 static int await_process_completion(pid_t);
 
-static std::error_code lockFile(int FD) {
-  struct flock Lock;
-  memset(&Lock, 0, sizeof(Lock));
-  Lock.l_type = F_WRLCK;
-  Lock.l_whence = SEEK_SET;
-  Lock.l_start = 0;
-  Lock.l_len = 0;
-  if (::fcntl(FD, F_SETLKW, &Lock) != -1)
-    return std::error_code();
-  int Error = errno;
-  return std::error_code(Error, std::generic_category());
-}
-
-static std::error_code unlockFile(int FD) {
-  struct flock Lock;
-  Lock.l_type = F_UNLCK;
-  Lock.l_whence = SEEK_SET;
-  Lock.l_start = 0;
-  Lock.l_len = 0;
-  if (::fcntl(FD, F_SETLK, &Lock) != -1)
-    return std::error_code();
-  return std::error_code(errno, std::generic_category());
-}
-
 int recover(void) {
   bool git = fs::is_directory(opts::jv);
 
@@ -246,20 +222,10 @@ int recover(void) {
                            ? (opts::jv + "/decompilation.jv")
                            : opts::jv;
 
-    int fd = ::open(path.c_str(), O_RDONLY);
-    assert(!(fd < 0));
+    std::ifstream ifs(path);
 
-    lockFile(fd);
-
-    {
-      std::ifstream ifs(path);
-
-      boost::archive::text_iarchive ia(ifs);
-      ia >> Decompilation;
-    }
-
-    unlockFile(fd);
-    close(fd);
+    boost::archive::text_iarchive ia(ifs);
+    ia >> Decompilation;
   }
 
   tiny_code_generator_t tcg;
@@ -753,20 +719,10 @@ int recover(void) {
                            ? (opts::jv + "/decompilation.jv")
                            : opts::jv;
 
-    int fd = ::open(path.c_str(), O_RDONLY);
-    assert(!(fd < 0));
+    std::ofstream ofs(path);
 
-    lockFile(fd);
-
-    {
-      std::ofstream ofs(path);
-
-      boost::archive::text_oarchive oa(ofs);
-      oa << Decompilation;
-    }
-
-    unlockFile(fd);
-    close(fd);
+    boost::archive::text_oarchive oa(ofs);
+    oa << Decompilation;
   }
 
   //

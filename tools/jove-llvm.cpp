@@ -885,30 +885,6 @@ static llvm::Type *VoidFunctionPointer(void) {
   return llvm::PointerType::get(FTy, 0);
 }
 
-static std::error_code lockFile(int FD) {
-  struct flock Lock;
-  memset(&Lock, 0, sizeof(Lock));
-  Lock.l_type = F_WRLCK;
-  Lock.l_whence = SEEK_SET;
-  Lock.l_start = 0;
-  Lock.l_len = 0;
-  if (::fcntl(FD, F_SETLKW, &Lock) != -1)
-    return std::error_code();
-  int Error = errno;
-  return std::error_code(Error, std::generic_category());
-}
-
-static std::error_code unlockFile(int FD) {
-  struct flock Lock;
-  Lock.l_type = F_UNLCK;
-  Lock.l_whence = SEEK_SET;
-  Lock.l_start = 0;
-  Lock.l_len = 0;
-  if (::fcntl(FD, F_SETLK, &Lock) != -1)
-    return std::error_code();
-  return std::error_code(errno, std::generic_category());
-}
-
 int ProcessCommandLine(void) {
   auto tcg_index_of_named_global = [&](const char *nm) -> int {
     for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
@@ -938,19 +914,10 @@ int ParseDecompilation(void) {
                          ? (opts::jv + "/decompilation.jv")
                          : opts::jv;
 
-  int fd = ::open(path.c_str(), O_RDONLY);
-  assert(!(fd < 0));
-  lockFile(fd);
+  std::ifstream ifs(path);
 
-  {
-    std::ifstream ifs(path);
-
-    boost::archive::text_iarchive ia(ifs);
-    ia >> Decompilation;
-  }
-
-  unlockFile(fd);
-  close(fd);
+  boost::archive::text_iarchive ia(ifs);
+  ia >> Decompilation;
 
   return 0;
 }
