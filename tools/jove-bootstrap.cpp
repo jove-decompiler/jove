@@ -3699,7 +3699,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   decompilation.Binaries[binary_idx].Path);
 
   if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
-    llvm::errs() << llvm::formatv("({0}) {1} -> {2}\n",
+    llvm::errs() << llvm::formatv(__LOG_CYAN "({0}) {1} -> {2}" __LOG_NORMAL_COLOR "\n",
                                   control_flow_description,
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(target));
