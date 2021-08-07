@@ -755,7 +755,6 @@ static int ReplaceAllRemainingUsesOfConstSections(void);
 static int RecoverControlFlow(void);
 static int DFSanInstrument(void);
 static int RenameFunctionLocals(void);
-static int WriteDecompilation(void);
 static int WriteVersionScript(void);
 static int WriteModule(void);
 
@@ -849,7 +848,7 @@ void _qemu_log(const char *cstr) {
   llvm::errs() << cstr;
 }
 
-bool isDFSan(void) {
+static bool isDFSan(void) {
   return opts::DFSan;
 }
 
@@ -877,7 +876,7 @@ static llvm::Type *PPointerType(void) {
   return llvm::PointerType::get(PointerToWordType(), 0);
 }
 
-llvm::Type *VoidType(void) {
+static llvm::Type *VoidType(void) {
   return llvm::Type::getVoidTy(*Context);
 }
 
@@ -8512,57 +8511,6 @@ int await_process_completion(pid_t pid) {
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
   abort();
-}
-
-int WriteDecompilation(void) {
-  {
-    std::string path = fs::is_directory(opts::jv)
-                           ? (opts::jv + "/decompilation.jv")
-                           : opts::jv;
-
-    int fd = ::open(path.c_str(), O_RDONLY);
-    assert(!(fd < 0));
-
-    lockFile(fd);
-
-    {
-      std::ofstream ofs(path);
-
-      boost::archive::text_oarchive oa(ofs);
-      oa << Decompilation;
-    }
-
-    unlockFile(fd);
-    close(fd);
-  }
-
-  //
-  // git commit
-  //
-  std::string msg("[jove-llvm]");
-  for (char **argp = cmdline.argv; *argp ; ++argp) {
-    msg.push_back(' ');
-    msg.append(*argp);
-  }
-
-  // TODO check that there are no uncommitted changes
-
-  if (fs::is_directory(opts::jv)) {
-    pid_t pid = fork();
-    if (!pid) { /* child */
-      chdir(opts::jv.c_str());
-
-      const char *argv[] = {"/usr/bin/git", "commit",    ".",
-                            "-m",           msg.c_str(), nullptr};
-
-      execve(argv[0], const_cast<char **>(argv), ::environ);
-      abort();
-    }
-
-    await_process_completion(pid);
-  }
-
-  return 0;
 }
 
 int WriteVersionScript(void) {
