@@ -206,7 +206,7 @@ package:
 	        bin/dfsan_abilist.txt \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 ifndef PACKAGE_TARBALL
-	xz --threads=0 jove.$(JOVE_VER).$(JOVE_GITVER).$(ARCH).tar
+	xz --threads=0 jove-$(JOVE_VER).$(ARCH).tar
 endif
 
 .PHONY: clean
