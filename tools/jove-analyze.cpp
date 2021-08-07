@@ -545,8 +545,6 @@ static void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
 static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
                     dynamic_target_t *Q_end);
 
-static int GuessParallelism();
-
 int AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
   unsigned N = std::accumulate(
@@ -577,7 +575,7 @@ int AnalyzeFunctions(void) {
       {
         std::vector<std::thread> workers;
 
-        unsigned NumThreads = GuessParallelism();
+        unsigned NumThreads = num_cpus();
 
         workers.reserve(NumThreads);
         for (unsigned i = 0; i < NumThreads; ++i)
@@ -629,7 +627,7 @@ int AnalyzeFunctions(void) {
       {
         std::vector<std::thread> workers;
 
-        unsigned NumThreads = GuessParallelism();
+        unsigned NumThreads = num_cpus();
 
         workers.reserve(NumThreads);
         for (unsigned i = 0; i < NumThreads; ++i)
@@ -750,18 +748,6 @@ unsigned num_cpus(void) {
   }
 
   return CPU_COUNT(&cpu_mask);
-}
-
-int GuessParallelism() {
-  switch (int processors = num_cpus()) {
-  case 0:
-  case 1:
-    return 2;
-  case 2:
-    return 3;
-  default:
-    return processors + 2;
-  }
 }
 
 static void IgnoreCtrlC(void) {
