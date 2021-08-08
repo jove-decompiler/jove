@@ -63,14 +63,19 @@ int readtrace(void) {
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   std::ifstream ifs(opts::TraceBinPath.c_str());
 
-  struct {
-    uint32_t BIdx;
-    uint32_t BBIdx;
-  } Trace;
+  uint64_t X;
+  while (ifs.read(reinterpret_cast<char *>(&X), sizeof(X))) {
+    struct {
+      uint32_t BIdx;
+      uint32_t BBIdx;
+    } Trace;
 
-  while (ifs.read(reinterpret_cast<char *>(&Trace.BBIdx), sizeof(uint32_t)) &&
-         ifs.read(reinterpret_cast<char *>(&Trace.BIdx), sizeof(uint32_t))) {
-    llvm::outs() << llvm::formatv("JV_{0}_{1}\n", Trace.BIdx, Trace.BBIdx);
+    Trace.BIdx  = X & 0xffffffff;
+    Trace.BBIdx = X >> 32;
+
+    llvm::outs() << llvm::formatv("JV_{0}_{1}\n",
+                                  Trace.BIdx,
+                                  Trace.BBIdx);
   }
 #else
   int fd = open(opts::TraceBinPath.c_str(), O_RDONLY);
