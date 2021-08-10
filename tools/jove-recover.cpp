@@ -493,10 +493,6 @@ int recover(void) {
                            .DynTargets.insert({Callee.BIdx, Callee.FIdx})
                            .second;
 
-    // TODO only invalidate the functions which contain...
-    if (wasDynTargetsEmpty && isNewTarget)
-      InvalidateAllFunctionAnalyses();
-
     //
     // check to see if this is an ambiguous indirect jump XXX duplicated code with jove-bootstrap
     //
@@ -573,10 +569,6 @@ int recover(void) {
 
     bool isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
 
-    // TODO invalidate only the functions who are affected...
-    if (isNewTarget)
-      InvalidateAllFunctionAnalyses();
-
     msg = (fmt("[jove-recover] (goto) %s -> %s") %
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
@@ -613,10 +605,6 @@ int recover(void) {
     bool isNewTarget = ICFG[boost::vertex(IndCall.BBIdx, ICFG)]
                            .DynTargets.insert({IndCall.BIdx, TargetFIdx})
                            .second;
-
-    // TODO only invalidate the functions which contain...
-    if (wasDynTargetsEmpty && isNewTarget)
-      InvalidateAllFunctionAnalyses();
 
     msg = (fmt("[jove-recover] *(call) %s -> %s") %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
@@ -697,9 +685,6 @@ int recover(void) {
     //assert(boost::out_degree(bb, ICFG) == 0);
     bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
 
-    if (isNewTarget)
-      InvalidateAllFunctionAnalyses();
-
     msg = (fmt("[jove-recover] (returned) %s") %
            DescribeBasicBlock(Call.BIdx, next_bb_idx))
               .str();
@@ -710,6 +695,8 @@ int recover(void) {
 
   assert(!msg.empty());
   llvm::outs() << msg << '\n';
+
+  InvalidateAllFunctionAnalyses();
 
   //
   // write decompilation
@@ -724,7 +711,6 @@ int recover(void) {
     boost::archive::text_oarchive oa(ofs);
     oa << Decompilation;
   }
-
   //
   // git commit
   //
@@ -1073,7 +1059,6 @@ on_insn_boundary:
     bbprop.Term._indirect_call.Returns = false;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
-    InvalidateAllFunctionAnalyses();
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
@@ -1106,10 +1091,6 @@ on_insn_boundary:
 
     basic_block_t succ = boost::vertex(succidx, ICFG);
     bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
-
-    // TODO invalidate all the function analyses which contain this bb
-    if (isNewTarget)
-      InvalidateAllFunctionAnalyses();
   };
 
   switch (T.Type) {
