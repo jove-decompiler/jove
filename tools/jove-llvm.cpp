@@ -1403,6 +1403,7 @@ struct hook_t {
 #define POST 2
 
 static constexpr unsigned NumHooks = 0
+#define ___HOOK0(hook_kind, rett, sym)                         +1
 #define ___HOOK1(hook_kind, rett, sym, t1)                     +1
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                 +1
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)             +1
@@ -1410,9 +1411,24 @@ static constexpr unsigned NumHooks = 0
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)     +1
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6) +1
 #include "dfsan_hooks.inc.h"
+#undef ___HOOK0
+#undef ___HOOK1
+#undef ___HOOK2
+#undef ___HOOK3
+#undef ___HOOK4
+#undef ___HOOK5
+#undef ___HOOK6
   ;
 
 static const std::array<hook_t, NumHooks> HookArray{{
+#define ___HOOK0(hook_kind, rett, sym)                                         \
+  {                                                                            \
+      .Sym = #sym,                                                             \
+      .Ret = {.Size = sizeof(rett),                                            \
+              .isPointer = std::is_pointer<rett>::value},                      \
+      .Pre = !!(hook_kind & PRE),                                              \
+      .Post = !!(hook_kind & POST),                                            \
+  },
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
@@ -1525,6 +1541,14 @@ static const std::array<hook_t, NumHooks> HookArray{{
       .Post = !!(hook_kind & POST),                                            \
   },
 #include "dfsan_hooks.inc.h"
+
+#undef ___HOOK0
+#undef ___HOOK1
+#undef ___HOOK2
+#undef ___HOOK3
+#undef ___HOOK4
+#undef ___HOOK5
+#undef ___HOOK6
 }};
 
 static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
