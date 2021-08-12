@@ -1744,6 +1744,8 @@ struct CPUMIPSState {
 /* __thread */ uint64_t *__jove_callstack       = NULL;
 /* __thread */ uint64_t *__jove_callstack_begin = NULL;
 
+/* __thread */ void (*__jove_dfsan_flush)(void) = NULL;
+
 #define _JOVE_MAX_BINARIES 512
 
 uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
@@ -2389,6 +2391,23 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   // flush trace
   //
   _jove_flush_trace();
+
+  //
+  // flush dfsan_log.pb
+  //
+  void (*dfsan_flush_ptr)(void) = __jove_dfsan_flush;
+  if (dfsan_flush_ptr) {
+    {
+      char buff[256];
+      buff[0] = '\0';
+
+      _strcat(buff, __LOG_BOLD_BLUE "calling __jove_dfsan_flush\n" __LOG_NORMAL_COLOR);
+
+      _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+    }
+
+    dfsan_flush_ptr();
+  }
 
   for (;;) {
     struct old_timespec32 t;
