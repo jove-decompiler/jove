@@ -9574,17 +9574,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
           bool foreign = DynTargetNeedsThunkPred(DynTargetsVec[i]);
 
           function_t &callee = Decompilation.Binaries.at(ADynTarget.BIdx)
-                                   .Analysis.Functions.at(ADynTarget.FIdx);
+                                  .Analysis.Functions.at(ADynTarget.FIdx);
 
           struct {
             std::vector<llvm::Value *> SavedArgs;
           } _dfsan_hook;
 
           if (opts::DFSan) {
-            auto it = dfsanPostHooks.find(DynTargetsVec[i]);
-            if (it != dfsanPostHooks.end()) {
-              function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                                       .Analysis.Functions.at((*it).second);
+            if (dfsanPostHooks.count(DynTargetsVec[i]) ||
+                dfsanPreHooks.count(DynTargetsVec[i])) {
+              function_t &hook_f = Decompilation.Binaries.at(ADynTarget.BIdx)
+                                      .Analysis.Functions.at(ADynTarget.FIdx);
               assert(hook_f.hook);
               const hook_t &hook = *hook_f.hook;
 
@@ -9598,6 +9598,83 @@ int TranslateBasicBlock(TranslateContext &TC) {
                   CallConvArgArray.end(),
                   _dfsan_hook.SavedArgs.begin(),
                   [&](unsigned glb) -> llvm::Value * { return get(glb); });
+            }
+          }
+
+          if (opts::DFSan) {
+            auto it = dfsanPreHooks.find(DynTargetsVec[i]);
+            if (it != dfsanPreHooks.end()) {
+              llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
+                                            (*it).first, (*it).second);
+
+              function_t &hook_f = Decompilation.Binaries.at((*it).first)
+                                      .Analysis.Functions.at((*it).second);
+              assert(hook_f.hook);
+              const hook_t &hook = *hook_f.hook;
+
+              //
+              // prepare arguments for post hook
+              //
+              std::vector<llvm::Value *> HookArgVec;
+              HookArgVec.resize(hook.Args.size());
+
+              {
+                unsigned SPAddend = sizeof(target_ulong);
+
+                for (unsigned j = 0; j < hook.Args.size(); ++j) {
+                  const hook_t::arg_info_t &info = hook.Args[j];
+                  assert(is_integral_size(info.Size));
+
+                  llvm::Type *DstTy = type_of_arg_info(info);
+                  assert(DstTy->isIntegerTy() || DstTy->isPointerTy());
+                  unsigned dstBits =
+                      DstTy->isIntegerTy()
+                          ? llvm::cast<llvm::IntegerType>(DstTy)->getBitWidth()
+                          : WordBits();
+
+                  llvm::Value *ArgVal = nullptr;
+                  {
+#if defined(TARGET_I386)
+                    //
+                    // special-case i386: cdecl means read parameters off stack
+                    //
+                    llvm::Value *SP = get(tcg_stack_pointer_index);
+
+                    ArgVal = IRB.CreateLoad(IRB.CreateIntToPtr(
+                        IRB.CreateAdd(SP, IRB.getIntN(WordBits(), SPAddend)),
+                        llvm::PointerType::get(IRB.getIntNTy(info.Size * 8), 0)));
+
+                    SPAddend += info.Size;
+#else
+                    ArgVal = _dfsan_hook.SavedArgs.at(j);
+#endif
+                  }
+
+                  HookArgVec[j] = [&](void) -> llvm::Value * {
+                    if (info.isPointer)
+                      return IRB.CreateIntToPtr(ArgVal, DstTy);
+
+                    assert(ArgVal->getType()->isIntegerTy());
+                    unsigned srcBits =
+                        llvm::cast<llvm::IntegerType>(ArgVal->getType())
+                            ->getBitWidth();
+
+                    if (dstBits == srcBits)
+                      return ArgVal;
+
+                    if (dstBits < srcBits)
+                      return IRB.CreateTrunc(ArgVal, DstTy);
+
+                    assert(dstBits > srcBits);
+                    return IRB.CreateZExt(ArgVal, DstTy);
+                  }();
+                }
+              }
+
+              //
+              // make the call
+              //
+              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookClunk), hook_f.PreHook->getType()), HookArgVec);
             }
           }
 
