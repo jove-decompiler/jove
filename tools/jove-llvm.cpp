@@ -1595,7 +1595,8 @@ static std::pair<llvm::GlobalVariable *, llvm::Function *> declareHook(const hoo
   }
 
   llvm::FunctionType *FTy =
-      llvm::FunctionType::get(VoidType(), argTypes, false);
+      !IsPreOrPost /* POST */ ? llvm::FunctionType::get(type_of_arg_info(h.Ret), argTypes, false)
+                              : llvm::FunctionType::get(VoidType(), argTypes, false);
 
   llvm::Function *F = llvm::Function::Create(
       FTy, llvm::GlobalValue::ExternalLinkage, name, Module.get());
@@ -9350,7 +9351,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
         //
         // make the call
         //
-        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
+        llvm::CallInst *PostHookRet = IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
+
+        //
+        // make the return value from the post-hook be the return value for the call to the hooked function
+        //
+        set(PostHookRet->getType()->isPointerTy() ? IRB.CreatePtrToInt(PostHookRet, WordType()) : PostHookRet, CallConvRetArray.at(0));
       }
     }
 
