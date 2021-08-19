@@ -1383,8 +1383,6 @@ typedef std::unordered_set<
     boost::hash<std::pair<binary_index_t, function_index_t>>>
     hooks_t;
 
-static hooks_t dfsanPreHooks, dfsanPostHooks;
-
 struct hook_t {
   struct arg_info_t {
     unsigned Size;
@@ -1691,15 +1689,11 @@ int LocateHooks(void) {
 
       f.hook = &h;
 
-      if (h.Pre) {
-        dfsanPreHooks.insert(IdxPair);
+      if (h.Pre)
         std::tie(f.PreHookClunk, f.PreHook) = declarePreHook(h);
-      }
 
-      if (h.Post) {
-        dfsanPostHooks.insert(IdxPair);
+      if (h.Post)
         std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
-      }
     }
   }
 #endif
@@ -9126,17 +9120,18 @@ int TranslateBasicBlock(TranslateContext &TC) {
   case TERMINATOR::CALL: {
     function_index_t FIdx = ICFG[bb].Term._call.Target;
 
-    if (opts::DFSan) {
-      auto it = dfsanPreHooks.find({BinaryIndex, FIdx});
-      if (it != dfsanPreHooks.end()) {
-        llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
-                                      (*it).first,
-                                      (*it).second);
+    function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
-        function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                               .Analysis.Functions.at((*it).second);
-        assert(hook_f.hook);
-        const hook_t &hook = *hook_f.hook;
+    if (opts::DFSan) {
+      if (callee.PreHook) {
+        assert(callee.hook);
+        assert(callee.PreHookClunk);
+
+        llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
+                                      BinaryIndex,
+                                      FIdx);
+
+        const hook_t &hook = *callee.hook;
 
         std::vector<llvm::Value *> ArgVec;
 
@@ -9148,11 +9143,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
                          llvm::Type *Ty = type_of_arg_info(info);
                          return llvm::Constant::getNullValue(Ty);
                        });
-        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookClunk), hook_f.PreHook->getType()), ArgVec);
+        IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(callee.PreHookClunk), callee.PreHook->getType()), ArgVec);
       }
     }
-
-    function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
     if (callee.IsABI)
       store_stack_pointer();
@@ -9174,8 +9167,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     } _dfsan_hook;
 
     if (opts::DFSan) {
-      auto it = dfsanPostHooks.find({BinaryIndex, FIdx});
-      if (it != dfsanPostHooks.end()) {
+      if (callee.PreHook || callee.PostHook) {
         _dfsan_hook.SavedArgs.resize(CallConvArgArray.size());
         std::transform(
             CallConvArgArray.begin(),
@@ -9242,15 +9234,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (opts::DFSan) {
-      auto it = dfsanPostHooks.find({BinaryIndex, FIdx});
-      if (it != dfsanPostHooks.end()) {
-        llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
-                                      (*it).first, (*it).second);
+      if (callee.PostHook) {
+        assert(callee.hook);
+        assert(callee.PostHookClunk);
 
-        function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                                 .Analysis.Functions.at((*it).second);
-        assert(hook_f.hook);
-        const hook_t &hook = *hook_f.hook;
+        llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
+                                      BinaryIndex,
+                                      FIdx);
+
+        const hook_t &hook = *callee.hook;
 
         //
         // prepare arguments for post hook
@@ -9351,7 +9343,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         //
         // make the call
         //
-        llvm::CallInst *PostHookRet = IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
+        llvm::CallInst *PostHookRet = IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(callee.PostHookClunk), callee.PostHook->getType()), HookArgVec);
 
         //
         // make the return value from the post-hook be the return value for the call to the hooked function
@@ -9587,8 +9579,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
           } _dfsan_hook;
 
           if (opts::DFSan) {
-            if (dfsanPostHooks.count(DynTargetsVec[i]) ||
-                dfsanPreHooks.count(DynTargetsVec[i])) {
+            if (callee.PreHook || callee.PostHook) {
               function_t &hook_f = Decompilation.Binaries.at(ADynTarget.BIdx)
                                       .Analysis.Functions.at(ADynTarget.FIdx);
               assert(hook_f.hook);
@@ -9608,15 +9599,14 @@ int TranslateBasicBlock(TranslateContext &TC) {
           }
 
           if (opts::DFSan) {
-            auto it = dfsanPreHooks.find(DynTargetsVec[i]);
-            if (it != dfsanPreHooks.end()) {
-              llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
-                                            (*it).first, (*it).second);
+            if (callee.PreHook) {
+              assert(callee.hook);
+              assert(callee.PreHookClunk);
 
-              function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                                      .Analysis.Functions.at((*it).second);
-              assert(hook_f.hook);
-              const hook_t &hook = *hook_f.hook;
+              llvm::outs() << llvm::formatv("calling pre-hook ({0}, {1})\n",
+                                            ADynTarget.BIdx, ADynTarget.FIdx);
+
+              const hook_t &hook = *callee.hook;
 
               //
               // prepare arguments for post hook
@@ -9680,7 +9670,10 @@ int TranslateBasicBlock(TranslateContext &TC) {
               //
               // make the call
               //
-              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PreHookClunk), hook_f.PreHook->getType()), HookArgVec);
+              IRB.CreateCall(
+                  IRB.CreateIntToPtr(IRB.CreateLoad(callee.PreHookClunk),
+                                     callee.PreHook->getType()),
+                  HookArgVec);
             }
           }
 
@@ -9887,15 +9880,14 @@ BOOST_PP_REPEAT(4, __THUNK, void)
           }
 
           if (opts::DFSan) {
-            auto it = dfsanPostHooks.find(DynTargetsVec[i]);
-            if (it != dfsanPostHooks.end()) {
-              llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
-                                            (*it).first, (*it).second);
+            if (callee.PostHook) {
+              assert(callee.hook);
+              assert(callee.PostHookClunk);
 
-              function_t &hook_f = Decompilation.Binaries.at((*it).first)
-                                       .Analysis.Functions.at((*it).second);
-              assert(hook_f.hook);
-              const hook_t &hook = *hook_f.hook;
+              llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n",
+                                            ADynTarget.BIdx, ADynTarget.FIdx);
+
+              const hook_t &hook = *callee.hook;
 
               //
               // prepare arguments for post hook
@@ -10001,7 +9993,10 @@ BOOST_PP_REPEAT(4, __THUNK, void)
               //
               // make the call
               //
-              IRB.CreateCall(IRB.CreateIntToPtr(IRB.CreateLoad(hook_f.PostHookClunk), hook_f.PostHook->getType()), HookArgVec);
+              IRB.CreateCall(
+                  IRB.CreateIntToPtr(IRB.CreateLoad(callee.PostHookClunk),
+                                     callee.PostHook->getType()),
+                  HookArgVec);
             }
           }
 
