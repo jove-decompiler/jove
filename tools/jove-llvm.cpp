@@ -1627,42 +1627,6 @@ static std::string dyn_target_desc(dynamic_target_t IdxPair);
 int LocateHooks(void) {
   assert(opts::DFSan);
 
-#if 0
-  for (unsigned i = 0; i < ARRAY_SIZE(HookArray); ++i) {
-    const hook_t &h = HookArray[i];
-
-    for (const auto &binary : Decompilation.Binaries) {
-      auto &SymDynTargets = binary.Analysis.SymDynTargets;
-
-      auto it = SymDynTargets.find(h.Sym);
-      if (it == SymDynTargets.end())
-        continue;
-
-      for (dynamic_target_t IdxPair : (*it).second) {
-        function_t &f = Decompilation.Binaries.at(IdxPair.first)
-                            .Analysis.Functions.at(IdxPair.second);
-
-        if (h.Pre && dfsanPreHooks.insert(IdxPair).second) {
-          f.hook = &h;
-          std::tie(f.PreHookClunk, f.PreHook) = declarePreHook(h);
-
-          llvm::outs() << llvm::formatv("[pre-hook] {0} @ {1}\n",
-                                        h.Sym,
-                                        dyn_target_desc(IdxPair));
-        }
-
-        if (h.Post && dfsanPostHooks.insert(IdxPair).second) {
-          f.hook = &h;
-          std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
-
-          llvm::outs() << llvm::formatv("[post-hook] {0} @ {1}\n",
-                                        h.Sym,
-                                        dyn_target_desc(IdxPair));
-        }
-      }
-    }
-  }
-#else
   for (const hook_t &h : HookArray) {
     auto it = ExportedFunctions.find(h.Sym);
     if (it == ExportedFunctions.end()) {
@@ -1696,7 +1660,6 @@ int LocateHooks(void) {
         std::tie(f.PostHookClunk, f.PostHook) = declarePostHook(h);
     }
   }
-#endif
 
   return 0;
 }
