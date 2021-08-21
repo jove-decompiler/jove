@@ -676,6 +676,20 @@ struct kernel_sigaction {
 #include <sys/uio.h>
 #include <signal.h>
 
+#define __LOG_COLOR_PREFIX "\033["
+#define __LOG_COLOR_SUFFIX "m"
+
+#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
+#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX "CS-ERROR: "
+#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
+#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
+#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
+#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
+#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
+
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 
 #define _CTOR   __attribute__((constructor(0)))
@@ -693,6 +707,27 @@ static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 _NAKED static void _jove_inverse_thunk(void);
 static void _jove_callstack_init(void);
 static void _jove_init_cpu_state(void);
+
+#define _UNREACHABLE(...)                                                      \
+  do {                                                                         \
+    char line_str[65];                                                         \
+    uint_to_string(__LINE__, line_str, 10);                                    \
+                                                                               \
+    char buff[256];                                                            \
+    buff[0] = '\0';                                                            \
+                                                                               \
+    _strcat(buff, "JOVE UNREACHABLE: " __VA_ARGS__);                           \
+    _strcat(buff, " (");                                                       \
+    _strcat(buff, __FILE__);                                                   \
+    _strcat(buff, ":");                                                        \
+    _strcat(buff, line_str);                                                   \
+    _strcat(buff, ")\n");                                                      \
+    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+                                                                               \
+    _jove_sys_exit_group(1);                                                   \
+                                                                               \
+    __builtin_unreachable();                                                   \
+  } while (false)
 
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
@@ -714,7 +749,9 @@ _HIDDEN void _jove_free_stack_later(target_ulong);
 //
 static _INL void *_memset(void *dst, int c, size_t n);
 static _INL void *_memcpy(void *dest, const void *src, size_t n);
+static _INL char *_strcat(char *s, const char *append);
 static _INL size_t _strlen(const char *s);
+static _INL void uint_to_string(uint64_t x, char *Str, unsigned Radix);
 static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
 
 //
@@ -798,25 +835,17 @@ static _CTOR void _jove_rt_init(void) {
   sa.sa_handler = _jove_rt_signal_handler;
   sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
 
-  long ret =
-      _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
+    _UNREACHABLE();
 
   target_ulong newstack = _jove_alloc_stack();
 
   stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
                  .ss_flags = 0,
                  .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
-  {
-    long ret = _jove_sys_sigaltstack(&uss, NULL);
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-  }
+
+  if (_jove_sys_sigaltstack(&uss, NULL) < 0)
+    _UNREACHABLE();
 
   _jove_callstack_init();
   _jove_init_cpu_state();
@@ -865,37 +894,71 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
 
       //
-      // real stack becomes emulated stack
+      // if the kernel just delivered a signal, then $ra should point to the
+      // code that calls sigreturn. this turns out in most cases to reside in
+      // [vdso]
       //
-      emusp = saved_sp;
+      bool SignalDelivery = false;
+
+      if ((((uint32_t *)saved_retaddr)[0] == 0x24021017 ||
+           ((uint32_t *)saved_retaddr)[0] == 0x24021061) &&
+           ((uint32_t *)saved_retaddr)[1] == 0x0000000c) {
+        SignalDelivery = true;
+
+#if 1
+        char buff[256];
+        buff[0] = '\0';
+
+        _strcat(buff, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
+
+        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+#endif
+      }
 
       {
         const uintptr_t newstack = _jove_alloc_stack();
 
-        uintptr_t newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 7 * sizeof(uintptr_t);
+        uintptr_t _newsp =
+            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 8 * sizeof(uintptr_t);
 
-        newsp &= 0xfffffffffffffff0; // align the stack
+        if (SignalDelivery)
+          _newsp -= sizeof(struct CPUARMState);
 
-        ((uintptr_t *)newsp)[0] = 0xdeadbeeffeedface;
-        ((uintptr_t *)newsp)[1] = saved_retaddr;
-        ((uintptr_t *)newsp)[2] = saved_sp;
-        ((uintptr_t *)newsp)[3] = saved_emusp;
-        ((uintptr_t *)newsp)[4] = saved_callstack;
-        ((uintptr_t *)newsp)[5] = saved_callstack_begin;
-        ((uintptr_t *)newsp)[6] = newstack;
+        _newsp &= 0xfffffffffffffff0; // align the stack
 
-        sp = newsp;
-        fp = newsp;
+        uintptr_t *const newsp = (uintptr_t *)_newsp;
+
+        newsp[0] = 0xdeadbeeffeedface;
+        newsp[1] = saved_retaddr;
+        newsp[2] = saved_sp;
+        newsp[3] = saved_emusp;
+        newsp[4] = saved_callstack;
+        newsp[5] = saved_callstack_begin;
+        newsp[6] = newstack;
+        newsp[7] = &newsp[8];
+
+        if (SignalDelivery)
+          _memcpy(&newsp[8], &__jove_env, sizeof(struct CPUARMState));
+
+        sp = _newsp;
+        fp = _newsp;
 
         ra = _jove_inverse_thunk;
       }
+
+      //
+      // native stack becomes emulated stack
+      //
+      emusp = saved_sp;
 
       {
         const uintptr_t new_callsp = _jove_alloc_callstack();
 
         __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
       }
+
+      if (fns[2 * FIdx + 1] == NULL)
+        _UNREACHABLE("called recompiled function is not ABI");
 
       pc = fns[2 * FIdx + 1];
 
@@ -912,8 +975,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 void *_memcpy(void *dest, const void *src, size_t n) {
@@ -940,10 +1002,8 @@ void *_memset(void *dst, int c, size_t n) {
 target_ulong _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   unsigned long uret = (unsigned long)ret;
 
@@ -953,33 +1013,25 @@ target_ulong _jove_alloc_stack(void) {
   unsigned long beg = uret;
   unsigned long end = beg + JOVE_STACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_stack(target_ulong beg) {
-  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 target_ulong _jove_alloc_callstack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE();
 
   void *ptr = (void *)ret;
 
@@ -989,24 +1041,18 @@ target_ulong _jove_alloc_callstack(void) {
   unsigned long beg = (unsigned long)ret;
   unsigned long end = beg + JOVE_CALLSTACK_SIZE;
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE();
 
   return beg;
 }
 
 void _jove_free_callstack(target_ulong start) {
-  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
+    _UNREACHABLE();
 }
 
 void _jove_free_stack_later(target_ulong stack) {
@@ -1018,8 +1064,7 @@ void _jove_free_stack_later(target_ulong stack) {
     return;
   }
 
-  __builtin_trap();
-  __builtin_unreachable();
+  _UNREACHABLE();
 }
 
 void _addrtostr(uintptr_t addr, char *Str, size_t n) {
@@ -1092,6 +1137,46 @@ size_t _strlen(const char *str) {
   for (s = str; *s; ++s)
     ;
   return (s - str);
+}
+
+void uint_to_string(uint64_t x, char *Str, unsigned Radix) {
+  // First, check for a zero value and just short circuit the logic below.
+  if (x == 0) {
+    *Str++ = '0';
+
+    // null-terminate
+    *Str = '\0';
+    return;
+  }
+
+  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+
+  char Buffer[65];
+  char *BufPtr = &Buffer[sizeof(Buffer)];
+
+  uint64_t N = x;
+
+  while (N) {
+    *--BufPtr = Digits[N % Radix];
+    N /= Radix;
+  }
+
+  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
+    *Str++ = *p;
+
+  // null-terminate
+  *Str = '\0';
+  return;
+}
+
+char *_strcat(char *s, const char *append) {
+  char *save = s;
+
+  for (; *s; ++s)
+    ;
+  while ((*s++ = *append++) != '\0')
+    ;
+  return (save);
 }
 
 void _jove_init_cpu_state(void) {
