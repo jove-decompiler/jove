@@ -252,7 +252,7 @@ struct tiny_code_generator_t {
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
     _cpu.env.vm_hsave = (uint64_t)e;
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    _cpu.env.timer = e;
+    _cpu.env.timer = (QEMUTimer *)(const_cast<void *>(e));
 #elif defined(TARGET_AARCH64)
     _cpu.env.nvic = const_cast<void *>(e);
 #else
