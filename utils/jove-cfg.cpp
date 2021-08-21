@@ -265,7 +265,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   const uint8_t *Ptr = *ExpectedPtr;
 
-  const tcg_uintptr_t End = G[V].Addr + G[V].Size;
+  tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   if (G[V].Term.Type != TERMINATOR::NONE)
