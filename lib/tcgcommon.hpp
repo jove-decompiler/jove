@@ -1,15 +1,14 @@
+#include <llvm/Object/ELFObjectFile.h>
 #include <jove/jove.h>
-
-static unsigned long guest_base_addr;
-#ifdef g2h
-#error "g2h is already defined!"
-#endif
-#define g2h(x) ((void *)((((unsigned long)(target_ulong)(x)) - guest_base_addr) + guest_base))
 
 static unsigned long __jove_end_pc = 0;
 
 #include "tcg.hpp"
 #include "stubs.hpp"
+
+#ifndef g2h
+#error "g2h is not defined!"
+#endif
 
 //
 // global stubs
@@ -245,9 +244,20 @@ struct tiny_code_generator_t {
 #endif
   }
 
-  void set_section(target_ulong base, const void *contents) {
-    guest_base_addr = base;
-    guest_base = reinterpret_cast<unsigned long>(contents);
+  void set_elf(const void *e) {
+    //
+    // XXX we hijack a field of CPUArchState to pass the ELFFile handle. this
+    // code is paired with definitions of g2h() in tcg.hpp
+    //
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+    _cpu.env.vm_hsave = (uint64_t)e;
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    _cpu.env.timer = e;
+#elif defined(TARGET_AARCH64)
+    _cpu.env.nvic = const_cast<void *>(e);
+#else
+#error
+#endif
   }
 
   std::pair<unsigned, terminator_info_t> translate(target_ulong pc,

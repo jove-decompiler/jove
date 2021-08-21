@@ -2050,7 +2050,7 @@ typedef struct CPUX86State {
     target_ulong sysenter_eip;
     uint64_t star;
 
-    uint64_t vm_hsave;
+    uint64_t vm_hsave; /* [jove] holds pointer to ELFFile */
 
 #ifdef TARGET_X86_64
     target_ulong lstar;
@@ -2485,6 +2485,21 @@ struct TBContext {
 };
 
 //#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+
+static const void *_jove_g2h(target_ulong Addr,
+                             llvm::object::ELFFile<llvm::object::ELF64LE> *E) {
+  llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
+  if (!ExpectedPtr) {
+    //qemu_log("failure to get ELF data");
+    return nullptr;
+  }
+
+  const uint8_t *Ptr = *ExpectedPtr;
+  return Ptr;
+}
+
+#define g2h(x, env)                                                            \
+  _jove_g2h(x, (llvm::object::ELFFile<llvm::object::ELF64LE> *)env->vm_hsave)
 
 typedef uint64_t abi_ptr;
 
@@ -5544,13 +5559,13 @@ glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
     RES_TYPE ret;
 #ifdef CODE_ACCESS
     set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
     clear_helper_retaddr();
 #else
     uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
                                             MMU_USER_IDX);
     trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
 #endif
     return ret;
 }
@@ -7488,7 +7503,7 @@ void translator_loop(const TranslatorOps *ops, DisasContextBase *db,
 #define DO_LOAD(type, name, shift)               \
     do {                                         \
         set_helper_retaddr(1);                   \
-        ret = name ## _p(g2h(pc));               \
+        ret = name ## _p(g2h(pc, env));          \
         clear_helper_retaddr();                  \
     } while (0)
 
@@ -12029,9 +12044,9 @@ static target_ulong disas_insn(DisasContext *s, CPUState *cpu)
       //
       // (jove) hack for XOP instructions
       //
-      void *code = g2h(s->pc);
+      const void *code = g2h(s->pc, env);
 
-      if (*reinterpret_cast<uint32_t *>(code) == 0xc278e88f) {
+      if (*reinterpret_cast<const uint32_t *>(code) == 0xc278e88f) {
         s->pc += 6;
         goto illegal_op;
       }
@@ -26578,8 +26593,10 @@ static inline void tb_page_add(PageDesc *p, TranslationBlock *tb,
             prot |= p2->flags;
             p2->flags &= ~PAGE_WRITE;
           }
+#if 0
         mprotect(g2h(page_addr), qemu_host_page_size,
                  (prot & PAGE_BITS) & ~PAGE_WRITE);
+#endif
         if (DEBUG_TB_INVALIDATE_GATE) {
             printf("protecting code page: 0x" TB_PAGE_ADDR_FMT "\n", page_addr);
         }

@@ -222,7 +222,7 @@ int trace2asm(void) {
   //LLVMInitializeBPFTargetInfo();
   //LLVMInitializeHexagonTargetInfo();
   //LLVMInitializeLanaiTargetInfo();
-  LLVMInitializeMipsTargetInfo();
+  //LLVMInitializeMipsTargetInfo();
   //LLVMInitializeMSP430TargetInfo();
   //LLVMInitializeNVPTXTargetInfo();
   //LLVMInitializePowerPCTargetInfo();
@@ -528,7 +528,7 @@ int trace2asm(void) {
     const auto &SectProp = *(*it).second.begin();
     const uintptr_t SectBase = (*it).first.lower();
 
-    tcg.set_section(SectBase, SectProp.contents.data());
+    tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
 
     std::string res;
 

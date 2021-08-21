@@ -2,6 +2,8 @@
 
 namespace jove {
 
+#include "elf.hpp"
+
 static llvm::DataLayout DL("");
 
 static decompilation_t Decompilation;
@@ -558,17 +560,16 @@ void basic_block_properties_t::Analyze(binary_index_t BIdx) {
 
   this->Analysis.Stale = false;
 
-  auto &SectMap = Decompilation.Binaries[BIdx].SectMap;
-
   const uintptr_t Addr = this->Addr;
   const unsigned Size = this->Size;
 
-  auto sectit = SectMap.find(Addr);
-  assert(sectit != SectMap.end());
-
+#if 0
   const section_properties_t &sectprop = *(*sectit).second.begin();
   assert(sectprop.x);
-  TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
+#else
+  binary_t &binary = Decompilation.Binaries[BIdx];
+  TCG->set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
+#endif
 
   this->Analysis.live.use.reset();
   this->Analysis.live.def.reset();

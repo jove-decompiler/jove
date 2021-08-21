@@ -266,9 +266,9 @@ typedef std::set<section_properties_t> section_properties_set_t;
 
 // we have a BB & Func map for each binary_t
 struct binary_state_t {
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
   std::unordered_map<uintptr_t, function_index_t> FuncMap;
   boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 
   struct {
     uintptr_t LoadAddr, LoadAddrEnd;
@@ -476,9 +476,6 @@ int main(int argc, char **argv) {
       st.BBMap.add({intervl, 1 + bb_idx});
     }
 
-    //
-    // build section map
-    //
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
@@ -491,26 +488,17 @@ int main(int argc, char **argv) {
         WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
-
-      assert(st.SectMap.find(intervl) == st.SectMap.end());
-
-      jove::section_properties_t sectprop;
-      sectprop.name = ".text";
-      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
-      sectprop.w = false;
-      sectprop.x = true;
-      st.SectMap.add({intervl, {sectprop}});
+      // TODO
     } else {
-      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+      st.ObjectFile = std::move(BinRef);
 
-      if (!llvm::isa<jove::ELFO>(Bin.get())) {
+      if (!llvm::isa<jove::ELFO>(st.ObjectFile.get())) {
         WithColor::error() << binary.Path << " is not ELF of expected type\n";
         return 1;
       }
 
-      jove::ELFO &O = *llvm::cast<jove::ELFO>(Bin.get());
+      jove::ELFO &O = *llvm::cast<jove::ELFO>(st.ObjectFile.get());
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
@@ -580,32 +568,10 @@ int main(int argc, char **argv) {
           sectprop.contents = *contents;
         }
 
+#if 0
         sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
         sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
-
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = st.SectMap.find(intervl);
-          if (it != st.SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            return 1;
-          }
-        }
-
-        st.SectMap.add({intervl, {sectprop}});
-
-        if (opts::VeryVerbose)
-          llvm::errs() << (jove::fmt("%-20s [0x%lx, 0x%lx)")
-                           % std::string(sectprop.name)
-                           % intervl.lower()
-                           % intervl.upper())
-                              .str()
-                       << '\n';
+#endif
       }
     }
   }
@@ -1197,17 +1163,17 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               }
             }
 
-	    for (const auto &Entry : BrkMap) {
-	      uintptr_t Addr  = Entry.first;
-	      const auto &Brk = Entry.second;
+            for (const auto &Entry : BrkMap) {
+              uintptr_t Addr = Entry.first;
+              const auto &Brk = Entry.second;
 
-	      // write the word back
-	      try {
-		_ptrace_pokedata(child, Addr, Brk.words[0]);
-	      } catch (...) {
-		;
-	      }
-	    }
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Brk.words[0]);
+              } catch (...) {
+                ;
+              }
+            }
           } else {
             llvm::errs() << __LOG_BOLD_RED "TURBO OFF" __LOG_NORMAL_COLOR "\n";
 
@@ -1235,17 +1201,17 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               }
             }
 
-	    for (const auto &Entry : BrkMap) {
-	      uintptr_t Addr  = Entry.first;
-	      const auto &Brk = Entry.second;
+            for (const auto &Entry : BrkMap) {
+              uintptr_t Addr = Entry.first;
+              const auto &Brk = Entry.second;
 
-	      // write the word back
-	      try {
-		_ptrace_pokedata(child, Addr, Brk.words[1]);
-	      } catch (...) {
-		;
-	      }
-	    }
+              // write the word back
+              try {
+                _ptrace_pokedata(child, Addr, Brk.words[1]);
+              } catch (...) {
+                ;
+              }
+            }
           }
 
           TurboToggle ^= 1;
@@ -1674,7 +1640,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
 
-	      (void)brkpt_count;
+              (void)brkpt_count;
             }
 
             boost::clear_out_edges(bb, ICFG);
@@ -1847,9 +1813,9 @@ basic_block_index_t translate_basic_block(pid_t child,
                                           const target_ulong Addr,
                                           unsigned &brkpt_count) {
   binary_t &binary = decompilation.Binaries[binary_idx];
+  auto &ObjectFile = BinStateVec[binary_idx].ObjectFile;
   auto &ICFG = binary.Analysis.ICFG;
   auto &BBMap = BinStateVec[binary_idx].BBMap;
-  auto &SectMap = BinStateVec[binary_idx].SectMap;
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -1880,9 +1846,7 @@ basic_block_index_t translate_basic_block(pid_t child,
         const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
         llvm::MCInstPrinter &IP = std::get<2>(dis);
 
-        auto sectit = SectMap.find(beg);
-        assert(sectit != SectMap.end());
-        const section_properties_t &SectProp = *(*sectit).second.begin();
+        const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
         uint64_t InstLen = 0;
         for (target_ulong A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
@@ -1893,9 +1857,16 @@ basic_block_index_t translate_basic_block(pid_t child,
           {
             llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-            std::ptrdiff_t SectOffset = A - (*sectit).first.lower();
+            llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+            if (!ExpectedPtr) {
+              WithColor::error() << llvm::formatv(
+                  "failed to get binary contents for {0:x}\n", A);
+              return invalid_basic_block_index;
+            }
+
             Disassembled = DisAsm.getInstruction(
-                Inst, InstLen, SectProp.contents.slice(SectOffset), A,
+                Inst, InstLen,
+                llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
                 ErrorStrStream);
           }
 
@@ -1996,20 +1967,7 @@ on_insn_boundary:
     }
   }
 
-  auto sectit = SectMap.find(Addr);
-  if (sectit == SectMap.end()) {
-    WithColor::error()
-        << (fmt("warning: no section for address 0x%lx") % Addr).str() << '\n';
-    return invalid_basic_block_index;
-  }
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  if (!sectprop.x) {
-    if (true /* opts::Verbose */)
-      WithColor::note() << llvm::formatv("section is not executable @ {0:x}\n",
-                                         Addr);
-    return invalid_basic_block_index;
-  }
-  tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
+  tcg.set_elf(llvm::cast<ELFO>(ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
   jove::terminator_info_t T;
@@ -2052,13 +2010,21 @@ on_insn_boundary:
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
     llvm::MCInstPrinter &IP = std::get<2>(dis);
 
+    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+
     uint64_t InstLen;
     for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - (*sectit).first.lower();
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+      if (!ExpectedPtr) {
+        WithColor::error() << llvm::formatv(
+            "failed to get binary contents for {0:x}\n", A);
+        return invalid_basic_block_index;
+      }
 
       llvm::MCInst Inst;
       bool Disassembled = DisAsm.getInstruction(
-          Inst, InstLen, sectprop.contents.slice(Offset), A, llvm::nulls());
+          Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
+          llvm::nulls());
       if (!Disassembled) {
         WithColor::error() << (fmt("failed to disassemble %#lx") % Addr).str()
                            << '\n';
@@ -2071,24 +2037,6 @@ on_insn_boundary:
 
     tcg.dump_operations();
     return invalid_basic_block_index;
-  }
-
-  auto is_invalid_terminator = [&](void) -> bool {
-    if (T.Type == TERMINATOR::CALL) {
-      if (SectMap.find(T._call.Target) == SectMap.end()) {
-        WithColor::error()
-            << (fmt("warning: call to bad address %#lx") % T._call.Target).str()
-            << '\n';
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  if (is_invalid_terminator()) {
-    WithColor::error() << "assuming unreachable code\n";
-    T.Type = TERMINATOR::UNREACHABLE;
   }
 
   basic_block_index_t bbidx = boost::num_vertices(ICFG);
@@ -2132,9 +2080,14 @@ on_insn_boundary:
       indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
       assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
-      memcpy(&indbr.InsnBytes[0],
-             &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-             indbr.InsnBytes.size());
+
+      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+      if (!ExpectedPtr)
+        abort();
+
+      memcpy(&indbr.InsnBytes[0], *ExpectedPtr, indbr.InsnBytes.size());
 
       //
       // now that we have the bytes for each indirect branch, disassemble them
@@ -2182,18 +2135,19 @@ on_insn_boundary:
       RetInfo.binary_idx = binary_idx;
       RetInfo.TermAddr = bbprop.Term.Addr;
 
-      auto sectit = SectMap.find(bbprop.Term.Addr);
-      assert(sectit != SectMap.end());
-      const section_properties_t &sectprop = *(*sectit).second.begin();
-
       RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
       RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
       assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
-      memcpy(&RetInfo.InsnBytes[0],
-             &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-             RetInfo.InsnBytes.size());
+
+      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+      if (!ExpectedPtr)
+        abort();
+
+      memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
 
       {
         llvm::MCDisassembler &DisAsm = std::get<0>(dis);
@@ -4352,6 +4306,7 @@ void on_binary_loaded(pid_t child,
                       binary_index_t BIdx,
                       const vm_properties_t &vm_prop) {
   binary_state_t &st = BinStateVec[BIdx];
+  auto &ObjectFile = st.ObjectFile;
 
   st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
   st.dyn.LoadAddrEnd = vm_prop.end;
@@ -4456,13 +4411,13 @@ void on_binary_loaded(pid_t child,
     assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-    auto sectit = st.SectMap.find(bbprop.Term.Addr);
-    assert(sectit != st.SectMap.end());
-    const section_properties_t &sectprop = *(*sectit).second.begin();
+    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
-    memcpy(&IndBrInfo.InsnBytes[0],
-           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-           IndBrInfo.InsnBytes.size());
+    llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+    if (!ExpectedPtr)
+      abort();
+
+    memcpy(&IndBrInfo.InsnBytes[0], *ExpectedPtr, IndBrInfo.InsnBytes.size());
 
     //
     // now that we have the bytes for each indirect branch, disassemble them
@@ -4522,18 +4477,19 @@ void on_binary_loaded(pid_t child,
     RetInfo.binary_idx = BIdx;
     RetInfo.TermAddr = bbprop.Term.Addr;
 
-    auto sectit = st.SectMap.find(bbprop.Term.Addr);
-    assert(sectit != st.SectMap.end());
-    const section_properties_t &sectprop = *(*sectit).second.begin();
-
     RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
     RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
     assert(RetInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
-    memcpy(&RetInfo.InsnBytes[0],
-           &sectprop.contents[bbprop.Term.Addr - (*sectit).first.lower()],
-           RetInfo.InsnBytes.size());
+
+    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+
+    llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+    if (!ExpectedPtr)
+      abort();
+
+    memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
 
     {
       uint64_t InstLen;
@@ -5089,6 +5045,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
         WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, binary.Path);
 
+#if 0
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
 
@@ -5100,106 +5057,11 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       sectprop.w = false;
       sectprop.x = true;
       st.SectMap.add({intervl, {sectprop}});
+#endif
     } else {
-      std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-      if (!llvm::isa<ELFO>(Bin.get())) {
-        WithColor::error() << binary.Path << " is not ELF of expected type\n";
-        return;
-      }
-
-      ELFO &O = *llvm::cast<ELFO>(Bin.get());
-
-      const ELFF &E = *O.getELFFile();
-
-      typedef typename ELFF::Elf_Shdr Elf_Shdr;
-      typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return;
-      }
-
-      for (const Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        section_properties_t sectprop;
-
-        {
-          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-          if (!name) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section name ({0})\n", Buf);
-            continue;
-          }
-
-          sectprop.name = *name;
-        }
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            sectprop.name == std::string(".tbss"))
-          continue;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-
-          if (!contents) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section {0} contents ({1})\n",
-                                 sectprop.name, Buf);
-            continue;
-          }
-
-          sectprop.contents = *contents;
-        }
-
-        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
-        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
-
-        boost::icl::interval<uintptr_t>::type intervl =
-            boost::icl::interval<uintptr_t>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = st.SectMap.find(intervl);
-          if (it != st.SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            abort();
-          }
-        }
-
-        st.SectMap.add({intervl, {sectprop}});
-
-        if (opts::VeryVerbose)
-          llvm::errs() << (fmt("%-20s [0x%lx, 0x%lx)\n")
-                           % std::string(sectprop.name)
-                           % intervl.lower()
-                           % intervl.upper()).str();
-      }
+      st.ObjectFile = std::move(BinRef);
     }
   }
 }

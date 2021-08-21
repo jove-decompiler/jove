@@ -3021,9 +3021,27 @@ struct TBContext {
 };
 
 //#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
-#ifndef g2h
-#error
+
+#ifdef HOST_WORDS_BIGENDIAN
+typedef llvm::object::ELF64BE TargetELF_t;
+#else
+typedef llvm::object::ELF64LE TargetELF_t;
 #endif
+
+static const void *_jove_g2h(target_ulong Addr,
+                             llvm::object::ELFFile<TargetELF_t> *E) {
+  llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
+  if (!ExpectedPtr) {
+    //qemu_log("failure to get ELF data");
+    return nullptr;
+  }
+
+  const uint8_t *Ptr = *ExpectedPtr;
+  return Ptr;
+}
+
+#define g2h(x, env)                                                            \
+  _jove_g2h(x, (llvm::object::ELFFile<TargetELF_t> *)env->timer)
 
 typedef uint64_t abi_ptr;
 
@@ -4315,13 +4333,13 @@ glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
     RES_TYPE ret;
 #ifdef CODE_ACCESS
     set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
     clear_helper_retaddr();
 #else
     uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
                                             MMU_USER_IDX);
     trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
 #endif
     return ret;
 }
@@ -4336,13 +4354,13 @@ glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, abi_ptr ptr)
     RES_TYPE ret;
 #ifdef CODE_ACCESS
     set_helper_retaddr(1);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
     clear_helper_retaddr();
 #else
     uint16_t meminfo = trace_mem_build_info(SHIFT, false, MO_TE, false,
                                             MMU_USER_IDX);
     trace_guest_mem_before_exec(env_cpu(env), ptr, meminfo);
-    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr));
+    ret = glue(glue(ld, USUFFIX), _p)(g2h(ptr, env));
 #endif
     return ret;
 }
@@ -42584,8 +42602,10 @@ static inline void tb_page_add(PageDesc *p, TranslationBlock *tb,
             prot |= p2->flags;
             p2->flags &= ~PAGE_WRITE;
           }
+#if 0
         mprotect(g2h(page_addr), qemu_host_page_size,
                  (prot & PAGE_BITS) & ~PAGE_WRITE);
+#endif
         if (DEBUG_TB_INVALIDATE_GATE) {
             printf("protecting code page: 0x" TB_PAGE_ADDR_FMT "\n", page_addr);
         }

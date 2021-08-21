@@ -1050,8 +1050,6 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
       IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
 }
 
-#include "elf.hpp"
-
 // XXX duplicated code
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -8790,14 +8788,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     }
   }
 
-  {
-    auto sectit = Binary.SectMap.find(Addr);
-    assert(sectit != Binary.SectMap.end());
-
-    const section_properties_t &sectprop = *(*sectit).second.begin();
-    assert(sectprop.x);
-    TCG->set_section((*sectit).first.lower(), sectprop.contents.data());
-  }
+  TCG->set_elf(llvm::cast<ELFO>(Binary.ObjectFile.get())->getELFFile());
 
   llvm::BasicBlock *ExitBB = nullptr;
 

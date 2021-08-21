@@ -1,3 +1,6 @@
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "tcgcommon.hpp"
 
 #include <memory>
@@ -420,7 +423,7 @@ int tcgdump(void) {
     if (!End)
       End = SectBase + SectSize;
 
-    tcg.set_section(SectBase, SectProp.contents.data());
+    tcg.set_elf(&E);
 
     printf("%s+0x%" PRIx64 "\n",
            SectProp.name.str().c_str(),

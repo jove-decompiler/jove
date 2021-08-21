@@ -1,3 +1,6 @@
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -295,14 +298,16 @@ int recover(void) {
       continue;
     }
 
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    if (!llvm::isa<ELFO>(Bin.get())) {
+    binary.ObjectFile = std::move(BinRef);
+
+    if (!llvm::isa<ELFO>(binary.ObjectFile.get())) {
       WithColor::error() << binary.Path << " is not ELF of expected type\n";
       return 1;
     }
 
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
 
     TheTriple = O.makeTriple();
     Features = O.getFeatures();
@@ -793,6 +798,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
   auto &ICFG = binary.Analysis.ICFG;
   auto &BBMap = BinStateVec.at(binary_idx).BBMap;
   auto &SectMap = BinStateVec.at(binary_idx).SectMap;
+  auto &ObjectFile = BinStateVec.at(binary_idx).SectMap;
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -963,7 +969,7 @@ on_insn_boundary:
                                        Addr);
     return invalid_basic_block_index;
   }
-  tcg.set_section((*sectit).first.lower(), sectprop.contents.data());
+  tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
   jove::terminator_info_t T;

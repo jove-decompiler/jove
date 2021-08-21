@@ -347,8 +347,6 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
-#include "elf.hpp"
-
 // XXX code duplication
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -393,7 +391,6 @@ int InitStateForBinaries(void) {
       SectMap.add({intervl, {sectprop}});
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
       binary.ObjectFile = std::move(BinRef);
 
       assert(llvm::isa<ELFO>(binary.ObjectFile.get()));

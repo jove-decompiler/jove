@@ -1,3 +1,6 @@
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "tcgcommon.hpp"
 
 #include <memory>
@@ -235,8 +238,9 @@ static std::string disassemble_basic_block(const cfg_t &G,
                                            cfg_t::vertex_descriptor V) {
   assert(BinaryIndex != invalid_binary_index);
 
-  const binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
+#if 0
   auto it = SectMap.find(G[V].Addr);
   if (it == SectMap.end()) {
     WithColor::warning() << llvm::formatv("no section for given address {0:x}",
@@ -246,17 +250,40 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   const auto &SectProp = *(*it).second.begin();
   const uintptr_t SectBase = (*it).first.lower();
+#else
+  //TCG->set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
+#endif
 
-  TCG->set_section(SectBase, SectProp.contents.data());
+  const ELFF &E = *llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile();
 
-  std::string res;
+  llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(G[V].Addr);
+  if (!ExpectedPtr) {
+    WithColor::error() << llvm::formatv(
+        "failed to get binary contents for {0:x}\n", G[V].Addr);
+    return std::string();
+  }
 
-  tcg_uintptr_t End = G[V].Addr + G[V].Size;
+  const uint8_t *Ptr = *ExpectedPtr;
+
+  const tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   if (G[V].Term.Type != TERMINATOR::NONE)
     End += 4; /* delay slot */
 #endif
+
+  llvm::Expected<const uint8_t *> ExpectedPtrEnd = E.toMappedAddr(End);
+  if (!ExpectedPtrEnd) {
+    WithColor::error() << llvm::formatv(
+        "failed to get binary contents for {0:x}\n", End);
+    return std::string();
+  }
+
+  const uint8_t *PtrEnd = *ExpectedPtrEnd;
+
+  llvm::ArrayRef<uint8_t> MachineCode(Ptr, PtrEnd);
+
+  std::string res;
 
   uint64_t InstLen = 0;
   for (uintptr_t A = G[V].Addr; A < End; A += InstLen) {
@@ -267,9 +294,9 @@ static std::string disassemble_basic_block(const cfg_t &G,
     {
       llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-      ptrdiff_t Offset = A - SectBase;
+      ptrdiff_t Offset = A - G[V].Addr;
       Disassembled = DisAsm->getInstruction(
-          Inst, InstLen, SectProp.contents.slice(Offset), A, ErrorStrStream);
+          Inst, InstLen, MachineCode.slice(Offset), A, ErrorStrStream);
     }
 
     if (!Disassembled) {
@@ -399,7 +426,7 @@ int cfg(void) {
     return 1;
   }
 
-  const binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
   //
   // initialize state associated with binary
@@ -417,15 +444,21 @@ int cfg(void) {
   llvm::StringRef Identifier(binary.Path);
   llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinaryOrErr =
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(MemBuffRef);
 
-  if (!BinaryOrErr) {
+  if (!BinOrErr) {
     fprintf(stderr, "failed to open %s\n", opts::Binary.c_str());
     return 1;
   }
 
-  obj::Binary *B = BinaryOrErr.get().get();
+  {
+    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+
+    binary.ObjectFile = std::move(BinRef);
+  }
+
+  obj::Binary *B = binary.ObjectFile.get();
   if (!llvm::isa<ELFO>(B)) {
     fprintf(stderr, "invalid binary\n");
     return 1;
