@@ -31,8 +31,7 @@ class Binary;
 }
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
-  boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap; \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
 
 #include "tcgcommon.hpp"
 
@@ -243,12 +242,11 @@ int trace2asm(void) {
   llvm::SubtargetFeatures Features;
 
   //
-  // compute the set of verts for each function
+  // init state for binaries
   //
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &binary = decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &SectMap = binary.SectMap;
 
     //
     // parse the ELF
@@ -263,93 +261,10 @@ int trace2asm(void) {
     if (!BinOrErr) {
       WithColor::error() << "failed to create binary from " << binary.Path
                          << '\n';
-
-      boost::icl::interval<tcg_uintptr_t>::type intervl =
-          boost::icl::interval<tcg_uintptr_t>::right_open(0, binary.Data.size());
-
-      assert(SectMap.find(intervl) == SectMap.end());
-
-      section_properties_t sectprop;
-      sectprop.name = ".text";
-      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
-      sectprop.w = false;
-      sectprop.x = true;
-      sectprop.initArray = false;
-      sectprop.finiArray = false;
-      SectMap.add({intervl, {sectprop}});
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
       binary.ObjectFile = std::move(BinRef);
-
-      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
-
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
-
-      const ELFF &E = *O.getELFFile();
-
-      //
-      // build section map
-      //
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "error: could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return 1;
-      }
-
-      for (const Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-        if (!name)
-          continue;
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            *name == std::string(".tbss"))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        section_properties_t sectprop;
-        sectprop.name = *name;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-          assert(contents);
-          sectprop.contents = *contents;
-        }
-
-        sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-        sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-        sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
-        sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
-
-        boost::icl::interval<tcg_uintptr_t>::type intervl =
-            boost::icl::interval<tcg_uintptr_t>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = SectMap.find(intervl);
-          if (it != SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            return 1;
-          }
-        }
-
-        SectMap.add({intervl, {sectprop}});
-      }
     }
   }
 
@@ -439,25 +354,12 @@ int trace2asm(void) {
                                      basic_block_index_t BBIdx) -> std::string {
     auto &binary = decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &SectMap = binary.SectMap;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
+
+    const ELFF &E = *llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile();
 
     tcg_uintptr_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;
-
-    auto it = SectMap.find(Addr);
-    if (it == SectMap.end()) {
-      WithColor::warning() << llvm::formatv(
-          "no section for given address {0:x}", Addr);
-      return "ERROR";
-    }
-
-    const auto &SectProp = *(*it).second.begin();
-    const uintptr_t SectBase = (*it).first.lower();
-
-#if 0
-    TCG->set_section(SectBase, SectProp.contents.data());
-#endif
 
     //std::string res = (fmt("%08x [%u]\n\n") % ICFG[bb].Addr % ICFG[bb].Size).str();
     std::string res;
@@ -471,6 +373,10 @@ int trace2asm(void) {
 
     uint64_t InstLen = 0;
     for (uintptr_t A = Addr; A < End; A += InstLen) {
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+      if (!ExpectedPtr)
+        abort();
+
       llvm::MCInst Inst;
 
       std::string errmsg;
@@ -478,9 +384,9 @@ int trace2asm(void) {
       {
         llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-        ptrdiff_t Offset = A - SectBase;
         Disassembled = DisAsm->getInstruction(
-            Inst, InstLen, SectProp.contents.slice(Offset), A, ErrorStrStream);
+            Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, End - Addr), A,
+            ErrorStrStream);
       }
 
       if (!Disassembled) {
@@ -512,21 +418,10 @@ int trace2asm(void) {
                                    basic_block_index_t BBIdx) -> std::string {
     auto &binary = decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &SectMap = binary.SectMap;
     basic_block_t bb = boost::vertex(BBIdx, ICFG);
 
     tcg_uintptr_t Addr = ICFG[bb].Addr;
     unsigned Size = ICFG[bb].Size;
-
-    auto it = SectMap.find(Addr);
-    if (it == SectMap.end()) {
-      WithColor::warning() << llvm::formatv(
-          "no section for given address {0:x}", Addr);
-      return "ERROR";
-    }
-
-    const auto &SectProp = *(*it).second.begin();
-    const uintptr_t SectBase = (*it).first.lower();
 
     tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
 

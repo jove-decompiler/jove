@@ -277,52 +277,6 @@ int tcgdump(void) {
     return 1;
   }
 
-  //
-  // build section map
-  //
-  struct section_properties_t {
-    llvm::StringRef name;
-    llvm::ArrayRef<uint8_t> contents;
-
-    bool operator==(const section_properties_t &sect) const {
-      return name == sect.name;
-    }
-
-    bool operator<(const section_properties_t &sect) const {
-      return name < sect.name;
-    }
-  };
-
-  typedef std::set<section_properties_t> section_properties_set_t;
-  boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
-      SectMap;
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-      continue;
-
-    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-        E.getSectionContents(&Sec);
-
-    if (!contents)
-      continue;
-
-    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-    if (!name)
-      continue;
-
-    boost::icl::interval<std::uintptr_t>::type intervl =
-        boost::icl::interval<std::uintptr_t>::right_open(
-            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-    section_properties_t sectprop;
-    sectprop.name = *name;
-    sectprop.contents = *contents;
-
-    SectMap.add({intervl, {sectprop}});
-  }
-
   const ELFO &_O = split_O ? *split_O : O;
   const ELFF &_E = split_E ? *split_E : E;
 
@@ -409,32 +363,19 @@ int tcgdump(void) {
   };
 
   auto linear_scan_disassemble = [&](target_ulong Addr, target_ulong End = 0) -> bool {
-    auto it = SectMap.find(Addr);
-    if (it == SectMap.end()) {
-      fprintf(stderr, "warning: no section for address %" PRIx64 "\n",
-              static_cast<uint64_t>(Addr));
-      return false;
-    }
-
-    const auto &SectProp = *(*it).second.begin();
-    const uint64_t SectBase = (*it).first.lower();
-    const uint64_t SectSize = (*it).first.upper() - (*it).first.lower();
-
     if (!End)
-      End = SectBase + SectSize;
+      End = Addr + 32;
 
     tcg.set_elf(&E);
 
-    printf("%s+0x%" PRIx64 "\n",
-           SectProp.name.str().c_str(),
-           static_cast<uint64_t>(Addr - SectBase));
+    printf("0x%" PRIx64 "\n", Addr);
 
     unsigned BBSize;
     for (target_ulong A = Addr; A < End; A += BBSize) {
       if (BreakOn.Active) {
-	if (A == BreakOn.Addr) {
+        if (A == BreakOn.Addr) {
           ::TCGDumpUserBreakPoint();
-	}
+        }
       }
 
       jove::terminator_info_t T;
@@ -445,11 +386,18 @@ int tcgdump(void) {
       //
       uint64_t InstLen;
       for (uint64_t _A = A; _A < A + BBSize; _A += InstLen) {
+        llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(_A);
+        if (!ExpectedPtr) {
+          WithColor::error()
+              << llvm::formatv("failed to get binary contents for {0:x}\n", A);
+          return invalid_basic_block_index;
+        }
+
         llvm::MCInst Inst;
 
-        uint64_t Offset = _A - SectBase;
         bool Disassembled = DisAsm->getInstruction(
-            Inst, InstLen, SectProp.contents.slice(Offset), _A, llvm::nulls());
+            Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, BBSize), _A,
+            llvm::nulls());
         if (!Disassembled) {
           fprintf(stderr, "failed to disassemble %" PRIx64 "\n", _A);
           break;

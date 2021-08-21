@@ -5030,9 +5030,6 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       st.BBMap.add({intervl, 1 + bb_idx});
     }
 
-    //
-    // build section map
-    //
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
     llvm::StringRef Identifier(binary.Path);
@@ -5044,20 +5041,6 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       if (!binary.IsVDSO)
         WithColor::warning() << llvm::formatv(
             "{0}: failed to create binary from {1}\n", __func__, binary.Path);
-
-#if 0
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(0, binary.Data.size());
-
-      assert(st.SectMap.find(intervl) == st.SectMap.end());
-
-      section_properties_t sectprop;
-      sectprop.name = ".text";
-      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
-      sectprop.w = false;
-      sectprop.x = true;
-      st.SectMap.add({intervl, {sectprop}});
-#endif
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 

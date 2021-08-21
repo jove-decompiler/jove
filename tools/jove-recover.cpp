@@ -188,7 +188,6 @@ typedef std::set<section_properties_t> section_properties_set_t;
 struct binary_state_t {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;
   boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-  boost::icl::split_interval_map<uintptr_t, section_properties_set_t> SectMap;
 };
 
 static std::vector<binary_state_t> BinStateVec;
@@ -305,96 +304,6 @@ int recover(void) {
     if (!llvm::isa<ELFO>(binary.ObjectFile.get())) {
       WithColor::error() << binary.Path << " is not ELF of expected type\n";
       return 1;
-    }
-
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
-
-    TheTriple = O.makeTriple();
-    Features = O.getFeatures();
-
-    const ELFF &E = *O.getELFFile();
-
-    typedef typename ELFF::Elf_Shdr Elf_Shdr;
-    typedef typename ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-
-    llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-    if (!sections) {
-      WithColor::error() << "could not get ELF sections for binary "
-                         << binary.Path << '\n';
-      return 1;
-    }
-
-    for (const Elf_Shdr &Sec : *sections) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
-
-      if (!Sec.sh_size)
-        continue;
-
-      section_properties_t sectprop;
-
-      {
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-        if (!name) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-          }
-
-          WithColor::note()
-              << llvm::formatv("could not get section name ({0})\n", Buf);
-          continue;
-        }
-
-        sectprop.name = *name;
-      }
-
-      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-          sectprop.name == std::string(".tbss"))
-        continue;
-
-      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-        sectprop.contents = llvm::ArrayRef<uint8_t>();
-      } else {
-        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-            E.getSectionContents(&Sec);
-
-        if (!contents) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-          }
-
-          WithColor::note()
-              << llvm::formatv("could not get section {0} contents ({1})\n",
-                               sectprop.name, Buf);
-          continue;
-        }
-
-        sectprop.contents = *contents;
-      }
-
-      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-      {
-        auto it = st.SectMap.find(intervl);
-        if (it != st.SectMap.end()) {
-          WithColor::error() << "the following sections intersect: "
-                             << (*(*it).second.begin()).name << " and "
-                             << sectprop.name << '\n';
-          return 1;
-        }
-      }
-
-      st.SectMap.add({intervl, {sectprop}});
     }
   }
 
@@ -797,8 +706,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
   binary_t &binary = Decompilation.Binaries.at(binary_idx);
   auto &ICFG = binary.Analysis.ICFG;
   auto &BBMap = BinStateVec.at(binary_idx).BBMap;
-  auto &SectMap = BinStateVec.at(binary_idx).SectMap;
-  auto &ObjectFile = BinStateVec.at(binary_idx).SectMap;
+  auto &ObjectFile = binary.ObjectFile;
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -829,9 +737,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
         const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
         llvm::MCInstPrinter &IP = std::get<2>(dis);
 
-        auto sectit = SectMap.find(beg);
-        assert(sectit != SectMap.end());
-        const section_properties_t &SectProp = *(*sectit).second.begin();
+        const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
         uint64_t InstLen = 0;
         for (target_ulong A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
@@ -842,9 +748,13 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
           {
             llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-            std::ptrdiff_t SectOffset = A - (*sectit).first.lower();
+            llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+            if (!ExpectedPtr)
+              abort();
+
             Disassembled = DisAsm.getInstruction(
-                Inst, InstLen, SectProp.contents.slice(SectOffset), A,
+                Inst, InstLen,
+                llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
                 ErrorStrStream);
           }
 
@@ -957,18 +867,6 @@ on_insn_boundary:
     }
   }
 
-  auto sectit = SectMap.find(Addr);
-  if (sectit == SectMap.end()) {
-    WithColor::error()
-        << (fmt("warning: no section for address 0x%lx") % Addr).str() << '\n';
-    return invalid_basic_block_index;
-  }
-  const section_properties_t &sectprop = *(*sectit).second.begin();
-  if (!sectprop.x) {
-    WithColor::note() << llvm::formatv("section is not executable @ {0:x}\n",
-                                       Addr);
-    return invalid_basic_block_index;
-  }
   tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
@@ -1009,14 +907,18 @@ on_insn_boundary:
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
     llvm::MCInstPrinter &IP = std::get<2>(dis);
 
+    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+
     uint64_t InstLen;
     for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      std::ptrdiff_t Offset = A - (*sectit).first.lower();
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
+      if (!ExpectedPtr)
+        abort();
 
       llvm::MCInst Inst;
-      bool Disassembled =
-          DisAsm.getInstruction(Inst, InstLen, sectprop.contents.slice(Offset),
-                                A, llvm::nulls());
+      bool Disassembled = DisAsm.getInstruction(
+          Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
+          llvm::nulls());
 
       if (!Disassembled) {
         WithColor::error() << (fmt("failed to disassemble %#lx") % Addr).str()
@@ -1031,24 +933,6 @@ on_insn_boundary:
     tcg.dump_operations();
     fputc('\n', stdout);
     return invalid_basic_block_index;
-  }
-
-  auto is_invalid_terminator = [&](void) -> bool {
-    if (T.Type == TERMINATOR::CALL) {
-      if (SectMap.find(T._call.Target) == SectMap.end()) {
-        WithColor::error()
-            << (fmt("warning: call to bad address %#lx") % T._call.Target).str()
-            << '\n';
-        return true;
-      }
-    }
-
-    return false;
-  };
-
-  if (is_invalid_terminator()) {
-    WithColor::error() << "assuming unreachable code\n";
-    T.Type = TERMINATOR::UNREACHABLE;
   }
 
   basic_block_index_t bbidx = boost::num_vertices(ICFG);

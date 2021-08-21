@@ -169,23 +169,6 @@ static std::unique_ptr<llvm::MCDisassembler> DisAsm;
 static std::unique_ptr<llvm::MCInstPrinter> IP;
 static std::unique_ptr<llvm::TargetMachine> TM;
 
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-
-typedef std::set<section_properties_t> section_properties_set_t;
-static boost::icl::split_interval_map<std::uintptr_t, section_properties_set_t>
-    SectMap;
-
 struct graphviz_label_writer {
   const cfg_t &cfg;
 
@@ -240,19 +223,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
-#if 0
-  auto it = SectMap.find(G[V].Addr);
-  if (it == SectMap.end()) {
-    WithColor::warning() << llvm::formatv("no section for given address {0:x}",
-                                          G[V].Addr);
-    return "ERROR";
-  }
-
-  const auto &SectProp = *(*it).second.begin();
-  const uintptr_t SectBase = (*it).first.lower();
-#else
-  //TCG->set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
-#endif
+  TCG->set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
 
   const ELFF &E = *llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile();
 
@@ -534,35 +505,6 @@ int cfg(void) {
   if (!IP) {
     fprintf(stderr, "no instruction printer\n");
     return 1;
-  }
-
-  //
-  // build section map
-  //
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-      continue;
-
-    llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-        E.getSectionContents(&Sec);
-
-    if (!contents)
-      continue;
-
-    llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-    if (!name)
-      continue;
-
-    boost::icl::interval<std::uintptr_t>::type intervl =
-        boost::icl::interval<std::uintptr_t>::right_open(
-            Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-    section_properties_t sectprop;
-    sectprop.name = *name;
-    sectprop.contents = *contents;
-
-    SectMap.add({intervl, {sectprop}});
   }
 
   //
