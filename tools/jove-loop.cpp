@@ -640,8 +640,12 @@ run:
         ssize_t ret = robust_read(rdFd, &uint64, sizeof(uint64));
 
         if (ret != sizeof(uint64)) {
-          WithColor::warning() << llvm::formatv(
-              "failed to read pid from pipe: got {0}\n", ret);
+          if (ret < 0)
+            WithColor::warning() << llvm::formatv(
+                "failed to read pid from pipe: {0}\n", strerror(-ret));
+          else
+            WithColor::warning() << llvm::formatv(
+                "failed to read pid from pipe: got {0}\n", ret);
         } else {
           app_pid.store(uint64);
         }
