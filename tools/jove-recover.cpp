@@ -305,6 +305,12 @@ int recover(void) {
       WithColor::error() << binary.Path << " is not ELF of expected type\n";
       return 1;
     }
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+
+    TheTriple = O.makeTriple();
+    Features = O.getFeatures();
   }
 
   //
