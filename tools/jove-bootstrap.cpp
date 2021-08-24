@@ -248,22 +248,6 @@ typedef std::set<vm_properties_t> vm_properties_set_t;
 
 static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
 
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-typedef std::set<section_properties_t> section_properties_set_t;
-
 // we have a BB & Func map for each binary_t
 struct binary_state_t {
   std::unique_ptr<llvm::object::Binary> ObjectFile;
@@ -502,77 +486,6 @@ int main(int argc, char **argv) {
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
-
-      const jove::ELFF &E = *O.getELFFile();
-
-      typedef typename jove::ELFF::Elf_Shdr Elf_Shdr;
-      typedef typename jove::ELFF::Elf_Shdr_Range Elf_Shdr_Range;
-
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return 1;
-      }
-
-      for (const jove::Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
-
-        if (!Sec.sh_size)
-          continue;
-
-        jove::section_properties_t sectprop;
-
-        {
-          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
-
-          if (!name) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(name.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section name ({0})\n", Buf);
-            continue;
-          }
-
-          sectprop.name = *name;
-        }
-
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            sectprop.name == std::string(".tbss"))
-          continue;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-
-          if (!contents) {
-            std::string Buf;
-            {
-              llvm::raw_string_ostream OS(Buf);
-              llvm::logAllUnhandledErrors(contents.takeError(), OS, "");
-            }
-
-            WithColor::note()
-                << llvm::formatv("could not get section {0} contents ({1})\n",
-                                 sectprop.name, Buf);
-            continue;
-          }
-
-          sectprop.contents = *contents;
-        }
-
-#if 0
-        sectprop.w = (Sec.sh_flags & llvm::ELF::SHF_WRITE) != 0;
-        sectprop.x = (Sec.sh_flags & llvm::ELF::SHF_EXECINSTR) != 0;
-#endif
-      }
     }
   }
 
