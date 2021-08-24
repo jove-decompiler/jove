@@ -1156,7 +1156,9 @@ void worker(const dso_graph_t &dso_graph) {
     //
     if (int ret = await_process_completion(pid)) {
       worker_failed.store(true);
-      WithColor::error() << "jove-llvm failed for " << binary_filename << '\n';
+      WithColor::error() << llvm::formatv("jove-llvm failed on {0}: see {1}\n",
+                                          binary_filename,
+                                          bcfp + ".stderr.txt");
       continue;
     }
 
