@@ -752,7 +752,6 @@ static int InternalizeStaticFunctions(void);
 static int InternalizeSections(void);
 static int ExpandMemoryIntrinsicCalls(void);
 static int ReplaceAllRemainingUsesOfConstSections(void);
-static int RecoverControlFlow(void);
 static int DFSanInstrument(void);
 static int RenameFunctionLocals(void);
 static int WriteVersionScript(void);
@@ -5827,19 +5826,6 @@ int CreateSectionGlobalVariables(void) {
     }
   }
 
-  // XXX clean this up
-  std::unordered_map<llvm::Function *, function_index_t> LLVMFnToJoveFnMap;
-
-  {
-    for (function_index_t fidx = 0;
-         fidx < Decompilation.Binaries[BinaryIndex].Analysis.Functions.size();
-         ++fidx) {
-      function_t &f =
-          Decompilation.Binaries[BinaryIndex].Analysis.Functions.at(fidx);
-      LLVMFnToJoveFnMap.insert({f.F, fidx});
-    }
-  }
-
   //
   // Global Ctors/Dtors
   //
@@ -8286,155 +8272,6 @@ static void InvalidateAllFunctionAnalyses(void) {
   for (binary_t &binary : Decompilation.Binaries)
     for (function_t &f : binary.Analysis.Functions)
       f.InvalidateAnalysis();
-}
-
-int RecoverControlFlow(void) {
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = SIG_IGN;
-
-    sigaction(SIGINT, &sa, nullptr);
-  }
-
-  JoveRecoverDynTargetFunc = Module->getFunction("_jove_recover_dyn_target");
-  if (!JoveRecoverDynTargetFunc)
-    return 0;
-
-  // sanity check.
-  assert(JoveRecoverDynTargetFunc->arg_size() == 2);
-
-  std::unordered_map<llvm::Function *,
-                     std::pair<binary_index_t, function_index_t>>
-      LLVMFnToJoveFnMap;
-
-  {
-    binary_t &b = Decompilation.Binaries[BinaryIndex];
-    for (function_t &f : b.Analysis.Functions)
-      LLVMFnToJoveFnMap.insert({f.F, {f.BIdx, f.FIdx}});
-  }
-
-  bool Changed = false;
-
-  for (llvm::User *U : JoveRecoverDynTargetFunc->users()) {
-    assert(llvm::isa<llvm::CallInst>(U));
-    llvm::CallInst *Call = llvm::cast<llvm::CallInst>(U);
-
-    llvm::Value *CalleeV = Call->getOperand(1);
-    if (!llvm::isa<llvm::ConstantExpr>(CalleeV))
-      continue;
-
-    llvm::ConstantExpr *CalleeCE = llvm::cast<llvm::ConstantExpr>(CalleeV);
-    if (CalleeCE->getOpcode() != llvm::Instruction::PtrToInt)
-      continue;
-
-    if (!llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0)) &&
-        !llvm::isa<llvm::Function>(CalleeCE->getOperand(0)))
-      continue;
-
-    assert(llvm::isa<llvm::ConstantInt>(Call->getOperand(0)));
-
-    struct {
-      binary_index_t BIdx;
-      basic_block_index_t BBIdx;
-    } Caller;
-
-    Caller.BIdx  = BinaryIndex;
-    Caller.BBIdx = llvm::cast<llvm::ConstantInt>(Call->getOperand(0))->getZExtValue();
-
-#if 0
-    llvm::outs() << llvm::formatv("_jove_recover_dyn_target({0}, {1}, {2})\n",
-                                  Caller.BIdx, Caller.BBIdx, *IFunc);
-#endif
-
-    struct {
-      binary_index_t BIdx;
-      function_index_t FIdx;
-    } Callee;
-
-    if (llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0))) {
-      llvm::GlobalIFunc *IFunc =
-          llvm::cast<llvm::GlobalIFunc>(CalleeCE->getOperand(0));
-
-      auto it = IFuncTargetMap.find(IFunc);
-      if (it == IFuncTargetMap.end()) {
-        WithColor::warning() << llvm::formatv("no IdxPair for {0}\n", *IFunc);
-        continue;
-      }
-
-      std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
-    } else {
-      assert(llvm::isa<llvm::Function>(CalleeCE->getOperand(0)));
-
-      llvm::Function *Func =
-          llvm::cast<llvm::Function>(CalleeCE->getOperand(0));
-
-      if (!Func->empty()) {
-        auto it = LLVMFnToJoveFnMap.find(Func);
-        if (it == LLVMFnToJoveFnMap.end()) {
-          WithColor::warning()
-              << llvm::formatv("unknown defined function \"{0}\" passed to "
-                               "_jove_recover_dyn_target\n",
-                               Func->getName());
-          continue;
-        }
-
-        std::tie(Callee.BIdx, Callee.FIdx) = (*it).second;
-      } else {
-        binary_t &binary = Decompilation.Binaries[BinaryIndex];
-        auto &SymDynTargets = binary.Analysis.SymDynTargets;
-        auto it = SymDynTargets.find(Func->getName());
-        if (it == SymDynTargets.end()) {
-          WithColor::warning()
-              << llvm::formatv("no SymDynTarget for declared function \"{0}\" "
-                               "passed to _jove_recover_dyn_target\n",
-                               Func->getName());
-          continue;
-        }
-
-        std::tie(Callee.BIdx, Callee.FIdx) = *(*it).second.begin();
-      }
-    }
-
-    // XXX code duplication. this is in jove-recover
-
-    // Check that Callee is valid
-    (void)Decompilation.Binaries.at(Callee.BIdx)
-             .Analysis.Functions.at(Callee.FIdx);
-
-    auto &ICFG = Decompilation.Binaries.at(Caller.BIdx).Analysis.ICFG;
-
-    basic_block_properties_t &bbprop = ICFG[boost::vertex(Caller.BBIdx, ICFG)];
-
-    // TODO assert that out_degree(bb) = 0
-
-    bool isNewTarget =
-        bbprop.DynTargets.insert({Callee.BIdx, Callee.FIdx}).second;
-
-    Changed = Changed || isNewTarget;
-
-    // TODO only invalidate those functions which contains ...
-    if (isNewTarget)
-      InvalidateAllFunctionAnalyses();
-
-    // XXX hehe. only change DynTargetsComplete if it's an IFunc.
-    if (llvm::isa<llvm::GlobalIFunc>(CalleeCE->getOperand(0))) {
-      bool &DynTargetsComplete = bbprop.DynTargetsComplete;
-
-      bool DynTargetsComplete_Changed = !DynTargetsComplete;
-
-      DynTargetsComplete = true;
-
-      Changed = Changed || DynTargetsComplete_Changed;
-
-      if (DynTargetsComplete_Changed)
-        ; //InvalidateAllFunctionAnalyses();
-    }
-  }
-
-  return 0;
 }
 
 int await_process_completion(pid_t pid) {
