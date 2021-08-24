@@ -4876,6 +4876,8 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     return;
   }
 
+
+  binary_index_t BIdx;
   {
     decompilation_t new_decompilation;
     {
@@ -4890,75 +4892,71 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       return;
     }
 
+    BIdx = decompilation.Binaries.size();
+
     decompilation.Binaries.emplace_back(new_decompilation.Binaries.front())
         .IsDynamicallyLoaded = true;
   }
 
-  binary_index_t BIdx = decompilation.Binaries.size() - 1;
-
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
   BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
-  BinStateVec.resize(BinStateVec.size() + 1);
+  binary_state_t &st = BinStateVec.emplace_back();
 
   //
   // initialize state associated with every binary
   //
-  // TODO duplicated code here
-  {
-    binary_t &binary = decompilation.Binaries[BIdx];
-    binary_state_t &st = BinStateVec[BIdx];
+  binary_t &binary = decompilation.Binaries[BIdx];
 
-    // add to path -> index map
-    if (binary.IsVDSO)
-      BinPathToIdxMap["[vdso]"] = BIdx;
-    else
-      BinPathToIdxMap[binary.Path] = BIdx;
+  // add to path -> index map
+  if (binary.IsVDSO)
+    BinPathToIdxMap["[vdso]"] = BIdx;
+  else
+    BinPathToIdxMap[binary.Path] = BIdx;
 
-    //
-    // build FuncMap
-    //
-    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-         ++f_idx) {
-      function_t &f = binary.Analysis.Functions[f_idx];
-      if (unlikely(!is_function_index_valid(f.Entry)))
-        continue;
+  //
+  // build FuncMap
+  //
+  for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+       ++f_idx) {
+    function_t &f = binary.Analysis.Functions[f_idx];
+    if (unlikely(!is_function_index_valid(f.Entry)))
+      continue;
 
-      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
-    }
+    basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
+    st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+  }
 
-    //
-    // build BBMap
-    //
-    for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-      const auto &bbprop = binary.Analysis.ICFG[bb];
+  //
+  // build BBMap
+  //
+  for (basic_block_index_t bb_idx = 0;
+       bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
+    basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+    const auto &bbprop = binary.Analysis.ICFG[bb];
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              bbprop.Addr, bbprop.Addr + bbprop.Size);
-      assert(st.BBMap.find(intervl) == st.BBMap.end());
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(
+            bbprop.Addr, bbprop.Addr + bbprop.Size);
+    assert(st.BBMap.find(intervl) == st.BBMap.end());
 
-      st.BBMap.add({intervl, 1 + bb_idx});
-    }
+    st.BBMap.add({intervl, 1 + bb_idx});
+  }
 
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
+  llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
+                         binary.Data.size());
+  llvm::StringRef Identifier(binary.Path);
+  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!binary.IsVDSO)
-        WithColor::warning() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
-    } else {
-      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
+      obj::createBinary(MemBuffRef);
+  if (!BinOrErr) {
+    if (!binary.IsVDSO)
+      WithColor::warning() << llvm::formatv(
+          "{0}: failed to create binary from {1}\n", __func__, binary.Path);
+  } else {
+    std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-      st.ObjectFile = std::move(BinRef);
-    }
+    st.ObjectFile = std::move(BinRef);
   }
 }
 
