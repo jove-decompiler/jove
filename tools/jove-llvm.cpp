@@ -2116,7 +2116,7 @@ int ProcessExportedFunctions(void) {
         auto it = FuncMap.find(Sym.st_value);
         if (it == FuncMap.end()) {
           WithColor::warning() << llvm::formatv(
-              "no function for {0} exists at 0x{1:x}\n", SymName, Sym.st_value);
+              "no function for {0} exists at {1:x}\n", SymName, Sym.st_value);
           continue;
         }
 
@@ -2126,7 +2126,7 @@ int ProcessExportedFunctions(void) {
       function_t &f = binary.Analysis.Functions[FuncIdx];
       if (!f.IsABI) {
         llvm::errs() << llvm::formatv(
-            "ProcessExportedFunctions: !IsABI for 0x{0:x} in {1}\n",
+            "ProcessExportedFunctions: !IsABI for {0:x} in {1}\n",
             binary.Analysis.ICFG[boost::vertex(f.Entry, binary.Analysis.ICFG)].Addr,
             binary.Path);
       }
@@ -2675,7 +2675,7 @@ int ProcessDynamicSymbols(void) {
           auto it = FuncMap.find(Sym.st_value);
           if (it == FuncMap.end()) {
             WithColor::warning()
-                << llvm::formatv("no function for {0} exists at 0x{1:x}\n",
+                << llvm::formatv("no function for {0} exists at {1:x}\n",
                                  SymName, Sym.st_value);
             continue;
           }
@@ -3840,7 +3840,7 @@ int ProcessIFuncResolvers(void) {
 
     auto it = FuncMap.find(Sym.st_value);
     if (it == FuncMap.end()) {
-      WithColor::error() << llvm::formatv("Sym.st_value=0x{0:x}\n",
+      WithColor::error() << llvm::formatv("Sym.st_value={0:x}\n",
                                           Sym.st_value);
     }
     assert(it != FuncMap.end());
@@ -4742,13 +4742,13 @@ int CreateSectionGlobalVariables(void) {
 
     if (!S.Size) {
       WithColor::error() << llvm::formatv(
-          "copy relocation @ 0x{0:x} specifies symbol {1} with size 0\n",
+          "copy relocation @ {0:x} specifies symbol {1} with size 0\n",
           R.Addr, S.Name);
       abort();
     }
 
     WithColor::error() << llvm::formatv(
-        "copy relocation @ 0x{0:x} specifies symbol {1} with size {2}\n"
+        "copy relocation @ {0:x} specifies symbol {1} with size {2}\n"
         "was prog compiled as position-independant (i.e. -fPIC)?\n",
         R.Addr, S.Name, S.Size);
     //abort();
@@ -9227,7 +9227,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     if (DynTargets.empty()) {
       if (opts::Verbose)
         WithColor::warning() << llvm::formatv(
-            "indirect control transfer @ 0x{0:x} has zero dyn targets\n",
+            "indirect control transfer @ {0:x} has zero dyn targets\n",
             ICFG[bb].Addr);
 
       boost::property_map<interprocedural_control_flow_graph_t,
