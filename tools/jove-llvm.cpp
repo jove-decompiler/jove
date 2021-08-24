@@ -3226,7 +3226,7 @@ int ProcessBinaryRelocations(void) {
   };
 
   auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
-    symbol_t res;
+    symbol_t &res = SymbolTable.emplace_back();
 
     llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(Sec));
 
@@ -3362,20 +3362,16 @@ int ProcessBinaryRelocations(void) {
     res.Size = Sym.st_size;
     res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
 
-#if 1
     if (res.Type == symbol_t::TYPE::NONE &&
         res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
       WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
                                             res.Name);
       res.Type = symbol_t::TYPE::FUNCTION;
     }
-#endif
-
-    SymbolTable.push_back(res);
   };
 
   auto process_elf_rel = [&](const Elf_Shdr &Sec, const Elf_Rel &R) -> void {
-    relocation_t res;
+    relocation_t &res = RelocationTable.emplace_back();
 
     const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
     const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
@@ -3433,15 +3429,13 @@ int ProcessBinaryRelocations(void) {
 
     E.getRelocationTypeName(R.getType(E.isMips64EL()), res.RelocationTypeName);
 
-    if (res.Type != relocation_t::TYPE::NONE)
-      RelocationTable.push_back(res);
-    else
+    if (res.Type == relocation_t::TYPE::NONE)
       WithColor::warning() << llvm::formatv("unrecognized relocation: {0}\n",
                                             res.RelocationTypeName);
   };
 
   auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
-    relocation_t res;
+    relocation_t &res = RelocationTable.emplace_back();
 
     const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
     const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
@@ -3498,9 +3492,7 @@ int ProcessBinaryRelocations(void) {
 
     E.getRelocationTypeName(R.getType(E.isMips64EL()), res.RelocationTypeName);
 
-    if (res.Type != relocation_t::TYPE::NONE)
-      RelocationTable.push_back(res);
-    else
+    if (res.Type == relocation_t::TYPE::NONE)
       WithColor::warning() << llvm::formatv("unrecognized relocation: {0}\n",
                                             res.RelocationTypeName);
   };
@@ -3532,7 +3524,7 @@ int ProcessBinaryRelocations(void) {
 
     llvm::outs() << llvm::formatv("LocalEntry: {0:x}\n", Addr);
 
-    relocation_t res;
+    relocation_t &res = RelocationTable.emplace_back();
     res.Type = relocation_t::TYPE::RELATIVE;
     res.Addr = Addr;
     res.Addend = 0;
@@ -3540,8 +3532,6 @@ int ProcessBinaryRelocations(void) {
     res.T = nullptr;
     res.C = nullptr;
     res.RelocationTypeName = "LocalGOTEntry";
-
-    RelocationTable.push_back(res);
   }
 
   for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
@@ -3582,13 +3572,13 @@ int ProcessBinaryRelocations(void) {
     llvm::outs() << llvm::formatv("GlobalEntry: {0} {1}\n", Ent,
                                   SymName);
 
-    relocation_t res;
+    relocation_t &res = RelocationTable.emplace_back();
     res.Type = relocation_t::TYPE::ADDRESSOF;
     res.Addr = Addr;
     res.Addend = 0;
     res.SymbolIndex = SymbolTable.size();
     {
-      symbol_t sym;
+      symbol_t &sym = SymbolTable.emplace_back();
 
       sym.Name = SymName;
       sym.Addr = is_undefined ? 0 : Sym->st_value;
@@ -3636,15 +3626,11 @@ int ProcessBinaryRelocations(void) {
       };
 
       sym.Bind = elf_symbol_binding_mapping[Sym->getBinding()];
-
-      SymbolTable.push_back(sym);
     }
 
     res.T = nullptr;
     res.C = nullptr;
     res.RelocationTypeName = "GlobalGOTEntry";
-
-    RelocationTable.push_back(res);
   }
 #endif
 
