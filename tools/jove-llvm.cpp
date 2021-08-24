@@ -3735,21 +3735,23 @@ int ProcessIFuncResolvers(void) {
 
   auto &binary = Decompilation.Binaries[BinaryIndex];
 
+  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+  const ELFF &E = *O.getELFFile();
+
   for (const relocation_t &R : RelocationTable) {
     if (R.Type != relocation_t::TYPE::IRELATIVE)
       continue;
 
     target_ulong ifunc_resolver_addr = R.Addend;
     if (!ifunc_resolver_addr) {
-      // TODO refactor
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
-
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
+      if (ExpectedPtr) {
+        ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+      } else {
+        WARN();
+        continue;
+      }
     }
     assert(ifunc_resolver_addr);
 
@@ -3761,10 +3763,6 @@ int ProcessIFuncResolvers(void) {
 
     // TODO we know function type is i64 (*)(void)
   }
-
-  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
-  const ELFF &E = *O.getELFFile();
 
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
@@ -4526,6 +4524,12 @@ int CreateSectionGlobalVariables(void) {
   auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
   auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
   const unsigned NumSections = SectMap.iterative_size();
+  auto &ObjectFile = Decompilation.Binaries[BinaryIndex].ObjectFile;
+
+  assert(llvm::isa<ELFO>(ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
+
+  const ELFF &E = *O.getELFFile();
 
   //
   // create sections table and address -> section index map
@@ -4570,15 +4574,9 @@ int CreateSectionGlobalVariables(void) {
   // non executable memory (see READ_IMPLIES_EXEC)
   //
   struct PatchContents {
-    boost::icl::interval_map<target_ulong, unsigned> &SectIdxMap;
-    std::vector<section_t> &SectTable;
-
     std::vector<uint32_t> FunctionOrigInsnTable;
 
-    PatchContents(boost::icl::interval_map<target_ulong, unsigned> &SectIdxMap,
-                  std::vector<section_t> &SectTable)
-      : SectIdxMap(SectIdxMap),
-        SectTable(SectTable) {
+    PatchContents() {
       auto &Binary = Decompilation.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
 
@@ -4629,15 +4627,22 @@ int CreateSectionGlobalVariables(void) {
     }
 
     void *binary_data_ptr_of_addr(target_ulong Addr) {
-      auto it = SectIdxMap.find(Addr);
-      assert(it != SectIdxMap.end());
+      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &ObjectFile = Binary.ObjectFile;
 
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = Addr - Sect.Addr;
+      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
-      return const_cast<unsigned char *>(&Sect.Contents[Off]);
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Addr);
+
+      if (!ExpectedPtr) {
+        WithColor::warning() << llvm::formatv(
+            "{0}: Could not get binary contents for {1:x}\n", __func__, Addr);
+        return nullptr;
+      }
+
+      return const_cast<uint8_t *>(*ExpectedPtr);
     }
-  } __PatchContents(SectIdxMap, SectTable);
+  } __PatchContents;
 #endif
 
   auto type_at_address = [&](target_ulong Addr, llvm::Type *T) -> void {
@@ -5027,14 +5032,11 @@ int CreateSectionGlobalVariables(void) {
     if (R.Addend) {
       Addr = R.Addend;
     } else {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
+      if (!ExpectedPtr)
+        abort();
 
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      Addr = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
+      Addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
     }
 
     if (opts::Verbose)
@@ -5131,14 +5133,11 @@ int CreateSectionGlobalVariables(void) {
 #if defined(TARGET_I386) || defined(TARGET_MIPS32)
     unsigned tpoff;
     {
-      auto it = SectIdxMap.find(R.Addr);
-      assert(it != SectIdxMap.end());
+      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
+      if (!ExpectedPtr)
+        abort();
 
-      section_t &Sect = SectTable[(*it).second];
-      unsigned Off = R.Addr - Sect.Addr;
-
-      assert(!Sect.Contents.empty());
-      tpoff = *reinterpret_cast<const target_ulong *>(&Sect.Contents[Off]);
+      tpoff = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
     }
     //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
 #else
