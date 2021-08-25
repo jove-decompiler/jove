@@ -123,8 +123,7 @@ struct hook_t;
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::Function *SectsF = nullptr;                                            \
-  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
-  boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
+  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;
 
 #include "tcgcommon.hpp"
 
@@ -1055,7 +1054,6 @@ int InitStateForBinaries(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &FuncMap = binary.FuncMap;
-    auto &SectMap = binary.SectMap;
 
     //
     // FuncMap
@@ -1131,128 +1129,62 @@ int InitStateForBinaries(void) {
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      WithColor::error() << "failed to create binary from " << binary.Path
-                         << '\n';
-
-      boost::icl::interval<target_ulong>::type intervl =
-          boost::icl::interval<target_ulong>::right_open(0, binary.Data.size());
-
-      assert(SectMap.find(intervl) == SectMap.end());
-
-      section_properties_t sectprop;
-      sectprop.name = ".text";
-      sectprop.contents = llvm::ArrayRef<uint8_t>((uint8_t *)&binary.Data[0], binary.Data.size());
-      sectprop.w = false;
-      sectprop.x = true;
-      sectprop.initArray = false;
-      sectprop.finiArray = false;
-      SectMap.add({intervl, {sectprop}});
+      if (!binary.IsVDSO)
+        WithColor::error() << llvm::formatv(
+            "failed to create binary from {0}\n", binary.Path);
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
       binary.ObjectFile = std::move(BinRef);
 
-      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+      if (BIdx == BinaryIndex) {
+        assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+        ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
 
-      TheTriple = O.makeTriple();
-      Features = O.getFeatures();
+        TheTriple = O.makeTriple();
+        Features = O.getFeatures();
 
-      const ELFF &E = *O.getELFFile();
+        const ELFF &E = *O.getELFFile();
 
-      //
-      // build section map
-      //
-      llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-      if (!sections) {
-        WithColor::error() << "error: could not get ELF sections for binary "
-                           << binary.Path << '\n';
-        return 1;
-      }
+        llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+        if (ExpectedSections) {
+          target_ulong minAddr = std::numeric_limits<target_ulong>::max(),
+                       maxAddr = 0;
 
-      if (opts::Verbose)
-        llvm::outs() << binary.Path << '\n';
+          for (const Elf_Shdr &Sec : *ExpectedSections) {
+            if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+              continue;
 
-      for (const Elf_Shdr &Sec : *sections) {
-        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-          continue;
+            llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
 
-        llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+            if (!name)
+              continue;
 
-        if (!name)
-          continue;
+            if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+                *name == std::string(".tbss"))
+              continue;
 
-        if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-            *name == std::string(".tbss"))
-          continue;
+            if (!Sec.sh_size)
+              continue;
 
-        if (!Sec.sh_size)
-          continue;
-
-        section_properties_t sectprop;
-        sectprop.name = *name;
-
-        if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
-          sectprop.contents = llvm::ArrayRef<uint8_t>();
-        } else {
-          llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
-              E.getSectionContents(&Sec);
-          assert(contents);
-          sectprop.contents = *contents;
-        }
-
-        sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
-        sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
-
-        sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
-        sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
-
-        boost::icl::interval<target_ulong>::type intervl =
-            boost::icl::interval<target_ulong>::right_open(
-                Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
-
-        {
-          auto it = SectMap.find(intervl);
-          if (it != SectMap.end()) {
-            WithColor::error() << "the following sections intersect: "
-                               << (*(*it).second.begin()).name << " and "
-                               << sectprop.name << '\n';
-            return 1;
+            minAddr = std::min<target_ulong>(minAddr, Sec.sh_addr);
+            maxAddr = std::max<target_ulong>(maxAddr, Sec.sh_addr + Sec.sh_size);
           }
+
+          SectsStartAddr = minAddr;
+          SectsEndAddr = maxAddr;
+
+          WithColor::note() << llvm::formatv("SectsStartAddr is {0:x}\n",
+                                             SectsStartAddr);
+        } else {
+          WithColor::error() << llvm::formatv(
+              "TODO: could not get ELF sections for binary {0}\n", binary.Path);
+
+          //SectsStartAddr;
+          //SectsEndAddr;
+
+          return 1;
         }
-
-        SectMap.add({intervl, {sectprop}});
-      }
-    }
-
-    if (BIdx == BinaryIndex) {
-      llvm::outs() << "Address Space:\n";
-      for (const auto &pair : SectMap) {
-        const section_properties_t &sect = *pair.second.begin();
-
-        llvm::outs() <<
-          (boost::format("%-20s [%x, %x)")
-           % sect.name.str()
-           % pair.first.lower()
-           % pair.first.upper()).str()
-          << '\n';
-      }
-
-      //
-      // compute SectsStartAddr, SectsEndAddr
-      //
-      {
-        target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
-        for (const auto &pair : SectMap) {
-          minAddr = std::min(minAddr, pair.first.lower());
-          maxAddr = std::max(maxAddr, pair.first.upper());
-        }
-
-        SectsStartAddr = minAddr;
-        SectsEndAddr = maxAddr;
-
-        WithColor::note() << llvm::formatv("SectsStartAddr is {0:x}\n",
-                                           SectsStartAddr);
       }
     }
   }
@@ -3682,43 +3614,7 @@ int ProcessBinaryRelocations(void) {
 }
 
 int ProcessIFuncResolvers(void) {
-  auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
   auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
-  const unsigned NumSections = SectMap.iterative_size();
-
-  //
-  // create sections table and address -> section index map
-  //
-  std::vector<section_t> SectTable;
-  SectTable.resize(NumSections);
-
-  boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
-
-  {
-    target_ulong minAddr = std::numeric_limits<target_ulong>::max(), maxAddr = 0;
-    unsigned i = 0;
-    for (const auto &pair : SectMap) {
-      section_t &Sect = SectTable[i];
-
-      minAddr = std::min(minAddr, pair.first.lower());
-      maxAddr = std::max(maxAddr, pair.first.upper());
-
-      SectIdxMap.add({pair.first, i});
-
-      const section_properties_t &prop = *pair.second.begin();
-      Sect.Addr = pair.first.lower();
-      Sect.Size = pair.first.upper() - pair.first.lower();
-      Sect.Name = prop.name;
-      Sect.Contents = prop.contents;
-      Sect.Stuff.Intervals.insert(
-          boost::icl::interval<target_ulong>::right_open(0, Sect.Size));
-      Sect.initArray = prop.initArray;
-      Sect.finiArray = prop.finiArray;
-
-      ++i;
-    }
-  }
-
   auto &binary = Decompilation.Binaries[BinaryIndex];
 
   assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
@@ -3739,15 +3635,15 @@ int ProcessIFuncResolvers(void) {
         continue;
       }
     }
+
     assert(ifunc_resolver_addr);
 
     auto it = FuncMap.find(ifunc_resolver_addr);
     assert(it != FuncMap.end());
 
     function_t &resolver = binary.Analysis.Functions[(*it).second];
+    assert(resolver.IsABI);
     resolver.IsABI = true;
-
-    // TODO we know function type is i64 (*)(void)
   }
 
   DynRegionInfo DynamicTable(O.getFileName());
@@ -4507,15 +4403,79 @@ static std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S);
 
 int CreateSectionGlobalVariables(void) {
-  auto &SectMap = Decompilation.Binaries[BinaryIndex].SectMap;
-  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
-  const unsigned NumSections = SectMap.iterative_size();
   auto &ObjectFile = Decompilation.Binaries[BinaryIndex].ObjectFile;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
 
   const ELFF &E = *O.getELFFile();
+
+  boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
+
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+  if (ExpectedSections) {
+    //
+    // build section map
+    //
+    for (const Elf_Shdr &Sec : *ExpectedSections) {
+      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+        continue;
+
+      llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+
+      if (!name)
+        continue;
+
+      if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+          *name == std::string(".tbss"))
+        continue;
+
+      if (!Sec.sh_size)
+        continue;
+
+      section_properties_t sectprop;
+      sectprop.name = *name;
+
+      if (Sec.sh_type == llvm::ELF::SHT_NOBITS) {
+        sectprop.contents = llvm::ArrayRef<uint8_t>();
+      } else {
+        llvm::Expected<llvm::ArrayRef<uint8_t>> contents =
+            E.getSectionContents(&Sec);
+        assert(contents);
+        sectprop.contents = *contents;
+      }
+
+      sectprop.w = !!(Sec.sh_flags & llvm::ELF::SHF_WRITE);
+      sectprop.x = !!(Sec.sh_flags & llvm::ELF::SHF_EXECINSTR);
+
+      sectprop.initArray = Sec.sh_type == llvm::ELF::SHT_INIT_ARRAY;
+      sectprop.finiArray = Sec.sh_type == llvm::ELF::SHT_FINI_ARRAY;
+
+      boost::icl::interval<target_ulong>::type intervl =
+          boost::icl::interval<target_ulong>::right_open(
+              Sec.sh_addr, Sec.sh_addr + Sec.sh_size);
+
+      {
+        auto it = SectMap.find(intervl);
+        if (it != SectMap.end()) {
+          WithColor::error() << "the following sections intersect: "
+                             << (*(*it).second.begin()).name << " and "
+                             << sectprop.name << '\n';
+          return 1;
+        }
+      }
+
+      SectMap.add({intervl, {sectprop}});
+    }
+  } else {
+    WithColor::error() << llvm::formatv(
+        "TODO: could not get ELF sections for {0}\n",
+        Decompilation.Binaries[BinaryIndex].Path);
+    return 1;
+  }
+
+  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
+  const unsigned NumSections = SectMap.iterative_size();
 
   //
   // create sections table and address -> section index map
