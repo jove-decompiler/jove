@@ -4380,9 +4380,6 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 llvm::Constant *SectionPointer(target_ulong Addr) {
-  assert(SectsStartAddr);
-  assert(SectsEndAddr);
-
   int64_t off =
       static_cast<int64_t>(Addr) -
       static_cast<int64_t>(SectsStartAddr);
