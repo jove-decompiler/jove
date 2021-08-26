@@ -1174,9 +1174,6 @@ int InitStateForBinaries(void) {
           SectsStartAddr = minAddr;
           SectsEndAddr = maxAddr;
         } else {
-          WithColor::error() << llvm::formatv(
-              "TODO: could not get ELF sections for binary {0}\n", binary.Path);
-
           llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
           auto ProgramHeadersOrError = E.program_headers();
