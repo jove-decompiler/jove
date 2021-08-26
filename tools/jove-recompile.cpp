@@ -1686,9 +1686,6 @@ std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &binary) {
   tcg_uintptr_t SectsStartAddr = std::numeric_limits<tcg_uintptr_t>::max();
   tcg_uintptr_t SectsEndAddr = 0;
 
-  //
-  // build section map
-  //
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
     for (const Elf_Shdr &Sec : *ExpectedSections) {
