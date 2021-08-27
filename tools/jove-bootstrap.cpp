@@ -4096,9 +4096,21 @@ static void harvest_global_GOT_entries(pid_t child,
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
 
-    MipsGOTParser Parser(&E,
-                         dynamic_table(),
-                         dynamic_symbols());
+    MipsGOTParser Parser(E, Binary.Path);
+
+    if (llvm::Error Err = Parser.findGOT(dynamic_table(),
+                                         dynamic_symbols())) {
+#if 0
+      if (Err.isA<llvm::StringError>()) {
+        llvm::StringError &ErrStr = static_cast<StringError &>(*Err.getPtr());
+        ErrStr.getMessage();
+      }
+#endif
+
+      WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n",
+                                            Err);
+      continue;
+    }
 
     for (const MipsGOTParser::Entry &Ent : Parser.getGlobalEntries()) {
       const target_ulong Addr = Parser.getGotAddress(&Ent);
