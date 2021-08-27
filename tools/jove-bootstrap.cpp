@@ -4020,6 +4020,7 @@ static void harvest_global_GOT_entries(pid_t child,
       return DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
+    const Elf_Hash *HashTable = nullptr;
     {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
@@ -4050,6 +4051,11 @@ static void harvest_global_GOT_entries(pid_t child,
               DynSymRegion.EntSize = sizeof(Elf_Sym);
             }
             break;
+          case llvm::ELF::DT_HASH:
+            if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+              HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+            }
+        break;
           default:
             break;
         }
@@ -4057,6 +4063,33 @@ static void harvest_global_GOT_entries(pid_t child,
         if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
           DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
       }
+    }
+
+    auto getHashTableEntSize = [&](void) -> unsigned {
+      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+      // sections. This violates the ELF specification.
+      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+        return 8;
+      return 4;
+    };
+
+    // Derive the dynamic symbol table size from the DT_HASH hash table, if
+    // present.
+    const bool IsHashTableSupported = getHashTableEntSize() == 4;
+    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+      const uint64_t FileSize = E.getBufSize();
+      const uint64_t DerivedSize =
+          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+      if (DerivedSize > FileSize - Offset)
+        WithColor::warning() << llvm::formatv(
+            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+            "the hash table, goes past the end of the file ({2:x}) and will be "
+            "ignored\n",
+            DerivedSize, Offset, FileSize);
+      else
+        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -5025,6 +5058,7 @@ void on_dynamic_linker_loaded(pid_t child,
   //
   // parse dynamic table
   //
+  const Elf_Hash *HashTable = nullptr;
   {
     auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
       return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -5058,11 +5092,43 @@ void on_dynamic_linker_loaded(pid_t child,
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
+      case llvm::ELF::DT_HASH:
+        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+        }
+        break;
       }
     }
 
     if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto getHashTableEntSize = [&](void) -> unsigned {
+    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+    // sections. This violates the ELF specification.
+    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+      return 8;
+    return 4;
+  };
+
+  // Derive the dynamic symbol table size from the DT_HASH hash table, if
+  // present.
+  const bool IsHashTableSupported = getHashTableEntSize() == 4;
+  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+    const uint64_t FileSize = E.getBufSize();
+    const uint64_t DerivedSize =
+        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+    if (DerivedSize > FileSize - Offset)
+      WithColor::warning() << llvm::formatv(
+          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+          "the hash table, goes past the end of the file ({2:x}) and will be "
+          "ignored\n",
+          DerivedSize, Offset, FileSize);
+    else
+      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {

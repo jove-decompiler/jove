@@ -190,6 +190,7 @@ struct hook_t;
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
 #include <llvm/Analysis/Passes.h>
+#include <llvm/Support/Error.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>
@@ -1730,6 +1731,7 @@ int ProcessBinaryTLSSymbols(void) {
   //
   // parse dynamic table
   //
+  const Elf_Hash *HashTable = nullptr;
   {
     auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
       return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -1763,6 +1765,11 @@ int ProcessBinaryTLSSymbols(void) {
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
+      case llvm::ELF::DT_HASH:
+        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+        }
+        break;
 
       default:
         break;
@@ -1771,6 +1778,33 @@ int ProcessBinaryTLSSymbols(void) {
 
     if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto getHashTableEntSize = [&](void) -> unsigned {
+    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+    // sections. This violates the ELF specification.
+    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+      return 8;
+    return 4;
+  };
+
+  // Derive the dynamic symbol table size from the DT_HASH hash table, if
+  // present.
+  const bool IsHashTableSupported = getHashTableEntSize() == 4;
+  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+    const uint64_t FileSize = E.getBufSize();
+    const uint64_t DerivedSize =
+        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+    if (DerivedSize > FileSize - Offset)
+      WithColor::warning() << llvm::formatv(
+          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+          "the hash table, goes past the end of the file ({2:x}) and will be "
+          "ignored\n",
+          DerivedSize, Offset, FileSize);
+    else
+      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -1879,6 +1913,7 @@ int ProcessExportedFunctions(void) {
       return DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
+    const Elf_Hash *HashTable = nullptr;
     {
       const char *StringTableBegin = nullptr;
       uint64_t StringTableSize = 0;
@@ -1910,6 +1945,11 @@ int ProcessExportedFunctions(void) {
             DynSymRegion.EntSize = sizeof(Elf_Sym);
           }
           break;
+        case llvm::ELF::DT_HASH:
+          if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+            HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+          }
+          break;
 
         default:
           break;
@@ -1918,6 +1958,33 @@ int ProcessExportedFunctions(void) {
 
       if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
         DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto getHashTableEntSize = [&](void) -> unsigned {
+      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+      // sections. This violates the ELF specification.
+      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+        return 8;
+      return 4;
+    };
+
+    // Derive the dynamic symbol table size from the DT_HASH hash table, if
+    // present.
+    const bool IsHashTableSupported = getHashTableEntSize() == 4;
+    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+      const uint64_t FileSize = E.getBufSize();
+      const uint64_t DerivedSize =
+          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+      if (DerivedSize > FileSize - Offset)
+        WithColor::warning() << llvm::formatv(
+            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+            "the hash table, goes past the end of the file ({2:x}) and will be "
+            "ignored\n",
+            DerivedSize, Offset, FileSize);
+      else
+        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -2256,6 +2323,7 @@ int ProcessDynamicSymbols(void) {
     //
     // parse dynamic table
     //
+    const Elf_Hash *HashTable = nullptr;
     {
       auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
         return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -2289,11 +2357,43 @@ int ProcessDynamicSymbols(void) {
             DynSymRegion.EntSize = sizeof(Elf_Sym);
           }
           break;
+        case llvm::ELF::DT_HASH:
+          if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+            HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+          }
+          break;
         }
       };
 
       if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
         DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto getHashTableEntSize = [&](void) -> unsigned {
+      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+      // sections. This violates the ELF specification.
+      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+        return 8;
+      return 4;
+    };
+
+    // Derive the dynamic symbol table size from the DT_HASH hash table, if
+    // present.
+    const bool IsHashTableSupported = getHashTableEntSize() == 4;
+    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+      const uint64_t FileSize = E.getBufSize();
+      const uint64_t DerivedSize =
+          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+      if (DerivedSize > FileSize - Offset)
+        WithColor::warning() << llvm::formatv(
+            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+            "the hash table, goes past the end of the file ({2:x}) and will be "
+            "ignored\n",
+            DerivedSize, Offset, FileSize);
+      else
+        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -3045,6 +3145,20 @@ int ProcessBinaryRelocations(void) {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
+  const Elf_Hash *HashTable = nullptr;
+
+  auto toMappedAddr = [&](uint64_t Tag, uint64_t VAddr) -> const uint8_t * {
+    auto MappedAddrOrError = E.toMappedAddr(VAddr);
+    if (!MappedAddrOrError) {
+      WithColor::warning() << llvm::formatv(
+          "unable to parse DT_{0}: {1}\n",
+          E.getDynamicTagAsString(Tag),
+          llvm::toString(MappedAddrOrError.takeError()));
+      return nullptr;
+    }
+    return MappedAddrOrError.get();
+  };
+
   {
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
@@ -3074,6 +3188,10 @@ int ProcessBinaryRelocations(void) {
             DynSymRegion.Addr = Ptr;
             DynSymRegion.EntSize = sizeof(Elf_Sym);
           }
+          break;
+        case llvm::ELF::DT_HASH:
+          HashTable = reinterpret_cast<const Elf_Hash *>(
+              toMappedAddr(Dyn.getTag(), Dyn.getPtr()));
           break;
         default:
           break;
@@ -3456,6 +3574,33 @@ int ProcessBinaryRelocations(void) {
     }
   }
 
+  auto getHashTableEntSize = [&](void) -> unsigned {
+    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+    // sections. This violates the ELF specification.
+    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+      return 8;
+    return 4;
+  };
+
+  // Derive the dynamic symbol table size from the DT_HASH hash table, if
+  // present.
+  const bool IsHashTableSupported = getHashTableEntSize() == 4;
+  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+    const uint64_t FileSize = E.getBufSize();
+    const uint64_t DerivedSize =
+        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+    if (DerivedSize > FileSize - Offset)
+      WithColor::warning() << llvm::formatv(
+          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+          "the hash table, goes past the end of the file ({2:x}) and will be "
+          "ignored\n",
+          DerivedSize, Offset, FileSize);
+    else
+      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
+  }
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
   //
   // on MIPS there is an arch-specific representation of the GOT.
@@ -3464,9 +3609,22 @@ int ProcessBinaryRelocations(void) {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
-  MipsGOTParser Parser(&E,
-                       dynamic_table(),
-                       dynamic_symbols());
+  MipsGOTParser Parser(E, binary.Path);
+  if (llvm::Error Err = Parser.findGOT(dynamic_table(),
+                                       dynamic_symbols())) {
+#if 0
+    if (Err.isA<llvm::StringError>()) {
+      llvm::StringError &ErrStr = static_cast<StringError &>(*Err.getPtr());
+      ErrStr.getMessage();
+    }
+#endif
+
+    WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
+    return 1;
+  }
+
+  if (Parser.isGotEmpty())
+    WithColor::note() << "Parser.isGotEmpty()\n";
 
   for (const MipsGOTParser::Entry &Ent : Parser.getLocalEntries()) {
     const target_ulong Addr = Parser.getGotAddress(&Ent);
@@ -3689,6 +3847,7 @@ int ProcessIFuncResolvers(void) {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
+  const Elf_Hash *HashTable = nullptr;
   {
     const char *StringTableBegin = nullptr;
     uint64_t StringTableSize = 0;
@@ -3718,11 +3877,43 @@ int ProcessIFuncResolvers(void) {
           DynSymRegion.EntSize = sizeof(Elf_Sym);
         }
         break;
+      case llvm::ELF::DT_HASH:
+        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+        }
+        break;
       }
     };
 
     if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
       DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+  }
+
+  auto getHashTableEntSize = [&](void) -> unsigned {
+    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+    // sections. This violates the ELF specification.
+    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+      return 8;
+    return 4;
+  };
+
+  // Derive the dynamic symbol table size from the DT_HASH hash table, if
+  // present.
+  const bool IsHashTableSupported = getHashTableEntSize() == 4;
+  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+    const uint64_t FileSize = E.getBufSize();
+    const uint64_t DerivedSize =
+        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+    if (DerivedSize > FileSize - Offset)
+      WithColor::warning() << llvm::formatv(
+          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+          "the hash table, goes past the end of the file ({2:x}) and will be "
+          "ignored\n",
+          DerivedSize, Offset, FileSize);
+    else
+      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
   }
 
   auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -5950,6 +6141,7 @@ int ProcessDynamicSymbols2(void) {
     //
     // parse dynamic table
     //
+    const Elf_Hash *HashTable = nullptr;
     {
       auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
         return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -5989,6 +6181,33 @@ int ProcessDynamicSymbols2(void) {
       if (StringTableBegin && StringTableSize &&
           StringTableSize > DynamicStringTable.size())
         DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto getHashTableEntSize = [&](void) -> unsigned {
+      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+      // sections. This violates the ELF specification.
+      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+        return 8;
+      return 4;
+    };
+
+    // Derive the dynamic symbol table size from the DT_HASH hash table, if
+    // present.
+    const bool IsHashTableSupported = getHashTableEntSize() == 4;
+    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+      const uint64_t FileSize = E.getBufSize();
+      const uint64_t DerivedSize =
+          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+      if (DerivedSize > FileSize - Offset)
+        WithColor::warning() << llvm::formatv(
+            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+            "the hash table, goes past the end of the file ({2:x}) and will be "
+            "ignored\n",
+            DerivedSize, Offset, FileSize);
+      else
+        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -6397,6 +6616,7 @@ decipher_copy_relocation(const symbol_t &S) {
     //
     // parse dynamic table
     //
+    const Elf_Hash *HashTable = nullptr;
     {
       auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
         return DynamicTable.getAsArrayRef<Elf_Dyn>();
@@ -6430,11 +6650,43 @@ decipher_copy_relocation(const symbol_t &S) {
             DynSymRegion.EntSize = sizeof(Elf_Sym);
           }
           break;
+        case llvm::ELF::DT_HASH:
+          if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
+            HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+          }
+          break;
         }
       }
 
       if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
         DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+
+    auto getHashTableEntSize = [&](void) -> unsigned {
+      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+      // sections. This violates the ELF specification.
+      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
+          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+        return 8;
+      return 4;
+    };
+
+    // Derive the dynamic symbol table size from the DT_HASH hash table, if
+    // present.
+    const bool IsHashTableSupported = getHashTableEntSize() == 4;
+    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
+      const uint64_t FileSize = E.getBufSize();
+      const uint64_t DerivedSize =
+          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
+      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
+      if (DerivedSize > FileSize - Offset)
+        WithColor::warning() << llvm::formatv(
+            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+            "the hash table, goes past the end of the file ({2:x}) and will be "
+            "ignored\n",
+            DerivedSize, Offset, FileSize);
+      else
+        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
     }
 
     auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
@@ -8537,7 +8789,7 @@ typedef int (*translate_tcg_op_proc_t)(TCGOp *,
                                        llvm::IRBuilderTy &,
                                        TranslateContext &);
 
-extern const translate_tcg_op_proc_t TranslateTCGOpTable[250];
+extern const translate_tcg_op_proc_t TranslateTCGOpTable[180];
 
 static bool seenOpTable[ARRAY_SIZE(tcg_op_defs)];
 
@@ -11210,12 +11462,12 @@ static int TranslateTCGOp(TCGOp *op,
   return 0;
 }
 
-const translate_tcg_op_proc_t TranslateTCGOpTable[250] = {
-    [0 ... 250 - 1] = nullptr,
+const translate_tcg_op_proc_t TranslateTCGOpTable[180] = {
+    [0 ... 180 - 1] = nullptr,
 
 #define __PROC_CASE(n, i, data) [i] = TranslateTCGOp<i>,
 
-BOOST_PP_REPEAT(250, __PROC_CASE, void)
+BOOST_PP_REPEAT(180, __PROC_CASE, void)
 
 #undef __PROC_CASE
 

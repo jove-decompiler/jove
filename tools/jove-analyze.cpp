@@ -118,6 +118,7 @@ class Binary;
 #include <llvm/Transforms/Utils/ModuleUtils.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 #include <llvm/Transforms/Utils/LowerMemIntrinsics.h>
+#include <llvm/Support/Error.h>
 #include <sys/wait.h>
 #include <sys/user.h>
 #include <sys/types.h>

@@ -1705,7 +1705,7 @@ std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &binary) {
         continue;
 
       SectsStartAddr = std::min<tcg_uintptr_t>(SectsStartAddr, Sec.sh_addr);
-      SectsEndAddr = std::max<tcg_uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
+      SectsEndAddr   = std::max<tcg_uintptr_t>(SectsEndAddr, Sec.sh_addr + Sec.sh_size);
     }
   } else {
     llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
