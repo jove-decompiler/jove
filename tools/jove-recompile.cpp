@@ -76,23 +76,6 @@ struct dynamic_linking_info_t {
 
 static void __warn(const char *file, int line);
 
-#ifndef WARN
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-#endif
-
-#ifndef WARN_ON
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-#endif
-
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
 
@@ -1441,6 +1424,23 @@ void print_command(const char **argv) {
 }
 
 #include "elf.hpp"
+
+#ifndef WARN
+#define WARN()                                                                 \
+  do {                                                                         \
+    __warn(__FILE__, __LINE__);                                                \
+  } while (0)
+#endif
+
+#ifndef WARN_ON
+#define WARN_ON(condition)                                                     \
+  ({                                                                           \
+    int __ret_warn_on = !!(condition);                                         \
+    if (unlikely(__ret_warn_on))                                               \
+      WARN();                                                                  \
+    unlikely(__ret_warn_on);                                                   \
+  })
+#endif
 
 bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   //
