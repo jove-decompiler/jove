@@ -76,6 +76,11 @@ static cl::opt<std::string>
                 cl::desc("use output from `cat /proc/<pid>/environ`"),
                 cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    ArgsFromFile("args-from-file",
+                 cl::desc("use output from `cat /proc/<pid>/cmdline`"),
+                 cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -591,9 +596,13 @@ run:
         std::string env_arg;
 
         if (!opts::EnvFromFile.empty()) {
-          /* use environment from file */
           arg_vec.push_back("--env-from-file");
           arg_vec.push_back(opts::EnvFromFile.c_str());
+        }
+
+        if (!opts::ArgsFromFile.empty()) {
+          arg_vec.push_back("--args-from-file");
+          arg_vec.push_back(opts::ArgsFromFile.c_str());
         }
 
         if (!opts::Envs.empty()) {

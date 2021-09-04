@@ -47,6 +47,11 @@ static cl::opt<std::string>
                 cl::desc("use output from `cat /proc/<pid>/environ`"),
                 cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    ArgsFromFile("args-from-file",
+                 cl::desc("use output from `cat /proc/<pid>/cmdline`"),
+                 cl::cat(JoveCategory));
+
 static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
                                     cl::Required, cl::cat(JoveCategory));
 
@@ -872,12 +877,35 @@ int run_outside_chroot(void) {
 
     fs::path prog_path = fs::path(opts::sysroot) / opts::Prog.c_str();
 
-    std::vector<const char *> arg_vec = {
-        prog_path.c_str(),
-    };
+    std::vector<const char *> arg_vec;
 
-    for (std::string &s : opts::Args)
-      arg_vec.push_back(s.c_str());
+    std::list<std::string> args_file_args;
+
+    if (!opts::ArgsFromFile.empty()) {
+      std::ifstream ifs(opts::ArgsFromFile);
+
+      while (ifs) {
+        std::string &arg_entry = args_file_args.emplace_back();
+        char ch;
+        while (ifs.read(&ch, sizeof(ch))) {
+          if (ch == '\0')
+            break;
+
+          //
+          // build up environment entry
+          //
+          arg_entry.push_back(ch);
+        }
+
+        if (!arg_entry.empty())
+          arg_vec.push_back(arg_entry.c_str());
+      }
+    } else {
+      arg_vec.push_back(prog_path.c_str());
+
+      for (std::string &s : opts::Args)
+        arg_vec.push_back(s.c_str());
+    }
 
     arg_vec.push_back(nullptr);
 
