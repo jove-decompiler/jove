@@ -345,6 +345,7 @@ public:
   const Elf_Shdr *getPltSymTable() const { return PltSymTable; }
 
 private:
+  uint64_t GotSecAddr = 0;
   const Elf_Shdr *GotSec;
   size_t LocalNum;
   size_t GlobalNum;
@@ -421,18 +422,27 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
                        ") exceeds the number of dynamic symbols (" +
                        llvm::Twine(DynSymTotal) + ")");
 
-  GotSec = findNotEmptySectionByAddress(Obj, FileName, *DtPltGot);
-  if (!GotSec)
-    return llvm::object::createError("there is no non-empty GOT section at 0x" +
-                       llvm::Twine::utohexstr(*DtPltGot));
-
   LocalNum = *DtLocalGotNum;
   GlobalNum = DynSymTotal - *DtGotSym;
 
-  llvm::ArrayRef<uint8_t> Content =
-      unwrapOrError(Obj.getSectionContents(GotSec));
-  GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
-                       Content.size() / sizeof(Entry));
+  GotSec = findNotEmptySectionByAddress(Obj, FileName, *DtPltGot);
+  if (GotSec) {
+    llvm::ArrayRef<uint8_t> Content =
+        unwrapOrError(Obj.getSectionContents(GotSec));
+    GotEntries = Entries(reinterpret_cast<const Entry *>(Content.data()),
+                         Content.size() / sizeof(Entry));
+  } else {
+    GotSecAddr = *DtPltGot;
+
+    llvm::Expected<const uint8_t *> ExpectedContents = Obj.toMappedAddr(GotSecAddr);
+    if (!ExpectedContents) {
+      return llvm::object::createError("GotSecAddr does not exist in any load segment");
+    }
+
+    GotEntries = Entries(reinterpret_cast<const Entry *>(*ExpectedContents),
+                         GlobalNum + LocalNum);
+  }
+
   GotDynSyms = DynSyms.drop_front(*DtGotSym);
 
   return llvm::Error::success();
@@ -505,6 +515,7 @@ llvm::Error MipsGOTParser::findPLT(Elf_Dyn_Range DynTable) {
 #endif
 
 uint64_t MipsGOTParser::getGp() const {
+  assert(GotSec);
   return GotSec->sh_addr + 0x7ff0;
 }
 
@@ -535,6 +546,9 @@ typename MipsGOTParser::Entries
 MipsGOTParser::getGlobalEntries() const {
   if (GlobalNum == 0)
     return Entries();
+
+  //WithColor::note() << llvm::formatv("[MipsGOTParser::getGlobalEntries] GotEntries.size()={0} LocalNum={1} GlobalNum={2}\n", GotEntries.size(), LocalNum, GlobalNum);
+
   return GotEntries.slice(LocalNum, GlobalNum);
 }
 
@@ -548,7 +562,12 @@ MipsGOTParser::getOtherEntries() const {
 
 uint64_t MipsGOTParser::getGotAddress(const Entry *E) const {
   int64_t Offset = std::distance(GotEntries.data(), E) * sizeof(Entry);
-  return GotSec->sh_addr + Offset;
+  if (GotSec) {
+    return GotSec->sh_addr + Offset;
+  } else {
+    assert(GotSecAddr);
+    return GotSecAddr + Offset;
+  }
 }
 
 int64_t MipsGOTParser::getGotOffset(const Entry *E) const {
