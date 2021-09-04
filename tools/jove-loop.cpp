@@ -71,6 +71,11 @@ static cl::list<std::string>
          cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
          cl::desc("Extra environment variables"), cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    EnvFromFile("env-from-file",
+                cl::desc("use output from `cat /proc/<pid>/environ`"),
+                cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -584,6 +589,12 @@ run:
           arg_vec.push_back("--outside-chroot");
 
         std::string env_arg;
+
+        if (!opts::EnvFromFile.empty()) {
+          /* use environment from file */
+          arg_vec.push_back("--env-from-file");
+          arg_vec.push_back(opts::EnvFromFile.c_str());
+        }
 
         if (!opts::Envs.empty()) {
           for (std::string &s : opts::Envs) {

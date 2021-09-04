@@ -42,6 +42,11 @@ static cl::list<std::string>
          cl::value_desc("KEY_1=VALUE_1,KEY_2=VALUE_2,...,KEY_n=VALUE_n"),
          cl::desc("Extra environment variables"), cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    EnvFromFile("env-from-file",
+                cl::desc("use output from `cat /proc/<pid>/environ`"),
+                cl::cat(JoveCategory));
+
 static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
                                     cl::Required, cl::cat(JoveCategory));
 
@@ -797,68 +802,73 @@ int run_outside_chroot(void) {
   int pid = fork();
   if (!pid) {
     //
-    // compute new environment
+    // compute environment
     //
-    struct {
-      std::vector<std::string> s_vec;
-      std::vector<const char *> a_vec;
-    } env;
+    std::list<std::string> env_file_args;
+    std::vector<const char *> env_vec;
 
-    for (char **p = ::environ; *p; ++p) {
-      const std::string s(*p);
+    if (!opts::EnvFromFile.empty()) {
+      std::ifstream ifs(opts::EnvFromFile);
 
-      auto beginswith = [&](const std::string &x) -> bool {
-        return s.compare(0, x.size(), x) == 0;
-      };
+      while (ifs) {
+        std::string &env_entry = env_file_args.emplace_back();
+        char ch;
+        while (ifs.read(&ch, sizeof(ch))) {
+          if (ch == '\0')
+            break;
 
+          //
+          // build up environment entry
+          //
+          env_entry.push_back(ch);
+        }
+
+        if (!env_entry.empty())
+          env_vec.push_back(env_entry.c_str());
+      }
+    } else {
       //
-      // filter pre-existing environment entries
+      // initialize env from environ
       //
-      if (beginswith("JOVE_RECOVER_FIFO="))
-        continue;
-
-      env.s_vec.push_back(s);
+      for (char **p = ::environ; *p; ++p)
+        env_vec.push_back(*p);
     }
-
-    env.s_vec.push_back("JOVE_RECOVER_FIFO=/jove-recover.fifo");
 
 #if defined(__x86_64__)
     // <3 glibc
-    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-AVX_Usable,"
-                        "-AVX2_Usable,"
-                        "-AVX512F_Usable,"
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Unaligned_Load,"
-                        "-ERMS,"
-                        "-AVX_Fast_Unaligned_Load");
+    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                      "-AVX_Usable,"
+                      "-AVX2_Usable,"
+                      "-AVX512F_Usable,"
+                      "-SSE4_1,"
+                      "-SSE4_2,"
+                      "-SSSE3,"
+                      "-Fast_Unaligned_Load,"
+                      "-ERMS,"
+                      "-AVX_Fast_Unaligned_Load");
 #elif defined(__i386__)
     // <3 glibc
-    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Rep_String,"
-                        "-Fast_Unaligned_Load,"
-                        "-SSE2");
+    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                      "-SSE4_1,"
+                      "-SSE4_2,"
+                      "-SSSE3,"
+                      "-Fast_Rep_String,"
+                      "-Fast_Unaligned_Load,"
+                      "-SSE2");
 #endif
 
     //
     // disable lazy linking (please)
     //
-    env.s_vec.push_back("LD_BIND_NOW=1");
+    env_vec.push_back("LD_BIND_NOW=1");
 
     if (fs::exists("/firmadyne/libnvram.so"))
-      env.s_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
+      env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
     for (std::string &s : opts::Envs)
-      env.s_vec.push_back(s);
+      env_vec.push_back(s.c_str());
 
-    for (const std::string &s : env.s_vec)
-      env.a_vec.push_back(s.c_str());
-    env.a_vec.push_back(nullptr);
+    env_vec.push_back(nullptr);
 
     fs::path prog_path = fs::path(opts::sysroot) / opts::Prog.c_str();
 
@@ -874,7 +884,7 @@ int run_outside_chroot(void) {
     print_command(&arg_vec[0]);
     execve(arg_vec[0],
            const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env.a_vec[0]));
+           const_cast<char **>(&env_vec[0]));
 
     fprintf(stderr, "execve failed: %s\n", strerror(errno));
     return 1;
