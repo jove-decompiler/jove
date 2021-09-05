@@ -393,6 +393,9 @@ llvm::Error MipsGOTParser::findGOT(Elf_Dyn_Range DynTable,
   llvm::Optional<uint64_t> DtLocalGotNum;
   llvm::Optional<uint64_t> DtGotSym;
   for (const auto &Entry : DynTable) {
+    if (unlikely(Entry.getTag() == llvm::ELF::DT_NULL))
+      break; /* marks end of dynamic table. */
+
     switch (Entry.getTag()) {
     case llvm::ELF::DT_PLTGOT:
       DtPltGot = Entry.getVal();
