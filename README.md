@@ -5,7 +5,7 @@ https://images.aarno-labs.com/jove/
 ```bash
 # (Assuming this is an x86_64 host)
 mkdir /opt/jove
-tar -xvf jove.v0.78.2b7988cc-x86_64-multiarch.tar.xz -C /opt/jove
+tar -xvf jove.v0.78-x86_64-multiarch.tar.xz -C /opt/jove
 
 # Choose one of the target architectures:
 export PATH=$PATH:/opt/jove/i386
@@ -15,7 +15,7 @@ export PATH=$PATH:/opt/jove/mips64
 export PATH=$PATH:/opt/jove/aarch64
 ```
 
-Some tools, such as `jove-bootstrap`, will only work if the target architecture matches the host's.
+`jove-bootstrap` requires the target architecture to match the host's.
 
 # FAQ
 ### What is jove?
@@ -31,7 +31,7 @@ jove-init -o ls.jv /usr/bin/ls
 jove-bootstrap -d ls.jv /usr/bin/ls -s -- -la /
 
 mkdir ls.sysroot
-jove-loop -d ls.jv --sysroot ls.sysroot /usr/bin/ls -- -la /
+sudo $(which jove-loop) -d ls.jv --sysroot ls.sysroot /usr/bin/ls -- -la /
 ```
 For debian-based systems you can run the following to install all needed debug symbols (remember to re-run jove-init)
 ```bash
@@ -68,7 +68,7 @@ jove-bootstrap -d dnsmasq.jv -s /usr/sbin/dnsmasq -- -C mydnsmasq.conf -d -q -k 
 mkdir dnsmasq.sysroot
 cp mydnsmasq.conf dnsmasq.sysroot/
 
-jove-loop -d dnsmasq.jv --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
+sudo $(which jove-loop) -d dnsmasq.jv --sysroot dnsmasq.sysroot /usr/sbin/dnsmasq -- -C /mydnsmasq.conf -d -q -k --dhcp-alternate-port
 ```
 
 ## `miniupnpd` (debian)
@@ -105,7 +105,7 @@ mkdir miniupnpd.sysroot
 cp myminiupnpd.conf miniupnpd.sysroot/
 mkdir -p miniupnpd.sysroot/var/run
 
-jove-loop -d miniupnpd.jv --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
+sudo $(which jove-loop) -d miniupnpd.jv --sysroot miniupnpd.sysroot /usr/sbin/miniupnpd -- -d -f /myminiupnpd.conf
 ```
 
 ## `nginx` (debian)
@@ -159,7 +159,7 @@ mkdir -p nginx.sysroot/var/lib/nginx
 mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
 
-sudo jove-loop -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
+sudo $(which jove-loop) -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
 ## `httpd` (Netgear WNDR4500)
 When running jove under firmadyne, use the version of `libnvram` in the third_party directory.
@@ -191,7 +191,7 @@ jove-bootstrap -d /mnt/httpd.jv -e /usr/sbin/httpd --attach 503
 
 assuming host is network-connected to guest with IP 192.168.1.2, run in the guest:
 ```bash
-jove-loop -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
+sudo $(which jove-loop) -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --sysroot /mnt/wndr4500/sysroot httpd.sysroot -x /usr/sbin/httpd -- -S -E /usr/sbin/ca.pem /usr/sbin/httpsd.pem
 ```
 
 Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This makes it possible to run the recompiled program without the use of a chroot.
@@ -220,16 +220,14 @@ cd ..
 make -j$(nproc)
 ```
 
-And you are done.
-
 [1] This will continue to be the case until distribution-provided llvm packages
 contain the following files (which are a natural result of the llvm build process):
 
 ```
-../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
-../../../third_party/llvm-project/build/lib/Target/AArch64/AArch64GenRegisterInfo.inc
-../../../third_party/llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
-../../../third_party/llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
-../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
-../../../third_party/llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
+llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
+llvm-project/build/lib/Target/AArch64/AArch64GenRegisterInfo.inc
+llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
+llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
+llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
+llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
 ```
