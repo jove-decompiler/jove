@@ -19,7 +19,7 @@ export PATH=$PATH:/opt/jove/aarch64
 
 # FAQ
 ### What is jove?
-A: Given a dynamically linked linux executable `E`, jove produces source code for `E` that, when compiled and run, produce the same outputs.
+A: Given a dynamically linked linux executable `E`, jove produces source code for `E` that, when compiled and run, produces the same outputs for the same inputs.
 ### What's the catch?
 A: You have to run the program in question under `jove-bootstrap` (the ptrace(2)-based dynamic analysis) for all the inputs that you should require of the recompiled program.
 
