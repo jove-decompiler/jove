@@ -1310,7 +1310,7 @@ BOOST_PP_REPEAT(4, __THUNK, void)
   assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
 
   JoveRecoverFunctionFunc = Module->getFunction("_jove_recover_function");
-  //assert(JoveRecoverFunctionFunc && !JoveRecoverFunctionFunc->empty());
+  assert(JoveRecoverFunctionFunc && !JoveRecoverFunctionFunc->empty());
 
   JoveAllocStackFunc = Module->getFunction("_jove_alloc_stack");
   assert(JoveAllocStackFunc);
@@ -9516,8 +9516,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       if (T.Type == TERMINATOR::INDIRECT_JUMP)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
 
-      if (T.Type == TERMINATOR::INDIRECT_CALL &&
-          JoveRecoverFunctionFunc)
+      if (T.Type == TERMINATOR::INDIRECT_CALL)
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
 
       if (JoveFail1Func) {
@@ -9605,9 +9604,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                       IRB.CreateLoad(TC.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
-
-        if (JoveRecoverFunctionFunc)
-          IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+        IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
 
         if (JoveFail1Func) {
           llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
