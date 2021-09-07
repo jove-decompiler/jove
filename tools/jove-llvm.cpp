@@ -9809,7 +9809,7 @@ BOOST_PP_REPEAT(4, __THUNK, void)
                   CPUStateGlobalPointer(tcg_stack_pointer_index)};
 
               Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-              Ret->setIsNoInline()
+              Ret->setIsNoInline();
             }
 #endif
 
