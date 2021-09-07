@@ -1175,7 +1175,8 @@ void worker(const dso_graph_t &dso_graph) {
           nullptr
         };
 
-        print_command(&arg_arr[0]);
+        if (opts::Verbose)
+          print_command(&arg_arr[0]);
 
         close(STDIN_FILENO);
         execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
@@ -1208,7 +1209,8 @@ void worker(const dso_graph_t &dso_graph) {
           nullptr
         };
 
-        print_command(&arg_arr[0]);
+        if (opts::Verbose)
+          print_command(&arg_arr[0]);
 
         close(STDIN_FILENO);
         execve(arg_arr[0], const_cast<char **>(&arg_arr[0]), ::environ);
