@@ -15,6 +15,10 @@
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
 
+#ifdef __i386__
+#define _REGPARM __attribute__((regparm(3)))
+#endif
+
 #define _UNREACHABLE(...)                                                      \
   do {                                                                         \
     char line_str[65];                                                         \

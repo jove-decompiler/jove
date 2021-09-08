@@ -27,6 +27,108 @@ _CTOR _HIDDEN void _jove_install_function_table(void) {
   }
 }
 
+static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *dash = _memchr(line, '-', left);
+      return _u64ofhexstr(line, dash);
+    }
+  }
+
+  _UNREACHABLE();
+}
+
+static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  const char *const dynl_path_beg = _jove_dynl_path();
+  const unsigned    dynl_path_len = _strlen(dynl_path_beg);
+  const char *const dynl_path_end = &dynl_path_beg[dynl_path_len];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    bool match = true;
+
+    {
+      const char *s1 = dynl_path_end - 1;
+      const char *s2 = eol - 1;
+      for (;;) {
+        if (*s1 != *s2) {
+          match = false;
+          break;
+        }
+
+        if (s1 == dynl_path_beg)
+          break; /* we're done here */
+
+        --s1;
+        --s2;
+      }
+    }
+
+    if (match) {
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      bool x = *xp == 'x';
+      if (!x)
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+      uint64_t res = _u64ofhexstr(line, dash);
+
+      // offset may be nonzero for dynamic linker
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        unsigned _left = n - (offset - beg);
+        char *offset_end = _memchr(offset, ' ', _left);
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      return res - off;
+    }
+  }
+
+  _UNREACHABLE();
+}
+
+
 void _jove_install_foreign_function_tables(void) {
   static bool Done = false;
   if (Done)
@@ -281,8 +383,7 @@ _NORET void _jove_fail2(uintptr_t a0,
   __builtin_unreachable();
 }
 
-#ifdef JOVE_DFSAN
-
+#if defined(JOVE_DFSAN)
 void _jove_check_return_address(uintptr_t RetAddr,
                                 uintptr_t NativeRetAddr) {
   if (RetAddr == 0x0 /* XXX? */ || _jove_is_readable_mem(RetAddr))
@@ -294,6 +395,11 @@ void _jove_check_return_address(uintptr_t RetAddr,
   _UNREACHABLE("stack smashing detected");
 #endif
 }
+
+#if defined(__mips__) || defined(__i386__)
+//
+// 32-bit DFSan
+//
 
 typedef uint16_t dfsan_label;
 
@@ -318,10 +424,20 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
+#if defined(__mips__)
     unsigned long shadow_base = _jove_sys_mips_mmap(0x0, JOVE_SHADOW_SIZE,
                                                     PROT_READ | PROT_WRITE,
                                                     MAP_PRIVATE | MAP_ANONYMOUS,
                                                     -1L, 0);
+#elif defined(__i386__)
+    unsigned long shadow_base = _jove_sys_mmap_pgoff(0x0, JOVE_SHADOW_SIZE,
+                                                     PROT_READ | PROT_WRITE,
+                                                     MAP_PRIVATE | MAP_ANONYMOUS,
+                                                     -1L, 0);
+#else
+#error
+#endif
+
     if (IS_ERR_VALUE(shadow_base)) {
       __builtin_trap();
       __builtin_unreachable();
@@ -335,4 +451,5 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
   return &shadow[Offset];
 }
 
+#endif
 #endif
