@@ -420,7 +420,7 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
   unsigned Region = AddrLowerBits / JOVE_SHADOW_REGION_SIZE;
   unsigned Offset = AddrLowerBits % JOVE_SHADOW_REGION_SIZE;
 
-  struct dfsan_label **shadowp = &__df32_shadow_mem[AddrUpperBits].X[Region];
+  dfsan_label **shadowp = &__df32_shadow_mem[AddrUpperBits].X[Region];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
