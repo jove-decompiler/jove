@@ -924,3 +924,8 @@ void _jove_free_callstack(target_ulong start) {
     __builtin_unreachable();
   }
 }
+
+void _jove_sleep(void) {
+  for (;;)
+    _jove_sys_sched_yield();
+}
