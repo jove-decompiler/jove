@@ -1768,11 +1768,11 @@ struct CPUMIPSState {
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
-static uintptr_t _jove_alloc_callstack(void);
+static _INL uintptr_t _jove_alloc_callstack(void);
 _HIDDEN void _jove_free_callstack(uintptr_t);
 
-static uintptr_t _jove_alloc_stack(void);
-static void _jove_free_stack(uintptr_t);
+static _INL uintptr_t _jove_alloc_stack(void);
+static _INL void _jove_free_stack(uintptr_t);
 
 _HIDDEN void _jove_free_stack_later(uintptr_t);
 _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
