@@ -987,6 +987,9 @@ __int128 _jove_thunk6(uint64_t rdi,
                : /* Clobbers */);
 }
 
+#undef JOVE_THUNK_PROLOGUE
+#undef JOVE_THUNK_EPILOGUE
+
 uintptr_t _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
