@@ -754,8 +754,8 @@ void _jove_callstack_init(void) {
   "popl %%ebp\n"                                                               \
   "ret\n"
 
-uint64_t _jove_thunk0(target_ulong dstpc,  /* eax */
-                      target_ulong *emuspp /* edx */) {
+uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
+                      uint32_t *emuspp /* edx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl %%edx, %%edi\n" /* emuspp in edi */
@@ -777,9 +777,9 @@ uint64_t _jove_thunk0(target_ulong dstpc,  /* eax */
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk1(target_ulong eax,
-                      target_ulong dstpc,  /* edx */
-                      target_ulong *emuspp /* ecx */) {
+uint64_t _jove_thunk1(uint32_t eax,
+                      uint32_t dstpc,  /* edx */
+                      uint32_t *emuspp /* ecx */) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl %%ecx, %%edi\n" /* emuspp in edi */
@@ -801,10 +801,10 @@ uint64_t _jove_thunk1(target_ulong eax,
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk2(target_ulong eax,
-                      target_ulong edx,
-                      target_ulong dstpc,  /* ecx */
-                      target_ulong *emuspp) {
+uint64_t _jove_thunk2(uint32_t eax,
+                      uint32_t edx,
+                      uint32_t dstpc,  /* ecx */
+                      uint32_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl 20(%%esp), %%edi\n" /* emuspp in edi */
@@ -826,11 +826,11 @@ uint64_t _jove_thunk2(target_ulong eax,
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk3(target_ulong eax,
-                      target_ulong edx,
-                      target_ulong ecx,
-                      target_ulong dstpc,
-                      target_ulong *emuspp) {
+uint64_t _jove_thunk3(uint32_t eax,
+                      uint32_t edx,
+                      uint32_t ecx,
+                      uint32_t dstpc,
+                      uint32_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
                "movl 20(%%esp), %%esi\n" /* dstpc in esi */
