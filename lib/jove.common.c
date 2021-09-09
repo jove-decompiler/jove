@@ -274,8 +274,6 @@ static _INL uintptr_t _get_stack_end(void) {
   return res;
 }
 
-static bool _jove_is_readable_mem(uintptr_t Addr);
-
 _NORET void _jove_fail1(uintptr_t a0) {
   char maps[4096 * 8];
   const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
@@ -386,6 +384,8 @@ _NORET void _jove_fail2(uintptr_t a0,
 #if defined(JOVE_DFSAN)
 void _jove_check_return_address(uintptr_t RetAddr,
                                 uintptr_t NativeRetAddr) {
+  return;
+
   if (RetAddr == 0x0 /* XXX? */ || _jove_is_readable_mem(RetAddr))
     return;
 

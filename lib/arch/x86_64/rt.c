@@ -564,53 +564,7 @@ typedef struct CPUX86State {
 /* __thread */ uint64_t *__jove_callstack       = NULL;
 /* __thread */ uint64_t *__jove_callstack_begin = NULL;
 
-#define _JOVE_MAX_BINARIES 512
-
-uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
-    [0 ... _JOVE_MAX_BINARIES - 1] = NULL
-};
-
-//
-// sigaction
-//
-
-#define _NSIG		64
-
-# define _NSIG_BPW	64
-
-#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
-
-typedef struct {
-	unsigned long sig[_NSIG_WORDS];
-} kernel_sigset_t;
-
-#  define __user
-
-typedef void __signalfn_t(int);
-
-typedef __signalfn_t __user *__sighandler_t;
-
-#define __ARCH_HAS_SA_RESTORER
-
-typedef void __restorefn_t(void);
-
-typedef __restorefn_t __user *__sigrestore_t;
-
-struct kernel_sigaction {
-#ifndef __ARCH_HAS_IRIX_SIGACTION
-	__sighandler_t	sa_handler;
-	unsigned long	sa_flags;
-#else
-	unsigned int	sa_flags;
-	__sighandler_t	sa_handler;
-#endif
-#ifdef __ARCH_HAS_SA_RESTORER
-	__sigrestore_t sa_restorer;
-#endif
-	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
-};
-
-#define _GNU_SOURCE
+#define _GNU_SOURCE /* for REG_RIP */
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -623,98 +577,32 @@ struct kernel_sigaction {
 #include <sys/uio.h>
 #include <signal.h>
 
-#define __LOG_COLOR_PREFIX "\033["
-#define __LOG_COLOR_SUFFIX "m"
-
-#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
-#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX "CS-ERROR: "
-#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
-#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
-#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
-#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-
-#define _CTOR   __attribute__((constructor(0)))
-#define _INL    __attribute__((always_inline))
-#define _UNUSED __attribute__((unused))
-#define _NAKED  __attribute__((naked))
-#define _NOINL  __attribute__((noinline))
-#define _NORET  __attribute__((noreturn))
-#define _HIDDEN __attribute__((visibility("hidden")))
+#include "rt.constants.h"
+#include "rt.macros.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
+#include "rt.common.c"
+#include "rt.util.c"
+
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
-_NAKED static void _jove_do_rt_sigreturn(void);
-_NAKED static void _jove_inverse_thunk(void);
-static void _jove_callstack_init(void);
-static void _jove_init_cpu_state(void);
 
-#define _UNREACHABLE()                                                         \
-  do {                                                                         \
-    char line_str[65];                                                         \
-    uint_to_string(__LINE__, line_str, 10);                                    \
-                                                                               \
-    char buff[256];                                                            \
-    buff[0] = '\0';                                                            \
-                                                                               \
-    _strcat(buff, "JOVE UNREACHABLE (");                                       \
-    _strcat(buff, __FILE__);                                                   \
-    _strcat(buff, ":");                                                        \
-    _strcat(buff, line_str);                                                   \
-    _strcat(buff, ")\n");                                                      \
-    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
-                                                                               \
-    _jove_sys_exit_group(1);                                                   \
-                                                                               \
-    __builtin_unreachable();                                                   \
-  } while (false)
+static uintptr_t _jove_alloc_callstack(void);
+_HIDDEN void _jove_free_callstack(uintptr_t);
 
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (2048 * JOVE_PAGE_SIZE)
-
-static target_ulong _jove_alloc_callstack(void);
-_HIDDEN void _jove_free_callstack(target_ulong);
-
-static target_ulong _jove_alloc_stack(void);
-_HIDDEN void _jove_free_stack(target_ulong);
+static uintptr_t _jove_alloc_stack(void);
+_HIDDEN void _jove_free_stack(uintptr_t);
 
 _HIDDEN uintptr_t _jove_emusp_location(void);
 _HIDDEN uintptr_t _jove_callstack_location(void);
 _HIDDEN uintptr_t _jove_callstack_begin_location(void);
-_HIDDEN void _jove_free_stack_later(target_ulong);
-_HIDDEN uintptr_t _jove_handle_signal_delivery(target_ulong SignalDelivery,
+_HIDDEN void _jove_free_stack_later(uintptr_t);
+_HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
                                                struct CPUX86State *SavedState);
 
-#define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
-//
-// utility functions
-//
-static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
-static _INL void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n);
-static _INL void *_memset(void *dst, int c, size_t n);
-static _INL void *_memchr(const void *s, int c, size_t n);
-static _INL void *_memcpy(void *dest, const void *src, size_t n);
-static _INL size_t _strlen(const char *s);
-static _INL char *_strcat(char *s, const char *append);
-static _INL void _addrtostr(uintptr_t addr, char *dst, size_t n);
-static _INL void uint_to_string(uint64_t x, char *Str, unsigned Radix);
-static _INL ssize_t _robust_write(int fd, void *const buf, const size_t count);
-static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
-static _INL unsigned _getHexDigit(char cdigit);
-
-//
-// definitions
-//
-
 #if 0
-void _jove_do_rt_sigreturn(void) {
+_NAKED static void _jove_do_rt_sigreturn(void) {
   asm volatile("movq $0xf, %rax\n"
                "syscall\n");
 }
@@ -722,7 +610,7 @@ void _jove_do_rt_sigreturn(void) {
 
 extern void restore_rt (void) asm ("__restore_rt") __attribute__ ((visibility ("hidden")));
 
-void _jove_inverse_thunk(void) {
+_NAKED static void _jove_inverse_thunk(void) {
   asm volatile("pushq $0xdead\n"
                "pushq %%rax\n" /* preserve return registers */
                "pushq %%rdx\n"
@@ -791,17 +679,55 @@ void _jove_inverse_thunk(void) {
                : /* Clobbers */);
 }
 
-static _CTOR void _jove_rt_init(void) {
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
+static void _jove_callstack_init(void);
+static void _jove_init_cpu_state(void);
 
 #undef sa_handler
 #undef sa_restorer
 #undef sa_flags
 
-#ifdef SA_RESTORER
-#error
+#define _NSIG		64
+
+# define _NSIG_BPW	64
+
+#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
+
+typedef struct {
+	unsigned long sig[_NSIG_WORDS];
+} kernel_sigset_t;
+
+#  define __user
+
+typedef void __signalfn_t(int);
+
+typedef __signalfn_t __user *__sighandler_t;
+
+#define __ARCH_HAS_SA_RESTORER
+
+typedef void __restorefn_t(void);
+
+typedef __restorefn_t __user *__sigrestore_t;
+
+struct kernel_sigaction {
+#ifndef __ARCH_HAS_IRIX_SIGACTION
+	__sighandler_t	sa_handler;
+	unsigned long	sa_flags;
 #else
+	unsigned int	sa_flags;
+	__sighandler_t	sa_handler;
+#endif
+#ifdef __ARCH_HAS_SA_RESTORER
+	__sigrestore_t sa_restorer;
+#endif
+	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
+};
+
+
+static _CTOR void _jove_rt_init(void) {
+  struct kernel_sigaction sa;
+  _memset(&sa, 0, sizeof(sa));
+
+#ifndef SA_RESTORER
 #define SA_RESTORER 0x04000000
 #endif
 
@@ -814,7 +740,7 @@ static _CTOR void _jove_rt_init(void) {
   if (ret < 0)
     _UNREACHABLE();
 
-  target_ulong newstack = _jove_alloc_stack();
+  uintptr_t newstack = _jove_alloc_stack();
 
   stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
                  .ss_flags = 0,
@@ -829,7 +755,7 @@ static _CTOR void _jove_rt_init(void) {
   _jove_init_cpu_state();
 }
 
-static target_ulong to_free[16];
+static uintptr_t to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.gregs[REG_RIP]
@@ -911,7 +837,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         for (unsigned i = 0; i < 9; ++i)
         {
           char buff[65];
-          uint_to_string(((uint8_t *)saved_retaddr)[i], buff, 0x10);
+          _uint_to_string(((uint8_t *)saved_retaddr)[i], buff, 0x10);
 
           _strcat(s, "0x");
           _strcat(s, buff);
@@ -991,7 +917,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   _strcat(s, "*** crash (jove) *** [");
   {
     char buff[65];
-    uint_to_string(_jove_sys_gettid(), buff, 10);
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
 
     _strcat(s, buff);
   }
@@ -1003,7 +929,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
                                                                                \
     {                                                                          \
       char _buff[65];                                                          \
-      uint_to_string(init, _buff, 0x10);                                       \
+      _uint_to_string(init, _buff, 0x10);                                      \
                                                                                \
       _strcat(s, _buff);                                                       \
     }                                                                          \
@@ -1060,87 +986,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   __builtin_unreachable();
 }
 
-unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
-  unsigned n;
-
-  {
-    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0)
-      _UNREACHABLE();
-
-    // let n denote the number of characters read
-    n = 0;
-
-    for (;;) {
-      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
-
-      if (ret == 0)
-        break;
-
-      if (ret < 0) {
-        if (ret == -EINTR)
-          continue;
-
-        _UNREACHABLE();
-      }
-
-      n += ret;
-    }
-
-    if (_jove_sys_close(fd) < 0)
-      _UNREACHABLE();
-  }
-
-  return n;
-}
-
-ssize_t _robust_write(int fd, void *const buf, const size_t count) {
-  uint8_t *const _buf = (uint8_t *)buf;
-
-  unsigned n = 0;
-  do {
-    unsigned left = count - n;
-
-    ssize_t ret = _jove_sys_write(fd, &_buf[n], left);
-
-    if (ret == 0)
-      return -EIO;
-
-    if (ret < 0) {
-      if (ret == -EINTR)
-        continue;
-
-      return ret;
-    }
-
-    n += ret;
-  } while (n != count);
-
-  return n;
-}
-
-void *_memcpy(void *dest, const void *src, size_t n) {
-  unsigned char *d = dest;
-  const unsigned char *s = src;
-
-  for (; n; n--)
-    *d++ = *s++;
-
-  return dest;
-}
-
-void *_memset(void *dst, int c, size_t n) {
-  if (n != 0) {
-    unsigned char *d = dst;
-
-    do
-      *d++ = (unsigned char)c;
-    while (--n != 0);
-  }
-  return (dst);
-}
-
-target_ulong _jove_alloc_stack(void) {
+uintptr_t _jove_alloc_stack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096)
@@ -1163,12 +1009,12 @@ target_ulong _jove_alloc_stack(void) {
   return beg;
 }
 
-void _jove_free_stack(target_ulong beg) {
+void _jove_free_stack(uintptr_t beg) {
   if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
     _UNREACHABLE();
 }
 
-target_ulong _jove_alloc_callstack(void) {
+uintptr_t _jove_alloc_callstack(void) {
   long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
   if (ret < 0 && ret > -4096)
@@ -1191,12 +1037,12 @@ target_ulong _jove_alloc_callstack(void) {
   return beg;
 }
 
-void _jove_free_callstack(target_ulong start) {
+void _jove_free_callstack(uintptr_t start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
     _UNREACHABLE();
 }
 
-void _jove_free_stack_later(target_ulong stack) {
+void _jove_free_stack_later(uintptr_t stack) {
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
       continue;
@@ -1208,7 +1054,7 @@ void _jove_free_stack_later(target_ulong stack) {
   _UNREACHABLE();
 }
 
-uintptr_t _jove_handle_signal_delivery(target_ulong SignalDelivery,
+uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
                                        struct CPUX86State *SavedState) {
   uintptr_t res = __jove_env.regs[R_ESP];
 
@@ -1244,290 +1090,26 @@ uintptr_t _jove_handle_signal_delivery(target_ulong SignalDelivery,
   return res;
 }
 
-void uint_to_string(uint64_t x, char *Str, unsigned Radix) {
-  // First, check for a zero value and just short circuit the logic below.
-  if (x == 0) {
-    *Str++ = '0';
-
-    // null-terminate
-    *Str = '\0';
-    return;
-  }
-
-  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-  char Buffer[65];
-  char *BufPtr = &Buffer[sizeof(Buffer)];
-
-  uint64_t N = x;
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
-    *Str++ = *p;
-
-  // null-terminate
-  *Str = '\0';
-  return;
-}
-
-void _addrtostr(uintptr_t addr, char *Str, size_t n) {
-  const unsigned Radix = 16;
-  const bool formatAsCLiteral = true;
-  const bool Signed = false;
-
-#if 0
-  assert((Radix == 10 || Radix == 8 || Radix == 16 || Radix == 2 ||
-          Radix == 36) &&
-         "Radix should be 2, 8, 10, 16, or 36!");
-#endif
-
-  const char *Prefix = "";
-  if (formatAsCLiteral) {
-    switch (Radix) {
-      case 2:
-        // Binary literals are a non-standard extension added in gcc 4.3:
-        // http://gcc.gnu.org/onlinedocs/gcc-4.3.0/gcc/Binary-constants.html
-        Prefix = "0b";
-        break;
-      case 8:
-        Prefix = "0";
-        break;
-      case 10:
-        break; // No prefix
-      case 16:
-        Prefix = "0x";
-        break;
-      default: /* invalid radix */
-        __builtin_trap();
-        __builtin_unreachable();
-    }
-  }
-
-  // First, check for a zero value and just short circuit the logic below.
-  if (addr == 0) {
-    while (*Prefix)
-      *Str++ = *Prefix++;
-
-    *Str++ = '0';
-    *Str++ = '\0'; /* null-terminate */
-    return;
-  }
-
-  static const char Digits[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-  char Buffer[65];
-  char *BufPtr = &Buffer[sizeof(Buffer)];
-
-  uint64_t N = addr;
-
-  while (*Prefix)
-    *Str++ = *Prefix++;
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *Ptr = BufPtr; Ptr != &Buffer[sizeof(Buffer)]; ++Ptr)
-    *Str++ = *Ptr;
-
-  *Str = '\0';
-}
-
-char *_strcat(char *s, const char *append) {
-  char *save = s;
-
-  for (; *s; ++s)
-    ;
-  while ((*s++ = *append++) != '\0')
-    ;
-  return (save);
-}
-
-size_t _strlen(const char *str) {
-  const char *s;
-
-  for (s = str; *s; ++s)
-    ;
-  return (s - str);
-}
-
-void *_memchr(const void *s, int c, size_t n) {
-  if (n != 0) {
-    const unsigned char *p = s;
-
-    do {
-      if (*p++ == (unsigned char)c)
-        return ((void *)(p - 1));
-    } while (--n != 0);
-  }
-  return (NULL);
-}
-
 void _jove_init_cpu_state(void) {
   __jove_env.df = 1;
 }
 
 void _jove_callstack_init(void) {
-  target_ulong ptr = _jove_alloc_callstack();
+  uintptr_t ptr = _jove_alloc_callstack();
 
   __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
 
 uintptr_t _jove_emusp_location(void) {
-  return &__jove_env.regs[R_ESP];
+  return (uintptr_t)&__jove_env.regs[R_ESP];
 }
 
 uintptr_t _jove_callstack_location(void) {
-  return &__jove_callstack;
+  return (uintptr_t)&__jove_callstack;
 }
 
 uintptr_t _jove_callstack_begin_location(void) {
-  return &__jove_callstack_begin;
-}
-
-unsigned _getHexDigit(char cdigit) {
-  unsigned radix = 0x10;
-
-  unsigned r;
-
-  if (radix == 16 || radix == 36) {
-    r = cdigit - '0';
-    if (r <= 9)
-      return r;
-
-    r = cdigit - 'A';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    r = cdigit - 'a';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    radix = 10;
-  }
-
-  r = cdigit - '0';
-  if (r < radix)
-    return r;
-
-  return -1U;
-}
-
-uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
-  const unsigned radix = 0x10;
-
-  uint64_t res = 0;
-
-  char *p = str_begin;
-  size_t slen = str_end - str_begin;
-
-  // Figure out if we can shift instead of multiply
-  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
-
-  // Enter digit traversal loop
-  for (char *e = str_end; p != e; ++p) {
-    unsigned digit = _getHexDigit(*p);
-
-    if (!(digit < radix))
-      return 0;
-
-    // Shift or multiply the value by the radix
-    if (slen > 1) {
-      if (shift)
-        res <<= shift;
-      else
-        res *= radix;
-    }
-
-    // Add in the digit we just interpreted
-    res += digit;
-  }
-
-  return res;
-}
-
-void _description_of_address_for_maps(char *out, uintptr_t Addr, char *maps, const unsigned n) {
-  out[0] = '\0'; /* empty */
-
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    {
-      unsigned left = n - (line - beg);
-
-      //
-      // find the end of the current line
-      //
-      eol = _memchr(line, '\n', left);
-    }
-
-    unsigned left = eol - line;
-
-    struct {
-      uint64_t min, max;
-    } vm;
-
-    char *pp;
-    {
-      char *dash = _memchr(line, '-', left);
-      vm.min = _u64ofhexstr(line, dash);
-
-      char *space = _memchr(line, ' ', left);
-      vm.max = _u64ofhexstr(dash + 1, space);
-
-      pp = space + 4;
-    }
-
-    uint64_t off;
-    {
-      char *offset = pp + 2;
-      char *offset_end = _memchr(offset, ' ', n - (offset - beg));
-
-      off = _u64ofhexstr(offset, offset_end);
-    }
-
-    //
-    // does the given address exist within this mapping?
-    //
-    if (Addr >= vm.min && Addr < vm.max) {
-      //
-      // we have a match. If this mapping has a file path, we'll make it the
-      // description
-      //
-      char *fwdslash = _memchr(line, '/', left);
-      char *leftsqbr = _memchr(line, '[', left);
-
-      if (fwdslash) {
-        *eol = '\0';
-        _strcat(out, fwdslash);
-        *eol = '\n';
-      } else if (leftsqbr) {
-        *eol = '\0';
-        _strcat(out, leftsqbr);
-        *eol = '\n';
-      } else {
-        *out = '\0';
-        return;
-      }
-
-      _strcat(out, "+0x");
-
-      ssize_t Offset = Addr - (vm.min - off);
-      char offsetStr[65];
-      uint_to_string(Offset, offsetStr, 0x10);
-
-      _strcat(out, offsetStr);
-
-      return;
-    }
-  }
+  return (uintptr_t)&__jove_callstack_begin;
 }
 
 asm ( "	nop\n" ".align 16\n" ".LSTART_" "restore_rt" ":\n" "	.type __" "restore_rt" ",@function\n" "__" "restore_rt" ":\n" "	movq $" "15" ", %rax\n" "	syscall\n" ".LEND_" "restore_rt" ":\n" ".section .eh_frame,\"a\",@progbits\n" ".LSTARTFRAME_" "restore_rt" ":\n" "	.long .LENDCIE_" "restore_rt" "-.LSTARTCIE_" "restore_rt" "\n" ".LSTARTCIE_" "restore_rt" ":\n" "	.long 0\n" "	.byte 1\n" "	.string \"zRS\"\n" "	.uleb128 1\n" "	.sleb128 -8\n" "	.uleb128 16\n" "	.uleb128 .LENDAUGMNT_" "restore_rt" "-.LSTARTAUGMNT_" "restore_rt" "\n" ".LSTARTAUGMNT_" "restore_rt" ":\n" "	.byte 0x1b\n" ".LENDAUGMNT_" "restore_rt" ":\n" "	.align " "8" "\n" ".LENDCIE_" "restore_rt" ":\n" "	.long .LENDFDE_" "restore_rt" "-.LSTARTFDE_" "restore_rt" "\n" ".LSTARTFDE_" "restore_rt" ":\n" "	.long .LSTARTFDE_" "restore_rt" "-.LSTARTFRAME_" "restore_rt" "\n" "	.long (.LSTART_" "restore_rt" "-1)-.\n" "	.long .LEND_" "restore_rt" "-(.LSTART_" "restore_rt" "-1)\n" "	.uleb128 0\n" "	.byte 0x0f\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "	.byte 0x06\n" "2:" "	.byte 0x10\n" "	.uleb128 " "8" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "40" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "9" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "48" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "10" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "56" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "11" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "64" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "12" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "72" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "13" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "80" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "14" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "88" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "15" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "96" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "5" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "104" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "4" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "112" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "6" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "120" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "3" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "128" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "1" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "136" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "0" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "144" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "2" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "152" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "7" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "160" "\n" "2:" "	.byte 0x10\n" "	.uleb128 " "16" "\n" "	.uleb128 2f-1f\n" "1:	.byte 0x77\n" "	.sleb128 " "168" "\n" "2:" "	.align " "8" "\n" ".LENDFDE_" "restore_rt" ":\n" "	.previous\n" );

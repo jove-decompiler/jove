@@ -1,3 +1,5 @@
+___HOOK1(PRE, int, exit, int)
+___HOOK1(PRE, int, _exit, int)
 ___HOOK1(POST, void *, malloc, target_ulong)
 ___HOOK2(POST, void *, calloc, target_ulong, target_ulong)
 ___HOOK2(POST, char *, strchr, const char *, int)
