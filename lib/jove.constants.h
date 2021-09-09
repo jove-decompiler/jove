@@ -1,5 +1,20 @@
+#define _JOVE_MAX_BINARIES 512
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
 
 #define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
 #define JOVE_TRACE_BUFF_SIZE (32 * JOVE_PAGE_SIZE)
+
+//
+// DFSan
+//
+typedef uint16_t dfsan_label;
+
+#define JOVE_SHADOW_NUM_REGIONS 32
+#define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
+#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE + 2 * JOVE_PAGE_SIZE)
+
+struct shadow_t {
+  uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
+};

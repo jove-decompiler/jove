@@ -1,3 +1,15 @@
+extern /* __thread */ uint64_t *__jove_trace;
+extern /* __thread */ uint64_t *__jove_trace_begin;
+
+extern /* __thread */ uint64_t *__jove_callstack;
+extern /* __thread */ uint64_t *__jove_callstack_begin;
+
+extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
+
+/* -> static */ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
+  [0 ... _JOVE_MAX_BINARIES - 1] = NULL
+};
+
 _CTOR static void _jove_install_foreign_function_tables(void);
 
 _CTOR static void _jove_tpoff_hack(void) {
@@ -400,17 +412,6 @@ void _jove_check_return_address(uintptr_t RetAddr,
 //
 // 32-bit DFSan
 //
-
-typedef uint16_t dfsan_label;
-
-#define JOVE_SHADOW_NUM_REGIONS 32
-#define JOVE_SHADOW_REGION_SIZE (0x10000 / JOVE_SHADOW_NUM_REGIONS)
-#define JOVE_SHADOW_SIZE (sizeof(dfsan_label) * JOVE_SHADOW_REGION_SIZE)
-
-struct shadow_t {
-  uint16_t *X[JOVE_SHADOW_NUM_REGIONS];
-};
-
 extern struct shadow_t __df32_shadow_mem[65536];
 
 static dfsan_label *__df32_shadow_for(uint32_t A) {

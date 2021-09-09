@@ -1738,12 +1738,6 @@ struct CPUMIPSState {
 
 /* __thread */ struct CPUMIPSState __jove_env;
 
-/* __thread */ uint64_t *__jove_trace       = NULL;
-/* __thread */ uint64_t *__jove_trace_begin = NULL;
-
-/* __thread */ uint64_t *__jove_callstack       = NULL;
-/* __thread */ uint64_t *__jove_callstack_begin = NULL;
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>

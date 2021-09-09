@@ -556,19 +556,6 @@ typedef struct CPUX86State {
 
 extern /* __thread */ struct CPUX86State __jove_env;
 
-extern /* __thread */ uint64_t *__jove_trace;
-extern /* __thread */ uint64_t *__jove_trace_begin;
-
-extern /* __thread */ uint64_t *__jove_callstack;
-extern /* __thread */ uint64_t *__jove_callstack_begin;
-
-#define _JOVE_MAX_BINARIES 512
-extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
-
-/* -> static */ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
-  [0 ... _JOVE_MAX_BINARIES - 1] = NULL
-};
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>

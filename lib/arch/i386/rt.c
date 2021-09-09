@@ -556,12 +556,6 @@ typedef struct CPUX86State {
 
 /* __thread */ struct CPUX86State __jove_env;
 
-/* __thread */ uint64_t *__jove_trace       = NULL;
-/* __thread */ uint64_t *__jove_trace_begin = NULL;
-
-/* __thread */ uint64_t *__jove_callstack       = NULL;
-/* __thread */ uint64_t *__jove_callstack_begin = NULL;
-
 #define _GNU_SOURCE /* for REG_EIP */
 #include <sys/types.h>
 #include <sys/stat.h>
