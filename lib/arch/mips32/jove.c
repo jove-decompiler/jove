@@ -1851,9 +1851,13 @@ void _jove_begin(uint32_t a0,
   __jove_env.active_tc.gpr[2] = v0;
 
   /** don't optimize away the following referenced globals **/
-  __jove_env.active_tc.gpr[1] = (uintptr_t)&_jove_rt_init_clunk;
+  __jove_env.irq[0] = (void *)&_jove_rt_init_clunk;
+  __jove_env.irq[1] = (void *)_jove_alloc_stack;
+  __jove_env.irq[2] = (void *)_jove_free_stack;
+  __jove_env.irq[3] = (void *)_jove_alloc_callstack;
+  __jove_env.irq[4] = (void *)_jove_free_callstack;
 #ifdef JOVE_DFSAN
-  __jove_env.active_tc.HI[0]  = (uintptr_t)__df32_shadow_for;
+  __jove_env.irq[5] = (void *)__df32_shadow_for;
 #endif
 
   //
