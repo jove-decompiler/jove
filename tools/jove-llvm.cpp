@@ -1369,7 +1369,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK0(hook_kind, rett, sym)                                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
@@ -1377,10 +1377,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value}},                     \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
@@ -1388,11 +1387,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = std::is_pointer<t2>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t2),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value}},                     \
       .Ret = {.Size = sizeof(rett),                                            \
               .isPointer = std::is_pointer<rett>::value},                      \
@@ -1402,16 +1399,13 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = std::is_pointer<t2>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t2),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = std::is_pointer<t3>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t3),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value}},                     \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
@@ -1419,19 +1413,15 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = std::is_pointer<t2>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t2),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = std::is_pointer<t3>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t3),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = std::is_pointer<t4>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t4),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value}},                     \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
@@ -1439,22 +1429,17 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = std::is_pointer<t2>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t2),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = std::is_pointer<t3>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t3),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = std::is_pointer<t4>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t4),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = std::is_pointer<t5>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t5),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t5>::value}},                     \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
@@ -1462,25 +1447,19 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
       .Sym = #sym,                                                             \
-      .Args = {{.Size = std::is_pointer<t1>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t1),               \
+      .Args = {{.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t1>::value},                      \
-               {.Size = std::is_pointer<t2>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t2),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t2>::value},                      \
-               {.Size = std::is_pointer<t3>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t3),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t3>::value},                      \
-               {.Size = std::is_pointer<t4>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t4),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t4>::value},                      \
-               {.Size = std::is_pointer<t5>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t5),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t5>::value},                      \
-               {.Size = std::is_pointer<t6>::value ? sizeof(target_ulong)      \
-                                                   : sizeof(t6),               \
+               {.Size = sizeof(target_ulong),                                  \
                 .isPointer = std::is_pointer<t6>::value}},                     \
-      .Ret = {.Size = sizeof(rett),                                            \
+      .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
