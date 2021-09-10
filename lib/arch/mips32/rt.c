@@ -1910,6 +1910,14 @@ void _jove_rt_init(void) {
     }
   }
 
+  {
+    long ret =
+        _jove_sys_rt_sigaction(SIGBUS, &sa, NULL, sizeof(kernel_sigset_t));
+    if (ret < 0) {
+      _UNREACHABLE();
+    }
+  }
+
   uintptr_t newstack = _jove_alloc_stack();
 
   stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
@@ -1932,7 +1940,8 @@ static void _jove_sleep(void);
 static uintptr_t to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-  if (sig != SIGSEGV)
+  if (sig != SIGSEGV &&
+      sig != SIGBUS)
     _UNREACHABLE();
 
   //
@@ -2288,8 +2297,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     dfsan_flush_ptr();
   }
 
-  for (;;)
-    _jove_sleep();
+  _jove_sys_exit_group(0x77);
 
   __builtin_trap();
   __builtin_unreachable();
