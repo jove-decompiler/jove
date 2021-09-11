@@ -576,8 +576,11 @@ typedef struct CPUX86State {
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
-#include "rt.common.c"
 #include "rt.util.c"
+
+_REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
+
+#include "rt.common.c"
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
@@ -590,7 +593,6 @@ _REGPARM _HIDDEN void _jove_free_stack(uintptr_t);
 _HIDDEN uintptr_t _jove_emusp_location(void);
 _HIDDEN uintptr_t _jove_callstack_location(void);
 _HIDDEN uintptr_t _jove_callstack_begin_location(void);
-_REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
 _REGPARM _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
                                                         struct CPUX86State *SavedState);
 
@@ -927,18 +929,6 @@ uintptr_t _jove_alloc_callstack(void) {
 void _jove_free_callstack(uintptr_t start) {
   if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
     _UNREACHABLE();
-}
-
-void _jove_free_stack_later(uintptr_t stack) {
-  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
-    if (to_free[i] != 0)
-      continue;
-
-    to_free[i] = stack;
-    return;
-  }
-
-  _UNREACHABLE();
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,

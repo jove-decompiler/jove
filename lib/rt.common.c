@@ -11,3 +11,17 @@ uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
 struct shadow_t __df32_shadow_mem[65536];
 
 void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
+
+static uintptr_t to_free[16];
+
+_HIDDEN void _jove_free_stack_later(uintptr_t stack) {
+  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
+    if (to_free[i] != 0)
+      continue;
+
+    to_free[i] = stack;
+    return;
+  }
+
+  _UNREACHABLE();
+}

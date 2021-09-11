@@ -1757,8 +1757,8 @@ struct CPUMIPSState {
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
-#include "rt.common.c"
 #include "rt.util.c"
+#include "rt.common.c"
 
 static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
@@ -1936,8 +1936,6 @@ void _jove_rt_init(void) {
 }
 
 static void _jove_sleep(void);
-
-static uintptr_t to_free[16];
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   if (sig != SIGSEGV &&
@@ -2517,18 +2515,6 @@ void _jove_flush_trace(void) {
 
 void _jove_init_cpu_state(void) {
   __jove_env.hflags = 226;
-}
-
-void _jove_free_stack_later(uintptr_t stack) {
-  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
-    if (to_free[i] != 0)
-      continue;
-
-    to_free[i] = stack;
-    return;
-  }
-
-  _UNREACHABLE();
 }
 
 uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
