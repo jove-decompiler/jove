@@ -1319,8 +1319,10 @@ BOOST_PP_REPEAT(4, __THUNK, void)
   assert(JoveFreeStackFunc);
 
   JoveCheckReturnAddrFunc = Module->getFunction("_jove_check_return_address");
-  JoveCheckReturnAddrFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
-  assert(JoveCheckReturnAddrFunc);
+  if (opts::CheckEmulatedReturnAddress) {
+    assert(JoveCheckReturnAddrFunc);
+    JoveCheckReturnAddrFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
 
   return 0;
 }
@@ -9858,6 +9860,12 @@ BOOST_PP_REPEAT(4, __THUNK, void)
           }
 
           Ret->setCallingConv(llvm::CallingConv::C);
+
+#if 0
+          llvm::MDNode *JoveNode = llvm::MDNode::get(
+              *Context, llvm::MDString::get(*Context, std::to_string(1)));
+          Ret->setMetadata("jove", JoveNode);
+#endif
 
           if (foreign) {
 #if defined(TARGET_X86_64)
