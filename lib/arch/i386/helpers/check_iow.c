@@ -1306,7 +1306,7 @@ void helper_check_iow(CPUX86State *env, uint32_t t0)
 {
 #if 0
     check_io(env, t0, 2, GETPC());
-#else
+#elif 0
     __builtin_trap();
 #endif
 }

@@ -1306,7 +1306,7 @@ void helper_check_iob(CPUX86State *env, uint32_t t0)
 {
 #if 0
     check_io(env, t0, 1, GETPC());
-#else
+#elif 0
     __builtin_trap();
 #endif
 }

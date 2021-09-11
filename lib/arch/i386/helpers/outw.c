@@ -539,7 +539,7 @@ void helper_outw(CPUX86State *env, uint32_t port, uint32_t data)
     address_space_stw(&address_space_io, port, data,
                       cpu_get_mem_attrs(env), NULL);
 #endif
-#else
+#elif 0
     __builtin_trap();
     __builtin_unreachable();
 #endif
