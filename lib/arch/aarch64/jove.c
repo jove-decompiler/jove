@@ -624,6 +624,8 @@ extern /* __thread */ struct CPUARMState __jove_env;
 #include "jove.constants.h"
 #include "jove.macros.h"
 
+static void _jove_sleep(void);
+
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
@@ -643,9 +645,9 @@ _HIDDEN void _jove_begin(uint64_t x0,
                          uint64_t x6,
                          uint64_t sp_addr /* formerly x7 */);
 
-_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
-                                       target_ulong *args,
-                                       target_ulong *emuspp);
+_NAKED uint64_t _jove_thunk(uint64_t dstpc,
+                            uint64_t *args,
+                            uint64_t *emuspp);
 
 void _jove_start(void) {
   asm volatile(/* Create an initial frame with 0 LR and FP */
@@ -790,9 +792,9 @@ void _jove_flush_trace(void) {
   }
 }
 
-target_ulong _jove_thunk(target_ulong dstpc   /* x0 */,
-                         target_ulong *args   /* x1 */,
-                         target_ulong *emuspp /* x2 */) {
+uint64_t _jove_thunk(uint64_t dstpc   /* x0 */,
+                     uint64_t *args   /* x1 */,
+                     uint64_t *emuspp /* x2 */) {
   asm volatile("stp x29, x30, [sp, #-128]!\n" /* push frame */
 
                "stp x19, x20, [sp, #16]\n" /* callee-saved registers */
@@ -906,4 +908,8 @@ void _jove_free_stack(target_ulong beg) {
     __builtin_trap();
     __builtin_unreachable();
   }
+}
+
+void _jove_sleep(void) {
+  _jove_sys_sched_yield(); /* TODO */
 }

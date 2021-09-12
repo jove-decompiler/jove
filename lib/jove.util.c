@@ -82,7 +82,11 @@ static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len) 
   unsigned n;
 
   {
+#ifdef __aarch64__
+    int fd = _jove_sys_openat(-1, path, O_RDONLY, S_IRWXU);
+#else
     int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
+#endif
     if (fd < 0)
       _UNREACHABLE("could not open file from procfs. is it mounted?");
 

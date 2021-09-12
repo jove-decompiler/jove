@@ -9882,9 +9882,20 @@ BOOST_PP_REPEAT(4, __THUNK, void)
             assert(Ret->getType()->isIntegerTy(64));
             set(Ret, CallConvRetArray.front());
 #elif defined(TARGET_AARCH64)
-            /* TODO */
+
+#if 0
             assert(Ret->getType()->isStructTy());
-            assert(false && "TODO");
+
+            for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
+              llvm::Value *X = IRB.CreateExtractValue(Ret, j,
+                  (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(j)].name).str());
+              set(X, CallConvRetArray.at(j));
+            }
+#else
+            assert(Ret->getType()->isIntegerTy(64));
+            set(Ret, CallConvRetArray.at(0));
+#endif
+
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
             assert(Ret->getType()->isIntegerTy(64));
             {
