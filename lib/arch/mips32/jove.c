@@ -1750,13 +1750,12 @@ extern /* __thread */ struct CPUMIPSState __jove_env;
 #include "jove.constants.h"
 #include "jove.macros.h"
 
-static void _jove_sleep(void);
-
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
 #include "jove.llvm.c"
 #include "jove.util.c"
+#include "jove.arch.c"
 #include "jove.common.c"
 #include "jove.recover.c"
 
@@ -1815,12 +1814,6 @@ void _jove_start(void) {
                : /* InputOperands */
                : /* Clobbers */);
 }
-
-static uintptr_t _jove_alloc_stack(void);
-static void _jove_free_stack(uintptr_t);
-
-static uintptr_t _jove_alloc_callstack(void);
-static void _jove_free_callstack(uintptr_t);
 
 static void _jove_trace_init(void);
 static void _jove_callstack_init(void);
@@ -2056,72 +2049,3 @@ uint64_t _jove_thunk4(uint32_t a0,
 
 #undef JOVE_THUNK_PROLOGUE
 #undef JOVE_THUNK_EPILOGUE
-
-typedef int32_t	old_time32_t;
-
-struct old_timespec32 {
-	old_time32_t	tv_sec;
-	int32_t		tv_nsec;
-};
-
-void _jove_sleep(void) {
-  struct old_timespec32 t;
-  t.tv_sec = 10;
-  t.tv_nsec = 0;
-
-  _jove_sys_nanosleep_time32(&t, NULL);
-}
-
-uintptr_t _jove_alloc_stack(void) {
-  long ret = _jove_sys_mips_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                                 MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096)
-    _UNREACHABLE();
-
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = (unsigned long)ret;
-  unsigned long end = beg + JOVE_STACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  return beg;
-}
-
-void _jove_free_stack(uintptr_t beg) {
-  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
-    _UNREACHABLE();
-}
-
-uintptr_t _jove_alloc_callstack(void) {
-  long ret = _jove_sys_mips_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                                 MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096)
-    _UNREACHABLE();
-
-  unsigned long uret = (unsigned long)ret;
-
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = uret;
-  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  return beg;
-}
-
-void _jove_free_callstack(uintptr_t start) {
-  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE /* XXX */, JOVE_CALLSTACK_SIZE) < 0)
-    _UNREACHABLE();
-}

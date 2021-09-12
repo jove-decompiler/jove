@@ -1,5 +1,9 @@
 #include <stdint.h>
 
+//
+// jove-llvm fills in the definition for the following functions
+//
+
 extern uintptr_t _jove_sections_start_file_addr(void);
 extern uintptr_t _jove_sections_global_beg_addr(void);
 extern uintptr_t _jove_sections_global_end_addr(void);
