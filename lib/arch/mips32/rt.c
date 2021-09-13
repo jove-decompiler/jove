@@ -2484,18 +2484,3 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
 
   return res;
 }
-
-typedef int32_t	old_time32_t;
-
-struct old_timespec32 {
-	old_time32_t	tv_sec;
-	int32_t		tv_nsec;
-};
-
-void _jove_sleep(void) {
-  struct old_timespec32 t;
-  t.tv_sec = 10;
-  t.tv_nsec = 0;
-
-  _jove_sys_nanosleep_time32(&t, NULL);
-}
