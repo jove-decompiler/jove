@@ -636,8 +636,6 @@ _HIDDEN void _jove_free_stack(target_ulong);
 #include "rt.common.c"
 #include "rt.arch.c"
 
-static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
-
 _NAKED static void _jove_inverse_thunk(void) {
   asm volatile("stp x0, x1, [sp, #-16]\n" /* preserve return registers */
                "stp x2, x3, [sp, #-32]\n"
@@ -760,6 +758,8 @@ struct kernel_sigaction {
 #endif
 	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
 };
+
+static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
 static _CTOR void _jove_rt_init(void) {
   struct kernel_sigaction sa;
