@@ -647,9 +647,68 @@ _HIDDEN void _jove_begin(uint64_t x0,
                          uint64_t x6,
                          uint64_t sp_addr /* formerly x7 */);
 
-_NAKED uint64_t _jove_thunk(uint64_t dstpc,
-                            uint64_t *args,
-                            uint64_t *emuspp);
+_NAKED uint64_t _jove_thunk0(uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk1(uint64_t x0,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk2(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk3(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk4(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t x3,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk5(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t x3,
+                             uint64_t x4,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk6(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t x3,
+                             uint64_t x4,
+                             uint64_t x5,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk7(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t x3,
+                             uint64_t x4,
+                             uint64_t x5,
+                             uint64_t x6,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
+
+_NAKED uint64_t _jove_thunk8(uint64_t x0,
+                             uint64_t x1,
+                             uint64_t x2,
+                             uint64_t x3,
+                             uint64_t x4,
+                             uint64_t x5,
+                             uint64_t x6,
+                             uint64_t x7,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
 
 void _jove_start(void) {
   asm volatile(/* Create an initial frame with 0 LR and FP */
@@ -752,86 +811,240 @@ void _jove_trace_init(void) {
   }
 }
 
-uint64_t _jove_thunk(uint64_t dstpc   /* x0 */,
-                     uint64_t *args   /* x1 */,
-                     uint64_t *emuspp /* x2 */) {
-  asm volatile("stp x29, x30, [sp, #-128]!\n" /* push frame */
+#define JOVE_THUNK_PROLOGUE                                                    \
+  "stp x29, x30, [sp, #-128]!\n" /* push frame */                              \
+                                                                               \
+  "stp x19, x20, [sp, #16]\n" /* callee-saved registers */                     \
+  "stp x21, x22, [sp, #32]\n"                                                  \
+  "stp x23, x24, [sp, #48]\n"                                                  \
+  "stp x25, x26, [sp, #64]\n"                                                  \
+  "stp x27, x28, [sp, #80]\n"                                                  \
+                                                                               \
+  "mov x22, sp\n" /* save sp in x22 */
 
-               "stp x19, x20, [sp, #16]\n" /* callee-saved registers */
-               "stp x21, x22, [sp, #32]\n"
-               "stp x23, x24, [sp, #48]\n"
-               "stp x25, x26, [sp, #64]\n"
-               "stp x27, x28, [sp, #80]\n"
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "mov x9, sp\n" /* store modified emusp */                                    \
+  "str x9, [x21]\n"                                                            \
+                                                                               \
+  "mov sp, x22\n"   /* restore stack pointer */                                \
+                                                                               \
+  "ldp x19, x20, [sp, #16]\n" /* callee-saved registers */                     \
+  "ldp x21, x22, [sp, #32]\n"                                                  \
+  "ldp x23, x24, [sp, #48]\n"                                                  \
+  "ldp x25, x26, [sp, #64]\n"                                                  \
+  "ldp x27, x28, [sp, #80]\n"                                                  \
+                                                                               \
+  "ldp x29, x30, [sp], #128\n" /* restore frame */                             \
+                                                                               \
+  "ret\n"
 
-               "mov x19, x0\n" /* dstpc in x19 */
-               "mov x20, x1\n" /* args in x20 */
-               "mov x21, x2\n" /* emuspp in x21 */
-               "mov x22, sp\n" /* save sp in x22 */
+uint64_t _jove_thunk0(uint64_t dstpc   /* x0 */,
+                      uint64_t *emuspp /* x1 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-               "bl _jove_alloc_stack\n"
-               "mov x10, x19\n" /* put dstpc in temporary register */
-               "mov x19, x0\n"  /* allocated stack in callee-saved register */
-               "add x0, x0, #0x80000\n"
+               "mov x21, x1\n" /* emuspp in x21 */
 
-               "ldr x9, [x21]\n" /* sp=*emusp */
+               "ldr x9, [x1]\n" /* sp=*emuspp */
                "mov sp, x9\n"
+               "str xzr, [x1]\n" /* *emuspp=NULL */
 
-               "str x0, [x21]\n" /* *emusp=stack storage */
+               /* args: nothing to do */
+               "blr x0\n" /* call dstpc */
 
-               /* unpack args */
-               "ldr x7, [x20, #56]\n"
-               "ldr x6, [x20, #48]\n"
-               "ldr x5, [x20, #40]\n"
-               "ldr x4, [x20, #32]\n"
-               "ldr x3, [x20, #24]\n"
-               "ldr x2, [x20, #16]\n"
-               "ldr x1, [x20, #8]\n"
-               "ldr x0, [x20, #0]\n"
-
-               "blr x10\n" /* call dstpc */
-
-               /* -- now we can use x20 -- */
-
-               "mov x9, sp\n" /* store modified emusp */
-               "str x9, [x21]\n"
-
-               /* -- now we can use x21 -- */
-
-               "mov x20, x0\n"  /* save return values */
-               "mov x21, x1\n"
-               "mov x23, x2\n"
-               "mov x24, x3\n"
-               "mov x25, x4\n"
-               "mov x26, x5\n"
-               "mov x27, x6\n"
-               "mov x28, x7\n"
-
-               "mov sp, x22\n"   /* restore stack pointer */
-
-               "mov x0, x19\n" /* pass allocated stack */
-               "bl _jove_free_stack\n"
-
-               /* restore return values */
-               "mov x0, x20\n"
-               "mov x1, x21\n"
-               "mov x2, x23\n"
-               "mov x3, x24\n"
-               "mov x4, x25\n"
-               "mov x5, x26\n"
-               "mov x6, x27\n"
-               "mov x7, x28\n"
-
-               "ldp x19, x20, [sp, #16]\n" /* callee-saved registers */
-               "ldp x21, x22, [sp, #32]\n"
-               "ldp x23, x24, [sp, #48]\n"
-               "ldp x25, x26, [sp, #64]\n"
-               "ldp x27, x28, [sp, #80]\n"
-
-               "ldp x29, x30, [sp], #128\n" /* restore frame */
-
-               "ret\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
 }
+
+uint64_t _jove_thunk1(uint64_t x0,
+                      uint64_t dstpc   /* x1 */,
+                      uint64_t *emuspp /* x2 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x2\n" /* emuspp in x21 */
+
+               "ldr x9, [x2]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x2]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x1\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk2(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t dstpc   /* x2 */,
+                      uint64_t *emuspp /* x3 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x3\n" /* emuspp in x21 */
+
+               "ldr x9, [x3]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x3]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x2\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk3(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t dstpc   /* x3 */,
+                      uint64_t *emuspp /* x4 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x4\n" /* emuspp in x21 */
+
+               "ldr x9, [x4]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x4]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x3\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk4(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t x3,
+                      uint64_t dstpc   /* x4 */,
+                      uint64_t *emuspp /* x5 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x5\n" /* emuspp in x21 */
+
+               "ldr x9, [x5]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x5]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x4\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk5(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t x3,
+                      uint64_t x4,
+                      uint64_t dstpc   /* x5 */,
+                      uint64_t *emuspp /* x6 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x6\n" /* emuspp in x21 */
+
+               "ldr x9, [x6]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x6]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x5\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk6(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t x3,
+                      uint64_t x4,
+                      uint64_t x5,
+                      uint64_t dstpc   /* x6 */,
+                      uint64_t *emuspp /* x7 */) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "mov x21, x7\n" /* emuspp in x21 */
+
+               "ldr x9, [x7]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x7]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x6\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk7(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t x3,
+                      uint64_t x4,
+                      uint64_t x5,
+                      uint64_t x6,
+                      uint64_t dstpc   /* x7 */,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "ldr x21, [sp, #128]\n" /* emuspp in x21 */
+
+               "ldr x9, [x21]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x21]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x7\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+uint64_t _jove_thunk8(uint64_t x0,
+                      uint64_t x1,
+                      uint64_t x2,
+                      uint64_t x3,
+                      uint64_t x4,
+                      uint64_t x5,
+                      uint64_t x6,
+                      uint64_t x7,
+                      uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
+
+               "ldr x21, [sp, #136]\n" /* emuspp in x21 */
+               "ldr x10, [sp, #128]\n" /* dstpc in x10 */
+
+               "ldr x9, [x21]\n" /* sp=*emuspp */
+               "mov sp, x9\n"
+               "str xzr, [x21]\n" /* *emuspp=NULL */
+
+               /* args: nothing to do */
+               "blr x10\n" /* call dstpc */
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+#undef JOVE_THUNK_PROLOGUE
+#undef JOVE_THUNK_EPILOGUE
