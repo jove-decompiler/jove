@@ -6,37 +6,22 @@ extern /* __thread */ uint64_t *__jove_callstack_begin;
 
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 
-/* -> static */ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
+uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
-_CTOR static void _jove_install_foreign_function_tables(void);
+_HIDDEN void _jove_install_foreign_function_tables(void);
 
-_CTOR static void _jove_tpoff_hack(void) {
-  _jove_do_tpoff_hack();
-}
+_CTOR _HIDDEN void _jove_init(void) {
+  static bool _Done = false;
+  if (_Done)
+    return;
+  _Done = true;
 
-static bool __jove_did_emu_copy_reloc = false;
-
-_CTOR static void _jove_emulate_copy_relocations(void) {
-  if (!__jove_did_emu_copy_reloc) {
-    __jove_did_emu_copy_reloc = true;
-
-    _jove_do_emulate_copy_relocations();
-  }
-}
-
-_CTOR _HIDDEN void _jove_install_function_table(void) {
   _jove_install_foreign_function_tables();
-
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
-  _jove_do_tpoff_hack(); /* for good measure */
 
-  if (!__jove_did_emu_copy_reloc) {
-    __jove_did_emu_copy_reloc = true;
-
-    _jove_do_emulate_copy_relocations();
-  }
+  _jove_do_emulate_copy_relocations();
 }
 
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
@@ -142,10 +127,10 @@ static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
 
 
 void _jove_install_foreign_function_tables(void) {
-  static bool Done = false;
-  if (Done)
+  static bool _Done = false;
+  if (_Done)
     return;
-  Done = true;
+  _Done = true;
 
   /* we need to get the load addresses for the dynamic linker and VDSO by
    * parsing /proc/self/maps */

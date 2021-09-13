@@ -830,7 +830,7 @@ int recompile(void) {
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
 
-          "-init", "_jove_install_function_table"
+          "-init", "_jove_init"
       };
 
       std::string _arg1, _arg2;
