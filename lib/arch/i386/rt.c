@@ -576,25 +576,18 @@ typedef struct CPUX86State {
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
+/* we need to call the following functions from assembly */
 _REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
-
-#include "rt.util.c"
-#include "rt.common.c"
-#include "rt.arch.c"
-
-static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
-
-static uintptr_t _jove_alloc_callstack(void);
 _REGPARM _HIDDEN void _jove_free_callstack(uintptr_t);
-
-static uintptr_t _jove_alloc_stack(void);
 _REGPARM _HIDDEN void _jove_free_stack(uintptr_t);
 
 _HIDDEN uintptr_t _jove_emusp_location(void);
 _HIDDEN uintptr_t _jove_callstack_location(void);
 _HIDDEN uintptr_t _jove_callstack_begin_location(void);
-_REGPARM _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
-                                                        struct CPUX86State *SavedState);
+
+#include "rt.util.c"
+#include "rt.common.c"
+#include "rt.arch.c"
 
 _NAKED static void _jove_do_rt_sigreturn(void) {
   asm volatile("movl   $0xad,%eax\n"
@@ -712,6 +705,8 @@ struct kernel_sigaction {
 #endif
 	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
 };
+
+static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
 
 static _CTOR void _jove_rt_init(void) {
   struct kernel_sigaction sa;
@@ -875,8 +870,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   _UNREACHABLE("crash (TODO)");
 }
 
-uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
-                                       struct CPUX86State *SavedState) {
+_REGPARM _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
+                                                        struct CPUX86State *SavedState) {
   uintptr_t res = __jove_env.regs[R_ESP];
 
   //
