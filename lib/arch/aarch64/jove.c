@@ -814,11 +814,11 @@ void _jove_trace_init(void) {
 #define JOVE_THUNK_PROLOGUE                                                    \
   "stp x29, x30, [sp, #-128]!\n" /* push frame */                              \
                                                                                \
-  "stp x19, x20, [sp, #16]\n" /* callee-saved registers */                     \
+/*"stp x19, x20, [sp, #16]\n"*//* callee-saved registers */                    \
   "stp x21, x22, [sp, #32]\n"                                                  \
-  "stp x23, x24, [sp, #48]\n"                                                  \
-  "stp x25, x26, [sp, #64]\n"                                                  \
-  "stp x27, x28, [sp, #80]\n"                                                  \
+/*"stp x23, x24, [sp, #48]\n"*/                                                \
+/*"stp x25, x26, [sp, #64]\n"*/                                                \
+/*"stp x27, x28, [sp, #80]\n"*/                                                \
                                                                                \
   "mov x22, sp\n" /* save sp in x22 */
 
@@ -828,11 +828,11 @@ void _jove_trace_init(void) {
                                                                                \
   "mov sp, x22\n"   /* restore stack pointer */                                \
                                                                                \
-  "ldp x19, x20, [sp, #16]\n" /* callee-saved registers */                     \
+/*"ldp x19, x20, [sp, #16]\n"*//* callee-saved registers */                    \
   "ldp x21, x22, [sp, #32]\n"                                                  \
-  "ldp x23, x24, [sp, #48]\n"                                                  \
-  "ldp x25, x26, [sp, #64]\n"                                                  \
-  "ldp x27, x28, [sp, #80]\n"                                                  \
+/*"ldp x23, x24, [sp, #48]\n"*/                                                \
+/*"ldp x25, x26, [sp, #64]\n"*/                                                \
+/*"ldp x27, x28, [sp, #80]\n"*/                                                \
                                                                                \
   "ldp x29, x30, [sp], #128\n" /* restore frame */                             \
                                                                                \
