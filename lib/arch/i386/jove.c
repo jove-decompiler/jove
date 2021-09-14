@@ -684,8 +684,7 @@ void _jove_begin(target_ulong sp_addr) {
   if (_jove_dfsan_enabled())
     _jove_callstack_init();
 
-  _jove_install_function_table();
-  _jove_install_foreign_function_tables();
+  _jove_init();
 
   return _jove_call_entry();
 }

@@ -21,6 +21,7 @@ _CTOR _HIDDEN void _jove_init(void) {
   _jove_install_foreign_function_tables();
   __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
 
+  _jove_do_tpoff_hack();
   _jove_do_emulate_copy_relocations();
 }
 

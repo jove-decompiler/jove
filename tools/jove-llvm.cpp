@@ -2847,9 +2847,6 @@ int ProcessDynamicSymbols(void) {
               } else if (DynTargetNeedsThunkPred(IdxPair)) {
                 IRB.CreateCall(JoveInstallForeignFunctionTables)
                     ->setIsNoInline();
-                IRB.CreateCall(
-                       Module->getFunction("_jove_install_function_table"))
-                    ->setIsNoInline();
 
                 llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
 
@@ -2862,9 +2859,6 @@ int ProcessDynamicSymbols(void) {
                     Res, CallsF->getFunctionType()->getReturnType()));
               } else {
                 IRB.CreateCall(JoveInstallForeignFunctionTables)
-                    ->setIsNoInline();
-                IRB.CreateCall(
-                       Module->getFunction("_jove_install_function_table"))
                     ->setIsNoInline();
 
                 llvm::Value *SPPtr =
