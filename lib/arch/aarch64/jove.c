@@ -762,8 +762,7 @@ void _jove_begin(uint64_t x0,
   if (_jove_dfsan_enabled())
     _jove_callstack_init();
 
-  _jove_install_function_table();
-  _jove_install_foreign_function_tables();
+  _jove_init();
 
   return _jove_call_entry();
 }
