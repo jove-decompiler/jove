@@ -1915,6 +1915,14 @@ void _jove_rt_init(void) {
     }
   }
 
+  {
+    long ret =
+        _jove_sys_rt_sigaction(SIGABRT, &sa, NULL, sizeof(kernel_sigset_t));
+    if (ret < 0) {
+      _UNREACHABLE();
+    }
+  }
+
   uintptr_t newstack = _jove_alloc_stack();
 
   stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
@@ -1934,7 +1942,8 @@ void _jove_rt_init(void) {
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   if (sig != SIGSEGV &&
-      sig != SIGBUS)
+      sig != SIGBUS &&
+      sig != SIGABRT)
     _UNREACHABLE();
 
   //
