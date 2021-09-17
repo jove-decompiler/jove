@@ -14,7 +14,7 @@ void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
 
 static uintptr_t to_free[16];
 
-_HIDDEN void _jove_free_stack_later(uintptr_t stack) {
+void _jove_free_stack_later(uintptr_t stack) {
   for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
     if (to_free[i] != 0)
       continue;

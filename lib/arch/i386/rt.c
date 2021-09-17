@@ -576,7 +576,6 @@ typedef struct CPUX86State {
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
-/* we need to call the following functions from assembly */
 _REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
 _REGPARM _HIDDEN void _jove_free_callstack(uintptr_t);
 _REGPARM _HIDDEN void _jove_free_stack(uintptr_t);

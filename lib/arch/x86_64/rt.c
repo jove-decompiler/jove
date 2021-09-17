@@ -579,17 +579,11 @@ typedef struct CPUX86State {
 
 _HIDDEN void _jove_free_stack(uintptr_t);
 _HIDDEN void _jove_free_callstack(uintptr_t);
+_HIDDEN void _jove_free_stack_later(uintptr_t);
 
 #include "rt.util.c"
 #include "rt.common.c"
 #include "rt.arch.c"
-
-_HIDDEN uintptr_t _jove_emusp_location(void);
-_HIDDEN uintptr_t _jove_callstack_location(void);
-_HIDDEN uintptr_t _jove_callstack_begin_location(void);
-_HIDDEN void _jove_free_stack_later(uintptr_t);
-_HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
-                                               struct CPUX86State *SavedState);
 
 #if 0
 _NAKED static void _jove_do_rt_sigreturn(void) {
@@ -977,8 +971,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   __builtin_unreachable();
 }
 
-uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
-                                       struct CPUX86State *SavedState) {
+_HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
+                                               struct CPUX86State *SavedState) {
   uintptr_t res = __jove_env.regs[R_ESP];
 
   //
@@ -1023,15 +1017,15 @@ void _jove_callstack_init(void) {
   __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
 
-uintptr_t _jove_emusp_location(void) {
+_HIDDEN uintptr_t _jove_emusp_location(void) {
   return (uintptr_t)&__jove_env.regs[R_ESP];
 }
 
-uintptr_t _jove_callstack_location(void) {
+_HIDDEN uintptr_t _jove_callstack_location(void) {
   return (uintptr_t)&__jove_callstack;
 }
 
-uintptr_t _jove_callstack_begin_location(void) {
+_HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return (uintptr_t)&__jove_callstack_begin;
 }
 

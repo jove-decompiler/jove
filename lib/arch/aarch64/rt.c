@@ -631,6 +631,7 @@ typedef uint64_t target_ulong;
 
 _HIDDEN void _jove_free_callstack(target_ulong);
 _HIDDEN void _jove_free_stack(target_ulong);
+_HIDDEN void _jove_free_stack_later(uintptr_t);
 
 #include "rt.util.c"
 #include "rt.common.c"
