@@ -1764,9 +1764,6 @@ _HIDDEN void _jove_free_stack_later(uintptr_t);
 #include "rt.common.c"
 #include "rt.arch.c"
 
-_HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
-                                               struct CPUMIPSState *SavedState);
-
 _NAKED static void _jove_inverse_thunk(void) {
   asm volatile("sw $v0,48($sp)" "\n"
                "sw $v1,52($sp)" "\n" /* preserve return registers */
@@ -1939,6 +1936,9 @@ void _jove_rt_init(void) {
   _jove_trace_init();
   _jove_init_cpu_state();
 }
+
+static uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
+                                              struct CPUMIPSState *SavedState);
 
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   if (sig != SIGSEGV &&
