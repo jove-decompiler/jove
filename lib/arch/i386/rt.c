@@ -578,11 +578,6 @@ typedef struct CPUX86State {
 
 _REGPARM _HIDDEN void _jove_free_stack_later(uintptr_t);
 _REGPARM _HIDDEN void _jove_free_callstack(uintptr_t);
-_REGPARM _HIDDEN void _jove_free_stack(uintptr_t);
-
-_HIDDEN uintptr_t _jove_emusp_location(void);
-_HIDDEN uintptr_t _jove_callstack_location(void);
-_HIDDEN uintptr_t _jove_callstack_begin_location(void);
 
 #include "rt.util.c"
 #include "rt.common.c"
@@ -921,14 +916,14 @@ void _jove_init_cpu_state(void) {
   __jove_env.df = 1;
 }
 
-uintptr_t _jove_emusp_location(void) {
+_HIDDEN uintptr_t _jove_emusp_location(void) {
   return (uintptr_t)&__jove_env.regs[R_ESP];
 }
 
-uintptr_t _jove_callstack_location(void) {
+_HIDDEN uintptr_t _jove_callstack_location(void) {
   return (uintptr_t)&__jove_callstack;
 }
 
-uintptr_t _jove_callstack_begin_location(void) {
+_HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return (uintptr_t)&__jove_callstack_begin;
 }
