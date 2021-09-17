@@ -663,6 +663,7 @@ static void _jove_init_cpu_state(void);
 #undef sa_handler
 #undef sa_restorer
 #undef sa_flags
+#undef _NSIG
 
 #  define __user
 
