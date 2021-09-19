@@ -741,8 +741,6 @@ static _CTOR void _jove_rt_init(void) {
   _jove_init_cpu_state();
 }
 
-static uintptr_t to_free[16];
-
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #define pc    uctx->uc_mcontext.gregs[REG_RIP]
 #define sp    uctx->uc_mcontext.gregs[REG_RSP]
