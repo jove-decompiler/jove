@@ -653,7 +653,8 @@ static llvm::Function *JoveFreeStackFunc;
 // DFSan
 //
 static llvm::Function *JoveCheckReturnAddrFunc;
-static llvm::FunctionCallee JoveLogFunctionStart;
+static llvm::Function *JoveLogFunctionStart;
+static llvm::GlobalVariable *JoveLogFunctionStartClunk;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -1334,14 +1335,25 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 
   if (opts::DFSan) {
     llvm::Type *ArgArr[1] = {llvm::IntegerType::get(*Context, 64)};
-    llvm::FunctionType *FnTy = llvm::FunctionType::get(
+    llvm::FunctionType *JoveLogFunctionStartFnTy = llvm::FunctionType::get(
         llvm::Type::getVoidTy(*Context), ArgArr, /*isVarArg=*/false);
-    llvm::AttributeList AL;
-    AL = AL.addAttribute(*Context,
-                         llvm::AttributeList::FunctionIndex,
-                         llvm::Attribute::NoUnwind);
-    JoveLogFunctionStart =
-        Module->getOrInsertFunction("dfsan_log_jove_fn_start", FnTy, AL);
+
+    assert(!Module->getFunction("dfsan_log_jove_fn_start"));
+
+    JoveLogFunctionStart = llvm::Function::Create(
+        JoveLogFunctionStartFnTy,
+        llvm::GlobalValue::ExternalLinkage,
+        "dfsan_log_jove_fn_start",
+        Module.get());
+
+    JoveLogFunctionStartClunk = new llvm::GlobalVariable(
+          *Module,
+          WordType(),
+          false,
+          llvm::GlobalValue::ExternalLinkage,
+          llvm::ConstantExpr::getPtrToInt(JoveLogFunctionStart, WordType()),
+          "dfsan_log_jove_fn_start_clunk");
+    JoveLogFunctionStartClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
   }
 
   return 0;
@@ -8095,7 +8107,11 @@ static int TranslateFunction(function_t &f) {
       llvm::LoadInst *LI = IRB.CreateLoad(SPAlloca);
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
-      IRB.CreateCall(JoveLogFunctionStart, {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)})->setIsNoInline();
+      IRB.CreateCall(
+          IRB.CreateIntToPtr(
+              IRB.CreateLoad(JoveLogFunctionStartClunk),
+              JoveLogFunctionStart->getType()),
+          {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)});
     }
 
     IRB.CreateBr(ICFG[entry_bb].B);
