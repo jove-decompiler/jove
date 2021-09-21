@@ -649,7 +649,11 @@ static llvm::Function *JoveFail1Func;
 static llvm::Function *JoveAllocStackFunc;
 static llvm::Function *JoveFreeStackFunc;
 
+//
+// DFSan
+//
 static llvm::Function *JoveCheckReturnAddrFunc;
+static llvm::FunctionCallee JoveLogFunctionStart;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -1326,6 +1330,18 @@ BOOST_PP_REPEAT(9, __THUNK, void)
   if (opts::CheckEmulatedReturnAddress) {
     assert(JoveCheckReturnAddrFunc);
     JoveCheckReturnAddrFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
+  }
+
+  if (opts::DFSan) {
+    llvm::Type *ArgArr[1] = {llvm::IntegerType::get(*Context, 64)};
+    llvm::FunctionType *FnTy = llvm::FunctionType::get(
+        llvm::Type::getVoidTy(*Context), ArgArr, /*isVarArg=*/false);
+    llvm::AttributeList AL;
+    AL = AL.addAttribute(*Context,
+                         llvm::AttributeList::FunctionIndex,
+                         llvm::Attribute::NoUnwind);
+    JoveLogFunctionStart =
+        Module->getOrInsertFunction("dfsan_log_jove_fn_start", FnTy, AL);
   }
 
   return 0;
@@ -7902,9 +7918,7 @@ struct TranslateContext {
   } DebugInformation;
 
   TranslateContext(function_t &f) : f(f) {
-    std::fill(GlobalAllocaArr.begin(),
-              GlobalAllocaArr.end(),
-              nullptr);
+    memset(&GlobalAllocaArr[0], 0, sizeof(llvm::AllocaInst *) * GlobalAllocaArr.size());
   }
 };
 
@@ -8070,6 +8084,18 @@ static int TranslateFunction(function_t &f) {
         llvm::StoreInst *SI = IRB.CreateStore(Val, Ptr);
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
+    }
+
+    if (opts::DFSan) {
+      llvm::AllocaInst *&SPAlloca = GlobalAllocaArr[tcg_stack_pointer_index];
+
+      if (!SPAlloca)
+        SPAlloca = CreateAllocaForGlobal(IRB, tcg_stack_pointer_index, true);
+
+      llvm::LoadInst *LI = IRB.CreateLoad(SPAlloca);
+      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+      IRB.CreateCall(JoveLogFunctionStart, {IRB.CreateIntCast(LI, IRB.getInt64Ty(), false)})->setIsNoInline();
     }
 
     IRB.CreateBr(ICFG[entry_bb].B);
