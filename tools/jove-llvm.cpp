@@ -655,6 +655,8 @@ static llvm::Function *JoveFreeStackFunc;
 static llvm::Function *JoveCheckReturnAddrFunc;
 static llvm::Function *JoveLogFunctionStart;
 static llvm::GlobalVariable *JoveLogFunctionStartClunk;
+static llvm::Function *DFSanFiniFunc;
+static llvm::GlobalVariable *DFSanFiniClunk;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
@@ -1334,26 +1336,48 @@ BOOST_PP_REPEAT(9, __THUNK, void)
   }
 
   if (opts::DFSan) {
-    llvm::Type *ArgArr[1] = {llvm::IntegerType::get(*Context, 64)};
-    llvm::FunctionType *JoveLogFunctionStartFnTy = llvm::FunctionType::get(
-        llvm::Type::getVoidTy(*Context), ArgArr, /*isVarArg=*/false);
+    {
+      assert(!Module->getFunction("dfsan_log_jove_fn_start"));
 
-    assert(!Module->getFunction("dfsan_log_jove_fn_start"));
+      llvm::Type *ArgArr[1] = {llvm::IntegerType::get(*Context, 64)};
+      llvm::FunctionType *JoveLogFunctionStartFnTy = llvm::FunctionType::get(
+          llvm::Type::getVoidTy(*Context), ArgArr, /*isVarArg=*/false);
 
-    JoveLogFunctionStart = llvm::Function::Create(
-        JoveLogFunctionStartFnTy,
-        llvm::GlobalValue::ExternalLinkage,
-        "dfsan_log_jove_fn_start",
-        Module.get());
-
-    JoveLogFunctionStartClunk = new llvm::GlobalVariable(
-          *Module,
-          WordType(),
-          false,
+      JoveLogFunctionStart = llvm::Function::Create(
+          JoveLogFunctionStartFnTy,
           llvm::GlobalValue::ExternalLinkage,
-          llvm::ConstantExpr::getPtrToInt(JoveLogFunctionStart, WordType()),
-          "dfsan_log_jove_fn_start_clunk");
-    JoveLogFunctionStartClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
+          "dfsan_log_jove_fn_start",
+          Module.get());
+
+      JoveLogFunctionStartClunk = new llvm::GlobalVariable(
+	    *Module,
+	    WordType(),
+	    false,
+	    llvm::GlobalValue::ExternalLinkage,
+	    llvm::ConstantExpr::getPtrToInt(JoveLogFunctionStart, WordType()),
+	    "dfsan_log_jove_fn_start_clunk");
+      JoveLogFunctionStartClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    }
+
+    {
+      assert(!Module->getFunction("dfsan_fini"));
+
+      llvm::FunctionType *DFSanFiniFnTy = llvm::FunctionType::get(
+          llvm::Type::getVoidTy(*Context), /*isVarArg=*/false);
+      DFSanFiniFunc = llvm::Function::Create(
+          DFSanFiniFnTy,
+          llvm::GlobalValue::ExternalLinkage,
+          "dfsan_fini",
+          Module.get());
+      DFSanFiniClunk = new llvm::GlobalVariable(
+            *Module,
+            WordType(),
+            false,
+            llvm::GlobalValue::ExternalLinkage,
+            llvm::ConstantExpr::getPtrToInt(DFSanFiniFunc, WordType()),
+            "dfsan_fini");
+      DFSanFiniClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    }
   }
 
   return 0;
@@ -10201,6 +10225,11 @@ BOOST_PP_REPEAT(9, __THUNK, void)
       break;
 
   case TERMINATOR::RETURN: {
+    if (opts::DFSan && true /* opts::Paranoid */)
+      IRB.CreateCall(IRB.CreateIntToPtr(
+          IRB.CreateLoad(DFSanFiniClunk),
+          DFSanFiniFunc->getType())); /* flush the log file */
+
     if (f.IsABI)
       store_stack_pointer();
 
