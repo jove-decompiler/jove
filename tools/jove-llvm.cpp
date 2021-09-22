@@ -1375,7 +1375,7 @@ BOOST_PP_REPEAT(9, __THUNK, void)
             false,
             llvm::GlobalValue::ExternalLinkage,
             llvm::ConstantExpr::getPtrToInt(DFSanFiniFunc, WordType()),
-            "dfsan_fini");
+            "dfsan_fini_clunk");
       DFSanFiniClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
     }
   }
