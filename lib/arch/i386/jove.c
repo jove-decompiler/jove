@@ -747,8 +747,7 @@ uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
 
-               "xorl %%ebx, %%ebx\n"
-               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+               "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -771,8 +770,7 @@ uint64_t _jove_thunk1(uint32_t eax,
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
 
-               "xorl %%ebx, %%ebx\n"
-               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+               "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -796,8 +794,7 @@ uint64_t _jove_thunk2(uint32_t eax,
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
 
-               "xorl %%ebx, %%ebx\n"
-               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+               "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -823,8 +820,7 @@ uint64_t _jove_thunk3(uint32_t eax,
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
 
-               "xorl %%ebx, %%ebx\n"
-               "movl %%ebx, (%%edi)\n" /* *emusp=0x0 */
+               "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
