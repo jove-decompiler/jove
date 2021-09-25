@@ -781,8 +781,6 @@ void _jove_callstack_init(void) {
 #define JOVE_THUNK_PROLOGUE                                                    \
   "pushq %%r15\n"                                                              \
   "pushq %%r14\n"                                                              \
-  "pushq %%r13\n"                                                              \
-  "pushq %%r12\n"                                                              \
                                                                                \
   "movq %%rsp, %%r15\n" /* save sp in r15 */
 
@@ -790,8 +788,6 @@ void _jove_callstack_init(void) {
   "movq %%rsp, (%%r14)\n" /* store modified emusp */                           \
   "movq %%r15, %%rsp\n" /* restore stack pointer */                            \
                                                                                \
-  "popq %%r12\n"                                                               \
-  "popq %%r13\n"                                                               \
   "popq %%r14\n"                                                               \
   "popq %%r15\n"                                                               \
   "retq\n"
@@ -920,7 +916,7 @@ __int128 _jove_thunk5(uint64_t rdi,
                       uint64_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq 40(%%rsp), %%r14\n" /* emuspp in r14 */
+               "movq 24(%%rsp), %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
                "movq $0, (%%r14)\n" /* emusp=0x0 */
@@ -947,8 +943,8 @@ __int128 _jove_thunk6(uint64_t rdi,
                       uint64_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq 40(%%rsp), %%r11\n" /* dstpc in r11 */
-               "movq 48(%%rsp), %%r14\n" /* emuspp in r14 */
+               "movq 24(%%rsp), %%r11\n" /* dstpc in r11 */
+               "movq 32(%%rsp), %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
                "movq $0, (%%r14)\n" /* emusp=0x0 */
