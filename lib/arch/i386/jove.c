@@ -849,6 +849,3 @@ uint64_t _jove_thunk3(uint32_t eax,
                : /* InputOperands */
                : /* Clobbers */);
 }
-
-#undef JOVE_THUNK_PROLOGUE
-#undef JOVE_THUNK_EPILOGUE
