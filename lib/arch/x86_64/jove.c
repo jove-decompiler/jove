@@ -803,8 +803,7 @@ __int128 _jove_thunk0(uint64_t dstpc   /* rdi */,
                "movq %%rsi, %%r14\n" /* emuspp in r14 */
 
                "movq (%%rsi), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%rsi)\n" /* emusp=0x0 */
+               "movq $0, (%%rsi)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -826,8 +825,7 @@ __int128 _jove_thunk1(uint64_t rdi,
                "movq %%rdx, %%r14\n" /* emuspp in r14 */
 
                "movq (%%rdx), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%rdx)\n" /* emusp=0x0 */
+               "movq $0, (%%rdx)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -850,8 +848,7 @@ __int128 _jove_thunk2(uint64_t rdi,
                "movq %%rcx, %%r14\n" /* emuspp in r14 */
 
                "movq (%%rcx), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%rcx)\n" /* emusp=0x0 */
+               "movq $0, (%%rcx)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -875,8 +872,7 @@ __int128 _jove_thunk3(uint64_t rdi,
                "movq %%r8, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r8), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r8)\n" /* emusp=0x0 */
+               "movq $0, (%%r8)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -901,8 +897,7 @@ __int128 _jove_thunk4(uint64_t rdi,
                "movq %%r9, %%r14\n" /* emuspp in r14 */
 
                "movq (%%r9), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r9)\n" /* emusp=0x0 */
+               "movq $0, (%%r9)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -928,8 +923,7 @@ __int128 _jove_thunk5(uint64_t rdi,
                "movq 40(%%rsp), %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq $0, (%%r14)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -953,17 +947,16 @@ __int128 _jove_thunk6(uint64_t rdi,
                       uint64_t *emuspp) {
   asm volatile(JOVE_THUNK_PROLOGUE
 
-               "movq 40(%%rsp), %%r12\n" /* dstpc in r12 */
+               "movq 40(%%rsp), %%r11\n" /* dstpc in r11 */
                "movq 48(%%rsp), %%r14\n" /* emuspp in r14 */
 
                "movq (%%r14), %%rsp\n" /* sp=emusp */
-               "xorq %%rax, %%rax\n"
-               "movq %%rax, (%%r14)\n" /* emusp=0x0 */
+               "movq $0, (%%r14)\n" /* emusp=0x0 */
 
                /* args: nothing to do */
 
                "addq $8, %%rsp\n" /* replace return address on the stack */
-               "callq *%%r12\n"   /* call dstpc */
+               "callq *%%r11\n"   /* call dstpc */
 
                JOVE_THUNK_EPILOGUE
 
