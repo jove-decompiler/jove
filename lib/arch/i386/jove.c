@@ -723,16 +723,15 @@ void _jove_callstack_init(void) {
 
 uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
                       uint32_t *emuspp /* edx */) {
-  asm volatile("push %%ebp\n" /* callee-saved registers */
-               "push %%edi\n"
+  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+               "pushl %%edi\n"
 
                "movl %%esp, %%ebp\n" /* save sp in ebp */
 
                "movl %%edx, %%edi\n" /* emuspp in edi */
 
-               "movl (%%edi), %%esp\n" /* sp=*emusp */
-
-               "movl $0, (%%edi)\n" /* *emusp=0x0 */
+               "movl (%%edx), %%esp\n" /* sp=*emusp */
+               "movl $0, (%%edx)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -754,16 +753,15 @@ uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
 uint64_t _jove_thunk1(uint32_t eax,
                       uint32_t dstpc,  /* edx */
                       uint32_t *emuspp /* ecx */) {
-  asm volatile("push %%ebp\n" /* callee-saved registers */
-               "push %%edi\n"
+  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+               "pushl %%edi\n"
 
                "movl %%esp, %%ebp\n" /* save sp in ebp */
 
                "movl %%ecx, %%edi\n" /* emuspp in edi */
 
-               "movl (%%edi), %%esp\n" /* sp=*emusp */
-
-               "movl $0, (%%edi)\n" /* *emusp=0x0 */
+               "movl (%%ecx), %%esp\n" /* sp=*emusp */
+               "movl $0, (%%ecx)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
 
@@ -786,15 +784,14 @@ uint64_t _jove_thunk2(uint32_t eax,
                       uint32_t edx,
                       uint32_t dstpc,  /* ecx */
                       uint32_t *emuspp) {
-  asm volatile("push %%ebp\n" /* callee-saved registers */
-               "push %%edi\n"
+  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+               "pushl %%edi\n"
 
                "movl %%esp, %%ebp\n" /* save sp in ebp */
 
                "movl 12(%%esp), %%edi\n" /* emuspp in edi */
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
-
                "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
@@ -819,9 +816,9 @@ uint64_t _jove_thunk3(uint32_t eax,
                       uint32_t ecx,
                       uint32_t dstpc,
                       uint32_t *emuspp) {
-  asm volatile("push %%ebp\n" /* callee-saved registers */
-               "push %%edi\n"
-               "push %%esi\n"
+  asm volatile("pushl %%ebp\n" /* callee-saved registers */
+               "pushl %%edi\n"
+               "pushl %%esi\n"
 
                "movl %%esp, %%ebp\n" /* save sp in ebp */
 
@@ -829,7 +826,6 @@ uint64_t _jove_thunk3(uint32_t eax,
                "movl 20(%%esp), %%edi\n" /* emuspp in edi */
 
                "movl (%%edi), %%esp\n" /* sp=*emusp */
-
                "movl $0, (%%edi)\n" /* *emusp=0x0 */
 
                /* args: nothing to do */
