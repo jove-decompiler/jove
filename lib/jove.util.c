@@ -64,7 +64,7 @@ static _INL void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   char Buffer[65];
   char *BufPtr = &Buffer[sizeof(Buffer)];
 
-  uint32_t N = x;
+  uint64_t N = x;
 
   while (N) {
     *--BufPtr = Digits[N % Radix];
