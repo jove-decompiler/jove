@@ -446,12 +446,8 @@ int AnalyzeBlocks(void) {
 
   auto t2 = std::chrono::high_resolution_clock::now();
 
-  if (cnt) {
-    std::chrono::duration<double> s_double = t2 - t1;
-
-    WithColor::note() << llvm::formatv("Analyzing {0} basic blocks... {1} s\n",
-                                       cnt, s_double.count());
-  }
+  if (cnt)
+    WithColor::note() << llvm::formatv("Analyzing {0} basic blocks...\n", cnt);
 
   return 0;
 }
@@ -484,10 +480,6 @@ int AnalyzeFunctions(void) {
     if (!Q.empty()) {
       std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-      WithColor::note() << llvm::formatv("Analyzing {0} functions [1]...", Q.size());
-
-      auto t1 = std::chrono::high_resolution_clock::now();
-
       {
         std::vector<std::thread> workers;
 
@@ -504,13 +496,6 @@ int AnalyzeFunctions(void) {
       }
 
       assert(Q_ptr.load() >= Q.data() + Q.size()); /* consumed all */
-
-      auto t2 = std::chrono::high_resolution_clock::now();
-
-      //std::chrono::duration<double, std::milli> ms_double = t2 - t1;
-      std::chrono::duration<double> s_double = t2 - t1;
-
-      llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
     }
   }
 
@@ -536,7 +521,7 @@ int AnalyzeFunctions(void) {
       //
       std::atomic<dynamic_target_t *> Q_ptr(Q.data());
 
-      WithColor::note() << llvm::formatv("Analyzing {0} functions [2]...", Q.size());
+      WithColor::note() << llvm::formatv("Analyzing {0} functions...", Q.size());
 
       auto t1 = std::chrono::high_resolution_clock::now();
 
