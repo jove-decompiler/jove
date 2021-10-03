@@ -477,6 +477,7 @@ int main(int argc, char **argv) {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
       st.ObjectFile = std::move(BinRef);
 
+      assert(st.ObjectFile.get());
       if (!llvm::isa<jove::ELFO>(st.ObjectFile.get())) {
         WithColor::error() << binary.Path << " is not ELF of expected type\n";
         return 1;
@@ -1759,6 +1760,7 @@ basic_block_index_t translate_basic_block(pid_t child,
         const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
         llvm::MCInstPrinter &IP = std::get<2>(dis);
 
+        assert(ObjectFile.get());
         const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
         uint64_t InstLen = 0;
@@ -1880,6 +1882,7 @@ on_insn_boundary:
     }
   }
 
+  assert(ObjectFile.get());
   tcg.set_elf(llvm::cast<ELFO>(ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
@@ -1923,6 +1926,7 @@ on_insn_boundary:
     const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
     llvm::MCInstPrinter &IP = std::get<2>(dis);
 
+    assert(ObjectFile.get());
     const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
     uint64_t InstLen;
@@ -1994,6 +1998,7 @@ on_insn_boundary:
       assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
+      assert(ObjectFile.get());
       const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
@@ -2054,6 +2059,7 @@ on_insn_boundary:
       assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
 #endif
 
+      assert(ObjectFile.get());
       const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
@@ -3604,6 +3610,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
+    assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
@@ -3721,6 +3728,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
+    assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
@@ -3895,6 +3903,7 @@ static void harvest_ctor_and_dtors(pid_t child,
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
+    assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
@@ -3986,6 +3995,7 @@ static void harvest_global_GOT_entries(pid_t child,
 
     std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
+    assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
@@ -4369,6 +4379,7 @@ void on_binary_loaded(pid_t child,
     assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
+    assert(ObjectFile.get());
     const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
@@ -4441,6 +4452,7 @@ void on_binary_loaded(pid_t child,
     assert(RetInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
+    assert(ObjectFile.get());
     const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
 
     llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
@@ -5043,6 +5055,7 @@ void on_dynamic_linker_loaded(pid_t child,
 
   std::unique_ptr<obj::Binary> &ObjectFile = BinRef;
 
+  assert(ObjectFile.get());
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
 
@@ -5342,6 +5355,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         binary_t &binary = decompilation.Binaries.at(BIdx);
         auto &ICFG = binary.Analysis.ICFG;
+        if (!BinStateVec[BIdx].ObjectFile.get()) {
+          if (!binary.IsVDSO)
+            WithColor::warning()
+                << llvm::formatv("on_return: unknown RetAddr {0}\n",
+                                 description_of_program_counter(pc));
+          return;
+        }
 
         uintptr_t rva = rva_of_va(pc, BIdx);
 
