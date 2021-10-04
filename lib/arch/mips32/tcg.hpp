@@ -2829,7 +2829,7 @@ extern unsigned long guest_base;
 
 #define TARGET_PAGE_MASK   ((target_long)-1 << TARGET_PAGE_BITS)
 
-extern uintptr_t qemu_host_page_size;
+static uintptr_t qemu_host_page_size;
 
 #define PAGE_READ      0x0001
 
@@ -2839,7 +2839,7 @@ extern uintptr_t qemu_host_page_size;
 
 #define PAGE_BITS      (PAGE_READ | PAGE_WRITE | PAGE_EXEC)
 
-extern intptr_t qemu_host_page_mask;
+static intptr_t qemu_host_page_mask;
 
 int page_get_flags(target_ulong address);
 
@@ -2908,7 +2908,10 @@ struct qht {
 
 typedef void (*qht_iter_func_t)(void *p, uint32_t h, void *up);
 
-bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing);
+bool qht_insert(struct qht *ht, void *p, uint32_t hash, void **existing) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 bool qht_reset_size(struct qht *ht, size_t n_elems) {
   __builtin_trap();
@@ -4393,11 +4396,14 @@ static inline void qemu_log_unlock(void)
 
 bool qemu_log_in_addr_range(uint64_t addr);
 
-void qemu_log_flush(void);
+static inline void qemu_log_flush(void) {}
 
 void gen_intermediate_code(CPUState *cpu, TranslationBlock *tb, int max_insns);
 
-void QEMU_NORETURN cpu_loop_exit(CPUState *cpu);
+static void QEMU_NORETURN cpu_loop_exit(CPUState *cpu) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 #define CODE_GEN_ALIGN           16
 
@@ -4484,7 +4490,10 @@ static inline uint32_t tb_cflags(const TranslationBlock *tb)
     return atomic_read(&tb->cflags);
 }
 
-void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr);
+static void tb_set_jmp_target(TranslationBlock *tb, int n, uintptr_t addr) {
+  __builtin_trap();
+  __builtin_unreachable();
+}
 
 void mmap_lock(void) {}
 
@@ -8321,7 +8330,12 @@ static inline void log_target_disas(CPUState *cpu, target_ulong start,
 
 static inline void log_disas(void *code, unsigned long size)
 {
+#if 0
     disas(qemu_logfile, code, size);
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
 static bool patch_reloc(tcg_insn_unit *code_ptr, int type,
