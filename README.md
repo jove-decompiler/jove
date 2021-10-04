@@ -158,6 +158,7 @@ mkdir -p nginx.sysroot/usr/share/
 mkdir -p nginx.sysroot/var/lib/nginx
 mkdir -p nginx.sysroot/var/log/nginx
 cp -r /usr/share/nginx nginx.sysroot/usr/share/
+cp -r /etc/nginx nginx.sysroot/etc/
 
 sudo $(which jove-loop) -d nginx.jv --sysroot nginx.sysroot /usr/sbin/nginx -- -c /mynginx.conf
 ```
