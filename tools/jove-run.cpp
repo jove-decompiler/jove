@@ -376,6 +376,7 @@ int run(void) {
                       MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
                       nullptr);
 
+#if 0
   fs::path dev_path = fs::path(opts::sysroot) / "dev";
   ScopedMount dev_mnt("udev",
                       dev_path.c_str(),
@@ -396,6 +397,24 @@ int run(void) {
                           "tmpfs",
                           MS_NOSUID | MS_NODEV,
                           "mode=1777");
+#else
+  fs::path dev_path;
+  try {
+    dev_path = fs::canonical("/dev");
+  } catch (...) {
+    ; /* absorb */
+  }
+
+  fs::path chrooted_dev = fs::path(opts::sysroot) / "dev";
+
+  fs::create_directories(chrooted_dev);
+
+  ScopedMount dev_mnt(dev_path.c_str(),
+                      chrooted_dev.c_str(),
+                      "",
+                      MS_BIND,
+                      nullptr);
+#endif
 
   fs::path run_path = fs::path(opts::sysroot) / "run";
   ScopedMount run_mnt("/run",
@@ -534,7 +553,7 @@ int run(void) {
                             MS_BIND,
                             nullptr);
 
-#if 0
+#if 1
   fs::path firmadyne_libnvram_path;
   try {
     firmadyne_libnvram_path = fs::canonical("/firmadyne/libnvram");
@@ -646,6 +665,9 @@ int run(void) {
     // disable lazy linking (please)
     //
     env.s_vec.push_back("LD_BIND_NOW=1");
+
+    if (fs::exists("/firmadyne/libnvram.so"))
+      env.s_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
     for (std::string &s : opts::Envs)
       env.s_vec.push_back(s);
