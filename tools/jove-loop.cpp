@@ -991,6 +991,7 @@ skip_run:
         fs::create_directories(fs::path(opts::sysroot) / "run");
         fs::create_directories(fs::path(opts::sysroot) / "tmp");
         fs::create_directories(fs::path(opts::sysroot) / "etc");
+        fs::create_directories(fs::path(opts::sysroot) / "mnt"); /* dfsan_log.pb */
         fs::create_directories(fs::path(opts::sysroot) / "usr" / "bin");
         fs::create_directories(fs::path(opts::sysroot) / "usr" / "lib");
         fs::create_directories(fs::path(opts::sysroot) / "var" / "run");
