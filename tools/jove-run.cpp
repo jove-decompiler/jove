@@ -260,6 +260,7 @@ void sighandler(int no) {
 
 static constexpr unsigned MAX_UMOUNT_RETRIES = 10;
 
+template <bool IsEnabled>
 struct ScopedMount {
   const char *const source;
   const char *const target;
@@ -280,6 +281,9 @@ struct ScopedMount {
         mountflags(mountflags),
         data(data),
         mounted(false) {
+    if (!IsEnabled)
+      return;
+
     if (source && *source == '\0')
       return;
 
@@ -315,6 +319,9 @@ struct ScopedMount {
   }
 
   ~ScopedMount () {
+    if (!IsEnabled)
+      return;
+
     if (!this->mounted)
       return;
 
@@ -355,48 +362,52 @@ struct ScopedMount {
 
 static void touch(const fs::path &);
 
-int run(void) {
-#if 0
+template <bool WillChroot>
+static int do_run(void) {
+#if 0 /* is this necessary? */
   if (mount(opts::sysroot, opts::sysroot, "", MS_BIND, nullptr) < 0)
     fprintf(stderr, "bind mounting %s failed : %s\n", opts::sysroot,
             strerror(errno));
 #endif
 
   fs::path proc_path = fs::path(opts::sysroot) / "proc";
-  ScopedMount proc_mnt("proc",
-                       proc_path.c_str(),
-                       "proc",
-                       MS_NOSUID | MS_NODEV | MS_NOEXEC,
-                       nullptr);
+  ScopedMount<WillChroot> proc_mnt("proc",
+                                   proc_path.c_str(),
+                                   "proc",
+                                   MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                                   nullptr);
 
   fs::path sys_path = fs::path(opts::sysroot) / "sys";
-  ScopedMount sys_mnt("sys",
-                      sys_path.c_str(),
-                      "sysfs",
-                      MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
-                      nullptr);
+  ScopedMount<WillChroot> sys_mnt("sys",
+                                  sys_path.c_str(),
+                                  "sysfs",
+                                  MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
+                                  nullptr);
 
 #if 0
+  //
+  // create /dev, /dev/pts, /dev/shm
+  //
   fs::path dev_path = fs::path(opts::sysroot) / "dev";
-  ScopedMount dev_mnt("udev",
-                      dev_path.c_str(),
-                      "devtmpfs",
-                      MS_NOSUID,
-                      "mode=0755");
+  ScopedMount<WillChroot> dev_mnt("udev",
+                                  dev_path.c_str(),
+                                  "devtmpfs",
+                                  MS_NOSUID,
+                                  "mode=0755");
 
   fs::path dev_pts_path = fs::path(opts::sysroot) / "dev" / "pts";
-  ScopedMount dev_pts_mnt("devpts",
-                          dev_pts_path.c_str(),
-                          "devpts",
-                          MS_NOSUID | MS_NOEXEC,
-                          "mode=0620,gid=5");
+  ScopedMount<WillChroot> dev_pts_mnt("devpts",
+                                      dev_pts_path.c_str(),
+                                      "devpts",
+                                      MS_NOSUID | MS_NOEXEC,
+                                      "mode=0620,gid=5");
 
   fs::path dev_shm_path = fs::path(opts::sysroot) / "dev" / "shm";
-  ScopedMount dev_shm_mnt("shm",
-                          dev_shm_path.c_str(),
-                          "tmpfs",
-                          MS_NOSUID | MS_NODEV,
-                          "mode=1777");
+  ScopedMount<WillChroot> dev_shm_mnt("shm",
+                                      dev_shm_path.c_str(),
+                                      "tmpfs",
+                                      MS_NOSUID | MS_NODEV,
+                                      "mode=1777");
 #else
   //
   // bind mount /dev
@@ -412,34 +423,43 @@ int run(void) {
 
   fs::create_directories(chrooted_dev);
 
-  ScopedMount dev_mnt(dev_path.c_str(),
-                      chrooted_dev.c_str(),
-                      "",
-                      MS_BIND,
-                      nullptr);
+  ScopedMount<WillChroot> dev_mnt(dev_path.c_str(),
+                                  chrooted_dev.c_str(),
+                                  "",
+                                  MS_BIND,
+                                  nullptr);
 #endif
 
+  //
+  // bind mount /run
+  //
   fs::path run_path = fs::path(opts::sysroot) / "run";
-  ScopedMount run_mnt("/run",
-                      run_path.c_str(),
-                      "",
-                      MS_BIND,
-                      nullptr);
+  ScopedMount<WillChroot> run_mnt("/run",
+                                  run_path.c_str(),
+                                  "",
+                                  MS_BIND,
+                                  nullptr);
 
+  //
+  // bind mount /var/run
+  //
   fs::path var_run_path = fs::path(opts::sysroot) / "var" / "run";
-  ScopedMount var_run_mnt("/var/run",
-                          var_run_path.c_str(),
-                          "",
-                          MS_BIND,
-                          nullptr);
+  ScopedMount<WillChroot> var_run_mnt("/var/run",
+                                      var_run_path.c_str(),
+                                      "",
+                                      MS_BIND,
+                                      nullptr);
 
 #if 0
+  //
+  // create /tmp
+  //
   fs::path tmp_path = fs::path(opts::sysroot) / "tmp";
-  ScopedMount tmp_mnt("tmp",
-                      tmp_path.c_str(),
-                      "tmpfs",
-                      MS_NOSUID | MS_NODEV | MS_STRICTATIME,
-                      "mode=1777");
+  ScopedMount<WillChroot> tmp_mnt("tmp",
+                                  tmp_path.c_str(),
+                                  "tmpfs",
+                                  MS_NOSUID | MS_NODEV | MS_STRICTATIME,
+                                  "mode=1777");
 #else
   //
   // bind mount /tmp
@@ -455,13 +475,16 @@ int run(void) {
 
   fs::create_directories(chrooted_tmp);
 
-  ScopedMount tmp_mnt(tmp_path.c_str(),
-                      chrooted_tmp.c_str(),
-                      "",
-                      MS_BIND,
-                      nullptr);
+  ScopedMount<WillChroot> tmp_mnt(tmp_path.c_str(),
+                                  chrooted_tmp.c_str(),
+                                  "",
+                                  MS_BIND,
+                                  nullptr);
 #endif
 
+  //
+  // bind mount /etc/resolv.conf
+  //
   fs::path resolv_conf_path;
   try {
     resolv_conf_path = fs::canonical("/etc/resolv.conf");
@@ -475,12 +498,15 @@ int run(void) {
   if (!resolv_conf_path.empty())
     touch(chrooted_resolv_conf);
 
-  ScopedMount resolv_conf_mnt(resolv_conf_path.c_str(),
-                              chrooted_resolv_conf.c_str(),
-                              "",
-                              MS_BIND,
-                              nullptr);
+  ScopedMount<WillChroot> resolv_conf_mnt(resolv_conf_path.c_str(),
+                                          chrooted_resolv_conf.c_str(),
+                                          "",
+                                          MS_BIND,
+                                          nullptr);
 
+  //
+  // bind mount /etc/passwd
+  //
   fs::path etc_passwd_path;
   try {
     etc_passwd_path = fs::canonical("/etc/passwd");
@@ -494,12 +520,15 @@ int run(void) {
   if (!etc_passwd_path.empty())
     touch(chrooted_etc_passwd);
 
-  ScopedMount etc_passwd_mnt(etc_passwd_path.c_str(),
-                             chrooted_etc_passwd.c_str(),
-                             "",
-                             MS_BIND,
-                             nullptr);
+  ScopedMount<WillChroot> etc_passwd_mnt(etc_passwd_path.c_str(),
+                                         chrooted_etc_passwd.c_str(),
+                                         "",
+                                         MS_BIND,
+                                         nullptr);
 
+  //
+  // bind mount /etc/group
+  //
   fs::path etc_group_path;
   try {
     etc_group_path = fs::canonical("/etc/group");
@@ -513,12 +542,15 @@ int run(void) {
   if (!etc_group_path.empty())
     touch(chrooted_etc_group);
 
-  ScopedMount etc_group_mnt(etc_group_path.c_str(),
-                            chrooted_etc_group.c_str(),
-                            "",
-                            MS_BIND,
-                            nullptr);
+  ScopedMount<WillChroot> etc_group_mnt(etc_group_path.c_str(),
+                                        chrooted_etc_group.c_str(),
+                                        "",
+                                        MS_BIND,
+                                        nullptr);
 
+  //
+  // bind mount /etc/shadow
+  //
   fs::path etc_shadow_path;
   try {
     etc_shadow_path = fs::canonical("/etc/shadow");
@@ -532,12 +564,15 @@ int run(void) {
   if (!etc_shadow_path.empty())
     touch(chrooted_etc_shadow);
 
-  ScopedMount etc_shadow_mnt(etc_shadow_path.c_str(),
-                             chrooted_etc_shadow.c_str(),
-                             "",
-                             MS_BIND,
-                             nullptr);
+  ScopedMount<WillChroot> etc_shadow_mnt(etc_shadow_path.c_str(),
+                                         chrooted_etc_shadow.c_str(),
+                                         "",
+                                         MS_BIND,
+                                         nullptr);
 
+  //
+  // bind mount /etc/nsswitch.conf
+  //
   fs::path etc_nsswitch_path;
   try {
     etc_nsswitch_path = fs::canonical("/etc/nsswitch.conf");
@@ -551,12 +586,15 @@ int run(void) {
   if (!etc_nsswitch_path.empty())
     touch(chrooted_etc_nsswitch);
 
-  ScopedMount etc_nsswitch_mnt(etc_nsswitch_path.c_str(),
-                              chrooted_etc_nsswitch.c_str(),
-                              "",
-                              MS_BIND,
-                              nullptr);
+  ScopedMount<WillChroot> etc_nsswitch_mnt(etc_nsswitch_path.c_str(),
+                                           chrooted_etc_nsswitch.c_str(),
+                                           "",
+                                           MS_BIND,
+                                           nullptr);
 
+  //
+  // bind mount /etc/hosts
+  //
   fs::path etc_hosts_path;
   try {
     etc_hosts_path = fs::canonical("/etc/hosts");
@@ -570,13 +608,15 @@ int run(void) {
   if (!etc_hosts_path.empty())
     touch(chrooted_etc_hosts);
 
-  ScopedMount etc_hosts_mnt(etc_hosts_path.c_str(),
-                            chrooted_etc_hosts.c_str(),
-                            "",
-                            MS_BIND,
-                            nullptr);
+  ScopedMount<WillChroot> etc_hosts_mnt(etc_hosts_path.c_str(),
+                                        chrooted_etc_hosts.c_str(),
+                                        "",
+                                        MS_BIND,
+                                        nullptr);
 
-#if 1
+  //
+  // bind mount /firmadyne/libnvram
+  //
   fs::path firmadyne_libnvram_path;
   try {
     firmadyne_libnvram_path = fs::canonical("/firmadyne/libnvram");
@@ -589,21 +629,18 @@ int run(void) {
 
   fs::create_directories(chrooted_firmadyne_libnvram);
 
-  ScopedMount firmadyne_libnvram_mnt(firmadyne_libnvram_path.c_str(),
-                                     chrooted_firmadyne_libnvram.c_str(),
-                                     "",
-                                     MS_BIND,
-                                     nullptr);
-#endif
+  ScopedMount<WillChroot> firmadyne_libnvram_mnt(firmadyne_libnvram_path.c_str(),
+                                                 chrooted_firmadyne_libnvram.c_str(),
+                                                 "",
+                                                 MS_BIND,
+                                                 nullptr);
 
-#if 0
-  {
-    std::string input;
-    std::getline(std::cin, input);
-  }
-#endif
-
-  fs::path recover_fifo_path = fs::path(opts::sysroot) / "jove-recover.fifo";
+  //
+  // create recover fifo
+  //
+  fs::path recover_fifo_path =
+      WillChroot ? fs::path(opts::sysroot) / "jove-recover.fifo"
+                 : "/jove-recover.fifo";
   unlink(recover_fifo_path.c_str());
   if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
     fprintf(stderr, "mkfifo failed : %s\n", strerror(errno));
@@ -625,232 +662,18 @@ int run(void) {
   //
   int pid = fork();
   if (!pid) {
-    if (chroot(opts::sysroot.c_str()) < 0) {
-      fprintf(stderr, "chroot failed : %s\n", strerror(errno));
-      return 1;
-    }
-
-    if (chdir("/") < 0) {
-      fprintf(stderr, "chdir failed : %s\n", strerror(errno));
-      return 1;
-    }
-
-    //
-    // compute new environment
-    //
-    struct {
-      std::vector<std::string> s_vec;
-      std::vector<const char *> a_vec;
-    } env;
-
-    for (char **p = ::environ; *p; ++p) {
-      const std::string s(*p);
-
-      auto beginswith = [&](const std::string &x) -> bool {
-        return s.compare(0, x.size(), x) == 0;
-      };
-
-      //
-      // filter pre-existing environment entries
-      //
-      if (beginswith("JOVE_RECOVER_FIFO="))
-        continue;
-
-      env.s_vec.push_back(s);
-    }
-
-    env.s_vec.push_back("JOVE_RECOVER_FIFO=/jove-recover.fifo");
-
-#if defined(__x86_64__)
-    // <3 glibc
-    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-AVX_Usable,"
-                        "-AVX2_Usable,"
-                        "-AVX512F_Usable,"
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Unaligned_Load,"
-                        "-ERMS,"
-                        "-AVX_Fast_Unaligned_Load");
-#elif defined(__i386__)
-    // <3 glibc
-    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                        "-SSE4_1,"
-                        "-SSE4_2,"
-                        "-SSSE3,"
-                        "-Fast_Rep_String,"
-                        "-Fast_Unaligned_Load,"
-                        "-SSE2");
-#endif
-
-    //
-    // disable lazy linking (please)
-    //
-    env.s_vec.push_back("LD_BIND_NOW=1");
-
-    if (fs::exists("/firmadyne/libnvram.so"))
-      env.s_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
-
-    for (std::string &s : opts::Envs)
-      env.s_vec.push_back(s);
-
-    for (const std::string &s : env.s_vec)
-      env.a_vec.push_back(s.c_str());
-    env.a_vec.push_back(nullptr);
-
-    std::vector<const char *> arg_vec = {
-        opts::Prog.c_str(),
-    };
-
-    for (std::string &s : opts::Args)
-      arg_vec.push_back(s.c_str());
-
-    arg_vec.push_back(nullptr);
-
-    print_command(&arg_vec[0]);
-    execve(arg_vec[0],
-           const_cast<char **>(&arg_vec[0]),
-           const_cast<char **>(&env.a_vec[0]));
-
-    fprintf(stderr, "execve failed: %s\n", strerror(errno));
-    return 1;
-  }
-
-  //
-  // if we were given a pipefd, then communicate the app child's PID
-  //
-  if (int pipefd = opts::pipefd) {
-    ssize_t ret;
-
-    uint64_t uint64 = pid;
-    ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
-
-    if (ret != sizeof(uint64_t))
-      WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
-                                          ret);
-
-    if (close(pipefd) < 0) {
-      int err = errno;
-      WithColor::warning() << llvm::formatv("failed to close pipefd: {0}\n",
-                                            strerror(err));
-    }
-  }
-
-  IgnoreCtrlC();
-
-  //
-  // wait for process to exit
-  //
-#if 1
-  int ret = await_process_completion(pid);
-#else
-  int ret = 0;
-
-  //
-  // wait for all children to exit
-  //
-  for (;;) {
-    int status;
-    pid_t child = waitpid(-1, &status, __WALL);
-
-    if (child < 0) {
-      int err = errno;
-      if (err != ECHILD) {
-        fprintf(stderr, "waitpid failed: %s\n", strerror(err));
-      }
-      break;
-    }
-
-    if (WIFEXITED(status))
-      ret = WEXITSTATUS(status);
-  }
-#endif
-
-  if (unsigned sec = opts::Sleep) {
-    fprintf(stderr, "sleeping for %u seconds...\n", sec);
-    for (unsigned t = 0; t < sec; ++t) {
-      sleep(1);
-
-      if (interrupt_sleep.load()) {
-        if (opts::Verbose)
-          WithColor::note() << "sleep interrupted\n";
-        break;
+    if (WillChroot) {
+      if (chroot(opts::sysroot.c_str()) < 0) {
+        fprintf(stderr, "chroot failed : %s\n", strerror(errno));
+        return 1;
       }
 
-      if (recovered_ch.load()) {
-        if (opts::Verbose)
-          WithColor::note() << "sleep interrupted by jove-recover\n";
-        sleep(std::min<unsigned>(sec - t, 3));
-        break;
+      if (chdir("/") < 0) {
+        fprintf(stderr, "chdir failed : %s\n", strerror(errno));
+        return 1;
       }
-
-      fprintf(stderr, "%s", ".");
     }
-  }
 
-  //
-  // cancel the thread reading the fifo
-  //
-  if (pthread_cancel(recover_thd) != 0) {
-    fprintf(stderr, "error: failed to cancel recover_proc thread\n");
-
-    void *retval;
-    if (pthread_join(recover_thd, &retval) != 0)
-      fprintf(stderr, "error: pthread_join failed\n");
-  } else {
-    void *recover_retval;
-    if (pthread_join(recover_thd, &recover_retval) != 0)
-      fprintf(stderr, "error: pthread_join failed\n");
-    else if (recover_retval != PTHREAD_CANCELED)
-      fprintf(stderr,
-              "warning: expected retval to equal PTHREAD_CANCELED, but is %p\n",
-              recover_retval);
-  }
-
-  if (unlink(recover_fifo_path.c_str()) < 0)
-    fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
-
-#if 0
-  if (umount2(opts::sysroot, 0) < 0)
-    fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
-#endif
-
-  {
-    char ch = recovered_ch.load();
-    if (ch)
-      return ch;
-  }
-
-  return ret;
-}
-
-int run_outside_chroot(void) {
-  //
-  // this is a stripped-down version of run() XXX code duplication
-  //
-  fs::path recover_fifo_path = "/jove-recover.fifo";
-  unlink(recover_fifo_path.c_str());
-  if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
-    fprintf(stderr, "mkfifo failed : %s\n", strerror(errno));
-    return 1;
-  }
-
-  //
-  // create thread reading from fifo
-  //
-  pthread_t recover_thd;
-  if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
-                     (void *)recover_fifo_path.c_str()) != 0) {
-    fprintf(stderr, "failed to create recover_proc thread\n");
-    return 1;
-  }
-
-  //
-  // now actually fork and exec the given executable
-  //
-  int pid = fork();
-  if (!pid) {
     //
     // compute environment
     //
@@ -867,9 +690,6 @@ int run_outside_chroot(void) {
           if (ch == '\0')
             break;
 
-          //
-          // build up environment entry
-          //
           env_entry.push_back(ch);
         }
 
@@ -884,33 +704,30 @@ int run_outside_chroot(void) {
         env_vec.push_back(*p);
     }
 
-#if defined(__x86_64__)
+#if defined(TARGET_X86_64)
     // <3 glibc
-    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                      "-AVX_Usable,"
-                      "-AVX2_Usable,"
-                      "-AVX512F_Usable,"
-                      "-SSE4_1,"
-                      "-SSE4_2,"
-                      "-SSSE3,"
-                      "-Fast_Unaligned_Load,"
-                      "-ERMS,"
-                      "-AVX_Fast_Unaligned_Load");
-#elif defined(__i386__)
+    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-AVX_Usable,"
+                        "-AVX2_Usable,"
+                        "-AVX512F_Usable,"
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Unaligned_Load,"
+                        "-ERMS,"
+                        "-AVX_Fast_Unaligned_Load");
+#elif defined(TARGET_I386)
     // <3 glibc
-    env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
-                      "-SSE4_1,"
-                      "-SSE4_2,"
-                      "-SSSE3,"
-                      "-Fast_Rep_String,"
-                      "-Fast_Unaligned_Load,"
-                      "-SSE2");
+    env.s_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                        "-SSE4_1,"
+                        "-SSE4_2,"
+                        "-SSSE3,"
+                        "-Fast_Rep_String,"
+                        "-Fast_Unaligned_Load,"
+                        "-SSE2");
 #endif
 
-    //
-    // disable lazy linking (please)
-    //
-    env_vec.push_back("LD_BIND_NOW=1");
+    env_vec.push_back("LD_BIND_NOW=1"); /* disable lazy linking (please) */
 
     if (fs::exists("/firmadyne/libnvram.so"))
       env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
@@ -920,11 +737,14 @@ int run_outside_chroot(void) {
 
     env_vec.push_back(nullptr);
 
-    fs::path prog_path = fs::path(opts::sysroot) / opts::Prog.c_str();
-
+    //
+    // compute args
+    //
     std::vector<const char *> arg_vec;
-
     std::list<std::string> args_file_args;
+
+    fs::path prog_path =
+        WillChroot ? opts::Prog : fs::path(opts::sysroot) / opts::Prog;
 
     if (!opts::ArgsFromFile.empty()) {
       std::ifstream ifs(opts::ArgsFromFile);
@@ -936,9 +756,6 @@ int run_outside_chroot(void) {
           if (ch == '\0')
             break;
 
-          //
-          // build up environment entry
-          //
           arg_entry.push_back(ch);
         }
 
@@ -990,24 +807,10 @@ int run_outside_chroot(void) {
   //
   int ret = await_process_completion(pid);
 
+  //
+  // optionally sleep
+  //
   if (unsigned sec = opts::Sleep) {
-    //
-    // install SIGUSR1 handler to interrupt sleeping
-    //
-    {
-      struct sigaction sa;
-
-      sigemptyset(&sa.sa_mask);
-      sa.sa_flags = SA_RESTART;
-      sa.sa_handler = sighandler;
-
-      if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
-                                            __func__, strerror(err));
-      }
-    }
-
     fprintf(stderr, "sleeping for %u seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
@@ -1051,28 +854,29 @@ int run_outside_chroot(void) {
   if (unlink(recover_fifo_path.c_str()) < 0)
     fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
 
-#if 0
+#if 0 /* is this necessary? */
   if (umount2(opts::sysroot, 0) < 0)
     fprintf(stderr, "unmounting %s failed : %s\n", opts::sysroot, strerror(errno));
 #endif
 
   {
+    //
+    // robust means of determining whether jove-recover has run
+    //
     char ch = recovered_ch.load();
     if (ch)
-      return ch;
+      return ch; /* return char jove-loop will recognize */
   }
 
   return ret;
 }
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
+int run(void) {
+  return do_run<true>();
+}
 
-static size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
-  size_t expected = 0;
-  for (unsigned i = 0; i < n; ++i)
-    expected += iov[i].iov_len;
-  return expected;
+int run_outside_chroot(void) {
+  return do_run<false>();
 }
 
 void touch(const fs::path &p) {
