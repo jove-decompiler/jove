@@ -1400,10 +1400,8 @@ struct hook_t {
 
   bool Pre;
   bool Post;
+  bool Syscall; // is this a wrapper for performing a system call?
 };
-
-#define PRE 1
-#define POST 2
 
 static constexpr unsigned NumHooks = 0
 #define ___HOOK0(hook_kind, rett, sym)                         +1
@@ -1423,6 +1421,16 @@ static constexpr unsigned NumHooks = 0
 #undef ___HOOK6
   ;
 
+#if defined(PRE) \
+ || defined(POST) \
+ || defined(SYSCALL)
+#error
+#endif
+
+#define PRE 1
+#define POST 2
+#define SYSCALL 4
+
 static const std::array<hook_t, NumHooks> HookArray{{
 #define ___HOOK0(hook_kind, rett, sym)                                         \
   {                                                                            \
@@ -1431,6 +1439,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
@@ -1441,6 +1450,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
@@ -1453,6 +1463,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
@@ -1467,6 +1478,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
@@ -1483,6 +1495,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
@@ -1501,6 +1514,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
@@ -1521,6 +1535,7 @@ static const std::array<hook_t, NumHooks> HookArray{{
               .isPointer = std::is_pointer<rett>::value},                      \
       .Pre = !!(hook_kind & PRE),                                              \
       .Post = !!(hook_kind & POST),                                            \
+      .Syscall = !!(hook_kind & SYSCALL),                                      \
   },
 #include "dfsan_hooks.inc.h"
 
@@ -1532,6 +1547,10 @@ static const std::array<hook_t, NumHooks> HookArray{{
 #undef ___HOOK5
 #undef ___HOOK6
 }};
+
+#undef PRE
+#undef POST
+#undef SYSCALL
 
 static llvm::Type *type_of_arg_info(const hook_t::arg_info_t &info) {
   if (info.isPointer)
@@ -1611,7 +1630,18 @@ static std::string dyn_target_desc(dynamic_target_t IdxPair);
 int LocateHooks(void) {
   assert(opts::DFSan);
 
+  const bool ForeignLibs = opts::ForeignLibs;
+  if (!ForeignLibs) {
+    WithColor::note() << "--foreign-libs not passed; skipping locating hooks\n";
+    return 0;
+  }
+
   for (const hook_t &h : HookArray) {
+    if (!ForeignLibs && h.Syscall) {
+      WithColor::note() << llvm::formatv("not planting hooks for {0}\n", h.Sym);
+      continue; // we will see the system call; no need for a hook
+    }
+
     auto it = ExportedFunctions.find(h.Sym);
     if (it == ExportedFunctions.end()) {
       if (opts::Verbose)
