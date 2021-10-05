@@ -8557,6 +8557,20 @@ int DFSanInstrument(void) {
 
   MPM.add(llvm::createDataFlowSanitizerPass(ABIList, nullptr, nullptr));
 
+  {
+    llvm::StringMap<llvm::cl::Option*> &OptionMap = llvm::cl::getRegisteredOptions();
+    {
+      auto it = OptionMap.find("dfsan-no-loop-starts");
+      if (it == OptionMap.end()) {
+        WithColor::error() << "DFSanInstrument: could not find dfsan-no-loop-starts option!\n";
+        return 1;
+      }
+
+      llvm::cl::Option *O = (*it).second;
+      assert(O);
+    }
+  }
+
   MPM.run(*Module);
 #else
   std::vector<std::string> ABIList;
@@ -10255,7 +10269,7 @@ BOOST_PP_REPEAT(9, __THUNK, void)
       break;
 
   case TERMINATOR::RETURN: {
-    if (opts::DFSan && true /* opts::Paranoid */)
+    if (opts::DFSan && false /* opts::Paranoid */)
       IRB.CreateCall(IRB.CreateIntToPtr(
           IRB.CreateLoad(DFSanFiniClunk),
           DFSanFiniFunc->getType())); /* flush the log file */

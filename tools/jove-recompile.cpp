@@ -1086,6 +1086,7 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--dfsan");
         arg_vec.push_back(output_module_id_file_arg.c_str());
         arg_vec.push_back(dfsan_bytecode_loc_arg.c_str());
+        arg_vec.push_back("--dfsan-no-loop-starts");
       }
 
       if (opts::CheckEmulatedStackReturnAddress)
