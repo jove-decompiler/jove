@@ -398,6 +398,9 @@ int run(void) {
                           MS_NOSUID | MS_NODEV,
                           "mode=1777");
 #else
+  //
+  // bind mount /dev
+  //
   fs::path dev_path;
   try {
     dev_path = fs::canonical("/dev");
@@ -437,6 +440,26 @@ int run(void) {
                       "tmpfs",
                       MS_NOSUID | MS_NODEV | MS_STRICTATIME,
                       "mode=1777");
+#else
+  //
+  // bind mount /tmp
+  //
+  fs::path tmp_path;
+  try {
+    tmp_path = fs::canonical("/tmp");
+  } catch (...) {
+    ; /* absorb */
+  }
+
+  fs::path chrooted_tmp = fs::path(opts::sysroot) / "tmp";
+
+  fs::create_directories(chrooted_tmp);
+
+  ScopedMount tmp_mnt(tmp_path.c_str(),
+                      chrooted_tmp.c_str(),
+                      "",
+                      MS_BIND,
+                      nullptr);
 #endif
 
   fs::path resolv_conf_path;
