@@ -1631,10 +1631,6 @@ int LocateHooks(void) {
   assert(opts::DFSan);
 
   const bool ForeignLibs = opts::ForeignLibs;
-  if (!ForeignLibs) {
-    WithColor::note() << "--foreign-libs not passed; skipping locating hooks\n";
-    return 0;
-  }
 
   for (const hook_t &h : HookArray) {
     if (!ForeignLibs && h.Syscall) {
