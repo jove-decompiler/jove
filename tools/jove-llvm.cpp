@@ -1437,9 +1437,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
       .Sym = #sym,                                                             \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK1(hook_kind, rett, sym, t1)                                     \
   {                                                                            \
@@ -1448,9 +1448,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t1>::value}},                     \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK2(hook_kind, rett, sym, t1, t2)                                 \
   {                                                                            \
@@ -1461,9 +1461,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t2>::value}},                     \
       .Ret = {.Size = sizeof(rett),                                            \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK3(hook_kind, rett, sym, t1, t2, t3)                             \
   {                                                                            \
@@ -1476,9 +1476,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t3>::value}},                     \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK4(hook_kind, rett, sym, t1, t2, t3, t4)                         \
   {                                                                            \
@@ -1493,9 +1493,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t4>::value}},                     \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK5(hook_kind, rett, sym, t1, t2, t3, t4, t5)                     \
   {                                                                            \
@@ -1512,9 +1512,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t5>::value}},                     \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #define ___HOOK6(hook_kind, rett, sym, t1, t2, t3, t4, t5, t6)                 \
   {                                                                            \
@@ -1533,9 +1533,9 @@ static const std::array<hook_t, NumHooks> HookArray{{
                 .isPointer = std::is_pointer<t6>::value}},                     \
       .Ret = {.Size = sizeof(target_ulong),                                    \
               .isPointer = std::is_pointer<rett>::value},                      \
-      .Pre = !!(hook_kind & PRE),                                              \
-      .Post = !!(hook_kind & POST),                                            \
-      .Syscall = !!(hook_kind & SYSCALL),                                      \
+      .Pre = !!((hook_kind) & PRE),                                            \
+      .Post = !!((hook_kind) & POST),                                          \
+      .Syscall = !!((hook_kind) & SYSCALL),                                    \
   },
 #include "dfsan_hooks.inc.h"
 
@@ -1640,9 +1640,7 @@ int LocateHooks(void) {
 
     auto it = ExportedFunctions.find(h.Sym);
     if (it == ExportedFunctions.end()) {
-      if (opts::Verbose)
-        WithColor::warning() << llvm::formatv("failed to find hook for {0}\n",
-                                              h.Sym);
+      WithColor::warning() << llvm::formatv("failed to find hook for {0}\n", h.Sym);
       continue;
     }
 
