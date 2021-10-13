@@ -70,8 +70,8 @@ int readtrace(void) {
       uint32_t BBIdx;
     } Trace;
 
-    Trace.BIdx  = X & 0xffffffff;
-    Trace.BBIdx = X >> 32;
+    Trace.BIdx  = X >> 32;
+    Trace.BBIdx = X & 0xffffffff;
 
     llvm::outs() << llvm::formatv("JV_{0}_{1}\n",
                                   Trace.BIdx,
