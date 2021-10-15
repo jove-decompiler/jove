@@ -78,6 +78,10 @@ static cl::opt<bool> Verbose("verbose",
 
 static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
                               cl::aliasopt(Verbose), cl::cat(JoveCategory));
+
+static cl::opt<std::string>
+    ChangeDirectory("cd", cl::desc("change directory after chroot(2)'ing"),
+                    cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -668,7 +672,11 @@ static int do_run(void) {
         return 1;
       }
 
-      if (chdir("/") < 0) {
+      const char *working_dir =
+          !opts::ChangeDirectory.empty() ?
+          opts::ChangeDirectory.c_str() : "/";
+
+      if (chdir(working_dir) < 0) {
         fprintf(stderr, "chdir failed : %s\n", strerror(errno));
         return 1;
       }
