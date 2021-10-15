@@ -163,6 +163,10 @@ static cl::list<std::string>
                   cl::desc("force specified TCG globals to always go through CPUState"),
                   cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    ChangeDirectory("cd", cl::desc("change directory after chroot(2)'ing"),
+                    cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -592,6 +596,11 @@ run:
 
         if (opts::OutsideChroot)
           arg_vec.push_back("--outside-chroot");
+
+        if (!opts::ChangeDirectory.empty()) {
+          arg_vec.push_back("--cd");
+          arg_vec.push_back(opts::ChangeDirectory.c_str());
+        }
 
         std::string env_arg;
 
