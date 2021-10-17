@@ -757,7 +757,7 @@ static int do_run(void) {
 
     env_vec.push_back("LD_BIND_NOW=1"); /* disable lazy linking (please) */
 
-    if (fs::exists("/firmadyne/libnvram.so"))
+    if (fs::exists("/firmadyne/libnvram.so")) /* XXX firmadyne */
       env_vec.push_back("LD_PRELOAD=/firmadyne/libnvram.so");
 
     for (std::string &s : opts::Envs)
@@ -990,7 +990,7 @@ void *recover_proc(const char *fifo_path) {
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f', 'b', or 'r'.
+    // 'f', 'F', 'b', or 'r'.
     //
     recovered_ch.store(ch);
     if (ch == 'f') {
@@ -1110,7 +1110,7 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        print_command(argv);
+        print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
         exit(1);
