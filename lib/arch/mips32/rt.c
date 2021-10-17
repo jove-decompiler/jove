@@ -1757,9 +1757,6 @@ struct CPUMIPSState {
 #define JOVE_SYS_ATTR _HIDDEN _UNUSED
 #include "jove_sys.h"
 
-_HIDDEN void _jove_free_callstack(uintptr_t);
-_HIDDEN void _jove_free_stack_later(uintptr_t);
-
 #include "rt.util.c"
 #include "rt.common.c"
 #include "rt.arch.c"
