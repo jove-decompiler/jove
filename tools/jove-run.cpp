@@ -52,6 +52,11 @@ static cl::opt<std::string>
                  cl::desc("use output from `cat /proc/<pid>/cmdline`"),
                  cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    BindMountDirs("bind", cl::CommaSeparated,
+         cl::value_desc("/path/to/dir_1,/path/to/dir_2,...,/path/to/dir_n"),
+         cl::desc("List of directories to bind mount"), cl::cat(JoveCategory));
+
 static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
                                     cl::Required, cl::cat(JoveCategory));
 
@@ -387,6 +392,21 @@ static int do_run(void) {
                                   "sysfs",
                                   MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
                                   nullptr);
+
+  std::list<fs::path>                CmdLineBindMountChrootedDirs;
+  std::list<ScopedMount<WillChroot>> CmdLineBindMounts;
+
+  for (const std::string &Dir : opts::BindMountDirs) {
+    fs::path &chrooted_dir =
+        CmdLineBindMountChrootedDirs.emplace_back(fs::path(opts::sysroot) / Dir);
+    fs::create_directories(chrooted_dir);
+
+    CmdLineBindMounts.emplace_back(Dir.c_str(),
+                                   chrooted_dir.c_str(),
+                                   "",
+                                   MS_BIND,
+                                   nullptr);
+  }
 
 #if 0
   //
