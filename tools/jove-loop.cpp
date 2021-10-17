@@ -81,6 +81,11 @@ static cl::opt<std::string>
                  cl::desc("use output from `cat /proc/<pid>/cmdline`"),
                  cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    BindMountDirs("bind", cl::CommaSeparated,
+         cl::value_desc("/path/to/dir_1,/path/to/dir_2,...,/path/to/dir_n"),
+         cl::desc("List of directories to bind mount"), cl::cat(JoveCategory));
+
 static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
                                cl::Required, cl::value_desc("filename"),
                                cl::cat(JoveCategory));
@@ -612,6 +617,19 @@ run:
         if (!opts::ArgsFromFile.empty()) {
           arg_vec.push_back("--args-from-file");
           arg_vec.push_back(opts::ArgsFromFile.c_str());
+        }
+
+        std::string bind_arg;
+        if (!opts::BindMountDirs.empty()) {
+          bind_arg = "--bind=";
+
+          for (const std::string &Dir : opts::BindMountDirs) {
+            bind_arg.append(Dir);
+            bind_arg.push_back(',');
+          }
+          bind_arg.resize(bind_arg.size() - 1); /* remove extra comma */
+
+          arg_vec.push_back(bind_arg.c_str());
         }
 
         if (!opts::Envs.empty()) {
