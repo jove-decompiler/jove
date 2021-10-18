@@ -1,3 +1,4 @@
+#include "jove/jove.h"
 #include <unistd.h>
 #include <iostream>
 #include <vector>
@@ -15,6 +16,13 @@
 #include <sys/uio.h>
 #include <fcntl.h>
 #include <pthread.h>
+#include <boost/archive/text_iarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/serialization/bitset.hpp>
+#include <boost/serialization/map.hpp>
+#include <boost/serialization/set.hpp>
+#include <boost/serialization/vector.hpp>
+#include <boost/graph/adj_list_serialize.hpp>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/InitLLVM.h>
@@ -153,14 +161,15 @@ int main(int argc, char **argv) {
   jove::jove_recover_path =
       boost::dll::program_location().parent_path() / "jove-recover";
   if (!fs::exists(jove::jove_recover_path)) {
-    fprintf(stderr, "couldn't find jove-recover at %s\n",
-            jove::jove_recover_path.c_str());
+    WithColor::error() << llvm::formatv("couldn't find jove-recover at {0}\n",
+                                        jove::jove_recover_path.c_str());
     return 1;
   }
 
   jove::jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
   if (!fs::exists(jove::jv_path)) {
-    fprintf(stderr, "recover: no jv found\n");
+    WithColor::error() << llvm::formatv("recover: no jv found at {0}\n",
+                                        jove::jv_path);
     return 1;
   }
 
@@ -310,12 +319,12 @@ struct ScopedMount {
 
         default:
           if (opts::Verbose)
-            fprintf(stderr, "mount(\"%s\", \"%s\", \"%s\", 0x%lx, %p) failed: %s\n",
+            WithColor::warning << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
                     this->source,
                     this->target,
                     this->filesystemtype,
-                    (long)this->mountflags,
-                    this->data,
+                    (unsigned)this->mountflags,
+                    (void *)this->data,
                     strerror(err));
           return;
         }
@@ -345,10 +354,10 @@ struct ScopedMount {
         switch (err) {
         case EBUSY:
           if (retries++ < MAX_UMOUNT_RETRIES) {
-            fprintf(stderr, "retrying umount of %s shortly...\n", this->target);
+            llvm::errs() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
             usleep(100000);
           } else {
-            fprintf(stderr, "unmounting %s failed: EBUSY...\n", this->target);
+            llvm::errs() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
             return;
           }
           /* fallthrough */
@@ -356,9 +365,9 @@ struct ScopedMount {
           continue;
 
         default:
-          fprintf(stderr, "umount(\"%s\") failed: %s\n",
-                  this->target,
-                  strerror(err));
+          llvm::errs() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
+                                        this->target,
+                                        strerror(err));
           return;
         }
       } else {
@@ -667,7 +676,7 @@ static int do_run(void) {
                  : "/jove-recover.fifo";
   unlink(recover_fifo_path.c_str());
   if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
-    fprintf(stderr, "mkfifo failed : %s\n", strerror(errno));
+    llvm::errs() << llvm::formatv("mkfifo failed : %s\n", strerror(errno));
     return 1;
   }
 
@@ -677,8 +686,19 @@ static int do_run(void) {
   pthread_t recover_thd;
   if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
                      (void *)recover_fifo_path.c_str()) != 0) {
-    fprintf(stderr, "failed to create recover_proc thread\n");
+    llvm::errs() << "failed to create recover_proc thread\n";
     return 1;
+  }
+
+  //
+  // parse decompilation
+  //
+  decompilation_t decompilation;
+  {
+    std::ifstream ifs(jv_path.c_str());
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> decompilation;
   }
 
   //
@@ -688,7 +708,8 @@ static int do_run(void) {
   if (!pid) {
     if (WillChroot) {
       if (chroot(opts::sysroot.c_str()) < 0) {
-        fprintf(stderr, "chroot failed : %s\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::formatv("chroot failed : {0}\n", strerror(err));
         return 1;
       }
 
@@ -697,7 +718,8 @@ static int do_run(void) {
           opts::ChangeDirectory.c_str() : "/";
 
       if (chdir(working_dir) < 0) {
-        fprintf(stderr, "chdir failed : %s\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::foramtv("chdir failed : {0}\n", strerror(err));
         return 1;
       }
     }
@@ -804,7 +826,8 @@ static int do_run(void) {
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env_vec[0]));
 
-    fprintf(stderr, "execve failed: %s\n", strerror(errno));
+    int err = errno;
+    WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
     return 1;
   }
 
@@ -839,7 +862,7 @@ static int do_run(void) {
   // optionally sleep
   //
   if (unsigned sec = opts::Sleep) {
-    fprintf(stderr, "sleeping for %u seconds...\n", sec);
+    llvm::errs() << llvm::formatv("sleeping for {0} seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
 
@@ -856,7 +879,7 @@ static int do_run(void) {
         break;
       }
 
-      fprintf(stderr, "%s", ".");
+      llvm::errs() << ".";
     }
   }
 
@@ -864,23 +887,25 @@ static int do_run(void) {
   // cancel the thread reading the fifo
   //
   if (pthread_cancel(recover_thd) != 0) {
-    fprintf(stderr, "error: failed to cancel recover_proc thread\n");
+    llvm::errs() << "error: failed to cancel recover_proc thread\n";
 
     void *retval;
     if (pthread_join(recover_thd, &retval) != 0)
-      fprintf(stderr, "error: pthread_join failed\n");
+      llvm::errs() << "error: pthread_join failed\n";
   } else {
     void *recover_retval;
     if (pthread_join(recover_thd, &recover_retval) != 0)
-      fprintf(stderr, "error: pthread_join failed\n");
+      llvm::errs() << "error: pthread_join failed\n";
     else if (recover_retval != PTHREAD_CANCELED)
-      fprintf(stderr,
-              "warning: expected retval to equal PTHREAD_CANCELED, but is %p\n",
+      llvm::errs() << llvm::formatv(
+              "warning: expected retval to equal PTHREAD_CANCELED, but is {0}\n",
               recover_retval);
   }
 
-  if (unlink(recover_fifo_path.c_str()) < 0)
-    fprintf(stderr, "unlink of recover pipe failed : %s\n", strerror(errno));
+  if (unlink(recover_fifo_path.c_str()) < 0) {
+    int err = errno;
+    llvm::errs() << llvm::formatv("unlink of recover pipe failed: {0}\n", strerror(err));
+  }
 
 #if 0 /* is this necessary? */
   if (umount2(opts::sysroot, 0) < 0)
@@ -915,8 +940,7 @@ void touch(const fs::path &p) {
 
 void *recover_proc(const char *fifo_path) {
   //
-  // ATTENTION: this thread has to be cancel-able. That means no C++ objects at
-  // any time, in this function.
+  // ATTENTION: this thread has to be cancel-able.
   //
 
   int recover_fd;
@@ -925,15 +949,19 @@ void *recover_proc(const char *fifo_path) {
   while (recover_fd < 0 && errno == EINTR);
 
   if (recover_fd < 0) {
-    fprintf(stderr, "recover: failed to open fifo at %s (%s)\n", fifo_path,
-            strerror(errno));
+    int err = errno;
+    llvm::errs() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
+                                  fifo_path,
+                                  strerror(err));
     return nullptr;
   }
 
   void (*cleanup_handler)(void *) = [](void *arg) -> void {
-    if (close(reinterpret_cast<long>(arg)) < 0)
-      fprintf(stderr, "recover_proc: cleanup_handler: close failed (%s)\n",
-              strerror(errno));
+    if (close(reinterpret_cast<long>(arg)) < 0) {
+      int err = errno;
+      llvm::errs() << llvm::formatv(
+          "recover_proc: cleanup_handler: close failed ({0})\n", strerror(err));
+    }
   };
 
   pthread_cleanup_push(cleanup_handler, reinterpret_cast<void *>(recover_fd));
@@ -946,39 +974,49 @@ void *recover_proc(const char *fifo_path) {
       ssize_t ret = read(recover_fd, &ch, 1);
       if (ret != 1) {
         if (ret < 0) {
-          if (errno == EINTR)
+          int err = errno;
+
+          if (err == EINTR)
             continue;
 
-          fprintf(stderr, "recover: read failed (%s)\n", strerror(errno));
+          llvm::errs() << llvm::formatv("recover: read failed ({0})\n",
+                                        strerror(err));
         } else if (ret == 0) {
           // NOTE: open is a cancellation point
           int new_recover_fd = open(fifo_path, O_RDONLY);
           if (new_recover_fd < 0) {
-            fprintf(stderr, "recover: failed to open fifo at %s (%s)\n",
-                    fifo_path, strerror(errno));
+            int err = errno;
+            llvm::errs() << llvm::formatv(
+                "recover: failed to open fifo at {0} ({1})\n", fifo_path,
+                strerror(err));
             return nullptr;
           }
 
-          if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-            fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+          if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0) {
+            llvm::errs() << "pthread_setcancelstate failed\n";
+          }
 
           assert(new_recover_fd != recover_fd);
 
           if (dup2(new_recover_fd, recover_fd) < 0) {
-            fprintf(stderr, "recover: failed to dup2(%d, %d)) (%s)\n",
-                    new_recover_fd, recover_fd, strerror(errno));
+            int err = errno;
+            llvm::errs() << llvm::formatv(
+                "recover: failed to dup2({0}, {1})) ({2})\n", new_recover_fd,
+                recover_fd, strerror(err));
           }
 
-          if (close(new_recover_fd) < 0)
-            fprintf(stderr, "recover_proc: close failed (%s)\n",
-                    strerror(errno));
+          if (close(new_recover_fd) < 0) {
+            int err = errno;
+            llvm::errs() << llvm::formatv("recover_proc: close failed ({0})\n",
+                                          strerror(err));
+          }
 
           if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-            fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+            llvm::errs() << "pthread_setcancelstate failed\n";
 
           continue;
         } else {
-          fprintf(stderr, "recover: read gave %zd\n", ret);
+          llvm::errs() << llvm::formatv("recover: read gave {0}\n", ret);
         }
 
         break;
@@ -986,7 +1024,7 @@ void *recover_proc(const char *fifo_path) {
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-      fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+      llvm::errs() << "pthread_setcancelstate failed\n";
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
@@ -1034,7 +1072,8 @@ void *recover_proc(const char *fifo_path) {
                               buff, nullptr};
         print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1073,7 +1112,8 @@ void *recover_proc(const char *fifo_path) {
                               buff, nullptr};
         print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1112,7 +1152,8 @@ void *recover_proc(const char *fifo_path) {
                               buff, nullptr};
         print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1145,17 +1186,18 @@ void *recover_proc(const char *fifo_path) {
                               buff, nullptr};
         print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
-        fprintf(stderr, "recover: exec failed (%s)\n", strerror(errno));
+        int err = errno;
+        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
       (void)await_process_completion(pid);
     } else {
-      fprintf(stderr, "recover: unknown character! (%c)\n", ch);
+      llvm::errs() << llvm::formatv("recover: unknown character! ({0})\n", ch);
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-      fprintf(stderr, "warning: pthread_setcancelstate failed\n");
+      llvm::errs() << "pthread_setcancelstate failed\n";
   }
 
   // (Clean-up handlers are not called if the thread terminates by performing a
@@ -1176,22 +1218,22 @@ int await_process_completion(pid_t pid) {
       case EINTR:
         continue;
       default:
-        fprintf(stderr, "waitpid failed: %s\n", strerror(err));
+        llvm::errs() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
         continue;
       }
     }
 
     if (WIFEXITED(wstatus)) {
-      printf("exited, status=%d\n", WEXITSTATUS(wstatus));
+      llvm::errs() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
       return WEXITSTATUS(wstatus);
     } else if (WIFSIGNALED(wstatus)) {
-      printf("killed by signal %d\n", WTERMSIG(wstatus));
+      llvm::errs() << llvm::formatv("killed by signal {0}\n", WTERMSIG(wstatus));
       return 1;
     } else if (WIFSTOPPED(wstatus)) {
-      printf("stopped by signal %d\n", WSTOPSIG(wstatus));
+      llvm::errs() << llvm::formatv("stopped by signal {0}\n", WSTOPSIG(wstatus));
       return 1;
     } else if (WIFCONTINUED(wstatus)) {
-      printf("continued\n");
+      llvm::errs() << "continued\n";
     }
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
@@ -1221,8 +1263,7 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  fprintf(stderr, "%s", msg.c_str());
-  fflush(stderr);
+  llvm::errs() << msg.c_str();
 }
 
 }
