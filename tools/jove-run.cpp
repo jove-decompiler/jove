@@ -169,7 +169,7 @@ int main(int argc, char **argv) {
   jove::jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
   if (!fs::exists(jove::jv_path)) {
     WithColor::error() << llvm::formatv("recover: no jv found at {0}\n",
-                                        jove::jv_path);
+                                        jove::jv_path.c_str());
     return 1;
   }
 
@@ -319,7 +319,7 @@ struct ScopedMount {
 
         default:
           if (opts::Verbose)
-            WithColor::warning << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
+            WithColor::warning() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
                     this->source,
                     this->target,
                     this->filesystemtype,
@@ -719,7 +719,7 @@ static int do_run(void) {
 
       if (chdir(working_dir) < 0) {
         int err = errno;
-        llvm::errs() << llvm::foramtv("chdir failed : {0}\n", strerror(err));
+        llvm::errs() << llvm::formatv("chdir failed : {0}\n", strerror(err));
         return 1;
       }
     }
