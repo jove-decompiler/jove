@@ -310,3 +310,43 @@ static _INL ssize_t _robust_write(int fd, void *const buf, const size_t count) {
 
   return n;
 }
+
+static _INL bool _should_sleep_on_crash(char *envs, const unsigned n) {
+  char *const beg = &envs[0];
+  char *const end = &envs[n];
+
+  char *eoe;
+  for (char *env = beg; env != end; env = eoe + 1) {
+    unsigned left = n - (env - beg);
+
+    //
+    // find the end of the current entry
+    //
+    eoe = _memchr(env, '\0', left);
+
+    if (env[0] == 'J' &&
+        env[1] == 'O' &&
+        env[2] == 'V' &&
+        env[3] == 'E' &&
+        env[4] == '_' &&
+        env[5] == 'S' &&
+        env[6] == 'L' &&
+        env[7] == 'E' &&
+        env[8] == 'E' &&
+        env[9] == 'P' &&
+        env[10] == '_' &&
+        env[11] == 'O' &&
+        env[12] == 'N' &&
+        env[13] == '_' &&
+        env[14] == 'C' &&
+        env[15] == 'R' &&
+        env[16] == 'A' &&
+        env[17] == 'S' &&
+        env[18] == 'H' &&
+        env[19] == '=') {
+      return true;
+    }
+  }
+
+  return false;
+}

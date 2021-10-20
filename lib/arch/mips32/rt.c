@@ -2185,8 +2185,8 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   // if we get here, this is most likely a real crash.
   //
   char maps[4096 * 8];
-  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
-  maps[n] = '\0';
+  const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[maps_n] = '\0';
 
   char s[4096 * 16];
   s[0] = '\0';
@@ -2212,7 +2212,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     }                                                                          \
     {                                                                          \
       char _buff[256];                                                         \
-      _description_of_address_for_maps(_buff, init, maps, n);                  \
+      _description_of_address_for_maps(_buff, init, maps, maps_n);             \
       if (_strlen(_buff) != 0) {                                               \
         _strcat(s, " <");                                                      \
         _strcat(s, _buff);                                                     \
@@ -2297,9 +2297,28 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     dfsan_flush_ptr();
   }
 
-  _jove_sys_exit_group(0x77);
+  {
+    char envs[4096 * 8];
+    const unsigned envs_n = _read_pseudo_file("/proc/self/environ", envs, sizeof(envs));
+    envs[envs_n] = '\0';
 
-  __builtin_trap();
+    if (_should_sleep_on_crash(envs, envs_n)) {
+      {
+        char buff[256];
+        buff[0] = '\0';
+
+        _strcat(buff, __LOG_BOLD_BLUE "sleeping...\n" __LOG_NORMAL_COLOR);
+
+        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
+      }
+
+      for (;;) _jove_sleep();
+    } else {
+      _jove_sys_exit_group(0x77);
+      __builtin_trap();
+    }
+  }
+
   __builtin_unreachable();
 }
 
