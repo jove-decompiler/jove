@@ -869,8 +869,8 @@ static int do_run(void) {
     //
     // compute args
     //
-    std::vector<const char *> arg_vec;
     std::list<std::string> args_file_args;
+    std::vector<const char *> arg_vec;
 
     fs::path prog_path =
         WillChroot ? opts::Prog : fs::path(opts::sysroot) / opts::Prog;
