@@ -95,6 +95,18 @@ static cl::alias VerboseAlias("v", cl::desc("Alias for --verbose."),
 static cl::opt<std::string>
     ChangeDirectory("cd", cl::desc("change directory after chroot(2)'ing"),
                     cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    ForeignLibs("foreign-libs",
+                cl::desc("only recompile the executable itself; "
+                         "treat all other binaries as \"foreign\". Implies "
+                         "--outside-chroot"),
+                cl::cat(JoveCategory));
+
+static cl::alias
+    ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
+                     cl::aliasopt(ForeignLibs),
+                     cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -192,7 +204,9 @@ int main(int argc, char **argv) {
     }
   }
 
-  return opts::OutsideChroot ? jove::run_outside_chroot() : jove::run();
+  return opts::OutsideChroot || opts::ForeignLibs ?
+    jove::run_outside_chroot() :
+    jove::run();
 }
 
 namespace jove {
@@ -701,6 +715,71 @@ static int do_run(void) {
     ia >> decompilation;
   }
 
+  if (!WillChroot && !opts::ForeignLibs) {
+    //
+    // danger zone: this is where we modify the root file system
+    //
+
+    //
+    // (1) create hard links to pre-existing binaries with .jove.sav suffix
+    //
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+
+      std::string sav_path = binary.Path + ".jove.sav";
+      if (link(binary.Path.c_str(), sav_path.c_str()) < 0) {
+        WithColor::error() << llvm::formatv("failed to create hard link for {0}\n",
+                                            binary.Path);
+        return 1;
+      }
+    }
+
+    //
+    // (2) copy recompiled binaries to root filesystem
+    //
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+
+      fs::path chrooted_path = fs::path(opts::sysroot) / binary.Path;
+      std::string new_path = binary.Path + ".jove.new";
+
+      try {
+        fs::copy_file(chrooted_path, new_path);
+      } catch (...) {
+        WithColor::warning() << llvm::formatv(
+            "dangerous mode: failed to copy {0} to {1}; aborting\n",
+            chrooted_path.c_str(), new_path.c_str());
+        return 1;
+      }
+    }
+
+    //
+    // (3) perform the renames!!!
+    //
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+
+      std::string new_path = binary.Path + ".jove.new";
+
+      if (rename(new_path.c_str(), binary.Path.c_str()) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                            new_path.c_str(),
+                                            binary.Path.c_str(),
+                                            strerror(err));
+      }
+    }
+  }
+
   //
   // now actually fork and exec the given executable
   //
@@ -850,6 +929,30 @@ static int do_run(void) {
       int err = errno;
       WithColor::warning() << llvm::formatv("failed to close pipefd: {0}\n",
                                             strerror(err));
+    }
+  }
+
+  if (!WillChroot && !opts::ForeignLibs) {
+    usleep(5 * 100000 /* 0.5 s */);
+
+    //
+    // (4) perform the renames to undo the changes we made to the root filesystem
+    //
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+
+      std::string sav_path = binary.Path + ".jove.sav";
+
+      if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                            sav_path.c_str(),
+                                            binary.Path.c_str(),
+                                            strerror(err));
+      }
     }
   }
 

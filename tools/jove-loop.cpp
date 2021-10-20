@@ -150,17 +150,19 @@ static cl::opt<unsigned> Sleep(
 static cl::opt<bool>
     ForeignLibs("foreign-libs",
                 cl::desc("only recompile the executable itself; "
-                         "treat all other binaries as \"foreign\""),
+                         "treat all other binaries as \"foreign\". Implies "
+                         "--outside-chroot"),
                 cl::cat(JoveCategory));
+
+static cl::alias
+    ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
+                     cl::aliasopt(ForeignLibs),
+                     cl::cat(JoveCategory));
 
 static cl::opt<bool>
     OutsideChroot("outside-chroot",
-                  cl::desc("run program under real sysroot (implies --foreign-libs)"),
+                  cl::desc("run program under real sysroot"),
                   cl::cat(JoveCategory));
-
-static cl::alias
-    OutsideChrootAlias("x", cl::desc("Exe only. Alias for --outside-chroot."),
-                       cl::aliasopt(OutsideChroot), cl::cat(JoveCategory));
 
 static cl::list<std::string>
     PinnedGlobals("pinned-globals", cl::CommaSeparated,
@@ -599,7 +601,10 @@ run:
         if (opts::Verbose)
           arg_vec.push_back("--verbose");
 
-        if (opts::OutsideChroot)
+        if (opts::ForeignLibs)
+          arg_vec.push_back("--foreign-libs");
+
+        if (opts::OutsideChroot || opts::ForeignLibs)
           arg_vec.push_back("--outside-chroot");
 
         if (!opts::ChangeDirectory.empty()) {
@@ -796,7 +801,7 @@ skip_run:
         std::bitset<8> headerBits;
 
         headerBits.set(0, opts::DFSan);
-        headerBits.set(1, opts::ForeignLibs || opts::OutsideChroot);
+        headerBits.set(1, opts::ForeignLibs);
         headerBits.set(2, opts::Trace);
         headerBits.set(3, opts::Optimize);
 
@@ -1284,7 +1289,7 @@ skip_run:
         if (opts::Trace)
           arg_vec.push_back("--trace");
 
-        if (opts::ForeignLibs || opts::OutsideChroot)
+        if (opts::ForeignLibs)
           arg_vec.push_back("--foreign-libs");
 
         std::string pinned_globals_arg;
