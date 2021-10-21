@@ -118,6 +118,8 @@ JOVE_C_DFSAN_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)
 JOVE_RT_SONAME := libjove_rt.so
 JOVE_RT_SO     := $(JOVE_RT_SONAME).0
 
+JOVE_RT_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.d)
+
 #
 # TCG helpers (for each architecture)
 #
@@ -181,7 +183,7 @@ $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$<
+	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$<
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
@@ -193,6 +195,7 @@ $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
+-include $(JOVE_RT_DEPS)
 -include $(JOVE_C_BITCODE_DEPS)
 -include $(JOVE_C_DFSAN_BITCODE_DEPS)
 -include $(TOOLDEPS)
