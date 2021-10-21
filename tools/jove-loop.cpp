@@ -591,9 +591,6 @@ run:
         std::vector<const char *> arg_vec = {
             jove_run_path.c_str(),
 
-            "--pipefd",
-            wrFdStr.c_str(),
-
             "--sysroot",
             opts::sysroot.c_str(),
         };
@@ -666,8 +663,24 @@ run:
 
         arg_vec.push_back(nullptr);
 
+        std::vector<const char *> env_vec;
+
+        //
+        // initialize env from environ
+        //
+        for (char **p = ::environ; *p; ++p)
+          env_vec.push_back(*p);
+
+        std::string pipe_fd_arg =
+            std::string("JOVE_RUN_PIPEFD=") + std::to_string(wrFd);
+        env_vec.push_back(pipe_fd_arg.c_str());
+
+        env_vec.push_back(nullptr);
+
         print_command(&arg_vec[0]);
-        execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
+        execve(arg_vec[0],
+               const_cast<char **>(&arg_vec[0]),
+               const_cast<char **>(&env_vec[0]));
 
         int err = errno;
         WithColor::error() << llvm::formatv("execve failed: {0}\n",

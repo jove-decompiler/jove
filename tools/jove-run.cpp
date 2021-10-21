@@ -68,11 +68,6 @@ static cl::list<std::string>
 static cl::opt<std::string> sysroot("sysroot", cl::desc("Output directory"),
                                     cl::Required, cl::cat(JoveCategory));
 
-static cl::opt<unsigned>
-    pipefd("pipefd", cl::value_desc("file descriptor"),
-           cl::desc("Write-end of a pipe used to communicate app pid"),
-           cl::cat(JoveCategory));
-
 static cl::opt<unsigned> Sleep(
     "sleep", cl::value_desc("seconds"),
     cl::desc("Time in seconds to sleep for after finishing waiting on child; "
@@ -914,11 +909,11 @@ static int do_run(void) {
   //
   // if we were given a pipefd, then communicate the app child's PID
   //
-  if (int pipefd = opts::pipefd) {
-    ssize_t ret;
+  if (char *env = getenv("JOVE_RUN_PIPEFD")) {
+    int pipefd = atoi(env);
 
     uint64_t uint64 = pid;
-    ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
+    ssize_t ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
 
     if (ret != sizeof(uint64_t))
       WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
