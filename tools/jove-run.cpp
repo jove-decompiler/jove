@@ -74,6 +74,16 @@ static cl::opt<unsigned> Sleep(
              "can be useful if the program being recompiled forks"),
     cl::cat(JoveCategory));
 
+static cl::opt<unsigned> DangerousSleep1(
+    "dangerous-sleep1", cl::value_desc("useconds"),
+    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (1)"),
+    cl::init(10000), cl::cat(JoveCategory));
+
+static cl::opt<unsigned> DangerousSleep2(
+    "dangerous-sleep2", cl::value_desc("useconds"),
+    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (2)"),
+    cl::init(10000), cl::cat(JoveCategory));
+
 static cl::opt<bool>
     NoChroot("no-chroot",
              cl::desc("run program under real sysroot (useful when combined with --foreign-libs)"),
@@ -982,18 +992,20 @@ static int do_run(void) {
 
     /* if we got here, the other end of the pipe must have been closed,
      * most likely by close-on-exec */
-    usleep(50000 /* 0.05 s */);
 
-    close(rfd);
+    usleep(opts::DangerousSleep1); /* wait for the dynamic linker to load the program */
 
     //
-    // (4) perform the renames to undo the changes we made to the root filesystem
+    // (4) perform the renames to undo the changes we made to the root
+    // filesystem all DSO's except those dynamically loaded (we do that after the second sleep)
     //
     for (const binary_t &binary : decompilation.Binaries) {
       if (binary.IsVDSO)
         continue;
       if (binary.IsDynamicLinker)
         continue;
+      if (binary.IsDynamicallyLoaded)
+	continue;
 
       std::string sav_path = binary.Path + ".jove.sav";
 
@@ -1005,6 +1017,33 @@ static int do_run(void) {
                                             strerror(err));
       }
     }
+
+    usleep(opts::DangerousSleep2); /* wait for the dynamic linker to load the rest */
+
+    //
+    // (5) perform the renames to undo the changes we made to the root filesystem
+    // for all the dynamically loaded DSOs
+    //
+    for (const binary_t &binary : decompilation.Binaries) {
+      if (binary.IsVDSO)
+        continue;
+      if (binary.IsDynamicLinker)
+        continue;
+      if (!binary.IsDynamicallyLoaded)
+	continue;
+
+      std::string sav_path = binary.Path + ".jove.sav";
+
+      if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                            sav_path.c_str(),
+                                            binary.Path.c_str(),
+                                            strerror(err));
+      }
+    }
+
+    close(rfd);
   }
 
   //
