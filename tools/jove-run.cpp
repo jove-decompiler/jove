@@ -947,9 +947,6 @@ static int do_run(void) {
     return 1;
   }
 
-  if (LivingDangerously)
-    close(wfd);
-
   IgnoreCtrlC();
 
   //
@@ -973,6 +970,8 @@ static int do_run(void) {
   }
 
   if (LivingDangerously) {
+    close(wfd);
+
     ssize_t ret;
     do {
       uint8_t byte;
