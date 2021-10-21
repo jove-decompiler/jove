@@ -945,7 +945,8 @@ static int do_run(void) {
     return 1;
   }
 
-  close(wfd);
+  if (!WillChroot && !opts::ForeignLibs)
+    close(wfd);
 
   IgnoreCtrlC();
 
