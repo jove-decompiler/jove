@@ -62,12 +62,11 @@ LDFLAGS := -Wl,--no-undefined \
            -pthread \
            -lm \
            -lz \
+           -ltinfo \
            -lboost_filesystem \
            -lboost_system \
            -lboost_serialization \
            -fuse-ld=gold
-
-#           -ltinfo \
 
 #
 # important directories
@@ -108,6 +107,12 @@ UTILSRCS   := $(wildcard $(UTILSRCDIR)/*.cpp)
 UTILS      := $(patsubst $(UTILSRCDIR)/%.cpp,%,$(UTILSRCS))
 UTILBINS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util)))
 UTILDEPS   := $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(BINDIR)/$(target)/$(util).d))
+
+JOVE_C_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc)
+JOVE_C_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.d)
+
+JOVE_C_DFSAN_BITCODE      := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc)
+JOVE_C_DFSAN_BITCODE_DEPS := $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.d)
 
 JOVE_RT_SONAME := libjove_rt.so
 JOVE_RT_SO     := $(JOVE_RT_SONAME).0
@@ -179,14 +184,16 @@ $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -c -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall $$<
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
-	@$(_LLVM_CC) -o $$@ -c -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $$<
+	@$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
+-include $(JOVE_C_BITCODE_DEPS)
+-include $(JOVE_C_DFSAN_BITCODE_DEPS)
 -include $(TOOLDEPS)
 -include $(UTILDEPS)
 -include $(HELPERDEPS)
@@ -196,8 +203,8 @@ package:
 	tar cvf jove-$(JOVE_VER).$(ARCH).tar \
 	        $(TOOLBINS) \
 	        $(UTILBINS) \
-	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
-	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
+	        $(JOVE_C_BITCODE) \
+	        $(JOVE_C_DFSAN_BITCODE) \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
 	        $(HELPERS_BITCODE) \
 	        $(HELPERS_ASSEMBLY) \
@@ -213,8 +220,10 @@ endif
 clean:
 	rm -rf $(TOOLBINS) \
 	       $(UTILBINS) \
-	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) \
-	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) \
+	       $(JOVE_C_BITCODE) \
+	       $(JOVE_C_DFSAN_BITCODE) \
+	       $(JOVE_C_BITCODE_DEPS) \
+	       $(JOVE_C_DFSAN_BITCODE_DEPS) \
 	       $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
 	       $(TOOLDEPS) \
 	       $(UTILDEPS) \
