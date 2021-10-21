@@ -80,10 +80,9 @@ static cl::opt<unsigned> Sleep(
     cl::cat(JoveCategory));
 
 static cl::opt<bool>
-    OutsideChroot("outside-chroot",
-                  cl::desc("run program under real sysroot (useful when "
-                           "combined with --foreign-libs)"),
-                  cl::cat(JoveCategory));
+    NoChroot("no-chroot",
+             cl::desc("run program under real sysroot (useful when combined with --foreign-libs)"),
+             cl::cat(JoveCategory));
 
 static cl::opt<bool> Verbose("verbose",
                              cl::desc("Output helpful messages for debugging"),
@@ -100,7 +99,7 @@ static cl::opt<bool>
     ForeignLibs("foreign-libs",
                 cl::desc("only recompile the executable itself; "
                          "treat all other binaries as \"foreign\". Implies "
-                         "--outside-chroot"),
+                         "--no-chroot"),
                 cl::cat(JoveCategory));
 
 static cl::alias
@@ -204,7 +203,7 @@ int main(int argc, char **argv) {
     }
   }
 
-  return opts::OutsideChroot || opts::ForeignLibs ?
+  return opts::NoChroot || opts::ForeignLibs ?
     jove::run_outside_chroot() :
     jove::run();
 }

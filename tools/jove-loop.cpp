@@ -151,7 +151,7 @@ static cl::opt<bool>
     ForeignLibs("foreign-libs",
                 cl::desc("only recompile the executable itself; "
                          "treat all other binaries as \"foreign\". Implies "
-                         "--outside-chroot"),
+                         "--no-chroot"),
                 cl::cat(JoveCategory));
 
 static cl::alias
@@ -160,9 +160,9 @@ static cl::alias
                      cl::cat(JoveCategory));
 
 static cl::opt<bool>
-    OutsideChroot("outside-chroot",
-                  cl::desc("run program under real sysroot"),
-                  cl::cat(JoveCategory));
+    NoChroot("no-chroot",
+             cl::desc("run program under real sysroot"),
+             cl::cat(JoveCategory));
 
 static cl::list<std::string>
     PinnedGlobals("pinned-globals", cl::CommaSeparated,
@@ -604,8 +604,8 @@ run:
         if (opts::ForeignLibs)
           arg_vec.push_back("--foreign-libs");
 
-        if (opts::OutsideChroot || opts::ForeignLibs)
-          arg_vec.push_back("--outside-chroot");
+        if (opts::NoChroot || opts::ForeignLibs)
+          arg_vec.push_back("--no-chroot");
 
         if (!opts::ChangeDirectory.empty()) {
           arg_vec.push_back("--cd");
@@ -1016,7 +1016,7 @@ skip_run:
       //
       // create basic directories (for chroot) XXX duplicated code from recompile
       //
-      if (!opts::OutsideChroot) {
+      if (!opts::NoChroot) {
         fs::create_directories(fs::path(opts::sysroot) / "proc");
         fs::create_directories(fs::path(opts::sysroot) / "sys");
         fs::create_directories(fs::path(opts::sysroot) / "dev");
@@ -1061,7 +1061,7 @@ skip_run:
       // delete any pre-existing runtime libraries so that we can be sure that
       // the newest version is the one that the dynamic linker reads
       //
-      const char *Prefix = opts::OutsideChroot ? "/" : opts::sysroot.c_str();
+      const char *Prefix = opts::NoChroot ? "/" : opts::sysroot.c_str();
 
       fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0");
       fs::remove(fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so");
@@ -1196,7 +1196,7 @@ skip_run:
       //
       // create symlinks as necessary
       //
-      if (!opts::OutsideChroot) {
+      if (!opts::NoChroot) {
         for (binary_t &b : decompilation.Binaries) {
           if (b.IsVDSO)
             continue;
