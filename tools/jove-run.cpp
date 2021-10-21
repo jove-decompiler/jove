@@ -930,8 +930,10 @@ static int do_run(void) {
 
     arg_vec.push_back(nullptr);
 
+#if 0
     if (LivingDangerously)
       usleep(500000 /* 0.5 s */);
+#endif
 
     print_command(&arg_vec[0]);
     execve(arg_vec[0],
