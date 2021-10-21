@@ -933,7 +933,7 @@ static int do_run(void) {
   }
 
   if (!WillChroot && !opts::ForeignLibs) {
-    usleep(5 * 100000 /* 0.5 s */);
+    usleep(100000 /* 0.1 s */);
 
     //
     // (4) perform the renames to undo the changes we made to the root filesystem
