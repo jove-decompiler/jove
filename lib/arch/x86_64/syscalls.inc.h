@@ -3,6 +3,9 @@
 #if !defined(___DFSAN) || defined(___DFSAN_SYSENTRS)
 ___SYSCALL1(231, exit_group, int, error_code)
 ___SYSCALL1(60, exit, int, error_code)
+
+___SYSCALL3(59, execve, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp)
+___SYSCALL5(322, execveat, int, fd, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp, int, flags)
 #endif
 
 #if !defined(___DFSAN) || defined(___DFSAN_SYSEXITS)
@@ -74,7 +77,6 @@ ___SYSCALL5(54, setsockopt, int, fd, int, level, int, optname, char __user *, op
 ___SYSCALL5(55, getsockopt, int, fd, int, level, int, optname, char __user *, optval, int __user *, optlen)
 ___SYSCALL5(56, clone, unsigned long, clone_flags, unsigned long, newsp, int __user *, parent_tidptr, int __user *, child_tidptr, unsigned long, tls)
 ___SYSCALL0(58, vfork)
-___SYSCALL3(59, execve, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp)
 ___SYSCALL4(61, wait4, pid_t, upid, int __user *, stat_addr, int, options, struct rusage __user *, ru)
 ___SYSCALL2(62, kill, pid_t, pid, int, sig)
 ___SYSCALL1(63, newuname, struct new_utsname __user *, name)
@@ -314,7 +316,6 @@ ___SYSCALL3(318, getrandom, char __user *, buf, size_t, count, unsigned int, fla
 ___SYSCALL2(319, memfd_create, const char __user *, uname, unsigned int, flags)
 ___SYSCALL5(320, kexec_file_load, int, kernel_fd, int, initrd_fd, unsigned long, cmdline_len, const char __user *, cmdline_ptr, unsigned long, flags)
 ___SYSCALL3(321, bpf, int, cmd, union bpf_attr __user *, uattr, unsigned int, size)
-___SYSCALL5(322, execveat, int, fd, const char __user *, filename, const char __user *const __user *, argv, const char __user *const __user *, envp, int, flags)
 ___SYSCALL1(323, userfaultfd, int, flags)
 ___SYSCALL2(324, membarrier, int, cmd, int, flags)
 ___SYSCALL3(325, mlock2, unsigned long, start, size_t, len, int, flags)
