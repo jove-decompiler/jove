@@ -10,6 +10,7 @@ _LLVM_CONFIG := $(_LLVM_INSTALL_DIR)/bin/llvm-config
 _LLVM_DIS    := $(_LLVM_INSTALL_DIR)/bin/llvm-dis
 _LLVM_CC     := $(_LLVM_INSTALL_DIR)/bin/clang
 _LLVM_CXX    := $(_LLVM_INSTALL_DIR)/bin/clang++
+_LLVM_OPT    := $(_LLVM_INSTALL_DIR)/bin/opt
 
 LLVM_COMPONENTS := object \
                    all-targets \
@@ -1469,7 +1470,7 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(help
 define build_helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
-	@$(_LLVM_DIS) -o $$@ $$<
+	@$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC $$<
@@ -1480,7 +1481,7 @@ $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(c
 define build_helper_dfsan_template
 $(BINDIR)/$(2)/helpers/$(1).dfsan.ll: $(BINDIR)/$(2)/helpers/$(1).dfsan.bc
 	@echo DIS $$<
-	@$(_LLVM_DIS) -o $$@ $$<
+	@$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).dfsan.bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC "(DFSAN)" $$<
