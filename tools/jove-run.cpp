@@ -712,7 +712,9 @@ static int do_run(void) {
   int rfd = -1;
   int wfd = -1;
 
-  if (!WillChroot && !opts::ForeignLibs) {
+  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
+
+  if (LivingDangerously) {
     //
     // this pipe will be used to make sure we don't proceed further unless the
     // execve(2) has already happened (close-on-exec)
@@ -797,7 +799,7 @@ static int do_run(void) {
   //
   int pid = fork();
   if (!pid) {
-    if (!WillChroot && !opts::ForeignLibs) {
+    if (LivingDangerously) {
       //
       // close unused read end of pipe
       //
@@ -928,7 +930,7 @@ static int do_run(void) {
 
     arg_vec.push_back(nullptr);
 
-    if (!WillChroot && !opts::ForeignLibs)
+    if (LivingDangerously)
       usleep(500000 /* 0.5 s */);
 
     print_command(&arg_vec[0]);
@@ -939,13 +941,13 @@ static int do_run(void) {
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
 
-    if (!WillChroot && !opts::ForeignLibs)
+    if (LivingDangerously)
       close(wfd); /* close-on-exec didn't happen */
 
     return 1;
   }
 
-  if (!WillChroot && !opts::ForeignLibs)
+  if (LivingDangerously)
     close(wfd);
 
   IgnoreCtrlC();
@@ -970,7 +972,7 @@ static int do_run(void) {
     }
   }
 
-  if (!WillChroot && !opts::ForeignLibs) {
+  if (LivingDangerously) {
     ssize_t ret;
     do {
       uint8_t byte;
