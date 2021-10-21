@@ -709,7 +709,25 @@ static int do_run(void) {
     ia >> decompilation;
   }
 
+  int rfd = -1;
+  int wfd = -1;
+
   if (!WillChroot && !opts::ForeignLibs) {
+    //
+    // this pipe will be used to make sure we don't proceed further unless the
+    // execve(2) has already happened (close-on-exec)
+    //
+    {
+      int pipefd[2] = {-1, -1};
+      if (pipe(pipefd) < 0) {
+        WithColor::error() << "pipe(2) failed. bug?\n";
+        return 1;
+      }
+
+      rfd = pipefd[0];
+      wfd = pipefd[1];
+    }
+
     //
     // danger zone: this is where we modify the root file system
     //
@@ -779,6 +797,22 @@ static int do_run(void) {
   //
   int pid = fork();
   if (!pid) {
+    if (!WillChroot && !opts::ForeignLibs) {
+      //
+      // close unused read end of pipe
+      //
+      close(rfd);
+
+      //
+      // make the write end of the pipe be close-on-exec
+      //
+      if (fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
+        int err = errno;
+        WithColor::error() << llvm::formatv(
+            "failed to set pipe write end close-on-exec: {0}\n", strerror(err));
+      }
+    }
+
     if (WillChroot) {
       if (chroot(opts::sysroot.c_str()) < 0) {
         int err = errno;
@@ -894,6 +928,9 @@ static int do_run(void) {
 
     arg_vec.push_back(nullptr);
 
+    if (!WillChroot && !opts::ForeignLibs)
+      usleep(500000 /* 0.5 s */);
+
     print_command(&arg_vec[0]);
     execve(arg_vec[0],
            const_cast<char **>(&arg_vec[0]),
@@ -901,8 +938,14 @@ static int do_run(void) {
 
     int err = errno;
     WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
+
+    if (!WillChroot && !opts::ForeignLibs)
+      close(wfd); /* close-on-exec didn't happen */
+
     return 1;
   }
+
+  close(wfd);
 
   IgnoreCtrlC();
 
@@ -927,7 +970,17 @@ static int do_run(void) {
   }
 
   if (!WillChroot && !opts::ForeignLibs) {
-    usleep(100000 /* 0.1 s */);
+    ssize_t ret;
+    do {
+      uint8_t byte;
+      ret = read(rfd, &byte, 1);
+    } while (!(ret <= 0));
+
+    /* if we got here, the other end of the pipe must have been closed,
+     * most likely by close-on-exec */
+    usleep(50000 /* 0.05 s */);
+
+    close(rfd);
 
     //
     // (4) perform the renames to undo the changes we made to the root filesystem
