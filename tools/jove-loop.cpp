@@ -147,6 +147,16 @@ static cl::opt<unsigned> Sleep(
              "can be useful if the program being recompiled forks"),
     cl::cat(JoveCategory));
 
+static cl::opt<unsigned> DangerousSleep1(
+    "dangerous-sleep1", cl::value_desc("useconds"),
+    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (1)"),
+    cl::init(10000), cl::cat(JoveCategory));
+
+static cl::opt<unsigned> DangerousSleep2(
+    "dangerous-sleep2", cl::value_desc("useconds"),
+    cl::desc("Time in useconds to wait for the dynamic linker to do its thing (2)"),
+    cl::init(10000), cl::cat(JoveCategory));
+
 static cl::opt<bool>
     ForeignLibs("foreign-libs",
                 cl::desc("only recompile the executable itself; "
@@ -603,6 +613,18 @@ run:
 
         if (opts::NoChroot || opts::ForeignLibs)
           arg_vec.push_back("--no-chroot");
+
+        std::string danger_sleep1_arg;
+        if (opts::NoChroot && !opts::ForeignLibs) {
+          danger_sleep1_arg = "--dangerous-sleep1=" + std::to_string(opts::DangerousSleep1);
+          arg_vec.push_back(danger_sleep1_arg.c_str());
+        }
+
+        std::string danger_sleep2_arg;
+        if (opts::NoChroot && !opts::ForeignLibs) {
+          danger_sleep2_arg = "--dangerous-sleep2=" + std::to_string(opts::DangerousSleep2);
+          arg_vec.push_back(danger_sleep2_arg.c_str());
+        }
 
         if (!opts::ChangeDirectory.empty()) {
           arg_vec.push_back("--cd");
