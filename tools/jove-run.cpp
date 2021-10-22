@@ -82,7 +82,7 @@ static cl::opt<unsigned> DangerousSleep1(
 static cl::opt<unsigned> DangerousSleep2(
     "dangerous-sleep2", cl::value_desc("useconds"),
     cl::desc("Time in useconds to wait for the dynamic linker to do its thing (2)"),
-    cl::init(10000), cl::cat(JoveCategory));
+    cl::init(20000), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     NoChroot("no-chroot",
