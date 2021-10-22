@@ -841,13 +841,16 @@ static int do_run(void) {
     // (4) perform the renames to undo the changes we made to the root
     // filesystem all DSO's except those dynamically loaded (we do that after the second sleep)
     //
+    bool HaveDynamicallyLoaded = false;
     for (const binary_t &binary : decompilation.Binaries) {
       if (binary.IsVDSO)
         continue;
       if (binary.IsDynamicLinker)
         continue;
-      if (binary.IsDynamicallyLoaded)
+      if (binary.IsDynamicallyLoaded) {
+	HaveDynamicallyLoaded = true;
 	continue;
+      }
 
       std::string sav_path = binary.Path + ".jove.sav";
 
@@ -860,28 +863,30 @@ static int do_run(void) {
       }
     }
 
-    usleep(opts::DangerousSleep2); /* wait for the dynamic linker to load the rest */
+    if (HaveDynamicallyLoaded) {
+      usleep(opts::DangerousSleep2); /* wait for the dynamic linker to load the rest */
 
-    //
-    // (5) perform the renames to undo the changes we made to the root filesystem
-    // for all the dynamically loaded DSOs
-    //
-    for (const binary_t &binary : decompilation.Binaries) {
-      if (binary.IsVDSO)
-        continue;
-      if (binary.IsDynamicLinker)
-        continue;
-      if (!binary.IsDynamicallyLoaded)
-	continue;
+      //
+      // (5) perform the renames to undo the changes we made to the root filesystem
+      // for all the dynamically loaded DSOs
+      //
+      for (const binary_t &binary : decompilation.Binaries) {
+	if (binary.IsVDSO)
+	  continue;
+	if (binary.IsDynamicLinker)
+	  continue;
+	if (!binary.IsDynamicallyLoaded)
+	  continue;
 
-      std::string sav_path = binary.Path + ".jove.sav";
+	std::string sav_path = binary.Path + ".jove.sav";
 
-      if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                            sav_path.c_str(),
-                                            binary.Path.c_str(),
-                                            strerror(err));
+	if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+	  int err = errno;
+	  WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+					      sav_path.c_str(),
+					      binary.Path.c_str(),
+					      strerror(err));
+	}
       }
     }
 
