@@ -420,6 +420,9 @@ static int do_run(void) {
                                   MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC,
                                   nullptr);
 
+  //
+  // command-line bind mounts
+  //
   std::list<fs::path>                CmdLineBindMountChrootedDirs;
   std::list<ScopedMount<WillChroot>> CmdLineBindMounts;
 
@@ -437,7 +440,7 @@ static int do_run(void) {
 
 #if 0
   //
-  // create /dev, /dev/pts, /dev/shm
+  // common bind mounts
   //
   fs::path dev_path = fs::path(opts::sysroot) / "dev";
   ScopedMount<WillChroot> dev_mnt("udev",
@@ -459,232 +462,71 @@ static int do_run(void) {
                                       "tmpfs",
                                       MS_NOSUID | MS_NODEV,
                                       "mode=1777");
-#else
-  //
-  // bind mount /dev
-  //
-  fs::path dev_path;
-  try {
-    dev_path = fs::canonical("/dev");
-  } catch (...) {
-    ; /* absorb */
-  }
 
-  fs::path chrooted_dev = fs::path(opts::sysroot) / "dev";
-
-  fs::create_directories(chrooted_dev);
-
-  ScopedMount<WillChroot> dev_mnt(dev_path.c_str(),
-                                  chrooted_dev.c_str(),
-                                  "",
-                                  MS_BIND,
-                                  nullptr);
-#endif
-
-  //
-  // bind mount /run
-  //
-  fs::path run_path = fs::path(opts::sysroot) / "run";
-  ScopedMount<WillChroot> run_mnt("/run",
-                                  run_path.c_str(),
-                                  "",
-                                  MS_BIND,
-                                  nullptr);
-
-  //
-  // bind mount /var/run
-  //
-  fs::path var_run_path = fs::path(opts::sysroot) / "var" / "run";
-  ScopedMount<WillChroot> var_run_mnt("/var/run",
-                                      var_run_path.c_str(),
-                                      "",
-                                      MS_BIND,
-                                      nullptr);
-
-#if 0
-  //
-  // create /tmp
-  //
   fs::path tmp_path = fs::path(opts::sysroot) / "tmp";
   ScopedMount<WillChroot> tmp_mnt("tmp",
                                   tmp_path.c_str(),
                                   "tmpfs",
                                   MS_NOSUID | MS_NODEV | MS_STRICTATIME,
                                   "mode=1777");
-#else
-  //
-  // bind mount /tmp
-  //
-  fs::path tmp_path;
-  try {
-    tmp_path = fs::canonical("/tmp");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_tmp = fs::path(opts::sysroot) / "tmp";
-
-  fs::create_directories(chrooted_tmp);
-
-  ScopedMount<WillChroot> tmp_mnt(tmp_path.c_str(),
-                                  chrooted_tmp.c_str(),
-                                  "",
-                                  MS_BIND,
-                                  nullptr);
 #endif
 
-  //
-  // bind mount /etc/resolv.conf
-  //
-  fs::path resolv_conf_path;
-  try {
-    resolv_conf_path = fs::canonical("/etc/resolv.conf");
-  } catch (...) {
-    ; /* absorb */
-  }
+#define __BIND_MOUNT_DIR(name, dir)                                            \
+  fs::path _##name##_path;                                                     \
+  try {                                                                        \
+    _##name##_path = fs::canonical(dir);                                       \
+  } catch (...) {                                                              \
+    ;                                                                          \
+  }                                                                            \
+                                                                               \
+  fs::path _##chrooted_##name = fs::path(opts::sysroot) / dir;                 \
+                                                                               \
+  if (!_##name##_path.empty())                                                 \
+    fs::create_directories(_##chrooted_##name);                                \
+                                                                               \
+  ScopedMount<WillChroot> name##_mnt(_##name##_path.c_str(),                   \
+                                     _##chrooted_##name.c_str(),               \
+                                     "",                                       \
+                                     MS_BIND,                                  \
+                                     nullptr);
 
-  fs::path chrooted_resolv_conf =
-      fs::path(opts::sysroot) / "etc" / "resolv.conf";
+  __BIND_MOUNT_DIR(dev, "/dev")
+  __BIND_MOUNT_DIR(run, "/run")
+  __BIND_MOUNT_DIR(var, "/var")
+  __BIND_MOUNT_DIR(tmp, "/tmp")
+  __BIND_MOUNT_DIR(etc, "/etc")
+  __BIND_MOUNT_DIR(libnvram, "/firmadyne/libnvram")
 
-  if (!resolv_conf_path.empty())
-    touch(chrooted_resolv_conf);
+#undef __BIND_MOUNT_DIR
 
-  ScopedMount<WillChroot> resolv_conf_mnt(resolv_conf_path.c_str(),
-                                          chrooted_resolv_conf.c_str(),
-                                          "",
-                                          MS_BIND,
-                                          nullptr);
+#define __BIND_MOUNT_FILE(name, filepath)                                      \
+  fs::path _##name##_path;                                                     \
+  try {                                                                        \
+    _##name##_path = fs::canonical(filepath);                                  \
+  } catch (...) {                                                              \
+    ;                                                                          \
+  }                                                                            \
+                                                                               \
+  fs::path _##chrooted_##name = fs::path(opts::sysroot) / filepath;            \
+                                                                               \
+  if (!_##name##_path.empty())                                                 \
+    touch(_##chrooted_##name.c_str());                                         \
+                                                                               \
+  ScopedMount<WillChroot> name##_mnt(_##name##_path.c_str(),                   \
+                                     _##chrooted_##name.c_str(), "", MS_BIND,  \
+                                     nullptr);
 
-  //
-  // bind mount /etc/passwd
-  //
-  fs::path etc_passwd_path;
-  try {
-    etc_passwd_path = fs::canonical("/etc/passwd");
-  } catch (...) {
-    ; /* absorb */
-  }
 
-  fs::path chrooted_etc_passwd =
-      fs::path(opts::sysroot) / "etc" / "passwd";
+#if 0 /* already bind mounted /etc */
+  __BIND_MOUNT_FILE(resolv_conf,  "/etc/resolv.conf")
+  __BIND_MOUNT_FILE(etc_passwd,   "/etc/passwd")
+  __BIND_MOUNT_FILE(etc_group,    "/etc/group")
+  __BIND_MOUNT_FILE(etc_shadow,   "/etc/shadow")
+  __BIND_MOUNT_FILE(etc_nsswitch, "/etc/nsswitch.conf")
+  __BIND_MOUNT_FILE(etc_hosts,    "/etc/hosts")
+#endif
 
-  if (!etc_passwd_path.empty())
-    touch(chrooted_etc_passwd);
-
-  ScopedMount<WillChroot> etc_passwd_mnt(etc_passwd_path.c_str(),
-                                         chrooted_etc_passwd.c_str(),
-                                         "",
-                                         MS_BIND,
-                                         nullptr);
-
-  //
-  // bind mount /etc/group
-  //
-  fs::path etc_group_path;
-  try {
-    etc_group_path = fs::canonical("/etc/group");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_etc_group =
-      fs::path(opts::sysroot) / "etc" / "group";
-
-  if (!etc_group_path.empty())
-    touch(chrooted_etc_group);
-
-  ScopedMount<WillChroot> etc_group_mnt(etc_group_path.c_str(),
-                                        chrooted_etc_group.c_str(),
-                                        "",
-                                        MS_BIND,
-                                        nullptr);
-
-  //
-  // bind mount /etc/shadow
-  //
-  fs::path etc_shadow_path;
-  try {
-    etc_shadow_path = fs::canonical("/etc/shadow");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_etc_shadow =
-      fs::path(opts::sysroot) / "etc" / "shadow";
-
-  if (!etc_shadow_path.empty())
-    touch(chrooted_etc_shadow);
-
-  ScopedMount<WillChroot> etc_shadow_mnt(etc_shadow_path.c_str(),
-                                         chrooted_etc_shadow.c_str(),
-                                         "",
-                                         MS_BIND,
-                                         nullptr);
-
-  //
-  // bind mount /etc/nsswitch.conf
-  //
-  fs::path etc_nsswitch_path;
-  try {
-    etc_nsswitch_path = fs::canonical("/etc/nsswitch.conf");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_etc_nsswitch =
-      fs::path(opts::sysroot) / "etc" / "nsswitch.conf";
-
-  if (!etc_nsswitch_path.empty())
-    touch(chrooted_etc_nsswitch);
-
-  ScopedMount<WillChroot> etc_nsswitch_mnt(etc_nsswitch_path.c_str(),
-                                           chrooted_etc_nsswitch.c_str(),
-                                           "",
-                                           MS_BIND,
-                                           nullptr);
-
-  //
-  // bind mount /etc/hosts
-  //
-  fs::path etc_hosts_path;
-  try {
-    etc_hosts_path = fs::canonical("/etc/hosts");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_etc_hosts =
-      fs::path(opts::sysroot) / "etc" / "hosts";
-
-  if (!etc_hosts_path.empty())
-    touch(chrooted_etc_hosts);
-
-  ScopedMount<WillChroot> etc_hosts_mnt(etc_hosts_path.c_str(),
-                                        chrooted_etc_hosts.c_str(),
-                                        "",
-                                        MS_BIND,
-                                        nullptr);
-
-  //
-  // bind mount /firmadyne/libnvram
-  //
-  fs::path firmadyne_libnvram_path;
-  try {
-    firmadyne_libnvram_path = fs::canonical("/firmadyne/libnvram");
-  } catch (...) {
-    ; /* absorb */
-  }
-
-  fs::path chrooted_firmadyne_libnvram =
-      fs::path(opts::sysroot) / "firmadyne" / "libnvram";
-
-  fs::create_directories(chrooted_firmadyne_libnvram);
-
-  ScopedMount<WillChroot> firmadyne_libnvram_mnt(firmadyne_libnvram_path.c_str(),
-                                                 chrooted_firmadyne_libnvram.c_str(),
-                                                 "",
-                                                 MS_BIND,
-                                                 nullptr);
+#undef __BIND_MOUNT_FILE
 
   //
   // create recover fifo
