@@ -4386,8 +4386,9 @@ int CreateFunctions(void) {
                                 .str();
 
     f.F = llvm::Function::Create(DetermineFunctionType(f),
-                                 llvm::GlobalValue::ExternalLinkage, jove_name,
-                                 Module.get());
+                                 f.IsABI ? llvm::GlobalValue::ExternalLinkage
+                                         : llvm::GlobalValue::InternalLinkage,
+                                 jove_name, Module.get());
 #if defined(TARGET_I386)
     if (f.IsABI) {
       for (unsigned i = 0; i < f.F->arg_size(); ++i) {
@@ -4444,7 +4445,8 @@ int CreateFunctions(void) {
       }
     }
 
-    f.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    if (f.IsABI)
+      f.F->setVisibility(llvm::GlobalValue::HiddenVisibility);
 
     //
     // assign names to the arguments, the registers they represent
@@ -4551,7 +4553,7 @@ int CreateFunctionTable(void) {
     llvm::Constant *&C1 = constantTable[2 * i + 0];
     llvm::Constant *&C2 = constantTable[2 * i + 1];
 
-    if (!is_basic_block_index_valid(f.Entry)) {
+    if (unlikely(!is_basic_block_index_valid(f.Entry))) {
       C1 = llvm::Constant::getNullValue(WordType());
       C2 = llvm::Constant::getNullValue(WordType());
       continue;
