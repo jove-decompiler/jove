@@ -5151,10 +5151,13 @@ int CreateSectionGlobalVariables(void) {
             continue;
 
           function_t &f = Decompilation.Binaries[pair.first].Analysis.Functions[pair.second];
+          bool SavedIsABI = f.IsABI;
           if (!f.IsABI)
-            continue;
+            f.IsABI = true; /* XXX */
 
-          FTy = DetermineFunctionType(pair);
+          FTy = DetermineFunctionType(f);
+
+          f.IsABI = SavedIsABI; /* undo the temporary change */
           break;
         }
 
