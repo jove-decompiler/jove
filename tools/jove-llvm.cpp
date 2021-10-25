@@ -10295,9 +10295,13 @@ BOOST_PP_REPEAT(9, __THUNK, void)
       llvm::Value *retVal = std::accumulate(
           glbv.begin(), glbv.end(), init,
           [&](llvm::Value *res, unsigned glb) -> llvm::Value * {
+            std::string nm =
+                (fmt("_returning_%s_") % TCG->_ctx.temps[glb].name).str();
+
             return IRB.CreateInsertValue(res,
                                          get(glb),
-                                         llvm::ArrayRef<unsigned>(idx++));
+                                         llvm::ArrayRef<unsigned>(idx++),
+                                         nm);
           });
       IRB.CreateRet(retVal);
     }
