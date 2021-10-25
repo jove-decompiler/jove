@@ -166,12 +166,12 @@ struct edge_copier {
   void operator()(control_flow_t, flow_edge_t) const {}
 };
 
-static const basic_block_properties_t EmptyBBProp{};
+typedef std::pair<flow_vertex_t, bool> exit_vertex_pair_t;
 
 static flow_vertex_t copy_function_cfg(flow_graph_t &G,
                                        function_t &f,
-                                       std::vector<flow_vertex_t> &exitVertices,
-                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<flow_vertex_t>>> &memoize) {
+                                       std::vector<exit_vertex_pair_t> &exitVertices,
+                                       std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
   //
   // make sure basic blocks have been analyzed
   //
@@ -222,10 +222,10 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   std::transform(f.ExitBasicBlocks.begin(),
                  f.ExitBasicBlocks.end(),
                  exitVertices.begin(),
-                 [&](basic_block_t bb) -> flow_vertex_t {
+                 [&](basic_block_t bb) -> exit_vertex_pair_t {
                    auto it = Orig2CopyMap.find(bb);
                    assert(it != Orig2CopyMap.end());
-                   return (*it).second;
+                   return exit_vertex_pair_t((*it).second, false);
                  });
 
   memoize.insert({&f, {res, exitVertices}});
@@ -247,7 +247,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
         function_t &callee = Decompilation.Binaries[DynTarget.first]
                                 .Analysis.Functions[DynTarget.second];
 
-        std::vector<flow_vertex_t> calleeExitVertices;
+        std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
             copy_function_cfg(G, callee, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
@@ -255,10 +255,15 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
         if (eit_pair.first != eit_pair.second) {
           flow_vertex_t succV = Orig2CopyMap[boost::target(*eit_pair.first, ICFG)];
 
-          for (flow_vertex_t exitV : calleeExitVertices) {
+          for (const auto &calleeExitVertPair : calleeExitVertices) {
+            flow_vertex_t exitV;
+            bool IsABI;
+
+            std::tie(exitV, IsABI) = calleeExitVertPair;
+
             flow_edge_t E = boost::add_edge(exitV, succV, G).first;
 
-            if (callee.IsABI)
+            if (callee.IsABI || IsABI)
               G[E].reach.mask = CallConvRets;
           }
         }
@@ -277,7 +282,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
     case TERMINATOR::CALL: {
       function_t &callee = Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
-      std::vector<flow_vertex_t> calleeExitVertices;
+      std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =
           copy_function_cfg(G, callee, calleeExitVertices, memoize);
 
@@ -294,9 +299,14 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
 
       boost::remove_edge(Orig2CopyMap[bb], succV, G);
 
-      for (flow_vertex_t exitV : calleeExitVertices) {
+      for (const auto &calleeExitVertPair : calleeExitVertices) {
+        flow_vertex_t exitV;
+        bool IsABI;
+
+        std::tie(exitV, IsABI) = calleeExitVertPair;
+
         flow_edge_t E = boost::add_edge(exitV, succV, G).first;
-        if (callee.IsABI)
+        if (callee.IsABI || IsABI)
           G[E].reach.mask = CallConvRets;
       }
 
@@ -305,9 +315,12 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
 
     case TERMINATOR::INDIRECT_JUMP: {
       {
-        auto it = std::find(exitVertices.begin(),
-                            exitVertices.end(),
-                            Orig2CopyMap[bb]);
+        flow_vertex_t flowVert = Orig2CopyMap[bb];
+        auto it = std::find_if(exitVertices.begin(),
+                               exitVertices.end(),
+                               [&](exit_vertex_pair_t pair) -> bool {
+                                 return pair.first == flowVert;
+                               });
         if (it == exitVertices.end())
           continue;
         exitVertices.erase(it);
@@ -316,29 +329,21 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       const auto &DynTargets = ICFG[bb].DynTargets;
       assert(!DynTargets.empty());
 
-#if 0
-      flow_vertex_t newExitV = boost::add_vertex(G);
-      G[newExitV].bbprop = &EmptyBBProp;
-#endif
-
       for (const auto &DynTarget : DynTargets) {
         function_t &callee = Decompilation.Binaries[DynTarget.first]
                                 .Analysis.Functions[DynTarget.second];
 
-        std::vector<flow_vertex_t> calleeExitVertices;
+        std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
             copy_function_cfg(G, callee, calleeExitVertices, memoize);
         boost::add_edge(Orig2CopyMap[bb], calleeEntryV, G);
 
-        for (flow_vertex_t V : calleeExitVertices) {
-#if 0
-          flow_edge_t E = boost::add_edge(V, newExitV, G).first;
+        for (const auto &calleeExitVertPair : calleeExitVertices) {
+          flow_vertex_t V;
+          bool IsABI;
+          std::tie(V, IsABI) = calleeExitVertPair;
 
-          if (callee.IsABI)
-            G[E].reach.mask = CallConvRets;
-#endif
-
-          exitVertices.push_back(V);
+          exitVertices.emplace_back(V, callee.IsABI);
         }
       }
       break;
@@ -372,10 +377,10 @@ void function_t::Analyze(void) {
     flow_graph_t G;
 
     std::unordered_map<function_t *,
-                       std::pair<flow_vertex_t, std::vector<flow_vertex_t>>>
+                       std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>>
         memoize;
 
-    std::vector<flow_vertex_t> exitVertices;
+    std::vector<exit_vertex_pair_t> exitVertices;
     flow_vertex_t entryV = copy_function_cfg(G, *this, exitVertices, memoize);
 
     //
@@ -479,8 +484,18 @@ void function_t::Analyze(void) {
               exitVertices.begin(),
               exitVertices.end(),
               ~tcg_global_set_t(),
-              [&](tcg_global_set_t res, flow_vertex_t V) -> tcg_global_set_t {
-                return res & G[V].OUT;
+              [&](tcg_global_set_t res, exit_vertex_pair_t Pair) -> tcg_global_set_t {
+                flow_vertex_t V;
+                bool IsABI;
+
+                std::tie(V, IsABI) = Pair;
+
+                res &= G[V].OUT;
+
+                if (IsABI)
+                  res &= CallConvRets;
+
+                return res;
               }) &
           ~(NotRets | CmdlinePinnedEnvGlbs);
 
