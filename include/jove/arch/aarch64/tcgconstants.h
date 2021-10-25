@@ -86,7 +86,7 @@ constexpr int tcg_syscall_arg6_index = 29;
 constexpr int tcg_tpidr_el0_env_offset = 1296;
 typedef std::bitset<tcg_num_globals> tcg_global_set_t;
 constexpr tcg_global_set_t NotArgs(8454145);
-constexpr tcg_global_set_t NotRets(18014398517936129);
+constexpr tcg_global_set_t NotRets(90071992564121601);
 constexpr tcg_global_set_t CallConvArgs(4278190080);
 typedef std::array<unsigned, 8> CallConvArgArrayTy;
 static const CallConvArgArrayTy CallConvArgArray{24, 25, 26, 27, 28, 29, 30, 31};

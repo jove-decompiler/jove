@@ -185,14 +185,21 @@ int main(int argc, char **argv) {
     const std::array<const char *, 3> not_arg_regs{
       "env",
       "pc",
-      "PC"
+      "PC",
     };
 
-    const std::array<const char *, 4> not_ret_regs{
+    const std::array<const char *, 11> not_ret_regs{
       "env",
       "pc",
       "PC",
-      "lr"
+      "lr",
+      "CF",
+      "NF",
+      "VF",
+      "ZF",
+      "exclusive_addr",
+      "exclusive_val",
+      "exclusive_high"
     };
 #elif defined(TARGET_MIPS64)
     const std::array<const char *, 3> not_arg_or_ret_regs{
