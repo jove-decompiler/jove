@@ -156,7 +156,7 @@ int main(int argc, char **argv) {
     const auto &not_ret_regs = not_arg_or_ret_regs;
     const auto &not_arg_regs = not_arg_or_ret_regs;
 #elif defined(TARGET_I386)
-    const std::array<const char *, 24> not_arg_or_ret_regs{
+    const std::array<const char *, 28> not_arg_or_ret_regs{
       "_frame",
       "env",
       "es_base",
@@ -181,6 +181,10 @@ int main(int argc, char **argv) {
       "bnd3_lb_1",
       "bnd3_ub_0",
       "bnd3_ub_1",
+      "cc_op",
+      "cc_dst",
+      "cc_src",
+      "cc_src2",
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
