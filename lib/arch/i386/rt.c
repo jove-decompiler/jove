@@ -860,7 +860,80 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  _UNREACHABLE("crash (TODO)");
+  char maps[4096 * 8];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  char s[4096 * 16];
+  s[0] = '\0';
+
+  _strcat(s, "*** crash (jove) *** [");
+  {
+    char buff[65];
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, "]\n");
+
+#define _FIELD(name, init)                                                     \
+  do {                                                                         \
+    _strcat(s, name " 0x");                                                    \
+                                                                               \
+    {                                                                          \
+      char _buff[65];                                                          \
+      _uint_to_string(init, _buff, 0x10);                                      \
+                                                                               \
+      _strcat(s, _buff);                                                       \
+    }                                                                          \
+    {                                                                          \
+      char _buff[256];                                                         \
+      _description_of_address_for_maps(_buff, init, maps, n);                  \
+      if (_strlen(_buff) != 0) {                                               \
+        _strcat(s, " <");                                                      \
+        _strcat(s, _buff);                                                     \
+        _strcat(s, ">");                                                       \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
+    _strcat(s, "\n");                                                          \
+  } while (false)
+
+  _FIELD("GS ", uctx->uc_mcontext.gregs[REG_GS]);
+  _FIELD("FS ", uctx->uc_mcontext.gregs[REG_FS]);
+  _FIELD("ES ", uctx->uc_mcontext.gregs[REG_ES]);
+  _FIELD("DS ", uctx->uc_mcontext.gregs[REG_DS]);
+  _FIELD("EDI", uctx->uc_mcontext.gregs[REG_EDI]);
+  _FIELD("ESI", uctx->uc_mcontext.gregs[REG_ESI]);
+  _FIELD("EBP", uctx->uc_mcontext.gregs[REG_EBP]);
+  _FIELD("ESP", uctx->uc_mcontext.gregs[REG_ESP]);
+  _FIELD("EBX", uctx->uc_mcontext.gregs[REG_EBX]);
+  _FIELD("EDX", uctx->uc_mcontext.gregs[REG_EDX]);
+  _FIELD("ECX", uctx->uc_mcontext.gregs[REG_ECX]);
+  _FIELD("EAX", uctx->uc_mcontext.gregs[REG_EAX]);
+  _FIELD("TRAPNO", uctx->uc_mcontext.gregs[REG_TRAPNO]);
+  _FIELD("ERR", uctx->uc_mcontext.gregs[REG_ERR]);
+  _FIELD("EIP", uctx->uc_mcontext.gregs[REG_EIP]);
+  _FIELD("CS", uctx->uc_mcontext.gregs[REG_CS]);
+  _FIELD("EFL", uctx->uc_mcontext.gregs[REG_EFL]);
+  _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
+  _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
+
+#undef _FIELD
+
+  _strcat(s, "\n");
+  _strcat(s, maps);
+
+  //
+  // dump message for user
+  //
+  _robust_write(2 /* stderr */, s, _strlen(s));
+
+  for (;;)
+    _jove_sleep();
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 _REGPARM _HIDDEN uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
