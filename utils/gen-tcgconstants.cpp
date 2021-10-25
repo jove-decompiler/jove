@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
 
   auto print_not_sets = [&](void) -> void {
 #if defined(TARGET_X86_64)
-    const std::array<const char *, 16> not_arg_or_ret_regs{
+    const std::array<const char *, 20> not_arg_or_ret_regs{
       "_frame",
       "env",
       "es_base",
@@ -146,7 +146,11 @@ int main(int argc, char **argv) {
       "bnd2_lb",
       "bnd2_ub",
       "bnd3_lb",
-      "bnd3_ub"
+      "bnd3_ub",
+      "cc_op",
+      "cc_dst",
+      "cc_src",
+      "cc_src2",
     };
 
     const auto &not_ret_regs = not_arg_or_ret_regs;
