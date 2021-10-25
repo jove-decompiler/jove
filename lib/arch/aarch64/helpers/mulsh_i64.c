@@ -14,6 +14,7 @@ static inline void muls64(uint64_t *plow, uint64_t *phigh,
 
 #define HELPER(name) glue(helper_, name)
 
+__attribute__((always_inline))
 int64_t HELPER(mulsh_i64)(int64_t arg1, int64_t arg2)
 {
     uint64_t l, h;
