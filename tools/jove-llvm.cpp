@@ -5143,17 +5143,15 @@ int CreateSectionGlobalVariables(void) {
           Decompilation.Binaries[BinaryIndex].Analysis.RelocDynTargets;
 
       auto it = RelocDynTargets.find(R.Addr);
-      if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv(
-            "{0}:{1} have you run jove-dyn? (symbol: {2})\n", __FILE__,
-            __LINE__, S.Name);
-
-        FTy = llvm::FunctionType::get(VoidType(), false);
-      } else {
+      if (it != RelocDynTargets.end() && !(*it).second.empty()) {
         auto &DynTargets = (*it).second;
 
         for (std::pair<binary_index_t, function_index_t> pair : DynTargets) {
           if (pair.first == BinaryIndex)
+            continue;
+
+          function_t &f = Decompilation.Binaries[pair.first].Analysis.Functions[pair.second];
+          if (!f.IsABI)
             continue;
 
           FTy = DetermineFunctionType(pair);
@@ -5161,9 +5159,13 @@ int CreateSectionGlobalVariables(void) {
         }
 
         if (!FTy)
-          FTy = DetermineFunctionType(*DynTargets.begin());
+          FTy = llvm::FunctionType::get(VoidType(), false);
+      } else {
+        FTy = llvm::FunctionType::get(VoidType(), false);
       }
     }
+
+    assert(FTy);
 
     llvm::Function *F =
         llvm::Function::Create(FTy,
