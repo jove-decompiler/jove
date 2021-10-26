@@ -1866,9 +1866,9 @@ void _jove_callstack_init(void) {
   ".set noreorder\n"                                                           \
                                                                                \
   "addiu $sp,$sp,-32\n"                                                        \
-  "sw $ra, 20($sp)\n"                                                          \
-  "sw $s0, 24($sp)\n"                                                          \
-  "sw $s1, 28($sp)\n"                                                          \
+  "sw $ra, 8($sp)\n"                                                           \
+  "sw $s0, 16($sp)\n"                                                          \
+  "sw $s1, 24($sp)\n"                                                          \
                                                                                \
   "move $s0, $sp\n" /* save sp in $s0 */
 
@@ -1876,9 +1876,9 @@ void _jove_callstack_init(void) {
   "sw $sp, 0($s1)\n" /* store modified emusp */                                \
   "move $sp, $s0\n"  /* restore stack pointer */                               \
                                                                                \
-  "lw $ra, 20($sp)\n"                                                          \
-  "lw $s0, 24($sp)\n"                                                          \
-  "lw $s1, 28($sp)\n"                                                          \
+  "lw $ra, 8($sp)\n"                                                           \
+  "lw $s0, 16($sp)\n"                                                          \
+  "lw $s1, 24($sp)\n"                                                          \
                                                                                \
   "jr $ra\n"                                                                   \
   "addiu $sp,$sp,32\n"                                                         \
