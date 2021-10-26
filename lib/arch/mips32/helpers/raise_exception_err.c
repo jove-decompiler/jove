@@ -1843,42 +1843,6 @@ void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 #undef ___DFSAN_SYSENTRS
 #undef ___DFSAN
 
-#if 0
-
-__attribute__((visibility("hidden"))) int foo(void **x) {
-  /* the following is so the compiler doesn't optimize away the clunks */
-
-#define ___SYSCALL0(nr, nm)                                                 *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL1(nr, nm, t1, a1)                                         *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                 *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                 *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)         *x = &SYSENTR(nm##_clunk);
-#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6) *x = &SYSENTR(nm##_clunk);
-
-#define ___DFSAN
-#define ___DFSAN_SYSENTRS
-#include "syscalls.inc.h"
-#undef ___DFSAN_SYSENTRS
-#undef ___DFSAN
-
-#define ___SYSCALL0(nr, nm)                                                 *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL1(nr, nm, t1, a1)                                         *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL2(nr, nm, t1, a1, t2, a2)                                 *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL3(nr, nm, t1, a1, t2, a2, t3, a3)                         *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL4(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4)                 *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL5(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5)         *x = &SYSEXIT(nm##_clunk);
-#define ___SYSCALL6(nr, nm, t1, a1, t2, a2, t3, a3, t4, a4, t5, a5, t6, a6) *x = &SYSEXIT(nm##_clunk);
-
-#define ___DFSAN
-#define ___DFSAN_SYSEXITS
-#include "syscalls.inc.h"
-#undef ___DFSAN_SYSEXITS
-#undef ___DFSAN
-}
-
-#endif
-
 #endif /* JOVE_DFSAN */
 
 static size_t _strlen(const char *str) {
@@ -2340,19 +2304,6 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
     __builtin_trap();
     __builtin_unreachable();
   }
-
-  // TODO special case pipe(2), it returns outputs in v0 and v1
-
-#if 0
-  if (sysnum == 56 /* clone */) {
-    if (sysret == 0) {
-      //
-      // this is a new thread
-      //
-      env->regs[R_ESP] = _jove_thread_init(env_a2 /* newsp */);
-    }
-  }
-#endif
 
 #ifdef JOVE_DFSAN
   long sysret;
