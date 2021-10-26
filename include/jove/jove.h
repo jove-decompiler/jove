@@ -64,16 +64,16 @@ constexpr dynamic_target_t
     invalid_dynamic_target(invalid_binary_index,
                            invalid_function_index);
 
-inline bool is_binary_index_valid(binary_index_t idx) {
+constexpr bool is_binary_index_valid(binary_index_t idx) {
   return idx != invalid_binary_index;
 }
-inline bool is_function_index_valid(function_index_t idx) {
+constexpr bool is_function_index_valid(function_index_t idx) {
   return idx != invalid_function_index;
 }
-inline bool is_basic_block_index_valid(basic_block_index_t idx) {
+constexpr bool is_basic_block_index_valid(basic_block_index_t idx) {
   return idx != invalid_basic_block_index;
 }
-inline bool is_dynamic_target_valid(dynamic_target_t X) {
+constexpr bool is_dynamic_target_valid(dynamic_target_t X) {
   return is_binary_index_valid(X.first) &&
          is_function_index_valid(X.second);
 }
