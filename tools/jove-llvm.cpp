@@ -9980,7 +9980,7 @@ BOOST_PP_REPEAT(9, __THUNK, void)
             Ret->setMetadata("jove.hook", Node);
           }
 
-          Ret->setCallingConv(llvm::CallingConv::C);
+          //Ret->setCallingConv(llvm::CallingConv::C);
 
 #if 0
           llvm::MDNode *JoveNode = llvm::MDNode::get(
