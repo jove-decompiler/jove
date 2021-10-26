@@ -622,14 +622,12 @@ static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
 
-#if defined(TARGET_MIPS32) || defined(TARGET_X86_64) || defined(TARGET_I386) || defined(TARGET_AARCH64)
-
 #define __THUNK(n, i, data)                                                    \
   static llvm::Function *JoveThunk##i##Func;
 
 #if defined(TARGET_X86_64)
 BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS32)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
@@ -641,9 +639,6 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 
 #undef __THUNK
 
-#else
-static llvm::Function *JoveThunkFunc;
-#endif
 static llvm::Function *JoveFail1Func;
 
 static llvm::Function *JoveAllocStackFunc;
@@ -1268,8 +1263,6 @@ int CreateModule(void) {
       Module->getFunction("_jove_install_foreign_function_tables");
   assert(JoveInstallForeignFunctionTables);
 
-#if defined(TARGET_X86_64) || defined(TARGET_MIPS32) || defined(TARGET_I386) || defined(TARGET_AARCH64)
-
 #define __THUNK(n, i, data)                                                    \
   JoveThunk##i##Func = Module->getFunction("_jove_thunk" #i);                  \
   assert(JoveThunk##i##Func);                                                  \
@@ -1278,7 +1271,7 @@ int CreateModule(void) {
 
 #if defined(TARGET_X86_64)
 BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS32)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
@@ -1289,13 +1282,6 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 #endif
 
 #undef __THUNK
-
-#else
-  JoveThunkFunc = Module->getFunction("_jove_thunk");
-  assert(JoveThunkFunc);
-  assert(!JoveThunkFunc->empty());
-  JoveThunkFunc->setLinkage(llvm::GlobalValue::InternalLinkage);
-#endif
 
   JoveFail1Func = Module->getFunction("_jove_fail1");
   assert(JoveFail1Func && !JoveFail1Func->empty());
