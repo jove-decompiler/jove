@@ -394,7 +394,8 @@ void _jove_check_return_address(uintptr_t RetAddr,
 #endif
 }
 
-#if defined(__mips__) || defined(__i386__)
+#if (defined(__mips__) && !defined(__mips64)) || \
+    (defined(__i386__) && !defined(__x86_64__))
 //
 // 32-bit DFSan
 //
