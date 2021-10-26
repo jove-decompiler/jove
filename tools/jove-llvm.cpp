@@ -9839,7 +9839,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
             //
             save_callstack_pointers();
 
-#if defined(TARGET_MIPS32) || defined(TARGET_X86_64) || defined(TARGET_I386) || defined(TARGET_AARCH64)
             {
               std::vector<llvm::Value *> ArgVec;
 
@@ -9862,7 +9861,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
 #if defined(TARGET_X86_64)
 BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS32)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 BOOST_PP_REPEAT(5, __THUNK, void)
 #elif defined(TARGET_I386)
 BOOST_PP_REPEAT(4, __THUNK, void)
@@ -9880,31 +9879,6 @@ BOOST_PP_REPEAT(9, __THUNK, void)
               Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
               Ret->setIsNoInline();
             }
-#else
-            {
-              unsigned NumWords = CallConvArgArray.size();
-
-              llvm::AllocaInst *ArgArrAlloca =
-                  IRB.CreateAlloca(llvm::ArrayType::get(WordType(), NumWords));
-
-              for (unsigned i = 0; i < CallConvArgArray.size(); ++i) {
-                unsigned glb = CallConvArgArray[i];
-
-                llvm::Value *Val = get(glb);
-                llvm::Value *Ptr = IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, i);
-
-                IRB.CreateStore(Val, Ptr);
-              }
-
-              llvm::Value *CallArgs[] = {
-                  DynTargetsCallableAddrVec[i],
-                  IRB.CreateConstInBoundsGEP2_64(ArgArrAlloca, 0, 0),
-                  CPUStateGlobalPointer(tcg_stack_pointer_index)};
-
-              Ret = IRB.CreateCall(JoveThunkFunc, CallArgs);
-              Ret->setIsNoInline();
-            }
-#endif
 
 #if defined(TARGET_I386)
             //
