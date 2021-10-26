@@ -1739,17 +1739,6 @@ struct CPUMIPSState {
 
 extern /* __thread */ struct CPUMIPSState __jove_env;
 
-extern /* __thread */ uint64_t *__jove_trace;
-extern /* __thread */ uint64_t *__jove_trace_begin;
-
-extern /* __thread */ uint64_t *__jove_callstack;
-extern /* __thread */ uint64_t *__jove_callstack_begin;
-
-#define _JOVE_MAX_BINARIES 512
-extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
-
-/* -> static */ uintptr_t *__jove_foreign_function_tables[3] = {NULL, NULL, NULL};
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -1762,105 +1751,49 @@ extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 #include <sys/uio.h>
 #include <signal.h>
 
-typedef unsigned long kernel_sigset_t;
-
-struct kernel_sigaction {
-  void *          _sa_handler;
-  unsigned long   _sa_flags;
-  void *          _sa_restorer;
-  kernel_sigset_t _sa_mask;
-};
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
-#define _IOV_ENTRY(var) {.iov_base = &var, .iov_len = sizeof(var)}
-
-#define likely(x)   __builtin_expect(!!(x), 1)
-#define unlikely(x) __builtin_expect(!!(x), 0)
-
-#define _CTOR   __attribute__((constructor))
-#define _INL    __attribute__((always_inline))
-#define _NAKED  __attribute__((naked))
-#define _NOINL  __attribute__((noinline))
-#define _NORET  __attribute__((noreturn))
-#define _UNUSED __attribute__((unused))
-#define _HIDDEN __attribute__((visibility("hidden")))
+#include "jove.constants.h"
+#include "jove.macros.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h"
 
-extern /* -> static */ uintptr_t _jove_sections_start_file_addr(void);
-extern /* -> static */ uintptr_t _jove_sections_global_beg_addr(void);
-extern /* -> static */ uintptr_t _jove_sections_global_end_addr(void);
-extern /* -> static */ uint32_t _jove_binary_index(void);
-extern /* -> static */ bool _jove_trace_enabled(void);
-extern /* -> static */ bool _jove_dfsan_enabled(void);
-extern /* -> static */ void _jove_call_entry(void);
-extern /* -> static */ uintptr_t *_jove_get_function_table(void);
-extern /* -> static */ uintptr_t *_jove_get_dynl_function_table(void);
-extern /* -> static */ uintptr_t *_jove_get_vdso_function_table(void);
-extern /* -> static */ void _jove_do_tpoff_hack(void);
-extern /* -> static */ const char *_jove_dynl_path(void);
-
-_CTOR _HIDDEN void _jove_install_function_table(void) {
-  __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
-  _jove_do_tpoff_hack(); /* for good measure */
-}
-
-_CTOR static void _jove_install_foreign_function_tables(void);
+#include "jove.llvm.c"
+#include "jove.util.c"
+#include "jove.arch.c"
+#include "jove.common.c"
+#include "jove.recover.c"
 
 _HIDDEN
 _NAKED void _jove_start(void);
-static void _jove_begin(target_ulong a0,
-                        target_ulong a1,
-                        target_ulong v0,     /* formerly a2 */
-                        target_ulong sp_addr /* formerly a3 */);
+static void _jove_begin(uint64_t a0,
+                        uint64_t a1,
+                        uint64_t v0,     /* formerly a2 */
+                        uint64_t sp_addr /* formerly a3 */);
 
-_NAKED _NOINL target_ulong _jove_thunk(target_ulong dstpc,
-                                       target_ulong *args,
-                                       target_ulong *emuspp);
+_NAKED uint64_t _jove_thunk0(uint64_t dstpc,
+                             uint64_t *emuspp);
 
-_NOINL _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
-                                             target_ulong CalleeAddr);
+_NAKED uint64_t _jove_thunk1(uint64_t a0,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
 
-_NOINL _HIDDEN void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                                              target_ulong BBAddr);
+_NAKED uint64_t _jove_thunk2(uint64_t a0,
+                             uint64_t a1,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
 
-_NAKED _NOINL _NORET void _jove_fail1(target_ulong);
-_NAKED _NOINL _NORET void _jove_fail2(target_ulong, target_ulong);
+_NAKED uint64_t _jove_thunk3(uint64_t a0,
+                             uint64_t a1,
+                             uint64_t a2,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
 
-_NOINL void _jove_check_return_address(target_ulong RetAddr,
-                                       target_ulong NativeRetAddr);
-
-#define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
-
-static target_ulong _jove_alloc_stack(void);
-static void _jove_free_stack(target_ulong);
-
-#define JOVE_CALLSTACK_SIZE (32 * JOVE_PAGE_SIZE)
-
-//
-// utility functions
-//
-static _INL unsigned _read_pseudo_file(const char *path, char *out, size_t len);
-static _INL uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n);
-static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n);
-static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n);
-static _INL size_t _sum_iovec_lengths(const struct iovec *, unsigned n);
-static _INL bool _isDigit(char);
-static _INL int _atoi(const char *s);
-static _INL size_t _strlen(const char *s);
-static _INL unsigned _getDigit(char cdigit, uint8_t radix);
-static _INL void *_memchr(const void *s, int c, size_t n);
-static _INL void *_memcpy(void *dest, const void *src, size_t n);
-static _INL void *_memset(void *dst, int c, size_t n);
-static _INL uint64_t _u64ofhexstr(char *str_begin, char *str_end);
-static _INL unsigned _getHexDigit(char cdigit);
-static _INL uintptr_t _get_stack_end(void);
-
-//
-// definitions
-//
+_NAKED uint64_t _jove_thunk4(uint64_t a0,
+                             uint64_t a1,
+                             uint64_t a2,
+                             uint64_t a3,
+                             uint64_t dstpc,
+                             uint64_t *emuspp);
 
 void _jove_start(void) {
   asm volatile(/* The return address register is set to zero so that programs that search backword through stack frames recognize the last stack frame. */
@@ -1881,10 +1814,10 @@ void _jove_start(void) {
 static void _jove_trace_init(void);
 static void _jove_callstack_init(void);
 
-void _jove_begin(target_ulong a0,
-                 target_ulong a1,
-                 target_ulong v0,     /* formerly a2 */
-                 target_ulong sp_addr /* formerly a3 */) {
+void _jove_begin(uint64_t a0,
+                 uint64_t a1,
+                 uint64_t v0,     /* formerly a2 */
+                 uint64_t sp_addr /* formerly a3 */) {
   __jove_env.active_tc.gpr[4] = a0;
   __jove_env.active_tc.gpr[5] = a1;
   __jove_env.active_tc.gpr[2] = v0;
@@ -1913,777 +1846,162 @@ void _jove_begin(target_ulong a0,
   if (_jove_dfsan_enabled())
     _jove_callstack_init();
 
-  _jove_install_function_table();
-  _jove_install_foreign_function_tables();
+  _jove_init();
 
   return _jove_call_entry();
 }
 
-uintptr_t _get_stack_end(void) {
-  char buff[4096 * 16];
-  unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-  buff[n] = '\0';
-
-  uintptr_t res = _parse_stack_end_of_maps(buff, n);
-  return res;
-}
-
-void *_memchr(const void *s, int c, size_t n) {
-  if (n != 0) {
-    const unsigned char *p = s;
-
-    do {
-      if (*p++ == (unsigned char)c)
-        return ((void *)(p - 1));
-    } while (--n != 0);
-  }
-  return (NULL);
-}
-
-unsigned _getHexDigit(char cdigit) {
-  unsigned radix = 0x10;
-
-  unsigned r;
-
-  if (radix == 16 || radix == 36) {
-    r = cdigit - '0';
-    if (r <= 9)
-      return r;
-
-    r = cdigit - 'A';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    r = cdigit - 'a';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    radix = 10;
-  }
-
-  r = cdigit - '0';
-  if (r < radix)
-    return r;
-
-  return -1U;
-}
-
-uint64_t _u64ofhexstr(char *str_begin, char *str_end) {
-  const unsigned radix = 0x10;
-
-  uint64_t res = 0;
-
-  char *p = str_begin;
-  size_t slen = str_end - str_begin;
-
-  // Figure out if we can shift instead of multiply
-  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
-
-  // Enter digit traversal loop
-  for (char *e = str_end; p != e; ++p) {
-    unsigned digit = _getHexDigit(*p);
-
-    if (!(digit < radix))
-      return 0;
-
-    // Shift or multiply the value by the radix
-    if (slen > 1) {
-      if (shift)
-        res <<= shift;
-      else
-        res *= radix;
-    }
-
-    // Add in the digit we just interpreted
-    res += digit;
-  }
-
-  return res;
-}
-
-uintptr_t _parse_stack_end_of_maps(char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
-
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
-
-    //
-    // find the end of the current line
-    //
-    eol = _memchr(line, '\n', left);
-
-    //
-    // second hex address
-    //
-    if (eol[-1] == ']' &&
-        eol[-2] == 'k' &&
-        eol[-3] == 'c' &&
-        eol[-4] == 'a' &&
-        eol[-5] == 't' &&
-        eol[-6] == 's' &&
-        eol[-7] == '[') {
-      char *dash = _memchr(line, '-', left);
-
-      char *space = _memchr(line, ' ', left);
-      uint64_t max = _u64ofhexstr(dash + 1, space);
-      return max;
-    }
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-unsigned _read_pseudo_file(const char *path, char *out, size_t len) {
-  unsigned n;
-
-  {
-    int fd = _jove_sys_open(path, O_RDONLY, S_IRWXU);
-    if (fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    // let n denote the number of characters read
-    n = 0;
-
-    for (;;) {
-      ssize_t ret = _jove_sys_read(fd, &out[n], len - n);
-
-      if (ret == 0)
-        break;
-
-      if (ret < 0) {
-        if (ret == -EINTR)
-          continue;
-
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      n += ret;
-    }
-
-    if (_jove_sys_close(fd) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-  }
-
-  return n;
-}
-
-void *_memcpy(void *dest, const void *src, size_t n) {
-  unsigned char *d = dest;
-  const unsigned char *s = src;
-
-  for (; n; n--)
-    *d++ = *s++;
-
-  return dest;
-}
-
-void *_memset(void *dst, int c, size_t n) {
-  if (n != 0) {
-    unsigned char *d = dst;
-
-    do
-      *d++ = (unsigned char)c;
-    while (--n != 0);
-  }
-  return (dst);
-}
-
-static void _jove_sigsegv_handler(void);
-
 void _jove_trace_init(void) {
-  if (__jove_trace)
-    return;
-
-  int fd =
-      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  off_t size = 1UL << 31; /* 2 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  {
-    long ret =
-        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    if (ret < 0 && ret > -4096) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    void *ptr = (void *)ret;
-
-    __jove_trace_begin = __jove_trace = ptr;
-  }
-
-  if (_jove_sys_close(fd) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  //
-  // install SIGSEGV handler
-  //
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
-  sa._sa_handler = (void *)_jove_sigsegv_handler;
-
-  {
-    long ret =
-        _jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t));
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-  }
+  if (!__jove_trace_begin || !__jove_trace)
+    _UNREACHABLE("in --trace mode but runtime did not initialize buffer");
 }
 
 void _jove_callstack_init(void) {
-  if (__jove_callstack)
-    return;
+  uintptr_t ptr = _jove_alloc_callstack();
 
-  {
-    long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                              MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-    if (ret < 0 && ret > -4096) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    void *ptr = (void *)ret;
-
-    //
-    // create guard pages on both sides
-    //
-    unsigned long beg = (unsigned long)ret;
-    unsigned long end = beg + JOVE_CALLSTACK_SIZE;
-
-    if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
-  }
+  __jove_callstack_begin = __jove_callstack = (void *)(ptr + JOVE_PAGE_SIZE);
 }
 
-static void _jove_flush_trace(void);
+#define JOVE_THUNK_PROLOGUE                                                    \
+  ".set noreorder\n"                                                           \
+                                                                               \
+  "addiu $sp,$sp,-32\n"                                                        \
+  "sw $ra, 20($sp)\n"                                                          \
+  "sw $s0, 24($sp)\n"                                                          \
+  "sw $s1, 28($sp)\n"                                                          \
+                                                                               \
+  "move $s0, $sp\n" /* save sp in $s0 */
 
-void _jove_sigsegv_handler(void) {
-  _jove_flush_trace();
+#define JOVE_THUNK_EPILOGUE                                                    \
+  "sw $sp, 0($s1)\n" /* store modified emusp */                                \
+  "move $sp, $s0\n"  /* restore stack pointer */                               \
+                                                                               \
+  "lw $ra, 20($sp)\n"                                                          \
+  "lw $s0, 24($sp)\n"                                                          \
+  "lw $s1, 28($sp)\n"                                                          \
+                                                                               \
+  "jr $ra\n"                                                                   \
+  "addiu $sp,$sp,32\n"                                                         \
+                                                                               \
+  ".set reorder\n"
 
-  _jove_sys_exit_group(22);
-  __builtin_trap();
-  __builtin_unreachable();
-}
+//
+// NOTE: the magic offset is
+// offsetof(CPUMIPSState, active_fpu.fpr[0].d) -
+// offsetof(CPUMIPSState, active_tc.gpr[29]);
+//
 
-void _jove_flush_trace(void) {
-  if (!__jove_trace || !__jove_trace_begin)
-    return;
+uint64_t _jove_thunk0(uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-  size_t len = __jove_trace - __jove_trace_begin;
-  len *= sizeof(uint64_t);
+               "move $s1, $a1\n" // emuspp in $s1
 
-  long ret = _jove_sys_msync((unsigned long)__jove_trace_begin, len, MS_SYNC);
-  if (ret < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-}
+               "lw $sp, 0($a1)\n" // sp=*emuspp
+               "sw $zero, 0($a1)\n" // *emuspp=NULL
 
-static char *ulongtostr(char *dst, unsigned long N) {
-  char *Str = dst;
+               /* args: nothing to do */
 
-  const unsigned Radix = 10;
+               "jalr $a0\n"      // call dstpc
+               "move $t9, $a0\n" // [delay slot] set t9
 
-  // First, check for a zero value and just short circuit the logic below.
-  if (N == 0) {
-    *Str++ = '0';
-    goto out;
-  }
-
-  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-  char Buffer[65];
-  char *const BufEnd = &Buffer[sizeof(Buffer)];
-
-  char *BufPtr = BufEnd;
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *Ptr = BufPtr; Ptr != BufEnd; ++Ptr)
-    *Str++ = *Ptr;
-
-out:
-  *Str = '\0';
-  return Str;
-}
-
-/// A utility function that converts a character to a digit.
-unsigned _getDigit(char cdigit, uint8_t radix) {
-  unsigned r;
-
-  if (radix == 16 || radix == 36) {
-    r = cdigit - '0';
-    if (r <= 9)
-      return r;
-
-    r = cdigit - 'A';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    r = cdigit - 'a';
-    if (r <= radix - 11U)
-      return r + 10;
-
-    radix = 10;
-  }
-
-  r = cdigit - '0';
-  if (r < radix)
-    return r;
-
-  return -1U;
-}
-
-size_t _strlen(const char *str) {
-  const char *s;
-
-  for (s = str; *s; ++s)
-    ;
-  return (s - str);
-}
-
-int _atoi(const char *s) {
-  unsigned res = 0;
-  const uint8_t radix = 10;
-  // Figure out if we can shift instead of multiply
-  unsigned shift = (radix == 16 ? 4 : radix == 8 ? 3 : radix == 2 ? 1 : 0);
-  size_t slen = _strlen(s);
-
-  const char *p = s;
-  for (const char *e = s + slen; p != e; ++p) {
-    unsigned digit = _getDigit(*p, radix);
-
-    // Shift or multiply the value by the radix
-    if (slen > 1) {
-      if (shift)
-        res <<= shift;
-      else
-        res *= radix;
-    }
-
-    // Add in the digit we just interpreted
-    res += digit;
-  }
-
-  return res;
-}
-
-size_t _sum_iovec_lengths(const struct iovec *iov, unsigned n) {
-  size_t expected = 0;
-  for (unsigned i = 0; i < n; ++i)
-    expected += iov[i].iov_len;
-  return expected;
-}
-
-void _jove_recover_dyn_target(uint32_t CallerBBIdx,
-                              target_ulong CalleeAddr) {
-#if 0
-  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
-
-  uint32_t CallerBIdx = _jove_binary_index();
-
-  struct {
-    uint32_t BIdx;
-    uint32_t FIdx;
-  } Callee;
-
-  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
-    uintptr_t *fns = __jove_function_tables[BIdx];
-    if (!fns) {
-      if (BIdx == 1 || BIdx == 2) { /* XXX */
-        fns = __jove_foreign_function_tables[BIdx];
-        if (!fns)
-          continue;
-      } else {
-        continue;
-      }
-    }
-
-    if (BIdx == 1 || BIdx == 2) { /* XXX */
-      for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
-        if (CalleeAddr == fns[FIdx]) {
-          Callee.BIdx = BIdx;
-          Callee.FIdx = FIdx;
-
-          goto found;
-        }
-      }
-    } else {
-      for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
-        if (CalleeAddr == fns[2 * FIdx + 0] ||
-            CalleeAddr == fns[2 * FIdx + 1]) {
-          Callee.BIdx = BIdx;
-          Callee.FIdx = FIdx;
-
-          goto found;
-        }
-      }
-    }
-  }
-
-  return; /* not found */
-
-found:
-  {
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    {
-      char ch = 'f';
-
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(CallerBIdx),
-          _IOV_ENTRY(CallerBBIdx),
-          _IOV_ENTRY(Callee.BIdx),
-          _IOV_ENTRY(Callee.FIdx)
-      };
-
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      _jove_sys_close(recover_fd);
-      _jove_sys_exit_group(ch);
-    }
-  }
-}
-
-void _jove_recover_basic_block(uint32_t IndBrBBIdx,
-                               target_ulong BBAddr) {
-#if 0
-  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
-  if (!recover_fifo_path)
-    return;
-#else
-  const char *recover_fifo_path = "/jove-recover.fifo";
-#endif
-
-  struct {
-    uint32_t BIdx;
-    uint32_t BBIdx;
-  } IndBr;
-
-  struct {
-    uintptr_t Beg;
-    uintptr_t End;
-  } SectionsGlobal;
-
-  uintptr_t SectsStartFileAddr;
-
-  IndBr.BIdx = _jove_binary_index();
-  IndBr.BBIdx = IndBrBBIdx;
-
-  SectionsGlobal.Beg = _jove_sections_global_beg_addr();
-  SectionsGlobal.End = _jove_sections_global_end_addr();
-  SectsStartFileAddr = _jove_sections_start_file_addr();
-
-  if (!(BBAddr >= SectionsGlobal.Beg && BBAddr < SectionsGlobal.End))
-    return; /* not found */
-
-  uintptr_t FileAddr = (BBAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
-
-found:
-  {
-    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
-    if (recover_fd < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    {
-      char ch = 'b';
-
-      struct iovec iov_arr[] = {
-          _IOV_ENTRY(ch),
-          _IOV_ENTRY(IndBr.BIdx),
-          _IOV_ENTRY(IndBr.BBIdx),
-          _IOV_ENTRY(FileAddr)
-      };
-
-      size_t expected = _sum_iovec_lengths(iov_arr, ARRAY_SIZE(iov_arr));
-      if (_jove_sys_writev(recover_fd, iov_arr, ARRAY_SIZE(iov_arr)) != expected) {
-        __builtin_trap();
-        __builtin_unreachable();
-      }
-
-      _jove_sys_close(recover_fd);
-      _jove_sys_exit_group(ch);
-    }
-  }
-}
-
-void _jove_fail1(target_ulong rdi) {
-  asm volatile("hlt");
-}
-
-void _jove_fail2(target_ulong rdi,
-                 target_ulong rsi) {
-  asm volatile("hlt");
-}
-
-target_ulong _jove_thunk(target_ulong dstpc   /* rdi */,
-                         target_ulong *args   /* rsi */,
-                         target_ulong *emuspp /* rdx */) {
-  asm volatile("move $31, $0\n"
-
+               JOVE_THUNK_EPILOGUE
                : /* OutputOperands */
                : /* InputOperands */
-               [jove_alloc_stack] "i"(_jove_alloc_stack),
-               [jove_free_stack] "i"(_jove_free_stack)
                : /* Clobbers */);
 }
 
-bool _isDigit(char C) { return C >= '0' && C <= '9'; }
+uint64_t _jove_thunk1(uint64_t a0,
+                      uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
+               "move $s1, $a2\n" // emuspp in $s1
 
-  const char *const dynl_path_beg = _jove_dynl_path();
-  const unsigned    dynl_path_len = _strlen(dynl_path_beg);
-  const char *const dynl_path_end = &dynl_path_beg[dynl_path_len];
+               "lw $sp, 0($a2)\n" // sp=*emuspp
+               "sw $zero, 0($a2)\n" // *emuspp=NULL
 
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
+               /* args: nothing to do */
 
-    //
-    // find the end of the current line
-    //
-    eol = _memchr(line, '\n', left);
+               "jalr $a1\n"      // call dstpc
+               "move $t9, $a1\n" // [delay slot] set t9
 
-    //
-    // second hex address
-    //
-    bool match = true;
-
-    {
-      const char *s1 = dynl_path_end - 1;
-      const char *s2 = eol - 1;
-      for (;;) {
-        if (*s1 != *s2) {
-          match = false;
-          break;
-        }
-
-        if (s1 == dynl_path_beg)
-          break; /* we're done here */
-
-        --s1;
-        --s2;
-      }
-    }
-
-    if (match) {
-      char *space = _memchr(line, ' ', left);
-
-      char *rp = space + 1;
-      char *wp = space + 2;
-      char *xp = space + 3;
-      char *pp = space + 4;
-
-      bool x = *xp == 'x';
-      if (!x)
-        continue;
-
-      char *dash = _memchr(line, '-', left);
-      uint64_t res = _u64ofhexstr(line, dash);
-
-      // offset may be nonzero for dynamic linker
-      uint64_t off;
-      {
-        char *offset = pp + 2;
-        unsigned _left = n - (offset - beg);
-        char *offset_end = _memchr(offset, ' ', _left);
-
-        off = _u64ofhexstr(offset, offset_end);
-      }
-
-      return res - off;
-    }
-  }
-
-  __builtin_trap();
-  __builtin_unreachable();
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
-uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
-  char *const beg = &maps[0];
-  char *const end = &maps[n];
+uint64_t _jove_thunk2(uint64_t a0,
+                      uint64_t a1,
+                      uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-  char *eol;
-  for (char *line = beg; line != end; line = eol + 1) {
-    unsigned left = n - (line - beg);
+               "move $s1, $a3\n" // emuspp in $s1
 
-    //
-    // find the end of the current line
-    //
-    eol = _memchr(line, '\n', left);
+               "lw $sp, 0($a3)\n" // sp=*emuspp
+               "sw $zero, 0($a3)\n" // *emuspp=NULL
 
-    //
-    // second hex address
-    //
-    if (eol[-1] == ']' &&
-        eol[-2] == 'o' &&
-        eol[-3] == 's' &&
-        eol[-4] == 'd' &&
-        eol[-5] == 'v' &&
-        eol[-6] == '[') {
-      char *dash = _memchr(line, '-', left);
-      return _u64ofhexstr(line, dash);
-    }
-  }
+               /* args: nothing to do */
 
-  __builtin_trap();
-  __builtin_unreachable();
+               "jalr $a2\n"      // call dstpc
+               "move $t9, $a2\n" // [delay slot] set t9
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
-static bool __jove_installed_foreign_function_tables = false;
+uint64_t _jove_thunk3(uint64_t a0,
+                      uint64_t a1,
+                      uint64_t a2,
+                      uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-void _jove_install_foreign_function_tables(void) {
-  if (__jove_installed_foreign_function_tables)
-    return;
-  __jove_installed_foreign_function_tables = true;
+               "lw $s1, 48($sp)\n" // emuspp in $s1
 
-  /* we need to get the load addresses for the dynamic linker and VDSO by
-   * parsing /proc/self/maps */
-  uintptr_t dynl_load_bias;
-  uintptr_t vdso_load_bias;
-  {
-    char buff[4096 * 16];
-    unsigned n = _read_pseudo_file("/proc/self/maps", buff, sizeof(buff));
-    buff[n] = '\0';
+               "lw $sp, 0($s1)\n" // sp=*emuspp
+               "sw $zero, 0($s1)\n" // *emuspp=NULL
 
-    dynl_load_bias = _parse_dynl_load_bias(buff, n);
-    vdso_load_bias = _parse_vdso_load_bias(buff, n);
-  }
+               /* args: nothing to do */
 
-  uintptr_t *dynl_fn_tbl = _jove_get_dynl_function_table();
-  uintptr_t *vdso_fn_tbl = _jove_get_vdso_function_table();
+               "jalr $a3\n"      // call dstpc
+               "move $t9, $a3\n" // [delay slot] set t9
 
-  for (uintptr_t *p = dynl_fn_tbl; *p; ++p)
-    *p += dynl_load_bias;
-  for (uintptr_t *p = vdso_fn_tbl; *p; ++p)
-    *p += vdso_load_bias;
-
-  __jove_foreign_function_tables[1] = dynl_fn_tbl;
-  __jove_foreign_function_tables[2] = vdso_fn_tbl;
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
-target_ulong _jove_alloc_stack(void) {
-  long ret = _jove_sys_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+uint64_t _jove_thunk4(uint64_t a0,
+                      uint64_t a1,
+                      uint64_t a2,
+                      uint64_t a3,
+                      uint64_t dstpc,
+                      uint64_t *emuspp) {
+  asm volatile(JOVE_THUNK_PROLOGUE
 
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = (unsigned long)ret;
-  unsigned long end = beg + JOVE_STACK_SIZE;
+               "lw $s1, 52($sp)\n" // emuspp in $s1
 
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+               /* args: nothing to do */
 
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
+               "lw $t9, 48($sp)\n" /* do this now before sp is clobbered */
 
-  return beg;
+               "lw $sp, 0($s1)\n" // sp=*emuspp
+               "sw $zero, 0($s1)\n" // *emuspp=NULL
+
+               "jalr $t9\n"      // call dstpc
+               "nop\n"
+
+               JOVE_THUNK_EPILOGUE
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
 }
 
-void _jove_free_stack(target_ulong beg) {
-  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-}
-
-static bool _jove_is_readable_mem(target_ulong Addr);
-
-void _jove_check_return_address(target_ulong RetAddr,
-                                target_ulong NativeRetAddr) {
-  if (likely(_jove_is_readable_mem(RetAddr)))
-    return;
-
-  _jove_fail2(RetAddr, NativeRetAddr);
-}
-
-bool _jove_is_readable_mem(target_ulong Addr) {
-  pid_t pid;
-  {
-    long ret = _jove_sys_getpid();
-    if (unlikely(ret < 0)) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-    pid = ret;
-  }
-
-  struct iovec lvec[1];
-  struct iovec rvec[1];
-
-  uint8_t byte;
-
-  lvec[0].iov_base = &byte;
-  lvec[0].iov_len = sizeof(byte);
-
-  rvec[0].iov_base = (void *)Addr;
-  rvec[0].iov_len = sizeof(byte);
-
-  long ret = _jove_sys_process_vm_readv(pid,
-                                        lvec, ARRAY_SIZE(lvec),
-                                        rvec, ARRAY_SIZE(rvec),
-                                        0);
-
-  return ret == sizeof(byte);
-}
+#undef JOVE_THUNK_PROLOGUE
+#undef JOVE_THUNK_EPILOGUE
