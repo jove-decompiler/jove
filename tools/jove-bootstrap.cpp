@@ -3056,7 +3056,15 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
                                     StringOfMCInst(I, dis));
 
-    pc = RegValue(reg);
+    uintptr_t target = RegValue(reg);
+
+#if defined(__mips64)
+    target &= 0xfffffffffffffffe;
+#elif defined(__mips__)
+    target &= 0xfffffffe;
+#endif
+
+    pc = target;
   };
 #endif
 
@@ -3411,6 +3419,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                         Inst);
     throw;
   }
+
+#if defined(__mips64)
+  target &= 0xfffffffffffffffe;
+#elif defined(__mips__)
+  target &= 0xfffffffe;
+#endif
 
   //
   // if the instruction is a call, we need to emulate whatever happens to the
