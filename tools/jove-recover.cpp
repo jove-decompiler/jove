@@ -679,6 +679,10 @@ function_index_t translate_function(binary_index_t binary_idx,
                                     tiny_code_generator_t &tcg,
                                     disas_t &dis,
                                     target_ulong Addr) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   binary_t &binary = Decompilation.Binaries.at(binary_idx);
   auto &FuncMap = BinStateVec.at(binary_idx).FuncMap;
 
@@ -709,6 +713,10 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   binary_t &binary = Decompilation.Binaries.at(binary_idx);
   auto &ICFG = binary.Analysis.ICFG;
   auto &BBMap = BinStateVec.at(binary_idx).BBMap;
@@ -970,6 +978,12 @@ on_insn_boundary:
   auto control_flow = [&](uintptr_t Target) -> void {
     assert(Target);
 
+#if defined(TARGET_MIPS64)
+    Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    Target &= 0xfffffffe;
+#endif
+
     basic_block_index_t succidx =
         translate_basic_block(binary_idx, tcg, dis, Target);
 
@@ -1000,6 +1014,12 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
+#if defined(TARGET_MIPS64)
+    T._call.Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    T._call.Target &= 0xfffffffe;
+#endif
+
     function_index_t FIdx =
         translate_function(binary_idx, tcg, dis, T._call.Target);
 

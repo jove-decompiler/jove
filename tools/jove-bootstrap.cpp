@@ -1318,6 +1318,12 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                   WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
+#if defined(TARGET_MIPS64)
+                    handler &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+                    handler &= 0xfffffffe;
+#endif
+
                     update_view_of_virtual_memory(saved_pid);
 
                     auto it = AddressSpace.find(handler);
@@ -1423,10 +1429,12 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
 
+#if 0
               if (child == saved_child) {
                 WithColor::note() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
               }
+#endif
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
@@ -1691,6 +1699,10 @@ function_index_t translate_function(pid_t child,
                                     disas_t &dis,
                                     target_ulong Addr,
                                     unsigned &brkpt_count) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   binary_t &binary = decompilation.Binaries[binary_idx];
   auto &FuncMap = BinStateVec[binary_idx].FuncMap;
 
@@ -1726,6 +1738,10 @@ basic_block_index_t translate_basic_block(pid_t child,
                                           disas_t &dis,
                                           const target_ulong Addr,
                                           unsigned &brkpt_count) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   binary_t &binary = decompilation.Binaries[binary_idx];
   auto &ObjectFile = BinStateVec[binary_idx].ObjectFile;
   auto &ICFG = binary.Analysis.ICFG;
@@ -2113,6 +2129,12 @@ on_insn_boundary:
   auto control_flow = [&](uintptr_t Target) -> void {
     assert(Target);
 
+#if defined(TARGET_MIPS64)
+    Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    Target &= 0xfffffffe;
+#endif
+
     basic_block_index_t succidx =
         translate_basic_block(child, binary_idx, tcg, dis, Target, brkpt_count);
 
@@ -2145,6 +2167,12 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
+#if defined(TARGET_MIPS64)
+    T._call.Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    T._call.Target &= 0xfffffffe;
+#endif
+
     function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
                                                T._call.Target, brkpt_count);
 
@@ -4187,6 +4215,12 @@ static void harvest_global_GOT_entries(pid_t child,
         continue;
       }
 
+#if defined(TARGET_MIPS64)
+      Resolved.Addr &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+      Resolved.Addr &= 0xfffffffe;
+#endif
+
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
         if (opts::Verbose)
@@ -5352,6 +5386,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   if (RetAddr)
   {
     uintptr_t pc = RetAddr;
+
+#if defined(TARGET_MIPS64)
+    pc &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    pc &= 0xfffffffe;
+#endif
+
     binary_index_t BIdx = invalid_binary_index;
     {
       auto it = AddressSpace.find(pc);

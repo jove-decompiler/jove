@@ -151,22 +151,6 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-struct section_t {
-  llvm::StringRef Name;
-  llvm::ArrayRef<uint8_t> Contents;
-  target_ulong Addr;
-  unsigned Size;
-
-  bool initArray;
-  bool finiArray;
-
-  struct {
-    boost::icl::split_interval_set<target_ulong> Intervals;
-    std::map<unsigned, llvm::Constant *> Constants;
-    std::map<unsigned, llvm::Type *> Types;
-  } Stuff;
-};
-
 typedef boost::format fmt;
 
 typedef std::tuple<llvm::MCDisassembler &,
@@ -174,25 +158,6 @@ typedef std::tuple<llvm::MCDisassembler &,
                    llvm::MCInstPrinter &> disas_t;
 
 static decompilation_t decompilation;
-
-struct section_properties_t {
-  llvm::StringRef name;
-  llvm::ArrayRef<uint8_t> contents;
-
-  bool w, x;
-  bool initArray;
-  bool finiArray;
-
-  bool operator==(const section_properties_t &sect) const {
-    return name == sect.name;
-  }
-
-  bool operator<(const section_properties_t &sect) const {
-    return name < sect.name;
-  }
-};
-
-typedef std::set<section_properties_t> section_properties_set_t;
 
 static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
                                            disas_t &, target_ulong Addr);
@@ -222,8 +187,6 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   }
   return {};
 }
-
-static std::map<target_ulong, std::vector<target_ulong>> FunctionCallsToFixup;
 
 static boost::icl::split_interval_map<target_ulong, basic_block_index_t> BBMap;
 static std::unordered_map<target_ulong, function_index_t> FuncMap;
@@ -668,10 +631,17 @@ int add(void) {
 
         llvm::StringRef SymName = *ExpectedSymName;
 
-        llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
-                                      SymName,
-                                      Sym.st_value);
-        FunctionEntrypoints.insert(Sym.st_value);
+        target_ulong A = Sym.st_value;
+
+        llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName, A);
+
+#if defined(TARGET_MIPS64)
+        A &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+        A &= 0xfffffffe;
+#endif
+
+        FunctionEntrypoints.insert(A);
       }
     }
   }
@@ -759,10 +729,18 @@ int add(void) {
             llvm::outs() << llvm::formatv("translating (bb) {0} @ 0x{1:x}\n",
                                           SymName, Sym.st_value);
 
+            target_ulong A = Sym.st_value;
+
+#if defined(TARGET_MIPS64)
+            A &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+            A &= 0xfffffffe;
+#endif
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-            BasicBlockAddresses.insert(Sym.st_value); /* XXX */
+            BasicBlockAddresses.insert(A);
 #else
-            FunctionEntrypoints.insert(Sym.st_value);
+            FunctionEntrypoints.insert(A);
 #endif
           }
         }
@@ -900,65 +878,25 @@ int add(void) {
   //  10a330:       55                      push   %ebp
   //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
   //
-  for (target_ulong Entrypoint : boost::adaptors::reverse(BasicBlockAddresses))
-    translate_basic_block(binary, tcg, dis, Entrypoint);
-
-  for (target_ulong Entrypoint : boost::adaptors::reverse(FunctionEntrypoints))
-    translate_function(binary, tcg, dis, Entrypoint);
-
-  do {
-    std::map<target_ulong, std::vector<target_ulong>>
-        LocalFunctionCallsToFixup = FunctionCallsToFixup;
-    FunctionCallsToFixup.clear();
-
-    auto &ICFG = binary.Analysis.ICFG;
-    for (const auto &pair : boost::adaptors::reverse(LocalFunctionCallsToFixup)) {
-      for (target_ulong CallSiteAddr : pair.second) {
-        auto it = BBMap.find(CallSiteAddr);
-        assert(it != BBMap.end());
-
-        basic_block_index_t bbidx = (*it).second - 1;
-
-        if (!(bbidx < boost::num_vertices(ICFG))) {
-          WithColor::note() << llvm::formatv("bbidx is {0} but num verts is {1}\n",
-                                             bbidx,
-                                             boost::num_vertices(ICFG));
-          continue;
-        }
-
-        //assert(bbidx < boost::num_vertices(ICFG));
-
-        basic_block_t bb = boost::vertex(bbidx, ICFG);
-
-        if (ICFG[bb].Term.Type != TERMINATOR::CALL) {
-          WithColor::note() << llvm::formatv(
-              "{0:x} should be call but is {1} [{2:x}, {3:x}) TA={4:x}\n",
-              CallSiteAddr,
-              description_of_terminator(ICFG[bb].Term.Type),
-              (*it).first.lower(),
-              (*it).first.upper(),
-              ICFG[bb].Term.Addr);
-          continue;
-        }
-
-        assert(ICFG[bb].Term.Type == TERMINATOR::CALL);
-        assert(ICFG[bb].Term._call.Target == invalid_function_index);
-        ICFG[bb].Term._call.Target =
-            translate_function(binary, tcg, dis, pair.first);
-        assert(is_function_index_valid(ICFG[bb].Term._call.Target));
-      }
-    }
-  } while (!FunctionCallsToFixup.empty());
-
-#if 0
-  if (EntryAddr) {
-    assert(FunctionCallsToFixup.empty());
-    binary.Analysis.EntryFunction =
-        translate_function(binary, tcg, dis, EntryAddr);
-    assert(is_function_index_valid(binary.Analysis.EntryFunction));
-    assert(FunctionCallsToFixup.empty());
-  }
+  for (target_ulong Entrypoint : boost::adaptors::reverse(BasicBlockAddresses)) {
+#if defined(TARGET_MIPS64)
+    Entrypoint &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    Entrypoint &= 0xfffffffe;
 #endif
+
+    translate_basic_block(binary, tcg, dis, Entrypoint);
+  }
+
+  for (target_ulong Entrypoint : boost::adaptors::reverse(FunctionEntrypoints)) {
+#if defined(TARGET_MIPS64)
+    Entrypoint &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    Entrypoint &= 0xfffffffe;
+#endif
+
+    translate_function(binary, tcg, dis, Entrypoint);
+  }
 
   {
     struct sigaction sa;
@@ -984,6 +922,10 @@ static function_index_t translate_function(binary_t &binary,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   {
     auto it = FuncMap.find(Addr);
     if (it != FuncMap.end())
@@ -1012,6 +954,10 @@ basic_block_index_t translate_basic_block(binary_t &binary,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+  assert((Addr & 1) == 0);
+#endif
+
   auto &ICFG = binary.Analysis.ICFG;
   auto &ObjectFile = binary.ObjectFile;
 
@@ -1348,6 +1294,12 @@ on_insn_boundary:
   auto control_flow = [&](target_ulong Target) -> void {
     assert(Target);
 
+#if defined(TARGET_MIPS64)
+    Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    Target &= 0xfffffffe;
+#endif
+
     basic_block_index_t succidx =
         translate_basic_block(binary, tcg, dis, Target);
 
@@ -1384,17 +1336,25 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
+#if defined(TARGET_MIPS64)
+    T._call.Target &= 0xfffffffffffffffe;
+#elif defined(TARGET_MIPS32)
+    T._call.Target &= 0xfffffffe;
+#endif
+
     function_index_t FIdx =
         translate_function(binary, tcg, dis, T._call.Target);
 
-    ICFG[bb].Term._call.Target = FIdx;
+    basic_block_t _bb;
+    {
+      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
+      assert(it != BBMap.end());
+      basic_block_index_t _bbidx = (*it).second - 1;
+      _bb = boost::vertex(_bbidx, ICFG);
+    }
 
-#if 0
-    ICFG[bb].Term._call.Target = invalid_function_index;
-    FunctionCallsToFixup[T._call.Target].push_back(T.Addr);
-#endif
-
-    //control_flow(T._call.NextPC);
+    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
+    ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
         does_function_definitely_return(0, FIdx))
