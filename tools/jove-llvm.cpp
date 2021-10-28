@@ -9862,7 +9862,33 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 
               assert(glbv.size() < ARRAY_SIZE(JoveThunkFuncArray));
 
-              Ret = IRB.CreateCall(JoveThunkFuncArray[glbv.size()], ArgVec);
+              llvm::Value *ThunkF = JoveThunkFuncArray[glbv.size()];
+#if defined(TARGET_AARCH64)
+              {
+                llvm::StructType *ResultType;
+                {
+                  std::vector<llvm::Type *> structRetTypes;
+                  structRetTypes.resize(CallConvRetArray.size());
+
+                  std::transform(CallConvRetArray.begin(),
+                                 CallConvRetArray.end(),
+                                 structRetTypes.begin(),
+                                 [&](unsigned glb) -> llvm::Type * {
+                                   return IRB.getInt64Ty();
+                                 });
+
+                  ResultType = llvm::StructType::get(*Context, structRetTypes);
+                }
+
+                assert(llvm::isa<llvm::Function>(ThunkF));
+                llvm::FunctionType *ThunkFTy = llvm::cast<llvm::Function>(ThunkF)->getFunctionType();
+                llvm::PointerType *CastFTy = llvm::FunctionType::get(ResultType, ThunkFTy->params(), false)->getPointerTo();
+
+                ThunkF = IRB.CreatePointerCast(ThunkF, CastFTy);
+              }
+#endif
+
+              Ret = IRB.CreateCall(ThunkF, ArgVec);
               Ret->setIsNoInline();
             }
 
@@ -9963,8 +9989,6 @@ BOOST_PP_REPEAT(9, __THUNK, void)
             assert(Ret->getType()->isIntegerTy(64));
             set(Ret, CallConvRetArray.front());
 #elif defined(TARGET_AARCH64)
-
-#if 0
             assert(Ret->getType()->isStructTy());
 
             for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
@@ -9972,11 +9996,6 @@ BOOST_PP_REPEAT(9, __THUNK, void)
                   (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(j)].name).str());
               set(X, CallConvRetArray.at(j));
             }
-#else
-            assert(Ret->getType()->isIntegerTy(64));
-            set(Ret, CallConvRetArray.at(0));
-#endif
-
 #elif defined(TARGET_MIPS32) || defined(TARGET_I386)
             assert(Ret->getType()->isIntegerTy(64));
             {
