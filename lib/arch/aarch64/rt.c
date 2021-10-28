@@ -912,7 +912,64 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   //
   // if we get here, this is most likely a real crash.
   //
-  _UNREACHABLE();
+  char maps[4096 * 8];
+  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+  maps[n] = '\0';
+
+  char s[4096 * 16];
+  s[0] = '\0';
+
+  _strcat(s, "*** crash (jove) *** [");
+  {
+    char buff[65];
+    _uint_to_string(_jove_sys_gettid(), buff, 10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, "]\n");
+
+#define _FIELD(name, init)                                                     \
+  do {                                                                         \
+    _strcat(s, name " 0x");                                                    \
+                                                                               \
+    {                                                                          \
+      char _buff[65];                                                          \
+      _uint_to_string(init, _buff, 0x10);                                      \
+                                                                               \
+      _strcat(s, _buff);                                                       \
+    }                                                                          \
+    {                                                                          \
+      char _buff[256];                                                         \
+      _description_of_address_for_maps(_buff, init, maps, n);                  \
+      if (_strlen(_buff) != 0) {                                               \
+        _strcat(s, " <");                                                      \
+        _strcat(s, _buff);                                                     \
+        _strcat(s, ">");                                                       \
+      }                                                                        \
+    }                                                                          \
+                                                                               \
+    _strcat(s, "\n");                                                          \
+  } while (false)
+
+  _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
+  _FIELD("sp ", uctx->uc_mcontext.sp);
+  _FIELD("pc ", uctx->uc_mcontext.pc);
+
+#undef _FIELD
+
+  _strcat(s, "\n");
+  _strcat(s, maps);
+
+  //
+  // dump message for user
+  //
+  _robust_write(2 /* stderr */, s, _strlen(s));
+
+  for (;;)
+    _jove_sleep();
+
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 void _jove_init_cpu_state(void) {
