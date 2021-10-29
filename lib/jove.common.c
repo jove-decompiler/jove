@@ -158,7 +158,7 @@ _HIDDEN void _jove_init(
                                x6,
                                x7);
 #elif defined(__mips64__)
-  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_initfn_section_pointer();
+  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_init_fn_sect_ptr();
 
   ((void (*)(uint64_t,
              uint64_t,
@@ -168,7 +168,7 @@ _HIDDEN void _jove_init(
                                a2,
                                a3);
 #elif defined(__mips__)
-  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_initfn_section_pointer();
+  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_init_fn_sect_ptr();
 
   ((void (*)(uint32_t,
              uint32_t,
