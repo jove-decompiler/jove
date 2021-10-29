@@ -107,15 +107,15 @@ _HIDDEN void _jove_init(
 #elif defined(__aarch64__)
   new_emusp &= 0xfffffffffffffff0; // align the stack
 
-  __jove_env.xregs[31] = new_emusp;
+  __jove_env.xregs[31 /* sp */] = new_emusp;
 #elif defined(__mips64__)
   new_emusp &= 0xfffffffffffffff0; // align the stack
 
-  __jove_env.active_tc.gpr[29] = new_emusp;
+  __jove_env.active_tc.gpr[29 /* sp */] = new_emusp;
 #elif defined(__mips__)
   new_emusp &= 0xfffffff0; // align the stack
 
-  __jove_env.active_tc.gpr[29] = new_emusp;
+  __jove_env.active_tc.gpr[29 /* sp */] = new_emusp;
 #else
 #error
 #endif
@@ -158,6 +158,8 @@ _HIDDEN void _jove_init(
                                x6,
                                x7);
 #elif defined(__mips64__)
+  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_initfn_section_pointer();
+
   ((void (*)(uint64_t,
              uint64_t,
              uint64_t,
@@ -166,6 +168,8 @@ _HIDDEN void _jove_init(
                                a2,
                                a3);
 #elif defined(__mips__)
+  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_initfn_section_pointer();
+
   ((void (*)(uint32_t,
              uint32_t,
              uint32_t,
@@ -183,9 +187,9 @@ _HIDDEN void _jove_init(
 #if defined(__x86_64__) || defined(__i386__)
   __jove_env.regs[R_ESP] = saved_emusp;
 #elif defined(__aarch64__)
-  __jove_env.xregs[31] = saved_emusp;
+  __jove_env.xregs[31 /* sp */] = saved_emusp;
 #elif defined(__mips64__) || defined(__mips__)
-  __jove_env.active_tc.gpr[29] = saved_emusp;
+  __jove_env.active_tc.gpr[29 /* sp */] = saved_emusp;
 #else
 #error
 #endif
