@@ -20,3 +20,4 @@ extern const char *_jove_dynl_path(void);
 extern uint32_t    _jove_foreign_lib_count(void);
 extern const char *_jove_foreign_lib_path(uint32_t Idx);
 extern uintptr_t  *_jove_foreign_lib_function_table(uint32_t Idx);
+extern uintptr_t _jove_get_init_fn(void);
