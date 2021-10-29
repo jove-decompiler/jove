@@ -721,7 +721,7 @@ void _jove_begin(uint64_t rdi,
   if (_jove_dfsan_enabled())
     _jove_callstack_init();
 
-  _jove_init();
+  _jove_initialize();
 
   return _jove_call_entry();
 }

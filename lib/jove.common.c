@@ -12,7 +12,7 @@ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
 
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
-_CTOR _HIDDEN void _jove_init(void) {
+_CTOR static void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
     return;
@@ -23,6 +23,178 @@ _CTOR _HIDDEN void _jove_init(void) {
 
   _jove_do_tpoff_hack();
   _jove_do_emulate_copy_relocations();
+}
+
+#if !defined(__x86_64__) && defined(__i386__)
+_REGPARM
+#endif
+_HIDDEN void _jove_init(
+#if defined(__x86_64__)
+                        uint64_t rdi,
+                        uint64_t rsi,
+                        uint64_t rdx,
+                        uint64_t rcx,
+                        uint64_t r8,
+                        uint64_t r9
+#elif defined(__i386__)
+                        uint32_t eax,
+                        uint32_t edx,
+                        uint32_t ecx
+#elif defined(__aarch64__)
+                        uint64_t x0,
+                        uint64_t x1,
+                        uint64_t x2,
+                        uint64_t x3,
+                        uint64_t x4,
+                        uint64_t x5,
+                        uint64_t x6,
+                        uint64_t x7
+#elif defined(__mips64__)
+                        uint64_t a0,
+                        uint64_t a1,
+                        uint64_t a2,
+                        uint64_t a3
+#elif defined(__mips__)
+                        uint32_t a0,
+                        uint32_t a1,
+                        uint32_t a2,
+                        uint32_t a3
+#else
+#error
+#endif
+                                   ) {
+  _jove_initialize();
+
+  uintptr_t initfn = _jove_get_init_fn();
+  if (!initfn)
+    return;
+
+  //
+  // save things
+  //
+#if defined(__x86_64__) || defined(__i386__)
+  const uintptr_t saved_emusp = __jove_env.regs[R_ESP];
+#elif defined(__aarch64__)
+  const uintptr_t saved_emusp = __jove_env.xregs[31];
+#elif defined(__mips64__) || defined(__mips__)
+  const uintptr_t saved_emusp = __jove_env.active_tc.gpr[29];
+#else
+#error
+#endif
+
+  const uintptr_t saved_callstack_begin = __jove_callstack_begin;
+  const uintptr_t saved_callstack = __jove_callstack;
+
+  //
+  // setup new callstack and emulated-stack
+  //
+  const uintptr_t new_callstack = _jove_alloc_callstack();
+  __jove_callstack_begin = __jove_callstack = new_callstack + JOVE_PAGE_SIZE;
+
+  const uintptr_t new_emu_stack = _jove_alloc_stack();
+  uintptr_t new_emusp = new_emu_stack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE;
+
+#if defined(__x86_64__)
+  new_emusp &= 0xfffffffffffffff0; // align the stack
+  new_emusp -= sizeof(uint64_t); /* return address on the stack */
+
+  __jove_env.regs[R_ESP] = new_emusp;
+#elif defined(__i386__)
+  new_emusp &= 0xfffffff0; // align the stack
+  new_emusp -= sizeof(uint32_t); /* return address on the stack */
+
+  __jove_env.regs[R_ESP] = new_emusp;
+#elif defined(__aarch64__)
+  new_emusp &= 0xfffffffffffffff0; // align the stack
+
+  __jove_env.xregs[31] = new_emusp;
+#elif defined(__mips64__)
+  new_emusp &= 0xfffffffffffffff0; // align the stack
+
+  __jove_env.active_tc.gpr[29] = new_emusp;
+#elif defined(__mips__)
+  new_emusp &= 0xfffffff0; // align the stack
+
+  __jove_env.active_tc.gpr[29] = new_emusp;
+#else
+#error
+#endif
+
+  //
+  // call the DT_INIT function
+  //
+#if defined(__x86_64__)
+  ((void (*)(uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t))initfn)(rdi,
+                               rsi,
+                               rdx,
+                               rcx,
+                               r8,
+                               r9);
+#elif defined(__i386__)
+  ((_REGPARM void (*)(uint32_t,
+                      uint32_t,
+                      uint32_t))initfn)(eax,
+                                        edx,
+                                        ecx);
+#elif defined(__aarch64__)
+  ((void (*)(uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t))initfn)(x0,
+                               x1,
+                               x2,
+                               x3,
+                               x4,
+                               x5,
+                               x6,
+                               x7);
+#elif defined(__mips64__)
+  ((void (*)(uint64_t,
+             uint64_t,
+             uint64_t,
+             uint64_t))initfn)(a0,
+                               a1,
+                               a2,
+                               a3);
+#elif defined(__mips__)
+  ((void (*)(uint32_t,
+             uint32_t,
+             uint32_t,
+             uint32_t))initfn)(a0,
+                               a1,
+                               a2,
+                               a3);
+#else
+#error
+#endif
+
+  //
+  // restore things
+  //
+#if defined(__x86_64__) || defined(__i386__)
+  __jove_env.regs[R_ESP] = saved_emusp;
+#elif defined(__aarch64__)
+  __jove_env.xregs[31] = saved_emusp;
+#elif defined(__mips64__) || defined(__mips__)
+  __jove_env.active_tc.gpr[29] = saved_emusp;
+#else
+#error
+#endif
+
+  __jove_callstack_begin = saved_callstack_begin;
+  __jove_callstack = saved_callstack;
+
+  _jove_free_stack(new_emu_stack);
+  _jove_free_callstack(new_callstack);
 }
 
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
