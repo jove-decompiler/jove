@@ -6087,12 +6087,6 @@ int CreateSectionGlobalVariables(void) {
 
 #if 1
     {
-      auto it = FuncMap.find(initFunctionAddr);
-      assert(it != FuncMap.end());
-
-      function_t &initfn_f =
-          Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
-
       llvm::Function *F = Module->getFunction("_jove_get_init_fn");
       assert(F && F->empty());
 
@@ -6122,7 +6116,6 @@ int CreateSectionGlobalVariables(void) {
           /* SPFlags     */ SubProgFlags);
       F->setSubprogram(DebugInfo.Subprogram);
 
-
       llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
       {
         llvm::IRBuilderTy IRB(BB);
@@ -6130,63 +6123,72 @@ int CreateSectionGlobalVariables(void) {
         IRB.SetCurrentDebugLocation(llvm::DILocation::get(
             *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-        IRB.CreateRet(
-            initFunctionAddr
-                ? llvm::ConstantExpr::getPtrToInt(initfn_f.F, WordType())
-                : llvm::Constant::getNullValue(WordType()));
+        llvm::Value *Ret = nullptr;
+        if (initFunctionAddr) {
+          auto it = FuncMap.find(initFunctionAddr);
+
+          assert(it != FuncMap.end());
+
+          function_t &initfn_f = Decompilation.Binaries[BinaryIndex]
+                                     .Analysis.Functions[(*it).second];
+
+          Ret = llvm::ConstantExpr::getPtrToInt(initfn_f.F, WordType());
+        } else {
+          Ret = llvm::Constant::getNullValue(WordType());
+        }
+        IRB.CreateRet(Ret);
+
+        F->setLinkage(llvm::GlobalValue::InternalLinkage);
       }
 
-      F->setLinkage(llvm::GlobalValue::InternalLinkage);
-    }
+      {
+        llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr");
+        if (F) {
+          assert(F->empty());
 
-    {
-      llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr");
-      if (F) {
-	assert(F->empty());
+          llvm::DIBuilder &DIB = *DIBuilder;
+          llvm::DISubprogram::DISPFlags SubProgFlags =
+              llvm::DISubprogram::SPFlagDefinition |
+              llvm::DISubprogram::SPFlagOptimized;
 
-	llvm::DIBuilder &DIB = *DIBuilder;
-	llvm::DISubprogram::DISPFlags SubProgFlags =
-	    llvm::DISubprogram::SPFlagDefinition |
-	    llvm::DISubprogram::SPFlagOptimized;
+          SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
 
-	SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+          llvm::DISubroutineType *SubProgType =
+              DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
 
-	llvm::DISubroutineType *SubProgType =
-	    DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+          struct {
+            llvm::DISubprogram *Subprogram;
+          } DebugInfo;
 
-	struct {
-	  llvm::DISubprogram *Subprogram;
-	} DebugInfo;
+          DebugInfo.Subprogram = DIB.createFunction(
+              /* Scope       */ DebugInformation.CompileUnit,
+              /* Name        */ F->getName(),
+              /* LinkageName */ F->getName(),
+              /* File        */ DebugInformation.File,
+              /* LineNo      */ 0,
+              /* Ty          */ SubProgType,
+              /* ScopeLine   */ 0,
+              /* Flags       */ llvm::DINode::FlagZero,
+              /* SPFlags     */ SubProgFlags);
+          F->setSubprogram(DebugInfo.Subprogram);
 
-	DebugInfo.Subprogram = DIB.createFunction(
-	    /* Scope       */ DebugInformation.CompileUnit,
-	    /* Name        */ F->getName(),
-	    /* LinkageName */ F->getName(),
-	    /* File        */ DebugInformation.File,
-	    /* LineNo      */ 0,
-	    /* Ty          */ SubProgType,
-	    /* ScopeLine   */ 0,
-	    /* Flags       */ llvm::DINode::FlagZero,
-	    /* SPFlags     */ SubProgFlags);
-	F->setSubprogram(DebugInfo.Subprogram);
+          llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+          {
+            llvm::IRBuilderTy IRB(BB);
 
-	llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-	{
-	  llvm::IRBuilderTy IRB(BB);
+            IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+                *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-	  IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-	      *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+            IRB.CreateRet(initFunctionAddr
+                              ? SectionPointer(initFunctionAddr)
+                              : llvm::Constant::getNullValue(WordType()));
+          }
 
-	  IRB.CreateRet(
-	      initFunctionAddr
-		  ? SectionPointer(initFunctionAddr)
-		  : llvm::Constant::getNullValue(WordType()));
-	}
-
-	F->setLinkage(llvm::GlobalValue::InternalLinkage);
+          F->setLinkage(llvm::GlobalValue::InternalLinkage);
+        }
       }
-    }
 #endif
+    }
   }
 
   //
