@@ -1006,19 +1006,12 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
       if (unlikely(child < 0)) {
         int err = errno;
-        if (err == EINTR) {
-          //
-          // the user may have sent us a signal to deliberately disrupt waitpid().
-          // TODO examine /proc/<pid>/task/<pid>/children
-          //
+        if (err == EINTR)
           continue;
-        }
 
         llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
-
-      saved_child = child;
 
       if (likely(WIFSTOPPED(status))) {
         //
@@ -1245,9 +1238,6 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               case __NR_exit:
               case __NR_exit_group:
                 WithColor::note() << "Observed program exit.\n";
-
-                WARN_ON(child != saved_child);
-
                 harvest_reloc_targets(child, tcg, dis);
                 break;
 
@@ -1429,12 +1419,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                 llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
                              << "]\n";
 
-#if 0
               if (child == saved_child) {
                 WithColor::note() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
               }
-#endif
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
