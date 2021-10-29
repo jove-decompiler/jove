@@ -4531,9 +4531,13 @@ void on_binary_loaded(pid_t child,
 #endif
 
     try {
-      place_breakpoint_at_return(child, Addr, RetInfo);
+      if (opts::Fast) {
+        ;
+      } else {
+        place_breakpoint_at_return(child, Addr, RetInfo);
 
-      ++cnt;
+        ++cnt;
+      }
     } catch (const std::exception &e) {
       WithColor::error() << llvm::formatv(
           "failed to place breakpoint at return: {0}\n", e.what());
