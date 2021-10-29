@@ -6086,7 +6086,6 @@ int CreateSectionGlobalVariables(void) {
 #endif
 
 #if 1
-    if (initFunctionAddr)
     {
       auto it = FuncMap.find(initFunctionAddr);
       assert(it != FuncMap.end());
@@ -6134,6 +6133,53 @@ int CreateSectionGlobalVariables(void) {
         IRB.CreateRet(
             initFunctionAddr
                 ? llvm::ConstantExpr::getPtrToInt(initfn_f.F, WordType())
+                : llvm::Constant::getNullValue(WordType()));
+      }
+
+      F->setLinkage(llvm::GlobalValue::InternalLinkage);
+    }
+
+    {
+      llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr");
+      assert(F && F->empty());
+
+      llvm::DIBuilder &DIB = *DIBuilder;
+      llvm::DISubprogram::DISPFlags SubProgFlags =
+          llvm::DISubprogram::SPFlagDefinition |
+          llvm::DISubprogram::SPFlagOptimized;
+
+      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+      llvm::DISubroutineType *SubProgType =
+          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+      struct {
+        llvm::DISubprogram *Subprogram;
+      } DebugInfo;
+
+      DebugInfo.Subprogram = DIB.createFunction(
+          /* Scope       */ DebugInformation.CompileUnit,
+          /* Name        */ F->getName(),
+          /* LinkageName */ F->getName(),
+          /* File        */ DebugInformation.File,
+          /* LineNo      */ 0,
+          /* Ty          */ SubProgType,
+          /* ScopeLine   */ 0,
+          /* Flags       */ llvm::DINode::FlagZero,
+          /* SPFlags     */ SubProgFlags);
+      F->setSubprogram(DebugInfo.Subprogram);
+
+
+      llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+      {
+        llvm::IRBuilderTy IRB(BB);
+
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+        IRB.CreateRet(
+            initFunctionAddr
+                ? SectionPointer(initFunctionAddr)
                 : llvm::Constant::getNullValue(WordType()));
       }
 
