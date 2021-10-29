@@ -895,7 +895,13 @@ int add(void) {
     Entrypoint &= 0xfffffffe;
 #endif
 
-    translate_function(binary, tcg, dis, Entrypoint);
+    function_index_t FIdx = translate_function(binary, tcg, dis, Entrypoint);
+
+    if (unlikely(initFunctionAddr == Entrypoint)) {
+      assert(initFunctionAddr);
+      function_t &f = binary.Analysis.Functions.at(FIdx);
+      f.IsABI = true;
+    }
   }
 
   {
