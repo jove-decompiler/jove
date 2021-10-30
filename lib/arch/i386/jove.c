@@ -610,6 +610,10 @@ _REGPARM _NAKED uint64_t _jove_thunk3(uint32_t eax,
                                       uint32_t dstpc,
                                       uint32_t *emuspp);
 
+_REGPARM _NAKED _HIDDEN void _jove_init(uint32_t eax,
+                                        uint32_t edx,
+                                        uint32_t ecx);
+
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
@@ -659,6 +663,9 @@ static void _jove_callstack_init(void);
 void _jove_begin(target_ulong sp_addr) {
   __jove_env.df = 1;
   __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
+
+  /** don't optimize away the following referenced globals **/
+  __jove_env.umwait = _jove_get_init_fn_sect_ptr();
 
   //
   // setup the stack
@@ -839,6 +846,22 @@ uint64_t _jove_thunk3(uint32_t eax,
                "popl %%esi\n" /* callee-saved registers */
                "popl %%edi\n"
                "popl %%ebp\n"
+               "ret\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+void _jove_init(uint32_t eax, /* TODO preserve these registers... */
+                uint32_t edx,
+                uint32_t ecx) {
+  asm volatile("call _jove_initialize\n"
+               "call _jove_get_init_fn_sect_ptr\n"
+               "test %%eax, %%eax\n"
+               "je out\n"
+               "jmp *%%eax\n"
+               "out:\n"
                "ret\n"
 
                : /* OutputOperands */

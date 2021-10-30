@@ -12,7 +12,7 @@ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
 
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
-_CTOR static void _jove_initialize(void) {
+_CTOR _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
     return;
@@ -25,9 +25,8 @@ _CTOR static void _jove_initialize(void) {
   _jove_do_emulate_copy_relocations();
 }
 
-#if !defined(__x86_64__) && defined(__i386__)
-_REGPARM
-#endif
+#if !defined(__i386__)
+
 _HIDDEN void _jove_init(
 #if defined(__x86_64__)
                         uint64_t rdi,
@@ -36,10 +35,6 @@ _HIDDEN void _jove_init(
                         uint64_t rcx,
                         uint64_t r8,
                         uint64_t r9
-#elif defined(__i386__)
-                        uint32_t eax,
-                        uint32_t edx,
-                        uint32_t ecx
 #elif defined(__aarch64__)
                         uint64_t x0,
                         uint64_t x1,
@@ -72,7 +67,7 @@ _HIDDEN void _jove_init(
   //
   // save things
   //
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__)
   const uintptr_t saved_emusp = __jove_env.regs[R_ESP];
 #elif defined(__aarch64__)
   const uintptr_t saved_emusp = __jove_env.xregs[31];
@@ -97,11 +92,6 @@ _HIDDEN void _jove_init(
 #if defined(__x86_64__)
   new_emusp &= 0xfffffffffffffff0; // align the stack
   new_emusp -= sizeof(uint64_t); /* return address on the stack */
-
-  __jove_env.regs[R_ESP] = new_emusp;
-#elif defined(__i386__)
-  new_emusp &= 0xfffffff0; // align the stack
-  new_emusp -= sizeof(uint32_t); /* return address on the stack */
 
   __jove_env.regs[R_ESP] = new_emusp;
 #elif defined(__aarch64__)
@@ -135,12 +125,6 @@ _HIDDEN void _jove_init(
                                rcx,
                                r8,
                                r9);
-#elif defined(__i386__)
-  ((_REGPARM void (*)(uint32_t,
-                      uint32_t,
-                      uint32_t))initfn)(eax,
-                                        edx,
-                                        ecx);
 #elif defined(__aarch64__)
   ((void (*)(uint64_t,
              uint64_t,
@@ -184,7 +168,7 @@ _HIDDEN void _jove_init(
   //
   // restore things
   //
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__)
   __jove_env.regs[R_ESP] = saved_emusp;
 #elif defined(__aarch64__)
   __jove_env.xregs[31 /* sp */] = saved_emusp;
@@ -200,6 +184,8 @@ _HIDDEN void _jove_init(
   _jove_free_stack(new_emu_stack);
   _jove_free_callstack(new_callstack);
 }
+
+#endif
 
 static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
   char *const beg = &maps[0];
