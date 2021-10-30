@@ -6083,9 +6083,10 @@ int CreateSectionGlobalVariables(void) {
               SectionPointer(initFunctionAddr), VoidFunctionPointer()),
           0);
     }
+
+    initFunctionAddr = 0;
 #endif
 
-#if 1
     {
       llvm::Function *F = Module->getFunction("_jove_get_init_fn");
       assert(F && F->empty());
@@ -6140,7 +6141,9 @@ int CreateSectionGlobalVariables(void) {
 
         F->setLinkage(llvm::GlobalValue::InternalLinkage);
       }
+    }
 
+    {
       {
         llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr");
         if (F) {
@@ -6187,7 +6190,6 @@ int CreateSectionGlobalVariables(void) {
           F->setLinkage(llvm::GlobalValue::InternalLinkage);
         }
       }
-#endif
     }
   }
 
