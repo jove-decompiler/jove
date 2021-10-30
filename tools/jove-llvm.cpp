@@ -6087,8 +6087,7 @@ int CreateSectionGlobalVariables(void) {
     initFunctionAddr = 0;
 #endif
 
-    {
-      llvm::Function *F = Module->getFunction("_jove_get_init_fn");
+    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn")) {
       assert(F && F->empty());
 
       llvm::DIBuilder &DIB = *DIBuilder;
@@ -6143,53 +6142,49 @@ int CreateSectionGlobalVariables(void) {
       }
     }
 
-    {
+    if (llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr")) {
+      assert(F->empty());
+
+      llvm::DIBuilder &DIB = *DIBuilder;
+      llvm::DISubprogram::DISPFlags SubProgFlags =
+          llvm::DISubprogram::SPFlagDefinition |
+          llvm::DISubprogram::SPFlagOptimized;
+
+      SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+      llvm::DISubroutineType *SubProgType =
+          DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+      struct {
+        llvm::DISubprogram *Subprogram;
+      } DebugInfo;
+
+      DebugInfo.Subprogram = DIB.createFunction(
+          /* Scope       */ DebugInformation.CompileUnit,
+          /* Name        */ F->getName(),
+          /* LinkageName */ F->getName(),
+          /* File        */ DebugInformation.File,
+          /* LineNo      */ 0,
+          /* Ty          */ SubProgType,
+          /* ScopeLine   */ 0,
+          /* Flags       */ llvm::DINode::FlagZero,
+          /* SPFlags     */ SubProgFlags);
+      F->setSubprogram(DebugInfo.Subprogram);
+
+      llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
       {
-        llvm::Function *F = Module->getFunction("_jove_get_init_fn_sect_ptr");
-        if (F) {
-          assert(F->empty());
+        llvm::IRBuilderTy IRB(BB);
 
-          llvm::DIBuilder &DIB = *DIBuilder;
-          llvm::DISubprogram::DISPFlags SubProgFlags =
-              llvm::DISubprogram::SPFlagDefinition |
-              llvm::DISubprogram::SPFlagOptimized;
+        IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+            *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-          SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-          llvm::DISubroutineType *SubProgType =
-              DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-          struct {
-            llvm::DISubprogram *Subprogram;
-          } DebugInfo;
-
-          DebugInfo.Subprogram = DIB.createFunction(
-              /* Scope       */ DebugInformation.CompileUnit,
-              /* Name        */ F->getName(),
-              /* LinkageName */ F->getName(),
-              /* File        */ DebugInformation.File,
-              /* LineNo      */ 0,
-              /* Ty          */ SubProgType,
-              /* ScopeLine   */ 0,
-              /* Flags       */ llvm::DINode::FlagZero,
-              /* SPFlags     */ SubProgFlags);
-          F->setSubprogram(DebugInfo.Subprogram);
-
-          llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
-          {
-            llvm::IRBuilderTy IRB(BB);
-
-            IRB.SetCurrentDebugLocation(llvm::DILocation::get(
-                *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
-
-            IRB.CreateRet(initFunctionAddr
-                              ? SectionPointer(initFunctionAddr)
-                              : llvm::Constant::getNullValue(WordType()));
-          }
-
-          F->setLinkage(llvm::GlobalValue::InternalLinkage);
-        }
+        IRB.CreateRet(initFunctionAddr
+                          ? SectionPointer(initFunctionAddr)
+                          : llvm::Constant::getNullValue(WordType()));
       }
+
+      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+      F->setVisibility(llvm::GlobalValue::HiddenVisibility);
     }
   }
 
