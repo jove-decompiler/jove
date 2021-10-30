@@ -60,7 +60,7 @@ _HIDDEN void _jove_init(
                                    ) {
   _jove_initialize();
 
-  uintptr_t initfn = _jove_get_init_fn();
+  const uintptr_t initfn = _jove_get_init_fn();
   if (!initfn)
     return;
 
