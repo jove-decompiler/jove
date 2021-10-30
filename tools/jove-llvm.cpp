@@ -1336,12 +1336,12 @@ BOOST_PP_REPEAT(9, __THUNK, void)
           Module.get());
 
       JoveLogFunctionStartClunk = new llvm::GlobalVariable(
-	    *Module,
-	    WordType(),
-	    false,
-	    llvm::GlobalValue::ExternalLinkage,
-	    llvm::ConstantExpr::getPtrToInt(JoveLogFunctionStart, WordType()),
-	    "dfsan_log_jove_fn_start_clunk");
+            *Module,
+            WordType(),
+            false,
+            llvm::GlobalValue::ExternalLinkage,
+            llvm::ConstantExpr::getPtrToInt(JoveLogFunctionStart, WordType()),
+            "dfsan_log_jove_fn_start_clunk");
       JoveLogFunctionStartClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
     }
 
