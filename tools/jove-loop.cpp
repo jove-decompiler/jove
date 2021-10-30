@@ -150,12 +150,12 @@ static cl::opt<unsigned> Sleep(
 static cl::opt<unsigned> DangerousSleep1(
     "dangerous-sleep1", cl::value_desc("useconds"),
     cl::desc("Time in useconds to wait for the dynamic linker to do its thing (1)"),
-    cl::init(10000), cl::cat(JoveCategory));
+    cl::init(30000), cl::cat(JoveCategory));
 
 static cl::opt<unsigned> DangerousSleep2(
     "dangerous-sleep2", cl::value_desc("useconds"),
     cl::desc("Time in useconds to wait for the dynamic linker to do its thing (2)"),
-    cl::init(20000), cl::cat(JoveCategory));
+    cl::init(40000), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     ForeignLibs("foreign-libs",
