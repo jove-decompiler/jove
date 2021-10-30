@@ -6138,7 +6138,8 @@ int CreateSectionGlobalVariables(void) {
         }
         IRB.CreateRet(Ret);
 
-        F->setLinkage(llvm::GlobalValue::InternalLinkage);
+        F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+        F->setVisibility(llvm::GlobalValue::HiddenVisibility);
       }
     }
 
