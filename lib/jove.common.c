@@ -25,8 +25,11 @@ _CTOR _HIDDEN void _jove_initialize(void) {
   _jove_do_emulate_copy_relocations();
 }
 
-#if !defined(__i386__)
-
+#if !defined(__x86_64__) && defined(__i386__)
+//
+// see definition of _jove_init in lib/arch/i386/jove.c
+//
+#else
 _HIDDEN void _jove_init(
 #if defined(__x86_64__)
                         uint64_t rdi,
