@@ -2223,6 +2223,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     _strcat(s, "\n");                                                          \
   } while (false)
 
+  if (si)
+    _FIELD("si_addr", si->si_addr);
+
   _FIELD("pc", saved_pc);
   _FIELD("r0", uctx->uc_mcontext.gregs[0]);
   _FIELD("at", uctx->uc_mcontext.gregs[1]);
