@@ -117,7 +117,7 @@ _HIDDEN void _jove_init(
   // (mips) set t9
   //
 #if defined(__mips64__) || defined(__mips__)
-  __jove_env.active_tc.gpr[25 /* t9 */] = _jove_get_init_fn_sect_ptr();
+  __jove_env.active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
 #endif
 
   //
@@ -175,9 +175,6 @@ _HIDDEN void _jove_init(
   // restore things
   //
   *emusp_ptr = saved_emusp;
-
-#undef emusp
-#undef emut9
 
   __jove_callstack_begin = saved_callstack_begin;
   __jove_callstack = saved_callstack;
