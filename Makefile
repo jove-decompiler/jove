@@ -1,6 +1,9 @@
 # this just obtains the directory this Makefile resides in
 JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
+include $(JOVE_ROOT_DIR)/version.mk
+include $(JOVE_ROOT_DIR)/config.mk
+
 include gmsl
 
 _LLVM_DIR         := $(JOVE_ROOT_DIR)/third_party/llvm-project
@@ -19,14 +22,7 @@ LLVM_COMPONENTS := object \
                    coroutines \
                    symbolize
 
-JOVE_VER := v0.79
-
 JOVE_GITVER := $(shell git log -n1 --format="%h")
-
-#
-# targets
-#
-ALL_TARGETS := i386 x86_64 aarch64 mips32 mips64
 
 #
 # build flags for tools and utils
@@ -74,18 +70,17 @@ LDFLAGS := -Wl,--no-undefined \
 #
 BINDIR := bin
 
-aarch64_sysroot := /usr/aarch64-linux-gnu
-x86_64_sysroot  := /
-i386_sysroot    := /usr/i686-linux-gnu
-mips32_sysroot  := /usr/mipsel-linux-gnu
-mips64_sysroot  := /usr/mips64el-linux-gnuabi64
-
 aarch64_TRIPLE := aarch64-linux-gnu
 i386_TRIPLE    := i686-linux-gnu
 x86_64_TRIPLE  := x86_64-linux-gnu
 mips32_TRIPLE  := mipsel-linux-gnu
 mips64_TRIPLE  := mips64el-linux-gnuabi64
 
+i386_ARCH_NAME    := i386
+x86_64_ARCH_NAME  := x86_64
+mips32_ARCH_NAME  := mipsel
+mips64_ARCH_NAME  := mips64el
+aarch64_ARCH_NAME := aarch64
 
 aarch64_builtins_lib := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-aarch64.a
 i386_builtins_lib    := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-i386.a
@@ -147,12 +142,6 @@ HELPERS_ASSEMBLY       := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(t
 HELPERS_DFSAN_ASSEMBLY := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).dfsan.ll))
 
 HELPERDEPS := $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(BINDIR)/$(target)/helpers/$(helper).d))
-
-i386_ARCH_NAME    := i386
-x86_64_ARCH_NAME  := x86_64
-mips32_ARCH_NAME  := mipsel
-mips64_ARCH_NAME  := mips64el
-aarch64_ARCH_NAME := aarch64
 
 all: $(UTILBINS) $(TOOLBINS) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.bc) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/jove.dfsan.bc) $(HELPERS_BITCODE) $(HELPERS_DFSAN_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 
