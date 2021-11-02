@@ -113,10 +113,10 @@ _HIDDEN void _jove_init(
 
   *emusp_ptr = new_emusp;
 
+#if defined(__mips64__) || defined(__mips__)
   //
   // (mips) set t9
   //
-#if defined(__mips64__) || defined(__mips__)
   __jove_env.active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
 #endif
 
