@@ -58,6 +58,7 @@ build-llvm:
 	      -D "LLVM_ENABLE_PROJECTS=compiler-rt;clang;lld" \
 	      -D LLVM_ENABLE_RTTI=ON \
 	      -D LLVM_ENABLE_ASSERTIONS=OFF \
+	      -D COMPILER_RT_USE_BUILTINS_LIBRARY=ON \
 	      -D LLVM_ENABLE_EH=ON \
 	      -D LLVM_BUILD_DOCS=OFF \
 	      -D LLVM_BINUTILS_INCDIR=/usr/include \
@@ -68,6 +69,6 @@ build-llvm:
 	      -D LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET) \
 	      -D LLVM_TARGETS_TO_BUILD=Mips \
 	      -D LLVM_ENABLE_LTO=OFF \
-	      -D LLVM_USE_LINKER=gold \
+	      -D LLVM_USE_LINKER=bfd \
 	      ../llvm \
 	&& ninja install
