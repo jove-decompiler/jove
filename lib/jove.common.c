@@ -101,8 +101,8 @@ _HIDDEN void _jove_init(
     //
     // align the stack
     //
-    const uintptr_t align_magic = 15;
-    const uintptr_t align_mask = ~align_magic;
+    const uintptr_t align_val = 15;
+    const uintptr_t align_mask = ~align_val;
 
     new_emusp &= align_mask;
   }
