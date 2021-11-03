@@ -574,12 +574,6 @@ extern /* __thread */ struct CPUX86State __jove_env;
 #define JOVE_SYS_ATTR _NOINL _HIDDEN
 #include "jove_sys.h"
 
-_HIDDEN uintptr_t _jove_alloc_stack(void);
-_HIDDEN void _jove_free_stack(uintptr_t);
-
-_HIDDEN uintptr_t _jove_alloc_callstack(void);
-_HIDDEN void _jove_free_callstack(uintptr_t);
-
 #include "jove.llvm.c"
 #include "jove.util.c"
 #include "jove.arch.c"
