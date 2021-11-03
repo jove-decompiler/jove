@@ -33,23 +33,17 @@
 #define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
 #define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
 
+#define _STRINGIZE_DETAIL(x) #x
+#define _STRINGIZE(x) _STRINGIZE_DETAIL(x)
+
 #define _UNREACHABLE(...)                                                      \
   do {                                                                         \
-    char line_str[65];                                                         \
-    _uint_to_string(__LINE__, line_str, 10);                                   \
+    static const char __msg[] =                                                \
+        "JOVE UNREACHABLE: \"" __VA_ARGS__ "\" "                               \
+        "(" _STRINGIZE(__FILE__) ":" _STRINGIZE(__LINE__) "\n";                \
                                                                                \
-    char buff[256];                                                            \
-    buff[0] = '\0';                                                            \
-                                                                               \
-    _strcat(buff, "JOVE UNREACHABLE: " __VA_ARGS__);                           \
-    _strcat(buff, " (");                                                       \
-    _strcat(buff, __FILE__);                                                   \
-    _strcat(buff, ":");                                                        \
-    _strcat(buff, line_str);                                                   \
-    _strcat(buff, ")\n");                                                      \
-    _jove_sys_write(2 /* stderr */, buff, _strlen(buff));                      \
+    _jove_sys_write(2 /* stderr */, &__msg[0], sizeof(__msg));                 \
                                                                                \
     _jove_sys_exit_group(1);                                                   \
-                                                                               \
     __builtin_unreachable();                                                   \
   } while (false)
