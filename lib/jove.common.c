@@ -90,8 +90,8 @@ _HIDDEN void _jove_init(
   //
   // setup new callstack and emulated-stack
   //
-  const uintptr_t new_callstack = _jove_alloc_callstack();
-  __jove_callstack_begin = __jove_callstack = new_callstack + JOVE_PAGE_SIZE;
+  const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
+  __jove_callstack_begin = __jove_callstack = new_callstack;
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
