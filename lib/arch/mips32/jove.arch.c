@@ -1,3 +1,8 @@
+uintptr_t _mmap_anonymous_private_memory(size_t len) {
+  return _jove_sys_mips_mmap(0x0, len, PROT_READ | PROT_WRITE,
+                             MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
+}
+
 uintptr_t _jove_alloc_stack(void) {
   long ret = _jove_sys_mips_mmap(0x0, JOVE_STACK_SIZE, PROT_READ | PROT_WRITE,
                                  MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);

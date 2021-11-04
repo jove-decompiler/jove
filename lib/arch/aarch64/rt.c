@@ -634,10 +634,10 @@ _HIDDEN void _jove_free_stack(target_ulong);
 _HIDDEN void _jove_free_stack_later(uintptr_t);
 
 #include "rt.util.c"
-#include "rt.common.c"
 #include "rt.arch.c"
+#include "rt.common.c"
 
-_NAKED static void _jove_inverse_thunk(void) {
+void _jove_inverse_thunk(void) {
   asm volatile("stp x0, x1, [sp, #-16]\n" /* preserve return registers */
                "stp x2, x3, [sp, #-32]\n"
                "stp x4, x5, [sp, #-48]\n"
@@ -703,6 +703,15 @@ _NAKED static void _jove_inverse_thunk(void) {
                : /* Clobbers */);
 }
 
+bool is_sigreturn_insn_sequence(const void *insn_bytes) {
+  /* FIXME copied from mips */
+  const uint32_t *const p = insn_bytes;
+
+  return (p[0] == 0x24021017 ||
+          p[0] == 0x24021061) &&
+          p[1] == 0x0000000c;
+}
+
 _HIDDEN uintptr_t _jove_emusp_location(void) {
   return &__jove_env.xregs[31];
 }
@@ -713,270 +722,4 @@ _HIDDEN uintptr_t _jove_callstack_location(void) {
 
 _HIDDEN uintptr_t _jove_callstack_begin_location(void) {
   return &__jove_callstack_begin;
-}
-
-static void _jove_callstack_init(void);
-static void _jove_init_cpu_state(void);
-
-#undef sa_handler
-#undef sa_restorer
-#undef sa_flags
-#undef _NSIG
-
-#  define __user
-
-#define __BITS_PER_LONG 64
-
-#define _NSIG		64
-
-#define _NSIG_BPW	__BITS_PER_LONG
-
-#define _NSIG_WORDS	(_NSIG / _NSIG_BPW)
-
-typedef struct {
-	unsigned long sig[_NSIG_WORDS];
-} kernel_sigset_t;
-
-typedef void __signalfn_t(int);
-
-typedef __signalfn_t __user *__sighandler_t;
-
-typedef void __restorefn_t(void);
-
-#define __ARCH_HAS_SA_RESTORER
-
-typedef __restorefn_t __user *__sigrestore_t;
-
-struct kernel_sigaction {
-#ifndef __ARCH_HAS_IRIX_SIGACTION
-	__sighandler_t	sa_handler;
-	unsigned long	sa_flags;
-#else
-	unsigned int	sa_flags;
-	__sighandler_t	sa_handler;
-#endif
-#ifdef __ARCH_HAS_SA_RESTORER
-	__sigrestore_t sa_restorer;
-#endif
-	kernel_sigset_t	sa_mask;	/* mask last for extensibility */
-};
-
-static void _jove_rt_signal_handler(int, siginfo_t *, ucontext_t *);
-
-static _CTOR void _jove_rt_init(void) {
-  struct kernel_sigaction sa;
-  _memset(&sa, 0, sizeof(sa));
-
-#undef sa_handler
-#undef sa_restorer
-#undef sa_flags
-
-  sa.sa_handler = _jove_rt_signal_handler;
-  sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
-
-  if (_jove_sys_rt_sigaction(SIGSEGV, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
-    _UNREACHABLE();
-
-  target_ulong newstack = _jove_alloc_stack();
-
-  stack_t uss = {.ss_sp = newstack + JOVE_PAGE_SIZE,
-                 .ss_flags = 0,
-                 .ss_size = JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE};
-
-  if (_jove_sys_sigaltstack(&uss, NULL) < 0)
-    _UNREACHABLE();
-
-  _jove_callstack_init();
-  _jove_init_cpu_state();
-}
-
-void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
-#define ra    uctx->uc_mcontext.regs[30]
-#define pc    uctx->uc_mcontext.pc
-#define sp    uctx->uc_mcontext.sp
-#define fp    uctx->uc_mcontext.regs[29]
-#define emusp __jove_env.xregs[31]
-
-  //
-  // no time like the present
-  //
-  for (unsigned i = 0; i < ARRAY_SIZE(to_free); ++i) {
-    if (to_free[i] == 0)
-      continue;
-
-    _jove_free_stack(to_free[i]);
-    to_free[i] = 0;
-  }
-
-  uintptr_t saved_pc = pc;
-
-  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES; ++BIdx) {
-    if (BIdx == 1 ||
-        BIdx == 2)
-      continue; /* rtld or vdso */
-
-    uintptr_t *fns = __jove_function_tables[BIdx];
-
-    if (!fns)
-      continue;
-
-    for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
-      if (saved_pc != fns[2 * FIdx + 0])
-        continue;
-
-      uintptr_t saved_sp = sp;
-      uintptr_t saved_emusp = emusp;
-      uintptr_t saved_retaddr = ra;
-      uintptr_t saved_callstack       = (uintptr_t)__jove_callstack;
-      uintptr_t saved_callstack_begin = (uintptr_t)__jove_callstack_begin;
-
-      //
-      // if the kernel just delivered a signal, then $ra should point to the
-      // code that calls sigreturn. this turns out in most cases to reside in
-      // [vdso]
-      //
-      bool SignalDelivery = false;
-
-      if ((((uint32_t *)saved_retaddr)[0] == 0x24021017 ||
-           ((uint32_t *)saved_retaddr)[0] == 0x24021061) &&
-           ((uint32_t *)saved_retaddr)[1] == 0x0000000c) {
-        SignalDelivery = true;
-
-#if 1
-        char buff[256];
-        buff[0] = '\0';
-
-        _strcat(buff, __LOG_BOLD_BLUE "SignalDelivered\n" __LOG_NORMAL_COLOR);
-
-        _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
-#endif
-      }
-
-      {
-        const uintptr_t newstack = _jove_alloc_stack();
-
-        uintptr_t _newsp =
-            newstack + JOVE_STACK_SIZE - JOVE_PAGE_SIZE - 8 * sizeof(uintptr_t);
-
-        if (SignalDelivery)
-          _newsp -= sizeof(struct CPUARMState);
-
-        _newsp &= 0xfffffffffffffff0; // align the stack
-
-        uintptr_t *const newsp = (uintptr_t *)_newsp;
-
-        newsp[0] = 0xdeadbeeffeedface;
-        newsp[1] = saved_retaddr;
-        newsp[2] = saved_sp;
-        newsp[3] = saved_emusp;
-        newsp[4] = saved_callstack;
-        newsp[5] = saved_callstack_begin;
-        newsp[6] = newstack;
-        newsp[7] = &newsp[8];
-
-        if (SignalDelivery)
-          _memcpy(&newsp[8], &__jove_env, sizeof(struct CPUARMState));
-
-        sp = _newsp;
-        fp = _newsp;
-
-        ra = _jove_inverse_thunk;
-      }
-
-      //
-      // native stack becomes emulated stack
-      //
-      emusp = saved_sp;
-
-      {
-        const uintptr_t new_callsp = _jove_alloc_callstack();
-
-        __jove_callstack_begin = __jove_callstack = new_callsp + JOVE_PAGE_SIZE;
-      }
-
-      if (fns[2 * FIdx + 1] == NULL)
-        _UNREACHABLE("called recompiled function is not ABI");
-
-      pc = fns[2 * FIdx + 1];
-
-      return;
-    }
-  }
-
-#undef emusp
-#undef fp
-#undef sp
-#undef pc
-#undef ra
-
-  //
-  // if we get here, this is most likely a real crash.
-  //
-  char maps[4096 * 8];
-  const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
-  maps[n] = '\0';
-
-  char s[4096 * 16];
-  s[0] = '\0';
-
-  _strcat(s, "*** crash (jove) *** [");
-  {
-    char buff[65];
-    _uint_to_string(_jove_sys_gettid(), buff, 10);
-
-    _strcat(s, buff);
-  }
-  _strcat(s, "]\n");
-
-#define _FIELD(name, init)                                                     \
-  do {                                                                         \
-    _strcat(s, name " 0x");                                                    \
-                                                                               \
-    {                                                                          \
-      char _buff[65];                                                          \
-      _uint_to_string(init, _buff, 0x10);                                      \
-                                                                               \
-      _strcat(s, _buff);                                                       \
-    }                                                                          \
-    {                                                                          \
-      char _buff[256];                                                         \
-      _description_of_address_for_maps(_buff, init, maps, n);                  \
-      if (_strlen(_buff) != 0) {                                               \
-        _strcat(s, " <");                                                      \
-        _strcat(s, _buff);                                                     \
-        _strcat(s, ">");                                                       \
-      }                                                                        \
-    }                                                                          \
-                                                                               \
-    _strcat(s, "\n");                                                          \
-  } while (false)
-
-  _FIELD("fault_address ", uctx->uc_mcontext.fault_address);
-  _FIELD("sp ", uctx->uc_mcontext.sp);
-  _FIELD("pc ", uctx->uc_mcontext.pc);
-
-#undef _FIELD
-
-  _strcat(s, "\n");
-  _strcat(s, maps);
-
-  //
-  // dump message for user
-  //
-  _robust_write(2 /* stderr */, s, _strlen(s));
-
-  for (;;)
-    _jove_sleep();
-
-  __builtin_trap();
-  __builtin_unreachable();
-}
-
-void _jove_init_cpu_state(void) {
-}
-
-void _jove_callstack_init(void) {
-  uintptr_t ptr = _jove_alloc_callstack();
-
-  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }

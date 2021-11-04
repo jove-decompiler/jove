@@ -84,14 +84,14 @@ _HIDDEN void _jove_init(
   //
   const uintptr_t saved_emusp = *emusp_ptr;
 
-  const uintptr_t saved_callstack_begin = __jove_callstack_begin;
-  const uintptr_t saved_callstack = __jove_callstack;
+  uint64_t *const saved_callstack_begin = __jove_callstack_begin;
+  uint64_t *const saved_callstack = __jove_callstack;
 
   //
   // setup new callstack and emulated-stack
   //
   const uintptr_t new_callstack = _jove_alloc_callstack() + JOVE_PAGE_SIZE;
-  __jove_callstack_begin = __jove_callstack = new_callstack;
+  __jove_callstack_begin = __jove_callstack = (uint64_t *)new_callstack;
 
   const uintptr_t new_emu_stack = _jove_alloc_stack();
 
@@ -99,7 +99,7 @@ _HIDDEN void _jove_init(
 
   {
     //
-    // align the stack
+    // align the emulated stack
     //
     const uintptr_t align_val = 15;
     const uintptr_t align_mask = ~align_val;
@@ -184,6 +184,107 @@ _HIDDEN void _jove_init(
 }
 
 #endif
+
+static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  const char *const dynl_path_beg = _jove_dynl_path();
+  const unsigned    dynl_path_len = _strlen(dynl_path_beg);
+  const char *const dynl_path_end = &dynl_path_beg[dynl_path_len];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    bool match = true;
+
+    {
+      const char *s1 = dynl_path_end - 1;
+      const char *s2 = eol - 1;
+      for (;;) {
+        if (*s1 != *s2) {
+          match = false;
+          break;
+        }
+
+        if (s1 == dynl_path_beg)
+          break; /* we're done here */
+
+        --s1;
+        --s2;
+      }
+    }
+
+    if (match) {
+      char *space = _memchr(line, ' ', left);
+
+      char *rp = space + 1;
+      char *wp = space + 2;
+      char *xp = space + 3;
+      char *pp = space + 4;
+
+      bool x = *xp == 'x';
+      if (!x)
+        continue;
+
+      char *dash = _memchr(line, '-', left);
+      uint64_t res = _u64ofhexstr(line, dash);
+
+      // offset may be nonzero for dynamic linker
+      uint64_t off;
+      {
+        char *offset = pp + 2;
+        unsigned _left = n - (offset - beg);
+        char *offset_end = _memchr(offset, ' ', _left);
+
+        off = _u64ofhexstr(offset, offset_end);
+      }
+
+      return res - off;
+    }
+  }
+
+  _UNREACHABLE("failed to find dynamic linker");
+}
+
+static _INL uintptr_t _parse_vdso_load_bias(char *maps, const unsigned n) {
+  char *const beg = &maps[0];
+  char *const end = &maps[n];
+
+  char *eol;
+  for (char *line = beg; line != end; line = eol + 1) {
+    unsigned left = n - (line - beg);
+
+    //
+    // find the end of the current line
+    //
+    eol = _memchr(line, '\n', left);
+
+    //
+    // second hex address
+    //
+    if (eol[-1] == ']' &&
+        eol[-2] == 'o' &&
+        eol[-3] == 's' &&
+        eol[-4] == 'd' &&
+        eol[-5] == 'v' &&
+        eol[-6] == '[') {
+      char *dash = _memchr(line, '-', left);
+      return _u64ofhexstr(line, dash);
+    }
+  }
+
+  _UNREACHABLE("failed to find [vdso]");
+}
 
 void _jove_install_foreign_function_tables(void) {
   static bool _Done = false;

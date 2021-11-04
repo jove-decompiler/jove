@@ -5,7 +5,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
-#include <fcntl.h>
 #include <unistd.h>
 #include <poll.h>
 #include <signal.h>
@@ -27,12 +26,13 @@
 #include <sys/epoll.h>
 #include <sched.h>
 #include <linux/aio_abi.h>
-#include <mqueue.h>
+//#include <mqueue.h>
 //#include <keyutils.h>
 #include <linux/bpf.h>
 
-typedef unsigned long key_serial_t; /* XXX */
-typedef unsigned long cap_user_data_t; /* XXX */
+typedef unsigned long mqd_t;             /* XXX */
+typedef unsigned long key_serial_t;      /* XXX */
+typedef unsigned long cap_user_data_t;   /* XXX */
 typedef unsigned long cap_user_header_t; /* XXX */
 
 #ifndef __user
