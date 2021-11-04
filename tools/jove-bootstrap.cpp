@@ -2516,6 +2516,8 @@ void on_breakpoint(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
   typedef long RegValue_t;
 #elif defined(__aarch64__)
   typedef unsigned long long RegValue_t;
+#elif defined(__mips64)
+  typedef unsigned long RegValue_t;
 #elif defined(__mips__)
   typedef unsigned long long RegValue_t;
 #else
