@@ -1237,7 +1237,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               switch (no) {
               case __NR_exit:
               case __NR_exit_group:
-                WithColor::note() << "Observed program exit.\n";
+                if (opts::Verbose)
+                  WithColor::note() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
                 break;
 
@@ -1290,9 +1291,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               switch (no) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
-                WithColor::note()
-                    << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
-                                     a1, a2, a3, a4);
+		if (opts::Verbose)
+		  WithColor::note()
+		      << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
+				       a1, a2, a3, a4);
 
                 uintptr_t act = a2;
                 if (act) {
@@ -1305,7 +1307,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                       ;
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
-                  WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
+                  if (opts::Verbose)
+                    WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
 #if defined(TARGET_MIPS64)
@@ -1420,7 +1423,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                              << "]\n";
 
               if (child == saved_child) {
-                WithColor::note() << "Observed program exit.\n";
+                if (opts::Verbose)
+                  WithColor::note() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
               }
               break;
@@ -4317,11 +4321,12 @@ void on_binary_loaded(pid_t child,
   st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
   st.dyn.LoadAddrEnd = vm_prop.end;
 
-  llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
-                   % vm_prop.nm
-                   % st.dyn.LoadAddr
-                   % st.dyn.LoadAddrEnd).str()
-               << '\n';
+  if (opts::Verbose)
+    llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
+                     % vm_prop.nm
+                     % st.dyn.LoadAddr
+                     % st.dyn.LoadAddrEnd).str()
+                 << '\n';
 
   boost::icl::interval<uintptr_t>::type intervl =
       boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
@@ -4534,7 +4539,7 @@ void on_binary_loaded(pid_t child,
     }
   }
 
-  if (cnt > 0)
+  if (cnt > 0 && opts::Verbose)
     llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
                                   cnt,
                                   cnt > 1 ? "s" : "",
