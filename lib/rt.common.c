@@ -220,12 +220,9 @@ void _jove_flush_trace(void) {
       _UNREACHABLE("_jove_flush_trace: failed to open trace file");
   }
 
-#if 0
-  unsigned n = JOVE_TRACE_BUFF_SIZE - JOVE_PAGE_SIZE /* guard page */;
-#else
   --TracePtr;
   unsigned n = (TracePtr - TraceBegin) * sizeof(uint64_t);
-#endif
+
   ssize_t ret = _robust_write(fd, TraceBegin, n);
 
   if (ret != n)
