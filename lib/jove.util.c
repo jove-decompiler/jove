@@ -388,3 +388,57 @@ static _UNUSED bool _jove_is_readable_mem(uintptr_t Addr) {
 
   return ret == sizeof(byte);
 }
+
+static uintptr_t _mmap_rw_anonymous_private_memory(size_t len);
+
+uintptr_t _jove_alloc_stack(void) {
+  unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_STACK_SIZE);
+  if (IS_ERR_VALUE(ret))
+    _UNREACHABLE("failed to allocate stack");
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = ret;
+  unsigned long end = beg + JOVE_STACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #1");
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #2");
+
+  return beg;
+}
+
+void _jove_free_stack(uintptr_t beg) {
+  if (_jove_sys_munmap(beg, JOVE_STACK_SIZE) < 0)
+    _UNREACHABLE("failed to deallocate stack");
+}
+
+uintptr_t _jove_alloc_callstack(void) {
+  long ret = _mmap_rw_anonymous_private_memory(JOVE_CALLSTACK_SIZE);
+  if (ret < 0 && ret > -4096)
+    _UNREACHABLE("failed to allocate callstack");
+
+  unsigned long uret = (unsigned long)ret;
+
+  //
+  // create guard pages on both sides
+  //
+  unsigned long beg = uret;
+  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
+
+  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #1");
+
+  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
+    _UNREACHABLE("failed to create guard page #2");
+
+  return beg;
+}
+
+void _jove_free_callstack(uintptr_t start) {
+  if (_jove_sys_munmap(start - JOVE_PAGE_SIZE, JOVE_CALLSTACK_SIZE) < 0)
+    _UNREACHABLE("failed to deallocate callstack");
+}

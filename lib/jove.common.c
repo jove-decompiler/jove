@@ -533,19 +533,7 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
-#if defined(__mips__)
-    unsigned long shadow_base = _jove_sys_mips_mmap(0x0, JOVE_SHADOW_SIZE,
-                                                    PROT_READ | PROT_WRITE,
-                                                    MAP_PRIVATE | MAP_ANONYMOUS,
-                                                    -1L, 0);
-#elif defined(__i386__)
-    unsigned long shadow_base = _jove_sys_mmap_pgoff(0x0, JOVE_SHADOW_SIZE,
-                                                     PROT_READ | PROT_WRITE,
-                                                     MAP_PRIVATE | MAP_ANONYMOUS,
-                                                     -1L, 0);
-#else
-#error
-#endif
+    uintptr_t shadow_base = _mmap_rw_anonymous_private_memory(JOVE_SHADOW_SIZE);
 
     if (IS_ERR_VALUE(shadow_base)) {
       __builtin_trap();
@@ -562,3 +550,12 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 
 #endif
 #endif
+
+void __nodce(void **p) {
+  *p++ = __jove_trace;
+  *p++ = __jove_trace_begin;
+  *p++ = __jove_callstack;
+  *p++ = __jove_callstack_begin;
+  *p++ = (void *)_jove_trace_enabled();
+  *p++ = (void *)_jove_dfsan_enabled();
+}

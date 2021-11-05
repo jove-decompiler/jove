@@ -170,7 +170,7 @@ void _jove_callstack_init(void) {
 }
 
 void _jove_trace_init(void) {
-  unsigned long ret = _mmap_anonymous_private_memory(JOVE_TRACE_BUFF_SIZE);
+  unsigned long ret = _mmap_rw_anonymous_private_memory(JOVE_TRACE_BUFF_SIZE);
   if (IS_ERR_VALUE(ret))
     _UNREACHABLE("failed to allocate trace buffer");
 
