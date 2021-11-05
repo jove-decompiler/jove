@@ -830,6 +830,8 @@ int recompile(void) {
           "--push-state", "--as-needed", compiler_runtime_afp.c_str(),
           "--pop-state",
 
+          "--exclude-libs", "ALL",
+
           "-init", "_jove_init"
       };
 
