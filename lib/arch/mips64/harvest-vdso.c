@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
 
 #define _INL     __attribute__((always_inline))
 #define _NOINL   __attribute__((noinline))
