@@ -162,6 +162,12 @@ void _jove_init_cpu_state(void) {
 #elif defined(__x86_64__) || defined(__i386__)
   __jove_env.df = 1;
 #endif
+
+#if !defined(__x86_64__) && defined(__i386__)
+#define CPUID_XSAVE_XGETBV1    (1U << 2)
+
+  __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
+#endif
 }
 
 void _jove_callstack_init(void) {

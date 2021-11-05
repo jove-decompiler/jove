@@ -649,15 +649,7 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   return env_sp;
 }
 
-#define CPUID_XSAVE_XGETBV1    (1U << 2)
-
 void _jove_begin(target_ulong sp_addr) {
-  __jove_env.df = 1;
-  __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
-
-  /** don't optimize away the following referenced globals **/
-  __jove_env.umwait = _jove_get_init_fn_sect_ptr();
-
   //
   // setup the stack
   //
