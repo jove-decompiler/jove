@@ -47,7 +47,7 @@ _HIDDEN void _jove_init(
                         uint64_t x5,
                         uint64_t x6,
                         uint64_t x7
-#elif defined(__mips64__)
+#elif defined(__mips64)
                         uint64_t a0,
                         uint64_t a1,
                         uint64_t a2,
@@ -72,7 +72,7 @@ _HIDDEN void _jove_init(
       &__jove_env.regs[R_ESP]
 #elif defined(__aarch64__)
       &__jove_env.xregs[31]
-#elif defined(__mips64__) || defined(__mips__)
+#elif defined(__mips64) || defined(__mips__)
       &__jove_env.active_tc.gpr[29]
 #else
 #error
@@ -113,7 +113,7 @@ _HIDDEN void _jove_init(
 
   *emusp_ptr = new_emusp;
 
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
   //
   // (mips) set t9
   //
@@ -151,7 +151,7 @@ _HIDDEN void _jove_init(
                                x5,
                                x6,
                                x7);
-#elif defined(__mips64__)
+#elif defined(__mips64)
   ((void (*)(uint64_t,
              uint64_t,
              uint64_t,

@@ -36,7 +36,7 @@ void _jove_free_stack_later(uintptr_t stack) {
 #undef _NSIG_BPW
 #undef _NSIG_WORDS
 
-#if defined(__mips64__)
+#if defined(__mips64)
 
 // FIXME copied from mips32
 # define _NSIG		128
@@ -157,7 +157,7 @@ void _jove_rt_init(void) {
 }
 
 void _jove_init_cpu_state(void) {
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
   __jove_env.hflags = 226;
 #elif defined(__x86_64__) || defined(__i386__)
   __jove_env.df = 1;
@@ -260,7 +260,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   uint64_t **const callstack_begin_ptr = &__jove_callstack_begin;
 
   uintptr_t *const pc_ptr =
-#if defined(__mips64__) || defined(__mips__) || defined(__aarch64__)
+#if defined(__mips64) || defined(__mips__) || defined(__aarch64__)
     &uctx->uc_mcontext.pc
 #elif defined(__x86_64__)
     &uctx->uc_mcontext.gregs[REG_RIP]
@@ -272,7 +272,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     ;
 
   uintptr_t *const sp_ptr =
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[29]
 #elif defined(__x86_64__)
       &uctx->uc_mcontext.gregs[REG_RSP]
@@ -286,7 +286,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       ;
 
   uintptr_t *const ra_ptr =
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[31]
 #elif defined(__aarch64__)
       &uctx->uc_mcontext.regs[30]
@@ -296,7 +296,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       ;
 
   uintptr_t *const emusp_ptr =
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
       &__jove_env.active_tc.gpr[29]
 #elif defined(__x86_64__) || defined(__i386__)
       &__jove_env.regs[R_ESP]
@@ -308,7 +308,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       ;
 
   uintptr_t *const t9_ptr =
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[25]
 #else
       NULL
@@ -316,7 +316,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       ;
 
   uintptr_t *const emut9_ptr =
-#if defined(__mips64__) || defined(__mips__)
+#if defined(__mips64) || defined(__mips__)
       &__jove_env.active_tc.gpr[25]
 #else
       NULL
@@ -348,7 +348,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         //
         unsigned insn_len;
 
-#if defined(__mips64__) || defined(__mips__) || defined(__aarch64__)
+#if defined(__mips64) || defined(__mips__) || defined(__aarch64__)
         insn_len = 4;
 #elif defined(__x86_64) || defined(__i386__)
         insn_len = 0; /* XXX TODO */
@@ -445,7 +445,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
           *p++ = (uintptr_t)saved_callstack_begin;
           *p++ = newstack;
           *p++ = SignalDelivery;
-#elif defined(__mips__) || defined(__mips64__)
+#elif defined(__mips__) || defined(__mips64)
           *p++ = 0xdeadbeef;
           *p++ = saved_retaddr;
           *p++ = saved_sp;
@@ -591,7 +591,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   _FIELD("UESP", uctx->uc_mcontext.gregs[REG_UESP]);
   _FIELD("SS", uctx->uc_mcontext.gregs[REG_SS]);
 
-#elif defined(__mips64__) || defined(__mips__)
+#elif defined(__mips64) || defined(__mips__)
 
   _FIELD("r0", uctx->uc_mcontext.gregs[0]);
   _FIELD("at", uctx->uc_mcontext.gregs[1]);
@@ -711,7 +711,7 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
   const uintptr_t res =
 #if defined(__x86_64__) || defined(__i386__)
       __jove_env.regs[R_ESP]
-#elif defined(__mips64__) || defined(__mips__)
+#elif defined(__mips64) || defined(__mips__)
       __jove_env.active_tc.gpr[29]
 #elif defined(__aarch64__)
       __jove_env.xregs[31]
@@ -724,4 +724,11 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
     _memcpy(&__jove_env, SavedState, sizeof(__jove_env));
 
   return res;
+}
+
+void __nodce(void **p) {
+  *p++ = __jove_trace;
+  *p++ = __jove_trace_begin;
+  *p++ = __jove_callstack;
+  *p++ = __jove_callstack_begin;
 }
