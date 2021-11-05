@@ -1815,9 +1815,6 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-static void _jove_trace_init(void);
-static void _jove_callstack_init(void);
-
 extern void _jove_rt_init(void);
 typedef void (*_jove_rt_init_t)(void);
 static _jove_rt_init_t _jove_rt_init_clunk = _jove_rt_init;
@@ -1864,28 +1861,9 @@ void _jove_begin(uint32_t a0,
   if (_jove_rt_init_clunk)
     _jove_rt_init_clunk();
 
-  // init trace (if enabled)
-  if (_jove_trace_enabled())
-    _jove_trace_init();
-
-  // init callstack (if enabled)
-  if (_jove_dfsan_enabled())
-    _jove_callstack_init();
-
   _jove_initialize();
 
   return _jove_call_entry();
-}
-
-void _jove_trace_init(void) {
-  if (!__jove_trace_begin || !__jove_trace)
-    _UNREACHABLE("in --trace mode but runtime did not initialize buffer");
-}
-
-void _jove_callstack_init(void) {
-  uintptr_t ptr = _jove_alloc_callstack();
-
-  __jove_callstack_begin = __jove_callstack = (void *)(ptr + JOVE_PAGE_SIZE);
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \

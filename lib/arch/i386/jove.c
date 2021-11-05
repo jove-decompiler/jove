@@ -649,9 +649,6 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   return env_sp;
 }
 
-static void _jove_trace_init(void);
-static void _jove_callstack_init(void);
-
 #define CPUID_XSAVE_XGETBV1    (1U << 2)
 
 void _jove_begin(target_ulong sp_addr) {
@@ -677,49 +674,9 @@ void _jove_begin(target_ulong sp_addr) {
     __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
-  // trace init (if -trace was passed)
-  if (_jove_trace_enabled())
-    _jove_trace_init();
-
-  // init callstack (if enabled)
-  if (_jove_dfsan_enabled())
-    _jove_callstack_init();
-
   _jove_initialize();
 
   return _jove_call_entry();
-}
-
-void _jove_trace_init(void) {
-  int fd =
-      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0)
-    _UNREACHABLE();
-
-  off_t size = 1UL << 30; /* 1 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0)
-    _UNREACHABLE();
-
-  {
-    long ret = _jove_sys_mmap_pgoff(0x0, size, PROT_READ | PROT_WRITE,
-                                    MAP_SHARED, fd, 0);
-
-    if (ret < 0 && ret > -4096)
-      _UNREACHABLE();
-
-    void *ptr = (void *)ret;
-
-    __jove_trace_begin = __jove_trace = ptr;
-  }
-
-  if (_jove_sys_close(fd) < 0)
-    _UNREACHABLE();
-}
-
-void _jove_callstack_init(void) {
-  uintptr_t ptr = _jove_alloc_callstack();
-
-  __jove_callstack_begin = __jove_callstack = (void *)(ptr + JOVE_PAGE_SIZE);
 }
 
 uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */

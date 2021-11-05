@@ -719,9 +719,6 @@ void _jove_start(void) {
                "b _jove_begin\n");
 }
 
-static void _jove_trace_init(void);
-static void _jove_callstack_init(void);
-
 void _jove_begin(uint64_t x0,
                  uint64_t x1,
                  uint64_t x2,
@@ -754,60 +751,9 @@ void _jove_begin(uint64_t x0,
     __jove_env.xregs[31] = (target_ulong)env_sp;
   }
 
-  // trace init (if -trace was passed)
-  if (_jove_trace_enabled())
-    _jove_trace_init();
-
-  // init callstack (if enabled)
-  if (_jove_dfsan_enabled())
-    _jove_callstack_init();
-
   _jove_initialize();
 
   return _jove_call_entry();
-}
-
-void _jove_callstack_init(void) {
-  uintptr_t ptr = _jove_alloc_callstack();
-
-  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
-}
-
-void _jove_trace_init(void) {
-  if (__jove_trace)
-    return;
-
-  int fd =
-      _jove_sys_openat(AT_FDCWD, "trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  off_t size = 1UL << 31; /* 2 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
-
-  {
-    long ret =
-        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    if (ret < 0) {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    void *ptr = (void *)ret;
-
-    __jove_trace_begin = __jove_trace = ptr;
-  }
-
-  if (_jove_sys_close(fd) < 0) {
-    __builtin_trap();
-    __builtin_unreachable();
-  }
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \

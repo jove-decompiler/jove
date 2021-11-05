@@ -681,9 +681,6 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   return env_sp;
 }
 
-static void _jove_trace_init(void);
-static void _jove_callstack_init(void);
-
 void _jove_begin(uint64_t rdi,
                  uint64_t rsi,
                  uint64_t rdx,
@@ -713,69 +710,9 @@ void _jove_begin(uint64_t rdi,
     __jove_env.regs[R_ESP] = (target_ulong)env_sp;
   }
 
-  // init trace (if enabled)
-  if (_jove_trace_enabled())
-    _jove_trace_init();
-
-  // init callstack (if enabled)
-  if (_jove_dfsan_enabled())
-    _jove_callstack_init();
-
   _jove_initialize();
 
   return _jove_call_entry();
-}
-
-void _jove_trace_init(void) {
-  if (__jove_trace)
-    return;
-
-  int fd =
-      _jove_sys_open("trace.bin", O_RDWR | O_CREAT | O_TRUNC, 0666);
-  if (fd < 0)
-    _UNREACHABLE();
-
-  off_t size = 1UL << 31; /* 2 GiB */
-  if (_jove_sys_ftruncate(fd, size) < 0)
-    _UNREACHABLE();
-
-  {
-    long ret =
-        _jove_sys_mmap(0x0, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-    if (ret < 0 && ret > -4096)
-      _UNREACHABLE();
-
-    void *ptr = (void *)ret;
-
-    __jove_trace_begin = __jove_trace = ptr;
-  }
-
-  if (_jove_sys_close(fd) < 0)
-    _UNREACHABLE();
-}
-
-void _jove_callstack_init(void) {
-  long ret = _jove_sys_mmap(0x0, JOVE_CALLSTACK_SIZE, PROT_READ | PROT_WRITE,
-                            MAP_PRIVATE | MAP_ANONYMOUS, -1L, 0);
-  if (ret < 0 && ret > -4096)
-    _UNREACHABLE();
-
-  void *ptr = (void *)ret;
-
-  //
-  // create guard pages on both sides
-  //
-  unsigned long beg = (unsigned long)ret;
-  unsigned long end = beg + JOVE_CALLSTACK_SIZE;
-
-  if (_jove_sys_mprotect(beg, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  if (_jove_sys_mprotect(end - JOVE_PAGE_SIZE, JOVE_PAGE_SIZE, PROT_NONE) < 0)
-    _UNREACHABLE();
-
-  __jove_callstack_begin = __jove_callstack = ptr + JOVE_PAGE_SIZE;
 }
 
 #define JOVE_THUNK_PROLOGUE                                                    \
