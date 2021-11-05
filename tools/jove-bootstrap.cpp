@@ -4209,10 +4209,11 @@ static void harvest_global_GOT_entries(pid_t child,
         continue;
       }
 
-#if defined(TARGET_MIPS64)
-      Resolved.Addr &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-      Resolved.Addr &= 0xfffffffe;
+#if defined(__mips64) || defined(__mips__)
+      uintptr_t mask = 1;
+      mask = ~mask;
+
+      Resolved.Addr &= mask;
 #endif
 
       auto it = AddressSpace.find(Resolved.Addr);
