@@ -5271,6 +5271,8 @@ int CreateSectionGlobalVariables(void) {
     return GV;
   };
 
+  std::set<std::pair<uintptr_t, unsigned>> gdefs;
+
   auto constant_of_addressof_defined_data_relocation =
       [&](const relocation_t &R, const symbol_t &S) -> llvm::Constant * {
     assert(!S.IsUndefined());
@@ -5289,6 +5291,24 @@ int CreateSectionGlobalVariables(void) {
 
     return nullptr;
 #else
+    unsigned off = S.Addr - SectsStartAddr;
+
+    if (gdefs.find({S.Addr, S.Size}) == gdefs.end()) {
+      Module->appendModuleInlineAsm(
+          (fmt(".hidden %s\n"
+               ".globl  %s\n"
+               ".type   %s,@object\n"
+               ".size   %s, %u\n"
+               ".set    %s, __jove_sections_%u + %u")
+           % S.Name.str()
+           % S.Name.str()
+           % S.Name.str()
+           % S.Name.str() % S.Size
+           % S.Name.str() % BinaryIndex % off).str());
+
+      gdefs.insert({S.Addr, S.Size});
+    }
+
     return SectionPointer(S.Addr);
 #endif
   };
