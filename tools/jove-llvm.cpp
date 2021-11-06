@@ -3333,10 +3333,10 @@ int ProcessBinaryRelocations(void) {
     }
   };
 
-  auto process_elf_sym = [&](const Elf_Shdr &Sec, const Elf_Sym &Sym) -> void {
+  auto process_elf_sym = [&](const Elf_Shdr *Sec, const Elf_Sym &Sym) -> void {
     symbol_t &res = SymbolTable.emplace_back();
 
-    llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(Sec));
+    llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*Sec));
 
     constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
         symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
@@ -3478,14 +3478,18 @@ int ProcessBinaryRelocations(void) {
     }
   };
 
-  auto process_elf_rel = [&](const Elf_Shdr &Sec, const Elf_Rel &R) -> void {
+  auto process_elf_rel = [&](const Elf_Shdr *Sec, const Elf_Rel &R) -> void {
     relocation_t &res = RelocationTable.emplace_back();
 
-    const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
-    const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
-    if (Sym) {
-      res.SymbolIndex = SymbolTable.size();
-      process_elf_sym(*SymTab, *Sym);
+    if (Sec) {
+      const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec->sh_link));
+      const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
+      if (Sym) {
+        res.SymbolIndex = SymbolTable.size();
+        process_elf_sym(SymTab, *Sym);
+      } else {
+        res.SymbolIndex = std::numeric_limits<unsigned>::max();
+      }
     } else {
       res.SymbolIndex = std::numeric_limits<unsigned>::max();
     }
@@ -3542,14 +3546,18 @@ int ProcessBinaryRelocations(void) {
                                             res.RelocationTypeName);
   };
 
-  auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
+  auto process_elf_rela = [&](const Elf_Shdr *Sec, const Elf_Rela &R) -> void {
     relocation_t &res = RelocationTable.emplace_back();
 
-    const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec.sh_link));
-    const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
-    if (Sym) {
-      res.SymbolIndex = SymbolTable.size();
-      process_elf_sym(*SymTab, *Sym);
+    if (Sec) {
+      const Elf_Shdr *SymTab = unwrapOrError(E.getSection(Sec->sh_link));
+      const Elf_Sym *Sym = unwrapOrError(E.getRelocationSymbol(&R, SymTab));
+      if (Sym) {
+        res.SymbolIndex = SymbolTable.size();
+        process_elf_sym(SymTab, *Sym);
+      } else {
+        res.SymbolIndex = std::numeric_limits<unsigned>::max();
+      }
     } else {
       res.SymbolIndex = std::numeric_limits<unsigned>::max();
     }
@@ -3605,13 +3613,48 @@ int ProcessBinaryRelocations(void) {
                                             res.RelocationTypeName);
   };
 
+  //
+  // Elf_Rel from section contents
+  //
   for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
     if (Sec.sh_type == llvm::ELF::SHT_REL) {
       for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec)))
-        process_elf_rel(Sec, Rel);
+        process_elf_rel(&Sec, Rel);
     } else if (Sec.sh_type == llvm::ELF::SHT_RELA) {
       for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
-        process_elf_rela(Sec, Rela);
+        process_elf_rela(&Sec, Rela);
+    }
+  }
+
+  //
+  // DT_REL
+  //
+  {
+    DynRegionInfo DynRelRegion(O.getFileName());
+
+    for (const Elf_Dyn &Dyn : dynamic_table()) {
+      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+        break; /* marks end of dynamic table. */
+
+      switch (Dyn.d_tag) {
+      case llvm::ELF::DT_REL:
+        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
+          DynRelRegion.Addr = *ExpectedPtr;
+        break;
+      case llvm::ELF::DT_RELSZ:
+        DynRelRegion.Size = Dyn.getVal();
+        break;
+      case llvm::ELF::DT_RELENT:
+        DynRelRegion.EntSize = Dyn.getVal();
+        break;
+      }
+    }
+
+    if (DynRelRegion.Addr) {
+      Elf_Rel_Range RelRange = DynRelRegion.getAsArrayRef<Elf_Rel>();
+      for (const Elf_Rel &Rel : RelRange) {
+        process_elf_rel(nullptr, Rel);
+      }
     }
   }
 
