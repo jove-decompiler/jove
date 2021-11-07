@@ -5295,12 +5295,10 @@ int CreateSectionGlobalVariables(void) {
 
     if (gdefs.find({S.Addr, S.Size}) == gdefs.end()) {
       Module->appendModuleInlineAsm(
-          (fmt(".hidden %s\n"
-               ".globl  %s\n"
+          (fmt(".globl  %s\n"
                ".type   %s,@object\n"
                ".size   %s, %u\n"
                ".set    %s, __jove_sections_%u + %u")
-           % S.Name.str()
            % S.Name.str()
            % S.Name.str()
            % S.Name.str() % S.Size
