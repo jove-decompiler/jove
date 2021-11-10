@@ -1894,17 +1894,8 @@ int ProcessExportedFunctions(void) {
       }
 
       function_t &f = binary.Analysis.Functions[FuncIdx];
-      if (!f.IsABI) {
-        llvm::errs() << llvm::formatv(
-            "ProcessExportedFunctions: !IsABI for {0:x} in {1}\n",
-            binary.Analysis.ICFG[boost::vertex(f.Entry, binary.Analysis.ICFG)].Addr,
-            binary.Path);
-      }
 
-      //f.IsABI = true;
-
-      f.Syms.resize(f.Syms.size() + 1);
-      symbol_t &res = f.Syms.back();
+      symbol_t &res = f.Syms.emplace_back();
 
       res.Name = SymName;
 
