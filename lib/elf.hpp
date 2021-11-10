@@ -300,15 +300,14 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
                                                         const DynRegionInfo &DynamicTable,
                                                         llvm::StringRef &DynamicStringTable,
                                                         const Elf_Shdr *&SymbolVersionSection,
-                                                        const Elf_Shdr *&SymbolVersionNeedSection,
-                                                        const Elf_Shdr *&SymbolVersionDefSection,
                                                         llvm::SmallVector<VersionMapEntry, 16> &VersionMap) {
   llvm::Optional<DynRegionInfo> DynSymRegion;
   const Elf_Hash *HashTable = nullptr;
   const Elf_Shdr *DotDynsymSec = nullptr;
-  SymbolVersionSection = nullptr;     // .gnu.version
-  SymbolVersionNeedSection = nullptr; // .gnu.version_r
-  SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+  SymbolVersionSection = nullptr;                     // .gnu.version
+  const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
+  const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
 
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();

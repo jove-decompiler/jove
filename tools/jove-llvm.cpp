@@ -1782,16 +1782,12 @@ int ProcessBinaryTLSSymbols(void) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  const Elf_Shdr *SymbolVersionNeedSection;
-  const Elf_Shdr *SymbolVersionDefSection;
   llvm::SmallVector<VersionMapEntry, 16> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,
-                         SymbolVersionNeedSection,
-                         SymbolVersionDefSection,
                          VersionMap);
 
   if (!OptionalDynSymRegion)
@@ -1865,16 +1861,12 @@ int ProcessExportedFunctions(void) {
 
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    const Elf_Shdr *SymbolVersionNeedSection;
-    const Elf_Shdr *SymbolVersionDefSection;
     llvm::SmallVector<VersionMapEntry, 16> VersionMap;
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
-                           SymbolVersionNeedSection,
-                           SymbolVersionDefSection,
                            VersionMap);
 
     if (!OptionalDynSymRegion)
@@ -1962,16 +1954,12 @@ int ProcessDynamicSymbols(void) {
 
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    const Elf_Shdr *SymbolVersionNeedSection;
-    const Elf_Shdr *SymbolVersionDefSection;
     llvm::SmallVector<VersionMapEntry, 16> VersionMap;
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
-                           SymbolVersionNeedSection,
-                           SymbolVersionDefSection,
                            VersionMap);
 
     if (!OptionalDynSymRegion)
@@ -2467,16 +2455,12 @@ int ProcessBinaryRelocations(void) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  const Elf_Shdr *SymbolVersionNeedSection;
-  const Elf_Shdr *SymbolVersionDefSection;
   llvm::SmallVector<VersionMapEntry, 16> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,
-                         SymbolVersionNeedSection,
-                         SymbolVersionDefSection,
                          VersionMap);
 
   auto process_elf_sym = [&](const Elf_Shdr *Sec, const Elf_Sym &Sym) -> void {
@@ -2899,16 +2883,12 @@ int ProcessIFuncResolvers(void) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  const Elf_Shdr *SymbolVersionNeedSection;
-  const Elf_Shdr *SymbolVersionDefSection;
   llvm::SmallVector<VersionMapEntry, 16> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,
-                         SymbolVersionNeedSection,
-                         SymbolVersionDefSection,
                          VersionMap);
 
   if (!OptionalDynSymRegion)
@@ -5260,16 +5240,12 @@ int ProcessDynamicSymbols2(void) {
 
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    const Elf_Shdr *SymbolVersionNeedSection;
-    const Elf_Shdr *SymbolVersionDefSection;
     llvm::SmallVector<VersionMapEntry, 16> VersionMap;
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
-                           SymbolVersionNeedSection,
-                           SymbolVersionDefSection,
                            VersionMap);
 
     if (!OptionalDynSymRegion)
@@ -5444,16 +5420,12 @@ decipher_copy_relocation(const symbol_t &S) {
 
     llvm::StringRef DynamicStringTable;
     const Elf_Shdr *SymbolVersionSection;
-    const Elf_Shdr *SymbolVersionNeedSection;
-    const Elf_Shdr *SymbolVersionDefSection;
     llvm::SmallVector<VersionMapEntry, 16> VersionMap;
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
                            DynamicTable,
                            DynamicStringTable,
                            SymbolVersionSection,
-                           SymbolVersionNeedSection,
-                           SymbolVersionDefSection,
                            VersionMap);
 
     if (!OptionalDynSymRegion)
