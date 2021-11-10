@@ -129,6 +129,16 @@ static DynRegionInfo createDRIFrom(const Elf_Shdr *S, const ELFO *ObjF) {
                    S->sh_entsize, ObjF->getFileName()}, ObjF);
 }
 
+static llvm::Expected<DynRegionInfo>
+createDRI(const ELFO *ObjF, uint64_t Offset, uint64_t Size, uint64_t EntSize) {
+  const ELFF *Obj = ObjF->getELFFile();
+
+  if (Offset + Size < Offset || Offset + Size > Obj->getBufSize())
+    return llvm::object::createError("offset greater than file size");
+
+  return DynRegionInfo(Obj->base() + Offset, Size, EntSize, ObjF->getFileName());
+}
+
 static uintptr_t loadDynamicTable(const ELFF *Obj,
                                   const ELFO *ObjF,
                                   DynRegionInfo &DynamicTable) {
@@ -263,6 +273,358 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
 
   return std::make_pair(DynamicPhdr, DynamicSec);
 }
+
+class VersionMapEntry : public llvm::PointerIntPair<const void *, 1> {
+public:
+  // If the integer is 0, this is an Elf_Verdef*.
+  // If the integer is 1, this is an Elf_Vernaux*.
+  VersionMapEntry() : PointerIntPair<const void *, 1>(nullptr, 0) {}
+  VersionMapEntry(const Elf_Verdef *verdef)
+      : PointerIntPair<const void *, 1>(verdef, 0) {}
+  VersionMapEntry(const Elf_Vernaux *vernaux)
+      : PointerIntPair<const void *, 1>(vernaux, 1) {}
+
+  bool isNull() const { return getPointer() == nullptr; }
+  bool isVerdef() const { return !isNull() && getInt() == 0; }
+  bool isVernaux() const { return !isNull() && getInt() == 1; }
+  const Elf_Verdef *getVerdef() const {
+    return isVerdef() ? (const Elf_Verdef *)getPointer() : nullptr;
+  }
+  const Elf_Vernaux *getVernaux() const {
+    return isVernaux() ? (const Elf_Vernaux *)getPointer() : nullptr;
+  }
+};
+
+static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
+                                                        const ELFO *ObjF,
+                                                        const DynRegionInfo &DynamicTable,
+                                                        llvm::StringRef &DynamicStringTable,
+                                                        const Elf_Shdr *&SymbolVersionSection,
+                                                        const Elf_Shdr *&SymbolVersionNeedSection,
+                                                        const Elf_Shdr *&SymbolVersionDefSection,
+                                                        llvm::SmallVector<VersionMapEntry, 16> &VersionMap) {
+  llvm::Optional<DynRegionInfo> DynSymRegion;
+  const Elf_Hash *HashTable = nullptr;
+  const Elf_Shdr *DotDynsymSec = nullptr;
+  SymbolVersionSection = nullptr;     // .gnu.version
+  SymbolVersionNeedSection = nullptr; // .gnu.version_r
+  SymbolVersionDefSection = nullptr;  // .gnu.version_d
+
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  //
+  // examine the sections
+  //
+  llvm::Expected<Elf_Shdr_Range> ExpectedSections = Obj->sections();
+  if (ExpectedSections && !(*ExpectedSections).empty()) {
+    for (const Elf_Shdr &Sec : *ExpectedSections) {
+      switch (Sec.sh_type) {
+      case llvm::ELF::SHT_DYNSYM:
+        if (!DotDynsymSec)
+          DotDynsymSec = &Sec;
+
+        if (!DynSymRegion) {
+          llvm::Expected<DynRegionInfo> RegOrErr =
+              createDRI(ObjF, Sec.sh_offset, Sec.sh_size, Sec.sh_entsize);
+          if (RegOrErr) {
+            DynSymRegion = *RegOrErr;
+
+            if (llvm::Expected<llvm::StringRef> E = Obj->getStringTableForSymtab(Sec))
+              DynamicStringTable = *E;
+            else
+              WithColor::warning()
+                  << __func__ << ": unable to get the string table\n";
+          } else {
+            WithColor::warning()
+                << __func__ << ": unable to read dynamic symbols from ELF\n";
+          }
+        }
+        break;
+
+      case llvm::ELF::SHT_GNU_versym:
+        SymbolVersionSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verdef:
+        SymbolVersionDefSection = &Sec;
+        break;
+
+      case llvm::ELF::SHT_GNU_verneed:
+        SymbolVersionNeedSection = &Sec;
+        break;
+      }
+    }
+  }
+
+  //
+  // examine the dynamic table
+  //
+  const char *StringTableBegin = nullptr;
+  uint64_t StringTableSize = 0;
+  llvm::Optional<DynRegionInfo> DynSymFromTable;
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (Dyn.d_tag == llvm::ELF::DT_NULL)
+      break; /* marks end of dynamic table. */
+
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_STRTAB:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+        StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
+      break;
+    case llvm::ELF::DT_STRSZ:
+      StringTableSize = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_SYMTAB:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr())) {
+        DynSymFromTable.emplace(ObjF->getFileName());
+        DynSymFromTable->Addr = *ExpectedPtr;
+        DynSymFromTable->EntSize = sizeof(Elf_Sym);
+      }
+      break;
+    case llvm::ELF::DT_SYMENT: {
+      uint64_t Val = Dyn.getVal();
+      if (Val != sizeof(Elf_Sym))
+        WithColor::warning() << llvm::formatv(
+            "DT_SYMENT value of {0} is not the size of a symbol ({1})",
+            Val, sizeof(Elf_Sym));
+      break;
+    }
+    case llvm::ELF::DT_HASH:
+      if (llvm::Expected<const uint8_t *> ExpectedHashTable = Obj->toMappedAddr(Dyn.getPtr()))
+        HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
+      break;
+
+    default:
+      break;
+    }
+  }
+
+  if (StringTableBegin) {
+    const uint64_t FileSize = Obj->getBufSize();
+    const uint64_t Offset = (const uint8_t *)StringTableBegin - Obj->base();
+    if (StringTableSize > FileSize - Offset) {
+#ifdef WARN
+      WARN();
+#endif
+    } else {
+      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
+    }
+  }
+
+  auto getHashTableEntSize = [&](void) -> unsigned {
+    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
+    // sections. This violates the ELF specification.
+    if (Obj->getHeader()->e_machine == llvm::ELF::EM_S390 ||
+        Obj->getHeader()->e_machine == llvm::ELF::EM_ALPHA)
+      return 8;
+    return 4;
+  };
+
+  const bool IsHashTableSupported = getHashTableEntSize() == 4;
+  if (DynSymRegion) {
+    // Often we find the information about the dynamic symbol table
+    // location in the SHT_DYNSYM section header. However, the value in
+    // DT_SYMTAB has priority, because it is used by dynamic loaders to
+    // locate .dynsym at runtime. The location we find in the section header
+    // and the location we find here should match.
+    if (DynSymFromTable && DynSymFromTable->Addr != DynSymRegion->Addr)
+      WithColor::warning()
+          << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
+             "the location of the dynamic symbol table";
+
+    // According to the ELF gABI: "The number of symbol table entries should
+    // equal nchain". Check to see if the DT_HASH hash table nchain value
+    // conflicts with the number of symbols in the dynamic symbol table
+    // according to the section header.
+    if (HashTable && IsHashTableSupported) {
+      if (DynSymRegion->EntSize == 0)
+        WithColor::warning() << "SHT_DYNSYM section has sh_entsize == 0";
+      else if (HashTable->nchain != DynSymRegion->Size / DynSymRegion->EntSize)
+        WithColor::warning() << "hash table nchain differs from symbol count "
+                                "derived from SHT_DYNSYM section header";
+    }
+  }
+
+  // Delay the creation of the actual dynamic symbol table until now, so that
+  // checks can always be made against the section header-based properties,
+  // without worrying about tag order.
+  if (DynSymFromTable) {
+    if (!DynSymRegion) {
+      DynSymRegion = DynSymFromTable;
+    } else {
+      DynSymRegion->Addr = DynSymFromTable->Addr;
+      DynSymRegion->EntSize = DynSymFromTable->EntSize;
+    }
+  }
+
+  // Derive the dynamic symbol table size from the DT_HASH hash table, if
+  // present.
+  if (HashTable && IsHashTableSupported && DynSymRegion) {
+    const uint64_t FileSize = Obj->getBufSize();
+    const uint64_t DerivedSize =
+        (uint64_t)HashTable->nchain * DynSymRegion->EntSize;
+    const uint64_t Offset = (const uint8_t *)DynSymRegion->Addr - Obj->base();
+    if (DerivedSize > FileSize - Offset)
+      WithColor::warning() << llvm::formatv(
+          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
+          "the hash table, goes past the end of the file ({2:x}) and will be "
+          "ignored\n",
+          DerivedSize, Offset, FileSize);
+    else
+      DynSymRegion->Size = HashTable->nchain * DynSymRegion->EntSize;
+  }
+
+  //
+  // GNU symbol versions
+  //
+  auto LoadVersionDefs = [&](const Elf_Shdr *Sec) -> void {
+    unsigned VerdefSize = Sec->sh_size;    // Size of section in bytes
+    unsigned VerdefEntries = Sec->sh_info; // Number of Verdef entries
+    const uint8_t *VerdefStart =
+        reinterpret_cast<const uint8_t *>(Obj->base() + Sec->sh_offset);
+    const uint8_t *VerdefEnd = VerdefStart + VerdefSize;
+    // The first Verdef entry is at the start of the section.
+    const uint8_t *VerdefBuf = VerdefStart;
+    for (unsigned VerdefIndex = 0; VerdefIndex < VerdefEntries; ++VerdefIndex) {
+      if (VerdefBuf + sizeof(Elf_Verdef) > VerdefEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version definitions.");
+#else
+        abort();
+#endif
+      }
+
+      const Elf_Verdef *Verdef =
+          reinterpret_cast<const Elf_Verdef *>(VerdefBuf);
+      if (Verdef->vd_version != llvm::ELF::VER_DEF_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verdef version");
+#else
+        abort();
+#endif
+      }
+
+      size_t Index = Verdef->vd_ndx & llvm::ELF::VERSYM_VERSION;
+      if (Index >= VersionMap.size())
+        VersionMap.resize(Index + 1);
+      VersionMap[Index] = VersionMapEntry(Verdef);
+      VerdefBuf += Verdef->vd_next;
+    }
+  };
+
+  auto LoadVersionNeeds = [&](const Elf_Shdr *Sec) -> void {
+    unsigned VerneedSize = Sec->sh_size;    // Size of section in bytes
+    unsigned VerneedEntries = Sec->sh_info; // Number of Verneed entries
+    const uint8_t *VerneedStart =
+        reinterpret_cast<const uint8_t *>(Obj->base() + Sec->sh_offset);
+    const uint8_t *VerneedEnd = VerneedStart + VerneedSize;
+    // The first Verneed entry is at the start of the section.
+    const uint8_t *VerneedBuf = VerneedStart;
+    for (unsigned VerneedIndex = 0; VerneedIndex < VerneedEntries;
+         ++VerneedIndex) {
+      if (VerneedBuf + sizeof(Elf_Verneed) > VerneedEnd) {
+#if 0
+        report_fatal_error("Section ended unexpectedly while scanning "
+                           "version needed records.");
+#else
+        abort();
+#endif
+      }
+      const Elf_Verneed *Verneed =
+          reinterpret_cast<const Elf_Verneed *>(VerneedBuf);
+      if (Verneed->vn_version != llvm::ELF::VER_NEED_CURRENT) {
+#if 0
+        report_fatal_error("Unexpected verneed version");
+#else
+        abort();
+#endif
+      }
+      // Iterate through the Vernaux entries
+      const uint8_t *VernauxBuf = VerneedBuf + Verneed->vn_aux;
+      for (unsigned VernauxIndex = 0; VernauxIndex < Verneed->vn_cnt;
+           ++VernauxIndex) {
+        if (VernauxBuf + sizeof(Elf_Vernaux) > VerneedEnd) {
+#if 0
+          report_fatal_error(
+              "Section ended unexpected while scanning auxiliary "
+              "version needed records.");
+#else
+          abort();
+#endif
+        }
+        const Elf_Vernaux *Vernaux =
+            reinterpret_cast<const Elf_Vernaux *>(VernauxBuf);
+        size_t Index = Vernaux->vna_other & llvm::ELF::VERSYM_VERSION;
+        if (Index >= VersionMap.size())
+          VersionMap.resize(Index + 1);
+        VersionMap[Index] = VersionMapEntry(Vernaux);
+        VernauxBuf += Vernaux->vna_next;
+      }
+      VerneedBuf += Verneed->vn_next;
+    }
+  };
+
+  if (DynSymRegion && DynSymRegion->Addr && SymbolVersionSection) {
+    assert(VersionMap.empty());
+
+    // The first two version indexes are reserved.
+    // Index 0 is LOCAL, index 1 is GLOBAL.
+    VersionMap.push_back(VersionMapEntry());
+    VersionMap.push_back(VersionMapEntry());
+
+    if (SymbolVersionDefSection)
+      LoadVersionDefs(SymbolVersionDefSection);
+
+    if (SymbolVersionNeedSection)
+      LoadVersionNeeds(SymbolVersionNeedSection);
+  }
+
+  return DynSymRegion;
+}
+
+llvm::StringRef getSymbolVersionByIndex(llvm::SmallVector<VersionMapEntry, 16> &VersionMap,
+                                        llvm::StringRef StrTab,
+                                        uint32_t SymbolVersionIndex,
+                                        bool &IsDefault) {
+  size_t VersionIndex = SymbolVersionIndex & llvm::ELF::VERSYM_VERSION;
+
+  // Special markers for unversioned symbols.
+  if (VersionIndex == llvm::ELF::VER_NDX_LOCAL ||
+      VersionIndex == llvm::ELF::VER_NDX_GLOBAL) {
+    IsDefault = false;
+    return "";
+  }
+
+  // Lookup this symbol in the version table.
+  if (VersionIndex >= VersionMap.size() ||
+      VersionMap[VersionIndex].isNull()) {
+    WithColor::error() << "Invalid version entry\n";
+    exit(1);
+  }
+
+  const VersionMapEntry &Entry = VersionMap[VersionIndex];
+
+  // Get the version name string.
+  size_t NameOffset;
+  if (Entry.isVerdef()) {
+    // The first Verdaux entry holds the name.
+    NameOffset = Entry.getVerdef()->getAux()->vda_name;
+    IsDefault = !(SymbolVersionIndex & llvm::ELF::VERSYM_HIDDEN);
+  } else {
+    NameOffset = Entry.getVernaux()->vna_name;
+    IsDefault = false;
+  }
+
+  if (NameOffset >= StrTab.size()) {
+    WithColor::error() << "Invalid string offset\n";
+    return "";
+  }
+
+  return StrTab.data() + NameOffset;
+};
 
 static const typename ELFT::Shdr *
 findSectionByName(const ELFF &Obj, llvm::StringRef Name) {
