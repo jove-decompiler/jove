@@ -577,6 +577,32 @@ static const char *string_of_sym_binding(symbol_t::BINDING b) {
   __builtin_unreachable();
 }
 
+static symbol_t::TYPE sym_type_of_elf_sym_type(unsigned ty) {
+  switch (ty) {
+  case llvm::ELF::STT_NOTYPE:  return symbol_t::TYPE::NONE;
+  case llvm::ELF::STT_OBJECT:  return symbol_t::TYPE::DATA;
+  case llvm::ELF::STT_FUNC:    return symbol_t::TYPE::FUNCTION;
+  case llvm::ELF::STT_SECTION: return symbol_t::TYPE::DATA;
+  case llvm::ELF::STT_FILE:    return symbol_t::TYPE::DATA;
+  case llvm::ELF::STT_COMMON:  return symbol_t::TYPE::DATA;
+  case llvm::ELF::STT_TLS:     return symbol_t::TYPE::TLSDATA;
+
+  default:
+    return symbol_t::TYPE::NONE;
+  }
+}
+
+static symbol_t::BINDING sym_binding_of_elf_sym_binding(unsigned ty) {
+  switch (ty) {
+  case llvm::ELF::STB_LOCAL:  return symbol_t::BINDING::LOCAL;
+  case llvm::ELF::STB_GLOBAL: return symbol_t::BINDING::GLOBAL;
+  case llvm::ELF::STB_WEAK:   return symbol_t::BINDING::WEAK;
+
+  default:
+    return symbol_t::BINDING::NONE;
+  }
+}
+
 //
 // Globals
 //
@@ -1861,42 +1887,24 @@ int ProcessExportedFunctions(void) {
     };
 
     for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.isUndefined() || Sym.getType() != llvm::ELF::STT_FUNC)
+      if (Sym.isUndefined())
+        continue;
+      if (Sym.getType() != llvm::ELF::STT_FUNC)
         continue;
 
       llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-      if (!ExpectedSymName) {
-        if (unlikely(opts::Verbose)) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-          }
-
-          WithColor::warning() << llvm::formatv("could not get symbol name ({0})\n", Buf);
-        }
-
+      if (!ExpectedSymName)
         continue;
-      }
 
       llvm::StringRef SymName = *ExpectedSymName;
 
-      function_index_t FuncIdx;
-      {
-        auto it = FuncMap.find(Sym.st_value);
-        if (it == FuncMap.end()) {
-          WithColor::warning() << llvm::formatv(
-              "no function for {0} exists at {1:x}\n", SymName, Sym.st_value);
-          continue;
-        }
+      auto it = FuncMap.find(Sym.st_value);
+      if (it == FuncMap.end())
+        continue;
 
-        FuncIdx = (*it).second;
-      }
-
-      function_t &f = binary.Analysis.Functions[FuncIdx];
+      function_t &f = binary.Analysis.Functions[(*it).second];
 
       symbol_t &res = f.Syms.emplace_back();
-
       res.Name = SymName;
 
       //
@@ -1920,48 +1928,10 @@ int ProcessExportedFunctions(void) {
                                            res.Visibility.IsDefault);
       }
 
-      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
-          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
-          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
-          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
-          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
-          symbol_t::TYPE::DATA,     // STT_FILE                = 4
-          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
-          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
-          symbol_t::TYPE::NONE,     // N/A                     = 7
-          symbol_t::TYPE::NONE,     // N/A                     = 8
-          symbol_t::TYPE::NONE,     // N/A                     = 9
-          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
-          symbol_t::TYPE::NONE,     // N/A                     = 11
-          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
-          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
-          symbol_t::TYPE::NONE,     // N/A                     = 14
-          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
-      };
-
-      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
-          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
-          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
-          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-          symbol_t::BINDING::NONE,      // N/A            = 3
-          symbol_t::BINDING::NONE,      // N/A            = 4
-          symbol_t::BINDING::NONE,      // N/A            = 5
-          symbol_t::BINDING::NONE,      // N/A            = 6
-          symbol_t::BINDING::NONE,      // N/A            = 7
-          symbol_t::BINDING::NONE,      // N/A            = 8
-          symbol_t::BINDING::NONE,      // N/A            = 9
-          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
-          symbol_t::BINDING::NONE,      // N/A            = 11
-          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
-          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
-          symbol_t::BINDING::NONE,      // N/A            = 14
-          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
-      };
-
       res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      res.Type = elf_symbol_type_mapping[Sym.getType()];
+      res.Type = sym_type_of_elf_sym_type(Sym.getType());
       res.Size = Sym.st_size;
-      res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+      res.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
     }
   }
 
@@ -2057,52 +2027,10 @@ int ProcessDynamicSymbols(void) {
                                            sym.Visibility.IsDefault);
       }
 
-      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
-          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
-          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
-          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
-          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
-          symbol_t::TYPE::DATA,     // STT_FILE                = 4
-          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
-          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
-          symbol_t::TYPE::NONE,     // N/A                     = 7
-          symbol_t::TYPE::NONE,     // N/A                     = 8
-          symbol_t::TYPE::NONE,     // N/A                     = 9
-          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
-          symbol_t::TYPE::NONE,     // N/A                     = 11
-          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
-          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
-          symbol_t::TYPE::NONE,     // N/A                     = 14
-          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
-      };
-
-      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
-          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
-          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
-          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-          symbol_t::BINDING::NONE,      // N/A            = 3
-          symbol_t::BINDING::NONE,      // N/A            = 4
-          symbol_t::BINDING::NONE,      // N/A            = 5
-          symbol_t::BINDING::NONE,      // N/A            = 6
-          symbol_t::BINDING::NONE,      // N/A            = 7
-          symbol_t::BINDING::NONE,      // N/A            = 8
-          symbol_t::BINDING::NONE,      // N/A            = 9
-          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
-          symbol_t::BINDING::NONE,      // N/A            = 11
-          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
-          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
-          symbol_t::BINDING::NONE,      // N/A            = 14
-          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
-      };
-
       sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      sym.Type = elf_symbol_type_mapping[Sym.getType()];
+      sym.Type = sym_type_of_elf_sym_type(Sym.getType());
       sym.Size = Sym.st_size;
-      sym.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
-
-      //////////////////////////////////////////////////////
-      //////////////////////////////////////////////////////
-      //////////////////////////////////////////////////////
+      sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
 
       if (Sym.getType() == llvm::ELF::STT_OBJECT ||
           Sym.getType() == llvm::ELF::STT_TLS) {
@@ -2556,44 +2484,6 @@ int ProcessBinaryRelocations(void) {
 
     llvm::StringRef StrTable = unwrapOrError(E.getStringTableForSymtab(*Sec));
 
-    constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
-        symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
-        symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
-        symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
-        symbol_t::TYPE::DATA,     // STT_SECTION             = 3
-        symbol_t::TYPE::DATA,     // STT_FILE                = 4
-        symbol_t::TYPE::DATA,     // STT_COMMON              = 5
-        symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
-        symbol_t::TYPE::NONE,     // N/A                     = 7
-        symbol_t::TYPE::NONE,     // N/A                     = 8
-        symbol_t::TYPE::NONE,     // N/A                     = 9
-        symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
-        symbol_t::TYPE::NONE,     // N/A                     = 11
-        symbol_t::TYPE::NONE,     // STT_HIOS                = 12
-        symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
-        symbol_t::TYPE::NONE,     // N/A                     = 14
-        symbol_t::TYPE::NONE      // STT_HIPROC              = 15
-    };
-
-    constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
-        symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
-        symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
-        symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-        symbol_t::BINDING::NONE,      // N/A            = 3
-        symbol_t::BINDING::NONE,      // N/A            = 4
-        symbol_t::BINDING::NONE,      // N/A            = 5
-        symbol_t::BINDING::NONE,      // N/A            = 6
-        symbol_t::BINDING::NONE,      // N/A            = 7
-        symbol_t::BINDING::NONE,      // N/A            = 8
-        symbol_t::BINDING::NONE,      // N/A            = 9
-        symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
-        symbol_t::BINDING::NONE,      // N/A            = 11
-        symbol_t::BINDING::NONE,      // STB_HIOS       = 12
-        symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
-        symbol_t::BINDING::NONE,      // N/A            = 14
-        symbol_t::BINDING::NONE       // STB_HIPROC     = 15
-    };
-
     res.Name = unwrapOrError(Sym.getName(StrTable));
 
     //
@@ -2623,9 +2513,9 @@ int ProcessBinaryRelocations(void) {
 #endif
 
     res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-    res.Type = elf_symbol_type_mapping[Sym.getType()];
+    res.Type = sym_type_of_elf_sym_type(Sym.getType());
     res.Size = Sym.st_size;
-    res.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+    res.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
 
     if (res.Type == symbol_t::TYPE::NONE &&
         res.Bind == symbol_t::BINDING::WEAK && !res.Addr) {
@@ -2907,48 +2797,9 @@ int ProcessBinaryRelocations(void) {
       sym.Addr = is_undefined ? 0 : Sym->st_value;
       sym.Visibility.IsDefault = false;
 
-      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
-          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
-          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
-          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
-          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
-          symbol_t::TYPE::DATA,     // STT_FILE                = 4
-          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
-          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
-          symbol_t::TYPE::NONE,     // N/A                     = 7
-          symbol_t::TYPE::NONE,     // N/A                     = 8
-          symbol_t::TYPE::NONE,     // N/A                     = 9
-          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
-          symbol_t::TYPE::NONE,     // N/A                     = 11
-          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
-          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
-          symbol_t::TYPE::NONE,     // N/A                     = 14
-          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
-      };
-
-      sym.Type = elf_symbol_type_mapping[Sym->getType()];
+      sym.Type = sym_type_of_elf_sym_type(Sym->getType());
       sym.Size = Sym->st_size;
-
-      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
-          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
-          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
-          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-          symbol_t::BINDING::NONE,      // N/A            = 3
-          symbol_t::BINDING::NONE,      // N/A            = 4
-          symbol_t::BINDING::NONE,      // N/A            = 5
-          symbol_t::BINDING::NONE,      // N/A            = 6
-          symbol_t::BINDING::NONE,      // N/A            = 7
-          symbol_t::BINDING::NONE,      // N/A            = 8
-          symbol_t::BINDING::NONE,      // N/A            = 9
-          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
-          symbol_t::BINDING::NONE,      // N/A            = 11
-          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
-          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
-          symbol_t::BINDING::NONE,      // N/A            = 14
-          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
-      };
-
-      sym.Bind = elf_symbol_binding_mapping[Sym->getBinding()];
+      sym.Bind = sym_binding_of_elf_sym_binding(Sym->getBinding());
     }
 
     res.T = nullptr;
@@ -5474,48 +5325,10 @@ int ProcessDynamicSymbols2(void) {
                                            sym.Visibility.IsDefault);
       }
 
-      constexpr symbol_t::TYPE elf_symbol_type_mapping[] = {
-          symbol_t::TYPE::NONE,     // STT_NOTYPE              = 0
-          symbol_t::TYPE::DATA,     // STT_OBJECT              = 1
-          symbol_t::TYPE::FUNCTION, // STT_FUNC                = 2
-          symbol_t::TYPE::DATA,     // STT_SECTION             = 3
-          symbol_t::TYPE::DATA,     // STT_FILE                = 4
-          symbol_t::TYPE::DATA,     // STT_COMMON              = 5
-          symbol_t::TYPE::TLSDATA,  // STT_TLS                 = 6
-          symbol_t::TYPE::NONE,     // N/A                     = 7
-          symbol_t::TYPE::NONE,     // N/A                     = 8
-          symbol_t::TYPE::NONE,     // N/A                     = 9
-          symbol_t::TYPE::NONE,     // STT_GNU_IFUNC, STT_LOOS = 10
-          symbol_t::TYPE::NONE,     // N/A                     = 11
-          symbol_t::TYPE::NONE,     // STT_HIOS                = 12
-          symbol_t::TYPE::NONE,     // STT_LOPROC              = 13
-          symbol_t::TYPE::NONE,     // N/A                     = 14
-          symbol_t::TYPE::NONE      // STT_HIPROC              = 15
-      };
-
-      constexpr symbol_t::BINDING elf_symbol_binding_mapping[] = {
-          symbol_t::BINDING::LOCAL,     // STT_LOCAL      = 0
-          symbol_t::BINDING::GLOBAL,    // STB_GLOBAL     = 1
-          symbol_t::BINDING::WEAK,      // STB_WEAK       = 2
-          symbol_t::BINDING::NONE,      // N/A            = 3
-          symbol_t::BINDING::NONE,      // N/A            = 4
-          symbol_t::BINDING::NONE,      // N/A            = 5
-          symbol_t::BINDING::NONE,      // N/A            = 6
-          symbol_t::BINDING::NONE,      // N/A            = 7
-          symbol_t::BINDING::NONE,      // N/A            = 8
-          symbol_t::BINDING::NONE,      // N/A            = 9
-          symbol_t::BINDING::NONE,      // STB_GNU_UNIQUE = 10
-          symbol_t::BINDING::NONE,      // N/A            = 11
-          symbol_t::BINDING::NONE,      // STB_HIOS       = 12
-          symbol_t::BINDING::NONE,      // STB_LOPROC     = 13
-          symbol_t::BINDING::NONE,      // N/A            = 14
-          symbol_t::BINDING::NONE       // STB_HIPROC     = 15
-      };
-
       sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      sym.Type = elf_symbol_type_mapping[Sym.getType()];
+      sym.Type = sym_type_of_elf_sym_type(Sym.getType());
       sym.Size = Sym.st_size;
-      sym.Bind = elf_symbol_binding_mapping[Sym.getBinding()];
+      sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
 
       if (Sym.getType() == llvm::ELF::STT_OBJECT ||
           Sym.getType() == llvm::ELF::STT_TLS) {
