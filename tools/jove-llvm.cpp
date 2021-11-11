@@ -4383,10 +4383,10 @@ int CreateSectionGlobalVariables(void) {
                ".type   %s,@object\n"
                ".size   %s, %u\n"
                ".set    %s, __jove_sections_%u + %u")
-           % S.Name.str()
-           % S.Name.str()
-           % S.Name.str() % S.Size
-           % S.Name.str() % BinaryIndex % off).str());
+           % S.Name
+           % S.Name
+           % S.Name % S.Size
+           % S.Name % BinaryIndex % off).str());
 
       gdefs.insert({S.Addr, S.Size});
     }
