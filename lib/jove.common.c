@@ -558,4 +558,5 @@ void __nodce(void **p) {
   *p++ = __jove_callstack_begin;
   *p++ = (void *)_jove_trace_enabled();
   *p++ = (void *)_jove_dfsan_enabled();
+  *p++ = _jove_get_init_fn_sect_ptr;
 }
