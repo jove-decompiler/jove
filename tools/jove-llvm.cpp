@@ -50,8 +50,8 @@ namespace jove {
 // finding a defined symbol with the same name.
 //
 struct symbol_t {
-  llvm::StringRef Name;
-  llvm::StringRef Vers;
+  std::string Name;
+  std::string Vers;
   uint64_t Addr;
 
   enum class TYPE {
@@ -519,6 +519,15 @@ struct relocation_t {
   llvm::Constant *C; /* XXX */
 
   llvm::SmallString<32> RelocationTypeName;
+};
+
+static relocation_t::TYPE
+relocation_type_of_elf_rela_type(uint64_t elf_rela_ty) {
+  switch (elf_rela_ty) {
+#include "relocs.hpp"
+  default:
+    return relocation_t::TYPE::NONE;
+  }
 };
 
 static const char *string_of_reloc_type(relocation_t::TYPE ty) {
@@ -2433,6 +2442,75 @@ int ProcessDynamicTargets(void) {
   return 0;
 }
 
+class Relocation {
+public:
+  Relocation(const Elf_Rel &R, bool IsMips64EL)
+      : Type(R.getType(IsMips64EL)), Symbol(R.getSymbol(IsMips64EL)),
+        Offset(R.r_offset), Info(R.r_info) {}
+
+  Relocation(const typename ELFT::Rela &R, bool IsMips64EL)
+      : Relocation((const typename ELFT::Rel &)R, IsMips64EL) {
+    Addend = R.r_addend;
+  }
+
+  uint32_t Type;
+  uint32_t Symbol;
+  typename ELFT::uint Offset;
+  typename ELFT::uint Info;
+  llvm::Optional<int64_t> Addend;
+};
+
+struct RelSymbol {
+  RelSymbol(const typename ELFT::Sym *S, llvm::StringRef N)
+      : Sym(S), Name(N.str()) {}
+  const Elf_Sym *Sym;
+  std::string Name;
+};
+
+static RelSymbol getSymbolForReloc(ELFO &ObjF,
+                                   Elf_Sym_Range dynamic_symbols,
+                                   llvm::StringRef DynamicStringTable,
+                                   const Relocation &Reloc) {
+  auto WarnAndReturn = [&](const Elf_Sym *Sym,
+                           const llvm::Twine &Reason) -> RelSymbol {
+    WithColor::warning() << llvm::formatv(
+        "unable to get name of the dynamic symbol with index {0}: {1}\n",
+        llvm::Twine(Reloc.Symbol), Reason);
+    return {Sym, "<corrupt>"};
+  };
+
+  llvm::ArrayRef<Elf_Sym> Symbols = dynamic_symbols;
+  const Elf_Sym *FirstSym = Symbols.begin();
+  if (!FirstSym)
+    return WarnAndReturn(nullptr, "no dynamic symbol table found");
+
+  // We might have an object without a section header. In this case the size of
+  // Symbols is zero, because there is no way to know the size of the dynamic
+  // table. We should allow this case and not print a warning.
+  if (!Symbols.empty() && Reloc.Symbol >= Symbols.size())
+    return WarnAndReturn(
+        nullptr,
+        "index is greater than or equal to the number of dynamic symbols (" +
+            llvm::Twine(Symbols.size()) + ")");
+
+  const ELFF *Obj = ObjF.getELFFile();
+  const uint64_t FileSize = Obj->getBufSize();
+  const uint64_t SymOffset = ((const uint8_t *)FirstSym - Obj->base()) +
+                             (uint64_t)Reloc.Symbol * sizeof(Elf_Sym);
+  if (SymOffset + sizeof(Elf_Sym) > FileSize)
+    return WarnAndReturn(nullptr, "symbol at 0x" +
+                                      llvm::Twine::utohexstr(SymOffset) +
+                                      " goes past the end of the file (0x" +
+                                      llvm::Twine::utohexstr(FileSize) + ")");
+
+  const Elf_Sym *Sym = FirstSym + Reloc.Symbol;
+  llvm::Expected<llvm::StringRef> ErrOrName = Sym->getName(DynamicStringTable);
+  if (!ErrOrName)
+    return WarnAndReturn(Sym, llvm::toString(ErrOrName.takeError()));
+
+  return {Sym == FirstSym ? nullptr : Sym, (*ErrOrName).str()};
+}
+
 int ProcessBinaryRelocations(void) {
   binary_t &binary = Decompilation.Binaries[BinaryIndex];
 
@@ -2463,6 +2541,131 @@ int ProcessBinaryRelocations(void) {
                          SymbolVersionSection,
                          VersionMap);
 
+#if 1
+  if (!OptionalDynSymRegion)
+    return 0; /* no dynamic symbols */
+
+  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+    if (!OptionalDynSymRegion)
+      return {}; /* no dynamic symbols */
+
+    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+
+    return DynSymRegion.getAsArrayRef<Elf_Sym>();
+  };
+
+  DynRegionInfo DynRelRegion(O.getFileName());
+  DynRegionInfo DynRelaRegion(O.getFileName());
+  DynRegionInfo DynRelrRegion(O.getFileName());
+  DynRegionInfo DynPLTRelRegion(O.getFileName());
+
+  loadDynamicRelocations(&E, &O,
+                         DynamicTable,
+                         DynRelRegion,
+                         DynRelaRegion,
+                         DynRelrRegion,
+                         DynPLTRelRegion);
+
+  auto processDynamicReloc = [&](const Relocation &R) -> void {
+    RelSymbol RelSym =
+        getSymbolForReloc(O, dynamic_symbols(), DynamicStringTable, R);
+
+    if (RelSym.Sym)
+      WithColor::note() << llvm::formatv("processDynamicReloc: RelSym: {0}\n", RelSym.Name);
+    else
+      WithColor::note() << "processDynamicReloc: no symbol\n";
+
+    relocation_t &res = RelocationTable.emplace_back();
+
+    res.Addr = R.Offset;
+    res.Addend = R.Addend ? *R.Addend : 0;
+    res.Type = relocation_type_of_elf_rela_type(R.Type);
+    E.getRelocationTypeName(R.Type, res.RelocationTypeName);
+    res.T = nullptr;
+    res.C = nullptr;
+
+    if (const Elf_Sym *Sym = RelSym.Sym) {
+      res.SymbolIndex = SymbolTable.size();
+      symbol_t &sym = SymbolTable.emplace_back();
+
+      bool is_undefined = Sym->isUndefined() ||
+                          Sym->st_shndx == llvm::ELF::SHN_UNDEF;
+
+      sym.Name = RelSym.Name;
+      sym.Addr = is_undefined ? 0 : Sym->st_value;
+      sym.Visibility.IsDefault = false;
+
+      sym.Type = sym_type_of_elf_sym_type(Sym->getType());
+      sym.Size = Sym->st_size;
+      sym.Bind = sym_binding_of_elf_sym_binding(Sym->getBinding());
+
+      if (sym.Type == symbol_t::TYPE::NONE &&
+          sym.Bind == symbol_t::BINDING::WEAK && !sym.Addr) {
+        WithColor::warning() << llvm::formatv("making {0} into function symbol\n",
+                                              sym.Name);
+        sym.Type = symbol_t::TYPE::FUNCTION;
+      }
+
+      if (SymbolVersionSection && OptionalDynSymRegion) {
+        // Determine the position in the symbol table of this entry.
+        size_t EntryIndex =
+            (reinterpret_cast<uintptr_t>(Sym) -
+             reinterpret_cast<uintptr_t>(OptionalDynSymRegion->Addr)) /
+            sizeof(Elf_Sym);
+
+        // Get the corresponding version index entry.
+        llvm::Expected<const Elf_Versym *> ExpectedVersym =
+            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
+
+        if (ExpectedVersym) {
+          sym.Vers = getSymbolVersionByIndex(VersionMap,
+                                             DynamicStringTable,
+                                             (*ExpectedVersym)->vs_index,
+                                             sym.Visibility.IsDefault);
+        }
+      }
+    } else {
+      res.SymbolIndex = std::numeric_limits<unsigned>::max();
+    }
+  };
+
+  {
+    const bool IsMips64EL = E.isMips64EL();
+
+    //
+    // from ELFDumper::printDynamicRelocationsHelper()
+    //
+    if (DynRelaRegion.Size > 0) {
+      for (const Elf_Rela &Rela : DynRelaRegion.getAsArrayRef<Elf_Rela>())
+        processDynamicReloc(Relocation(Rela, IsMips64EL));
+    }
+
+    if (DynRelRegion.Size > 0) {
+      for (const Elf_Rel &Rel : DynRelRegion.getAsArrayRef<Elf_Rel>())
+        processDynamicReloc(Relocation(Rel, IsMips64EL));
+    }
+
+    if (DynRelrRegion.Size > 0) {
+      Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
+      llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
+      if (ExpectedRelrRelas) {
+        for (const Elf_Rela &Rela : *ExpectedRelrRelas)
+          processDynamicReloc(Relocation(Rela, IsMips64EL));
+      }
+    }
+
+    if (DynPLTRelRegion.Size > 0) {
+      if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
+        for (const Elf_Rela &Rela : DynPLTRelRegion.getAsArrayRef<Elf_Rela>())
+          processDynamicReloc(Relocation(Rela, IsMips64EL));
+      } else {
+        for (const Elf_Rel &Rel : DynPLTRelRegion.getAsArrayRef<Elf_Rel>())
+          processDynamicReloc(Relocation(Rel, IsMips64EL));
+      }
+    }
+  }
+
+#else
   auto process_elf_sym = [&](const Elf_Shdr *Sec, const Elf_Sym &Sym) -> void {
     symbol_t &res = SymbolTable.emplace_back();
 
@@ -2593,15 +2796,6 @@ int ProcessBinaryRelocations(void) {
       res.SymbolIndex = std::numeric_limits<unsigned>::max();
     }
 
-    auto relocation_type_of_elf_rela_type =
-        [](uint64_t elf_rela_ty) -> relocation_t::TYPE {
-      switch (elf_rela_ty) {
-#include "relocs.hpp"
-      default:
-        return relocation_t::TYPE::NONE;
-      }
-    };
-
     if (E.isMips64EL()) {
       unsigned Type = R.getType(E.isMips64EL());
 
@@ -2656,7 +2850,9 @@ int ProcessBinaryRelocations(void) {
         process_elf_rela(&Sec, Rela);
     }
   }
+#endif
 
+#if 0
   //
   // DT_REL
   //
@@ -2688,17 +2884,9 @@ int ProcessBinaryRelocations(void) {
       }
     }
   }
+#endif
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-    if (!OptionalDynSymRegion)
-      return {}; /* no dynamic symbols */
-
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
-
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
-
   MipsGOTParser Parser(E, binary.Path);
   if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                        dynamic_symbols())) {
@@ -2807,7 +2995,7 @@ int ProcessBinaryRelocations(void) {
       symbol_t &sym = SymbolTable[reloc.SymbolIndex];
       llvm::outs() <<
         (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-         % sym.Name.str()
+         % sym.Name
          % string_of_sym_type(sym.Type)
          % string_of_sym_binding(sym.Bind)
          % sym.Addr
@@ -3336,13 +3524,13 @@ int CreateFunctions(void) {
             (fmt(".globl %s\n"
                  ".type  %s,@function\n"
                  ".set   %s, __jove_sections_%u + %u")
-             % sym.Name.str()
-             % sym.Name.str()
-             % sym.Name.str() % BinaryIndex % off).str());
+             % sym.Name
+             % sym.Name
+             % sym.Name % BinaryIndex % off).str());
 #endif
       } else {
          // make sure version node is defined
-        VersionScript.Table[sym.Vers.str()];
+        VersionScript.Table[sym.Vers];
 
 #if 0
         Module->appendModuleInlineAsm(
@@ -4870,7 +5058,7 @@ int CreateSectionGlobalVariables(void) {
 
           llvm::outs() <<
             (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-             % sym.Name.str()
+             % sym.Name
              % string_of_sym_type(sym.Type)
              % string_of_sym_binding(sym.Bind)
              % sym.Addr
@@ -4905,7 +5093,7 @@ int CreateSectionGlobalVariables(void) {
 
           llvm::outs() <<
             (fmt("%-30s *%-10s *%-8s @ %x {%d}")
-             % sym.Name.str()
+             % sym.Name
              % string_of_sym_type(sym.Type)
              % string_of_sym_binding(sym.Bind)
              % sym.Addr
@@ -5332,10 +5520,10 @@ int ProcessDynamicSymbols2(void) {
                          ".type  %s,@object\n"
                          ".size  %s, %u\n"
                          ".set   %s, __jove_sections_%u + %u")
-                     % sym.Name.str()
-                     % sym.Name.str()
-                     % sym.Name.str() % Sym.st_size
-                     % sym.Name.str() % BinaryIndex % off).str());
+                     % sym.Name
+                     % sym.Name
+                     % sym.Name % Sym.st_size
+                     % sym.Name % BinaryIndex % off).str());
               } else {
                 if (gdefs.find({Sym.st_value, Sym.st_size}) == gdefs.end()) {
                   Module->appendModuleInlineAsm(
@@ -5356,17 +5544,17 @@ int ProcessDynamicSymbols2(void) {
                 Module->appendModuleInlineAsm(
                     (fmt(".symver g%lx_%u, %s%s%s")
                      % Sym.st_value % Sym.st_size
-                     % sym.Name.str()
+                     % sym.Name
                      % (sym.Visibility.IsDefault ? "@@" : "@")
-                     % sym.Vers.str()).str());
+                     % sym.Vers).str());
 
                 // make sure version node is defined
-                VersionScript.Table[sym.Vers.str()];
+                VersionScript.Table[sym.Vers];
               }
             } else {
               if (Module->getNamedValue(sym.Name)) {
                 if (!sym.Vers.empty())
-                  VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+                  VersionScript.Table[sym.Vers].insert(sym.Name);
 
                 continue;
               }
@@ -5377,7 +5565,7 @@ int ProcessDynamicSymbols2(void) {
 
               llvm::GlobalAlias::create(sym.Name, GV);
               if (!sym.Vers.empty())
-                VersionScript.Table[sym.Vers.str()].insert(sym.Name.str());
+                VersionScript.Table[sym.Vers].insert(sym.Name);
             }
           }
         }

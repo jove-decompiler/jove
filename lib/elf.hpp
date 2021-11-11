@@ -664,6 +664,75 @@ static std::string describe(const ELFF &Obj, const typename ELFT::Shdr &Sec) {
   return std::string(buff);
 }
 
+static void loadDynamicRelocations(const ELFF *Obj,
+                                   const ELFO *ObjF,
+                                   const DynRegionInfo &DynamicTable,
+                                   DynRegionInfo &DynRelRegion,
+                                   DynRegionInfo &DynRelaRegion,
+                                   DynRegionInfo &DynRelrRegion,
+                                   DynRegionInfo &DynPLTRelRegion) {
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (Dyn.d_tag == llvm::ELF::DT_NULL)
+      break; /* marks end of dynamic table. */
+
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_RELA:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+        DynRelaRegion.Addr = *ExpectedPtr;
+      break;
+    case llvm::ELF::DT_RELASZ:
+      DynRelaRegion.Size = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_RELAENT:
+      DynRelaRegion.EntSize = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_REL:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+        DynRelRegion.Addr = *ExpectedPtr;
+      break;
+    case llvm::ELF::DT_RELSZ:
+      DynRelRegion.Size = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_RELENT:
+      DynRelRegion.EntSize = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_RELR:
+    case llvm::ELF::DT_ANDROID_RELR:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+        DynRelrRegion.Addr = *ExpectedPtr;
+      break;
+    case llvm::ELF::DT_RELRSZ:
+    case llvm::ELF::DT_ANDROID_RELRSZ:
+      DynRelrRegion.Size = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_RELRENT:
+    case llvm::ELF::DT_ANDROID_RELRENT:
+      DynRelrRegion.EntSize = Dyn.getVal();
+      break;
+    case llvm::ELF::DT_PLTREL:
+      if (Dyn.getVal() == llvm::ELF::DT_REL)
+        DynPLTRelRegion.EntSize = sizeof(Elf_Rel);
+      else if (Dyn.getVal() == llvm::ELF::DT_RELA)
+        DynPLTRelRegion.EntSize = sizeof(Elf_Rela);
+      else
+        WithColor::warning() << (llvm::Twine("unknown DT_PLTREL value of ") +
+                                 llvm::Twine((uint64_t)Dyn.getVal()));
+      break;
+    case llvm::ELF::DT_JMPREL:
+      if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
+        DynPLTRelRegion.Addr = *ExpectedPtr;
+      break;
+    case llvm::ELF::DT_PLTRELSZ:
+      DynPLTRelRegion.Size = Dyn.getVal();
+      break;
+    }
+  }
+}
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
 
 class MipsGOTParser {
