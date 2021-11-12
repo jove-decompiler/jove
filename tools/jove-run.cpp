@@ -624,26 +624,6 @@ static int do_run(void) {
         return 1;
       }
     }
-
-    //
-    // (3) perform the renames!!!
-    //
-    for (const binary_t &binary : decompilation.Binaries) {
-      if (binary.IsVDSO)
-        continue;
-      if (binary.IsDynamicLinker)
-        continue;
-
-      std::string new_path = binary.Path + ".jove.new";
-
-      if (rename(new_path.c_str(), binary.Path.c_str()) < 0) {
-        int err = errno;
-        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                            new_path.c_str(),
-                                            binary.Path.c_str(),
-                                            strerror(err));
-      }
-    }
   }
 
   //
@@ -782,12 +762,34 @@ static int do_run(void) {
 
     arg_vec.push_back(nullptr);
 
-#if 0
-    if (LivingDangerously)
-      usleep(500000 /* 0.5 s */);
+    print_command(&arg_vec[0]);
+
+#if 1
+    if (LivingDangerously) {
+      usleep(100000 /* 0.1 s */);
+
+      //
+      // (3) perform the renames!!!
+      //
+      for (const binary_t &binary : decompilation.Binaries) {
+        if (binary.IsVDSO)
+          continue;
+        if (binary.IsDynamicLinker)
+          continue;
+
+        std::string new_path = binary.Path + ".jove.new";
+
+        if (rename(new_path.c_str(), binary.Path.c_str()) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                              new_path.c_str(),
+                                              binary.Path.c_str(),
+                                              strerror(err));
+        }
+      }
+    }
 #endif
 
-    print_command(&arg_vec[0]);
     execve(arg_vec[0],
            const_cast<char **>(&arg_vec[0]),
            const_cast<char **>(&env_vec[0]));
@@ -835,7 +837,10 @@ static int do_run(void) {
     /* if we got here, the other end of the pipe must have been closed,
      * most likely by close-on-exec */
 
-    usleep(opts::DangerousSleep1); /* wait for the dynamic linker to load the program */
+    if (usleep(opts::DangerousSleep1) < 0) { /* wait for the dynamic linker to load the program */
+      int err = errno;
+      WithColor::error() << llvm::formatv("usleep failed: {0}\n", strerror(err));
+    }
 
     //
     // (4) perform the renames to undo the changes we made to the root
