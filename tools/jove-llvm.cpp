@@ -8055,8 +8055,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       if (T.Type == TERMINATOR::INDIRECT_JUMP)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
 
-      if (T.Type == TERMINATOR::INDIRECT_CALL)
-        IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
 
       if (JoveFail1Func) {
         llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
