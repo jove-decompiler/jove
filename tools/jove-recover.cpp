@@ -102,7 +102,7 @@ static cl::list<std::string> Returns("returns", cl::CommaSeparated,
 
 static cl::list<std::string>
     Function("function", cl::CommaSeparated,
-               cl::value_desc("IndCallBIdx,IndCallBBIdx,FileAddr"),
+               cl::value_desc("IndCallBIdx,IndCallBBIdx,CalleeBIdx,CalleeAddr"),
                cl::desc("New target for indirect branch that is a function"),
                cl::cat(JoveCategory));
 
@@ -494,27 +494,33 @@ int recover(void) {
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
               .str();
   } else if (opts::Function.size() > 0) {
+    assert(opts::Function.size() == 4);
+
     struct {
       binary_index_t BIdx;
       basic_block_index_t BBIdx;
-
-      uint64_t Target;
     } IndCall;
 
-    IndCall.BIdx = strtoul(opts::Function[0].c_str(), nullptr, 10);
+    struct {
+      binary_index_t BIdx;
+      target_ulong FileAddr;
+    } Callee;
+
+    IndCall.BIdx  = strtoul(opts::Function[0].c_str(), nullptr, 10);
     IndCall.BBIdx = strtoul(opts::Function[1].c_str(), nullptr, 10);
 
-    IndCall.Target = strtoul(opts::Function[2].c_str(), nullptr, 10);
-
-    auto &ICFG = Decompilation.Binaries.at(IndCall.BIdx).Analysis.ICFG;
+    Callee.BIdx     = strtoul(opts::Function[2].c_str(), nullptr, 10);
+    Callee.FileAddr = strtoul(opts::Function[3].c_str(), nullptr, 10);
 
     function_index_t TargetFIdx =
-        translate_function(IndCall.BIdx, tcg, dis, IndCall.Target);
+        translate_function(Callee.BIdx, tcg, dis, Callee.FileAddr);
     if (!is_function_index_valid(TargetFIdx)) {
       WithColor::error() << llvm::formatv(
-          "failed to translate indirect call target {0:x}\n", IndCall.Target);
+          "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
       return 1;
     }
+
+    auto &ICFG = Decompilation.Binaries.at(IndCall.BIdx).Analysis.ICFG;
 
     basic_block_t bb = boost::vertex(IndCall.BBIdx, ICFG);
 
@@ -523,12 +529,12 @@ int recover(void) {
 
 
     bool isNewTarget = ICFG[boost::vertex(IndCall.BBIdx, ICFG)]
-                           .DynTargets.insert({IndCall.BIdx, TargetFIdx})
+                           .DynTargets.insert({Callee.BIdx, TargetFIdx})
                            .second;
 
     msg = (fmt("[jove-recover] *(call) %s -> %s") %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
-           DescribeFunction(IndCall.BIdx, TargetFIdx))
+           DescribeFunction(Callee.BIdx, TargetFIdx))
               .str();
   } else if (opts::Returns.size() > 0) {
     struct {

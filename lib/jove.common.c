@@ -10,6 +10,8 @@ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
+extern uintptr_t *__jove_sections_table[_JOVE_MAX_BINARIES];
+
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
 _CTOR _HIDDEN void _jove_initialize(void) {
@@ -18,8 +20,20 @@ _CTOR _HIDDEN void _jove_initialize(void) {
     return;
   _Done = true;
 
+  const unsigned BIdx = _jove_binary_index();
+
   _jove_install_foreign_function_tables();
-  __jove_function_tables[_jove_binary_index()] = _jove_get_function_table();
+  __jove_function_tables[BIdx] = _jove_get_function_table();
+
+  {
+    static uintptr_t _Entry[3];
+
+    _Entry[0] = _jove_sections_global_beg_addr();
+    _Entry[1] = _jove_sections_global_end_addr();
+    _Entry[2] = _jove_sections_start_file_addr();
+
+    __jove_sections_table[BIdx] = &_Entry[0];
+  }
 
   _jove_do_tpoff_hack();
   _jove_do_emulate_copy_relocations();

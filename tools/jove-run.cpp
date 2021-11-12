@@ -1164,7 +1164,10 @@ void *recover_proc(const char *fifo_path) {
         uint32_t BBIdx;
       } IndCall;
 
-      uintptr_t FileAddr;
+      struct {
+        uint32_t BIdx;
+        uintptr_t FileAddr;
+      } Callee;
 
       {
         ssize_t ret;
@@ -1175,7 +1178,10 @@ void *recover_proc(const char *fifo_path) {
         ret = robust_read(recover_fd, &IndCall.BBIdx, sizeof(uint32_t));
         assert(ret == sizeof(uint32_t));
 
-        ret = robust_read(recover_fd, &FileAddr, sizeof(uintptr_t));
+        ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
+        assert(ret == sizeof(uintptr_t));
+
+        ret = robust_read(recover_fd, &Callee.FileAddr, sizeof(uintptr_t));
         assert(ret == sizeof(uintptr_t));
       }
 
@@ -1183,10 +1189,11 @@ void *recover_proc(const char *fifo_path) {
       if (!pid) {
         char buff[256];
         snprintf(buff, sizeof(buff),
-                 "--function=%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
+                 "--function=%" PRIu32 ",%" PRIu32 ",%" PRIu32 ",%" PRIuPTR,
                  IndCall.BIdx,
                  IndCall.BBIdx,
-                 FileAddr);
+                 Callee.BIdx,
+                 Callee.FileAddr);
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};

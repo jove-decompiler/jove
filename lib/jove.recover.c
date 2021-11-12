@@ -1,3 +1,7 @@
+//
+// this code is paired with tools/jove-recover.cpp
+//
+
 _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
                                       uintptr_t CalleeAddr) {
 #if 0
@@ -283,24 +287,38 @@ _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
     uint32_t BBIdx;
   } IndCall;
 
-  struct {
-    uintptr_t Beg;
-    uintptr_t End;
-  } SectionsGlobal;
-
-  uintptr_t SectsStartFileAddr;
-
   IndCall.BIdx = _jove_binary_index();
   IndCall.BBIdx = IndCallBBIdx;
 
-  SectionsGlobal.Beg = _jove_sections_global_beg_addr();
-  SectionsGlobal.End = _jove_sections_global_end_addr();
-  SectsStartFileAddr = _jove_sections_start_file_addr();
+  struct {
+    uint32_t BIdx;
+    uintptr_t FileAddr;
+  } Callee;
 
-  if (!(FuncAddr >= SectionsGlobal.Beg && FuncAddr < SectionsGlobal.End))
-    return; /* not found */
+  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
+    uintptr_t *Entry = __jove_sections_table[BIdx];
+    if (likely(!Entry))
+      continue;
 
-  uintptr_t FileAddr = (FuncAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
+    struct {
+      uintptr_t Beg;
+      uintptr_t End;
+    } SectionsGlobal;
+
+    uintptr_t SectsStartFileAddr;
+
+    SectionsGlobal.Beg = Entry[0];
+    SectionsGlobal.End = Entry[1];
+    SectsStartFileAddr = Entry[2];
+
+    if (FuncAddr >= SectionsGlobal.Beg && FuncAddr < SectionsGlobal.End) {
+      Callee.BIdx = BIdx;
+      Callee.FileAddr = (FuncAddr - SectionsGlobal.Beg) + SectsStartFileAddr;
+      goto found;
+    }
+  }
+
+  return; /* not found */
 
 found:
   {
@@ -316,12 +334,13 @@ found:
       char ch = 'F';
 
       {
-        char buff[sizeof(char) + 2 * sizeof(uint32_t) + sizeof(uintptr_t)];
+        char buff[sizeof(char) + 3 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
         buff[0] = ch;
-        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
-        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
-        *((uintptr_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
+         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
+         *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
+        *((uintptr_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FileAddr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
