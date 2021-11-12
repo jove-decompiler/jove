@@ -148,7 +148,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (opts::Function.size() > 0 && opts::Function.size() != 3) {
+  if (opts::Function.size() > 0 && opts::Function.size() != 4) {
     WithColor::error() << "-function: invalid tuple\n";
     return 1;
   }
