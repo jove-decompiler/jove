@@ -1184,7 +1184,7 @@ void *recover_proc(const char *fifo_path) {
         assert(ret == sizeof(uint32_t));
 
         ret = robust_read(recover_fd, &Callee.BIdx, sizeof(uint32_t));
-        assert(ret == sizeof(uintptr_t));
+        assert(ret == sizeof(uint32_t));
 
         ret = robust_read(recover_fd, &Callee.FileAddr, sizeof(uintptr_t));
         assert(ret == sizeof(uintptr_t));
