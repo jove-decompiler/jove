@@ -853,8 +853,8 @@ static int do_run(void) {
       if (binary.IsDynamicLinker)
         continue;
       if (binary.IsDynamicallyLoaded) {
-	HaveDynamicallyLoaded = true;
-	continue;
+        HaveDynamicallyLoaded = true;
+        continue;
       }
 
       std::string sav_path = binary.Path + ".jove.sav";
@@ -876,22 +876,21 @@ static int do_run(void) {
       // for all the dynamically loaded DSOs
       //
       for (const binary_t &binary : decompilation.Binaries) {
-	if (binary.IsVDSO)
-	  continue;
-	if (binary.IsDynamicLinker)
-	  continue;
-	if (!binary.IsDynamicallyLoaded)
-	  continue;
+        if (binary.IsVDSO)
+          continue;
+        if (binary.IsDynamicLinker)
+          continue;
+        if (!binary.IsDynamicallyLoaded)
+          continue;
 
-	std::string sav_path = binary.Path + ".jove.sav";
+        std::string sav_path = binary.Path + ".jove.sav";
 
-	if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
-	  int err = errno;
-	  WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-					      sav_path.c_str(),
-					      binary.Path.c_str(),
-					      strerror(err));
-	}
+        if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv(
+              "rename of {0} to {1} failed: {2}\n",
+              sav_path.c_str(), binary.Path.c_str(), strerror(err));
+        }
       }
     }
 
