@@ -642,6 +642,7 @@ static std::unique_ptr<llvm::TargetMachine> TM;
 static std::vector<symbol_t> SymbolTable;
 static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<target_ulong> ConstantRelocationLocs;
+static target_ulong libcEarlyInitAddr;
 
 static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
@@ -1985,7 +1986,9 @@ int ProcessDynamicSymbols(void) {
     };
 
     for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.isUndefined()) /* defined */
+      const bool is_undefined = Sym.isUndefined() ||
+                                Sym.st_shndx == llvm::ELF::SHN_UNDEF;
+      if (is_undefined)
         continue;
 
       llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
@@ -2095,10 +2098,24 @@ int ProcessDynamicSymbols(void) {
           FuncIdx = (*it).second;
         }
 
-        Decompilation.Binaries[BIdx].Analysis.Functions[FuncIdx].Syms.push_back(
-            sym);
+        Decompilation.Binaries[BIdx].Analysis.Functions[FuncIdx].Syms.push_back(sym);
 
         ExportedFunctions[SymName].insert({BIdx, FuncIdx});
+
+        if (BIdx == BinaryIndex) {
+          //
+          // XXX hack for glibc 2.32+
+          //
+          if (sym.Name == "__libc_early_init" &&
+              sym.Vers == "GLIBC_PRIVATE") {
+            Module->appendModuleInlineAsm(
+                ".symver "
+                "_jove__libc_early_init,__libc_early_init@@GLIBC_PRIVATE");
+            VersionScript.Table["GLIBC_PRIVATE"];
+
+            libcEarlyInitAddr = Sym.st_value;
+          }
+        }
       } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
         std::pair<binary_index_t, function_index_t> IdxPair(
             invalid_binary_index, invalid_function_index);
@@ -3298,6 +3315,11 @@ int CreateFunctions(void) {
     unsigned off = Addr - Binary.SectsStartAddr;
 
     for (const symbol_t &sym : f.Syms) {
+      // XXX hack for glibc 2.32+
+      if (sym.Name == "__libc_early_init" &&
+          sym.Vers == "GLIBC_PRIVATE")
+        continue;
+
       if (sym.Vers.empty()) {
 #if 0
         llvm::GlobalAlias::create(sym.Name, f.F);
@@ -4319,7 +4341,11 @@ int CreateSectionGlobalVariables(void) {
 
       TPOFFHack[R.Addr] = GV;
 
+#if 1
       return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+#else
+      return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, WordBits()), 0x12345678);
+#endif
     }
 
 #if defined(TARGET_I386) || defined(TARGET_MIPS32)
@@ -4389,7 +4415,11 @@ int CreateSectionGlobalVariables(void) {
 
     TPOFFHack[R.Addr] = GV;
 
+#if 1
     return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+#else
+    return llvm::ConstantInt::get(llvm::Type::getIntNTy(*Context, WordBits()), 0x12345678);
+#endif
   };
 
   auto constant_of_tpmod_relocation =
@@ -5116,6 +5146,107 @@ int CreateSectionGlobalVariables(void) {
                           ? SectionPointer(initFunctionAddr)
                           : llvm::Constant::getNullValue(WordType()));
       }
+
+      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+      F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    }
+  }
+
+  if (llvm::Function *F = Module->getFunction("_jove_get_libc_early_init_fn")) {
+    assert(F && F->empty());
+
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+      llvm::Value *Ret = nullptr;
+      if (libcEarlyInitAddr) {
+        auto it = FuncMap.find(libcEarlyInitAddr);
+
+        assert(it != FuncMap.end());
+
+        function_t &f = Decompilation.Binaries[BinaryIndex]
+                           .Analysis.Functions[(*it).second];
+
+        Ret = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+      } else {
+        Ret = llvm::Constant::getNullValue(WordType());
+      }
+      IRB.CreateRet(Ret);
+
+      F->setLinkage(llvm::GlobalValue::ExternalLinkage);
+      F->setVisibility(llvm::GlobalValue::HiddenVisibility);
+    }
+  }
+
+  if (llvm::Function *F = Module->getFunction("_jove_get_libc_early_init_fn_sect_ptr")) {
+    assert(F && F->empty());
+
+    llvm::DIBuilder &DIB = *DIBuilder;
+    llvm::DISubprogram::DISPFlags SubProgFlags =
+        llvm::DISubprogram::SPFlagDefinition |
+        llvm::DISubprogram::SPFlagOptimized;
+
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+    llvm::DISubroutineType *SubProgType =
+        DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+    struct {
+      llvm::DISubprogram *Subprogram;
+    } DebugInfo;
+
+    DebugInfo.Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+    F->setSubprogram(DebugInfo.Subprogram);
+
+    llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+    {
+      llvm::IRBuilderTy IRB(BB);
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+      IRB.CreateRet(libcEarlyInitAddr
+                        ? SectionPointer(libcEarlyInitAddr)
+                        : llvm::Constant::getNullValue(WordType()));
 
       F->setLinkage(llvm::GlobalValue::ExternalLinkage);
       F->setVisibility(llvm::GlobalValue::HiddenVisibility);
