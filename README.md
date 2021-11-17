@@ -202,7 +202,7 @@ You must build llvm [1]. It is probably necessary to do this in order to recompi
 
 ```bash
 # on debian testing:
-apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build easy-graph graphviz libxml2 libgraph-easy-perl gmsl libz3-dev
+apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build graphviz libxml2 libgraph-easy-perl gmsl libz3-dev libtinfo-dev pkg-config libglib2.0-dev
 apt-get build-dep llvm
 
 # on archlinux: yay -Syu ninja cmake graphviz libxml2 gmsl perl-graph-easy
