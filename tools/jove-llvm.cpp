@@ -123,7 +123,9 @@ struct hook_t;
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::Function *SectsF = nullptr;                                            \
-  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;
+  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
+  tcg_uintptr_t SectsStartAddr = 0;                                            \
+  tcg_uintptr_t SectsEndAddr = 0;
 
 #include "tcgcommon.hpp"
 
@@ -690,7 +692,6 @@ static llvm::GlobalVariable *DFSanFiniClunk;
 
 static llvm::GlobalVariable *SectsGlobal;
 static llvm::GlobalVariable *ConstSectsGlobal;
-static target_ulong SectsStartAddr, SectsEndAddr;
 static llvm::GlobalVariable *TLSSectsGlobal;
 
 static llvm::GlobalVariable *TLSModGlobal;
@@ -1177,72 +1178,75 @@ int InitStateForBinaries(void) {
 
       binary.ObjectFile = std::move(BinRef);
 
-      if (BIdx == BinaryIndex) {
-        assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-        ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+      assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+      ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
 
-        TheTriple = O.makeTriple();
-        Features = O.getFeatures();
+      TheTriple = O.makeTriple();
+      Features = O.getFeatures();
 
-        const ELFF &E = *O.getELFFile();
+      const ELFF &E = *O.getELFFile();
 
-        llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
-        if (ExpectedSections && !(*ExpectedSections).empty()) {
-          target_ulong minAddr = std::numeric_limits<target_ulong>::max(),
-                       maxAddr = 0;
+      auto &SectsStartAddr = binary.SectsStartAddr;
+      auto &SectsEndAddr   = binary.SectsEndAddr;
 
-          for (const Elf_Shdr &Sec : *ExpectedSections) {
-            if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-              continue;
+      llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+      if (ExpectedSections && !(*ExpectedSections).empty()) {
+        target_ulong minAddr = std::numeric_limits<target_ulong>::max(),
+                     maxAddr = 0;
 
-            llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
+        for (const Elf_Shdr &Sec : *ExpectedSections) {
+          if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+            continue;
 
-            if (!name)
-              continue;
+          llvm::Expected<llvm::StringRef> name = E.getSectionName(&Sec);
 
-            if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
-                *name == std::string(".tbss"))
-              continue;
+          if (!name)
+            continue;
 
-            if (!Sec.sh_size)
-              continue;
+          if ((Sec.sh_flags & llvm::ELF::SHF_TLS) &&
+              *name == std::string(".tbss"))
+            continue;
 
-            minAddr = std::min<target_ulong>(minAddr, Sec.sh_addr);
-            maxAddr = std::max<target_ulong>(maxAddr, Sec.sh_addr + Sec.sh_size);
-          }
+          if (!Sec.sh_size)
+            continue;
 
-          SectsStartAddr = minAddr;
-          SectsEndAddr = maxAddr;
-        } else {
-          llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
-
-          auto ProgramHeadersOrError = E.program_headers();
-          if (!ProgramHeadersOrError)
-            abort();
-
-          for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
-            if (Phdr.p_type != llvm::ELF::PT_LOAD)
-              continue;
-
-            LoadSegments.push_back(&Phdr);
-          }
-
-          assert(!LoadSegments.empty());
-
-          std::stable_sort(LoadSegments.begin(),
-                           LoadSegments.end(),
-                           [](const Elf_Phdr *A,
-                              const Elf_Phdr *B) {
-                             return A->p_vaddr < B->p_vaddr;
-                           });
-
-          SectsStartAddr = LoadSegments.front()->p_vaddr;
-          SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
+          minAddr = std::min<target_ulong>(minAddr, Sec.sh_addr);
+          maxAddr = std::max<target_ulong>(maxAddr, Sec.sh_addr + Sec.sh_size);
         }
 
-        WithColor::note() << llvm::formatv("SectsStartAddr is {0:x}\n",
-                                           SectsStartAddr);
+        SectsStartAddr = minAddr;
+        SectsEndAddr = maxAddr;
+      } else {
+        llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+
+        auto ProgramHeadersOrError = E.program_headers();
+        if (!ProgramHeadersOrError)
+          abort();
+
+        for (const Elf_Phdr &Phdr : *ProgramHeadersOrError) {
+          if (Phdr.p_type != llvm::ELF::PT_LOAD)
+            continue;
+
+          LoadSegments.push_back(&Phdr);
+        }
+
+        assert(!LoadSegments.empty());
+
+        std::stable_sort(LoadSegments.begin(),
+                         LoadSegments.end(),
+                         [](const Elf_Phdr *A,
+                            const Elf_Phdr *B) {
+                           return A->p_vaddr < B->p_vaddr;
+                         });
+
+        SectsStartAddr = LoadSegments.front()->p_vaddr;
+        SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
       }
+
+      WithColor::note() << llvm::formatv("{0}: {1:x}, {2:x}\n",
+                                         binary.Path,
+                                         SectsStartAddr,
+                                         SectsEndAddr);
     }
   }
 
@@ -3291,7 +3295,7 @@ int CreateFunctions(void) {
     //f.F->addFnAttr(llvm::Attribute::UWTable);
 
     target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-    unsigned off = Addr - SectsStartAddr;
+    unsigned off = Addr - Binary.SectsStartAddr;
 
     for (const symbol_t &sym : f.Syms) {
       if (sym.Vers.empty()) {
@@ -3536,9 +3540,11 @@ static Value *getNaturalGEPWithOffset(IRBuilderTy &IRB, const DataLayout &DL,
 namespace jove {
 
 llvm::Constant *SectionPointer(target_ulong Addr) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+
   int64_t off =
       static_cast<int64_t>(Addr) -
-      static_cast<int64_t>(SectsStartAddr);
+      static_cast<int64_t>(Binary.SectsStartAddr);
 
   return llvm::ConstantExpr::getAdd(
       llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -3556,8 +3562,9 @@ static std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S);
 
 int CreateSectionGlobalVariables(void) {
-  auto &ObjectFile = Decompilation.Binaries[BinaryIndex].ObjectFile;
-  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  auto &ObjectFile = Binary.ObjectFile;
+  auto &FuncMap = Binary.FuncMap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
@@ -3647,6 +3654,9 @@ int CreateSectionGlobalVariables(void) {
   boost::icl::interval_map<target_ulong, unsigned> SectIdxMap;
 
   std::vector<std::vector<uint8_t>> SegContents;
+
+  auto &SectsStartAddr = Binary.SectsStartAddr;
+  auto &SectsEndAddr = Binary.SectsEndAddr;
 
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
@@ -5290,7 +5300,7 @@ int ProcessDynamicSymbols2(void) {
           } else {
             auto it = AddrToSymbolMap.find(Sym.st_value);
             if (it == AddrToSymbolMap.end()) {
-              unsigned off = Sym.st_value - SectsStartAddr;
+              unsigned off = Sym.st_value - binary.SectsStartAddr;
 
               if (sym.Vers.empty()) {
                 Module->appendModuleInlineAsm(
@@ -5442,9 +5452,9 @@ decipher_copy_relocation(const symbol_t &S) {
         //
         // we have a match.
         //
-        assert(Sym.st_value > SectsStartAddr);
+        assert(Sym.st_value > binary.SectsStartAddr);
 
-        return {BIdx, {Sym.st_value, Sym.st_value - SectsStartAddr}};
+        return {BIdx, {Sym.st_value, Sym.st_value - binary.SectsStartAddr}};
       }
     }
   }
@@ -5458,6 +5468,8 @@ decipher_copy_relocation(const symbol_t &S) {
 static llvm::Value *insertThreadPointerInlineAsm(llvm::IRBuilderTy &);
 
 int CreateTPOFFCtorHack(void) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+
   llvm::Function *F = Module->getFunction("_jove_do_tpoff_hack");
   assert(F && F->empty());
 
@@ -5503,7 +5515,7 @@ int CreateTPOFFCtorHack(void) {
       TP = insertThreadPointerInlineAsm(IRB);
 
     for (const auto &pair : TPOFFHack) {
-      uintptr_t off = pair.first - SectsStartAddr;
+      uintptr_t off = pair.first - Binary.SectsStartAddr;
 
       assert(pair.second->getType()->isPointerTy() ||
              pair.second->getType()->isIntegerTy());
@@ -5686,7 +5698,7 @@ int FixupHelperStubs(void) {
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
-      IRB.CreateRet(llvm::ConstantInt::get(WordType(), SectsStartAddr));
+      IRB.CreateRet(llvm::ConstantInt::get(WordType(), Binary.SectsStartAddr));
     }
 
     F->setLinkage(llvm::GlobalValue::InternalLinkage);
@@ -5774,7 +5786,7 @@ int FixupHelperStubs(void) {
           *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
 
       // TODO call DL.getAllocSize and verify the numbers are the same
-      target_ulong SectsGlobalSize = SectsEndAddr - SectsStartAddr;
+      target_ulong SectsGlobalSize = Binary.SectsEndAddr - Binary.SectsStartAddr;
 
       IRB.CreateRet(llvm::ConstantExpr::getAdd(
           llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
@@ -6823,6 +6835,8 @@ int DoOptimize(void) {
 }
 
 int ConstifyRelocationSectionPointers(void) {
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
   assert(SectsGlobal && ConstSectsGlobal);
 
   std::vector<std::pair<llvm::Value *, llvm::Value *>> ToReplace;
@@ -6852,7 +6866,7 @@ int ConstifyRelocationSectionPointers(void) {
         uintptr_t off =
             llvm::cast<llvm::ConstantInt>(Addend)->getValue().getZExtValue();
 
-        uintptr_t FileAddr = off + SectsStartAddr;
+        uintptr_t FileAddr = off + Binary.SectsStartAddr;
 
         bool RelocLoc = ConstantRelocationLocs.find(FileAddr) !=
                         ConstantRelocationLocs.end();
@@ -8916,7 +8930,7 @@ static int TranslateTCGOp(TCGOp *op,
         llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()),
         llvm::ConstantExpr::getSub(
             llvm::ConstantInt::get(WordType(), A),
-            llvm::ConstantInt::get(WordType(), SectsStartAddr)));
+            llvm::ConstantInt::get(WordType(), Binary.SectsStartAddr)));
   };
 
   if (opc >= ARRAY_SIZE(tcg_op_defs))
