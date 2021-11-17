@@ -241,6 +241,10 @@ _HIDDEN void _jove__libc_early_init(
 
   _jove_initialize();
 
+#if !defined(__x86_64__) && defined(__i386__)
+  return; // XXX FIXME
+#endif
+
   //
   // XXX <code duplication> (_jove_init_cpu_state)
   //
