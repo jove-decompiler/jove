@@ -381,8 +381,10 @@ int init(void) {
     assert(!(rc < 0));
   }
 
-  if (int ret = await_process_completion(pid))
+  if (int ret = await_process_completion(pid)) {
+    WithColor::error() << "harvest-vdso failed. bug?\n";
     return ret;
+  }
 
   if (vdso.empty()) {
     WithColor::error() << "no [vdso] found. bug?\n";
