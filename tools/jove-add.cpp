@@ -405,103 +405,21 @@ int add(void) {
 
   assert(DynamicTable.Addr);
 
+  llvm::StringRef DynamicStringTable;
+  const Elf_Shdr *SymbolVersionSection;
+  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+      loadDynamicSymbols(&E, &O,
+                         DynamicTable,
+                         DynamicStringTable,
+                         SymbolVersionSection,
+                         VersionMap);
+
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
-  DynRegionInfo DynSymRegion(O.getFileName());
-  llvm::StringRef DynamicStringTable;
-
   bool IsStaticallyLinked = true;
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
-      DynSymRegion = createDRIFrom(&Sec, &O);
-      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
-      break;
-    }
-  }
-
-  //
-  // parse dynamic table
-  //
-  const Elf_Hash *HashTable = nullptr;
-  {
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
-
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
-
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-      case llvm::ELF::DT_HASH:
-        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
-          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
-        }
-        break;
-
-      default:
-        break;
-      }
-    }
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
-
-  auto getHashTableEntSize = [&](void) -> unsigned {
-    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
-    // sections. This violates the ELF specification.
-    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
-        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
-      return 8;
-    return 4;
-  };
-
-  // Derive the dynamic symbol table size from the DT_HASH hash table, if
-  // present.
-  const bool IsHashTableSupported = getHashTableEntSize() == 4;
-  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
-    const uint64_t FileSize = E.getBufSize();
-    const uint64_t DerivedSize =
-        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
-    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
-    if (DerivedSize > FileSize - Offset)
-      WithColor::warning() << llvm::formatv(
-          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
-          "the hash table, goes past the end of the file ({2:x}) and will be "
-          "ignored\n",
-          DerivedSize, Offset, FileSize);
-    else
-      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
-  }
-
-  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
 
   std::set<target_ulong> FunctionEntrypoints;
   std::set<target_ulong> BasicBlockAddresses;
@@ -510,52 +428,26 @@ int add(void) {
   //
   // parse dynamic table
   //
-  {
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
 
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
-                                      __FILE__, __LINE__,
-                                      E.getDynamicTagAsString(Dyn.getTag()));
+  for (const Elf_Dyn &Dyn : dynamic_table()) {
+    if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
+      break; /* marks end of dynamic table. */
 
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
+    if (opts::Verbose)
+      llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
+                                    __FILE__, __LINE__,
+                                    E.getDynamicTagAsString(Dyn.getTag()));
 
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-      case llvm::ELF::DT_NEEDED:
-        IsStaticallyLinked = false;
-        break;
-      case llvm::ELF::DT_INIT:
-        initFunctionAddr = Dyn.getVal();
-        break;
-      }
+    switch (Dyn.d_tag) {
+    case llvm::ELF::DT_NEEDED:
+      IsStaticallyLinked = false;
+      break;
+    case llvm::ELF::DT_INIT:
+      initFunctionAddr = Dyn.getVal();
+      break;
     }
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
   }
+
 
   //
   // if the ELF has a PT_INTERP program header, then we'll explore the entry
@@ -756,56 +648,65 @@ int add(void) {
 
   // TODO init.array
 
-  //
-  // translate all exported functions
-  //
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.isUndefined())
-      continue;
-    if (Sym.getType() != llvm::ELF::STT_FUNC)
-      continue;
+  if (OptionalDynSymRegion) {
+    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
 
-    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-    if (!ExpectedSymName) {
-      if (opts::Verbose) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+      return DynSymRegion.getAsArrayRef<Elf_Sym>();
+    };
+
+    //
+    // translate all exported functions
+    //
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined())
+        continue;
+      if (Sym.getType() != llvm::ELF::STT_FUNC)
+        continue;
+
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      if (!ExpectedSymName) {
+        if (opts::Verbose) {
+          std::string Buf;
+          {
+            llvm::raw_string_ostream OS(Buf);
+            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
+          }
+
+          WithColor::error() << llvm::formatv(
+              "{0}: could not get symbol name: {1}\n", __func__, Buf);
         }
-
-        WithColor::error() << llvm::formatv(
-            "{0}: could not get symbol name: {1}\n", __func__, Buf);
+        continue;
       }
-      continue;
+
+      llvm::StringRef SymName = *ExpectedSymName;
+      llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
+                                    SymName,
+                                    Sym.st_value);
+
+      FunctionEntrypoints.insert(Sym.st_value);
     }
 
-    llvm::StringRef SymName = *ExpectedSymName;
-    llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
-                                  SymName,
-                                  Sym.st_value);
+    //
+    // translate all IFunc resolver functions
+    //
+    for (const Elf_Sym &Sym : dynamic_symbols()) {
+      if (Sym.isUndefined())
+        continue;
+      if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
+        continue;
 
-    FunctionEntrypoints.insert(Sym.st_value);
-  }
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      if (!ExpectedSymName)
+        continue;
 
-  //
-  // translate all IFunc resolver functions
-  //
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.isUndefined())
-      continue;
-    if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
-      continue;
+      llvm::StringRef SymName = *ExpectedSymName;
 
-    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-    if (!ExpectedSymName)
-      continue;
+      llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
+                                    SymName, Sym.st_value);
+      FunctionEntrypoints.insert(Sym.st_value);
+    }
 
-    llvm::StringRef SymName = *ExpectedSymName;
-
-    llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
-                                  SymName, Sym.st_value);
-    FunctionEntrypoints.insert(Sym.st_value);
   }
 
   //
