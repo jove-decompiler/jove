@@ -174,6 +174,11 @@ static cl::opt<bool>
              cl::desc("run program under real sysroot"),
              cl::cat(JoveCategory));
 
+static cl::alias NoChrootAlias("N",
+                               cl::desc("Alias for --no-chroot."),
+                               cl::aliasopt(NoChroot),
+                               cl::cat(JoveCategory));
+
 static cl::list<std::string>
     PinnedGlobals("pinned-globals", cl::CommaSeparated,
                   cl::value_desc("glb_1,glb_2,...,glb_n"),
