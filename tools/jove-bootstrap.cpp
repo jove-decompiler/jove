@@ -378,8 +378,10 @@ int main(int argc, char **argv) {
   // verify that the binaries on-disk are those found in the decompilation.
   //
   for (jove::binary_t &binary : jove::decompilation.Binaries) {
-    if (binary.IsVDSO) {
-      assert(jove::HasVDSO());
+    if (binary.IsVDSO && jove::HasVDSO()) {
+      //
+      // check that the VDSO hasn't changed
+      //
       void *vdso;
       unsigned n;
 
