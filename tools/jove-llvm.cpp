@@ -8132,22 +8132,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                     IRB.CreateLoad(TC.PCAlloca)};
+      llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
-
-      //
-      // it may be the case that this indirect jump is, actually, a tail call.
-      //
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
-
-      if (JoveFail1Func) {
-        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
-        IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
-      } else {
-        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
-                                                       llvm::Intrinsic::trap));
-      }
-
+      IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
       IRB.CreateUnreachable();
       break;
     }
@@ -8169,26 +8158,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                     IRB.CreateLoad(TC.PCAlloca)};
+      llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
 
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
-
-      //
-      // if this is an indirect jump, then it's possible this is a goto
-      //
-      if (T.Type == TERMINATOR::INDIRECT_JUMP)
+      if (!IsCall)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
-
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-
-      if (JoveFail1Func) {
-        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
-        IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
-      } else {
-        IRB.CreateCall(llvm::Intrinsic::getDeclaration(Module.get(),
-                                                       llvm::Intrinsic::trap));
-      }
-
+      IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
       IRB.CreateUnreachable();
+
       return 0;
     }
 
@@ -8263,17 +8241,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
             boost::get(boost::vertex_index, ICFG);
         llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
                                       IRB.CreateLoad(TC.PCAlloca)};
+        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-
-        if (JoveFail1Func) {
-          llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
-          IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
-        } else {
-          IRB.CreateCall(llvm::Intrinsic::getDeclaration(
-              Module.get(), llvm::Intrinsic::trap));
-        }
+        IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
         IRB.CreateUnreachable();
       }
 
