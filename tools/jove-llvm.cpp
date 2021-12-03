@@ -8111,39 +8111,25 @@ int TranslateBasicBlock(TranslateContext &TC) {
     // else                   ; trap
     //
     if (!_indirect_jump.IsTailCall) { /* otherwise fallthrough */
-      auto adj_it_pair = boost::adjacent_vertices(bb, ICFG);
-      unsigned N = std::distance(adj_it_pair.first, adj_it_pair.second);
-      assert(N > 0);
-
-      // TODO fix style here
-      std::vector<basic_block_t> succ_bb_vec;
-      succ_bb_vec.resize(N);
-      std::transform(adj_it_pair.first, adj_it_pair.second, succ_bb_vec.begin(),
-                     [](basic_block_t bb) -> basic_block_t { return bb; });
-
-      std::vector<llvm::BasicBlock *> IfSuccBlockVec;
-      IfSuccBlockVec.resize(N);
-      for (unsigned i = 0; i < N; ++i) {
-        basic_block_t succ = succ_bb_vec[i];
-
-        IfSuccBlockVec[i] = llvm::BasicBlock::Create(
-            *Context, (fmt("if %#lx") % ICFG[succ].Addr).str(), f.F);
-      }
-
       llvm::BasicBlock *ElseBlock =
           llvm::BasicBlock::Create(*Context, "else", f.F);
 
-      IRB.CreateBr(IfSuccBlockVec.front());
+      {
+        llvm::Value *SectsGlobalOff = IRB.CreateSub(
+            IRB.CreateLoad(TC.PCAlloca),
+            llvm::ConstantExpr::getPtrToInt(SectsGlobal, WordType()));
 
-      for (unsigned i = 0; i < N; ++i) {
-        basic_block_t succ = succ_bb_vec[i];
+        llvm::SwitchInst *SI = IRB.CreateSwitch(SectsGlobalOff, ElseBlock,
+                                                boost::out_degree(bb, ICFG));
 
-        IRB.SetInsertPoint(IfSuccBlockVec[i]);
-        llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
-        llvm::Value *EQV =
-            IRB.CreateICmpEQ(PC, SectionPointer(ICFG[succ].Addr));
-        IRB.CreateCondBr(EQV, ICFG[succ].B,
-                         i + 1 < N ? IfSuccBlockVec[i + 1] : ElseBlock);
+        auto it_pair = boost::adjacent_vertices(bb, ICFG);
+
+        for (auto it = it_pair.first; it != it_pair.second; ++it) {
+          basic_block_t succ = *it;
+          SI->addCase(
+              IRB.getIntN(WordBits(), ICFG[succ].Addr - Binary.SectsStartAddr),
+              ICFG[succ].B);
+        }
       }
 
       IRB.SetInsertPoint(ElseBlock);
