@@ -3677,8 +3677,8 @@ int CreateSectionGlobalVariables(void) {
 
   std::vector<std::vector<uint8_t>> SegContents;
 
-  auto &SectsStartAddr = Binary.SectsStartAddr;
-  auto &SectsEndAddr = Binary.SectsEndAddr;
+  const tcg_uintptr_t SectsStartAddr = Binary.SectsStartAddr;
+  const tcg_uintptr_t SectsEndAddr = Binary.SectsEndAddr;
 
   llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
   if (ExpectedSections && !(*ExpectedSections).empty()) {
@@ -3739,14 +3739,9 @@ int CreateSectionGlobalVariables(void) {
     NumSections = SectMap.iterative_size();
     SectTable.resize(NumSections);
 
-    target_ulong minAddr = std::numeric_limits<target_ulong>::max(),
-                 maxAddr = 0;
     unsigned i = 0;
     for (const auto &pair : SectMap) {
       section_t &Sect = SectTable[i];
-
-      minAddr = std::min(minAddr, pair.first.lower());
-      maxAddr = std::max(maxAddr, pair.first.upper());
 
       SectIdxMap.add({pair.first, 1+i});
 
@@ -3762,9 +3757,6 @@ int CreateSectionGlobalVariables(void) {
 
       ++i;
     }
-
-    SectsStartAddr = minAddr;
-    SectsEndAddr = maxAddr;
   } else {
     llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
 
