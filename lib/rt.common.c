@@ -414,6 +414,61 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       //
       bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
 
+#if 0
+      if (SignalDelivery) {
+        //
+        // print number of signal and description of program counter
+        //
+
+        char s[4096 * 16];
+        s[0] = '\0';
+
+        _strcat(s, __LOG_BOLD_BLUE "[signal ");
+
+        int signo =
+#if defined(__mips64) || defined(__mips__)
+            uctx->uc_mcontext.gregs[4]
+#else
+            0
+#endif
+            ;
+
+        {
+          char buff[65];
+          _uint_to_string(signo, buff, 10);
+
+          _strcat(s, buff);
+        }
+
+        _strcat(s, "] @ 0x");
+
+        {
+          char buff[65];
+          _uint_to_string(saved_pc, buff, 0x10);
+
+          _strcat(s, buff);
+        }
+
+        {
+          char maps[4096 * 8];
+          const unsigned maps_n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
+          maps[maps_n] = '\0';
+
+          char buff[256];
+          _description_of_address_for_maps(buff, saved_pc, maps, maps_n);
+          if (_strlen(buff) != 0) {
+            _strcat(s, " <");
+            _strcat(s, buff);
+            _strcat(s, ">");
+          }
+        }
+
+        _strcat(s, "\n" __LOG_NORMAL_COLOR);
+
+        _jove_sys_write(2 /* stderr */, s, _strlen(s));
+      }
+#endif
+
       //
       // setup emulated stack
       //
