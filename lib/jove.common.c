@@ -202,6 +202,13 @@ _HIDDEN void _jove_init(
 //
 // XXX hack for glibc 2.32+
 //
+#if !defined(__x86_64__) && defined(__i386__)
+//
+// see definition of _jove__libc_early_init in lib/arch/i386/jove.c
+//
+#else
+extern void _jove_rt_init(void);
+
 _HIDDEN void _jove__libc_early_init(
 #if defined(__x86_64__)
                                     uint64_t rdi,
@@ -210,8 +217,6 @@ _HIDDEN void _jove__libc_early_init(
                                     uint64_t rcx,
                                     uint64_t r8,
                                     uint64_t r9
-#elif defined(__i386__)
-                                    _Bool initial /* on stack */
 #elif defined(__aarch64__)
                                     uint64_t x0,
                                     uint64_t x1,
@@ -235,31 +240,16 @@ _HIDDEN void _jove__libc_early_init(
 #error
 #endif
                                    ) {
+  _jove_rt_init();
+
   const uintptr_t fn = _jove_get_libc_early_init_fn();
   if (!fn)
     return;
 
   _jove_initialize();
 
-#if !defined(__x86_64__) && defined(__i386__)
-  return; // XXX FIXME
-#endif
-
-  //
-  // XXX <code duplication> (_jove_init_cpu_state)
-  //
-#if defined(__x86_64__) || defined(__i386__)
-  __jove_env.df = 1;
-#endif
-
-#if !defined(__x86_64__) && defined(__i386__)
-#define CPUID_XSAVE_XGETBV1    (1U << 2)
-
-  __jove_env.features[FEAT_XSAVE] |= CPUID_XSAVE_XGETBV1;
-#endif
-
   uintptr_t *const emusp_ptr =
-#if defined(__x86_64__) || defined(__i386__)
+#if defined(__x86_64__)
       &__jove_env.regs[R_ESP]
 #elif defined(__aarch64__)
       &__jove_env.xregs[31]
@@ -298,8 +288,8 @@ _HIDDEN void _jove__libc_early_init(
     new_emusp &= align_mask;
   }
 
-#if defined(__x86_64__) || defined(__i386__)
-  new_emusp -= sizeof(uintptr_t); /* return address on the stack */
+#if defined(__x86_64__)
+  new_emusp -= sizeof(uint64_t); /* return address on the stack */
 #endif
 
   *emusp_ptr = new_emusp;
@@ -326,8 +316,6 @@ _HIDDEN void _jove__libc_early_init(
                            rcx,
                            r8,
                            r9);
-#elif defined(__i386__)
-  ((void (*)(_Bool))fn)(initial);
 #elif defined(__aarch64__)
   ((void (*)(uint64_t,
              uint64_t,
@@ -375,6 +363,8 @@ _HIDDEN void _jove__libc_early_init(
   _jove_free_stack(new_emu_stack);
   _jove_free_callstack(new_callstack);
 }
+
+#endif
 
 static _INL uintptr_t _parse_dynl_load_bias(char *maps, const unsigned n) {
   char *const beg = &maps[0];
@@ -750,4 +740,6 @@ void __nodce(void **p) {
   *p++ = (void *)_jove_trace_enabled();
   *p++ = (void *)_jove_dfsan_enabled();
   *p++ = _jove_get_init_fn_sect_ptr;
+  *p++ = _jove_get_libc_early_init_fn;
+  *p++ = _jove_get_libc_early_init_fn_sect_ptr;
 }

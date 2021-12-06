@@ -608,6 +608,13 @@ _REGPARM _NAKED _HIDDEN void _jove_init(uint32_t eax,
                                         uint32_t edx,
                                         uint32_t ecx);
 
+//
+// XXX hack for glibc 2.32+
+//
+_REGPARM _NAKED _HIDDEN void _jove__libc_early_init(uint32_t eax,
+                                                    uint32_t edx,
+                                                    uint32_t ecx);
+
 void _jove_start(void) {
   asm volatile(/* Clear the frame pointer.  The ABI suggests this be done, to
                   mark the outermost frame obviously.  */
@@ -802,12 +809,38 @@ void _jove_init(uint32_t eax, /* TODO preserve these registers... */
   asm volatile("call _jove_initialize\n"
                "call _jove_get_init_fn_sect_ptr\n"
                "test %%eax, %%eax\n"
-               "je out\n"
+               "je out1\n"
                "jmp *%%eax\n"
-               "out:\n"
+               "out1:\n"
                "ret\n"
 
                : /* OutputOperands */
                : /* InputOperands */
                : /* Clobbers */);
+}
+
+//
+// XXX hack for glibc 2.32+
+//
+void _jove__libc_early_init(uint32_t eax, /* TODO preserve these registers... */
+                            uint32_t edx,
+                            uint32_t ecx) {
+  asm volatile("call _jove_do_call_rt_init\n"
+               "call _jove_initialize\n"
+               "call _jove_get_libc_early_init_fn_sect_ptr\n"
+               "test %%eax, %%eax\n"
+               "je out2\n"
+               "jmp *%%eax\n"
+               "out2:\n"
+               "ret\n"
+
+               : /* OutputOperands */
+               : /* InputOperands */
+               : /* Clobbers */);
+}
+
+extern void _jove_rt_init(void);
+
+_HIDDEN void _jove_do_call_rt_init(void) {
+  _jove_rt_init();
 }
