@@ -14,6 +14,10 @@ extern uintptr_t *__jove_sections_table[_JOVE_MAX_BINARIES];
 
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
+#if defined(JOVE_DFSAN)
+extern void __dfsan_log_global_buffers(void);
+#endif
+
 _CTOR _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
@@ -37,6 +41,10 @@ _CTOR _HIDDEN void _jove_initialize(void) {
 
   _jove_do_tpoff_hack();
   _jove_do_emulate_copy_relocations();
+
+#if defined(JOVE_DFSAN)
+  __dfsan_log_global_buffers();
+#endif
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
