@@ -337,10 +337,10 @@ found:
         char buff[sizeof(char) + 3 * sizeof(uint32_t) + sizeof(uintptr_t)];
 
         buff[0] = ch;
-         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
-         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
-         *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
-        *((uintptr_t *)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FileAddr;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndCall.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndCall.BBIdx;
+        *((uint32_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = Callee.BIdx;
+        *((uintptr_t*)&buff[sizeof(char) + 3 * sizeof(uint32_t)]) = Callee.FileAddr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
@@ -405,7 +405,7 @@ found:
         buff[0] = ch;
         *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = IndBr.BIdx;
         *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = IndBr.BBIdx;
-        *((uintptr_t *)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
+        *((uintptr_t*)&buff[sizeof(char) + 2 * sizeof(uint32_t)]) = FileAddr;
 
         if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
           _UNREACHABLE();
