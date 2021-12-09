@@ -12,10 +12,6 @@ uintptr_t *__jove_sections_table[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
-struct shadow_t __df32_shadow_mem[65536];
-
-void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
-
 static uintptr_t to_free[16];
 
 void _jove_free_stack_later(uintptr_t stack) {
@@ -29,6 +25,14 @@ void _jove_free_stack_later(uintptr_t stack) {
 
   _UNREACHABLE();
 }
+
+//
+// for DFSan
+//
+struct shadow_t __df32_shadow_mem[65536];
+
+void (*__jove_dfsan_flush)(void) = NULL; /* XXX */
+unsigned __jove_dfsan_sig_handle = 0;
 
 //
 // declare sigaction struct from the kernel
@@ -414,6 +418,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       //
       bool SignalDelivery = is_sigreturn_insn_sequence((void *)saved_retaddr);
 
+      if (SignalDelivery) {
+        ++__jove_dfsan_sig_handle;
+      }
 #if 0
       if (SignalDelivery) {
         //
@@ -782,8 +789,11 @@ uintptr_t _jove_handle_signal_delivery(uintptr_t SignalDelivery,
 #endif
       ;
 
-  if (SignalDelivery)
+  if (SignalDelivery) {
     _memcpy(&__jove_env, SavedState, sizeof(__jove_env));
+
+    __jove_dfsan_sig_handle = 0;
+  }
 
   return res;
 }
