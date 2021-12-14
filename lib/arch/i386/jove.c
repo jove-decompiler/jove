@@ -805,28 +805,23 @@ uint64_t _jove_thunk3(uint32_t eax,
 
 void _jove_init(uint32_t eax,
                 uint32_t edx,
-                uint32_t ecx) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-
-               "pushl %%eax\n" /* preserve arguments */
+                uint32_t ecx /* TODO preserve */) {
+  asm volatile("pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
-               "pushl %%ecx\n"
 
                "call _jove_initialize\n"
                "call _jove_get_init_fn_sect_ptr\n"
-               "movl %%eax, %%ebp\n"
+               "movl %%eax, %%ecx\n"
 
-               "popl %%ecx\n" /* preserve arguments */
                "popl %%edx\n"
                "popl %%eax\n"
 
-               "test %%ebp, %%ebp\n" /* only call initfn if not-null */
+               "test %%ecx, %%ecx\n" /* only call initfn if not-null */
                "je dont_call_initfn\n"
-               "call *%%ebp\n"
+
+               "jmp *%%ecx\n"
+
                "dont_call_initfn:\n"
-
-               "popl %%ebp\n" /* callee-saved registers */
-
                "ret\n"
 
                : /* OutputOperands */
@@ -839,27 +834,19 @@ void _jove_init(uint32_t eax,
 //
 void _jove__libc_early_init(uint32_t eax,
                             uint32_t edx,
-                            uint32_t ecx) {
-  asm volatile("pushl %%ebp\n" /* callee-saved registers */
-
-               "pushl %%eax\n" /* preserve arguments */
+                            uint32_t ecx /* TODO preserve */) {
+  asm volatile("pushl %%eax\n" /* preserve arguments */
                "pushl %%edx\n"
-               "pushl %%ecx\n"
 
                "call _jove_do_call_rt_init\n"
                "call _jove_initialize\n"
                "call _jove_get_libc_early_init_fn_sect_ptr\n"
-               "movl %%eax, %%ebp\n"
+               "movl %%eax, %%ecx\n"
 
-               "popl %%ecx\n" /* preserve arguments */
-               "popl %%edx\n"
+               "popl %%edx\n" /* preserve arguments */
                "popl %%eax\n"
 
-               "call *%%ebp\n"
-
-               "popl %%ebp\n" /* callee-saved registers */
-
-               "ret\n"
+               "jmp *%%ecx\n"
 
                : /* OutputOperands */
                : /* InputOperands */
