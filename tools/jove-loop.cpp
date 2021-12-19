@@ -1434,98 +1434,29 @@ std::string soname_of_binary(binary_t &b) {
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
 
-  if (WARN_ON(!DynamicTable.Addr)) {
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  };
+
+  assert(DynamicTable.Addr);
+
+  llvm::StringRef DynamicStringTable;
+  const Elf_Shdr *SymbolVersionSection;
+  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+      loadDynamicSymbols(&E, &O,
+                         DynamicTable,
+                         DynamicStringTable,
+                         SymbolVersionSection,
+                         VersionMap);
+
+  if (!DynamicStringTable.data())
     return res;
-  }
 
   //
   // parse dynamic table
   //
-  DynRegionInfo DynSymRegion(O.getFileName());
-
-  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
-  };
-
-  llvm::StringRef DynamicStringTable;
-  {
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
-
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
-
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-
-      default:
-        break;
-      }
-    }
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
-
-#if 0
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
-                                  b.Path, DynamicStringTable.size());
-#endif
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
-      DynSymRegion = createDRIFrom(&Sec, &O);
-      //DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-      llvm::Expected<llvm::StringRef> ExpectedDynamicStringTable = E.getStringTableForSymtab(Sec);
-      if (!ExpectedDynamicStringTable) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedDynamicStringTable.takeError(), OS, "");
-        }
-
-        WithColor::warning() << llvm::formatv(
-            "{0}: could not get string table for symtab: {1}\n", __func__, Buf);
-        break;
-      }
-
-      DynamicStringTable = *ExpectedDynamicStringTable;
-      break;
-    }
-  }
-
-#if 0
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
-                                  b.Path, DynamicStringTable.size());
-#endif
-
-  struct {
-    bool Found;
-    uint64_t Offset;
-  } SOName = {false, 0};
+  llvm::Optional<uint64_t> SONameOffset;
 
   for (const Elf_Dyn &Dyn : dynamic_table()) {
     if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
@@ -1533,25 +1464,21 @@ std::string soname_of_binary(binary_t &b) {
 
     switch (Dyn.d_tag) {
     case llvm::ELF::DT_SONAME:
-      SOName.Offset = Dyn.getVal();
-      SOName.Found = true;
+      SONameOffset.emplace(Dyn.getVal());
       break;
     }
   }
 
-  if (SOName.Found) {
-    if (SOName.Offset >= DynamicStringTable.size()) {
+  if (SONameOffset) {
+    uint64_t Off = *SONameOffset;
+    if (Off >= DynamicStringTable.size()) {
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("[{0}] bad SOName.Offset {1}\n", b.Path, SOName.Offset);
+        llvm::errs() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
+                                      b.Path,
+                                      Off);
     } else {
-      const char *soname_cstr = DynamicStringTable.data() + SOName.Offset;
-
-#if 0
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("[{0}] out.soname=\"{1}\"\n", b.Path, soname_cstr);
-#endif
-
-      res = soname_cstr;
+      const char *c_str = DynamicStringTable.data() + Off;
+      return c_str;
     }
   }
 
