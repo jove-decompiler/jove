@@ -953,23 +953,21 @@ static void on_return(pid_t child,
                       disas_t &);
 
 static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
+  return cpu_state.
 #if defined(__x86_64__)
-  #define _pc_field rip
+      rip
 #elif defined(__i386__)
-  #define _pc_field eip
+      eip
 #elif defined(__aarch64__)
-  #define _pc_field pc
+      pc
 #elif defined(__arm__)
-  #define _pc_field uregs[15]
+      uregs[15]
 #elif defined(__mips64) || defined(__mips__)
-  #define _pc_field cp0_epc
+      cp0_epc
 #else
 #error
 #endif
-
-  return cpu_state._pc_field;
-
-#undef _pc_field
+      ;
 }
 
 static void InvalidateAllFunctionAnalyses(void) {
