@@ -306,6 +306,8 @@ struct ScopedMount {
 
   bool mounted;
 
+  ScopedMount() = delete;
+
   ScopedMount(const char *source,
               const char *target,
               const char *filesystemtype,
