@@ -3,6 +3,7 @@
 /// the size, entity size and virtual address are different entries in arbitrary
 /// order (DT_REL, DT_RELSZ, DT_RELENT for example).
 struct DynRegionInfo {
+  DynRegionInfo() {}
   DynRegionInfo(llvm::StringRef ObjName) : FileName(ObjName) {}
   DynRegionInfo(const void *A, uint64_t S, uint64_t ES, llvm::StringRef ObjName)
       : Addr(A), Size(S), EntSize(ES), FileName(ObjName) {}
@@ -47,22 +48,22 @@ static T unwrapOrError(llvm::Expected<T> EO) {
     llvm::raw_string_ostream OS(Buf);
     llvm::logAllUnhandledErrors(EO.takeError(), OS, "");
   }
-  WithColor::error() << Buf << '\n';
+  llvm::WithColor::error() << Buf << '\n';
   abort();
 }
 
 #if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
-typedef typename obj::ELF64LE ELFT;
+typedef typename llvm::object::ELF64LE ELFT;
 #elif defined(TARGET_I386) || (defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN))
-typedef typename obj::ELF32LE ELFT;
+typedef typename llvm::object::ELF32LE ELFT;
 #elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
-typedef typename obj::ELF32BE ELFT;
+typedef typename llvm::object::ELF32BE ELFT;
 #else
 #error
 #endif
 
-typedef typename obj::ELFObjectFile<ELFT> ELFO;
-typedef typename obj::ELFFile<ELFT> ELFF;
+typedef typename llvm::object::ELFObjectFile<ELFT> ELFO;
+typedef typename llvm::object::ELFFile<ELFT> ELFF;
 
 typedef typename ELFT::Addr Elf_Addr;
 typedef typename ELFT::CGProfile Elf_CGProfile;
@@ -114,7 +115,7 @@ static DynRegionInfo checkDRI(DynRegionInfo DRI, const ELFO *ObjF) {
   if (DRI.Addr < Obj->base() ||
       reinterpret_cast<const uint8_t *>(DRI.Addr) + DRI.Size >
           Obj->base() + Obj->getBufSize()) {
-    WithColor::error() << llvm::formatv("{0}: check failed. bug?\n", __func__);
+    llvm::WithColor::error() << llvm::formatv("{0}: check failed. bug?\n", __func__);
   }
   return DRI;
 }
@@ -180,7 +181,7 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
     if ((DynamicPhdr && IsPhdrTableValid) || (DynamicSec && IsSecTableValid)) {
       DynamicTable = DynamicPhdr ? FromPhdr : FromSec;
     } else {
-      WithColor::warning() << llvm::formatv(
+      llvm::WithColor::warning() << llvm::formatv(
           "no valid dynamic table was found for {0}\n", ObjF->getFileName());
     }
     return res;
@@ -191,14 +192,14 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
   // verify that.
 
   if (FromPhdr.Addr != FromSec.Addr) {
-    WithColor::warning() << llvm::formatv("SHT_DYNAMIC section header and PT_DYNAMIC "
+    llvm::WithColor::warning() << llvm::formatv("SHT_DYNAMIC section header and PT_DYNAMIC "
                                           "program header disagree about "
                                           "the location of the dynamic table for {0}\n",
                                           ObjF->getFileName());
   }
 
   if (!IsPhdrTableValid && !IsSecTableValid) {
-    WithColor::warning() << llvm::formatv("no valid dynamic table was found for {0}\n",
+    llvm::WithColor::warning() << llvm::formatv("no valid dynamic table was found for {0}\n",
                                           ObjF->getFileName());
     return res;
   }
@@ -208,7 +209,7 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
   if (IsPhdrTableValid) {
     if (!IsSecTableValid) {
 #ifdef WARN
-      WithColor::warning()
+      llvm::WithColor::warning()
           << llvm::formatv("SHT_DYNAMIC dynamic table is invalid: PT_DYNAMIC "
                            "will be used for {0}\n",
                            ObjF->getFileName());
@@ -218,7 +219,7 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
     DynamicTable = FromPhdr;
   } else {
 #ifdef WARN
-    WithColor::warning() <<
+    llvm::WithColor::warning() <<
       llvm::formatv("PT_DYNAMIC dynamic table is invalid: SHT_DYNAMIC will be used for {0}\n",
                     ObjF->getFileName());
 #endif
@@ -251,7 +252,7 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
 
   if (DynamicPhdr && DynamicPhdr->p_offset + DynamicPhdr->p_filesz >
                          ObjF->getMemoryBufferRef().getBufferSize()) {
-    WithColor::warning() <<
+    llvm::WithColor::warning() <<
       llvm::formatv("{0}: PT_DYNAMIC segment offset + size exceeds the size of the file\n", __func__);
 
     // Don't use the broken dynamic header.
@@ -263,11 +264,11 @@ findDynamic(const ELFO *ObjF, const ELFF *Obj) {
     if (DynamicSec->sh_addr + DynamicSec->sh_size >
             DynamicPhdr->p_vaddr + DynamicPhdr->p_memsz ||
         DynamicSec->sh_addr < DynamicPhdr->p_vaddr)
-      WithColor::warning() <<
+      llvm::WithColor::warning() <<
         llvm::formatv("The SHT_DYNAMIC section '{0}' is not contained within the PT_DYNAMIC segment\n", Name);
 
     if (DynamicSec->sh_addr != DynamicPhdr->p_vaddr)
-      WithColor::warning() <<
+      llvm::WithColor::warning() <<
         llvm::formatv("The SHT_DYNAMIC section '{0}' is not at the start of PT_DYNAMIC segment\n", Name);
   }
 
@@ -333,10 +334,10 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
             if (llvm::Expected<llvm::StringRef> E = Obj->getStringTableForSymtab(Sec))
               DynamicStringTable = *E;
             else
-              WithColor::warning()
+              llvm::WithColor::warning()
                   << __func__ << ": unable to get the string table\n";
           } else {
-            WithColor::warning()
+            llvm::WithColor::warning()
                 << __func__ << ": unable to read dynamic symbols from ELF\n";
           }
         }
@@ -385,7 +386,7 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
     case llvm::ELF::DT_SYMENT: {
       uint64_t Val = Dyn.getVal();
       if (Val != sizeof(Elf_Sym))
-        WithColor::warning() << llvm::formatv(
+        llvm::WithColor::warning() << llvm::formatv(
             "DT_SYMENT value of {0} is not the size of a symbol ({1})",
             Val, sizeof(Elf_Sym));
       break;
@@ -429,7 +430,7 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
     // locate .dynsym at runtime. The location we find in the section header
     // and the location we find here should match.
     if (DynSymFromTable && DynSymFromTable->Addr != DynSymRegion->Addr)
-      WithColor::warning()
+      llvm::WithColor::warning()
           << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
              "the location of the dynamic symbol table";
 
@@ -439,9 +440,9 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
     // according to the section header.
     if (HashTable && IsHashTableSupported) {
       if (DynSymRegion->EntSize == 0)
-        WithColor::warning() << "SHT_DYNSYM section has sh_entsize == 0";
+        llvm::WithColor::warning() << "SHT_DYNSYM section has sh_entsize == 0";
       else if (HashTable->nchain != DynSymRegion->Size / DynSymRegion->EntSize)
-        WithColor::warning() << "hash table nchain differs from symbol count "
+        llvm::WithColor::warning() << "hash table nchain differs from symbol count "
                                 "derived from SHT_DYNSYM section header";
     }
   }
@@ -466,7 +467,7 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
         (uint64_t)HashTable->nchain * DynSymRegion->EntSize;
     const uint64_t Offset = (const uint8_t *)DynSymRegion->Addr - Obj->base();
     if (DerivedSize > FileSize - Offset)
-      WithColor::warning() << llvm::formatv(
+      llvm::WithColor::warning() << llvm::formatv(
           "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
           "the hash table, goes past the end of the file ({2:x}) and will be "
           "ignored\n",
@@ -600,7 +601,7 @@ llvm::StringRef getSymbolVersionByIndex(llvm::SmallVector<VersionMapEntry, 16> &
   // Lookup this symbol in the version table.
   if (VersionIndex >= VersionMap.size() ||
       VersionMap[VersionIndex].isNull()) {
-    WithColor::error() << "Invalid version entry\n";
+    llvm::WithColor::error() << "Invalid version entry\n";
     exit(1);
   }
 
@@ -618,7 +619,7 @@ llvm::StringRef getSymbolVersionByIndex(llvm::SmallVector<VersionMapEntry, 16> &
   }
 
   if (NameOffset >= StrTab.size()) {
-    WithColor::error() << "Invalid string offset\n";
+    llvm::WithColor::error() << "Invalid string offset\n";
     return "";
   }
 
@@ -632,7 +633,7 @@ findSectionByName(const ELFF &Obj, llvm::StringRef Name) {
       if (*NameOrErr == Name)
         return &Shdr;
     } else {
-      WithColor::warning() << llvm::formatv(
+      llvm::WithColor::warning() << llvm::formatv(
           "unable to read the name of section: {0}\n",
           llvm::toString(NameOrErr.takeError()));
     }
@@ -719,8 +720,8 @@ static void loadDynamicRelocations(const ELFF *Obj,
       else if (Dyn.getVal() == llvm::ELF::DT_RELA)
         DynPLTRelRegion.EntSize = sizeof(Elf_Rela);
       else
-        WithColor::warning() << (llvm::Twine("unknown DT_PLTREL value of ") +
-                                 llvm::Twine((uint64_t)Dyn.getVal()));
+        llvm::WithColor::warning() << (llvm::Twine("unknown DT_PLTREL value of ") +
+                                       llvm::Twine((uint64_t)Dyn.getVal()));
       break;
     case llvm::ELF::DT_JMPREL:
       if (llvm::Expected<const uint8_t *> ExpectedPtr = Obj->toMappedAddr(Dyn.getPtr()))
@@ -980,7 +981,7 @@ MipsGOTParser::getGlobalEntries() const {
   if (GlobalNum == 0)
     return Entries();
 
-  //WithColor::note() << llvm::formatv("[MipsGOTParser::getGlobalEntries] GotEntries.size()={0} LocalNum={1} GlobalNum={2}\n", GotEntries.size(), LocalNum, GlobalNum);
+  //llvm::WithColor::note() << llvm::formatv("[MipsGOTParser::getGlobalEntries] GotEntries.size()={0} LocalNum={1} GlobalNum={2}\n", GotEntries.size(), LocalNum, GlobalNum);
 
   return GotEntries.slice(LocalNum, GlobalNum);
 }

@@ -156,6 +156,10 @@ namespace cl = llvm::cl;
 
 using llvm::WithColor;
 
+namespace jove {
+#include "elf.hpp"
+}
+
 #include "analyze.hpp"
 
 namespace jove {

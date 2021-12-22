@@ -2,8 +2,6 @@
 
 namespace jove {
 
-#include "elf.hpp"
-
 static llvm::DataLayout DL("");
 
 static decompilation_t Decompilation;

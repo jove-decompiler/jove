@@ -2,6 +2,10 @@
 #include <boost/icl/split_interval_map.hpp>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Object/ELFObjectFile.h>
 #include <set>
 
 struct section_properties_t {
@@ -80,6 +84,8 @@ struct symbol_t {
 
 struct hook_t;
 
+#include "elf.hpp"
+
 }
 
 #define JOVE_EXTRA_BB_PROPERTIES                                               \
@@ -121,6 +127,13 @@ struct hook_t;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
+  struct {                                                                     \
+    DynRegionInfo DynamicTable;                                                \
+    llvm::StringRef DynamicStringTable;                                        \
+    const Elf_Shdr *SymbolVersionSection;                                      \
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;                         \
+    llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
+  } _elf;                                                                      \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::Function *SectsF = nullptr;                                            \
   std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
@@ -169,12 +182,10 @@ struct hook_t;
 #include <llvm/MC/MCObjectFileInfo.h>
 #include <llvm/MC/MCRegisterInfo.h>
 #include <llvm/MC/MCSubtargetInfo.h>
-#include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>
 #include <llvm/Support/DataTypes.h>
 #include <llvm/Support/Debug.h>
 #include <llvm/Support/FileSystem.h>
-#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/Host.h>
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/ManagedStatic.h>
@@ -184,7 +195,6 @@ struct hook_t;
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/ToolOutputFile.h>
-#include <llvm/Support/WithColor.h>
 #include <llvm/Target/TargetMachine.h>
 #include <llvm/Target/TargetOptions.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
@@ -1244,6 +1254,17 @@ int InitStateForBinaries(void) {
                                          binary.Path,
                                          SectsStartAddr,
                                          SectsEndAddr);
+
+      loadDynamicTable(&E, &O, binary._elf.DynamicTable);
+
+      assert(binary._elf.DynamicTable.Addr);
+
+      binary._elf.OptionalDynSymRegion =
+          loadDynamicSymbols(&E, &O,
+                             binary._elf.DynamicTable,
+                             binary._elf.DynamicStringTable,
+                             binary._elf.SymbolVersionSection,
+                             binary._elf.VersionMap);
     }
   }
 
@@ -1696,11 +1717,11 @@ int LocateHooks(void) {
 
 int ProcessBinaryTLSSymbols(void) {
   binary_index_t BIdx = BinaryIndex;
-  auto &binary = Decompilation.Binaries[BIdx];
+  auto &b = Decompilation.Binaries[BIdx];
 
-  assert(binary.ObjectFile);
-  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+  assert(b.ObjectFile);
+  assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
   const ELFF &E = *O.getELFFile();
 
   //
@@ -1785,21 +1806,7 @@ int ProcessBinaryTLSSymbols(void) {
   //
   // iterate dynamic symbols
   //
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
-
-  assert(DynamicTable.Addr);
-
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
+  auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
 
@@ -1816,7 +1823,7 @@ int ProcessBinaryTLSSymbols(void) {
     if (Sym.isUndefined())
       continue;
 
-    llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+    llvm::StringRef SymName = unwrapOrError(Sym.getName(b._elf.DynamicStringTable));
 
     WithColor::note() << llvm::formatv("{0}: {1} [{2}]\n", __func__, SymName,
                                        __LINE__);
@@ -1854,47 +1861,30 @@ static llvm::FunctionType *DetermineFunctionType(
 
 int ProcessExportedFunctions(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &FuncMap = binary.FuncMap;
+    auto &b = Decompilation.Binaries[BIdx];
+    auto &FuncMap = b.FuncMap;
 
-    if (!binary.ObjectFile)
+    if (!b.ObjectFile)
       continue;
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-        loadDynamicSymbols(&E, &O,
-                           DynamicTable,
-                           DynamicStringTable,
-                           SymbolVersionSection,
-                           VersionMap);
-
-    if (!OptionalDynSymRegion)
+    if (!b._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
+    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
+      const Elf_Sym &Sym = DynSyms[SymNo];
 
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined())
         continue;
       if (Sym.getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
       if (!ExpectedSymName)
         continue;
 
@@ -1904,7 +1894,7 @@ int ProcessExportedFunctions(void) {
       if (it == FuncMap.end())
         continue;
 
-      function_t &f = binary.Analysis.Functions[(*it).second];
+      function_t &f = b.Analysis.Functions[(*it).second];
 
       symbol_t &res = f.Syms.emplace_back();
       res.Name = SymName;
@@ -1912,20 +1902,14 @@ int ProcessExportedFunctions(void) {
       //
       // symbol versioning
       //
-      if (!SymbolVersionSection) {
+      if (!b._elf.SymbolVersionSection) {
         res.Visibility.IsDefault = false;
       } else {
-        // Determine the position in the symbol table of this entry.
-        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
-                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
-                            sizeof(Elf_Sym);
-
-        // Get the corresponding version index entry.
         const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
 
-        res.Vers = getSymbolVersionByIndex(VersionMap,
-                                           DynamicStringTable,
+        res.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                           b._elf.DynamicStringTable,
                                            Versym->vs_index,
                                            res.Visibility.IsDefault);
       }
@@ -1948,47 +1932,31 @@ int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &FuncMap = binary.FuncMap;
+    auto &b = Decompilation.Binaries[BIdx];
+    auto &FuncMap = b.FuncMap;
 
-    if (!binary.ObjectFile)
+    if (!b.ObjectFile)
       continue;
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-        loadDynamicSymbols(&E, &O,
-                           DynamicTable,
-                           DynamicStringTable,
-                           SymbolVersionSection,
-                           VersionMap);
-
+    auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
     if (!OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
+    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
+      const Elf_Sym &Sym = DynSyms[SymNo];
 
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
       const bool is_undefined = Sym.isUndefined() ||
                                 Sym.st_shndx == llvm::ELF::SHN_UNDEF;
       if (is_undefined)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
       if (!ExpectedSymName) {
         std::string Buf;
         {
@@ -2010,20 +1978,14 @@ int ProcessDynamicSymbols(void) {
       //
       // symbol versioning
       //
-      if (!SymbolVersionSection) {
+      if (!b._elf.SymbolVersionSection) {
         sym.Visibility.IsDefault = false;
       } else {
-        // Determine the position in the symbol table of this entry.
-        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
-                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
-                            sizeof(Elf_Sym);
-
-        // Get the corresponding version index entry.
         const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
 
-        sym.Vers = getSymbolVersionByIndex(VersionMap,
-                                           DynamicStringTable,
+        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                           b._elf.DynamicStringTable,
                                            Versym->vs_index,
                                            sym.Visibility.IsDefault);
       }
@@ -2117,7 +2079,7 @@ int ProcessDynamicSymbols(void) {
         std::pair<binary_index_t, function_index_t> IdxPair(invalid_dynamic_target);
 
         {
-          auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+          auto &IFuncDynTargets = b.Analysis.IFuncDynTargets;
           auto it = IFuncDynTargets.find(Sym.st_value);
           if (it == IFuncDynTargets.end()) {
             for (const auto &_binary : Decompilation.Binaries) {
@@ -2140,7 +2102,7 @@ int ProcessDynamicSymbols(void) {
           auto it = FuncMap.find(Sym.st_value);
           assert(it != FuncMap.end());
 
-          function_t &f = binary.Analysis.Functions.at((*it).second);
+          function_t &f = b.Analysis.Functions.at((*it).second);
 
           f.Syms.push_back(sym);
 
@@ -2506,10 +2468,10 @@ static RelSymbol getSymbolForReloc(ELFO &ObjF,
 }
 
 int ProcessBinaryRelocations(void) {
-  binary_t &binary = Decompilation.Binaries[BinaryIndex];
+  binary_t &b = Decompilation.Binaries[BinaryIndex];
 
-  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+  assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+  ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
 
   TheTriple = O.makeTriple();
   Features = O.getFeatures();
@@ -2525,25 +2487,14 @@ int ProcessBinaryRelocations(void) {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
+  auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
 
   if (!OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
 
+  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-    if (!OptionalDynSymRegion)
-      return {}; /* no dynamic symbols */
-
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
-
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
   };
 
@@ -2561,7 +2512,7 @@ int ProcessBinaryRelocations(void) {
 
   auto processDynamicReloc = [&](const Relocation &R) -> void {
     RelSymbol RelSym =
-        getSymbolForReloc(O, dynamic_symbols(), DynamicStringTable, R);
+        getSymbolForReloc(O, dynamic_symbols(), b._elf.DynamicStringTable, R);
 
     if (RelSym.Sym)
       WithColor::note() << llvm::formatv("processDynamicReloc: RelSym: {0}\n", RelSym.Name);
@@ -2599,20 +2550,20 @@ int ProcessBinaryRelocations(void) {
         sym.Type = symbol_t::TYPE::FUNCTION;
       }
 
-      if (SymbolVersionSection && OptionalDynSymRegion) {
+      if (b._elf.SymbolVersionSection && b._elf.OptionalDynSymRegion) {
         // Determine the position in the symbol table of this entry.
         size_t EntryIndex =
             (reinterpret_cast<uintptr_t>(Sym) -
-             reinterpret_cast<uintptr_t>(OptionalDynSymRegion->Addr)) /
+             reinterpret_cast<uintptr_t>(b._elf.OptionalDynSymRegion->Addr)) /
             sizeof(Elf_Sym);
 
         // Get the corresponding version index entry.
         llvm::Expected<const Elf_Versym *> ExpectedVersym =
-            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
+            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, EntryIndex);
 
         if (ExpectedVersym) {
-          sym.Vers = getSymbolVersionByIndex(VersionMap,
-                                             DynamicStringTable,
+          sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                             b._elf.DynamicStringTable,
                                              (*ExpectedVersym)->vs_index,
                                              sym.Visibility.IsDefault);
         }
@@ -2659,7 +2610,7 @@ int ProcessBinaryRelocations(void) {
   }
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-  MipsGOTParser Parser(E, binary.Path);
+  MipsGOTParser Parser(E, b.Path);
   if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                        dynamic_symbols())) {
 #if 0
@@ -5291,60 +5242,30 @@ int ProcessDynamicSymbols2(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &FuncMap = binary.FuncMap;
+    auto &b = Decompilation.Binaries[BIdx];
+    auto &FuncMap = b.FuncMap;
 
-    if (!binary.ObjectFile)
+    if (!b.ObjectFile)
       continue;
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
-    auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
-
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-        loadDynamicSymbols(&E, &O,
-                           DynamicTable,
-                           DynamicStringTable,
-                           SymbolVersionSection,
-                           VersionMap);
-
-    if (!OptionalDynSymRegion)
+    if (!b._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
+    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
+      const Elf_Sym &Sym = DynSyms[SymNo];
 
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined()) /* defined */
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-
-      if (WARN_ON(!ExpectedSymName)) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-        }
-
-        WithColor::warning() << llvm::formatv("could not get symbol name ({0})\n", Buf);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
+      if (!ExpectedSymName)
         continue;
-      }
 
       llvm::StringRef SymName = *ExpectedSymName;
 
@@ -5355,20 +5276,14 @@ int ProcessDynamicSymbols2(void) {
       //
       // symbol versioning
       //
-      if (!SymbolVersionSection) {
+      if (!b._elf.SymbolVersionSection) {
         sym.Visibility.IsDefault = false;
       } else {
-        // Determine the position in the symbol table of this entry.
-        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
-                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
-                            sizeof(Elf_Sym);
-
-        // Get the corresponding version index entry.
         const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
 
-        sym.Vers = getSymbolVersionByIndex(VersionMap,
-                                           DynamicStringTable,
+        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                           b._elf.DynamicStringTable,
                                            Versym->vs_index,
                                            sym.Visibility.IsDefault);
       }
@@ -5396,7 +5311,7 @@ int ProcessDynamicSymbols2(void) {
           } else {
             auto it = AddrToSymbolMap.find(Sym.st_value);
             if (it == AddrToSymbolMap.end()) {
-              unsigned off = Sym.st_value - binary.SectsStartAddr;
+              unsigned off = Sym.st_value - b.SectsStartAddr;
 
               if (sym.Vers.empty()) {
                 Module->appendModuleInlineAsm(
@@ -5466,57 +5381,40 @@ int ProcessDynamicSymbols2(void) {
 
 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>
 decipher_copy_relocation(const symbol_t &S) {
-  auto &Binary = Decompilation.Binaries[BinaryIndex];
-  assert(Binary.IsExecutable);
+  assert(Decompilation.Binaries[BinaryIndex].IsExecutable); /* XXX? */
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     if (BIdx == BinaryIndex)
       continue;
 
-    auto &binary = Decompilation.Binaries[BIdx];
-    if (binary.IsVDSO)
+    auto &b = Decompilation.Binaries[BIdx];
+    if (b.IsVDSO)
       continue;
-    if (binary.IsDynamicLinker)
-      continue;
-    if (!binary.ObjectFile)
+    if (b.IsDynamicLinker)
       continue;
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    if (!b.ObjectFile)
+      continue;
+
+    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
-    llvm::StringRef DynamicStringTable;
-    const Elf_Shdr *SymbolVersionSection;
-    llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-    llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-        loadDynamicSymbols(&E, &O,
-                           DynamicTable,
-                           DynamicStringTable,
-                           SymbolVersionSection,
-                           VersionMap);
-
-    if (!OptionalDynSymRegion)
+    if (!b._elf.OptionalDynSymRegion)
       continue; /* no dynamic symbols */
 
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
+    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
+      const Elf_Sym &Sym = DynSyms[SymNo];
 
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
       if (Sym.isUndefined())
         continue;
 
       if (Sym.getType() != llvm::ELF::STT_OBJECT)
         continue;
 
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
+      llvm::StringRef SymName = unwrapOrError(Sym.getName(b._elf.DynamicStringTable));
 
       symbol_t sym;
 
@@ -5525,20 +5423,14 @@ decipher_copy_relocation(const symbol_t &S) {
       //
       // symbol versioning
       //
-      if (!SymbolVersionSection) {
+      if (!b._elf.SymbolVersionSection) {
         sym.Visibility.IsDefault = false;
       } else {
-        // Determine the position in the symbol table of this entry.
-        size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
-                             reinterpret_cast<uintptr_t>(DynSymRegion.Addr)) /
-                            sizeof(Elf_Sym);
-
-        // Get the corresponding version index entry.
         const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex));
+            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
 
-        sym.Vers = getSymbolVersionByIndex(VersionMap,
-                                           DynamicStringTable,
+        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                           b._elf.DynamicStringTable,
                                            Versym->vs_index,
                                            sym.Visibility.IsDefault);
       }
@@ -5548,9 +5440,9 @@ decipher_copy_relocation(const symbol_t &S) {
         //
         // we have a match.
         //
-        assert(Sym.st_value > binary.SectsStartAddr);
+        assert(Sym.st_value > b.SectsStartAddr);
 
-        return {BIdx, {Sym.st_value, Sym.st_value - binary.SectsStartAddr}};
+        return {BIdx, {Sym.st_value, Sym.st_value - b.SectsStartAddr}};
       }
     }
   }
