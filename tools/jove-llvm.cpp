@@ -738,10 +738,6 @@ static std::unordered_set<target_ulong>
 
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
-static std::unordered_map<llvm::GlobalIFunc *,
-                          std::pair<binary_index_t, function_index_t>>
-    IFuncTargetMap;
-
 static std::unordered_set<target_ulong> ExternGlobalAddrs;
 
 static std::unordered_set<llvm::Function *> FunctionsToInline;
@@ -1946,6 +1942,7 @@ int ProcessExportedFunctions(void) {
 
 static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
 static llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
+static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair);
 
 int ProcessDynamicSymbols(void) {
   std::set<std::pair<uintptr_t, unsigned>> gdefs;
@@ -2117,8 +2114,7 @@ int ProcessDynamicSymbols(void) {
           }
         }
       } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
-        std::pair<binary_index_t, function_index_t> IdxPair(
-            invalid_binary_index, invalid_function_index);
+        std::pair<binary_index_t, function_index_t> IdxPair(invalid_dynamic_target);
 
         {
           auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
@@ -2137,15 +2133,8 @@ int ProcessDynamicSymbols(void) {
           }
         }
 
-        if (IdxPair.first == invalid_binary_index ||
-            IdxPair.second == invalid_function_index) {
-          if (BIdx == BinaryIndex)
-            WithColor::warning() << llvm::formatv(
-                "failed to process {0} ifunc symbol\n", SymName);
-          continue;
-        }
-
-        ExportedFunctions[SymName].insert(IdxPair);
+        if (is_dynamic_target_valid(IdxPair))
+          ExportedFunctions[SymName].insert(IdxPair);
 
         if (BIdx == BinaryIndex) {
           auto it = FuncMap.find(Sym.st_value);
@@ -2155,16 +2144,18 @@ int ProcessDynamicSymbols(void) {
 
           f.Syms.push_back(sym);
 
+          llvm::FunctionType *FTy =
+              is_dynamic_target_valid(IdxPair)
+                  ? DetermineFunctionType(IdxPair)
+                  : llvm::FunctionType::get(VoidType(), false);
+
           if (f._resolver.IFunc) {
 #if 0
             llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
 #else
-            llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
-
             llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create(
                 FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
                 f._resolver.IFunc->getResolver(), Module.get());
-            IFuncTargetMap.insert({IFunc, IdxPair});
 
             if (!sym.Vers.empty()) {
 #if 0
@@ -2183,200 +2174,7 @@ int ProcessDynamicSymbols(void) {
             }
 #endif
           } else {
-            llvm::FunctionType *FTy = DetermineFunctionType(IdxPair);
-
-            // TODO refactor this
-            llvm::Function *CallsF = llvm::Function::Create(
-                llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
-                llvm::GlobalValue::ExternalLinkage,
-                std::string(f.F->getName()) + "_ifunc", Module.get());
-            CallsF->setVisibility(llvm::GlobalValue::HiddenVisibility);
-
-            llvm::DIBuilder &DIB = *DIBuilder;
-            llvm::DISubprogram::DISPFlags SubProgFlags =
-                llvm::DISubprogram::SPFlagDefinition |
-                llvm::DISubprogram::SPFlagOptimized;
-
-            if (CallsF->hasPrivateLinkage() || CallsF->hasInternalLinkage())
-              SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
-
-            llvm::DISubroutineType *SubProgType =
-                DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
-
-            struct {
-              llvm::DISubprogram *Subprogram;
-            } DebugInfo;
-
-            DebugInfo.Subprogram = DIB.createFunction(
-                /* Scope       */ DebugInformation.CompileUnit,
-                /* Name        */ CallsF->getName(),
-                /* LinkageName */ CallsF->getName(),
-                /* File        */ DebugInformation.File,
-                /* LineNo      */ 0,
-                /* Ty          */ SubProgType,
-                /* ScopeLine   */ 0,
-                /* Flags       */ llvm::DINode::FlagZero,
-                /* SPFlags     */ SubProgFlags);
-
-            CallsF->setSubprogram(DebugInfo.Subprogram);
-
-            llvm::BasicBlock *EntryB =
-                llvm::BasicBlock::Create(*Context, "", CallsF);
-
-            {
-              llvm::IRBuilderTy IRB(EntryB);
-
-              IRB.SetCurrentDebugLocation(
-                  llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
-                                        DebugInfo.Subprogram));
-
-              if (IdxPair.first == BinaryIndex) {
-                llvm::Constant *Res = llvm::ConstantExpr::getPtrToInt(
-                    Decompilation.Binaries[BinaryIndex]
-                        .Analysis.Functions.at(IdxPair.second)
-                        .F,
-                    WordType());
-
-                IRB.CreateRet(IRB.CreateIntToPtr(
-                    Res, CallsF->getFunctionType()->getReturnType()));
-              } else if (DynTargetNeedsThunkPred(IdxPair)) {
-                IRB.CreateCall(JoveInstallForeignFunctionTables)
-                    ->setIsNoInline();
-
-                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
-
-                IRB.CreateRet(IRB.CreateIntToPtr(
-                    Res, CallsF->getFunctionType()->getReturnType()));
-              } else if (!Decompilation.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
-                llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
-
-                IRB.CreateRet(IRB.CreateIntToPtr(
-                    Res, CallsF->getFunctionType()->getReturnType()));
-              } else {
-                IRB.CreateCall(JoveInstallForeignFunctionTables)
-                    ->setIsNoInline();
-
-                llvm::Value *SPPtr =
-                    CPUStateGlobalPointer(tcg_stack_pointer_index);
-
-                llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
-                SavedSP->setName("saved_sp");
-
-                llvm::Value *TemporaryStack = nullptr;
-                {
-                  TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
-                  llvm::Value *NewSP = IRB.CreateAdd(
-                      TemporaryStack,
-                      llvm::ConstantInt::get(WordType(),
-                                             JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
-
-                  llvm::Value *AlignedNewSP = IRB.CreateAnd(
-                      IRB.CreatePtrToInt(NewSP, WordType()),
-                      IRB.getIntN(sizeof(target_ulong) * 8,
-                                  sizeof(target_ulong) == sizeof(uint32_t)
-                                      ? 0xfffffff0
-                                      : 0xfffffffffffffff0));
-
-                  IRB.CreateStore(AlignedNewSP, SPPtr);
-                }
-
-                llvm::Value *SavedTraceP = nullptr;
-                if (opts::Trace) {
-                  SavedTraceP = IRB.CreateLoad(TraceGlobal);
-                  SavedTraceP->setName("saved_tracep");
-
-                  {
-                    constexpr unsigned TraceAllocaSize = 4096;
-
-                    llvm::AllocaInst *TraceAlloca =
-                        IRB.CreateAlloca(llvm::ArrayType::get(IRB.getInt64Ty(),
-                                                              TraceAllocaSize));
-
-                    llvm::Value *NewTraceP =
-                        IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
-
-                    IRB.CreateStore(NewTraceP, TraceGlobal);
-                  }
-                }
-
-                std::vector<llvm::Value *> ArgVec;
-                ArgVec.resize(f.F->getFunctionType()->getNumParams());
-
-                for (unsigned i = 0; i < ArgVec.size(); ++i)
-                  ArgVec[i] = llvm::UndefValue::get(
-                      f.F->getFunctionType()->getParamType(i));
-
-                // llvm::ValueToValueMapTy Map;
-                // ResolverF = llvm::CloneFunction(f.F, Map);
-
-                llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
-
-                IRB.CreateStore(SavedSP, SPPtr);
-
-                IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
-
-                if (opts::Trace)
-                  IRB.CreateStore(SavedTraceP, TraceGlobal);
-
-                if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
-                  WithColor::warning() << llvm::formatv(
-                      "ifunc resolver {0} returns void\n", *f.F);
-
-                  IRB.CreateRet(llvm::Constant::getNullValue(
-                      CallsF->getFunctionType()->getReturnType()));
-                } else {
-                  if (f.F->getFunctionType()->getReturnType()->isIntegerTy()) {
-                    IRB.CreateRet(IRB.CreateIntToPtr(
-                        Call, CallsF->getFunctionType()->getReturnType()));
-                  } else {
-                    assert(f.F->getFunctionType()->getReturnType()->isStructTy());
-
-                    llvm::Value *Val = IRB.CreateExtractValue(
-                        Call, llvm::ArrayRef<unsigned>(0), "");
-
-                    IRB.CreateRet(IRB.CreateIntToPtr(
-                        Val, CallsF->getFunctionType()->getReturnType()));
-                  }
-                }
-              }
-            }
-
-            DIB.finalizeSubprogram(DebugInfo.Subprogram);
-
-#if 0
-            // we can't have calls to PLT entries in resolver functions
-            ResolverF->setLinkage(llvm::GlobalValue::InternalLinkage);
-
-            llvm::InlineFunctionInfo IFI;
-            llvm::InlineResult InlRes = llvm::InlineFunction(Call, IFI);
-            if (!InlRes)
-              WithColor::error() << llvm::formatv(
-                  "unable to inline IFunc resolver function ({0})\n",
-                  InlRes.message);
-#else
-#endif
-
-            f._resolver.IFunc = llvm::GlobalIFunc::create(
-                FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
-                Module.get());
-
-            if (!sym.Vers.empty()) {
-#if 0
-              Module->appendModuleInlineAsm(
-                  (llvm::Twine(".symver ") + SymName + "," + SymName +
-                   (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
-                      .str());
-#endif
-
-              VersionScript.Table[sym.Vers].insert(SymName);
-
-#if 0
-              Module->appendModuleInlineAsm(
-                  (llvm::Twine(".type ") + SymName + " STT_GNU_IFUNC").str());
-#endif
-            }
-
-            IFuncTargetMap.insert({f._resolver.IFunc, IdxPair});
+            f._resolver.IFunc = buildGlobalIFunc(f, IdxPair);
           }
         }
       }
@@ -2384,6 +2182,181 @@ int ProcessDynamicSymbols(void) {
   }
 
   return 0;
+}
+
+llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
+  llvm::FunctionType *FTy = is_dynamic_target_valid(IdxPair)
+                                ? DetermineFunctionType(IdxPair)
+                                : llvm::FunctionType::get(VoidType(), false);
+
+  llvm::Function *CallsF = llvm::Function::Create(
+      llvm::FunctionType::get(llvm::PointerType::get(FTy, 0), false),
+      llvm::GlobalValue::ExternalLinkage,
+      std::string(f.F->getName()) + "_ifunc", Module.get());
+  CallsF->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  if (CallsF->hasPrivateLinkage() || CallsF->hasInternalLinkage())
+    SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ CallsF->getName(),
+      /* LinkageName */ CallsF->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+
+  CallsF->setSubprogram(DebugInfo.Subprogram);
+
+  llvm::BasicBlock *EntryB =
+      llvm::BasicBlock::Create(*Context, "", CallsF);
+
+  {
+    llvm::IRBuilderTy IRB(EntryB);
+
+    IRB.SetCurrentDebugLocation(
+        llvm::DILocation::get(*Context, /* Line */ 0, /* Column */ 0,
+                              DebugInfo.Subprogram));
+
+    if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
+      llvm::Constant *Res = llvm::ConstantExpr::getPtrToInt(
+          Decompilation.Binaries[BinaryIndex]
+              .Analysis.Functions.at(IdxPair.second)
+              .F,
+          WordType());
+
+      IRB.CreateRet(IRB.CreateIntToPtr(
+          Res, CallsF->getFunctionType()->getReturnType()));
+    } else if (is_dynamic_target_valid(IdxPair) && DynTargetNeedsThunkPred(IdxPair)) {
+      IRB.CreateCall(JoveInstallForeignFunctionTables)
+          ->setIsNoInline();
+
+      llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+
+      IRB.CreateRet(IRB.CreateIntToPtr(
+          Res, CallsF->getFunctionType()->getReturnType()));
+    } else if (is_dynamic_target_valid(IdxPair) && !Decompilation.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
+      llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+
+      IRB.CreateRet(IRB.CreateIntToPtr(
+          Res, CallsF->getFunctionType()->getReturnType()));
+    } else {
+      IRB.CreateCall(JoveInstallForeignFunctionTables)
+          ->setIsNoInline();
+
+      llvm::Value *SPPtr =
+          CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+      llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
+      SavedSP->setName("saved_sp");
+
+      llvm::Value *TemporaryStack = nullptr;
+      {
+        TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+        llvm::Value *NewSP = IRB.CreateAdd(
+            TemporaryStack,
+            llvm::ConstantInt::get(WordType(),
+                                   JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
+
+        llvm::Value *AlignedNewSP = IRB.CreateAnd(
+            IRB.CreatePtrToInt(NewSP, WordType()),
+            IRB.getIntN(sizeof(target_ulong) * 8,
+                        sizeof(target_ulong) == sizeof(uint32_t)
+                            ? 0xfffffff0
+                            : 0xfffffffffffffff0));
+
+        IRB.CreateStore(AlignedNewSP, SPPtr);
+      }
+
+      llvm::Value *SavedTraceP = nullptr;
+      if (opts::Trace) {
+        SavedTraceP = IRB.CreateLoad(TraceGlobal);
+        SavedTraceP->setName("saved_tracep");
+
+        {
+          constexpr unsigned TraceAllocaSize = 4096;
+
+          llvm::AllocaInst *TraceAlloca =
+              IRB.CreateAlloca(llvm::ArrayType::get(IRB.getInt64Ty(),
+                                                    TraceAllocaSize));
+
+          llvm::Value *NewTraceP =
+              IRB.CreateConstInBoundsGEP2_64(TraceAlloca, 0, 0);
+
+          IRB.CreateStore(NewTraceP, TraceGlobal);
+        }
+      }
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(f.F->getFunctionType()->getNumParams());
+
+      for (unsigned i = 0; i < ArgVec.size(); ++i)
+        ArgVec[i] = llvm::UndefValue::get(
+            f.F->getFunctionType()->getParamType(i));
+
+      // llvm::ValueToValueMapTy Map;
+      // ResolverF = llvm::CloneFunction(f.F, Map);
+
+      llvm::CallInst *Call = IRB.CreateCall(f.F, ArgVec);
+
+      IRB.CreateStore(SavedSP, SPPtr);
+
+      IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
+
+      if (opts::Trace)
+        IRB.CreateStore(SavedTraceP, TraceGlobal);
+
+      if (f.F->getFunctionType()->getReturnType()->isVoidTy()) {
+        WithColor::warning() << llvm::formatv(
+            "ifunc resolver {0} returns void\n", *f.F);
+
+        IRB.CreateRet(llvm::Constant::getNullValue(
+            CallsF->getFunctionType()->getReturnType()));
+      } else {
+        if (f.F->getFunctionType()->getReturnType()->isIntegerTy()) {
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Call, CallsF->getFunctionType()->getReturnType()));
+        } else {
+          assert(f.F->getFunctionType()->getReturnType()->isStructTy());
+
+          llvm::Value *Val = IRB.CreateExtractValue(
+              Call, llvm::ArrayRef<unsigned>(0), "");
+
+          IRB.CreateRet(IRB.CreateIntToPtr(
+              Val, CallsF->getFunctionType()->getReturnType()));
+        }
+      }
+    }
+  }
+
+  DIB.finalizeSubprogram(DebugInfo.Subprogram);
+
+  assert(!f.Syms.empty());
+  symbol_t &sym = f.Syms.back();
+
+  llvm::GlobalIFunc *res = llvm::GlobalIFunc::create(
+      FTy, 0, llvm::GlobalValue::ExternalLinkage, sym.Name, CallsF,
+      Module.get());
+
+  if (!sym.Vers.empty())
+    VersionScript.Table[sym.Vers].insert(sym.Name);
+
+  return res;
 }
 
 int ProcessDynamicTargets(void) {
