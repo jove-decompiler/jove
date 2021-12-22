@@ -1957,17 +1957,8 @@ int ProcessDynamicSymbols(void) {
         continue;
 
       llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
-      if (!ExpectedSymName) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-        }
-
-        WithColor::warning()
-            << llvm::formatv("could not get symbol name: {0}\n", Buf);
+      if (!ExpectedSymName)
         continue;
-      }
 
       llvm::StringRef SymName = *ExpectedSymName;
 
@@ -2663,17 +2654,8 @@ int ProcessBinaryRelocations(void) {
 
 
     llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(DynamicStringTable);
-    if (!ExpectedSymName) {
-      std::string Buf;
-      {
-        llvm::raw_string_ostream OS(Buf);
-        llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-      }
-
-      WithColor::note() << llvm::formatv("MipsGOTParser: could not get sym name: {0}\n",
-                                         Buf);
+    if (!ExpectedSymName)
       continue;
-    }
 
     llvm::StringRef SymName = *ExpectedSymName;
 
