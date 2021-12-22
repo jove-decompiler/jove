@@ -2604,13 +2604,6 @@ int ProcessBinaryRelocations(void) {
   MipsGOTParser Parser(E, b.Path);
   if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                        dynamic_symbols())) {
-#if 0
-    if (Err.isA<llvm::StringError>()) {
-      llvm::StringError &ErrStr = static_cast<StringError &>(*Err.getPtr());
-      ErrStr.getMessage();
-    }
-#endif
-
     WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
     return 1;
   }
