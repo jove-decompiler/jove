@@ -2469,13 +2469,8 @@ int ProcessBinaryRelocations(void) {
 
   const ELFF &E = *O.getELFFile();
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
-
-  assert(DynamicTable.Addr);
-
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    return b._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
   auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
@@ -2495,7 +2490,7 @@ int ProcessBinaryRelocations(void) {
   DynRegionInfo DynPLTRelRegion(O.getFileName());
 
   loadDynamicRelocations(&E, &O,
-                         DynamicTable,
+                         b._elf.DynamicTable,
                          DynRelRegion,
                          DynRelaRegion,
                          DynRelrRegion,
@@ -2758,13 +2753,8 @@ int ProcessIFuncResolvers(void) {
     resolver.IsABI = true;
   }
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
-
-  assert(DynamicTable.Addr);
-
   auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
   llvm::StringRef DynamicStringTable;
@@ -2772,7 +2762,7 @@ int ProcessIFuncResolvers(void) {
   llvm::SmallVector<VersionMapEntry, 16> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
-                         DynamicTable,
+                         binary._elf.DynamicTable,
                          DynamicStringTable,
                          SymbolVersionSection,
                          VersionMap);
@@ -4904,16 +4894,11 @@ int CreateSectionGlobalVariables(void) {
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
     //
     // parse dynamic table
     //
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+      return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
     target_ulong initFunctionAddr = 0;
