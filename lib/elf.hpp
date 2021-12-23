@@ -1049,3 +1049,72 @@ const Elf_Sym *MipsGOTParser::getPltSym(const Entry *E) const {
 }
 
 #endif
+
+class Relocation {
+public:
+  Relocation(const Elf_Rel &R, bool IsMips64EL)
+      : Type(R.getType(IsMips64EL)), Symbol(R.getSymbol(IsMips64EL)),
+        Offset(R.r_offset), Info(R.r_info) {}
+
+  Relocation(const typename ELFT::Rela &R, bool IsMips64EL)
+      : Relocation((const typename ELFT::Rel &)R, IsMips64EL) {
+    Addend = R.r_addend;
+  }
+
+  uint32_t Type;
+  uint32_t Symbol;
+  typename ELFT::uint Offset;
+  typename ELFT::uint Info;
+  llvm::Optional<int64_t> Addend;
+};
+
+struct RelSymbol {
+  RelSymbol(const typename ELFT::Sym *S, llvm::StringRef N)
+      : Sym(S), Name(N.str()) {}
+  const Elf_Sym *Sym;
+  std::string Name;
+};
+
+static RelSymbol getSymbolForReloc(ELFO &ObjF,
+                                   Elf_Sym_Range dynamic_symbols,
+                                   llvm::StringRef DynamicStringTable,
+                                   const Relocation &Reloc) {
+  auto WarnAndReturn = [&](const Elf_Sym *Sym,
+                           const llvm::Twine &Reason) -> RelSymbol {
+    llvm::WithColor::warning() << llvm::formatv(
+        "unable to get name of the dynamic symbol with index {0}: {1}\n",
+        llvm::Twine(Reloc.Symbol), Reason);
+    return {Sym, "<corrupt>"};
+  };
+
+  llvm::ArrayRef<Elf_Sym> Symbols = dynamic_symbols;
+  const Elf_Sym *FirstSym = Symbols.begin();
+  if (!FirstSym)
+    return WarnAndReturn(nullptr, "no dynamic symbol table found");
+
+  // We might have an object without a section header. In this case the size of
+  // Symbols is zero, because there is no way to know the size of the dynamic
+  // table. We should allow this case and not print a warning.
+  if (!Symbols.empty() && Reloc.Symbol >= Symbols.size())
+    return WarnAndReturn(
+        nullptr,
+        "index is greater than or equal to the number of dynamic symbols (" +
+            llvm::Twine(Symbols.size()) + ")");
+
+  const ELFF *Obj = ObjF.getELFFile();
+  const uint64_t FileSize = Obj->getBufSize();
+  const uint64_t SymOffset = ((const uint8_t *)FirstSym - Obj->base()) +
+                             (uint64_t)Reloc.Symbol * sizeof(Elf_Sym);
+  if (SymOffset + sizeof(Elf_Sym) > FileSize)
+    return WarnAndReturn(nullptr, "symbol at 0x" +
+                                      llvm::Twine::utohexstr(SymOffset) +
+                                      " goes past the end of the file (0x" +
+                                      llvm::Twine::utohexstr(FileSize) + ")");
+
+  const Elf_Sym *Sym = FirstSym + Reloc.Symbol;
+  llvm::Expected<llvm::StringRef> ErrOrName = Sym->getName(DynamicStringTable);
+  if (!ErrOrName)
+    return WarnAndReturn(Sym, llvm::toString(ErrOrName.takeError()));
+
+  return {Sym == FirstSym ? nullptr : Sym, (*ErrOrName).str()};
+}
