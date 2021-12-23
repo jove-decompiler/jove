@@ -646,11 +646,6 @@ int add(void) {
   // TODO init.array
 
   if (OptionalDynSymRegion) {
-    const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
-
-    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
     auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
     for_each_if(DynSyms.begin(),
@@ -660,39 +655,19 @@ int add(void) {
                           Sym.getType() == llvm::ELF::STT_FUNC;
                 },
                 [&](const Elf_Sym &Sym) -> void {
-                  llvm::Expected<llvm::StringRef> ExpectedSymName =
-                    Sym.getName(DynamicStringTable);
-
-                  if (!ExpectedSymName)
-                    return;
-
-                  target_ulong A = Sym.st_value;
-
-                  llvm::outs() << llvm::formatv("FUNC {0} @ {1:x}\n",
-                                                *ExpectedSymName, A);
-
-                  FunctionEntrypoints.insert(A);
+                  FunctionEntrypoints.insert(Sym.st_value);
                 });
 
-    //
-    // translate all IFunc resolver functions
-    //
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.isUndefined())
-        continue;
-      if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
-        continue;
-
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-      if (!ExpectedSymName)
-        continue;
-
-      llvm::StringRef SymName = *ExpectedSymName;
-
-      llvm::outs() << llvm::formatv("translating ifunc {0} resolver @ 0x{1:x}\n",
-                                    SymName, Sym.st_value);
-      FunctionEntrypoints.insert(Sym.st_value);
-    }
+    for_each_if(DynSyms.begin(),
+                DynSyms.end(),
+                [](const Elf_Sym &Sym) -> bool {
+                  return !Sym.isUndefined() &&
+                          Sym.getType() == llvm::ELF::STT_GNU_IFUNC;
+                },
+                [&](const Elf_Sym &Sym) -> void {
+                  FunctionEntrypoints.insert(Sym.st_value);
+                  ABIFunctions.insert(Sym.st_value);
+                });
   }
 
   //
