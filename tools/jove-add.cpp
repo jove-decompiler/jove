@@ -623,10 +623,9 @@ int add(void) {
 
             target_ulong A = Sym.st_value;
 
-#if defined(TARGET_MIPS64)
-            A &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-            A &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+            // clear lsb
+            A &= ~static_cast<target_ulong>(1);
 #endif
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
