@@ -497,51 +497,44 @@ int add(void) {
   }
 
   //
-  // search local symbols
+  // search local symbols (if they exist)
   //
   {
-    const Elf_Shdr *SymTab = nullptr;
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
 
-    for (const Elf_Shdr &Sect : unwrapOrError(E.sections())) {
-      if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
-        assert(!SymTab);
-        SymTab = &Sect;
-      }
-    }
+    if (ExpectedSections && !(*ExpectedSections).empty()) {
+      const Elf_Shdr *SymTab = nullptr;
 
-    if (SymTab) {
-      llvm::StringRef StrTable =
-          unwrapOrError(E.getStringTableForSymtab(*SymTab));
-      for (const Elf_Sym &Sym : unwrapOrError(E.symbols(SymTab))) {
-        if (Sym.isUndefined())
-          continue;
-        if (Sym.getType() != llvm::ELF::STT_FUNC)
-          continue;
-
-        llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(StrTable);
-        if (!ExpectedSymName) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-          }
-
-          WithColor::error() << llvm::formatv("{0}:{1}: could not get symbol name: {2}\n",
-                                             __FILE__, __LINE__, Buf);
-          continue;
+      for (const Elf_Shdr &Sect : *ExpectedSections) {
+        if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
+          SymTab = &Sect;
+          break;
         }
+      }
 
-        llvm::StringRef SymName = *ExpectedSymName;
+      if (SymTab) {
+        llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = E.symbols(SymTab);
 
-        target_ulong A = Sym.st_value;
+        if (ExpectedLocalSyms) {
+          auto LocalSyms = *ExpectedLocalSyms;
 
-        llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName, A);
-
-        FunctionEntrypoints.insert(A);
+          for_each_if(LocalSyms.begin(),
+                      LocalSyms.end(),
+                      [](const Elf_Sym &Sym) -> bool {
+                        return !Sym.isUndefined() &&
+                                Sym.getType() == llvm::ELF::STT_FUNC;
+                      },
+                      [&](const Elf_Sym &Sym) -> void {
+                        BasicBlockAddresses.insert(Sym.st_value);
+                      });
+        }
       }
     }
   }
 
+  //
+  // look for split debug information
+  //
   llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
   if (optionalBuildID) {
     llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
@@ -587,48 +580,34 @@ int add(void) {
       const ELFF &split_E = *split_O.getELFFile();
 
       //
-      // search symbols
+      // examine local symbols (if they exist)
       //
-      {
+      llvm::Expected<Elf_Shdr_Range> ExpectedSections = split_E.sections();
+      if (ExpectedSections && !(*ExpectedSections).empty()) {
         const Elf_Shdr *SymTab = nullptr;
 
-        for (const Elf_Shdr &Sect : unwrapOrError(split_E.sections())) {
-          if (Sect.sh_type == llvm::ELF::SHT_SYMTAB) {
-            assert(!SymTab);
-            SymTab = &Sect;
+        for (const Elf_Shdr &Sec : *ExpectedSections) {
+          if (Sec.sh_type == llvm::ELF::SHT_SYMTAB) {
+            SymTab = &Sec;
             break;
           }
         }
 
         if (SymTab) {
-          llvm::StringRef StrTable =
-              unwrapOrError(split_E.getStringTableForSymtab(*SymTab));
-          for (const Elf_Sym &Sym : unwrapOrError(split_E.symbols(SymTab))) {
-            if (Sym.isUndefined())
-              continue;
-            if (Sym.getType() != llvm::ELF::STT_FUNC)
-              continue;
+          llvm::Expected<Elf_Sym_Range> ExpectedLocalSyms = split_E.symbols(SymTab);
 
-            llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(StrTable);
-            if (!ExpectedSymName)
-              continue;
+          if (ExpectedLocalSyms) {
+            auto LocalSyms = *ExpectedLocalSyms;
 
-            llvm::StringRef SymName = *ExpectedSymName;
-            if (SymName.empty())
-              continue;
-
-            //
-            // since these are local symbols, we cannot rely on them being ABIs,
-            // or functions at all, for that matter. We know that each entry
-            // point is the start of a basic block, however.
-            //
-            llvm::outs() << llvm::formatv("translating (bb) {0} @ 0x{1:x}\n",
-                                          SymName, Sym.st_value);
-
-            target_ulong A = Sym.st_value;
-
-            BasicBlockAddresses.insert(A);
-            //FunctionEntrypoints.insert(A);
+            for_each_if(LocalSyms.begin(),
+                        LocalSyms.end(),
+                        [](const Elf_Sym &Sym) -> bool {
+                          return !Sym.isUndefined() &&
+                                  Sym.getType() == llvm::ELF::STT_FUNC;
+                        },
+                        [&](const Elf_Sym &Sym) -> void {
+                          BasicBlockAddresses.insert(Sym.st_value);
+                        });
           }
         }
       }
