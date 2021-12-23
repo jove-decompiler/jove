@@ -196,6 +196,15 @@ static struct {
   bool Active;
 } BreakOn = {.Active = false};
 
+template <typename Iter, typename Pred, typename Op>
+static void for_each_if(Iter first, Iter last, Pred p, Op op) {
+  while (first != last) {
+    if (p(*first))
+      op(*first);
+    ++first;
+  }
+}
+
 int add(void) {
   if (!opts::BreakOnAddr.empty()) {
     BreakOn.Active = true;
@@ -421,6 +430,7 @@ int add(void) {
 
   bool IsStaticallyLinked = true;
 
+  std::set<target_ulong> ABIFunctions;
   std::set<target_ulong> FunctionEntrypoints;
   std::set<target_ulong> BasicBlockAddresses;
 
@@ -628,8 +638,10 @@ int add(void) {
   //
   // translate constructors
   //
-  if (initFunctionAddr)
+  if (initFunctionAddr) {
     FunctionEntrypoints.insert(initFunctionAddr);
+    ABIFunctions.insert(initFunctionAddr);
+  }
 
   // TODO init.array
 
@@ -639,38 +651,28 @@ int add(void) {
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return DynSymRegion.getAsArrayRef<Elf_Sym>();
     };
+    auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-    //
-    // translate all exported functions
-    //
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.isUndefined())
-        continue;
-      if (Sym.getType() != llvm::ELF::STT_FUNC)
-        continue;
+    for_each_if(DynSyms.begin(),
+                DynSyms.end(),
+                [](const Elf_Sym &Sym) -> bool {
+                  return !Sym.isUndefined() &&
+                          Sym.getType() == llvm::ELF::STT_FUNC;
+                },
+                [&](const Elf_Sym &Sym) -> void {
+                  llvm::Expected<llvm::StringRef> ExpectedSymName =
+                    Sym.getName(DynamicStringTable);
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-      if (!ExpectedSymName) {
-        if (opts::Verbose) {
-          std::string Buf;
-          {
-            llvm::raw_string_ostream OS(Buf);
-            llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-          }
+                  if (!ExpectedSymName)
+                    return;
 
-          WithColor::error() << llvm::formatv(
-              "{0}: could not get symbol name: {1}\n", __func__, Buf);
-        }
-        continue;
-      }
+                  target_ulong A = Sym.st_value;
 
-      llvm::StringRef SymName = *ExpectedSymName;
-      llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n",
-                                    SymName,
-                                    Sym.st_value);
+                  llvm::outs() << llvm::formatv("FUNC {0} @ {1:x}\n",
+                                                *ExpectedSymName, A);
 
-      FunctionEntrypoints.insert(Sym.st_value);
-    }
+                  FunctionEntrypoints.insert(A);
+                });
 
     //
     // translate all IFunc resolver functions
@@ -691,7 +693,6 @@ int add(void) {
                                     SymName, Sym.st_value);
       FunctionEntrypoints.insert(Sym.st_value);
     }
-
   }
 
   //
@@ -779,11 +780,9 @@ int add(void) {
 
     function_index_t FIdx = translate_function(binary, tcg, dis, Entrypoint);
 
-    if (unlikely(initFunctionAddr == Entrypoint)) {
-      assert(initFunctionAddr);
-      function_t &f = binary.Analysis.Functions.at(FIdx);
-      f.IsABI = true;
-    }
+    auto it = ABIFunctions.find(Entrypoint);
+    if (it != ABIFunctions.end())
+      binary.Analysis.Functions[FIdx].IsABI = true;
   }
 
   {
