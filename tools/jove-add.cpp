@@ -527,12 +527,6 @@ int add(void) {
 
         llvm::outs() << llvm::formatv("translating {0} @ 0x{1:x}\n", SymName, A);
 
-#if defined(TARGET_MIPS64)
-        A &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-        A &= 0xfffffffe;
-#endif
-
         FunctionEntrypoints.insert(A);
       }
     }
@@ -623,16 +617,8 @@ int add(void) {
 
             target_ulong A = Sym.st_value;
 
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-            // clear lsb
-            A &= ~static_cast<target_ulong>(1);
-#endif
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
             BasicBlockAddresses.insert(A);
-#else
-            FunctionEntrypoints.insert(A);
-#endif
+            //FunctionEntrypoints.insert(A);
           }
         }
       }
@@ -779,20 +765,16 @@ int add(void) {
   //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
   //
   for (target_ulong Entrypoint : boost::adaptors::reverse(BasicBlockAddresses)) {
-#if defined(TARGET_MIPS64)
-    Entrypoint &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    Entrypoint &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    Entrypoint &= ~1UL;
 #endif
 
     translate_basic_block(binary, tcg, dis, Entrypoint);
   }
 
   for (target_ulong Entrypoint : boost::adaptors::reverse(FunctionEntrypoints)) {
-#if defined(TARGET_MIPS64)
-    Entrypoint &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    Entrypoint &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    Entrypoint &= ~1UL;
 #endif
 
     function_index_t FIdx = translate_function(binary, tcg, dis, Entrypoint);
@@ -1200,10 +1182,8 @@ on_insn_boundary:
   auto control_flow = [&](target_ulong Target) -> void {
     assert(Target);
 
-#if defined(TARGET_MIPS64)
-    Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    Target &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    Target &= ~1UL;
 #endif
 
     basic_block_index_t succidx =
@@ -1242,10 +1222,8 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
-#if defined(TARGET_MIPS64)
-    T._call.Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    T._call.Target &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    T._call.Target &= ~1UL;
 #endif
 
     function_index_t FIdx =
