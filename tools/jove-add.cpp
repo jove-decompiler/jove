@@ -205,6 +205,8 @@ static void for_each_if(Iter first, Iter last, Pred p, Op op) {
   }
 }
 
+static void IgnoreCtrlC(void);
+
 int add(void) {
   if (!opts::BreakOnAddr.empty()) {
     BreakOn.Active = true;
@@ -636,10 +638,22 @@ int add(void) {
   }
 
   //
-  // translate all ifunc resolvers
+  // examine relocations
   //
-  auto process_elf_rela = [&](const Elf_Shdr &Sec, const Elf_Rela &R) -> void {
-      constexpr unsigned long irelative_reloc_ty =
+  DynRegionInfo DynRelRegion(O.getFileName());
+  DynRegionInfo DynRelaRegion(O.getFileName());
+  DynRegionInfo DynRelrRegion(O.getFileName());
+  DynRegionInfo DynPLTRelRegion(O.getFileName());
+
+  loadDynamicRelocations(&E, &O,
+                         DynamicTable,
+                         DynRelRegion,
+                         DynRelaRegion,
+                         DynRelrRegion,
+                         DynPLTRelRegion);
+
+  auto processDynamicReloc = [&](const Relocation &R) -> void {
+      constexpr unsigned irelative_reloc_type =
 #if defined(TARGET_X86_64)
           llvm::ELF::R_X86_64_IRELATIVE
 #elif defined(TARGET_I386)
@@ -652,59 +666,61 @@ int add(void) {
 #error
 #endif
           ;
+    //
+    // ifunc resolvers are ABIs
+    //
+    if (R.Type == irelative_reloc_type) {
+      target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
-    unsigned reloc_ty = R.getType(E.isMips64EL());
-    if (reloc_ty != irelative_reloc_ty)
-      return;
+      if (!resolverAddr) {
+        llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
-    target_ulong resolverAddr = R.r_addend;
-    if (!resolverAddr) { /* XXX */
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.r_offset);
+        resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+      }
 
-      resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
-    }
-
-    if (resolverAddr) {
-      llvm::outs() << llvm::formatv("ifunc resolver @ {0:x}\n",
-                                    resolverAddr);
-
-      ABIAtAddress(resolverAddr);
+      if (resolverAddr)
+        ABIAtAddress(resolverAddr);
     }
   };
 
-  llvm::Expected<Elf_Shdr_Range> sections = E.sections();
-  if (sections) {
-    for (const Elf_Shdr &Sec : *sections) {
-      if (Sec.sh_type == llvm::ELF::SHT_RELA) {
-        for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
-          process_elf_rela(Sec, Rela);
-      } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
-        for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec))) {
-          Elf_Rela Rela;
-          Rela.r_offset = Rel.r_offset;
-          Rela.r_info = Rel.r_info;
-          Rela.r_addend = 0;
+  {
+    const bool IsMips64EL = E.isMips64EL();
 
-          process_elf_rela(Sec, Rela);
-        }
+    //
+    // from ELFDumper::printDynamicRelocationsHelper()
+    //
+    if (DynRelaRegion.Size > 0) {
+      for (const Elf_Rela &Rela : DynRelaRegion.getAsArrayRef<Elf_Rela>())
+        processDynamicReloc(Relocation(Rela, IsMips64EL));
+    }
+
+    if (DynRelRegion.Size > 0) {
+      for (const Elf_Rel &Rel : DynRelRegion.getAsArrayRef<Elf_Rel>())
+        processDynamicReloc(Relocation(Rel, IsMips64EL));
+    }
+
+    if (DynRelrRegion.Size > 0) {
+      Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
+      llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
+      if (ExpectedRelrRelas) {
+        for (const Elf_Rela &Rela : *ExpectedRelrRelas)
+          processDynamicReloc(Relocation(Rela, IsMips64EL));
+      }
+    }
+
+    if (DynPLTRelRegion.Size > 0) {
+      if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
+        for (const Elf_Rela &Rela : DynPLTRelRegion.getAsArrayRef<Elf_Rela>())
+          processDynamicReloc(Relocation(Rela, IsMips64EL));
+      } else {
+        for (const Elf_Rel &Rel : DynPLTRelRegion.getAsArrayRef<Elf_Rel>())
+          processDynamicReloc(Relocation(Rel, IsMips64EL));
       }
     }
   }
 
   //
-  // process the functions in the higher addresses before the preceeding code.
-  // this heuristic can resolve situations like the following:
-  //
-  // error: control flow to 0x10a330 in
-  // /lib/i386-linux-gnu/libc-2.27.so doesn't lie on instruction boundary
-  //
-  //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
-  //  10a32d:       ff d2                   call   *%edx <-- this is actually noreturn
-  //  10a32f:       00                      add    %dl,-0x77(%ebp) <-- this is garbage
-  //
-  //0010a330 <__nss_next@@GLIBC_2.0>:
-  //  10a330:       55                      push   %ebp
-  //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
+  // explore known code
   //
   for (target_ulong Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -728,16 +744,11 @@ int add(void) {
       binary.Analysis.Functions[FIdx].IsABI = true;
   }
 
-  {
-    struct sigaction sa;
+  IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-    sa.sa_handler = SIG_IGN;
-
-    sigaction(SIGINT, &sa, nullptr);
-  }
-
+  //
+  // Write output
+  //
   {
     std::ofstream ofs(opts::Output);
 
@@ -1252,6 +1263,24 @@ bool does_function_definitely_return(binary_index_t BIdx,
                });
 
   return !ExitBasicBlocks.empty();
+}
+
+void IgnoreCtrlC(void) {
+  auto sighandler = [](int no) -> void {
+    ; // do nothing
+  };
+
+  struct sigaction sa;
+
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sa.sa_handler = sighandler;
+
+  if (sigaction(SIGINT, &sa, nullptr) < 0) {
+    int err = errno;
+    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
+  }
 }
 
 void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
