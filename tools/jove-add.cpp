@@ -780,8 +780,7 @@ int add(void) {
 
     function_index_t FIdx = translate_function(binary, tcg, dis, Entrypoint);
 
-    auto it = ABIFunctions.find(Entrypoint);
-    if (it != ABIFunctions.end())
+    if (ABIFunctions.find(Entrypoint) != ABIFunctions.end())
       binary.Analysis.Functions[FIdx].IsABI = true;
   }
 
