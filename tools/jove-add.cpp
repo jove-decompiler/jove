@@ -430,30 +430,35 @@ int add(void) {
 
   bool IsStaticallyLinked = true;
 
-  std::set<target_ulong> ABIFunctions;
-  std::set<target_ulong> FunctionEntrypoints;
-  std::set<target_ulong> BasicBlockAddresses;
+  struct {
+    std::set<target_ulong> FunctionEntrypoints, ABIs;
+    std::set<target_ulong> BasicBlockAddresses;
+  } Known;
 
-  target_ulong initFunctionAddr = 0;
-  //
-  // parse dynamic table
-  //
+  auto BasicBlockAtAddress = [&](target_ulong A) -> void {
+    Known.BasicBlockAddresses.insert(A);
+  };
+  auto FunctionAtAddress = [&](target_ulong A) -> void {
+    Known.FunctionEntrypoints.insert(A);
+  };
+  auto ABIAtAddress = [&](target_ulong A) -> void {
+    Known.FunctionEntrypoints.insert(A);
+    Known.ABIs.insert(A);
+  };
 
+  //
+  // examine dynamic table
+  //
   for (const Elf_Dyn &Dyn : dynamic_table()) {
     if (unlikely(Dyn.getTag() == llvm::ELF::DT_NULL))
       break; /* marks end of dynamic table. */
-
-    if (opts::Verbose)
-      llvm::errs() << llvm::formatv("{0}:{1} Elf_Dyn {2}\n",
-                                    __FILE__, __LINE__,
-                                    E.getDynamicTagAsString(Dyn.getTag()));
 
     switch (Dyn.d_tag) {
     case llvm::ELF::DT_NEEDED:
       IsStaticallyLinked = false;
       break;
     case llvm::ELF::DT_INIT:
-      initFunctionAddr = Dyn.getVal();
+      ABIAtAddress(Dyn.getVal());
       break;
     }
   }
@@ -525,7 +530,7 @@ int add(void) {
                                 Sym.getType() == llvm::ELF::STT_FUNC;
                       },
                       [&](const Elf_Sym &Sym) -> void {
-                        BasicBlockAddresses.insert(Sym.st_value);
+                        BasicBlockAtAddress(Sym.st_value);
                       });
         }
       }
@@ -606,7 +611,7 @@ int add(void) {
                                   Sym.getType() == llvm::ELF::STT_FUNC;
                         },
                         [&](const Elf_Sym &Sym) -> void {
-                          BasicBlockAddresses.insert(Sym.st_value);
+                          BasicBlockAtAddress(Sym.st_value);
                         });
           }
         }
@@ -615,15 +620,8 @@ int add(void) {
   }
 
   //
-  // translate constructors
+  // examine exported functions
   //
-  if (initFunctionAddr) {
-    FunctionEntrypoints.insert(initFunctionAddr);
-    ABIFunctions.insert(initFunctionAddr);
-  }
-
-  // TODO init.array
-
   if (OptionalDynSymRegion) {
     auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
@@ -634,7 +632,7 @@ int add(void) {
                           Sym.getType() == llvm::ELF::STT_FUNC;
                 },
                 [&](const Elf_Sym &Sym) -> void {
-                  FunctionEntrypoints.insert(Sym.st_value);
+                  FunctionAtAddress(Sym.st_value);
                 });
 
     for_each_if(DynSyms.begin(),
@@ -644,8 +642,7 @@ int add(void) {
                           Sym.getType() == llvm::ELF::STT_GNU_IFUNC;
                 },
                 [&](const Elf_Sym &Sym) -> void {
-                  FunctionEntrypoints.insert(Sym.st_value);
-                  ABIFunctions.insert(Sym.st_value);
+                  ABIAtAddress(Sym.st_value);
                 });
   }
 
@@ -671,18 +668,19 @@ int add(void) {
     if (reloc_ty != irelative_reloc_ty)
       return;
 
-    target_ulong ifunc_resolver_addr = R.r_addend;
-    if (!ifunc_resolver_addr) {
+    target_ulong resolverAddr = R.r_addend;
+    if (!resolverAddr) { /* XXX */
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.r_offset);
 
-      ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+      resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
     }
-    assert(ifunc_resolver_addr);
 
-    llvm::outs() << llvm::formatv("translating ifunc resolver @ 0x{0:x}\n",
-                                  ifunc_resolver_addr);
+    if (resolverAddr) {
+      llvm::outs() << llvm::formatv("ifunc resolver @ {0:x}\n",
+                                    resolverAddr);
 
-    FunctionEntrypoints.insert(ifunc_resolver_addr);
+      ABIAtAddress(resolverAddr);
+    }
   };
 
   llvm::Expected<Elf_Shdr_Range> sections = E.sections();
@@ -719,7 +717,7 @@ int add(void) {
   //  10a330:       55                      push   %ebp
   //  10a326:       65 33 15 18 00 00 00    xor    %gs:0x18,%edx
   //
-  for (target_ulong Entrypoint : boost::adaptors::reverse(BasicBlockAddresses)) {
+  for (target_ulong Entrypoint : boost::adaptors::reverse(Known.BasicBlockAddresses)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif
@@ -727,7 +725,7 @@ int add(void) {
     translate_basic_block(binary, tcg, dis, Entrypoint);
   }
 
-  for (target_ulong Entrypoint : boost::adaptors::reverse(FunctionEntrypoints)) {
+  for (target_ulong Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
     Entrypoint &= ~1UL;
 #endif
@@ -737,7 +735,7 @@ int add(void) {
     if (!is_function_index_valid(FIdx))
       continue;
 
-    if (ABIFunctions.find(Entrypoint) != ABIFunctions.end())
+    if (Known.ABIs.find(Entrypoint) != Known.ABIs.end())
       binary.Analysis.Functions[FIdx].IsABI = true;
   }
 
