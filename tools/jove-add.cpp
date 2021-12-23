@@ -463,37 +463,26 @@ int add(void) {
     }
   }
 
+  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
+  if (!ExpectedPrgHdrs) {
+    WithColor::error() << "no program headers in ELF. bug?\n";
+    return 1;
+  }
+
+  auto PrgHdrs = *ExpectedPrgHdrs;
 
   //
   // if the ELF has a PT_INTERP program header, then we'll explore the entry
   // point. if not, we'll only consider it if it's statically-linked (i.e. it's
   // the dynamic linker)
   //
-  struct {
-    bool Found;
-  } Interp;
-
-  Interp.Found = false;
-
-  llvm::Expected<Elf_Phdr_Range> program_hdrs = E.program_headers();
-  if (program_hdrs) {
-    for (const Elf_Phdr &Phdr : *program_hdrs) {
-      if (Phdr.p_type != llvm::ELF::PT_INTERP)
-        continue;
-
-      if (Interp.Found) {
-        WithColor::error()
-            << "malformed ELF: multiple PT_INTERP program headers\n";
-        return 1;
-      }
-
-      Interp.Found = true;
-    }
-  }
-
-  if (target_ulong EntryAddr = E.getHeader()->e_entry) {
-    llvm::outs() << "translating entry point @ "
-                 << (fmt("%#lx") % EntryAddr).str() << '\n';
+  bool HasInterpreter =
+    std::any_of(PrgHdrs.begin(),
+                PrgHdrs.end(),
+                [](const Elf_Phdr &Phdr) -> bool{ return Phdr.p_type == llvm::ELF::PT_INTERP; });
+  target_ulong EntryAddr = E.getHeader()->e_entry;
+  if (HasInterpreter && EntryAddr) {
+    llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
     binary.Analysis.EntryFunction =
         translate_function(binary, tcg, dis, EntryAddr);
