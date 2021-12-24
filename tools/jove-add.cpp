@@ -481,7 +481,7 @@ int add(void) {
   {
     llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
 
-    if (ExpectedSections && !(*ExpectedSections).empty()) {
+    if (ExpectedSections) {
       const Elf_Shdr *SymTab = nullptr;
 
       for (const Elf_Shdr &Sect : *ExpectedSections) {
