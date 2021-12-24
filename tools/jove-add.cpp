@@ -687,7 +687,7 @@ int add(void) {
 
       std::for_each(DynRelaRelocs.begin(),
                     DynRelaRelocs.end(),
-                    [&](const Elf_Rela &Rela) -> void {
+                    [&](const Elf_Rela &Rela) {
                       processDynamicReloc(Relocation(Rela, IsMips64EL));
                     });
     }
@@ -697,7 +697,7 @@ int add(void) {
 
       std::for_each(DynRelRelocs.begin(),
                     DynRelRelocs.end(),
-                    [&](const Elf_Rel &Rel) -> void {
+                    [&](const Elf_Rel &Rel) {
                       processDynamicReloc(Relocation(Rel, IsMips64EL));
                     });
     }
@@ -710,7 +710,7 @@ int add(void) {
 
         std::for_each(RelrRelasRelocs.begin(),
                       RelrRelasRelocs.end(),
-                      [&](const Elf_Rela &Rela) -> void {
+                      [&](const Elf_Rela &Rela) {
                         processDynamicReloc(Relocation(Rela, IsMips64EL));
                       });
       }
@@ -722,7 +722,7 @@ int add(void) {
 
         std::for_each(DynPLTRelRelocs.begin(),
                       DynPLTRelRelocs.end(),
-                      [&](const Elf_Rela &Rela) -> void {
+                      [&](const Elf_Rela &Rela) {
                         processDynamicReloc(Relocation(Rela, IsMips64EL));
                       });
       } else {
@@ -730,7 +730,7 @@ int add(void) {
 
         std::for_each(DynPLTRelRelocs.begin(),
                       DynPLTRelRelocs.end(),
-                      [&](const Elf_Rel &Rel) -> void {
+                      [&](const Elf_Rel &Rel) {
                         processDynamicReloc(Relocation(Rel, IsMips64EL));
                       });
       }
