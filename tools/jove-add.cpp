@@ -416,16 +416,6 @@ int add(void) {
 
   assert(DynamicTable.Addr);
 
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
@@ -609,6 +599,16 @@ int add(void) {
       }
     }
   }
+
+  llvm::StringRef DynamicStringTable;
+  const Elf_Shdr *SymbolVersionSection;
+  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+      loadDynamicSymbols(&E, &O,
+                         DynamicTable,
+                         DynamicStringTable,
+                         SymbolVersionSection,
+                         VersionMap);
 
   //
   // examine exported functions
