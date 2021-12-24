@@ -646,7 +646,7 @@ int add(void) {
                          DynPLTRelRegion);
 
   auto processDynamicReloc = [&](const Relocation &R) -> void {
-      constexpr unsigned irelative_reloc_type =
+      constexpr unsigned Ty =
 #if defined(TARGET_X86_64)
           llvm::ELF::R_X86_64_IRELATIVE
 #elif defined(TARGET_I386)
@@ -662,7 +662,7 @@ int add(void) {
     //
     // ifunc resolvers are ABIs
     //
-    if (R.Type == irelative_reloc_type) {
+    if (R.Type == Ty) {
       target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
       if (!resolverAddr) {
