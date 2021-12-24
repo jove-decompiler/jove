@@ -235,34 +235,23 @@ int add(void) {
       obj::createBinary(Buffer->getMemBufferRef());
 
   if (!BinOrErr) {
-#if 0
-    WithColor::error() << llvm::formatv("failed to create binary from {0}\n",
-                                        opts::Input);
-#endif
-
     //
-    // if this happens, we assume the given bytes do not constitute an object
-    // file, and treat them as data mmapped into memory; they have no symbol
-    // information.
+    // raw instruction stream
     //
-    decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
+    {
+      binary_t &binary = decompilation.Binaries.emplace_back();
 
-    binary_t &binary = decompilation.Binaries.back();
+      binary.IsDynamicLinker = false;
+      binary.IsExecutable = false;
+      binary.IsVDSO = false;
 
-    //
-    // initialize fields
-    //
-    binary.IsDynamicLinker = false;
-    binary.IsExecutable = false;
-    binary.IsVDSO = false;
+      binary.IsPIC = true;
+      binary.IsDynamicallyLoaded = false;
 
-    binary.IsPIC = true;
-    binary.IsDynamicallyLoaded = false;
-
-    binary.Path = fs::canonical(opts::Input).string();
-    binary.Data.resize(Buffer->getBufferSize());
-    memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
-
+      binary.Path = fs::canonical(opts::Input).string();
+      binary.Data.resize(Buffer->getBufferSize());
+      memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+    }
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
