@@ -45,32 +45,7 @@
 #include <boost/graph/graphviz.hpp>
 #include <boost/unordered_set.hpp>
 
-#ifndef likely
-#define likely(x)   __builtin_expect(!!(x), 1)
-#endif
-
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-static void __warn(const char *file, int line);
-
-#ifndef WARN
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-#endif
-
-#ifndef WARN_ON
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-#endif
+#include "jove_macros.h"
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -227,15 +202,6 @@ static std::string disassemble_basic_block(const cfg_t &G,
 
   const ELFF &E = *llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile();
 
-  llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(G[V].Addr);
-  if (!ExpectedPtr) {
-    WithColor::error() << llvm::formatv(
-        "failed to get binary contents for {0:x}\n", G[V].Addr);
-    return std::string();
-  }
-
-  const uint8_t *Ptr = *ExpectedPtr;
-
   tcg_uintptr_t End = G[V].Addr + G[V].Size;
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
@@ -243,31 +209,27 @@ static std::string disassemble_basic_block(const cfg_t &G,
     End += 4; /* delay slot */
 #endif
 
-  llvm::Expected<const uint8_t *> ExpectedPtrEnd = E.toMappedAddr(End);
-  if (!ExpectedPtrEnd) {
-    WithColor::error() << llvm::formatv(
-        "failed to get binary contents for {0:x}\n", End);
-    return std::string();
-  }
-
-  const uint8_t *PtrEnd = *ExpectedPtrEnd;
-
-  llvm::ArrayRef<uint8_t> MachineCode(Ptr, PtrEnd);
-
   std::string res;
 
   uint64_t InstLen = 0;
   for (uintptr_t A = G[V].Addr; A < End; A += InstLen) {
     llvm::MCInst Inst;
 
+    llvm::Expected<const uint8_t *> ExpectedContents = E.toMappedAddr(A);
+    if (!ExpectedContents)
+      break;
+
+    const uint8_t *Contents = *ExpectedContents;
+
     std::string errmsg;
     bool Disassembled;
     {
       llvm::raw_string_ostream ErrorStrStream(errmsg);
 
-      ptrdiff_t Offset = A - G[V].Addr;
-      Disassembled = DisAsm->getInstruction(
-          Inst, InstLen, MachineCode.slice(Offset), A, ErrorStrStream);
+      llvm::ArrayRef<uint8_t> ContentsRef(Contents, G[V].Size);
+
+      Disassembled =
+          DisAsm->getInstruction(Inst, InstLen, ContentsRef, A, ErrorStrStream);
     }
 
     if (!Disassembled) {
@@ -287,19 +249,7 @@ static std::string disassemble_basic_block(const cfg_t &G,
     }
     boost::trim(line);
 
-    const char *addr_fmt_c_str = nullptr;
-    if (sizeof(tcg_uintptr_t) == 4) {
-      addr_fmt_c_str = "%08x   ";
-    } else if (sizeof(tcg_uintptr_t) == 8) {
-      addr_fmt_c_str = "%16x   ";
-    } else {
-      __builtin_trap();
-      __builtin_unreachable();
-    }
-
-    assert(addr_fmt_c_str);
-
-    res.append((fmt(addr_fmt_c_str) % A).str());
+    res.append((fmt("%x   ") % A).str());
     res.append(line);
     res.push_back('\n');
   }
@@ -664,7 +614,3 @@ void print_command(const char **argv) {
 }
 
 } // namespace jove
-
-void __warn(const char *file, int line) {
-  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
-}
