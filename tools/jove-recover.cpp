@@ -1,4 +1,10 @@
+#include <llvm/Object/ELFObjectFile.h>
+#include <boost/icl/split_interval_map.hpp>
+
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  boost::icl::split_interval_map<tcg_uintptr_t, basic_block_index_t> BBMap;    \
+  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
+                                                                               \
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 
 #include "tcgcommon.hpp"
@@ -66,6 +72,8 @@
 #include <boost/serialization/map.hpp>
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
+
+#include "jove_macros.h"
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -184,24 +192,16 @@ struct section_properties_t {
 };
 typedef std::set<section_properties_t> section_properties_set_t;
 
-// we have a BB & Func map for each binary_t
-struct binary_state_t {
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;
-  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-};
-
-static std::vector<binary_state_t> BinStateVec;
-
 typedef std::tuple<llvm::MCDisassembler &, const llvm::MCSubtargetInfo &,
                    llvm::MCInstPrinter &>
     disas_t;
 
-static basic_block_index_t translate_basic_block(binary_index_t,
+static basic_block_index_t translate_basic_block(binary_t &b,
                                                  tiny_code_generator_t &,
                                                  disas_t &,
                                                  const target_ulong Addr);
 
-static function_index_t translate_function(binary_index_t binary_idx,
+static function_index_t translate_function(binary_t &,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr);
@@ -245,69 +245,67 @@ int recover(void) {
   //
   // initialize state associated with every binary
   //
-  BinStateVec.resize(Decompilation.Binaries.size());
   for (binary_index_t i = 0; i < Decompilation.Binaries.size(); ++i) {
-    binary_t &binary = Decompilation.Binaries[i];
-    binary_state_t &st = BinStateVec[i];
+    binary_t &b = Decompilation.Binaries[i];
 
     //
     // build FuncMap
     //
-    for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
+    for (function_index_t f_idx = 0; f_idx < b.Analysis.Functions.size();
          ++f_idx) {
-      function_t &f = binary.Analysis.Functions[f_idx];
+      function_t &f = b.Analysis.Functions[f_idx];
       if (unlikely(!is_function_index_valid(f.Entry)))
         continue;
 
-      basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+      basic_block_t EntryBB = boost::vertex(f.Entry, b.Analysis.ICFG);
+      b.FuncMap[b.Analysis.ICFG[EntryBB].Addr] = f_idx;
     }
 
     //
     // build BBMap
     //
     for (basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-      const auto &bbprop = binary.Analysis.ICFG[bb];
+         bb_idx < boost::num_vertices(b.Analysis.ICFG); ++bb_idx) {
+      basic_block_t bb = boost::vertex(bb_idx, b.Analysis.ICFG);
+      const auto &bbprop = b.Analysis.ICFG[bb];
 
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
               bbprop.Addr, bbprop.Addr + bbprop.Size);
-      assert(st.BBMap.find(intervl) == st.BBMap.end());
+      assert(b.BBMap.find(intervl) == b.BBMap.end());
 
-      st.BBMap.add({intervl, 1 + bb_idx});
+      b.BBMap.add({intervl, 1 + bb_idx});
     }
 
     //
     // build section map
     //
-    llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
-                           binary.Data.size());
-    llvm::StringRef Identifier(binary.Path);
+    llvm::StringRef Buffer(reinterpret_cast<char *>(&b.Data[0]),
+                           b.Data.size());
+    llvm::StringRef Identifier(b.Path);
     llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
 
     llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
-      if (!binary.IsVDSO)
+      if (!b.IsVDSO)
         WithColor::warning()
-            << llvm::formatv("failed to create binary from {0}\n", binary.Path);
+            << llvm::formatv("failed to create binary from {0}\n", b.Path);
 
       continue;
     }
 
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    binary.ObjectFile = std::move(BinRef);
+    b.ObjectFile = std::move(BinRef);
 
-    if (!llvm::isa<ELFO>(binary.ObjectFile.get())) {
-      WithColor::error() << binary.Path << " is not ELF of expected type\n";
+    if (!llvm::isa<ELFO>(b.ObjectFile.get())) {
+      WithColor::error() << b.Path << " is not ELF of expected type\n";
       return 1;
     }
 
-    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
 
     TheTriple = O.makeTriple();
     Features = O.getFeatures();
@@ -432,8 +430,8 @@ int recover(void) {
 
         basic_block_t succ = boost::target(cf, ICFG);
 
-        function_index_t FIdx =
-            translate_function(Caller.BIdx, tcg, dis, ICFG[succ].Addr);
+        function_index_t FIdx = translate_function(
+            Decompilation.Binaries.at(Caller.BIdx), tcg, dis, ICFG[succ].Addr);
         assert(is_function_index_valid(FIdx));
         ICFG[CallerBB].DynTargets.insert({Caller.BIdx, FIdx});
       }
@@ -458,7 +456,8 @@ int recover(void) {
 
     IndBr.Target = strtoul(opts::BasicBlock[2].c_str(), nullptr, 10);
 
-    auto &ICFG = Decompilation.Binaries.at(IndBr.BIdx).Analysis.ICFG;
+    binary_t &indbr_binary = Decompilation.Binaries.at(IndBr.BIdx);
+    auto &ICFG = indbr_binary.Analysis.ICFG;
 
     basic_block_t bb = boost::vertex(IndBr.BBIdx, ICFG);
 
@@ -466,7 +465,7 @@ int recover(void) {
 
     assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
     basic_block_index_t target_bb_idx =
-        translate_basic_block(IndBr.BIdx, tcg, dis, IndBr.Target);
+        translate_basic_block(indbr_binary, tcg, dis, IndBr.Target);
     if (!is_basic_block_index_valid(target_bb_idx)) {
       WithColor::error() << llvm::formatv(
           "failed to recover control flow -> {0:x}\n", IndBr.Target);
@@ -475,8 +474,7 @@ int recover(void) {
 
     basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
 
-    binary_state_t &st = BinStateVec.at(IndBr.BIdx);
-    auto &BBMap = st.BBMap;
+    auto &BBMap = indbr_binary.BBMap;
     {
       auto it = BBMap.find(TermAddr);
       assert(it != BBMap.end());
@@ -513,7 +511,7 @@ int recover(void) {
     Callee.FileAddr = strtoul(opts::Function[3].c_str(), nullptr, 10);
 
     function_index_t TargetFIdx =
-        translate_function(Callee.BIdx, tcg, dis, Callee.FileAddr);
+        translate_function(Decompilation.Binaries.at(Callee.BIdx), tcg, dis, Callee.FileAddr);
     if (!is_function_index_valid(TargetFIdx)) {
       WithColor::error() << llvm::formatv(
           "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
@@ -545,7 +543,8 @@ int recover(void) {
     Call.BIdx = strtoul(opts::Returns[0].c_str(), nullptr, 10);
     Call.BBIdx = strtoul(opts::Returns[1].c_str(), nullptr, 10);
 
-    auto &ICFG = Decompilation.Binaries.at(Call.BIdx).Analysis.ICFG;
+    binary_t &call_binary = Decompilation.Binaries.at(Call.BIdx);
+    auto &ICFG = call_binary.Analysis.ICFG;
 
     basic_block_t bb = boost::vertex(Call.BBIdx, ICFG);
 
@@ -577,18 +576,13 @@ int recover(void) {
     }
 
 #if 0
-    {
-      binary_state_t &st = BinStateVec[Call.BIdx];
-      auto it = st.BBMap.find(NextAddr);
-      assert(it == st.BBMap.end());
-    }
+    assert(call_binary.BBMap.find(NextAddr) == call_binary.BBMap.end());
 #endif
 
     basic_block_index_t next_bb_idx =
-        translate_basic_block(Call.BIdx, tcg, dis, NextAddr);
+        translate_basic_block(call_binary, tcg, dis, NextAddr);
 
-    binary_state_t &st = BinStateVec.at(Call.BIdx);
-    auto &BBMap = st.BBMap;
+    auto &BBMap = call_binary.BBMap;
     {
       auto it = BBMap.find(TermAddr);
       assert(it != BBMap.end());
@@ -600,8 +594,7 @@ int recover(void) {
     if (ICFG[bb].Term.Type == TERMINATOR::CALL &&
         is_function_index_valid(ICFG[bb].Term._call.Target)) {
       function_t &f =
-          Decompilation.Binaries.at(Call.BIdx).Analysis.Functions.at(
-              ICFG[bb].Term._call.Target);
+          call_binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
       f.Returns = true;
     }
 
@@ -681,7 +674,7 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
-function_index_t translate_function(binary_index_t binary_idx,
+function_index_t translate_function(binary_t &b,
                                     tiny_code_generator_t &tcg,
                                     disas_t &dis,
                                     target_ulong Addr) {
@@ -689,33 +682,36 @@ function_index_t translate_function(binary_index_t binary_idx,
   assert((Addr & 1) == 0);
 #endif
 
-  binary_t &binary = Decompilation.Binaries.at(binary_idx);
-  auto &FuncMap = BinStateVec.at(binary_idx).FuncMap;
-
   {
-    auto it = FuncMap.find(Addr);
-    if (it != FuncMap.end())
+    auto it = b.FuncMap.find(Addr);
+    if (it != b.FuncMap.end())
       return (*it).second;
   }
 
-  function_index_t res = binary.Analysis.Functions.size();
-  FuncMap[Addr] = res;
-  binary.Analysis.Functions.resize(res + 1);
-  binary.Analysis.Functions[res].Entry =
-      translate_basic_block(binary_idx, tcg, dis, Addr);
-  binary.Analysis.Functions[res].Analysis.Stale = true;
-  binary.Analysis.Functions[res].IsABI = false;
-  binary.Analysis.Functions[res].IsSignalHandler = false;
+  const function_index_t res = b.Analysis.Functions.size();
+  (void)b.Analysis.Functions.emplace_back();
 
-  if (unlikely(!is_basic_block_index_valid(binary.Analysis.Functions[res].Entry)))
-    return invalid_function_index;
+  b.FuncMap.insert({Addr, res});
+
+  basic_block_index_t Entry = translate_basic_block(b, tcg, dis, Addr);
+
+  WARN_ON(!is_basic_block_index_valid(Entry));
+
+  {
+    function_t &f = b.Analysis.Functions[res];
+
+    f.Analysis.Stale = true;
+    f.IsABI = false;
+    f.IsSignalHandler = false;
+    f.Entry = Entry;
+  }
 
   return res;
 }
 
-static bool does_function_definitely_return(binary_index_t, function_index_t);
+static bool does_function_definitely_return(binary_t &, function_index_t);
 
-basic_block_index_t translate_basic_block(binary_index_t binary_idx,
+basic_block_index_t translate_basic_block(binary_t &b,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
@@ -723,10 +719,9 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
   assert((Addr & 1) == 0);
 #endif
 
-  binary_t &binary = Decompilation.Binaries.at(binary_idx);
-  auto &ICFG = binary.Analysis.ICFG;
-  auto &BBMap = BinStateVec.at(binary_idx).BBMap;
-  auto &ObjectFile = binary.ObjectFile;
+  auto &ICFG = b.Analysis.ICFG;
+  auto &BBMap = b.BBMap;
+  auto &ObjectFile = b.ObjectFile;
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -790,7 +785,7 @@ basic_block_index_t translate_basic_block(binary_index_t binary_idx,
 
         WithColor::error() << llvm::formatv(
             "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
-            Addr, binary.Path);
+            Addr, b.Path);
 
         return invalid_basic_block_index;
 
@@ -887,7 +882,7 @@ on_insn_boundary:
     }
   }
 
-  tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
+  tcg.set_elf(llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
   jove::terminator_info_t T;
@@ -981,17 +976,14 @@ on_insn_boundary:
   // conduct analysis of last instruction (the terminator of the block) and
   // (recursively) descend into branch targets, translating basic blocks
   //
-  auto control_flow = [&](uintptr_t Target) -> void {
+  auto control_flow = [&](target_ulong Target) -> void {
     assert(Target);
 
-#if defined(TARGET_MIPS64)
-    Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    Target &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    Target &= ~1UL;
 #endif
 
-    basic_block_index_t succidx =
-        translate_basic_block(binary_idx, tcg, dis, Target);
+    basic_block_index_t succidx = translate_basic_block(b, tcg, dis, Target);
 
     assert(succidx != invalid_basic_block_index);
 
@@ -1020,14 +1012,13 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
-#if defined(TARGET_MIPS64)
-    T._call.Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    T._call.Target &= 0xfffffffe;
+    target_ulong CalleeAddr = T._call.Target;
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx =
-        translate_function(binary_idx, tcg, dis, T._call.Target);
+    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr);
 
     basic_block_t _bb;
     {
@@ -1041,7 +1032,7 @@ on_insn_boundary:
     ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(binary_idx, FIdx))
+        does_function_definitely_return(b, FIdx))
       control_flow(T._call.NextPC);
 
     break;
@@ -1078,12 +1069,10 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
-bool does_function_definitely_return(binary_index_t BIdx,
+bool does_function_definitely_return(binary_t &b,
                                      function_index_t FIdx) {
-  assert(is_binary_index_valid(BIdx));
   assert(is_function_index_valid(FIdx));
 
-  binary_t &b = Decompilation.Binaries.at(BIdx);
   function_t &f = b.Analysis.Functions.at(FIdx);
   auto &ICFG = b.Analysis.ICFG;
 

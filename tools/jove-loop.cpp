@@ -35,15 +35,7 @@
 #include <arpa/inet.h>
 #include <sys/mman.h>
 
-#ifndef likely
-#define likely(x)   __builtin_expect(!!(x), 1)
-#endif
-
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-static void __warn(const char *file, int line);
+#include "jove_macros.h"
 
 #define JOVE_RT_SO "libjove_rt.so"
 #define JOVE_RT_SONAME JOVE_RT_SO ".0"
@@ -1384,23 +1376,6 @@ void print_command(const char **argv) {
 
 #include "elf.hpp"
 
-#if defined(WARN) || defined(WARN_ON)
-#error
-#endif
-
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-
 std::string soname_of_binary(binary_t &b) {
   //
   // parse the ELF
@@ -1518,8 +1493,4 @@ void IgnoreCtrlC(void) {
   sigaction(SIGINT, &sa, nullptr);
 }
 
-}
-
-void __warn(const char *file, int line) {
-  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
-}
+} // namespace jove

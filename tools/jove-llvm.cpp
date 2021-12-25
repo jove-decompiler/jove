@@ -228,32 +228,7 @@ struct hook_t;
 #include <boost/serialization/vector.hpp>
 #include <boost/container_hash/extensions.hpp>
 
-#ifndef likely
-#define likely(x)   __builtin_expect(!!(x), 1)
-#endif
-
-#ifndef unlikely
-#define unlikely(x) __builtin_expect(!!(x), 0)
-#endif
-
-static void __warn(const char *file, int line);
-
-#ifndef WARN
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-#endif
-
-#ifndef WARN_ON
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-#endif
+#include "jove_macros.h"
 
 #define GET_INSTRINFO_ENUM
 #include "LLVMGenInstrInfo.hpp"
@@ -9887,7 +9862,3 @@ BOOST_PP_REPEAT(180, __PROC_CASE, void)
 };
 
 } // namespace jove
-
-void __warn(const char *file, int line) {
-  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
-}

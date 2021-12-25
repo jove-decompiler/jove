@@ -71,25 +71,7 @@
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 
-static void __warn(const char *file, int line);
-
-#ifndef WARN
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-#endif
-
-#ifndef WARN_ON
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-#endif
-
+#include "jove_macros.h"
 
 extern "C" unsigned long getauxval(unsigned long type);
 
@@ -1311,10 +1293,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                     WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
-#if defined(TARGET_MIPS64)
-                    handler &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-                    handler &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+                    handler &= ~1UL;
 #endif
 
                     update_view_of_virtual_memory(saved_pid);
@@ -1722,7 +1702,7 @@ function_index_t translate_function(pid_t child,
 static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
                                        return_t &Ret);
 
-static bool does_function_definitely_return(binary_index_t, function_index_t);
+static bool does_function_definitely_return(binary_t &, function_index_t);
 
 basic_block_index_t translate_basic_block(pid_t child,
                                           binary_index_t binary_idx,
@@ -2121,10 +2101,8 @@ on_insn_boundary:
   auto control_flow = [&](uintptr_t Target) -> void {
     assert(Target);
 
-#if defined(TARGET_MIPS64)
-    Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    Target &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    Target &= ~1UL;
 #endif
 
     basic_block_index_t succidx =
@@ -2159,14 +2137,14 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
-#if defined(TARGET_MIPS64)
-    T._call.Target &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    T._call.Target &= 0xfffffffe;
+    target_ulong CalleeAddr = T._call.Target;
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    CalleeAddr &= ~1UL;
 #endif
 
     function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
-                                               T._call.Target, brkpt_count);
+                                               CalleeAddr, brkpt_count);
 
     basic_block_t _bb;
     {
@@ -2180,7 +2158,7 @@ on_insn_boundary:
     ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(binary_idx, FIdx))
+        does_function_definitely_return(binary, FIdx))
       control_flow(T._call.NextPC);
 
     break;
@@ -2217,12 +2195,10 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
-bool does_function_definitely_return(binary_index_t BIdx,
+bool does_function_definitely_return(binary_t &b,
                                      function_index_t FIdx) {
-  assert(is_binary_index_valid(BIdx));
   assert(is_function_index_valid(FIdx));
 
-  binary_t &b = decompilation.Binaries.at(BIdx);
   function_t &f = b.Analysis.Functions.at(FIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -3080,11 +3056,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     uintptr_t target = RegValue(reg);
 
-#if defined(__mips64)
-    target &= 0xfffffffffffffffe;
-#elif defined(__mips__)
-    target &= 0xfffffffe;
-#endif
+    target &= ~1UL;
 
     pc = target;
   };
@@ -3442,10 +3414,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     throw;
   }
 
-#if defined(__mips64)
-  target &= 0xfffffffffffffffe;
-#elif defined(__mips__)
-  target &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+  target &= ~1UL;
 #endif
 
   //
@@ -5387,10 +5357,8 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   {
     uintptr_t pc = RetAddr;
 
-#if defined(TARGET_MIPS64)
-    pc &= 0xfffffffffffffffe;
-#elif defined(TARGET_MIPS32)
-    pc &= 0xfffffffe;
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    pc &= ~1UL;
 #endif
 
     binary_index_t BIdx = invalid_binary_index;
@@ -5691,10 +5659,6 @@ std::pair<void *, unsigned> GetVDSO(void) {
 }
 
 } // namespace jove
-
-void __warn(const char *file, int line) {
-  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
-}
 
 #else
 

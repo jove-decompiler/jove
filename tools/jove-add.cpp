@@ -1,4 +1,10 @@
+#include <llvm/Object/ELFObjectFile.h>
+#include <boost/icl/split_interval_map.hpp>
+
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  boost::icl::split_interval_map<tcg_uintptr_t, basic_block_index_t> BBMap;    \
+  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
+                                                                               \
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 
 #include "tcgcommon.hpp"
@@ -60,27 +66,7 @@ UserBreakPoint(void) {
 }
 }
 
-//
-// TODO consolidate this into a header or something
-//
-static void __warn(const char *file, int line);
-
-#ifndef WARN
-#define WARN()                                                                 \
-  do {                                                                         \
-    __warn(__FILE__, __LINE__);                                                \
-  } while (0)
-#endif
-
-#ifndef WARN_ON
-#define WARN_ON(condition)                                                     \
-  ({                                                                           \
-    int __ret_warn_on = !!(condition);                                         \
-    if (unlikely(__ret_warn_on))                                               \
-      WARN();                                                                  \
-    unlikely(__ret_warn_on);                                                   \
-  })
-#endif
+#include "jove_macros.h"
 
 namespace fs = boost::filesystem;
 namespace obj = llvm::object;
@@ -188,9 +174,6 @@ static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
   return {};
 }
 
-static boost::icl::split_interval_map<target_ulong, basic_block_index_t> BBMap;
-static std::unordered_map<target_ulong, function_index_t> FuncMap;
-
 static struct {
   target_ulong Addr;
   bool Active;
@@ -234,23 +217,23 @@ int add(void) {
   llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
       obj::createBinary(Buffer->getMemBufferRef());
 
+  binary_t &b = decompilation.Binaries.emplace_back();
+
   if (!BinOrErr) {
     //
-    // raw instruction stream
+    // interpret as a raw stream of instructions
     //
     {
-      binary_t &binary = decompilation.Binaries.emplace_back();
+      b.IsDynamicLinker = false;
+      b.IsExecutable = false;
+      b.IsVDSO = false;
 
-      binary.IsDynamicLinker = false;
-      binary.IsExecutable = false;
-      binary.IsVDSO = false;
+      b.IsPIC = true;
+      b.IsDynamicallyLoaded = false;
 
-      binary.IsPIC = true;
-      binary.IsDynamicallyLoaded = false;
-
-      binary.Path = fs::canonical(opts::Input).string();
-      binary.Data.resize(Buffer->getBufferSize());
-      memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+      b.Path = fs::canonical(opts::Input).string();
+      b.Data.resize(Buffer->getBufferSize());
+      memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
     }
 
     IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
@@ -348,21 +331,18 @@ int add(void) {
     ia >> decompilation;
   }
 
-  decompilation.Binaries.resize(decompilation.Binaries.size() + 1);
-  binary_t &binary = decompilation.Binaries.back();
+  b.ObjectFile = std::move(BinRef);
 
-  binary.ObjectFile = std::move(BinRef);
+  b.IsDynamicLinker = false;
+  b.IsExecutable = false;
+  b.IsVDSO = false;
 
-  binary.IsDynamicLinker = false;
-  binary.IsExecutable = false;
-  binary.IsVDSO = false;
+  b.IsPIC = true;
+  b.IsDynamicallyLoaded = false;
 
-  binary.IsPIC = true;
-  binary.IsDynamicallyLoaded = false;
-
-  binary.Path = fs::canonical(opts::Input).string();
-  binary.Data.resize(Buffer->getBufferSize());
-  memcpy(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size());
+  b.Path = fs::canonical(opts::Input).string();
+  b.Data.resize(Buffer->getBufferSize());
+  memcpy(&b.Data[0], Buffer->getBufferStart(), b.Data.size());
 
   const ELFF &E = *O.getELFFile();
 
@@ -376,7 +356,7 @@ int add(void) {
     return 1;
 
   case llvm::ELF::ET_EXEC:
-    binary.IsPIC = false;
+    b.IsPIC = false;
     break;
 
   case llvm::ELF::ET_DYN:
@@ -458,10 +438,9 @@ int add(void) {
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
-    binary.Analysis.EntryFunction =
-        translate_function(binary, tcg, dis, EntryAddr);
+    b.Analysis.EntryFunction = translate_function(b, tcg, dis, EntryAddr);
   } else {
-    binary.Analysis.EntryFunction = invalid_function_index;
+    b.Analysis.EntryFunction = invalid_function_index;
   }
 
   //
@@ -734,7 +713,7 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    translate_basic_block(binary, tcg, dis, Entrypoint);
+    translate_basic_block(b, tcg, dis, Entrypoint);
   }
 
   for (target_ulong Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -742,13 +721,13 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(binary, tcg, dis, Entrypoint);
+    function_index_t FIdx = translate_function(b, tcg, dis, Entrypoint);
 
     if (!is_function_index_valid(FIdx))
       continue;
 
     if (Known.ABIs.find(Entrypoint) != Known.ABIs.end())
-      binary.Analysis.Functions[FIdx].IsABI = true;
+      b.Analysis.Functions[FIdx].IsABI = true;
   }
 
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
@@ -766,7 +745,7 @@ int add(void) {
   return 0;
 }
 
-static function_index_t translate_function(binary_t &binary,
+static function_index_t translate_function(binary_t &b,
                                            tiny_code_generator_t &tcg,
                                            disas_t &dis,
                                            target_ulong Addr) {
@@ -775,30 +754,36 @@ static function_index_t translate_function(binary_t &binary,
 #endif
 
   {
-    auto it = FuncMap.find(Addr);
-    if (it != FuncMap.end())
+    auto it = b.FuncMap.find(Addr);
+    if (it != b.FuncMap.end())
       return (*it).second;
   }
 
-  function_index_t res = binary.Analysis.Functions.size();
-  FuncMap[Addr] = res;
-  binary.Analysis.Functions.resize(res + 1);
-  binary.Analysis.Functions[res].Entry =
-    translate_basic_block(binary, tcg, dis, Addr);
-  binary.Analysis.Functions[res].Analysis.Stale = true;
-  binary.Analysis.Functions[res].IsABI = false;
-  binary.Analysis.Functions[res].IsSignalHandler = false;
+  const function_index_t res = b.Analysis.Functions.size();
+  (void)b.Analysis.Functions.emplace_back();
 
-  if (unlikely(!is_basic_block_index_valid(binary.Analysis.Functions[res].Entry)))
-    return invalid_function_index;
+  b.FuncMap.insert({Addr, res});
+
+  basic_block_index_t Entry = translate_basic_block(b, tcg, dis, Addr);
+
+  WARN_ON(!is_basic_block_index_valid(Entry));
+
+  {
+    function_t &f = b.Analysis.Functions[res];
+
+    f.Analysis.Stale = true;
+    f.IsABI = false;
+    f.IsSignalHandler = false;
+    f.Entry = Entry;
+  }
 
   return res;
 }
 
-static bool does_function_definitely_return(binary_index_t BIdx,
+static bool does_function_definitely_return(binary_t &,
                                             function_index_t FIdx);
 
-basic_block_index_t translate_basic_block(binary_t &binary,
+basic_block_index_t translate_basic_block(binary_t &b,
                                           tiny_code_generator_t &tcg,
                                           disas_t &dis,
                                           const target_ulong Addr) {
@@ -806,16 +791,16 @@ basic_block_index_t translate_basic_block(binary_t &binary,
   assert((Addr & 1) == 0);
 #endif
 
-  auto &ICFG = binary.Analysis.ICFG;
-  auto &ObjectFile = binary.ObjectFile;
+  auto &ICFG = b.Analysis.ICFG;
+  auto &ObjectFile = b.ObjectFile;
 
   //
   // does this new basic block start in the middle of a previously-created
   // basic block?
   //
   {
-    auto it = BBMap.find(Addr);
-    if (it != BBMap.end()) {
+    auto it = b.BBMap.find(Addr);
+    if (it != b.BBMap.end()) {
       basic_block_index_t bbidx = (*it).second - 1;
       basic_block_t bb = boost::vertex(bbidx, ICFG);
 
@@ -871,7 +856,7 @@ basic_block_index_t translate_basic_block(binary_t &binary,
 
         WithColor::error() << llvm::formatv(
             "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
-            Addr, binary.Path);
+            Addr, b.Path);
 
         return invalid_basic_block_index;
 
@@ -960,21 +945,21 @@ on_insn_boundary:
                      << (fmt("%#lx") % orig_intervl.upper()).str() << ")\n";
       }
      
-      unsigned n = BBMap.iterative_size();
-      BBMap.erase((*it).first);
-      assert(BBMap.iterative_size() == n - 1);
+      unsigned n = b.BBMap.iterative_size();
+      b.BBMap.erase((*it).first);
+      assert(b.BBMap.iterative_size() == n - 1);
 
-      assert(BBMap.find(intervl1) == BBMap.end());
-      assert(BBMap.find(intervl2) == BBMap.end());
+      assert(b.BBMap.find(intervl1) == b.BBMap.end());
+      assert(b.BBMap.find(intervl2) == b.BBMap.end());
 
       {
-        auto _it = BBMap.find(intervl1);
-        if (_it != BBMap.end()) {
+        auto _it = b.BBMap.find(intervl1);
+        if (_it != b.BBMap.end()) {
           const auto &intervl = (*_it).first;
-          WithColor::error() << "can't add interval1 to BBMap: ["
+          WithColor::error() << "can't add interval1 to b.BBMap: ["
                              << (fmt("%#lx") % intervl1.lower()).str() << ", "
                              << (fmt("%#lx") % intervl1.upper()).str()
-                             << "), BBMap already contains ["
+                             << "), b.BBMap already contains ["
                              << (fmt("%#lx") % intervl.lower()).str() << ", "
                              << (fmt("%#lx") % intervl.upper()).str() << ")\n";
           abort();
@@ -982,33 +967,33 @@ on_insn_boundary:
       }
 
       {
-        auto _it = BBMap.find(intervl2);
-        if (_it != BBMap.end()) {
+        auto _it = b.BBMap.find(intervl2);
+        if (_it != b.BBMap.end()) {
           const auto &intervl = (*_it).first;
           llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
 
-          WithColor::error() << "can't add interval2 to BBMap: ["
+          WithColor::error() << "can't add interval2 to b.BBMap: ["
                              << (fmt("%#lx") % intervl2.lower()).str() << ", "
                              << (fmt("%#lx") % intervl2.upper()).str()
-                             << "), BBMap already contains ["
+                             << "), b.BBMap already contains ["
                              << (fmt("%#lx") % intervl.lower()).str() << ", "
                              << (fmt("%#lx") % intervl.upper()).str() << ")\n";
           abort();
         }
       }
 
-      BBMap.add({intervl1, 1 + bbidx});
-      BBMap.add({intervl2, 1 + newbbidx});
+      b.BBMap.add({intervl1, 1 + bbidx});
+      b.BBMap.add({intervl2, 1 + newbbidx});
 
       {
-        auto _it = BBMap.find(intervl1);
-        assert(_it != BBMap.end());
+        auto _it = b.BBMap.find(intervl1);
+        assert(_it != b.BBMap.end());
         assert((*_it).second == 1 + bbidx);
       }
 
       {
-        auto _it = BBMap.find(intervl2);
-        assert(_it != BBMap.end());
+        auto _it = b.BBMap.find(intervl2);
+        assert(_it != b.BBMap.end());
         assert((*_it).second == 1 + newbbidx);
       }
 
@@ -1016,7 +1001,7 @@ on_insn_boundary:
     }
   }
 
-  tcg.set_elf(llvm::cast<ELFO>(binary.ObjectFile.get())->getELFFile());
+  tcg.set_elf(llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile());
 
   unsigned Size = 0;
   jove::terminator_info_t T;
@@ -1035,8 +1020,8 @@ on_insn_boundary:
     {
       boost::icl::interval<target_ulong>::type intervl =
           boost::icl::interval<target_ulong>::right_open(Addr, Addr + Size);
-      auto it = BBMap.find(intervl);
-      if (it == BBMap.end())
+      auto it = b.BBMap.find(intervl);
+      if (it == b.BBMap.end())
         continue; /* proceed */
 
       const boost::icl::interval<target_ulong>::type &_intervl = (*it).first;
@@ -1045,7 +1030,7 @@ on_insn_boundary:
         WithColor::error() << "can't translate further ["
                            << (fmt("%#lx") % intervl.lower()).str() << ", "
                            << (fmt("%#lx") % intervl.upper()).str()
-                           << "), BBMap already contains ["
+                           << "), b.BBMap already contains ["
                            << (fmt("%#lx") % _intervl.lower()).str() << ", "
                            << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
 
@@ -1057,7 +1042,7 @@ on_insn_boundary:
         WithColor::warning() << "we've translated into another basic block:"
                              << (fmt("%#lx") % intervl.lower()).str() << ", "
                              << (fmt("%#lx") % intervl.upper()).str()
-                             << "), BBMap already contains ["
+                             << "), b.BBMap already contains ["
                              << (fmt("%#lx") % _intervl.lower()).str() << ", "
                              << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
       }
@@ -1130,9 +1115,9 @@ on_insn_boundary:
     boost::icl::interval<target_ulong>::type intervl =
         boost::icl::interval<target_ulong>::right_open(bbprop.Addr,
                                                     bbprop.Addr + bbprop.Size);
-    assert(BBMap.find(intervl) == BBMap.end());
+    assert(b.BBMap.find(intervl) == b.BBMap.end());
 
-    BBMap.add({intervl, 1 + bbidx});
+    b.BBMap.add({intervl, 1 + bbidx});
   }
 
   //
@@ -1146,8 +1131,7 @@ on_insn_boundary:
     Target &= ~1UL;
 #endif
 
-    basic_block_index_t succidx =
-        translate_basic_block(binary, tcg, dis, Target);
+    basic_block_index_t succidx = translate_basic_block(b, tcg, dis, Target);
 
     if (succidx == invalid_basic_block_index) {
       WithColor::note() << llvm::formatv(
@@ -1157,8 +1141,8 @@ on_insn_boundary:
 
     basic_block_t _bb;
     {
-      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
-      assert(it != BBMap.end());
+      auto it = T.Addr ? b.BBMap.find(T.Addr) : b.BBMap.find(Addr);
+      assert(it != b.BBMap.end());
 
       basic_block_index_t _bbidx = (*it).second - 1;
       _bb = boost::vertex(_bbidx, ICFG);
@@ -1182,17 +1166,18 @@ on_insn_boundary:
     break;
 
   case TERMINATOR::CALL: {
+    target_ulong CalleeAddr = T._call.Target;
+
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    T._call.Target &= ~1UL;
+    CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx =
-        translate_function(binary, tcg, dis, T._call.Target);
+    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr);
 
     basic_block_t _bb;
     {
-      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
-      assert(it != BBMap.end());
+      auto it = T.Addr ? b.BBMap.find(T.Addr) : b.BBMap.find(Addr);
+      assert(it != b.BBMap.end());
       basic_block_index_t _bbidx = (*it).second - 1;
       _bb = boost::vertex(_bbidx, ICFG);
     }
@@ -1201,7 +1186,7 @@ on_insn_boundary:
     ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(0, FIdx))
+        does_function_definitely_return(b, FIdx))
       control_flow(T._call.NextPC);
 
     break;
@@ -1238,12 +1223,10 @@ struct dfs_visitor : public boost::default_dfs_visitor {
   void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
 };
 
-bool does_function_definitely_return(binary_index_t BIdx,
+bool does_function_definitely_return(binary_t &b,
                                      function_index_t FIdx) {
-  assert(is_binary_index_valid(BIdx));
   assert(is_function_index_valid(FIdx));
 
-  binary_t &b = decompilation.Binaries.at(BIdx);
   function_t &f = b.Analysis.Functions.at(FIdx);
   auto &ICFG = b.Analysis.ICFG;
 
@@ -1293,7 +1276,3 @@ void IgnoreCtrlC(void) {
 void _qemu_log(const char *cstr) { llvm::outs() << cstr; }
 
 } // namespace jove
-
-void __warn(const char *file, int line) {
-  WithColor::warning() << llvm::formatv("{0}:{1}\n", file, line);
-}
