@@ -2547,7 +2547,7 @@ int ProcessBinaryRelocations(void) {
     }
 
 
-    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(DynamicStringTable);
+    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(b._elf.DynamicStringTable);
     if (!ExpectedSymName)
       continue;
 
