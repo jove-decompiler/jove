@@ -269,8 +269,8 @@ int recover(void) {
       basic_block_t bb = boost::vertex(bb_idx, b.Analysis.ICFG);
       const auto &bbprop = b.Analysis.ICFG[bb];
 
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
+      boost::icl::interval<target_ulong>::type intervl =
+          boost::icl::interval<target_ulong>::right_open(
               bbprop.Addr, bbprop.Addr + bbprop.Size);
       assert(b.BBMap.find(intervl) == b.BBMap.end());
 
@@ -810,7 +810,7 @@ on_insn_boundary:
       ptrdiff_t off = Addr - beg;
       assert(off > 0);
 
-      boost::icl::interval<uintptr_t>::type orig_intervl = (*it).first;
+      boost::icl::interval<target_ulong>::type orig_intervl = (*it).first;
 
       basic_block_index_t newbbidx = boost::num_vertices(ICFG);
       basic_block_t newbb = boost::add_vertex(ICFG);
@@ -846,12 +846,12 @@ on_insn_boundary:
       assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
       assert(boost::out_degree(bb, ICFG) == 1);
 
-      boost::icl::interval<uintptr_t>::type intervl1 =
-          boost::icl::interval<uintptr_t>::right_open(
+      boost::icl::interval<target_ulong>::type intervl1 =
+          boost::icl::interval<target_ulong>::right_open(
               ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
 
-      boost::icl::interval<uintptr_t>::type intervl2 =
-          boost::icl::interval<uintptr_t>::right_open(
+      boost::icl::interval<target_ulong>::type intervl2 =
+          boost::icl::interval<target_ulong>::right_open(
               ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
 
       assert(boost::icl::disjoint(intervl1, intervl2));
@@ -893,11 +893,11 @@ on_insn_boundary:
     Size += size;
 
     {
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
+      boost::icl::interval<target_ulong>::type intervl =
+          boost::icl::interval<target_ulong>::right_open(Addr, Addr + Size);
       auto it = BBMap.find(intervl);
       if (it != BBMap.end()) {
-        const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
+        const boost::icl::interval<target_ulong>::type &_intervl = (*it).first;
 
         assert(intervl.lower() < _intervl.lower());
 
@@ -965,9 +965,9 @@ on_insn_boundary:
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
 
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
-                                                    bbprop.Addr + bbprop.Size);
+    boost::icl::interval<target_ulong>::type intervl =
+        boost::icl::interval<target_ulong>::right_open(bbprop.Addr,
+                                                       bbprop.Addr + bbprop.Size);
     assert(BBMap.find(intervl) == BBMap.end());
     BBMap.add({intervl, 1 + bbidx});
   }
