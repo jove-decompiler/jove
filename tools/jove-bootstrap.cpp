@@ -267,7 +267,6 @@ static std::vector<binary_state_t> BinStateVec;
 static boost::dynamic_bitset<> BinFoundVec;
 static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
-static bool HasVDSO(void);
 static std::pair<void *, unsigned> GetVDSO(void);
 
 static void IgnoreCtrlC(void);
@@ -380,7 +379,7 @@ int main(int argc, char **argv) {
   // verify that the binaries on-disk are those found in the decompilation.
   //
   for (jove::binary_t &binary : jove::decompilation.Binaries) {
-    if (binary.IsVDSO && jove::HasVDSO()) {
+    if (binary.IsVDSO) {
       //
       // check that the VDSO hasn't changed
       //
@@ -389,32 +388,30 @@ int main(int argc, char **argv) {
 
       std::tie(vdso, n) = jove::GetVDSO();
 
-      assert(n);
+      if (vdso && n > 0) {
+        if (binary.Data.size() != n ||
+            memcmp(&binary.Data[0], vdso, binary.Data.size())) {
+          WithColor::error() << "[vdso] has changed\n";
+          return 1;
+        }
+      }
+    } else {
+      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
+          llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
-      if (binary.Data.size() != n ||
-          memcmp(&binary.Data[0], vdso, binary.Data.size())) {
-        WithColor::error() << "[vdso] has changed\n";
+      if (std::error_code EC = FileOrErr.getError()) {
+        WithColor::error() << llvm::formatv("failed to open binary {0}\n",
+                                            binary.Path);
         return 1;
       }
 
-      continue;
-    }
-
-    llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> FileOrErr =
-        llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
-
-    if (std::error_code EC = FileOrErr.getError()) {
-      WithColor::error() << llvm::formatv("failed to open binary {0}\n",
-                                          binary.Path);
-      return 1;
-    }
-
-    std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
-    if (binary.Data.size() != Buffer->getBufferSize() ||
-        memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-      WithColor::error() << llvm::formatv(
-          "binary {0} has changed ; re-run jove-init?\n", binary.Path);
-      return 1;
+      std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
+      if (binary.Data.size() != Buffer->getBufferSize() ||
+          memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
+        WithColor::error() << llvm::formatv(
+            "binary {0} has changed ; re-run jove-init?\n", binary.Path);
+        return 1;
+      }
     }
   }
 
@@ -5325,44 +5322,6 @@ void arch_put_breakpoint(void *code) {
 #else
 #error
 #endif
-}
-
-bool HasVDSO(void) {
-  bool res = false;
-
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-
-  fp = fopen("/proc/self/maps", "r");
-  assert(fp);
-
-  while ((read = getline(&line, &len, fp)) != -1) {
-    int fields, dev_maj, dev_min, inode;
-    uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
-    char path[512] = "";
-    fields = sscanf(line,
-                    "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
-                    " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
-                    &dev_maj, &dev_min, &inode, path);
-
-    if ((fields < 10) || (fields > 11)) {
-      continue;
-    }
-
-    if (strcmp(path, "[vdso]") == 0) {
-      res = true;
-      break;
-    }
-  }
-
-  free(line);
-  fclose(fp);
-
-  return res;
 }
 
 std::pair<void *, unsigned> GetVDSO(void) {
