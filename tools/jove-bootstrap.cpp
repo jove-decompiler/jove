@@ -20,7 +20,14 @@ namespace jove {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
   boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;        \
                                                                                \
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
+  std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
+  struct {                                                                     \
+    DynRegionInfo DynamicTable;                                                \
+    llvm::StringRef DynamicStringTable;                                        \
+    const Elf_Shdr *SymbolVersionSection;                                      \
+    llvm::SmallVector<VersionMapEntry, 16> VersionMap;                         \
+    llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
+  } _elf;
 
 #include "tcgcommon.hpp"
 
@@ -482,6 +489,14 @@ int main(int argc, char **argv) {
       }
 
       jove::ELFO &O = *llvm::cast<jove::ELFO>(binary.ObjectFile.get());
+      const jove::ELFF &E = *O.getELFFile();
+
+      binary._elf.OptionalDynSymRegion =
+          loadDynamicSymbols(&E, &O,
+                             binary._elf.DynamicTable,
+                             binary._elf.DynamicStringTable,
+                             binary._elf.SymbolVersionSection,
+                             binary._elf.VersionMap);
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
@@ -3882,56 +3897,60 @@ static void harvest_ctor_and_dtors(pid_t child,
 
     unsigned brkpt_count = 0;
 
-    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
+    std::unique_ptr<obj::Binary> &ObjectFile = Binary.ObjectFile;
 
-    assert(Bin.get());
-    assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    assert(ObjectFile.get());
+    assert(llvm::isa<ELFO>(ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
-        continue;
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
 
-      bool ctor = false, dtor = false;
+    if (ExpectedSections) {
+      for (const Elf_Shdr &Sec : *ExpectedSections) {
+        if (!(Sec.sh_flags & llvm::ELF::SHF_ALLOC))
+          continue;
 
-      switch (Sec.sh_type) {
-      case llvm::ELF::SHT_INIT_ARRAY:
-        ctor = true;
-        break;
+        bool ctor = false, dtor = false;
 
-      case llvm::ELF::SHT_FINI_ARRAY:
-        dtor = true;
-        break;
+        switch (Sec.sh_type) {
+        case llvm::ELF::SHT_INIT_ARRAY:
+          ctor = true;
+          break;
 
-      default:
-        continue;
-      }
+        case llvm::ELF::SHT_FINI_ARRAY:
+          dtor = true;
+          break;
 
-      assert(ctor ^ dtor);
+        default:
+          continue;
+        }
 
-      assert(Sec.sh_size % sizeof(uintptr_t) == 0);
-      unsigned N = Sec.sh_size / sizeof(uintptr_t);
+        assert(ctor ^ dtor);
 
-      for (unsigned j = 0; j < N; ++j) {
-        try {
-          uintptr_t rva = Sec.sh_addr + j * sizeof(uintptr_t);
+        assert(Sec.sh_size % sizeof(uintptr_t) == 0);
+        unsigned N = Sec.sh_size / sizeof(uintptr_t);
 
-          uintptr_t Proc = _ptrace_peekdata(child, va_of_rva(rva, BIdx));
+        for (unsigned j = 0; j < N; ++j) {
+          try {
+            uintptr_t rva = Sec.sh_addr + j * sizeof(uintptr_t);
 
-          auto it = AddressSpace.find(Proc);
-          if (it != AddressSpace.end() &&
-              *(*it).second.begin() == BIdx) {
-            function_index_t FIdx = translate_function(
-                child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
+            uintptr_t Proc = _ptrace_peekdata(child, va_of_rva(rva, BIdx));
 
-            if (is_function_index_valid(FIdx))
-              Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
+            auto it = AddressSpace.find(Proc);
+            if (it != AddressSpace.end() &&
+                *(*it).second.begin() == BIdx) {
+              function_index_t FIdx = translate_function(
+                  child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
+
+              if (is_function_index_valid(FIdx))
+                Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
+            }
+          } catch (const std::exception &e) {
+            if (opts::Verbose)
+              WithColor::warning()
+                  << llvm::formatv("failed examining ctor: {0}\n", e.what());
           }
-        } catch (const std::exception &e) {
-          if (opts::Verbose)
-            WithColor::warning()
-                << llvm::formatv("failed examining ctor: {0}\n", e.what());
         }
       }
     }
@@ -3950,141 +3969,38 @@ static void harvest_global_GOT_entries(pid_t child,
                                        tiny_code_generator_t &tcg,
                                        disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = decompilation.Binaries[BIdx];
-    if (Binary.IsVDSO)
+    auto &b = decompilation.Binaries[BIdx];
+    if (b.IsVDSO)
       continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
+    if (!b._elf.OptionalDynSymRegion)
+      continue;
+
     unsigned brkpt_count = 0;
 
-    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
+    std::unique_ptr<obj::Binary> &ObjectFile = b.ObjectFile;
 
-    assert(Bin.get());
-    assert(llvm::isa<ELFO>(Bin.get()));
-    ELFO &O = *llvm::cast<ELFO>(Bin.get());
+    assert(ObjectFile.get());
+    assert(llvm::isa<ELFO>(ObjectFile.get()));
+    ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynamicTable(O.getFileName());
-    loadDynamicTable(&E, &O, DynamicTable);
-
-    assert(DynamicTable.Addr);
-
-    DynRegionInfo DynSymRegion(O.getFileName());
-    llvm::StringRef DynSymtabName;
-    llvm::StringRef DynamicStringTable;
-
-    const Elf_Shdr *SymbolVersionSection = nullptr;     // .gnu.version
-    const Elf_Shdr *SymbolVersionNeedSection = nullptr; // .gnu.version_r
-    const Elf_Shdr *SymbolVersionDefSection = nullptr;  // .gnu.version_d
-
-    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      switch (Sec.sh_type) {
-      case llvm::ELF::SHT_DYNSYM:
-        DynSymRegion = createDRIFrom(&Sec, &O);
-        DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-        DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
-        break;
-      }
-    }
-
-    //
-    // parse dynamic table
-    //
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+      return b._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
     };
 
-    const Elf_Hash *HashTable = nullptr;
-    {
-      const char *StringTableBegin = nullptr;
-      uint64_t StringTableSize = 0;
-
-      for (const Elf_Dyn &Dyn : dynamic_table()) {
-        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-          break; /* marks end of dynamic table. */
-
-        switch (Dyn.d_tag) {
-          case llvm::ELF::DT_STRTAB:
-            if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-              StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-            break;
-          case llvm::ELF::DT_STRSZ:
-            if (uint64_t sz = Dyn.getVal())
-              StringTableSize = sz;
-            break;
-          case llvm::ELF::DT_SYMTAB:
-            if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-              const uint8_t *Ptr = *ExpectedPtr;
-
-              if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-                WithColor::warning()
-                    << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                       "the location of the dynamic symbol table\n";
-
-              DynSymRegion.Addr = Ptr;
-              DynSymRegion.EntSize = sizeof(Elf_Sym);
-            }
-            break;
-          case llvm::ELF::DT_HASH:
-            if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
-              HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
-            }
-        break;
-          default:
-            break;
-        }
-
-        if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-          DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-      }
-    }
-
-    auto getHashTableEntSize = [&](void) -> unsigned {
-      // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
-      // sections. This violates the ELF specification.
-      if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
-          E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
-        return 8;
-      return 4;
+    auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
+      return b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
     };
 
-    // Derive the dynamic symbol table size from the DT_HASH hash table, if
-    // present.
-    const bool IsHashTableSupported = getHashTableEntSize() == 4;
-    if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
-      const uint64_t FileSize = E.getBufSize();
-      const uint64_t DerivedSize =
-          (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
-      const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
-      if (DerivedSize > FileSize - Offset)
-        WithColor::warning() << llvm::formatv(
-            "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
-            "the hash table, goes past the end of the file ({2:x}) and will be "
-            "ignored\n",
-            DerivedSize, Offset, FileSize);
-      else
-        DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
-    }
-
-    auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
-      return DynSymRegion.getAsArrayRef<Elf_Sym>();
-    };
-
-    MipsGOTParser Parser(E, Binary.Path);
+    MipsGOTParser Parser(E, b.Path);
 
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
-#if 0
-      if (Err.isA<llvm::StringError>()) {
-        llvm::StringError &ErrStr = static_cast<StringError &>(*Err.getPtr());
-        ErrStr.getMessage();
-      }
-#endif
-
-      WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n",
-                                            Err);
+      WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
       continue;
     }
 
@@ -4101,22 +4017,13 @@ static void harvest_global_GOT_entries(pid_t child,
       if (Sym->getType() != llvm::ELF::STT_FUNC)
         continue;
 
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(DynamicStringTable);
-      if (!ExpectedSymName) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-        }
-
-        WithColor::note() << llvm::formatv("MipsGOTParser: could not get sym name: {0}\n",
-                                           Buf);
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym->getName(b._elf.DynamicStringTable);
+      if (!ExpectedSymName)
         continue;
-      }
 
       llvm::StringRef SymName = *ExpectedSymName;
 
-      auto &SymDynTargets = Binary.Analysis.SymDynTargets[SymName];
+      auto &SymDynTargets = b.Analysis.SymDynTargets[SymName];
       if (!SymDynTargets.empty())
         continue;
 
@@ -4990,6 +4897,18 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
     binary.ObjectFile = std::move(BinRef);
+
+    assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
+
+    ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
+    const ELFF &E = *O.getELFFile();
+
+    binary._elf.OptionalDynSymRegion =
+        loadDynamicSymbols(&E, &O,
+                           binary._elf.DynamicTable,
+                           binary._elf.DynamicStringTable,
+                           binary._elf.SymbolVersionSection,
+                           binary._elf.VersionMap);
   }
 }
 
@@ -5008,143 +4927,38 @@ void on_dynamic_linker_loaded(pid_t child,
                               disas_t &dis,
                               binary_index_t BIdx,
                               const vm_properties_t &vm_prop) {
-  binary_t &binary = decompilation.Binaries[BIdx];
+  binary_t &b = decompilation.Binaries[BIdx];
 
-  std::unique_ptr<obj::Binary> &ObjectFile = binary.ObjectFile;
+  std::unique_ptr<obj::Binary> &ObjectFile = b.ObjectFile;
 
   assert(ObjectFile.get());
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
-
   const ELFF &E = *O.getELFFile();
 
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
+  if (b._elf.OptionalDynSymRegion) {
+    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
-  assert(DynamicTable.Addr);
+    for (const Elf_Sym &Sym : DynSyms) {
+      if (Sym.isUndefined())
+        continue;
 
-  DynRegionInfo DynSymRegion(O.getFileName());
-  llvm::StringRef DynSymtabName;
-  llvm::StringRef DynamicStringTable;
+      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
+      if (!ExpectedSymName)
+        continue;
 
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
-      DynSymRegion = createDRIFrom(&Sec, &O);
-      DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-      DynamicStringTable = unwrapOrError(E.getStringTableForSymtab(Sec));
-      break;
-    }
-  }
+      llvm::StringRef SymName = *ExpectedSymName;
+      if (SymName == "_r_debug" ||
+          SymName == "_dl_debug_addr") {
+        WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
 
-  //
-  // parse dynamic table
-  //
-  const Elf_Hash *HashTable = nullptr;
-  {
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
+        _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
+        _r_debug.Found = true;
 
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
-
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
-
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-      case llvm::ELF::DT_HASH:
-        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
-          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
-        }
-        break;
+        rendezvous_with_dynamic_linker(child, dis);
+        goto Found;
       }
     }
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
-
-  auto getHashTableEntSize = [&](void) -> unsigned {
-    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
-    // sections. This violates the ELF specification.
-    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
-        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
-      return 8;
-    return 4;
-  };
-
-  // Derive the dynamic symbol table size from the DT_HASH hash table, if
-  // present.
-  const bool IsHashTableSupported = getHashTableEntSize() == 4;
-  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
-    const uint64_t FileSize = E.getBufSize();
-    const uint64_t DerivedSize =
-        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
-    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
-    if (DerivedSize > FileSize - Offset)
-      WithColor::warning() << llvm::formatv(
-          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
-          "the hash table, goes past the end of the file ({2:x}) and will be "
-          "ignored\n",
-          DerivedSize, Offset, FileSize);
-    else
-      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
-  }
-
-  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
-
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.isUndefined())
-      continue;
-
-    llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(DynamicStringTable);
-    if (!ExpectedSymName) {
-      std::string Buf;
-      {
-        llvm::raw_string_ostream OS(Buf);
-        llvm::logAllUnhandledErrors(ExpectedSymName.takeError(), OS, "");
-      }
-
-      WithColor::error() << llvm::formatv("{0}: couldn't get sym name ({1})\n", __func__, Buf);
-      continue;
-    }
-
-    llvm::StringRef SymName = *ExpectedSymName;
-    if (SymName != "_r_debug" &&
-        SymName != "_dl_debug_addr")
-      continue;
-
-    WARN_ON(Sym.getType() != llvm::ELF::STT_OBJECT);
-
-    _r_debug.Addr = va_of_rva(Sym.st_value, BIdx);
-    _r_debug.Found = true;
-
-    rendezvous_with_dynamic_linker(child, dis);
-    goto Found;
   }
 
   //
