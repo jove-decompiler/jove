@@ -254,12 +254,16 @@ static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
 static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
                          cl::aliasopt(jv), cl::cat(JoveCategory));
 
-static cl::opt<std::string> Binary("binary", cl::desc("Binary to decompile"),
-                                   cl::Required, cl::value_desc("filename"),
+static cl::opt<std::string> Binary("binary", cl::desc("Binary to translate"),
+                                   cl::value_desc("path"),
                                    cl::cat(JoveCategory));
 
 static cl::alias BinaryAlias("b", cl::desc("Alias for -binary."),
                              cl::aliasopt(Binary), cl::cat(JoveCategory));
+
+static cl::opt<std::string> BinaryIndex("binary-index",
+                                        cl::desc("Index of binary to translate"),
+                                        cl::cat(JoveCategory));
 
 static cl::opt<std::string> Output("output", cl::desc("Output bitcode"),
                                    cl::Required, cl::value_desc("filename"),
@@ -944,18 +948,35 @@ int ParseDecompilation(void) {
 }
 
 int FindBinary(void) {
-  if (opts::Binary.empty())
-    return 1;
+  if (!opts::Binary.empty()) {
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      binary_t &b = Decompilation.Binaries[BIdx];
 
-  if (std::isdigit(opts::Binary[0])) {
-    //
-    // interpret input as an index of the binary to translate
-    //
-    int idx = atoi(opts::Binary.c_str());
+      if (fs::path(b.Path).filename().string() == opts::Binary) {
+        if (b.IsDynamicLinker) {
+          WithColor::error() << "given binary is dynamic linker\n";
+          return 1;
+        }
+
+        if (b.IsVDSO) {
+          WithColor::error() << "given binary is [vdso]\n";
+          return 1;
+        }
+
+        BinaryIndex = BIdx;
+        return 0;
+      }
+    }
+
+    WithColor::error() << "no binary associated with given path\n";
+    return 1;
+  }
+
+  if (!opts::BinaryIndex.empty()) {
+    int idx = atoi(opts::BinaryIndex.c_str());
 
     if (idx < 0 || idx >= Decompilation.Binaries.size()) {
-      WithColor::error() << llvm::formatv("{0}: invalid binary index supplied\n",
-                                          __func__);
+      WithColor::error() << "invalid binary index supplied\n";
       return 1;
     }
 
@@ -963,23 +984,7 @@ int FindBinary(void) {
     return 0;
   }
 
-  for (unsigned idx = 0; idx < Decompilation.Binaries.size(); ++idx) {
-    binary_t &binary = Decompilation.Binaries[idx];
-
-    if (fs::path(binary.Path).filename().string() == opts::Binary) {
-      if (binary.IsDynamicLinker) {
-        WithColor::error() << "given binary is dynamic linker\n";
-        return 1;
-      }
-
-      BinaryIndex = idx;
-      return 0;
-    }
-  }
-
-  WithColor::error() << "binary " << opts::Binary
-                     << " not found in given decompilation\n";
-
+  WithColor::error() << "unknown binary to translate\n";
   return 1;
 }
 

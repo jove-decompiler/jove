@@ -1072,7 +1072,7 @@ void worker(const dso_graph_t &dso_graph) {
         "-o", bcfp.c_str(),
         "--version-script", mapfp.c_str(),
 
-        "-b", BIdx_arg.c_str(),
+        "--binary-index", BIdx_arg.c_str(),
 
         "-d", opts::jv.c_str(),
       };
