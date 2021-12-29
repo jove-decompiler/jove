@@ -3,6 +3,25 @@
     (defined(__aarch64__) && defined(TARGET_AARCH64)) || \
     (defined(__mips64)    && defined(TARGET_MIPS64))  || \
     (defined(__mips__)    && defined(TARGET_MIPS32))
+#include <boost/icl/interval_set.hpp>
+#include <boost/icl/split_interval_map.hpp>
+#include <llvm/ADT/StringRef.h>
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/Support/Error.h>
+#include <llvm/Support/WithColor.h>
+#include <llvm/Support/FormatVariadic.h>
+#include <llvm/Object/ELFObjectFile.h>
+
+namespace jove {
+#include "elf.hpp"
+}
+
+#define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
+  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;        \
+                                                                               \
+  std::unique_ptr<llvm::object::Binary> ObjectFile;
+
 #include "tcgcommon.hpp"
 
 #include <tuple>
@@ -232,10 +251,6 @@ static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
 
 // we have a BB & Func map for each binary_t
 struct binary_state_t {
-  std::unique_ptr<llvm::object::Binary> ObjectFile;
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;
-  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;
-
   struct {
     uintptr_t LoadAddr, LoadAddrEnd;
   } dyn;
@@ -247,8 +262,6 @@ static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
 static bool HasVDSO(void);
 static std::pair<void *, unsigned> GetVDSO(void);
-
-#include "elf.hpp"
 
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
@@ -407,7 +420,7 @@ int main(int argc, char **argv) {
   jove::BinStateVec.resize(jove::decompilation.Binaries.size());
   for (jove::binary_index_t i = 0; i < jove::decompilation.Binaries.size(); ++i) {
     auto &binary = jove::decompilation.Binaries[i];
-    auto &st = jove::BinStateVec[i];
+    auto &FuncMap = binary.FuncMap;
 
     // add to path -> index map
     if (binary.IsVDSO)
@@ -418,19 +431,20 @@ int main(int argc, char **argv) {
     //
     // build FuncMap
     //
-    for (jove::function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-         ++f_idx) {
-      jove::function_t &f = binary.Analysis.Functions[f_idx];
+    for (jove::function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
+      jove::function_t &f = binary.Analysis.Functions[FIdx];
       if (unlikely(!jove::is_function_index_valid(f.Entry)))
         continue;
 
       jove::basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+      FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = FIdx;
     }
 
     //
     // build BBMap
     //
+    auto &BBMap = binary.BBMap;
+
     for (jove::basic_block_index_t bb_idx = 0;
          bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
       jove::basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
@@ -439,9 +453,9 @@ int main(int argc, char **argv) {
       boost::icl::interval<uintptr_t>::type intervl =
           boost::icl::interval<uintptr_t>::right_open(
               bbprop.Addr, bbprop.Addr + bbprop.Size);
-      assert(st.BBMap.find(intervl) == st.BBMap.end());
+      assert(BBMap.find(intervl) == BBMap.end());
 
-      st.BBMap.add({intervl, 1 + bb_idx});
+      BBMap.add({intervl, 1 + bb_idx});
     }
 
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
@@ -459,15 +473,15 @@ int main(int argc, char **argv) {
       // TODO
     } else {
       std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-      st.ObjectFile = std::move(BinRef);
+      binary.ObjectFile = std::move(BinRef);
 
-      assert(st.ObjectFile.get());
-      if (!llvm::isa<jove::ELFO>(st.ObjectFile.get())) {
+      assert(binary.ObjectFile.get());
+      if (!llvm::isa<jove::ELFO>(binary.ObjectFile.get())) {
         WithColor::error() << binary.Path << " is not ELF of expected type\n";
         return 1;
       }
 
-      jove::ELFO &O = *llvm::cast<jove::ELFO>(st.ObjectFile.get());
+      jove::ELFO &O = *llvm::cast<jove::ELFO>(binary.ObjectFile.get());
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
@@ -1313,15 +1327,15 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                           rva_of_va(handler, handler_binary_idx), brkpt_count);
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
-                        function_index_t f_idx = translate_function(
+                        function_index_t FIdx = translate_function(
                             child, handler_binary_idx, tcg, dis,
                             rva_of_va(handler, handler_binary_idx),
                             brkpt_count);
 
-                        if (is_function_index_valid(f_idx)) {
+                        if (is_function_index_valid(FIdx)) {
                           binary_t &binary = decompilation.Binaries[handler_binary_idx];
-                          binary.Analysis.Functions[f_idx].IsSignalHandler = true;
-                          binary.Analysis.Functions[f_idx].IsABI = true;
+                          binary.Analysis.Functions[FIdx].IsSignalHandler = true;
+                          binary.Analysis.Functions[FIdx].IsABI = true;
                         } else {
                           WithColor::error() << llvm::formatv(
                               "failed to translate signal handler {0:x}\n",
@@ -1675,26 +1689,32 @@ function_index_t translate_function(pid_t child,
   assert((Addr & 1) == 0);
 #endif
 
-  binary_t &binary = decompilation.Binaries[binary_idx];
-  auto &FuncMap = BinStateVec[binary_idx].FuncMap;
+  binary_t &b = decompilation.Binaries[binary_idx];
 
   {
-    auto it = FuncMap.find(Addr);
-    if (it != FuncMap.end())
+    auto it = b.FuncMap.find(Addr);
+    if (it != b.FuncMap.end())
       return (*it).second;
   }
 
-  function_index_t res = binary.Analysis.Functions.size();
-  FuncMap[Addr] = res;
-  binary.Analysis.Functions.resize(res + 1);
-  binary.Analysis.Functions[res].Entry =
-      translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
-  binary.Analysis.Functions[res].Analysis.Stale = true;
-  binary.Analysis.Functions[res].IsABI = false;
-  binary.Analysis.Functions[res].IsSignalHandler = false;
+  const function_index_t res = b.Analysis.Functions.size();
+  (void)b.Analysis.Functions.emplace_back();
 
-  if (unlikely(!is_basic_block_index_valid(binary.Analysis.Functions[res].Entry)))
-    return invalid_function_index;
+  b.FuncMap.insert({Addr, res});
+
+  basic_block_index_t Entry =
+      translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
+
+  WARN_ON(!is_basic_block_index_valid(Entry));
+
+  {
+    function_t &f = b.Analysis.Functions[res];
+
+    f.Analysis.Stale = true;
+    f.IsABI = false;
+    f.IsSignalHandler = false;
+    f.Entry = Entry;
+  }
 
   return res;
 }
@@ -1715,9 +1735,9 @@ basic_block_index_t translate_basic_block(pid_t child,
 #endif
 
   binary_t &binary = decompilation.Binaries[binary_idx];
-  auto &ObjectFile = BinStateVec[binary_idx].ObjectFile;
+  auto &ObjectFile = binary.ObjectFile;
   auto &ICFG = binary.Analysis.ICFG;
-  auto &BBMap = BinStateVec[binary_idx].BBMap;
+  auto &BBMap = binary.BBMap;
 
   //
   // does this new basic block start in the middle of a previously-created
@@ -3215,7 +3235,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
   binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
-  auto &BBMap = BinStateVec[IndBrInfo.binary_idx].BBMap;
+  auto &BBMap = binary.BBMap;
   auto &ICFG = binary.Analysis.ICFG;
 
   //
@@ -3523,7 +3543,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         IsDefinitelyTailCall(ICFG, bb) ||
         IndBrInfo.binary_idx != binary_idx ||
         (boost::out_degree(bb, ICFG) == 0 &&
-         BinStateVec[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
+         decompilation.Binaries[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
 
     if (isTailCall) {
       function_index_t f_idx =
@@ -3593,28 +3613,13 @@ static void harvest_irelative_reloc_targets(pid_t child,
                                             disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
+    if (Binary.IsVDSO)
+      continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!Binary.IsVDSO)
-        WithColor::warning() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
-      continue;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3711,28 +3716,13 @@ static void harvest_addressof_reloc_targets(pid_t child,
                                             disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
+    if (Binary.IsVDSO)
+      continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!Binary.IsVDSO)
-        WithColor::error() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
-      continue;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3884,30 +3874,15 @@ static void harvest_ctor_and_dtors(pid_t child,
                                    disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
+    if (Binary.IsVDSO)
+      continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
     unsigned brkpt_count = 0;
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!Binary.IsVDSO)
-        WithColor::error() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
-      continue;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -3947,11 +3922,11 @@ static void harvest_ctor_and_dtors(pid_t child,
           auto it = AddressSpace.find(Proc);
           if (it != AddressSpace.end() &&
               *(*it).second.begin() == BIdx) {
-            function_index_t f_idx = translate_function(
+            function_index_t FIdx = translate_function(
                 child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
 
-            if (is_function_index_valid(f_idx))
-              Binary.Analysis.Functions[f_idx].IsABI = true; /* it is an ABI */
+            if (is_function_index_valid(FIdx))
+              Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
           }
         } catch (const std::exception &e) {
           if (opts::Verbose)
@@ -3976,30 +3951,15 @@ static void harvest_global_GOT_entries(pid_t child,
                                        disas_t &dis) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &Binary = decompilation.Binaries[BIdx];
+    if (Binary.IsVDSO)
+      continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
     unsigned brkpt_count = 0;
 
-    //
-    // parse the ELF
-    //
-    llvm::StringRef Buffer(reinterpret_cast<const char *>(&Binary.Data[0]),
-                           Binary.Data.size());
-    llvm::StringRef Identifier(Binary.Path);
-    llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-    llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-        obj::createBinary(MemBuffRef);
-    if (!BinOrErr) {
-      if (!Binary.IsVDSO)
-        WithColor::error() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, Binary.Path);
-      continue;
-    }
-
-    std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
+    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
@@ -4180,10 +4140,7 @@ static void harvest_global_GOT_entries(pid_t child,
       }
 
 #if defined(__mips64) || defined(__mips__)
-      uintptr_t mask = 1;
-      mask = ~mask;
-
-      Resolved.Addr &= mask;
+      Resolved.Addr &= ~1UL;
 #endif
 
       auto it = AddressSpace.find(Resolved.Addr);
@@ -4286,8 +4243,10 @@ void on_binary_loaded(pid_t child,
                       disas_t &dis,
                       binary_index_t BIdx,
                       const vm_properties_t &vm_prop) {
+  binary_t &binary = decompilation.Binaries[BIdx];
+
   binary_state_t &st = BinStateVec[BIdx];
-  auto &ObjectFile = st.ObjectFile;
+  auto &ObjectFile = binary.ObjectFile;
 
   st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
   st.dyn.LoadAddrEnd = vm_prop.end;
@@ -4303,8 +4262,6 @@ void on_binary_loaded(pid_t child,
       boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
   binary_index_set_t bin_idx_set = {BIdx};
   AddressSpace.add(std::make_pair(intervl, bin_idx_set));
-
-  binary_t &binary = decompilation.Binaries[BIdx];
 
   //
   // if Prog has been loaded, set a breakpoint on the entry point of prog
@@ -4969,18 +4926,19 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
 
     BIdx = decompilation.Binaries.size();
 
-    decompilation.Binaries.emplace_back(new_decompilation.Binaries.front())
+    decompilation.Binaries.emplace_back(std::move(new_decompilation.Binaries.front()))
         .IsDynamicallyLoaded = true;
   }
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
   BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
-  binary_state_t &st = BinStateVec.emplace_back();
+  (void)BinStateVec.emplace_back();
 
   //
   // initialize state associated with every binary
   //
   binary_t &binary = decompilation.Binaries[BIdx];
+  auto &FuncMap = binary.FuncMap;
 
   // add to path -> index map
   if (binary.IsVDSO)
@@ -4991,30 +4949,30 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   //
   // build FuncMap
   //
-  for (function_index_t f_idx = 0; f_idx < binary.Analysis.Functions.size();
-       ++f_idx) {
-    function_t &f = binary.Analysis.Functions[f_idx];
+  for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
+    function_t &f = binary.Analysis.Functions[FIdx];
     if (unlikely(!is_function_index_valid(f.Entry)))
       continue;
 
     basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-    st.FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = f_idx;
+    FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = FIdx;
   }
 
   //
   // build BBMap
   //
-  for (basic_block_index_t bb_idx = 0;
-       bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-    basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
+  auto &BBMap = binary.BBMap;
+  for (basic_block_index_t BBIdx = 0;
+       BBIdx < boost::num_vertices(binary.Analysis.ICFG); ++BBIdx) {
+    basic_block_t bb = boost::vertex(BBIdx, binary.Analysis.ICFG);
     const auto &bbprop = binary.Analysis.ICFG[bb];
 
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(
             bbprop.Addr, bbprop.Addr + bbprop.Size);
-    assert(st.BBMap.find(intervl) == st.BBMap.end());
+    assert(BBMap.find(intervl) == BBMap.end());
 
-    st.BBMap.add({intervl, 1 + bb_idx});
+    BBMap.add({intervl, 1 + BBIdx});
   }
 
   llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
@@ -5031,7 +4989,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   } else {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
 
-    st.ObjectFile = std::move(BinRef);
+    binary.ObjectFile = std::move(BinRef);
   }
 }
 
@@ -5052,26 +5010,7 @@ void on_dynamic_linker_loaded(pid_t child,
                               const vm_properties_t &vm_prop) {
   binary_t &binary = decompilation.Binaries[BIdx];
 
-  //
-  // parse the ELF
-  //
-  llvm::StringRef Buffer(reinterpret_cast<const char *>(&binary.Data[0]),
-                         binary.Data.size());
-  llvm::StringRef Identifier(binary.Path);
-  llvm::MemoryBufferRef MemBuffRef(Buffer, Identifier);
-
-  llvm::Expected<std::unique_ptr<obj::Binary>> BinOrErr =
-      obj::createBinary(MemBuffRef);
-  if (!BinOrErr) {
-    if (!binary.IsVDSO)
-      WithColor::warning() << llvm::formatv(
-          "{0}: failed to create binary from {1}\n", __func__, binary.Path);
-    return;
-  }
-
-  std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
-
-  std::unique_ptr<obj::Binary> &ObjectFile = BinRef;
+  std::unique_ptr<obj::Binary> &ObjectFile = binary.ObjectFile;
 
   assert(ObjectFile.get());
   assert(llvm::isa<ELFO>(ObjectFile.get()));
@@ -5332,9 +5271,8 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       } else {
         BIdx = *(*it).second.begin();
 
-        auto &BBMap = BinStateVec[BIdx].BBMap;
-
         binary_t &binary = decompilation.Binaries.at(BIdx);
+        auto &BBMap = binary.BBMap;
         auto &ICFG = binary.Analysis.ICFG;
 
         uintptr_t rva = rva_of_va(pc, BIdx);
@@ -5374,11 +5312,11 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       } else {
         BIdx = *(*it).second.begin();
 
-        auto &BBMap = BinStateVec[BIdx].BBMap;
-
         binary_t &binary = decompilation.Binaries.at(BIdx);
+        auto &BBMap = binary.BBMap;
         auto &ICFG = binary.Analysis.ICFG;
-        if (!BinStateVec[BIdx].ObjectFile.get()) {
+
+        if (!binary.ObjectFile.get()) {
           if (!binary.IsVDSO)
             WithColor::warning()
                 << llvm::formatv("on_return: unknown RetAddr {0}\n",
