@@ -2477,31 +2477,56 @@ int ProcessBinaryRelocations(void) {
     // from ELFDumper::printDynamicRelocationsHelper()
     //
     if (DynRelaRegion.Size > 0) {
-      for (const Elf_Rela &Rela : DynRelaRegion.getAsArrayRef<Elf_Rela>())
-        processDynamicReloc(Relocation(Rela, IsMips64EL));
+      auto DynRelaRelocs = DynRelaRegion.getAsArrayRef<Elf_Rela>();
+
+      std::for_each(DynRelaRelocs.begin(),
+                    DynRelaRelocs.end(),
+                    [&](const Elf_Rela &Rela) {
+                      processDynamicReloc(Relocation(Rela, IsMips64EL));
+                    });
     }
 
     if (DynRelRegion.Size > 0) {
-      for (const Elf_Rel &Rel : DynRelRegion.getAsArrayRef<Elf_Rel>())
-        processDynamicReloc(Relocation(Rel, IsMips64EL));
+      auto DynRelRelocs = DynRelRegion.getAsArrayRef<Elf_Rel>();
+
+      std::for_each(DynRelRelocs.begin(),
+                    DynRelRelocs.end(),
+                    [&](const Elf_Rel &Rel) {
+                      processDynamicReloc(Relocation(Rel, IsMips64EL));
+                    });
     }
 
     if (DynRelrRegion.Size > 0) {
       Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
       llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
       if (ExpectedRelrRelas) {
-        for (const Elf_Rela &Rela : *ExpectedRelrRelas)
-          processDynamicReloc(Relocation(Rela, IsMips64EL));
+        auto &RelrRelasRelocs = *ExpectedRelrRelas;
+
+        std::for_each(RelrRelasRelocs.begin(),
+                      RelrRelasRelocs.end(),
+                      [&](const Elf_Rela &Rela) {
+                        processDynamicReloc(Relocation(Rela, IsMips64EL));
+                      });
       }
     }
 
     if (DynPLTRelRegion.Size > 0) {
       if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
-        for (const Elf_Rela &Rela : DynPLTRelRegion.getAsArrayRef<Elf_Rela>())
-          processDynamicReloc(Relocation(Rela, IsMips64EL));
+        auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
+
+        std::for_each(DynPLTRelRelocs.begin(),
+                      DynPLTRelRelocs.end(),
+                      [&](const Elf_Rela &Rela) {
+                        processDynamicReloc(Relocation(Rela, IsMips64EL));
+                      });
       } else {
-        for (const Elf_Rel &Rel : DynPLTRelRegion.getAsArrayRef<Elf_Rel>())
-          processDynamicReloc(Relocation(Rel, IsMips64EL));
+        auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rel>();
+
+        std::for_each(DynPLTRelRelocs.begin(),
+                      DynPLTRelRelocs.end(),
+                      [&](const Elf_Rel &Rel) {
+                        processDynamicReloc(Relocation(Rel, IsMips64EL));
+                      });
       }
     }
   }
