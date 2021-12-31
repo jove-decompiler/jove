@@ -491,6 +491,8 @@ int main(int argc, char **argv) {
       jove::ELFO &O = *llvm::cast<jove::ELFO>(binary.ObjectFile.get());
       const jove::ELFF &E = *O.getELFFile();
 
+      loadDynamicTable(&E, &O, binary._elf.DynamicTable);
+
       binary._elf.OptionalDynSymRegion =
           loadDynamicSymbols(&E, &O,
                              binary._elf.DynamicTable,
@@ -3626,100 +3628,159 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 static void harvest_irelative_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
+  constexpr unsigned IRelativeRelocTy =
+#if defined(__x86_64__)
+      llvm::ELF::R_X86_64_IRELATIVE
+#elif defined(__i386__)
+      llvm::ELF::R_386_IRELATIVE
+#elif defined(__aarch64__)
+      llvm::ELF::R_AARCH64_IRELATIVE
+#elif defined(__mips64) || defined(__mips__)
+      std::numeric_limits<unsigned long>::max()
+#else
+#error
+#endif
+      ;
+
+  auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+    unsigned Ty = R.Type;
+    if (Ty != IRelativeRelocTy)
+      return;
+
+    llvm::errs() << "processDynamicReloc: encountered irelative" << '\n';
+
+    struct {
+      uintptr_t Addr;
+
+      binary_index_t BIdx;
+      function_index_t FIdx;
+    } Resolved;
+
+    try {
+      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, b.BIdx));
+    } catch (const std::exception &e) {
+      if (opts::Verbose)
+        WithColor::warning()
+            << llvm::formatv("{0}: exception: {1}\n",
+                             "harvest_irelative_reloc_targets", e.what());
+      return;
+    }
+
+    auto it = AddressSpace.find(Resolved.Addr);
+    if (it == AddressSpace.end()) {
+      if (opts::Verbose)
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n",
+                             "harvest_irelative_reloc_targets",
+                             description_of_program_counter(Resolved.Addr));
+      return;
+    }
+
+    Resolved.BIdx = *(*it).second.begin();
+
+    if (opts::Verbose)
+      llvm::outs() << llvm::formatv("IFunc dyn target: {0:x}\n",
+                                    rva_of_va(Resolved.Addr, Resolved.BIdx));
+
+    unsigned brkpt_count = 0;
+    Resolved.FIdx = translate_function(
+        child, Resolved.BIdx, tcg, dis,
+        rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+
+    if (is_function_index_valid(Resolved.FIdx)) {
+      if (R.Addend)
+        b.Analysis.IFuncDynTargets[*R.Addend].insert(
+            {Resolved.BIdx, Resolved.FIdx});
+
+      b.Analysis.RelocDynTargets[R.Offset].insert(
+          {Resolved.BIdx, Resolved.FIdx});
+    }
+  };
+
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-    auto &Binary = decompilation.Binaries[BIdx];
-    if (Binary.IsVDSO)
+    auto &b = decompilation.Binaries[BIdx];
+    if (b.IsVDSO)
       continue;
 
     if (!BinFoundVec[BIdx])
       continue;
 
-    std::unique_ptr<obj::Binary> &Bin = Binary.ObjectFile;
+    std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
 
-    auto process_elf_rela = [&](const Elf_Shdr &Sec,
-                                const Elf_Rela &R) -> void {
-      constexpr unsigned long irelative_reloc_ty =
-#if defined(__x86_64__)
-          llvm::ELF::R_X86_64_IRELATIVE
-#elif defined(__i386__)
-          llvm::ELF::R_386_IRELATIVE
-#elif defined(__aarch64__)
-          llvm::ELF::R_AARCH64_IRELATIVE
-#elif defined(__mips64) || defined(__mips__)
-          std::numeric_limits<unsigned long>::max()
-#else
-#error
-#endif
-          ;
+    DynRegionInfo DynRelRegion(O.getFileName());
+    DynRegionInfo DynRelaRegion(O.getFileName());
+    DynRegionInfo DynRelrRegion(O.getFileName());
+    DynRegionInfo DynPLTRelRegion(O.getFileName());
 
-      unsigned reloc_ty = R.getType(E.isMips64EL());
-      if (reloc_ty != irelative_reloc_ty)
-        return;
+    loadDynamicRelocations(&E, &O,
+                           b._elf.DynamicTable,
+                           DynRelRegion,
+                           DynRelaRegion,
+                           DynRelrRegion,
+                           DynPLTRelRegion);
 
-      struct {
-        uintptr_t Addr;
+    {
+      const bool IsMips64EL = E.isMips64EL();
 
-        binary_index_t BIdx;
-        function_index_t FIdx;
-      } Resolved;
+      //
+      // from ELFDumper::printDynamicRelocationsHelper()
+      //
+      if (DynRelaRegion.Size > 0) {
+        auto DynRelaRelocs = DynRelaRegion.getAsArrayRef<Elf_Rela>();
 
-      try {
-        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.r_offset, BIdx));
-      } catch (const std::exception &e) {
-        if (opts::Verbose)
-          WithColor::warning()
-              << llvm::formatv("{0}: exception: {1}\n",
-                               "harvest_irelative_reloc_targets", e.what());
-        return;
+        std::for_each(DynRelaRelocs.begin(),
+                      DynRelaRelocs.end(),
+                      [&](const Elf_Rela &Rela) {
+                        processDynamicReloc(b, Relocation(Rela, IsMips64EL));
+                      });
       }
 
-      auto it = AddressSpace.find(Resolved.Addr);
-      if (it == AddressSpace.end()) {
-        if (opts::Verbose)
-          WithColor::warning()
-              << llvm::formatv("{0}: unknown binary for {1}\n",
-                               "harvest_irelative_reloc_targets",
-                               description_of_program_counter(Resolved.Addr));
-        return;
+      if (DynRelRegion.Size > 0) {
+        auto DynRelRelocs = DynRelRegion.getAsArrayRef<Elf_Rel>();
+
+        std::for_each(DynRelRelocs.begin(),
+                      DynRelRelocs.end(),
+                      [&](const Elf_Rel &Rel) {
+                        processDynamicReloc(b, Relocation(Rel, IsMips64EL));
+                      });
       }
 
-      Resolved.BIdx = *(*it).second.begin();
+      if (DynRelrRegion.Size > 0) {
+        Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
+        llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
+        if (ExpectedRelrRelas) {
+          auto &RelrRelasRelocs = *ExpectedRelrRelas;
 
-      if (opts::Verbose)
-        llvm::outs() << llvm::formatv("IFunc dyn target: {0:x}\n",
-                                      rva_of_va(Resolved.Addr, Resolved.BIdx));
-
-      unsigned brkpt_count = 0;
-      Resolved.FIdx = translate_function(
-          child, Resolved.BIdx, tcg, dis,
-          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
-
-      if (is_function_index_valid(Resolved.FIdx)) {
-        Binary.Analysis.IFuncDynTargets[R.r_addend].insert(
-            {Resolved.BIdx, Resolved.FIdx});
-
-        Binary.Analysis.RelocDynTargets[R.r_offset].insert(
-            {Resolved.BIdx, Resolved.FIdx});
+          std::for_each(RelrRelasRelocs.begin(),
+                        RelrRelasRelocs.end(),
+                        [&](const Elf_Rela &Rela) {
+                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
+                        });
+        }
       }
-    };
 
-    for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-      if (Sec.sh_type == llvm::ELF::SHT_RELA) {
-        for (const Elf_Rela &Rela : unwrapOrError(E.relas(&Sec)))
-          process_elf_rela(Sec, Rela);
-      } else if (Sec.sh_type == llvm::ELF::SHT_REL) {
-        for (const Elf_Rel &Rel : unwrapOrError(E.rels(&Sec))) {
-          Elf_Rela Rela;
-          Rela.r_offset = Rel.r_offset;
-          Rela.r_info = Rel.r_info;
-          Rela.r_addend = 0;
+      if (DynPLTRelRegion.Size > 0) {
+        if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
+          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
 
-          process_elf_rela(Sec, Rela);
+          std::for_each(DynPLTRelRelocs.begin(),
+                        DynPLTRelRelocs.end(),
+                        [&](const Elf_Rela &Rela) {
+                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
+                        });
+        } else {
+          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rel>();
+
+          std::for_each(DynPLTRelRelocs.begin(),
+                        DynPLTRelRelocs.end(),
+                        [&](const Elf_Rel &Rel) {
+                          processDynamicReloc(b, Relocation(Rel, IsMips64EL));
+                        });
         }
       }
     }
@@ -3729,6 +3790,50 @@ static void harvest_irelative_reloc_targets(pid_t child,
 static void harvest_addressof_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
+  constexpr unsigned JumpSlotRelocTy =
+#if defined(__x86_64__)
+      llvm::ELF::R_X86_64_JUMP_SLOT
+#elif defined(__i386__)
+      llvm::ELF::R_386_JUMP_SLOT
+#elif defined(__aarch64__)
+      llvm::ELF::R_AARCH64_JUMP_SLOT
+#elif defined(__mips64) || defined(__mips__)
+      llvm::ELF::R_MIPS_JUMP_SLOT
+#else
+#error
+#endif
+      ;
+
+  constexpr unsigned GlobDatRelocTy =
+#if defined(__x86_64__)
+      llvm::ELF::R_X86_64_GLOB_DAT
+#elif defined(__i386__)
+      llvm::ELF::R_386_GLOB_DAT
+#elif defined(__aarch64__)
+      llvm::ELF::R_AARCH64_GLOB_DAT
+#elif defined(__mips64) || defined(__mips__)
+      llvm::ELF::R_MIPS_GLOB_DAT
+#else
+#error
+#endif
+      ;
+
+  constexpr unsigned AbsRelocTy =
+#if defined(__x86_64__)
+      llvm::ELF::R_X86_64_64
+#elif defined(__i386__)
+      llvm::ELF::R_386_32
+#elif defined(__aarch64__)
+      llvm::ELF::R_AARCH64_ABS64
+#elif defined(__mips64)
+      llvm::ELF::R_MIPS_64
+#elif defined(__mips__)
+      llvm::ELF::R_MIPS_32
+#else
+#error
+#endif
+      ;
+
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
     std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
 
@@ -3737,55 +3842,11 @@ static void harvest_addressof_reloc_targets(pid_t child,
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
 
-    constexpr unsigned JumpSlotRelocTy =
-#if defined(__x86_64__)
-        llvm::ELF::R_X86_64_JUMP_SLOT
-#elif defined(__i386__)
-        llvm::ELF::R_386_JUMP_SLOT
-#elif defined(__aarch64__)
-        llvm::ELF::R_AARCH64_JUMP_SLOT
-#elif defined(__mips64) || defined(__mips__)
-        llvm::ELF::R_MIPS_JUMP_SLOT
-#else
-#error
-#endif
-        ;
+    unsigned Ty = R.Type;
 
-    constexpr unsigned GlobDatRelocTy =
-#if defined(__x86_64__)
-        llvm::ELF::R_X86_64_GLOB_DAT
-#elif defined(__i386__)
-        llvm::ELF::R_386_GLOB_DAT
-#elif defined(__aarch64__)
-        llvm::ELF::R_AARCH64_GLOB_DAT
-#elif defined(__mips64) || defined(__mips__)
-        llvm::ELF::R_MIPS_GLOB_DAT
-#else
-#error
-#endif
-        ;
-
-    constexpr unsigned AbsRelocTy =
-#if defined(__x86_64__)
-        llvm::ELF::R_X86_64_64
-#elif defined(__i386__)
-        llvm::ELF::R_386_32
-#elif defined(__aarch64__)
-        llvm::ELF::R_AARCH64_ABS64
-#elif defined(__mips64)
-        llvm::ELF::R_MIPS_64
-#elif defined(__mips__)
-        llvm::ELF::R_MIPS_32
-#else
-#error
-#endif
-        ;
-
-    unsigned ty = R.Type;
-
-    if (ty != JumpSlotRelocTy &&
-        ty != GlobDatRelocTy &&
-        ty != AbsRelocTy)
+    if (Ty != JumpSlotRelocTy &&
+        Ty != GlobDatRelocTy &&
+        Ty != AbsRelocTy)
       return;
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
@@ -4963,6 +5024,8 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
 
     ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
     const ELFF &E = *O.getELFFile();
+
+    loadDynamicTable(&E, &O, binary._elf.DynamicTable);
 
     binary._elf.OptionalDynSymRegion =
         loadDynamicSymbols(&E, &O,
