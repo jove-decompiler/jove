@@ -5053,13 +5053,6 @@ void on_dynamic_linker_loaded(pid_t child,
                               const vm_properties_t &vm_prop) {
   binary_t &b = decompilation.Binaries[BIdx];
 
-  std::unique_ptr<obj::Binary> &ObjectFile = b.ObjectFile;
-
-  assert(ObjectFile.get());
-  assert(llvm::isa<ELFO>(ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
-  const ELFF &E = *O.getELFFile();
-
   if (b._elf.OptionalDynSymRegion) {
     auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
 
