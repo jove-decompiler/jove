@@ -28,6 +28,11 @@ namespace jove {
     const Elf_Shdr *SymbolVersionSection;                                      \
     llvm::SmallVector<VersionMapEntry, 16> VersionMap;                         \
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
+                                                                               \
+    DynRegionInfo DynRelRegion;                                                \
+    DynRegionInfo DynRelaRegion;                                               \
+    DynRegionInfo DynRelrRegion;                                               \
+    DynRegionInfo DynPLTRelRegion;                                             \
   } _elf;
 
 #include "tcgcommon.hpp"
@@ -499,6 +504,13 @@ int main(int argc, char **argv) {
                              binary._elf.DynamicStringTable,
                              binary._elf.SymbolVersionSection,
                              binary._elf.VersionMap);
+
+      loadDynamicRelocations(&E, &O,
+                             binary._elf.DynamicTable,
+                             binary._elf.DynRelRegion,
+                             binary._elf.DynRelaRegion,
+                             binary._elf.DynRelrRegion,
+                             binary._elf.DynPLTRelRegion);
 
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
@@ -3647,8 +3659,6 @@ static void harvest_irelative_reloc_targets(pid_t child,
     if (Ty != IRelativeRelocTy)
       return;
 
-    llvm::errs() << "processDynamicReloc: encountered irelative" << '\n';
-
     struct {
       uintptr_t Addr;
 
@@ -3712,78 +3722,14 @@ static void harvest_irelative_reloc_targets(pid_t child,
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynRelRegion(O.getFileName());
-    DynRegionInfo DynRelaRegion(O.getFileName());
-    DynRegionInfo DynRelrRegion(O.getFileName());
-    DynRegionInfo DynPLTRelRegion(O.getFileName());
-
-    loadDynamicRelocations(&E, &O,
-                           b._elf.DynamicTable,
-                           DynRelRegion,
-                           DynRelaRegion,
-                           DynRelrRegion,
-                           DynPLTRelRegion);
-
-    {
-      const bool IsMips64EL = E.isMips64EL();
-
-      //
-      // from ELFDumper::printDynamicRelocationsHelper()
-      //
-      if (DynRelaRegion.Size > 0) {
-        auto DynRelaRelocs = DynRelaRegion.getAsArrayRef<Elf_Rela>();
-
-        std::for_each(DynRelaRelocs.begin(),
-                      DynRelaRelocs.end(),
-                      [&](const Elf_Rela &Rela) {
-                        processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                      });
-      }
-
-      if (DynRelRegion.Size > 0) {
-        auto DynRelRelocs = DynRelRegion.getAsArrayRef<Elf_Rel>();
-
-        std::for_each(DynRelRelocs.begin(),
-                      DynRelRelocs.end(),
-                      [&](const Elf_Rel &Rel) {
-                        processDynamicReloc(b, Relocation(Rel, IsMips64EL));
-                      });
-      }
-
-      if (DynRelrRegion.Size > 0) {
-        Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
-        llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
-        if (ExpectedRelrRelas) {
-          auto &RelrRelasRelocs = *ExpectedRelrRelas;
-
-          std::for_each(RelrRelasRelocs.begin(),
-                        RelrRelasRelocs.end(),
-                        [&](const Elf_Rela &Rela) {
-                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                        });
-        }
-      }
-
-      if (DynPLTRelRegion.Size > 0) {
-        if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
-          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
-
-          std::for_each(DynPLTRelRelocs.begin(),
-                        DynPLTRelRelocs.end(),
-                        [&](const Elf_Rela &Rela) {
-                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                        });
-        } else {
-          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rel>();
-
-          std::for_each(DynPLTRelRelocs.begin(),
-                        DynPLTRelRelocs.end(),
-                        [&](const Elf_Rel &Rel) {
-                          processDynamicReloc(b, Relocation(Rel, IsMips64EL));
-                        });
-        }
-      }
-    }
+    for_each_dynamic_relocation(E,
+                                b._elf.DynRelRegion,
+                                b._elf.DynRelaRegion,
+                                b._elf.DynRelrRegion,
+                                b._elf.DynPLTRelRegion,
+                                [&](const Relocation &R) {
+                                  processDynamicReloc(b, R);
+                                });
   }
 }
 
@@ -3929,78 +3875,14 @@ static void harvest_addressof_reloc_targets(pid_t child,
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
 
-    DynRegionInfo DynRelRegion(O.getFileName());
-    DynRegionInfo DynRelaRegion(O.getFileName());
-    DynRegionInfo DynRelrRegion(O.getFileName());
-    DynRegionInfo DynPLTRelRegion(O.getFileName());
-
-    loadDynamicRelocations(&E, &O,
-                           b._elf.DynamicTable,
-                           DynRelRegion,
-                           DynRelaRegion,
-                           DynRelrRegion,
-                           DynPLTRelRegion);
-
-    {
-      const bool IsMips64EL = E.isMips64EL();
-
-      //
-      // from ELFDumper::printDynamicRelocationsHelper()
-      //
-      if (DynRelaRegion.Size > 0) {
-        auto DynRelaRelocs = DynRelaRegion.getAsArrayRef<Elf_Rela>();
-
-        std::for_each(DynRelaRelocs.begin(),
-                      DynRelaRelocs.end(),
-                      [&](const Elf_Rela &Rela) {
-                        processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                      });
-      }
-
-      if (DynRelRegion.Size > 0) {
-        auto DynRelRelocs = DynRelRegion.getAsArrayRef<Elf_Rel>();
-
-        std::for_each(DynRelRelocs.begin(),
-                      DynRelRelocs.end(),
-                      [&](const Elf_Rel &Rel) {
-                        processDynamicReloc(b, Relocation(Rel, IsMips64EL));
-                      });
-      }
-
-      if (DynRelrRegion.Size > 0) {
-        Elf_Relr_Range Relrs = DynRelrRegion.getAsArrayRef<Elf_Relr>();
-        llvm::Expected<std::vector<Elf_Rela>> ExpectedRelrRelas = E.decode_relrs(Relrs);
-        if (ExpectedRelrRelas) {
-          auto &RelrRelasRelocs = *ExpectedRelrRelas;
-
-          std::for_each(RelrRelasRelocs.begin(),
-                        RelrRelasRelocs.end(),
-                        [&](const Elf_Rela &Rela) {
-                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                        });
-        }
-      }
-
-      if (DynPLTRelRegion.Size > 0) {
-        if (DynPLTRelRegion.EntSize == sizeof(Elf_Rela)) {
-          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rela>();
-
-          std::for_each(DynPLTRelRelocs.begin(),
-                        DynPLTRelRelocs.end(),
-                        [&](const Elf_Rela &Rela) {
-                          processDynamicReloc(b, Relocation(Rela, IsMips64EL));
-                        });
-        } else {
-          auto DynPLTRelRelocs = DynPLTRelRegion.getAsArrayRef<Elf_Rel>();
-
-          std::for_each(DynPLTRelRelocs.begin(),
-                        DynPLTRelRelocs.end(),
-                        [&](const Elf_Rel &Rel) {
-                          processDynamicReloc(b, Relocation(Rel, IsMips64EL));
-                        });
-        }
-      }
-    }
+    for_each_dynamic_relocation(E,
+                                b._elf.DynRelRegion,
+                                b._elf.DynRelaRegion,
+                                b._elf.DynRelrRegion,
+                                b._elf.DynPLTRelRegion,
+                                [&](const Relocation &R) {
+                                  processDynamicReloc(b, R);
+                                });
   }
 }
 
@@ -5033,6 +4915,13 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
                            binary._elf.DynamicStringTable,
                            binary._elf.SymbolVersionSection,
                            binary._elf.VersionMap);
+
+    loadDynamicRelocations(&E, &O,
+                           binary._elf.DynamicTable,
+                           binary._elf.DynRelRegion,
+                           binary._elf.DynRelaRegion,
+                           binary._elf.DynRelrRegion,
+                           binary._elf.DynPLTRelRegion);
   }
 }
 
