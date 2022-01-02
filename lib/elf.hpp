@@ -301,7 +301,7 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
                                                         const DynRegionInfo &DynamicTable,
                                                         llvm::StringRef &DynamicStringTable,
                                                         const Elf_Shdr *&SymbolVersionSection,
-                                                        llvm::SmallVector<VersionMapEntry, 16> &VersionMap) {
+                                                        std::vector<VersionMapEntry> &VersionMap) {
   llvm::Optional<DynRegionInfo> DynSymRegion;
   const Elf_Hash *HashTable = nullptr;
   const Elf_Shdr *DotDynsymSec = nullptr;
@@ -585,7 +585,7 @@ static llvm::Optional<DynRegionInfo> loadDynamicSymbols(const ELFF *Obj,
   return DynSymRegion;
 }
 
-llvm::StringRef getSymbolVersionByIndex(llvm::SmallVector<VersionMapEntry, 16> &VersionMap,
+llvm::StringRef getSymbolVersionByIndex(std::vector<VersionMapEntry> &VersionMap,
                                         llvm::StringRef StrTab,
                                         uint32_t SymbolVersionIndex,
                                         bool &IsDefault) {

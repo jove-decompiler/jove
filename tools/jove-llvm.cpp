@@ -131,7 +131,7 @@ struct hook_t;
     DynRegionInfo DynamicTable;                                                \
     llvm::StringRef DynamicStringTable;                                        \
     const Elf_Shdr *SymbolVersionSection;                                      \
-    llvm::SmallVector<VersionMapEntry, 16> VersionMap;                         \
+    std::vector<VersionMapEntry> VersionMap;                                   \
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
   } _elf;                                                                      \
   llvm::GlobalVariable *FunctionsTable = nullptr;                              \
@@ -2641,7 +2641,7 @@ int ProcessIFuncResolvers(void) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+  std::vector<VersionMapEntry> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          binary._elf.DynamicTable,

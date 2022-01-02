@@ -1417,7 +1417,7 @@ std::string soname_of_binary(binary_t &b) {
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;
-  llvm::SmallVector<VersionMapEntry, 16> VersionMap;
+  std::vector<VersionMapEntry> VersionMap;
   llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
       loadDynamicSymbols(&E, &O,
                          DynamicTable,
