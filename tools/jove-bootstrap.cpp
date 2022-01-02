@@ -5221,16 +5221,16 @@ std::string _ptrace_read_string(pid_t child, uintptr_t Addr) {
   std::string res;
 
   for (;;) {
-    unsigned long word = _ptrace_peekdata(child, Addr);
+    auto word = _ptrace_peekdata(child, Addr);
 
-    char ch = *reinterpret_cast<char *>(&word);
+    for (unsigned i = 0; i < sizeof(word); ++i) {
+      char ch = reinterpret_cast<char *>(&word)[i];
+      if (ch == '\0')
+        return res;
+      res.push_back(ch);
+    }
 
-    if (ch == '\0')
-      break;
-
-    // one character at-a-time
-    res.push_back(ch);
-    ++Addr;
+    Addr += sizeof(word);
   }
 
   return res;
