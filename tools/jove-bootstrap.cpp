@@ -21,6 +21,9 @@ namespace jove {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
   boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;        \
                                                                                \
+  uintptr_t LoadAddr = 0;                                                      \
+  uintptr_t LoadAddrEnd = 0;                                                   \
+                                                                               \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   struct {                                                                     \
     DynRegionInfo DynamicTable;                                                \
@@ -269,7 +272,6 @@ struct binary_state_t {
   } dyn;
 };
 
-static std::vector<binary_state_t> BinStateVec;
 static boost::dynamic_bitset<> BinFoundVec;
 static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
@@ -427,7 +429,6 @@ int main(int argc, char **argv) {
   //
   // initialize state associated with every binary
   //
-  jove::BinStateVec.resize(jove::decompilation.Binaries.size());
   for (jove::binary_index_t BIdx = 0; BIdx < jove::decompilation.Binaries.size(); ++BIdx) {
     auto &binary = jove::decompilation.Binaries[BIdx];
     auto &FuncMap = binary.FuncMap;
@@ -877,25 +878,27 @@ static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
 static std::unordered_map<uintptr_t, return_t> RetMap;
 
 static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
-  assert(BinStateVec.at(idx).dyn.LoadAddr);
-
   binary_t &binary = decompilation.Binaries.at(idx);
-  if (binary.IsExecutable && !binary.IsPIC) /* XXX */
+  if (!binary.IsPIC) {
+    assert(binary.IsExecutable);
     return Addr;
+  }
 
-  return Addr + BinStateVec.at(idx).dyn.LoadAddr;
+  assert(binary.LoadAddr);
+  return Addr + binary.LoadAddr;
 }
 
 static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t idx) {
-  assert(BinStateVec[idx].dyn.LoadAddr);
-
   binary_t &binary = decompilation.Binaries.at(idx);
-  if (binary.IsExecutable && !binary.IsPIC) /* XXX */
+  if (!binary.IsPIC) {
+    assert(binary.IsExecutable);
     return Addr;
+  }
 
-  assert(Addr >= BinStateVec.at(idx).dyn.LoadAddr);
-  assert(Addr < BinStateVec.at(idx).dyn.LoadAddrEnd);
-  return Addr - BinStateVec.at(idx).dyn.LoadAddr;
+  assert(binary.LoadAddr);
+  assert(Addr >= binary.LoadAddr);
+  assert(Addr < binary.LoadAddrEnd);
+  return Addr - binary.LoadAddr;
 }
 
 // one-shot breakpoint
@@ -4154,17 +4157,16 @@ void on_binary_loaded(pid_t child,
                       const vm_properties_t &vm_prop) {
   binary_t &binary = decompilation.Binaries[BIdx];
 
-  binary_state_t &st = BinStateVec[BIdx];
   auto &ObjectFile = binary.ObjectFile;
 
-  st.dyn.LoadAddr = vm_prop.beg - vm_prop.off;
-  st.dyn.LoadAddrEnd = vm_prop.end;
+  binary.LoadAddr = vm_prop.beg - vm_prop.off;
+  binary.LoadAddrEnd = vm_prop.end;
 
   if (opts::Verbose)
     llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
                      % vm_prop.nm
-                     % st.dyn.LoadAddr
-                     % st.dyn.LoadAddrEnd).str()
+                     % binary.LoadAddr
+                     % binary.LoadAddrEnd).str()
                  << '\n';
 
   boost::icl::interval<uintptr_t>::type intervl =
@@ -4817,7 +4819,6 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     return;
   }
 
-
   binary_index_t BIdx;
   {
     decompilation_t new_decompilation;
@@ -4841,7 +4842,6 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
 
   BinFoundVec.resize(BinFoundVec.size() + 1, false);
   BinPathToIdxMap[decompilation.Binaries.back().Path] = BIdx;
-  (void)BinStateVec.emplace_back();
 
   //
   // initialize state associated with every binary
