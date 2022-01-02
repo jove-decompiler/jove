@@ -5310,15 +5310,27 @@ std::string description_of_program_counter(uintptr_t pc) {
 void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
 
 ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
-  // N.B. this is the dumbest algorithm... TODO
-  for (unsigned i = 0; i < n; ++i) {
-    unsigned long word =
-        _ptrace_peekdata(child, reinterpret_cast<uintptr_t>(src) + i);
+  std::vector<uint8_t> buff;
+  buff.reserve(n);
 
-    ((uint8_t *)dest)[i] = *((uint8_t *)&word);
+  uintptr_t Addr = reinterpret_cast<uintptr_t>(src);
+
+  for (;;) {
+    auto word = _ptrace_peekdata(child, Addr);
+
+    for (unsigned i = 0; i < sizeof(word); ++i) {
+      buff.push_back(reinterpret_cast<uint8_t *>(&word)[i]);
+      if (buff.size() == n) {
+        memcpy(dest, &buff[0], n); /* we're done */
+        return n;
+      }
+    }
+
+    Addr += sizeof(word);
   }
 
-  return n;
+  __builtin_trap();
+  __builtin_unreachable();
 }
 
 void arch_put_breakpoint(void *code) {
