@@ -160,15 +160,6 @@ static struct {
   bool Active;
 } BreakOn = {.Active = false};
 
-template <typename Iter, typename Pred, typename Op>
-static void for_each_if(Iter first, Iter last, Pred p, Op op) {
-  while (first != last) {
-    if (p(*first))
-      op(*first);
-    ++first;
-  }
-}
-
 static void IgnoreCtrlC(void);
 
 int add(void) {
