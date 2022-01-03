@@ -107,6 +107,23 @@ typedef typename ELFT::Versym Elf_Versym;
 typedef typename ELFT::Word Elf_Word;
 typedef typename ELFT::uint uintX_t;
 
+static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
+  auto PhdrsOrErr = Obj.program_headers();
+  if (!PhdrsOrErr) {
+    return {};
+  }
+  for (const auto &P : *PhdrsOrErr) {
+    if (P.p_type != llvm::ELF::PT_NOTE)
+      continue;
+    llvm::Error Err = llvm::Error::success();
+    for (auto N : Obj.notes(P, Err))
+      if (N.getType() == llvm::ELF::NT_GNU_BUILD_ID &&
+          N.getName() == llvm::ELF::ELF_NOTE_GNU)
+        return N.getDesc();
+  }
+  return {};
+}
+
 static std::pair<const typename ELFT::Phdr *, const typename ELFT::Shdr *>
 findDynamic(const ELFO *, const ELFF *);
 

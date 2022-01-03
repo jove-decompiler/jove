@@ -109,25 +109,6 @@ int await_process_completion(pid_t pid) {
 
 #include "elf.hpp"
 
-// taken from llvm/lib/DebugInfo/Symbolize/Symbolize.cpp
-static llvm::Optional<llvm::ArrayRef<uint8_t>> getBuildID(const ELFF &Obj) {
-  auto PhdrsOrErr = Obj.program_headers();
-  if (!PhdrsOrErr) {
-    consumeError(PhdrsOrErr.takeError());
-    return {};
-  }
-  for (const auto &P : *PhdrsOrErr) {
-    if (P.p_type != llvm::ELF::PT_NOTE)
-      continue;
-    llvm::Error Err = llvm::Error::success();
-    for (auto N : Obj.notes(P, Err))
-      if (N.getType() == llvm::ELF::NT_GNU_BUILD_ID &&
-          N.getName() == llvm::ELF::ELF_NOTE_GNU)
-        return N.getDesc();
-  }
-  return {};
-}
-
 int tcgdump(void) {
   struct {
     target_ulong Addr;
