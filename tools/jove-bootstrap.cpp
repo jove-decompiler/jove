@@ -122,20 +122,6 @@ extern "C" unsigned long getauxval(unsigned long type);
 #include <asm/ptrace.h> /* for pt_regs */
 #endif
 
-#define __LOG_COLOR_PREFIX "\033["
-#define __LOG_COLOR_SUFFIX "m"
-
-#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
-#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX
-#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
-#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
-#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
-#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
-
 //#include <linux/ptrace.h>
 
 namespace fs = boost::filesystem;
@@ -1072,7 +1058,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           ToggleTurbo.store(false);
 
           if (!TurboToggle) {
-            llvm::errs() << __LOG_BOLD_GREEN "TURBO ON" __LOG_NORMAL_COLOR "\n";
+            llvm::errs() << __ANSI_BOLD_GREEN "TURBO ON" __ANSI_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
@@ -1110,7 +1096,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               }
             }
           } else {
-            llvm::errs() << __LOG_BOLD_RED "TURBO OFF" __LOG_NORMAL_COLOR "\n";
+            llvm::errs() << __ANSI_BOLD_RED "TURBO OFF" __ANSI_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
@@ -3630,7 +3616,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   decompilation.Binaries[binary_idx].Path);
 
   if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
-    llvm::errs() << llvm::formatv(__LOG_CYAN "({0}) {1} -> {2}" __LOG_NORMAL_COLOR "\n",
+    llvm::errs() << llvm::formatv(__ANSI_CYAN "({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
                                   control_flow_description,
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(target));

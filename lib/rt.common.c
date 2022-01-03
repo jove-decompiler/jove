@@ -430,7 +430,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         char s[4096 * 16];
         s[0] = '\0';
 
-        _strcat(s, __LOG_BOLD_BLUE "[signal ");
+        _strcat(s, __ANSI_BOLD_BLUE "[signal ");
 
         int signo =
 #if defined(__mips64) || defined(__mips__)
@@ -470,7 +470,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
           }
         }
 
-        _strcat(s, "\n" __LOG_NORMAL_COLOR);
+        _strcat(s, "\n" __ANSI_NORMAL_COLOR);
 
         _jove_sys_write(2 /* stderr */, s, _strlen(s));
       }
@@ -739,7 +739,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
       char buff[256];
       buff[0] = '\0';
 
-      _strcat(buff, __LOG_BOLD_BLUE "calling __jove_dfsan_flush\n" __LOG_NORMAL_COLOR);
+      _strcat(buff, __ANSI_BOLD_BLUE "calling __jove_dfsan_flush\n" __ANSI_NORMAL_COLOR);
 
       _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
     }
@@ -757,7 +757,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
         char buff[256];
         buff[0] = '\0';
 
-        _strcat(buff, __LOG_BOLD_BLUE "sleeping...\n" __LOG_NORMAL_COLOR);
+        _strcat(buff, __ANSI_BOLD_BLUE "sleeping...\n" __ANSI_NORMAL_COLOR);
 
         _jove_sys_write(2 /* stderr */, buff, _strlen(buff));
       }
