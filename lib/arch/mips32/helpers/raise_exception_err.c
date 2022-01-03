@@ -1747,6 +1747,9 @@ struct CPUMIPSState {
     target_ulong exception_base; /* ExceptionBase input to the core */
 };
 
+#include <sys/mman.h>
+#include <errno.h>
+
 static const char *syscall_names[] = {
 #define ___SYSCALL(nr, nm) [nr] = #nm,
 #include "syscalls.inc.h"
@@ -1760,6 +1763,10 @@ static const char *syscall_names[] = {
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
+
+#include "jove.macros.h"
+#include "jove.constants.h"
+#include "jove.util.c"
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                           int error_code, uintptr_t pc) {
@@ -1845,70 +1852,6 @@ void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
 
 #endif /* JOVE_DFSAN */
 
-static size_t _strlen(const char *str) {
-  const char *s;
-
-  for (s = str; *s; ++s)
-    ;
-  return (s - str);
-}
-
-static char *_strcat(char *s, const char *append) {
-  char *save = s;
-
-  for (; *s; ++s)
-    ;
-  while ((*s++ = *append++) != '\0')
-    ;
-  return (save);
-}
-
-static void uint_to_string(uint32_t x, char *Str) {
-  const unsigned Radix = 10;
-
-  // First, check for a zero value and just short circuit the logic below.
-  if (x == 0) {
-    *Str++ = '0';
-
-    // null-terminate
-    *Str = '\0';
-    return;
-  }
-
-  static const char Digits[] = "0123456789abcdefghijklmnopqrstuvwxyz";
-
-  char Buffer[65];
-  char *BufPtr = &Buffer[sizeof(Buffer)];
-
-  uint64_t N = x;
-
-  while (N) {
-    *--BufPtr = Digits[N % Radix];
-    N /= Radix;
-  }
-
-  for (char *p = BufPtr; p != &Buffer[sizeof(Buffer)]; ++p)
-    *Str++ = *p;
-
-  // null-terminate
-  *Str = '\0';
-  return;
-}
-
-#define __LOG_COLOR_PREFIX "\033["
-#define __LOG_COLOR_SUFFIX "m"
-
-#define __LOG_GREEN          __LOG_COLOR_PREFIX "32" __LOG_COLOR_SUFFIX
-#define __LOG_RED            __LOG_COLOR_PREFIX "31" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_GREEN     __LOG_COLOR_PREFIX "1;32" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_BLUE      __LOG_COLOR_PREFIX "1;34" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_RED       __LOG_COLOR_PREFIX "1;31" __LOG_COLOR_SUFFIX "CS-ERROR: "
-#define __LOG_MAGENTA        __LOG_COLOR_PREFIX "35" __LOG_COLOR_SUFFIX
-#define __LOG_CYAN           __LOG_COLOR_PREFIX "36" __LOG_COLOR_SUFFIX
-#define __LOG_YELLOW         __LOG_COLOR_PREFIX "33" __LOG_COLOR_SUFFIX
-#define __LOG_BOLD_YELLOW    __LOG_COLOR_PREFIX "1;33" __LOG_COLOR_SUFFIX
-#define __LOG_NORMAL_COLOR   __LOG_COLOR_PREFIX "0" __LOG_COLOR_SUFFIX
-
 __attribute__((always_inline))
 void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
                                 int error_code)
@@ -1959,9 +1902,9 @@ void helper_raise_exception_err(CPUMIPSState *env, uint32_t exception,
       //
       // print syscall name
       //
-      _strcat(buff, __LOG_GREEN);
+      _strcat(buff, __ANSI_GREEN);
       _strcat(buff, nm);
-      _strcat(buff, __LOG_NORMAL_COLOR);
+      _strcat(buff, __ANSI_NORMAL_COLOR);
 
       //
       // print syscall arguments
