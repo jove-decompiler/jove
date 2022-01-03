@@ -150,44 +150,12 @@ int tcgdump(void) {
   const ELFO &O = *llvm::cast<ELFO>(B);
   const ELFF &E = *O.getELFFile();
 
-  const ELFO *split_O = nullptr;
-  const ELFF *split_E = nullptr;
+  DynRegionInfo DynamicTable(O.getFileName());
+  loadDynamicTable(&E, &O, DynamicTable);
 
-  std::unique_ptr<llvm::MemoryBuffer> SplitBuf;
-  std::unique_ptr<obj::Binary> SplitBinary;
-
-  llvm::Optional<llvm::ArrayRef<uint8_t>> optionalBuildID = getBuildID(E);
-  if (optionalBuildID) {
-    llvm::ArrayRef<uint8_t> BuildID = *optionalBuildID;
-
-    fs::path splitDbgInfo =
-        fs::path("/usr/lib/debug") / ".build-id" /
-        llvm::toHex(BuildID[0], /*LowerCase=*/true) /
-        (llvm::toHex(BuildID.slice(1), /*LowerCase=*/true) + ".debug");
-    if (fs::exists(splitDbgInfo)) {
-      llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> SplitBufOrErr =
-          llvm::MemoryBuffer::getFileOrSTDIN(splitDbgInfo.c_str());
-      if (std::error_code EC = SplitBufOrErr.getError()) {
-        fprintf(stderr, "invalid split binary\n");
-        return 1;
-      }
-
-      SplitBuf = std::move(SplitBufOrErr.get());
-
-      llvm::Expected<std::unique_ptr<obj::Binary>> SplitBinaryOrErr =
-          obj::createBinary(SplitBuf->getMemBufferRef());
-
-      obj::Binary *split_B = SplitBinaryOrErr.get().get();
-      if (!llvm::isa<ELFO>(split_B)) {
-        fprintf(stderr, "invalid binary\n");
-        return 1;
-      }
-
-      SplitBinary = std::move(SplitBinaryOrErr.get());
-
-      split_O = llvm::cast<ELFO>(split_B);
-      split_E = split_O->getELFFile();
-    }
+  if (!DynamicTable.Addr) {
+    fprintf(stderr, "no dynamic table for given binary\n");
+    return 1;
   }
 
   std::string ArchName;
@@ -258,123 +226,15 @@ int tcgdump(void) {
     return 1;
   }
 
-  const ELFO &_O = split_O ? *split_O : O;
-  const ELFF &_E = split_E ? *split_E : E;
-
-  //
-  // examine defined symbols which are functions and have a nonzero size
-  //
-  DynRegionInfo DynamicTable(O.getFileName());
-  loadDynamicTable(&E, &O, DynamicTable);
-
-  assert(DynamicTable.Addr);
-
-  DynRegionInfo DynSymRegion(O.getFileName());
   llvm::StringRef DynamicStringTable;
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    if (Sec.sh_type == llvm::ELF::SHT_DYNSYM) {
-      DynSymRegion = createDRIFrom(&Sec, &O);
-
-      if (llvm::Expected<llvm::StringRef> ExpectedStringTable = E.getStringTableForSymtab(Sec)) {
-        DynamicStringTable = *ExpectedStringTable;
-      } else {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedStringTable.takeError(), OS, "");
-        }
-
-        WithColor::warning() << llvm::formatv(
-            "couldn't get string table from SHT_DYNSYM: {0}\n", Buf);
-      }
-
-      break;
-    }
-  }
-
-  //
-  // parse dynamic table
-  //
-  const Elf_Hash *HashTable = nullptr;
-  {
-    auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-      return DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
-
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
-
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
-
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-      case llvm::ELF::DT_HASH:
-        if (llvm::Expected<const uint8_t *> ExpectedHashTable = E.toMappedAddr(Dyn.getPtr())) {
-          HashTable = reinterpret_cast<const Elf_Hash *>(*ExpectedHashTable);
-        }
-        break;
-
-      default:
-        break;
-      }
-    };
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
-
-  auto getHashTableEntSize = [&](void) -> unsigned {
-    // EM_S390 and ELF::EM_ALPHA platforms use 8-bytes entries in SHT_HASH
-    // sections. This violates the ELF specification.
-    if (E.getHeader()->e_machine == llvm::ELF::EM_S390 ||
-        E.getHeader()->e_machine == llvm::ELF::EM_ALPHA)
-      return 8;
-    return 4;
-  };
-
-  // Derive the dynamic symbol table size from the DT_HASH hash table, if
-  // present.
-  const bool IsHashTableSupported = getHashTableEntSize() == 4;
-  if (HashTable && IsHashTableSupported && DynSymRegion.Addr) {
-    const uint64_t FileSize = E.getBufSize();
-    const uint64_t DerivedSize =
-        (uint64_t)HashTable->nchain * DynSymRegion.EntSize;
-    const uint64_t Offset = (const uint8_t *)DynSymRegion.Addr - E.base();
-    if (DerivedSize > FileSize - Offset)
-      WithColor::warning() << llvm::formatv(
-          "the size ({0:x}) of the dynamic symbol table at {1:x}, derived from "
-          "the hash table, goes past the end of the file ({2:x}) and will be "
-          "ignored\n",
-          DerivedSize, Offset, FileSize);
-    else
-      DynSymRegion.Size = HashTable->nchain * DynSymRegion.EntSize;
-  }
-
-  auto dynamic_symbols = [&DynSymRegion](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
+  const Elf_Shdr *SymbolVersionSection;
+  std::vector<VersionMapEntry> VersionMap;
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+      loadDynamicSymbols(&E, &O,
+                         DynamicTable,
+                         DynamicStringTable,
+                         SymbolVersionSection,
+                         VersionMap);
 
   auto linear_scan_disassemble = [&](target_ulong Addr, target_ulong End = 0) -> bool {
     if (!End)
@@ -482,23 +342,31 @@ int tcgdump(void) {
 
   if (!opts::StartingFrom.empty()) {
     linear_scan_disassemble(StartingFrom.Addr);
+  } else if (OptionalDynSymRegion) {
+    auto DynSyms = OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
+
+    for_each_if(DynSyms.begin(),
+                DynSyms.end(),
+                [](const Elf_Sym &Sym) -> bool {
+                  return !Sym.isUndefined() &&
+                          Sym.getType() == llvm::ELF::STT_FUNC &&
+                          Sym.st_size > 0;
+                },
+                [&](const Elf_Sym &Sym) {
+                  auto ExpectedSymName = Sym.getName(DynamicStringTable);
+                  if (!ExpectedSymName)
+                    return;
+
+                  uintptr_t Addr = Sym.st_value;
+
+                  printf("//\n"
+                         "// %s\n"
+                         "//\n", (*ExpectedSymName).c_str());
+                  linear_scan_disassemble(Addr, Addr + Sym.st_size);
+                });
   } else {
-    for (const Elf_Sym &Sym : dynamic_symbols()) {
-      if (Sym.getType() != llvm::ELF::STT_FUNC)
-        continue;
-      if (Sym.isUndefined())
-        continue;
-      if (!Sym.st_size)
-        continue;
-
-      llvm::StringRef SymName = unwrapOrError(Sym.getName(DynamicStringTable));
-      uintptr_t Addr = Sym.st_value;
-
-      printf("//\n"
-             "// %s\n"
-             "//\n", SymName.data());
-      linear_scan_disassemble(Addr, Addr + Sym.st_size);
-    }
+    fprintf(stderr, "no dynamic symbols for given binary\n");
+    return 1;
   }
 
   return 0;
