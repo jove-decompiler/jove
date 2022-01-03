@@ -1749,23 +1749,19 @@ struct CPUMIPSState {
 
 #include <sys/mman.h>
 #include <errno.h>
+#include <fcntl.h>
 
 static const char *syscall_names[] = {
 #define ___SYSCALL(nr, nm) [nr] = #nm,
 #include "syscalls.inc.h"
 };
 
-#define _HIDDEN __attribute__((visibility("hidden")))
-#define _NOINL  __attribute__((noinline))
-#define _INL    __attribute__((always_inline))
-#define _UNUSED __attribute__((unused))
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+#include "jove.macros.h"
+#include "jove.constants.h"
 
 #define JOVE_SYS_ATTR _INL _UNUSED
 #include "jove_sys.h" /* for __SYSCALL_CLOBBERS */
 
-#include "jove.macros.h"
-#include "jove.constants.h"
 #include "jove.util.c"
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
