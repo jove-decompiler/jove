@@ -361,7 +361,7 @@ int tcgdump(void) {
 
                   printf("//\n"
                          "// %s\n"
-                         "//\n", (*ExpectedSymName).c_str());
+                         "//\n", (*ExpectedSymName).data());
                   linear_scan_disassemble(Addr, Addr + Sym.st_size);
                 });
   } else {
