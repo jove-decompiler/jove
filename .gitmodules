@@ -7,7 +7,7 @@
 	url = https://github.com/aleden/prebuilts.git
 [submodule "third_party/clang-extricate"]
 	path = third_party/clang-extricate
-	url = git@github.com:aleden/clang-extricate.git
+	url = https://github.com/aleden/carbon-copy.git
 [submodule "third_party/libnvram"]
 	path = third_party/libnvram
-	url = git@github.com:aleden/libnvram.git
+	url = https://github.com/aleden/libnvram.git
