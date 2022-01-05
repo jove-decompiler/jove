@@ -34,7 +34,6 @@ node {
         gitlabBuilds(builds: ["Checkout", "Build", "TestSetup", "Test"]) {
             stage('Checkout') {
                 gitlabCommitStatus("Checkout") {
-                    dir(codeDir) {
                       checkout scm
                 }
             }
