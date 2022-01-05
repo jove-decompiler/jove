@@ -1,7 +1,7 @@
 node {
     stage('Build') {
         docker.image('debian:testing').inside {
-            sh 'make -C third_party/ && make'
+            sh 'apt update && apt install build-essential && make -C third_party/ && make'
         }
     }
 }
