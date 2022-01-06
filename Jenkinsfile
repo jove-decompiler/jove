@@ -1,7 +1,23 @@
 node {
-    stage('Build') {
-        docker.image('debian:testing').inside {
-            sh 'sudo apt-get update && sudo apt-get install build-essential && make -C third_party/ && make'
+    def imageName = "jove_ci:latest"
+
+    timestamps {
+        gitlabBuilds(builds: ["Checkout", "Build", "TestSetup", "Test"]) {
+            stage('Checkout') {
+                gitlabCommitStatus("Checkout") {
+                        checkout scm
+                    }
+                }
+
+            docker.withRegistry("https://apps.aarno-labs.com", "aarno_apps") {
+                docker.image(imageName).inside {
+                    stage('Build') {
+                        gitlabCommitStatus("Build") {
+                            sh "make -C third_party build-llvm && make"
+                        }
+                    }
+                }
+            }
         }
     }
 }
