@@ -1,5 +1,5 @@
 node {
-    def imageName = "jove_ci:latest"
+    def imageName = "jove_ci:2"
 
     timestamps {
         gitlabBuilds(builds: ["Checkout", "Build", "TestSetup", "Test"]) {
