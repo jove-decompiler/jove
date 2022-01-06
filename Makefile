@@ -150,14 +150,14 @@ helpers: $(HELPERS_BITCODE)
 define build_tool_template
 $(BINDIR)/$(2)/$(1): $(TOOLSRCDIR)/$(1).cpp
 	@echo CXX $(1) "[$(2)]"
-	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
+	$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach tool,$(TOOLS),$(eval $(call build_tool_template,$(tool),$(target)))))
 
 define build_util_template
 $(BINDIR)/$(2)/$(1): $(UTILSRCDIR)/$(1).cpp
 	@echo CXX $(1) "[$(2)]"
-	@$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
+	$(_LLVM_CXX) -o $$@ -pipe -MMD $(CXXFLAGS) $$< $(LDFLAGS) -I lib/arch/$(2) -D TARGET_$(call uc,$(2)) -D TARGET_ARCH_NAME=\"$($(2)_ARCH_NAME)\" -fPIC -static
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach util,$(UTILS),$(eval $(call build_util_template,$(util),$(target)))))
 
@@ -165,7 +165,7 @@ define gen_tcgconstants_template
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 	@echo GEN $@
-	@$(BINDIR)/$(1)/gen-tcgconstants > include/jove/arch/$(1)/tcgconstants.h
+	$(BINDIR)/$(1)/gen-tcgconstants > include/jove/arch/$(1)/tcgconstants.h
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call gen_tcgconstants_template,$(target))))
 
@@ -187,7 +187,7 @@ $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
-	@$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -fPIC -g -Wall -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
@@ -1469,22 +1469,22 @@ $(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(help
 define build_helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
 	@echo DIS $$<
-	@$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC $$<
-	@$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_template,$(helper),$(target)))))
 
 define build_helper_dfsan_template
 $(BINDIR)/$(2)/helpers/$(1).dfsan.ll: $(BINDIR)/$(2)/helpers/$(1).dfsan.bc
 	@echo DIS $$<
-	@$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
+	$(_LLVM_OPT) -o $$@ -S --strip-debug $$<
 
 $(BINDIR)/$(2)/helpers/$(1).dfsan.bc: lib/arch/$(2)/helpers/$(1).c
 	@echo BC "(DFSAN)" $$<
-	@$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) -DJOVE_DFSAN --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -I lib -I lib/arch/$(2) -emit-llvm -fPIC -g -O3 -ffreestanding -fno-stack-protector -Wall -Wno-macro-redefined -Wno-initializer-overrides -fno-strict-aliasing -fno-common -fwrapv -DNEED_CPU_H -DNDEBUG --sysroot $($(2)_sysroot) -DJOVE_DFSAN --target=$($(2)_TRIPLE) $($(2)_HELPER_CFLAGS) $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(foreach helper,$($(target)_HELPERS),$(eval $(call build_helper_dfsan_template,$(helper),$(target)))))
 
