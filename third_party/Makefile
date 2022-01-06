@@ -72,4 +72,5 @@ build-llvm:
 	      -D LLVM_USE_LINKER=bfd \
 	      -D "CMAKE_C_FLAGS=-I /usr/include/tirpc" \
 	      -D "CMAKE_CXX_FLAGS=-I /usr/include/tirpc" \
-	      ../llvm
+	      ../llvm \
+	&& ninja install
