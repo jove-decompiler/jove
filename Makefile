@@ -82,11 +82,11 @@ mips32_ARCH_NAME  := mipsel
 mips64_ARCH_NAME  := mips64el
 aarch64_ARCH_NAME := aarch64
 
-aarch64_builtins_lib := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-aarch64.a
-i386_builtins_lib    := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-i386.a
-x86_64_builtins_lib  := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-x86_64.a
-mips32_builtins_lib  := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-mipsel.a
-mips64_builtins_lib  := $(_LLVM_INSTALL_DIR)/lib/clang/10.0.1/lib/linux/libclang_rt.builtins-mips64el.a
+aarch64_builtins_lib := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-aarch64.a
+i386_builtins_lib    := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-i386.a
+x86_64_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-x86_64.a
+mips32_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-mipsel.a
+mips64_builtins_lib  := $(JOVE_ROOT_DIR)/third_party/obj/libclang_rt.builtins-mips64el.a
 
 #
 # create build objects subdirectories
