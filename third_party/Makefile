@@ -67,8 +67,9 @@ build-llvm:
 	      -D LLVM_ENABLE_Z3_SOLVER=ON \
 	      -D LLVM_HOST_TRIPLE=$(GCC_TARGET) \
 	      -D LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET) \
-	      -D LLVM_TARGETS_TO_BUILD=Mips \
+	      -D "LLVM_TARGETS_TO_BUILD=X86;AArch64;Mips" \
 	      -D LLVM_ENABLE_LTO=OFF \
 	      -D LLVM_USE_LINKER=bfd \
-	      ../llvm \
-	&& ninja install
+	      -D "CMAKE_C_FLAGS=-I /usr/include/tirpc" \
+	      -D "CMAKE_CXX_FLAGS=-I /usr/include/tirpc" \
+	      ../llvm
