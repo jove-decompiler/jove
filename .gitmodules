@@ -11,3 +11,6 @@
 [submodule "third_party/libnvram"]
 	path = third_party/libnvram
 	url = https://github.com/aleden/libnvram.git
+[submodule "third_party/obj"]
+	path = third_party/obj
+	url = https://github.com/aleden/obj.git
