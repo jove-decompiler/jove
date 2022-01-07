@@ -20,7 +20,7 @@ node {
             }
             stage('Deploy') {
                 gitlabCommitStatus("Deploy") {
-                    def output = "$jove.x86_64.multiarch.tar.xz"
+                    def output = "jove.x86_64.multiarch.tar.xz"
                     echo "Compressing installation folder to ${output}"
                     sh "/bin/bash -c 'tar cf - bin | xz -T 0 > ${output}'"
                     archiveArtifacts "${output}"
