@@ -13,7 +13,7 @@ node {
                 docker.image(imageName).inside {
                     stage('Build') {
                         gitlabCommitStatus("Build") {
-                            sh "make -C third_party build-llvm && make"
+                            sh "make -C third_party build-llvm && make -j$(nproc)"
                         }
                     }
                 }
