@@ -22,7 +22,7 @@ node {
                 gitlabCommitStatus("Deploy") {
                     def output = "$jove.x86_64.multiarch.tar.xz"
                     echo "Compressing installation folder to ${output}"
-                    sh "/bin/bash -c 'tar cf - ${installedFolder} | xz -T 0 > ../${output}'"
+                    sh "/bin/bash -c 'tar cf - bin | xz -T 0 > ${output}'"
                     archiveArtifacts "${output}"
                     sh "rm ${output}"
                 }
