@@ -214,9 +214,9 @@ package:
 	        $(HELPERS_DFSAN_ASSEMBLY) \
 	        bin/dfsan_abilist.txt \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
-	        $(_LLVM_INSTALL_DIR)/bin/llc \
-	        $(_LLVM_INSTALL_DIR)/bin/ld.lld \
-	        $(_LLVM_INSTALL_DIR)/bin/lld
+	        third_party/llvm-project/install/bin/llc \
+	        third_party/llvm-project/install/bin/ld.lld \
+	        third_party/llvm-project/install/bin/lld
 
 ifndef PACKAGE_TARBALL
 	xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
