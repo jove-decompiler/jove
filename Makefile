@@ -4,6 +4,8 @@ JOVE_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LI
 include $(JOVE_ROOT_DIR)/version.mk
 include $(JOVE_ROOT_DIR)/config.mk
 
+HOST_ARCH := $(shell gcc -dumpmachine | tr '-' ' ' | cut -d " " -f1)
+
 include gmsl
 
 _LLVM_DIR         := $(JOVE_ROOT_DIR)/third_party/llvm-project
@@ -200,7 +202,7 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
 .PHONY: package
 package:
-	tar cvf jove-$(JOVE_VER).$(ARCH).tar \
+	tar cvf jove-$(JOVE_VER).$(HOST_ARCH).tar \
 	        $(TOOLBINS) \
 	        $(UTILBINS) \
 	        $(JOVE_C_BITCODE) \
@@ -213,7 +215,7 @@ package:
 	        bin/dfsan_abilist.txt \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso)
 ifndef PACKAGE_TARBALL
-	xz --threads=0 jove-$(JOVE_VER).$(ARCH).tar
+	xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
 endif
 
 .PHONY: clean
