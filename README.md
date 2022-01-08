@@ -198,4 +198,4 @@ sudo $(which jove-loop) -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --s
 Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This makes it possible to run the recompiled program without the use of a chroot.
 
 # Building
-See ![docker/Dockerfile](/docker/Dockerfile)
+See [docker/Dockerfile](/docker/Dockerfile)
