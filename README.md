@@ -5,7 +5,7 @@ https://images.aarno-labs.com/jove/
 ```bash
 # (Assuming this is an x86_64 host)
 mkdir /opt/jove
-tar -xvf jove.v0.78-x86_64-multiarch.tar.xz -C /opt/jove
+tar -xvf jove.v0.78-x86_64.tar.xz -C /opt/jove
 
 # Choose one of the target architectures:
 export PATH=$PATH:/opt/jove/i386
@@ -15,7 +15,7 @@ export PATH=$PATH:/opt/jove/mips64
 export PATH=$PATH:/opt/jove/aarch64
 ```
 
-`jove-bootstrap` requires the target architecture to match the host's.
+`jove-bootstrap` requires that the target architecture matches the host's.
 
 # FAQ
 ### What is jove?
@@ -198,37 +198,4 @@ sudo $(which jove-loop) -d /mnt/wndr4500/httpd.jv --connect 192.168.1.2:9999 --s
 Note: passing `-x` instructs `jove-loop` to only recompile the executable itself (not including any shared libraries it is linked to). This makes it possible to run the recompiled program without the use of a chroot.
 
 # Building
-You must build llvm [1]. It is probably necessary to do this in order to recompile code on an x86_64 host (assuming you're using the binaries from https://images.aarno-labs.com/jove/).
-
-```bash
-# on debian testing:
-apt install g++-multilib-i686-linux-gnu g++-multilib-mipsel-linux-gnu g++-multilib-mips64el-linux-gnuabi64 g++-aarch64-linux-gnu libboost-all-dev cmake ninja-build graphviz libxml2 libgraph-easy-perl gmsl libz3-dev libtinfo-dev pkg-config libglib2.0-dev
-apt-get build-dep llvm
-
-# on archlinux: yay -Syu ninja cmake graphviz libxml2 gmsl perl-graph-easy
-
-cd jove/
-git submodule update --init --recursive
-
-cd third_party/
-ulimit -s unlimited
-make build-llvm
-```
-At this point, one can fully utilize the jove binaries in Downloads. To build jove itself,
-
-```
-cd ..
-make -j$(nproc)
-```
-
-[1] This will continue to be the case until distribution-provided llvm packages
-contain the following files (which are a natural result of the llvm build process):
-
-```
-llvm-project/build/lib/Target/AArch64/AArch64GenInstrInfo.inc
-llvm-project/build/lib/Target/AArch64/AArch64GenRegisterInfo.inc
-llvm-project/build/lib/Target/X86/X86GenInstrInfo.inc
-llvm-project/build/lib/Target/X86/X86GenRegisterInfo.inc
-llvm-project/build/lib/Target/Mips/MipsGenInstrInfo.inc
-llvm-project/build/lib/Target/Mips/MipsGenRegisterInfo.inc
-```
+See ![docker/Dockerfile](/docker/Dockerfile)
