@@ -214,9 +214,16 @@ package:
 	        $(HELPERS_DFSAN_ASSEMBLY) \
 	        bin/dfsan_abilist.txt \
 	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
-	        third_party/llvm-project/install/bin/llc \
-	        third_party/llvm-project/install/bin/ld.lld \
-	        third_party/llvm-project/install/bin/lld
+	        third_party/llvm-project/static_install/bin/llc \
+	        third_party/llvm-project/static_install/bin/opt \
+	        third_party/llvm-project/static_install/bin/llvm-dis \
+	        third_party/llvm-project/static_install/bin/ld.lld \
+	        third_party/llvm-project/static_install/bin/lld \
+		third_party/obj/libclang_rt.builtins-aarch64.a \
+		third_party/obj/libclang_rt.builtins-i386.a \
+		third_party/obj/libclang_rt.builtins-mips64el.a \
+		third_party/obj/libclang_rt.builtins-mipsel.a \
+		third_party/obj/libclang_rt.builtins-x86_64.a
 
 ifndef PACKAGE_TARBALL
 	xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar

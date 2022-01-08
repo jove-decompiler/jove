@@ -215,8 +215,7 @@ static std::pair<tcg_uintptr_t, tcg_uintptr_t> base_of_executable(binary_t &);
 int recompile(void) {
   compiler_runtime_afp =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
-       "lib" / "linux" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
+       "third_party" / "obj" / ("libclang_rt.builtins-" TARGET_ARCH_NAME ".a"))
           .string();
 
   if (!fs::exists(compiler_runtime_afp) ||
@@ -288,7 +287,7 @@ int recompile(void) {
   }
 
   llc_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "third_party" / "llvm-project" / "install" / "bin" / "llc")
+              "third_party" / "llvm-project" / "static_install" / "bin" / "llc")
                  .string();
   if (!fs::exists(llc_path)) {
     WithColor::error() << "could not find /usr/bin/llc\n";
@@ -297,7 +296,7 @@ int recompile(void) {
 
   llvm_dis_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "bin" / "llvm-dis")
+       "third_party" / "llvm-project" / "static_install" / "bin" / "llvm-dis")
           .string();
   if (!fs::exists(llvm_dis_path)) {
     WithColor::error() << "could not find llvm-dis\n";
@@ -305,23 +304,9 @@ int recompile(void) {
   }
 
   // lld 9.0.1
-  std::string lld_path;
-
-  auto find_lld_at = [&](const fs::path &path) -> void {
-    if (!lld_path.empty())
-      return;
-
-    if (fs::exists(path))
-      lld_path = path.string();
-  };
-
-  find_lld_at("/usr/bin/ld.lld-9");     /* look for debian/ubuntu lld-9 installation */
-  find_lld_at("/usr/local/bin/ld.lld"); /* look for custom ld.lld in /usr/local */
-
-  /* otherwise fallback to lld in third_party */
-  find_lld_at((boost::dll::program_location().parent_path().parent_path().parent_path() /
-               "third_party" / "llvm-project" / "install" / "bin" / "ld.lld"));
-
+  std::string lld_path =
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "third_party" / "llvm-project" / "static_install" / "bin" / "ld.lld").string();
 
   std::string ld_gold_path = "/usr/bin/ld.gold";
   std::string ld_bfd_path = "/usr/bin/ld.bfd";
@@ -348,7 +333,7 @@ int recompile(void) {
   }
 
   opt_path = (boost::dll::program_location().parent_path().parent_path().parent_path() /
-              "third_party" / "llvm-project" / "install" / "bin" / "opt")
+              "third_party" / "llvm-project" / "static_install" / "bin" / "opt")
                  .string();
   if (!fs::exists(opt_path)) {
     WithColor::error() << llvm::formatv("could not find {0}\n", opt_path);

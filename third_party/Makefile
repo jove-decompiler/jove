@@ -1,8 +1,9 @@
 # this just obtains the directory this Makefile resides in
 THIRD_PARTY_ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
-_LLVM_DIR         := $(THIRD_PARTY_ROOT_DIR)/llvm-project
-_LLVM_INSTALL_DIR := $(_LLVM_DIR)/install
+_LLVM_DIR                := $(THIRD_PARTY_ROOT_DIR)/llvm-project
+_LLVM_INSTALL_DIR        := $(_LLVM_DIR)/install
+_LLVM_STATIC_INSTALL_DIR := $(_LLVM_DIR)/static_install
 
 GCC_TARGET := $(shell gcc -dumpmachine | tr -cd '0-9_a-z-')
 
@@ -30,9 +31,6 @@ else
 $(error "Unknown GCC target $(GCC_TARGET)")
 endif
 
-$(info GCC TARGET  $(GCC_TARGET))
-$(info LLVM_TARGET $(_LLVM_TARGETS_TO_BUILD))
-
 #BUILD_TYPE := Debug
 BUILD_TYPE := Release
 
@@ -49,7 +47,18 @@ nothing:
 .PHONY: build-llvm
 build-llvm:
 	cd $(_LLVM_DIR) && \
-	rm -rf build && \
+	rm -rf static_build static_install && \
+	mkdir static_build && \
+	cd static_build && \
+	cmake -G Ninja \
+	      -D CMAKE_BUILD_TYPE=Release \
+	      -D "CMAKE_INSTALL_PREFIX=$(_LLVM_STATIC_INSTALL_DIR)" \
+	      -D "LLVM_ENABLE_PROJECTS=llvm;lld" \
+	      -D "CMAKE_EXE_LINKER_FLAGS=-static" \
+	      ../llvm \
+	&& ninja install && \
+	cd .. && \
+	rm -rf build install && \
 	mkdir build && \
 	cd build && \
 	cmake -G Ninja \
@@ -64,7 +73,7 @@ build-llvm:
 	      -D LLVM_BINUTILS_INCDIR=/usr/include \
 	      -D LLVM_ENABLE_BINDINGS=OFF \
 	      -D LLVM_ENABLE_PIC=ON \
-	      -D LLVM_ENABLE_Z3_SOLVER=OFF \
+	      -D LLVM_ENABLE_Z3_SOLVER=ON \
 	      -D LLVM_HOST_TRIPLE=$(GCC_TARGET) \
 	      -D LLVM_DEFAULT_TARGET_TRIPLE=$(GCC_TARGET) \
 	      -D "LLVM_TARGETS_TO_BUILD=X86;AArch64;Mips" \
@@ -72,6 +81,5 @@ build-llvm:
 	      -D LLVM_USE_LINKER=bfd \
 	      -D "CMAKE_C_FLAGS=-I /usr/include/tirpc" \
 	      -D "CMAKE_CXX_FLAGS=-I /usr/include/tirpc" \
-	      -D "CMAKE_EXE_LINKER_FLAGS=-static" \
 	      ../llvm \
 	&& ninja install
