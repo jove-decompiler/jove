@@ -531,7 +531,7 @@ int loop(void) {
 
   jove_dfsan_path =
       (boost::dll::program_location().parent_path().parent_path().parent_path() /
-       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
+       "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.1" /
        "lib" / "linux" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
           .string();
   if (!fs::exists(jove_dfsan_path)) {
