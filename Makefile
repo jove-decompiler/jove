@@ -223,7 +223,8 @@ package:
 		third_party/obj/libclang_rt.builtins-i386.a \
 		third_party/obj/libclang_rt.builtins-mips64el.a \
 		third_party/obj/libclang_rt.builtins-mipsel.a \
-		third_party/obj/libclang_rt.builtins-x86_64.a
+		third_party/obj/libclang_rt.builtins-x86_64.a \
+		third_party/llvm-project/install/lib/clang/10.0.1/lib/linux/libclang_rt.dfsan.jove-*.so
 
 ifndef PACKAGE_TARBALL
 	xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
