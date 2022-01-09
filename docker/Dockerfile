@@ -1,4 +1,4 @@
-FROM debian:testing
+FROM debian:bookworm-20211201
 
 LABEL maintainer aeden@aarno-labs.com
 
@@ -12,20 +12,54 @@ ARG jenkins_gid=113
 #------------------------------------------------------------------------------
 USER root
 
-RUN apt-get update
-# These are required for adding the Docker repo
-RUN apt-get -yq install apt-transport-https ca-certificates curl gnupg lsb-release
-RUN apt-get -yq install build-essential make unzip autoconf automake libtool sudo vim-common git
-RUN apt-get -yq install \
-        binutils-dev \
-        g++-multilib-i686-linux-gnu \
-        g++-multilib-mipsel-linux-gnu \
-        g++-multilib-mips64el-linux-gnuabi64 \
-        g++-aarch64-linux-gnu \
-        libboost-all-dev \
-        cmake \
-        ninja-build \
-        graphviz libxml2 libgraph-easy-perl gmsl libz3-dev libtinfo-dev pkg-config libglib2.0-dev
+RUN apt-get update && \
+    apt-get -yq install apt-utils
+
+RUN apt-get update && \
+    apt-get -yq install \
+      apt-transport-https \
+      ca-certificates \
+      curl \
+      gnupg \
+      debian-archive-keyring \
+      debian-keyring \
+      lsb-release
+
+RUN apt-get update && \
+    apt-get -yq install \
+      build-essential \
+      make \
+      unzip \
+      autoconf \
+      automake \
+      libtool \
+      sudo \
+      vim-common \
+      git \
+      binutils-dev \
+      g++-multilib-i686-linux-gnu \
+      g++-multilib-mipsel-linux-gnu \
+      g++-multilib-mips64el-linux-gnuabi64 \
+      g++-aarch64-linux-gnu \
+      libboost-all-dev \
+      cmake \
+      ninja-build \
+      graphviz \
+      libxml2-dev \
+      libgraph-easy-perl \
+      gmsl \
+      libz3-dev \
+      libtinfo-dev \
+      pkg-config \
+      libglib2.0-dev \
+      exuberant-ctags \
+      clang-13 \
+      lld-13 \
+      libc++-13-dev \
+      libc++abi-13-dev \
+      lldb-13
+
+RUN apt-get -f install
 
 RUN useradd aarno -G sudo,adm -U --create-home \
     && echo "aarno ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
