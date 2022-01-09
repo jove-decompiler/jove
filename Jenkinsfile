@@ -16,13 +16,14 @@ node {
                             sh "make -C third_party build-llvm && make -j`nproc`"
                         }
                     }
-                }
-            }
-            stage('Deploy') {
-                gitlabCommitStatus("Deploy") {
-                    sh "make package"
 
-                    archiveArtifacts '*.tar.xz'
+                    stage('Deploy') {
+                        gitlabCommitStatus("Deploy") {
+                            sh "make package"
+
+                            archiveArtifacts '*.tar.xz'
+                        }
+                    }
                 }
             }
         }
