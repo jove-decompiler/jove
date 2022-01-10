@@ -200,34 +200,40 @@ $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 -include $(UTILDEPS)
 -include $(HELPERDEPS)
 
-.PHONY: package
-package:
-	tar cvf jove-$(JOVE_VER).$(HOST_ARCH).tar \
-	        $(TOOLBINS) \
-	        $(UTILBINS) \
-	        $(JOVE_C_BITCODE) \
-	        $(JOVE_C_DFSAN_BITCODE) \
-	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
-	        $(HELPERS_BITCODE) \
-	        $(HELPERS_ASSEMBLY) \
-	        $(HELPERS_DFSAN_BITCODE) \
-	        $(HELPERS_DFSAN_ASSEMBLY) \
-	        bin/dfsan_abilist.txt \
-	        $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
-	        third_party/llvm-project/static_install/bin/llc \
-	        third_party/llvm-project/static_install/bin/opt \
-	        third_party/llvm-project/static_install/bin/llvm-dis \
-	        third_party/llvm-project/static_install/bin/ld.lld \
-	        third_party/llvm-project/static_install/bin/lld \
-		third_party/obj/libclang_rt.builtins-aarch64.a \
-		third_party/obj/libclang_rt.builtins-i386.a \
-		third_party/obj/libclang_rt.builtins-mips64el.a \
-		third_party/obj/libclang_rt.builtins-mipsel.a \
-		third_party/obj/libclang_rt.builtins-x86_64.a \
-		third_party/llvm-project/install/lib/clang/10.0.1/lib/linux/libclang_rt.dfsan.jove-*.so
+PACKAGE_FILE_LIST := $(TOOLBINS) \
+                     $(UTILBINS) \
+                     $(JOVE_C_BITCODE) \
+                     $(JOVE_C_DFSAN_BITCODE) \
+                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/libjove_rt.so.0) \
+                     $(HELPERS_BITCODE) \
+                     $(HELPERS_ASSEMBLY) \
+                     $(HELPERS_DFSAN_BITCODE) \
+                     $(HELPERS_DFSAN_ASSEMBLY) \
+                     bin/dfsan_abilist.txt \
+                     $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
+                     third_party/llvm-project/static_install/bin/llc \
+                     third_party/llvm-project/static_install/bin/opt \
+                     third_party/llvm-project/static_install/bin/llvm-dis \
+                     third_party/llvm-project/static_install/bin/ld.lld \
+                     third_party/llvm-project/static_install/bin/lld \
+                     third_party/obj/libclang_rt.builtins-aarch64.a \
+                     third_party/obj/libclang_rt.builtins-i386.a \
+                     third_party/obj/libclang_rt.builtins-mips64el.a \
+                     third_party/obj/libclang_rt.builtins-mipsel.a \
+                     third_party/obj/libclang_rt.builtins-x86_64.a \
+                     $(wildcard third_party/llvm-project/install/lib/clang/10.0.1/lib/linux/libclang_rt.dfsan.jove-*.so)
 
+.PHONY: package
+package: $(PACKAGE_FILE_LIST)
+	@rm -f tmp.txt package.tmp.txt package.tmp.2.txt
+	$(file >$@.tmp.txt,$^)
+	@file package.tmp.txt
+	@tr ' ' '\n' < package.tmp.txt > package.tmp.2.txt
+	@echo "Creating tarball"
+	@tar cvf jove-$(JOVE_VER).$(HOST_ARCH).tar -T package.tmp.2.txt
 ifndef PACKAGE_TARBALL
-	xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
+	@echo "Compressing tarball"
+	@xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
 endif
 
 .PHONY: clean
