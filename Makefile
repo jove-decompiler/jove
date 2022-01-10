@@ -225,7 +225,6 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
 
 .PHONY: package
 package: $(PACKAGE_FILE_LIST)
-	@rm -f tmp.txt package.tmp.txt package.tmp.2.txt
 	$(file >$@.tmp.txt,$^)
 	@file package.tmp.txt
 	@tr ' ' '\n' < package.tmp.txt > package.tmp.2.txt
@@ -235,6 +234,7 @@ ifndef PACKAGE_TARBALL
 	@echo "Compressing tarball"
 	@xz --threads=0 jove-$(JOVE_VER).$(HOST_ARCH).tar
 endif
+	@rm -f package.tmp.txt package.tmp.2.txt
 
 .PHONY: clean
 clean:
