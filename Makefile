@@ -225,6 +225,7 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
 
 .PHONY: package
 package: $(PACKAGE_FILE_LIST)
+	@rm -f jove-$(JOVE_VER).$(HOST_ARCH).tar jove-$(JOVE_VER).$(HOST_ARCH).tar.xz
 	$(file >$@.tmp.txt,$^)
 	@file package.tmp.txt
 	@tr ' ' '\n' < package.tmp.txt > package.tmp.2.txt
