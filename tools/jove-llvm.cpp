@@ -2183,12 +2183,12 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
       IRB.CreateCall(JoveInstallForeignFunctionTables)
           ->setIsNoInline();
 
-      llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+      llvm::Value *Res = GetDynTargetAddress<false>(IRB, IdxPair);
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           Res, CallsF->getFunctionType()->getReturnType()));
     } else if (is_dynamic_target_valid(IdxPair) && !Decompilation.Binaries.at(IdxPair.first).IsDynamicallyLoaded) {
-      llvm::Value *Res = GetDynTargetAddress<true>(IRB, IdxPair);
+      llvm::Value *Res = GetDynTargetAddress<false>(IRB, IdxPair);
 
       IRB.CreateRet(IRB.CreateIntToPtr(
           Res, CallsF->getFunctionType()->getReturnType()));
