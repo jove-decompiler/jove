@@ -40,6 +40,7 @@ _CTOR _HIDDEN void _jove_initialize(void) {
   }
 
   _jove_do_tpoff_hack();
+  _jove_do_irelative_hack();
   _jove_do_emulate_copy_relocations();
 
 #if defined(JOVE_DFSAN)

@@ -740,8 +740,10 @@ static std::map<std::pair<target_ulong, unsigned>,
                 std::pair<binary_index_t, std::pair<target_ulong, unsigned>>>
     CopyRelocMap;
 
+static std::map<target_ulong, dynamic_target_t> IRELATIVEHack;
+
 #define JOVE_PAGE_SIZE 4096
-#define JOVE_STACK_SIZE (256 * JOVE_PAGE_SIZE)
+#define JOVE_STACK_SIZE (512 * JOVE_PAGE_SIZE)
 
 //
 // Stages
@@ -769,6 +771,7 @@ static int CreateFunctionTable(void);
 static int FixupHelperStubs(void);
 static int CreateNoAliasMetadata(void);
 static int CreateTPOFFCtorHack(void);
+static int CreateIRELATIVECtorHack(void);
 static int CreateCopyRelocationHack(void);
 static int TranslateFunctions(void);
 static int InlineCalls(void);
@@ -811,6 +814,7 @@ int llvm(void) {
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
       || CreateTPOFFCtorHack()
+      || CreateIRELATIVECtorHack()
       || CreateCopyRelocationHack()
       || TranslateFunctions()
       || InternalizeSections()
@@ -4048,9 +4052,19 @@ int CreateSectionGlobalVariables(void) {
 
       auto it = RelocDynTargets.find(R.Addr);
       if (it == RelocDynTargets.end() || (*it).second.empty()) {
-        WithColor::error() << llvm::formatv("{0}:{1} have you run jove-dyn?\n",
-                                            __FILE__, __LINE__);
-        abort();
+        WithColor::error() << llvm::formatv(
+          "constant_of_irelative_relocation: no RelocDynTarget found (R.Addr={0:x},R.Addend={1:x}\n", R.Addr, R.Addend);
+        auto resolver_f_it = FuncMap.find(R.Addend);
+        if (resolver_f_it == FuncMap.end()) {
+          llvm::errs() << "constant_of_irelative_relocation: no function for resolver!\n";
+          abort();
+        } else {
+          IRELATIVEHack.insert({R.Addr, {BinaryIndex, (*resolver_f_it).second}});
+        }
+        return llvm::Constant::getNullValue(WordType());
+      } else {
+        WithColor::error() << llvm::formatv(
+          "constant_of_irelative_relocation: RelocDynTarget found (R.Addr={0:x},R.Addend={1:x}\n", R.Addr, R.Addend);
       }
 
       IdxPair = *(*it).second.begin();
@@ -5364,6 +5378,110 @@ int CreateTPOFFCtorHack(void) {
       llvm::Value *TPOffset = IRB.CreateSub(Val, TP);
 
       IRB.CreateStore(TPOffset, gep, true /* Volatile */);
+    }
+
+    IRB.CreateRetVoid();
+  }
+
+  F->setLinkage(llvm::GlobalValue::InternalLinkage);
+  assert(!F->empty());
+
+  return 0;
+}
+
+int CreateIRELATIVECtorHack(void) {
+  auto &Binary = Decompilation.Binaries[BinaryIndex];
+
+  llvm::Function *F = Module->getFunction("_jove_do_irelative_hack");
+  assert(F && F->empty());
+
+#if 1
+  llvm::DIBuilder &DIB = *DIBuilder;
+  llvm::DISubprogram::DISPFlags SubProgFlags =
+      llvm::DISubprogram::SPFlagDefinition |
+      llvm::DISubprogram::SPFlagOptimized;
+
+  SubProgFlags |= llvm::DISubprogram::SPFlagLocalToUnit;
+
+  llvm::DISubroutineType *SubProgType =
+      DIB.createSubroutineType(DIB.getOrCreateTypeArray(llvm::None));
+
+  struct {
+    llvm::DISubprogram *Subprogram;
+  } DebugInfo;
+
+  DebugInfo.Subprogram = DIB.createFunction(
+      /* Scope       */ DebugInformation.CompileUnit,
+      /* Name        */ F->getName(),
+      /* LinkageName */ F->getName(),
+      /* File        */ DebugInformation.File,
+      /* LineNo      */ 0,
+      /* Ty          */ SubProgType,
+      /* ScopeLine   */ 0,
+      /* Flags       */ llvm::DINode::FlagZero,
+      /* SPFlags     */ SubProgFlags);
+#endif
+
+  F->setSubprogram(DebugInfo.Subprogram);
+
+  llvm::BasicBlock *BB = llvm::BasicBlock::Create(*Context, "", F);
+  {
+    llvm::IRBuilderTy IRB(BB);
+    IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+        *Context, 0 /* Line */, 0 /* Column */, DebugInfo.Subprogram));
+
+    for (const auto &pair : IRELATIVEHack) {
+      assert(pair.second.first == BinaryIndex);
+
+      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+
+      llvm::Value *TemporaryStack = nullptr;
+      {
+        TemporaryStack = IRB.CreateCall(JoveAllocStackFunc);
+        llvm::Value *NewSP = IRB.CreateAdd(
+            TemporaryStack, llvm::ConstantInt::get(
+                                WordType(), JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
+
+        llvm::Value *AlignedNewSP =
+            IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
+                          IRB.getIntN(sizeof(target_ulong) * 8,
+                                      sizeof(target_ulong) == sizeof(uint32_t)
+                                          ? 0xfffffff0
+                                          : 0xfffffffffffffff0));
+
+        IRB.CreateStore(AlignedNewSP, SPPtr);
+      }
+
+      function_t &f = Binary.Analysis.Functions[pair.second.second];
+      llvm::Function *resolverF = f.F;
+
+      std::vector<llvm::Value *> ArgVec(
+          resolverF->getFunctionType()->getNumParams(),
+          llvm::Constant::getNullValue(WordType()));
+
+      llvm::CallInst *Call = IRB.CreateCall(resolverF, ArgVec);
+
+      llvm::Value *Val = nullptr;
+
+      if (f.F->getFunctionType()->getReturnType()->isIntegerTy()) {
+        Val = Call;
+      } else {
+        assert(f.F->getFunctionType()->getReturnType()->isStructTy());
+
+        Val = IRB.CreateExtractValue(Call, llvm::ArrayRef<unsigned>(0), "");
+      }
+
+      uintptr_t off = pair.first - Binary.SectsStartAddr;
+
+      llvm::SmallVector<llvm::Value *, 4> Indices;
+      llvm::Value *gep = llvm::getNaturalGEPWithOffset(
+          IRB, DL, SectsGlobal, llvm::APInt(64, off), nullptr, Indices, "");
+
+      IRB.CreateStore(Val, gep, true /* Volatile */);
+
+      IRB.CreateCall(JoveFreeStackFunc, {TemporaryStack});
+
+      IRB.CreateStore(llvm::Constant::getNullValue(WordType()), SPPtr);
     }
 
     IRB.CreateRetVoid();
