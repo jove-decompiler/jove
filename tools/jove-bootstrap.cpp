@@ -3669,17 +3669,19 @@ static void harvest_irelative_reloc_targets(pid_t child,
     if (it == AddressSpace.end()) {
       if (opts::Verbose)
         WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n",
+            << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
                              "harvest_irelative_reloc_targets",
-                             description_of_program_counter(Resolved.Addr));
+                             description_of_program_counter(Resolved.Addr),
+                             R.Offset);
       return;
     }
 
     Resolved.BIdx = *(*it).second.begin();
 
     if (opts::Verbose)
-      llvm::outs() << llvm::formatv("IFunc dyn target: {0:x}\n",
-                                    rva_of_va(Resolved.Addr, Resolved.BIdx));
+      llvm::outs() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
+                                    rva_of_va(Resolved.Addr, Resolved.BIdx),
+                                    R.Offset);
 
     unsigned brkpt_count = 0;
     Resolved.FIdx = translate_function(
