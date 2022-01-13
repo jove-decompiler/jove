@@ -148,6 +148,9 @@ void _jove_rt_init(void) {
   if (_jove_sys_rt_sigaction(SIGABRT, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
     _UNREACHABLE("failed to install SIGABRT handler");
 
+  if (_jove_sys_rt_sigaction(SIGILL, &sa, NULL, sizeof(kernel_sigset_t)) < 0)
+    _UNREACHABLE("failed to install SIGILL handler");
+
   {
     uintptr_t newstack = _jove_alloc_stack();
 
@@ -264,7 +267,8 @@ _NAKED _HIDDEN void _jove_inverse_thunk(void);
 void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   if (sig != SIGSEGV &&
       sig != SIGBUS &&
-      sig != SIGABRT)
+      sig != SIGABRT &&
+      sig != SIGILL)
     _UNREACHABLE("BUG");
 
   uint64_t **const callstack_ptr = &__jove_callstack;
