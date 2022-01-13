@@ -2210,14 +2210,19 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
             llvm::ConstantInt::get(WordType(),
                                    JOVE_STACK_SIZE - JOVE_PAGE_SIZE));
 
-        llvm::Value *AlignedNewSP = IRB.CreateAnd(
-            IRB.CreatePtrToInt(NewSP, WordType()),
-            IRB.getIntN(sizeof(target_ulong) * 8,
-                        sizeof(target_ulong) == sizeof(uint32_t)
-                            ? 0xfffffff0
-                            : 0xfffffffffffffff0));
+        llvm::Value *AlignedNewSP =
+            IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
+                          IRB.getIntN(sizeof(target_ulong) * 8, ~15UL));
 
-        IRB.CreateStore(AlignedNewSP, SPPtr);
+        llvm::Value *SPVal = AlignedNewSP;
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+        SPVal = IRB.CreateSub(
+            SPVal, IRB.getIntN(sizeof(target_ulong) * 8,
+                               sizeof(target_ulong)));
+#endif
+
+        IRB.CreateStore(SPVal, SPPtr);
       }
 
       llvm::Value *SavedTraceP = nullptr;
@@ -5444,12 +5449,17 @@ int CreateIRELATIVECtorHack(void) {
 
         llvm::Value *AlignedNewSP =
             IRB.CreateAnd(IRB.CreatePtrToInt(NewSP, WordType()),
-                          IRB.getIntN(sizeof(target_ulong) * 8,
-                                      sizeof(target_ulong) == sizeof(uint32_t)
-                                          ? 0xfffffff0
-                                          : 0xfffffffffffffff0));
+                          IRB.getIntN(sizeof(target_ulong) * 8, ~15UL));
 
-        IRB.CreateStore(AlignedNewSP, SPPtr);
+        llvm::Value *SPVal = AlignedNewSP;
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+        SPVal = IRB.CreateSub(
+            SPVal, IRB.getIntN(sizeof(target_ulong) * 8,
+                               sizeof(target_ulong)));
+#endif
+
+        IRB.CreateStore(SPVal, SPPtr);
       }
 
       function_t &f = Binary.Analysis.Functions[pair.second.second];
