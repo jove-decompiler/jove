@@ -4059,7 +4059,17 @@ int CreateSectionGlobalVariables(void) {
       if (it == RelocDynTargets.end() || (*it).second.empty()) {
         WithColor::error() << llvm::formatv(
           "constant_of_irelative_relocation: no RelocDynTarget found (R.Addr={0:x},R.Addend={1:x}\n", R.Addr, R.Addend);
-        auto resolver_f_it = FuncMap.find(R.Addend);
+
+        target_ulong resolverAddr = R.Addend;
+        if (!resolverAddr) {
+          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
+          if (!ExpectedPtr)
+            abort();
+
+          resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+        }
+
+        auto resolver_f_it = FuncMap.find(resolverAddr);
         if (resolver_f_it == FuncMap.end()) {
           llvm::errs() << "constant_of_irelative_relocation: no function for resolver!\n";
           abort();
