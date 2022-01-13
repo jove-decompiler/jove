@@ -213,6 +213,7 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
                      $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/harvest-vdso) \
                      third_party/llvm-project/static_install/bin/llc \
                      third_party/llvm-project/static_install/bin/opt \
+                     third_party/llvm-project/static_install/bin/llvm-symbolizer \
                      third_party/llvm-project/static_install/bin/llvm-dis \
                      third_party/llvm-project/static_install/bin/ld.lld \
                      third_party/llvm-project/static_install/bin/lld \
