@@ -608,7 +608,8 @@ int add(void) {
       if (!resolverAddr) {
         llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
-        resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+        if (ExpectedPtr)
+          resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
       }
 
       if (resolverAddr)
