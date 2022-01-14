@@ -8019,6 +8019,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
     {
       assert(!DynTargets.empty());
 
+      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+
       llvm::BasicBlock *ThruB = llvm::BasicBlock::Create(*Context, "", f.F);
 
       std::vector<std::pair<binary_index_t, function_index_t>> DynTargetsVec(
@@ -8048,8 +8050,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
         do {
           IRB.SetInsertPoint(B);
-
-          llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
           auto next_i = i + 1;
           if (next_i == DynTargetsVec.size())
