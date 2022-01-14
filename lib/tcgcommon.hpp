@@ -67,6 +67,7 @@ int qemu_log(const char *fmt, ...) {
 }
 
 #include <algorithm>
+#include <string>
 
 namespace jove {
 
@@ -311,10 +312,64 @@ struct tiny_code_generator_t {
     struct terminator_info_t &ti = tb.jove.T;
 
     //
-    // explain this (TODO)
+    // On architectures which lack an easy way to reference the program counter
+    // when computing an address, you may often see the code having to "twirl"-
+    // doing an immediate call to the next instruction and harvesting the return
+    // address.
     //
+    // It may appear from the outset that the twirl is a call to a real function,
+    // but it is not. It is just a way to do position-independent code.
+    //
+    // Example (mips32):
+    //      ...
+    // 1d454:       04110001        bal     1d45c
+    // 1d458:       00000000        nop
+    // 1d45c:       3c1c0018        lui     gp,0x18
+    // 1d460:       279c5964        addiu   gp,gp,22884
+    // 1d464:       039fe021        addu    gp,gp,ra
+    // 1d468:       0020f825        move    ra,at
+    //      ...
+    //
+    // Example (i386):
+    //      ...
+    // 1055a6:       e8 00 00 00 00          call   1055ab
+    // 1055ab:       5b                      pop    %ebx
+    //      ...
+    //
+
     if (ti.Type == jove::TERMINATOR::CALL &&
         ti._call.Target == ti._call.NextPC) {
+#if 0
+      if (1 /* opts::Verbose */) {
+        std::string text("tcg hack (");
+        text.append(std::to_string(__LINE__));
+        text.append(") pc=");
+        {
+          std::stringstream stream;
+          stream << std::hex << pc;
+
+          text.append(stream.str());
+        }
+        text.append(" call.Target=");
+        {
+          std::stringstream stream;
+          stream << std::hex << ti._call.Target;
+
+          text.append(stream.str());
+        }
+        text.append(" call.NextPC=");
+        {
+          std::stringstream stream;
+          stream << std::hex << ti._call.NextPC;
+
+          text.append(stream.str());
+        }
+        text.push_back('\n');
+
+        jove::_qemu_log(text.c_str());
+      }
+#endif
+
       uintptr_t NextPC = ti._call.NextPC;
 
       ti.Type = jove::TERMINATOR::UNCONDITIONAL_JUMP;
