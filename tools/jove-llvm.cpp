@@ -1048,7 +1048,8 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     return IRB.CreateLoad(IRB.CreateConstGEP1_64(FnsTbl, DynTarget.FIdx));
   }
 
-#if 0
+#if !defined(TARGET_MIPS32) &&                                                 \
+    !defined(TARGET_MIPS64) /* FIXME old mips systems don't support COPY reloc */
   if (!binary.IsDynamicallyLoaded) {
     llvm::Value *FnsTbl = Decompilation.Binaries[DynTarget.BIdx].FunctionsTable;
     assert(FnsTbl);
