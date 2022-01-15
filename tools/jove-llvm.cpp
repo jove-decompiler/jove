@@ -8029,14 +8029,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
       std::vector<llvm::BasicBlock *> DynTargetsDoCallBVec;
       DynTargetsDoCallBVec.resize(DynTargetsVec.size());
 
-      std::transform(DynTargetsVec.begin(), DynTargetsVec.end(),
+      std::transform(DynTargetsVec.begin(),
+                     DynTargetsVec.end(),
                      DynTargetsDoCallBVec.begin(),
-                     [&](std::pair<binary_index_t, function_index_t> IdxPair)
-                         -> llvm::BasicBlock * {
-                       return llvm::BasicBlock::Create(
-                           *Context,
-                           (fmt("call %s") % dyn_target_desc(IdxPair)).str(),
-                           f.F);
+                     [&](dynamic_target_t IdxPair) -> llvm::BasicBlock * {
+                       return llvm::BasicBlock::Create(*Context,
+                                                       (fmt("call_%s") % dyn_target_desc(IdxPair)).str(), f.F);
                      });
 
       llvm::BasicBlock *ElseB = nullptr;
