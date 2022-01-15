@@ -179,7 +179,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
 
           if (ICFG[bb].Term.Type == TERMINATOR::CALL) {
             Writer.printBoolean("Returns", ICFG[bb].Term._call.Returns);
-            Writer.printNumber("Target", ICFG[bb].Term._call.Target);
+
+            const function_t &f = B.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+            Writer.printString("Target", (fmt("0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
           }
 
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
