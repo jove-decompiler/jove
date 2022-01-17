@@ -155,6 +155,17 @@ static basic_block_index_t translate_basic_block(binary_t &,
 
 #include "elf.hpp"
 
+template <typename GraphTy>
+struct dfs_visitor : public boost::default_dfs_visitor {
+  typedef typename GraphTy::vertex_descriptor VertTy;
+
+  std::vector<VertTy> &out;
+
+  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
+
+  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
+};
+
 static struct {
   target_ulong Addr;
   bool Active;
@@ -649,6 +660,197 @@ int add(void) {
       b.Analysis.Functions[FIdx].IsABI = true;
   }
 
+  //
+  // longjmp hunting
+  //
+  std::vector<llvm::StringRef> LjPatterns;
+
+#if defined(TARGET_X86_64)
+  {
+    // glibc
+    static uint8_t pattern[] = {
+      0x4c, 0x8b, 0x47, 0x30,                   // mov    0x30(%rdi),%r8
+      0x4c, 0x8b, 0x4f, 0x08,                   // mov    0x8(%rdi),%r9
+      0x48, 0x8b, 0x57, 0x38,                   // mov    0x38(%rdi),%rdx
+      0x49, 0xc1, 0xc8, 0x11,                   // ror    $0x11,%r8
+      0x64, 0x4c, 0x33, 0x04, 0x25, 0x30, 0x00, // xor    %fs:0x30,%r8
+      0x00, 0x00,
+      0x49, 0xc1, 0xc9, 0x11,                   // ror    $0x11,%r9
+      0x64, 0x4c, 0x33, 0x0c, 0x25, 0x30, 0x00, // xor    %fs:0x30,%r9
+      0x00, 0x00,
+      0x48, 0xc1, 0xca, 0x11,                   // ror    $0x11,%rdx
+      0x64, 0x48, 0x33, 0x14, 0x25, 0x30, 0x00, // xor    %fs:0x30,%rdx
+      0x00, 0x00,
+      0x48, 0x8b, 0x1f,                         // mov    (%rdi),%rbx
+      0x4c, 0x8b, 0x67, 0x10,                   // mov    0x10(%rdi),%r12
+      0x4c, 0x8b, 0x6f, 0x18,                   // mov    0x18(%rdi),%r13
+      0x4c, 0x8b, 0x77, 0x20,                   // mov    0x20(%rdi),%r14
+      0x4c, 0x8b, 0x7f, 0x28,                   // mov    0x28(%rdi),%r15
+      0x89, 0xf0,                               // mov    %esi,%eax
+      0x4c, 0x89, 0xc4,                         // mov    %r8,%rsp
+      0x4c, 0x89, 0xcd,                         // mov    %r9,%rbp
+      0xff, 0xe2,                               // jmp    *%rdx
+    };
+
+    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+#elif defined(TARGET_I386)
+  {
+    // glibc
+    static const uint8_t pattern[] = {
+      0x8b, 0x44, 0x24, 0x04,                   //  mov    0x4(%esp),%eax
+      0x8b, 0x50, 0x14,                         //  mov    0x14(%eax),%edx
+      0x8b, 0x48, 0x10,                         //  mov    0x10(%eax),%ecx
+      0xc1, 0xca, 0x09,                         //  ror    $0x9,%edx
+      0x65, 0x33, 0x15, 0x18, 0x00, 0x00, 0x00, //  xor    %gs:0x18,%edx
+      0xc1, 0xc9, 0x09,                         //  ror    $0x9,%ecx
+      0x65, 0x33, 0x0d, 0x18, 0x00, 0x00, 0x00, //  xor    %gs:0x18,%ecx
+      0x8b, 0x18,                               //  mov    (%eax),%ebx
+      0x8b, 0x70, 0x04,                         //  mov    0x4(%eax),%esi
+      0x8b, 0x78, 0x08,                         //  mov    0x8(%eax),%edi
+      0x8b, 0x68, 0x0c,                         //  mov    0xc(%eax),%ebp
+      0x8b, 0x44, 0x24, 0x08,                   //  mov    0x8(%esp),%eax
+      0x89, 0xcc,                               //  mov    %ecx,%esp
+      0xff, 0xe2,                               //  jmp    *%edx
+    };
+
+    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+#elif defined(TARGET_MIPS32)
+  {
+    // glibc
+    static const uint32_t pattern[] = {
+      0xd4940038,                               // ldc1    $f20,56(a0)
+      0xd4960040,                               // ldc1    $f22,64(a0)
+      0xd4980048,                               // ldc1    $f24,72(a0)
+      0xd49a0050,                               // ldc1    $f26,80(a0)
+      0xd49c0058,                               // ldc1    $f28,88(a0)
+      0xd49e0060,                               // ldc1    $f30,96(a0)
+      0x8c9c002c,                               // lw      gp,44(a0)
+      0x8c900008,                               // lw      s0,8(a0)
+      0x8c91000c,                               // lw      s1,12(a0)
+      0x8c920010,                               // lw      s2,16(a0)
+      0x8c930014,                               // lw      s3,20(a0)
+      0x8c940018,                               // lw      s4,24(a0)
+      0x8c95001c,                               // lw      s5,28(a0)
+      0x8c960020,                               // lw      s6,32(a0)
+      0x8c970024,                               // lw      s7,36(a0)
+      0x8c990000,                               // lw      t9,0(a0)
+      0x8c9d0004,                               // lw      sp,4(a0)
+      0x14a00005,                               // bnez    a1,354ec
+      0x8c9e0028,                               // lw      s8,40(a0)
+      0x03200008,                               // jr      t9
+      0x24020001,                               // li      v0,1
+      0x1000ffff,                               // b       354e4
+      0x00000000,                               // nop
+      0x03200008,                               // jr      t9
+      0x00a01025,                               // move    v0,a1
+    };
+
+    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+
+  {
+    // libuClibc
+    static const uint32_t pattern[] = {
+      0xc4940038,                               // lwc1    $f20,56(a0)
+      0xc495003c,                               // lwc1    $f21,60(a0)
+      0xc4960040,                               // lwc1    $f22,64(a0)
+      0xc4970044,                               // lwc1    $f23,68(a0)
+      0xc4980048,                               // lwc1    $f24,72(a0)
+      0xc499004c,                               // lwc1    $f25,76(a0)
+      0xc49a0050,                               // lwc1    $f26,80(a0)
+      0xc49b0054,                               // lwc1    $f27,84(a0)
+      0xc49c0058,                               // lwc1    $f28,88(a0)
+      0xc49d005c,                               // lwc1    $f29,92(a0)
+      0xc49e0060,                               // lwc1    $f30,96(a0)
+      0xc49f0064,                               // lwc1    $f31,100(a0)
+      0x8c820030,                               // lw      v0,48(a0)
+      0x00000000,                               // nop
+      0x44c2f800,                               // ctc1    v0,c1_fcsr
+      0x8c9c002c,                               // lw      gp,44(a0)
+      0x8c900008,                               // lw      s0,8(a0)
+      0x8c91000c,                               // lw      s1,12(a0)
+      0x8c920010,                               // lw      s2,16(a0)
+      0x8c930014,                               // lw      s3,20(a0)
+      0x8c940018,                               // lw      s4,24(a0)
+      0x8c95001c,                               // lw      s5,28(a0)
+      0x8c960020,                               // lw      s6,32(a0)
+      0x8c970024,                               // lw      s7,36(a0)
+      0x8c990000,                               // lw      t9,0(a0)
+      0x8c9d0004,                               // lw      sp,4(a0)
+      0x8c9e0028,                               // lw      s8,40(a0)
+      0x14a00003,                               // bnez    a1,4cbfc
+      0x00000000,                               // nop
+      0x10000002,                               // b       4cc00
+      0x24020001,                               // li      v0,1
+      0x00a01021,                               // move    v0,a1
+      0x03200008,                               // jr      t9
+      0x00000000,                               // nop
+    };
+
+    LjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+#endif
+
+  auto ProgramHeadersOrError = E.program_headers();
+  if (ProgramHeadersOrError) {
+    llvm::SmallVector<const Elf_Phdr *, 4> LoadSegments;
+
+    for (const Elf_Phdr &Phdr : *ProgramHeadersOrError)
+      if (Phdr.p_type == llvm::ELF::PT_LOAD)
+        LoadSegments.push_back(const_cast<Elf_Phdr *>(&Phdr));
+
+    for (const Elf_Phdr *P : LoadSegments) {
+      llvm::StringRef SectionStr(
+          reinterpret_cast<const char *>(E.base() + P->p_offset), P->p_filesz);
+
+      for (llvm::StringRef pattern : LjPatterns) {
+        size_t idx = SectionStr.find(pattern);
+        if (idx == llvm::StringRef::npos)
+          continue;
+
+        uint64_t A = P->p_vaddr + idx;
+
+        function_index_t FIdx = translate_function(b, tcg, dis, A);
+        if (!is_function_index_valid(FIdx))
+          continue;
+
+        function_t &f = b.Analysis.Functions[FIdx];
+
+        auto &ICFG = b.Analysis.ICFG;
+
+        //
+        // BasicBlocks (in DFS order)
+        //
+        std::vector<basic_block_t> BasicBlocks;
+        std::map<basic_block_t, boost::default_color_type> color;
+        dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
+        depth_first_visit(
+            ICFG, boost::vertex(f.Entry, ICFG), vis,
+            boost::associative_property_map<
+                std::map<basic_block_t, boost::default_color_type>>(color));
+
+        for_each_if(BasicBlocks.begin(),
+                    BasicBlocks.end(),
+                    [&](basic_block_t bb) -> bool {
+                      return ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP &&
+                             boost::out_degree(bb, ICFG) == 0;
+                    },
+                    [&](basic_block_t bb) {
+                      WithColor::note() << "found longjmp!\n";
+
+                      ICFG[bb].Term._indirect_jump.IsLj = true;
+                    });
+
+      }
+    }
+  }
+
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
   //
@@ -815,6 +1017,7 @@ on_insn_boundary:
         newbbprop.DynTargetsComplete = false;
         newbbprop.Term._call.Target = invalid_function_index;
         newbbprop.Term._call.Returns = false;
+        newbbprop.Term._indirect_jump.IsLj = false;
         newbbprop.Term._indirect_call.Returns = false;
         newbbprop.Term._return.Returns = false;
         newbbprop.InvalidateAnalysis();
@@ -1027,6 +1230,7 @@ on_insn_boundary:
     bbprop.DynTargetsComplete = false;
     bbprop.Term._call.Target = invalid_function_index;
     bbprop.Term._call.Returns = false;
+    bbprop.Term._indirect_jump.IsLj = false;
     bbprop.Term._indirect_call.Returns = false;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
@@ -1130,17 +1334,6 @@ on_insn_boundary:
 
   return bbidx;
 }
-
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
 
 bool does_function_definitely_return(binary_t &b,
                                      function_index_t FIdx) {

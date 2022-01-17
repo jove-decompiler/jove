@@ -1861,6 +1861,7 @@ on_insn_boundary:
         newbbprop.DynTargetsComplete = false;
         newbbprop.Term._call.Target = invalid_function_index;
         newbbprop.Term._call.Returns = false;
+        newbbprop.Term._indirect_jump.IsLj = false;
         newbbprop.Term._indirect_call.Returns = false;
         newbbprop.Term._return.Returns = false;
         newbbprop.InvalidateAnalysis();
@@ -1993,6 +1994,7 @@ on_insn_boundary:
     bbprop.DynTargetsComplete = false;
     bbprop.Term._call.Target = invalid_function_index;
     bbprop.Term._call.Returns = false;
+    bbprop.Term._indirect_jump.IsLj = false;
     bbprop.Term._indirect_call.Returns = false;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();
@@ -3549,61 +3551,71 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
     isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
-    // on an indirect jump, we must determine one of two possibilities.
-    //
-    // (1) transfers control to a label (i.e. a goto or switch-case statement)
-    //
-    // or
-    //
-    // (2) transfers control to a function (i.e. calling a function pointer)
-    //
-    bool isTailCall =
-        IsDefinitelyTailCall(ICFG, bb) ||
-        IndBrInfo.binary_idx != binary_idx ||
-        (boost::out_degree(bb, ICFG) == 0 &&
-         decompilation.Binaries[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
-
-    if (isTailCall) {
-      function_index_t f_idx =
-          translate_function(child, binary_idx, tcg, dis,
-                             rva_of_va(target, binary_idx), brkpt_count);
-
+    if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
       //
-      // the block containing the terminator may have been split underneath us
+      // non-local goto (aka "long jump")
       //
-      {
-        auto it = BBMap.find(IndBrInfo.TermAddr);
-        assert(it != BBMap.end());
+      translate_basic_block(child, binary_idx, tcg, dis,
+                            rva_of_va(target, binary_idx), brkpt_count);
 
-        bbidx = (*it).second - 1;
-        bb = boost::vertex(bbidx, ICFG);
-      }
-
-      isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+      isNewTarget = brkpt_count > 0;
     } else {
-      basic_block_index_t target_bb_idx =
-          translate_basic_block(child, binary_idx, tcg, dis,
-                                rva_of_va(target, binary_idx), brkpt_count);
-      basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
-
+      // on an indirect jump, we must determine one of two possibilities.
       //
-      // the block containing the terminator may have been split underneath us
+      // (1) transfers control to a label (i.e. a goto or switch-case statement)
       //
-      {
-        auto it = BBMap.find(IndBrInfo.TermAddr);
-        assert(it != BBMap.end());
+      // or
+      //
+      // (2) transfers control to a function (i.e. calling a function pointer)
+      //
+      bool isTailCall =
+          IsDefinitelyTailCall(ICFG, bb) ||
+          IndBrInfo.binary_idx != binary_idx ||
+          (boost::out_degree(bb, ICFG) == 0 &&
+           decompilation.Binaries[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
 
-        bbidx = (*it).second - 1;
-        bb = boost::vertex(bbidx, ICFG);
+      if (isTailCall) {
+        function_index_t f_idx =
+            translate_function(child, binary_idx, tcg, dis,
+                               rva_of_va(target, binary_idx), brkpt_count);
+
+        //
+        // the block containing the terminator may have been split underneath us
+        //
+        {
+          auto it = BBMap.find(IndBrInfo.TermAddr);
+          assert(it != BBMap.end());
+
+          bbidx = (*it).second - 1;
+          bb = boost::vertex(bbidx, ICFG);
+        }
+
+        isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+      } else {
+        basic_block_index_t target_bb_idx =
+            translate_basic_block(child, binary_idx, tcg, dis,
+                                  rva_of_va(target, binary_idx), brkpt_count);
+        basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
+
+        //
+        // the block containing the terminator may have been split underneath us
+        //
+        {
+          auto it = BBMap.find(IndBrInfo.TermAddr);
+          assert(it != BBMap.end());
+
+          bbidx = (*it).second - 1;
+          bb = boost::vertex(bbidx, ICFG);
+        }
+
+        assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+        isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
+        if (isNewTarget)
+          ICFG[bb].InvalidateAnalysis();
+
+        control_flow_description = "goto";
       }
-
-      assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
-
-      isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
-      if (isNewTarget)
-        ICFG[bb].InvalidateAnalysis();
-
-      control_flow_description = "goto";
     }
   } else {
     abort();
@@ -3616,10 +3628,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   decompilation.Binaries[binary_idx].Path);
 
   if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
-    llvm::errs() << llvm::formatv(__ANSI_CYAN "({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+    llvm::errs() << llvm::formatv(__ANSI_CYAN "({0}) {1} -> {2}{3}" __ANSI_NORMAL_COLOR "\n",
                                   control_flow_description,
                                   description_of_program_counter(saved_pc),
-                                  description_of_program_counter(target));
+                                  description_of_program_counter(target),
+                                  ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP ?
+                                    (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "");
 }
 
 //

@@ -7993,25 +7993,30 @@ int TranslateBasicBlock(TranslateContext &TC) {
     const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
 
     if (DynTargets.empty()) {
-      if (opts::Verbose)
-        WithColor::warning() << llvm::formatv(
-            "indirect control transfer @ {0:x} has zero dyn targets\n",
-            ICFG[bb].Addr);
+      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
-      boost::property_map<interprocedural_control_flow_graph_t,
-                          boost::vertex_index_t>::type bb_idx_map =
-          boost::get(boost::vertex_index, ICFG);
+      if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
+        IRB.CreateCall(JoveFail1Func, {PC})->setIsNoInline();
+        IRB.CreateUnreachable();
+      } else {
+        if (opts::Verbose)
+          WithColor::warning() << llvm::formatv(
+              "indirect control transfer @ {0:x} has zero dyn targets\n",
+              ICFG[bb].Addr);
 
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                    IRB.CreateLoad(TC.PCAlloca)};
-      llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
+        boost::property_map<interprocedural_control_flow_graph_t,
+                            boost::vertex_index_t>::type bb_idx_map =
+            boost::get(boost::vertex_index, ICFG);
 
-      IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
-      if (!IsCall)
-        IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
-      IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-      IRB.CreateCall(JoveFail1Func, FailArgs)->setIsNoInline();
-      IRB.CreateUnreachable();
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+
+        IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
+        if (!IsCall)
+          IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
+        IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+        IRB.CreateCall(JoveFail1Func, {PC})->setIsNoInline();
+        IRB.CreateUnreachable();
+      }
 
       return 0;
     }
@@ -8060,7 +8065,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           llvm::Value *EQVal = IRB.CreateICmpEQ(
               PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
-
           IRB.CreateCondBr(EQVal, DynTargetsDoCallBVec[i], B);
         } while (++i != DynTargetsVec.size());
 

@@ -184,6 +184,9 @@ static void dumpDecompilation(const decompilation_t& decompilation) {
             Writer.printString("Target", (fmt("0x%lX") % ICFG[boost::vertex(f.Entry, ICFG)].Addr).str());
           }
 
+          if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP)
+            Writer.printBoolean("IsLj", ICFG[bb].Term._indirect_jump.IsLj);
+
           if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL)
             Writer.printBoolean("Returns", ICFG[bb].Term._indirect_call.Returns);
 

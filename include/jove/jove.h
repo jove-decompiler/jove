@@ -93,6 +93,10 @@ struct basic_block_properties_t {
     } _call;
 
     struct {
+      bool IsLj;
+    } _indirect_jump;
+
+    struct {
       bool Returns;
     } _indirect_call;
 
@@ -139,6 +143,7 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term.Type)
        &BOOST_SERIALIZATION_NVP(Term._call.Target)
        &BOOST_SERIALIZATION_NVP(Term._call.Returns)
+       &BOOST_SERIALIZATION_NVP(Term._indirect_jump.IsLj)
        &BOOST_SERIALIZATION_NVP(Term._indirect_call.Returns)
        &BOOST_SERIALIZATION_NVP(Term._return.Returns)
        &BOOST_SERIALIZATION_NVP(DynTargets)
