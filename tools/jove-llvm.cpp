@@ -2178,6 +2178,13 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
               .F,
           WordType());
 
+      //
+      // FIXME we can't only look at the SectionPointer when translating an
+      // indirect jump because of this. Unfortunately, at the moment we cannot
+      // just return SectionPointer() here because this function is called
+      // *before* CreateSectionGlobalVariables.
+      //
+
       IRB.CreateRet(IRB.CreateIntToPtr(
           Res, CallsF->getFunctionType()->getReturnType()));
     } else if (is_dynamic_target_valid(IdxPair) && DynTargetNeedsThunkPred(IdxPair)) {
@@ -8063,9 +8070,18 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 (fmt("if %s") % dyn_target_desc(DynTargetsVec[next_i])).str(),
                 f.F);
 
+#if 0
           llvm::Value *EQVal = IRB.CreateICmpEQ(
               PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
           IRB.CreateCondBr(EQVal, DynTargetsDoCallBVec[i], B);
+#else
+          llvm::Value *EQV_1 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<false>(IRB, DynTargetsVec[i], B));
+          llvm::Value *EQV_2 = IRB.CreateICmpEQ(
+              PC, GetDynTargetAddress<true>(IRB, DynTargetsVec[i], B));
+
+          IRB.CreateCondBr(IRB.CreateOr(EQV_1, EQV_2), DynTargetsDoCallBVec[i], B);
+#endif
         } while (++i != DynTargetsVec.size());
 
         ElseB = B;
