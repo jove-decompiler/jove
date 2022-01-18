@@ -2641,20 +2641,10 @@ int ProcessIFuncResolvers(void) {
     return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
-  llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
-  std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         binary._elf.DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
-
-  if (!OptionalDynSymRegion)
+  if (!binary._elf.OptionalDynSymRegion)
     return 0; /* no dynamic symbols */
 
-  const DynRegionInfo &DynSymRegion = *OptionalDynSymRegion;
+  const DynRegionInfo &DynSymRegion = *binary._elf.OptionalDynSymRegion;
 
   auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
     return DynSymRegion.getAsArrayRef<Elf_Sym>();
