@@ -603,6 +603,15 @@ static symbol_t::BINDING sym_binding_of_elf_sym_binding(unsigned ty) {
   }
 }
 
+static int tcg_global_index_of_name(const char *nm) {
+  for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
+    if (strcmp(TCG->_ctx.temps[i].name, nm) == 0)
+      return i;
+  }
+
+  return -1;
+}
+
 //
 // Globals
 //
@@ -748,10 +757,6 @@ static std::map<target_ulong, dynamic_target_t> IRELATIVEHack;
 //
 // Stages
 //
-static int ProcessCommandLine(void);
-static int ParseDecompilation(void);
-static int FindBinary(void);
-static int CheckBinary(void);
 static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int PrepareToTranslateCode(void);
@@ -790,15 +795,85 @@ static int DoOptimize(void);
 static void DumpModule(const char *);
 
 int llvm(void) {
-  return 0
-      || ParseDecompilation()
-      || FindBinary()
-      || CheckBinary()
-      || InitStateForBinaries()
-      || CreateModule()
-      || PrepareToTranslateCode()
-      || ProcessCommandLine() /* must do this after TCG is ready */
-      || ProcessDynamicTargets()
+  //
+  // parse decompilation
+  //
+  {
+    std::string path = fs::is_directory(opts::jv)
+                           ? (opts::jv + "/decompilation.jv")
+                           : opts::jv;
+
+    std::ifstream ifs(path);
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> Decompilation;
+  }
+
+  //
+  // binary index (cmdline)
+  //
+  if (!opts::Binary.empty()) {
+    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
+      binary_t &b = Decompilation.Binaries[BIdx];
+
+      if (fs::path(b.Path).filename().string() == opts::Binary) {
+        if (b.IsDynamicLinker) {
+          WithColor::error() << "given binary is dynamic linker\n";
+          return 1;
+        }
+
+        if (b.IsVDSO) {
+          WithColor::error() << "given binary is [vdso]\n";
+          return 1;
+        }
+
+        BinaryIndex = BIdx;
+        return 0;
+      }
+    }
+
+    WithColor::error() << "no binary associated with given path\n";
+    return 1;
+  }
+  if (!opts::BinaryIndex.empty()) {
+    int idx = atoi(opts::BinaryIndex.c_str());
+
+    if (idx < 0 || idx >= Decompilation.Binaries.size()) {
+      WithColor::error() << "invalid binary index supplied\n";
+      return 1;
+    }
+
+    BinaryIndex = idx;
+    return 0;
+  }
+
+  if (opts::ForeignLibs) {
+    if (!Decompilation.Binaries[BinaryIndex].IsExecutable) {
+      WithColor::error() << "--foreign-libs specified but given binary is not "
+                            "the executable\n";
+      return 1;
+    }
+  }
+
+  InitStateForBinaries();
+  CreateModule();
+  PrepareToTranslateCode();
+
+  //
+  // pinned globals (cmdline)
+  //
+  for (const std::string &PinnedGlobalName : opts::PinnedGlobals) {
+    int idx = tcg_global_index_of_name(PinnedGlobalName.c_str());
+    if (idx < 0) {
+      WithColor::warning() << llvm::formatv(
+          "unknown global {0} (--pinned-globals); ignoring\n", idx);
+      continue;
+    }
+
+    CmdlinePinnedEnvGlbs.set(idx);
+  }
+
+  return ProcessDynamicTargets()
       || ProcessBinaryRelocations()
       || ProcessIFuncResolvers()
       || ProcessExportedFunctions()
@@ -912,96 +987,6 @@ static llvm::Type *VoidType(void) {
 static llvm::Type *VoidFunctionPointer(void) {
   llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
   return llvm::PointerType::get(FTy, 0);
-}
-
-int ProcessCommandLine(void) {
-  auto tcg_index_of_named_global = [&](const char *nm) -> int {
-    for (int i = 0; i < TCG->_ctx.nb_globals; i++) {
-      if (strcmp(TCG->_ctx.temps[i].name, nm) == 0)
-        return i;
-    }
-
-    return -1;
-  };
-
-  for (const std::string &PinnedGlobalName : opts::PinnedGlobals) {
-    int idx = tcg_index_of_named_global(PinnedGlobalName.c_str());
-    if (idx < 0) {
-      WithColor::warning() << llvm::formatv(
-          "unknown global {0} (--pinned-globals); ignoring\n", idx);
-      continue;
-    }
-
-    CmdlinePinnedEnvGlbs.set(idx);
-  }
-
-  return 0;
-}
-
-int ParseDecompilation(void) {
-  std::string path = fs::is_directory(opts::jv)
-                         ? (opts::jv + "/decompilation.jv")
-                         : opts::jv;
-
-  std::ifstream ifs(path);
-
-  boost::archive::text_iarchive ia(ifs);
-  ia >> Decompilation;
-
-  return 0;
-}
-
-int FindBinary(void) {
-  if (!opts::Binary.empty()) {
-    for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-      binary_t &b = Decompilation.Binaries[BIdx];
-
-      if (fs::path(b.Path).filename().string() == opts::Binary) {
-        if (b.IsDynamicLinker) {
-          WithColor::error() << "given binary is dynamic linker\n";
-          return 1;
-        }
-
-        if (b.IsVDSO) {
-          WithColor::error() << "given binary is [vdso]\n";
-          return 1;
-        }
-
-        BinaryIndex = BIdx;
-        return 0;
-      }
-    }
-
-    WithColor::error() << "no binary associated with given path\n";
-    return 1;
-  }
-
-  if (!opts::BinaryIndex.empty()) {
-    int idx = atoi(opts::BinaryIndex.c_str());
-
-    if (idx < 0 || idx >= Decompilation.Binaries.size()) {
-      WithColor::error() << "invalid binary index supplied\n";
-      return 1;
-    }
-
-    BinaryIndex = idx;
-    return 0;
-  }
-
-  WithColor::error() << "unknown binary to translate\n";
-  return 1;
-}
-
-int CheckBinary(void) {
-  if (opts::ForeignLibs) {
-    if (!Decompilation.Binaries[BinaryIndex].IsExecutable) {
-      WithColor::error() << "--foreign-libs specified but given binary is not "
-                            "the executable\n";
-      return 1;
-    }
-  }
-
-  return 0;
 }
 
 static bool
