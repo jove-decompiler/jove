@@ -583,7 +583,7 @@ void _jove_install_foreign_function_tables(void) {
   }
 }
 
-_NORET void _jove_fail1(uintptr_t a0) {
+_NORET void _jove_fail1(uintptr_t a0, const char *reason) {
   char maps[4096 * 8];
   const unsigned n = _read_pseudo_file("/proc/self/maps", maps, sizeof(maps));
   maps[n] = '\0';
@@ -592,7 +592,9 @@ _NORET void _jove_fail1(uintptr_t a0) {
     char s[4096 * 8];
     s[0] = '\0';
 
-    _strcat(s, "_jove_fail1: 0x");
+    _strcat(s, "_jove_fail1: ");
+    _strcat(s, reason);
+    _strcat(s, "\n0x");
     {
       char buff[65];
       _uint_to_string(a0, buff, 0x10);
@@ -614,7 +616,7 @@ _NORET void _jove_fail1(uintptr_t a0) {
       _strcat(s, buff);
     }
 
-    _strcat(s, "]\n");
+    _strcat(s, "]\n\n");
     _strcat(s, maps);
 
     //

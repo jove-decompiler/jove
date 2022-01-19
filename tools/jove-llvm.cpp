@@ -7957,13 +7957,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       IRB.SetInsertPoint(ElseBlock);
 
+      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+
       boost::property_map<interprocedural_control_flow_graph_t,
                           boost::vertex_index_t>::type bb_idx_map =
           boost::get(boost::vertex_index, ICFG);
 
-      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                    IRB.CreateLoad(TC.PCAlloca)};
-      llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+      llvm::Value *FailArgs[] = {
+          PC, IRB.CreateGlobalStringPtr("unknown branch target")
+      };
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
@@ -7981,7 +7984,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
       if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
-        IRB.CreateCall(JoveFail1Func, {PC})->setIsNoInline();
+        IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("longjmp encountered")})->setIsNoInline();
         IRB.CreateUnreachable();
       } else {
         if (opts::Verbose)
@@ -7999,7 +8002,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
         if (!IsCall)
           IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-        IRB.CreateCall(JoveFail1Func, {PC})->setIsNoInline();
+        IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("unknown callee")})->setIsNoInline();
         IRB.CreateUnreachable();
       }
 
@@ -8073,9 +8076,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
         boost::property_map<interprocedural_control_flow_graph_t,
                             boost::vertex_index_t>::type bb_idx_map =
             boost::get(boost::vertex_index, ICFG);
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]),
-                                      IRB.CreateLoad(TC.PCAlloca)};
-        llvm::Value *FailArgs[] = {IRB.CreateLoad(TC.PCAlloca)};
+        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
+        llvm::Value *FailArgs[] = {PC, IRB.CreateGlobalStringPtr("unknown callee")};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
