@@ -828,7 +828,6 @@ int llvm(void) {
         }
 
         BinaryIndex = BIdx;
-        return 0;
       }
     }
 
@@ -844,7 +843,6 @@ int llvm(void) {
     }
 
     BinaryIndex = idx;
-    return 0;
   }
 
   if (opts::ForeignLibs) {
@@ -855,9 +853,14 @@ int llvm(void) {
     }
   }
 
-  InitStateForBinaries();
-  CreateModule();
-  PrepareToTranslateCode();
+  if (int rc = InitStateForBinaries())
+    return rc;
+
+  if (int rc = CreateModule())
+    return rc;
+
+  if (int rc = PrepareToTranslateCode())
+    return rc;
 
   //
   // pinned globals (cmdline)
