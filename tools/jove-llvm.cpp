@@ -1223,10 +1223,9 @@ int InitStateForBinaries(void) {
         SectsEndAddr = LoadSegments.back()->p_vaddr + LoadSegments.back()->p_memsz;
       }
 
-      WithColor::note() << llvm::formatv("{0}: {1:x}, {2:x}\n",
+      WithColor::note() << llvm::formatv("SectsStartAddr for {0} is {1:x}\n",
                                          binary.Path,
-                                         SectsStartAddr,
-                                         SectsEndAddr);
+                                         SectsStartAddr);
 
       loadDynamicTable(&E, &O, binary._elf.DynamicTable);
 
