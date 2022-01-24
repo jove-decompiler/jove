@@ -120,6 +120,7 @@ struct hook_t;
   std::vector<symbol_t> Syms;                                                  \
                                                                                \
   bool IsLeaf;                                                                 \
+  bool IsSj, IsLj;                                                             \
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
@@ -1130,13 +1131,45 @@ int InitStateForBinaries(void) {
 
                  std::none_of(f.BasicBlocks.begin(),
                               f.BasicBlocks.end(),
-                     [&](basic_block_t bb) -> bool {
-                       auto T = ICFG[bb].Term.Type;
-                       return (T == TERMINATOR::INDIRECT_JUMP &&
-                               boost::out_degree(bb, ICFG) == 0)
-                            || T == TERMINATOR::INDIRECT_CALL
-                            || T == TERMINATOR::CALL;
-                     });
+                              [&](basic_block_t bb) -> bool {
+                                auto T = ICFG[bb].Term.Type;
+                                return (T == TERMINATOR::INDIRECT_JUMP &&
+                                        boost::out_degree(bb, ICFG) == 0)
+                                     || T == TERMINATOR::INDIRECT_CALL
+                                     || T == TERMINATOR::CALL;
+                              });
+
+      //
+      // Does it setjmp?
+      //
+      f.IsSj = std::any_of(f.BasicBlocks.begin(),
+                           f.BasicBlocks.end(),
+                           [&](basic_block_t bb) -> bool {
+                             return ICFG[bb].Sj;
+                           });
+
+      //
+      // Does it longjmp?
+      //
+      f.IsLj = std::any_of(f.BasicBlocks.begin(),
+                           f.BasicBlocks.end(),
+                           [&](basic_block_t bb) -> bool {
+                             auto &Term = ICFG[bb].Term;
+                             return Term.Type == TERMINATOR::INDIRECT_JUMP &&
+                                    Term._indirect_jump.IsLj;
+                           });
+
+      if (f.IsSj) {
+        llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
+                                      ICFG[boost::vertex(f.Entry, ICFG)].Addr,
+                                      fs::path(binary.Path).filename().string());
+      }
+
+      if (f.IsLj) {
+        llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
+                                      ICFG[boost::vertex(f.Entry, ICFG)].Addr,
+                                      fs::path(binary.Path).filename().string());
+      }
     }
 
     //
@@ -3358,11 +3391,6 @@ int CreateSectionGlobalVariables(void) {
 
   const ELFF &E = *O.getELFFile();
 
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-  //
-  // on mips, we cannot rely on the SectionsGlobal to be not placed in
-  // non executable memory (see READ_IMPLIES_EXEC)
-  //
   struct PatchContents {
     std::vector<uint32_t> FunctionOrigInsnTable;
 
@@ -3389,11 +3417,23 @@ int CreateSectionGlobalVariables(void) {
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
+        if (f.IsLj || f.IsSj)
+          continue;
+
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
+#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
         uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
 
         insn = 0x8c010000; /* lw at,0(zero) ; <- guaranteed to SIGSEGV */
+#elif defined(TARGET_X86_64) || defined(TARGET_I386)
+        uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
+
+        insnp[0] = 0x0f; /* ud2 ; <- guaranteed to SIGILL */
+        insnp[1] = 0x0b;
+#else
+#error
+#endif
       }
     }
     ~PatchContents() {
@@ -3406,6 +3446,9 @@ int CreateSectionGlobalVariables(void) {
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
         if (!is_basic_block_index_valid(f.Entry))
+          continue;
+
+        if (f.IsLj || f.IsSj)
           continue;
 
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
@@ -3430,10 +3473,12 @@ int CreateSectionGlobalVariables(void) {
         return nullptr;
       }
 
+      //
+      // the data resides in a std::string; it is writeable memory
+      //
       return const_cast<uint8_t *>(*ExpectedPtr);
     }
   } __PatchContents;
-#endif
 
   unsigned NumSections = 0;
   boost::icl::split_interval_map<tcg_uintptr_t, section_properties_set_t> SectMap;
@@ -7686,6 +7731,58 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
+    const bool Lj = callee.IsLj;
+    const bool Sj = callee.IsSj;
+    const bool SjLj = Lj || Sj;
+    if (unlikely(SjLj)) {
+      assert(Lj ^ Sj);
+      llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} (call)\n",
+                                    Lj ? "longjmp" : "setjmp",
+                                    ICFG[boost::vertex(callee.Entry, ICFG)].Addr,
+                                    ICFG[bb].Term.Addr);
+
+      std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
+
+      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
+          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(CallConvArgArray.size());
+
+      std::transform(CallConvArgArray.begin(),
+                     CallConvArgArray.end(),
+                     ArgVec.begin(),
+                     [&](unsigned glb) -> llvm::Value * {
+                       return get(glb);
+                     });
+
+      llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
+
+      if (Sj) {
+        set(Ret, CallConvRetArray.at(0));
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+        //
+        // simulate return address being popped
+        //
+        set(IRB.CreateAdd(
+                get(tcg_stack_pointer_index),
+                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+            tcg_stack_pointer_index);
+
+#endif
+        break;
+      } else {
+        assert(Lj);
+        IRB.CreateCall(
+            llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+        IRB.CreateUnreachable();
+
+        return 0;
+      }
+    }
+
     if (opts::DFSan) {
       if (callee.PreHook) {
         assert(callee.hook);
@@ -7979,31 +8076,37 @@ int TranslateBasicBlock(TranslateContext &TC) {
     const auto &DynTargets = ICFG[bb].DynTargets;
     const bool &DynTargetsComplete = ICFG[bb].DynTargetsComplete;
 
+    llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+    if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
+      llvm::outs() << llvm::formatv("longjmp at {0:x}\n", ICFG[bb].Addr);
+
+      std::string message =
+          (fmt("encountered longjmp @ %s+0x%x") %
+           fs::path(Binary.Path).filename().string() % ICFG[bb].Term.Addr)
+              .str();
+      IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr(message.c_str())})->setIsNoInline();
+      IRB.CreateUnreachable();
+      return 0;
+    }
+
     if (DynTargets.empty()) {
-      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+      if (opts::Verbose)
+        WithColor::warning() << llvm::formatv(
+            "indirect control transfer @ {0:x} has zero dyn targets\n",
+            ICFG[bb].Addr);
 
-      if (!IsCall && ICFG[bb].Term._indirect_jump.IsLj) {
-        IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("longjmp encountered")})->setIsNoInline();
-        IRB.CreateUnreachable();
-      } else {
-        if (opts::Verbose)
-          WithColor::warning() << llvm::formatv(
-              "indirect control transfer @ {0:x} has zero dyn targets\n",
-              ICFG[bb].Addr);
+      boost::property_map<interprocedural_control_flow_graph_t,
+                          boost::vertex_index_t>::type bb_idx_map =
+          boost::get(boost::vertex_index, ICFG);
 
-        boost::property_map<interprocedural_control_flow_graph_t,
-                            boost::vertex_index_t>::type bb_idx_map =
-            boost::get(boost::vertex_index, ICFG);
+      llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
 
-        llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
-
-        IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
-        if (!IsCall)
-          IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
-        IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-        IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("unknown callee")})->setIsNoInline();
-        IRB.CreateUnreachable();
-      }
+      IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
+      if (!IsCall)
+        IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
+      IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("unknown callee")})->setIsNoInline();
+      IRB.CreateUnreachable();
 
       return 0;
     }
@@ -8100,6 +8203,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           function_t &callee = Decompilation.Binaries.at(ADynTarget.BIdx)
                                   .Analysis.Functions.at(ADynTarget.FIdx);
+
+          const bool Lj = callee.IsLj;
+          const bool Sj = callee.IsSj;
+          const bool SjLj = Lj || Sj;
+
+          if (unlikely(SjLj)) {
+            assert(Lj ^ Sj);
+            llvm::outs() << llvm::formatv("calling {0} from {1:x} (indjmp/indcall)\n",
+                                          Lj ? "longjmp" : "setjmp",
+                                          ICFG[bb].Addr);
+          }
 
           struct {
             std::vector<llvm::Value *> SavedArgs;

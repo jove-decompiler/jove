@@ -824,6 +824,7 @@ on_insn_boundary:
         newbbprop.Term._call.Target = invalid_function_index;
         newbbprop.Term._call.Returns = false;
         newbbprop.Term._indirect_jump.IsLj = false;
+        newbbprop.Sj = false;
         newbbprop.Term._indirect_call.Returns = false;
         newbbprop.Term._return.Returns = false;
         newbbprop.InvalidateAnalysis();
@@ -963,6 +964,7 @@ on_insn_boundary:
     bbprop.Term._call.Target = invalid_function_index;
     bbprop.Term._call.Returns = false;
     bbprop.Term._indirect_jump.IsLj = false;
+    bbprop.Sj = false;
     bbprop.Term._indirect_call.Returns = false;
     bbprop.Term._return.Returns = false;
     bbprop.InvalidateAnalysis();

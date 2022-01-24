@@ -108,6 +108,8 @@ struct basic_block_properties_t {
   std::set<dynamic_target_t> DynTargets;
   bool DynTargetsComplete; // XXX
 
+  bool Sj;
+
   struct {
     struct {
       /* let def_B be the set of variables defined (i.e. definitely */
@@ -148,6 +150,7 @@ struct basic_block_properties_t {
        &BOOST_SERIALIZATION_NVP(Term._return.Returns)
        &BOOST_SERIALIZATION_NVP(DynTargets)
        &BOOST_SERIALIZATION_NVP(DynTargetsComplete)
+       &BOOST_SERIALIZATION_NVP(Sj)
        &BOOST_SERIALIZATION_NVP(Analysis.live.def)
        &BOOST_SERIALIZATION_NVP(Analysis.live.use)
        &BOOST_SERIALIZATION_NVP(Analysis.reach.def)
