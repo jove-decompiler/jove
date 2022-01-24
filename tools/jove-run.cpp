@@ -700,6 +700,8 @@ static int do_run(void) {
 #if defined(TARGET_X86_64)
     // <3 glibc
     env_vec.push_back("GLIBC_TUNABLES=glibc.cpu.hwcaps="
+                      "-AVX,"
+                      "-AVX2,"
                       "-AVX_Usable,"
                       "-AVX2_Usable,"
                       "-AVX512F_Usable,"
