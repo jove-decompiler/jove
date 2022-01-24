@@ -222,6 +222,10 @@ PACKAGE_FILE_LIST := $(TOOLBINS) \
                      third_party/obj/libclang_rt.builtins-mips64el.a \
                      third_party/obj/libclang_rt.builtins-mipsel.a \
                      third_party/obj/libclang_rt.builtins-x86_64.a \
+                     third_party/lib/libclang_rt.dfsan.jove-aarch64.a \
+                     third_party/lib/libclang_rt.dfsan.jove-i386.a \
+                     third_party/lib/libclang_rt.dfsan.jove-mipsel.a \
+                     third_party/lib/libclang_rt.dfsan.jove-x86_64.a \
                      $(wildcard third_party/llvm-project/install/lib/clang/10.0.1/lib/linux/libclang_rt.dfsan.jove-*.so)
 
 .PHONY: package
