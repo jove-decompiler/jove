@@ -14,3 +14,6 @@
 [submodule "third_party/obj"]
 	path = third_party/obj
 	url = https://github.com/aleden/obj.git
+[submodule "third_party/lib"]
+	path = third_party/lib
+	url = https://github.com/aleden/lib.git
