@@ -182,20 +182,15 @@ int server(void) {
     return 1;
   }
 
-  {
-    const char *dfsan_rt_filename = "libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so";
+  dfsan_rt_path =
+      (boost::dll::program_location().parent_path().parent_path().parent_path() /
+       "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so")).string();
 
-    dfsan_rt_path =
-	(boost::dll::program_location().parent_path().parent_path().parent_path() /
-	 "third_party" / "llvm-project" / "install" / "lib" / "clang" / "10.0.0" /
-	 "lib" / "linux" / dfsan_rt_filename).string();
+  if (!fs::exists(dfsan_rt_path)) {
+    WithColor::error() << llvm::formatv(
+        "could not find jove dfsan runtime at {0}\n", dfsan_rt_path.c_str());
 
-    if (!fs::exists(dfsan_rt_path)) {
-      WithColor::error() << llvm::formatv(
-	  "could not find jove dfsan runtime at {0}\n", dfsan_rt_path.c_str());
-
-      return 1;
-    }
+    return 1;
   }
 
   //
