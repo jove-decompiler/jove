@@ -7745,6 +7745,30 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                     ICFG[boost::vertex(callee.Entry, ICFG)].Addr,
                                     ICFG[bb].Term.Addr);
 
+#if defined(TARGET_I386)
+      std::vector<llvm::Type *> argTypes(2, WordType());
+
+      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
+          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.reserve(2);
+
+      {
+        llvm::Value *SP = get(tcg_stack_pointer_index);
+
+        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), sizeof(target_ulong))),
+            WordType()->getPointerTo())));
+
+        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
+            WordType()->getPointerTo())));
+      }
+
+      assert(ArgVec.size() == argTypes.size());
+#else
       std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
 
       llvm::Value *CastedPtr = IRB.CreateIntToPtr(
@@ -7760,6 +7784,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      [&](unsigned glb) -> llvm::Value * {
                        return get(glb);
                      });
+#endif
 
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
 
@@ -7774,7 +7799,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
                 get(tcg_stack_pointer_index),
                 llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
             tcg_stack_pointer_index);
-
 #endif
         break;
       } else {
