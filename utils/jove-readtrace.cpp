@@ -60,7 +60,6 @@ namespace jove {
 
 int readtrace(void) {
 
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
   std::ifstream ifs(opts::TraceBinPath.c_str());
 
   uint64_t X;
@@ -77,33 +76,6 @@ int readtrace(void) {
                                   Trace.BIdx,
                                   Trace.BBIdx);
   }
-#else
-  int fd = open(opts::TraceBinPath.c_str(), O_RDONLY);
-  if (fd < 0) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("failed to open trace.bin: {0}\n",
-                                        strerror(err));
-    return 1;
-  }
-
-  off_t size = 1UL << 30; /* 2 GiB */
-  void *trace_begin = mmap(nullptr, size, PROT_READ, MAP_SHARED, fd, 0);
-  if (trace_begin == MAP_FAILED) {
-    int err = errno;
-    WithColor::error() << llvm::formatv("failed to open trace.bin: {0}\n",
-                                        strerror(err));
-    return 1;
-  }
-
-  for (uint32_t *p = reinterpret_cast<uint32_t *>(trace_begin);
-       p[0] || p[1] || p[2] || p[3] || p[4] || p[5] || p[6] || p[7] || p[8];
-       p += 2) {
-    uint32_t BIdx = p[1];
-    uint32_t BBIdx = p[0];
-
-    llvm::outs() << llvm::formatv("JV_{0}_{1}\n", BIdx, BBIdx);
-  }
-#endif
 
   return 0;
 }
