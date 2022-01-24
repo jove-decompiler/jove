@@ -3431,6 +3431,10 @@ int CreateSectionGlobalVariables(void) {
 
         insnp[0] = 0x0f; /* ud2 ; <- guaranteed to SIGILL */
         insnp[1] = 0x0b;
+#elif defined(TARGET_AARCH64)
+        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
+
+        insn = 0x00000000; /* udf     #0 ; <- guaranteed to SIGILL */
 #else
 #error
 #endif
