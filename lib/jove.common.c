@@ -20,6 +20,8 @@ _HIDDEN void _jove_install_foreign_function_tables(void);
 extern void __dfsan_log_global_buffers(void);
 #endif
 
+static void _jove_make_sections_executable(void);
+
 _CTOR _HIDDEN void _jove_initialize(void) {
   static bool _Done = false;
   if (_Done)
@@ -48,6 +50,17 @@ _CTOR _HIDDEN void _jove_initialize(void) {
 #if defined(JOVE_DFSAN)
   __dfsan_log_global_buffers();
 #endif
+
+  _jove_make_sections_executable();
+}
+
+void _jove_make_sections_executable(void) {
+  const unsigned n = QEMU_ALIGN_UP(_jove_sections_global_end_addr() -
+                                   _jove_sections_global_beg_addr(), JOVE_PAGE_SIZE);
+  const uintptr_t x = QEMU_ALIGN_DOWN(_jove_sections_global_beg_addr(), JOVE_PAGE_SIZE);
+
+  if (_jove_sys_mprotect(x, n, PROT_READ | PROT_WRITE | PROT_EXEC) < 0)
+    _UNREACHABLE("failed to make sections executable\n");
 }
 
 #if !defined(__x86_64__) && defined(__i386__)

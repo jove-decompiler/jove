@@ -15,6 +15,9 @@
 #define _UNUSED __attribute__((unused))
 #define _HIDDEN __attribute__((visibility("hidden")))
 
+#define QEMU_ALIGN_DOWN(n, m) ((n) / (m) * (m))
+#define QEMU_ALIGN_UP(n, m) QEMU_ALIGN_DOWN((n) + (m) - 1, (m))
+
 #ifdef __i386__
 #define _REGPARM __attribute__((regparm(3)))
 #endif
