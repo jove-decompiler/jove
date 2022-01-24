@@ -12,6 +12,8 @@ uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
 
 extern uintptr_t *__jove_sections_table[_JOVE_MAX_BINARIES];
 
+extern void _jove_flush_trace(void);
+
 _HIDDEN void _jove_install_foreign_function_tables(void);
 
 #if defined(JOVE_DFSAN)
@@ -624,6 +626,8 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
     //
     _robust_write(2 /* stderr */, s, _strlen(s));
   }
+
+  _jove_flush_trace();
 
   for (;;)
     _jove_sleep();
