@@ -10,11 +10,11 @@ extern /* __thread */ uint64_t *__jove_callstack_begin;
 static uint64_t **__jove_callstack_clunk = &__jove_callstack;
 static uint64_t **__jove_callstack_begin_clunk = &__jove_callstack_begin;
 
-extern uintptr_t **__jove_function_tables;
-extern uintptr_t **__jove_sections_tables;
+extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
+extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
 
-static uintptr_t ***__jove_function_tables_clunk = &__jove_function_tables;
-static uintptr_t ***__jove_sections_tables_clunk = &__jove_sections_tables;
+static uintptr_t **__jove_function_tables_clunk = &__jove_function_tables;
+static uintptr_t **__jove_sections_tables_clunk = &__jove_sections_tables;
 
 uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
@@ -42,7 +42,7 @@ _CTOR _HIDDEN void _jove_initialize(void) {
   const unsigned BIdx = _jove_binary_index();
 
   _jove_install_foreign_function_tables();
-  (*__jove_function_tables_clunk)[BIdx] = _jove_get_function_table();
+  __jove_function_tables_clunk[BIdx] = _jove_get_function_table();
 
   {
     static uintptr_t _Entry[3];
@@ -51,7 +51,7 @@ _CTOR _HIDDEN void _jove_initialize(void) {
     _Entry[1] = _jove_sections_global_end_addr();
     _Entry[2] = _jove_sections_start_file_addr();
 
-    (*__jove_sections_tables_clunk)[BIdx] = (uintptr_t)&_Entry[0];
+    __jove_sections_tables_clunk[BIdx] = &_Entry[0];
   }
 
   _jove_do_tpoff_hack();

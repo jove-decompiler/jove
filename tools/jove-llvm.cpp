@@ -650,7 +650,7 @@ static llvm::GlobalVariable *TraceGlobal;
 static llvm::GlobalVariable *CallStackGlobal;
 static llvm::GlobalVariable *CallStackBeginGlobal;
 
-static llvm::GlobalVariable *JoveFunctionTablesGlobal;
+static llvm::GlobalVariable *JoveFunctionTablesGlobalClunk;
 static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
@@ -1049,8 +1049,8 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
   // check if the functions table pointer is NULL. this can happen if a DSO
   // hasn't been loaded yet
   //
-  llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP2_64(
-      JoveFunctionTablesGlobal, 0, DynTarget.BIdx));
+  llvm::Value *FnsTbl = IRB.CreateLoad(IRB.CreateConstInBoundsGEP1_64(
+      nullptr, IRB.CreateLoad(JoveFunctionTablesGlobalClunk), DynTarget.BIdx));
   if (FailBlock) {
     assert(IRB.GetInsertBlock()->getParent());
     llvm::BasicBlock *fallthroughB = llvm::BasicBlock::Create(
@@ -1351,9 +1351,9 @@ BOOST_PP_REPEAT(9, __THUNK, void)
   assert(JoveFail1Func && !JoveFail1Func->empty());
   JoveFail1Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-  JoveFunctionTablesGlobal =
-      Module->getGlobalVariable("__jove_function_tables", true);
-  assert(JoveFunctionTablesGlobal);
+  JoveFunctionTablesGlobalClunk =
+      Module->getGlobalVariable("__jove_function_tables_clunk", true);
+  assert(JoveFunctionTablesGlobalClunk);
 
   JoveForeignFunctionTablesGlobal =
       Module->getGlobalVariable("__jove_foreign_function_tables", true);
