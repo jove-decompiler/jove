@@ -118,11 +118,11 @@ _HIDDEN void _jove_init(
 
   uintptr_t *const emusp_ptr =
 #if defined(__x86_64__)
-      &__jove_env.regs[R_ESP]
+      &__jove_env_clunk->regs[R_ESP]
 #elif defined(__aarch64__)
-      &__jove_env.xregs[31]
+      &__jove_env_clunk->xregs[31]
 #elif defined(__mips64) || defined(__mips__)
-      &__jove_env.active_tc.gpr[29]
+      &__jove_env_clunk->active_tc.gpr[29]
 #else
 #error
 #endif
@@ -166,7 +166,7 @@ _HIDDEN void _jove_init(
   //
   // (mips) set t9
   //
-  __jove_env.active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
+  __jove_env_clunk->active_tc.gpr[25] = _jove_get_init_fn_sect_ptr();
 #endif
 
   //
@@ -288,11 +288,11 @@ _HIDDEN void _jove__libc_early_init(
 
   uintptr_t *const emusp_ptr =
 #if defined(__x86_64__)
-      &__jove_env.regs[R_ESP]
+      &__jove_env_clunk->regs[R_ESP]
 #elif defined(__aarch64__)
-      &__jove_env.xregs[31]
+      &__jove_env_clunk->xregs[31]
 #elif defined(__mips64) || defined(__mips__)
-      &__jove_env.active_tc.gpr[29]
+      &__jove_env_clunk->active_tc.gpr[29]
 #else
 #error
 #endif
@@ -336,7 +336,7 @@ _HIDDEN void _jove__libc_early_init(
   //
   // (mips) set t9
   //
-  __jove_env.active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
+  __jove_env_clunk->active_tc.gpr[25] = _jove_get_libc_early_init_fn_sect_ptr();
 #endif
 
   //
@@ -790,4 +790,15 @@ void __nodce(void **p) {
 #endif
   *p++ = &__jove_function_tables_clunk;
   *p++ = &__jove_sections_tables_clunk;
+  *p++ = &__jove_env_clunk;
+  *p++ = &_jove_alloc_stack;
+  *p++ = &_jove_free_stack;
+  *p++ = &_jove_alloc_callstack;
+  *p++ = &_jove_free_callstack;
+#ifdef JOVE_DFSAN
+#if (defined(__mips__) && !defined(__mips64)) || \
+    (defined(__i386__) && !defined(__x86_64__))
+  *p++ = &__df32_shadow_for;
+#endif
+#endif
 }

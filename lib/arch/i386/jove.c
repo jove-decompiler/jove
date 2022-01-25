@@ -555,6 +555,7 @@ typedef struct CPUX86State {
 #include <stddef.h>
 
 extern /* __thread */ struct CPUX86State __jove_env;
+static /* __thread */ struct CPUX86State *__jove_env_clunk = &__jove_env;
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -641,7 +642,7 @@ unsigned long _jove_thread_init(unsigned long clone_newsp) {
   //
   // initialize CPUState
   //
-  __jove_env.df = 1;
+  __jove_env_clunk->df = 1;
 
   //
   // setup the emulated stack
@@ -670,7 +671,7 @@ void _jove_begin(target_ulong sp_addr) {
 
     _memcpy(env_sp, (void *)sp_addr, len);
 
-    __jove_env.regs[R_ESP] = (target_ulong)env_sp;
+    __jove_env_clunk->regs[R_ESP] = (target_ulong)env_sp;
   }
 
   _jove_initialize();

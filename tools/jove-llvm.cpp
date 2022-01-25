@@ -135,7 +135,6 @@ struct hook_t;
     std::vector<VersionMapEntry> VersionMap;                                   \
     llvm::Optional<DynRegionInfo> OptionalDynSymRegion;                        \
   } _elf;                                                                      \
-  llvm::GlobalVariable *FunctionsTable = nullptr;                              \
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;                         \
   llvm::Function *SectsF = nullptr;                                            \
   std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
@@ -644,7 +643,7 @@ static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<target_ulong> ConstantRelocationLocs;
 static target_ulong libcEarlyInitAddr;
 
-static llvm::GlobalVariable *CPUStateGlobal;
+static llvm::GlobalVariable *CPUStateGlobalClunk;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *TraceGlobal;
@@ -1305,10 +1304,15 @@ int CreateModule(void) {
 
   DL = Module->getDataLayout();
 
-  CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
-  assert(CPUStateGlobal);
+  {
+    llvm::GlobalVariable *CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
+    assert(CPUStateGlobal);
 
-  CPUStateType = CPUStateGlobal->getType()->getElementType();
+    CPUStateType = CPUStateGlobal->getType()->getElementType();
+  }
+
+  CPUStateGlobalClunk = Module->getGlobalVariable("__jove_env_clunk", true);
+  assert(CPUStateGlobalClunk);
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
   assert(TraceGlobal);
@@ -1927,7 +1931,7 @@ int ProcessExportedFunctions(void) {
   return 0;
 }
 
-static llvm::Constant *CPUStateGlobalPointer(unsigned glb);
+static llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &);
 static llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
 static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair);
 
@@ -2223,7 +2227,7 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
           ->setIsNoInline();
 
       llvm::Value *SPPtr =
-          CPUStateGlobalPointer(tcg_stack_pointer_index);
+          CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
 
       llvm::Value *SavedSP = IRB.CreateLoad(SPPtr);
       SavedSP->setName("saved_sp");
@@ -3197,7 +3201,7 @@ int CreateFunctionTables(void) {
     if (BIdx == BinaryIndex)
       continue;
 
-    binary.FunctionsTable = new llvm::GlobalVariable(
+    llvm::GlobalVariable *FunctionsTable = new llvm::GlobalVariable(
         *Module,
         llvm::ArrayType::get(WordType(),
                              2 * binary.Analysis.Functions.size() + 1),
@@ -3206,8 +3210,8 @@ int CreateFunctionTables(void) {
 
     binary.FunctionsTableClunk = new llvm::GlobalVariable(
         *Module,
-        binary.FunctionsTable->getType(),
-        false, llvm::GlobalValue::InternalLinkage, binary.FunctionsTable,
+        FunctionsTable->getType(),
+        false, llvm::GlobalValue::InternalLinkage, FunctionsTable,
         (fmt("__jove_b%u_clunk") % BIdx).str());
   }
 
@@ -5486,7 +5490,7 @@ int CreateIRELATIVECtorHack(void) {
     for (const auto &pair : IRELATIVEHack) {
       assert(pair.second.first == BinaryIndex);
 
-      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index);
+      llvm::Value *SPPtr = CPUStateGlobalPointer(tcg_stack_pointer_index, IRB);
 
       llvm::Value *TemporaryStack = nullptr;
       {
@@ -6038,16 +6042,10 @@ int FixupHelperStubs(void) {
 
           ArgVec.resize(glbv.size());
           std::transform(
-              glbv.begin(), glbv.end(), ArgVec.begin(),
+              glbv.begin(),
+              glbv.end(), ArgVec.begin(),
               [&](unsigned glb) -> llvm::Value * {
-                llvm::SmallVector<llvm::Value *, 4> Indices;
-                llvm::Value *res = IRB.CreateLoad(llvm::getNaturalGEPWithOffset(
-                    IRB, DL, CPUStateGlobal,
-                    llvm::APInt(64, TCG->_ctx.temps[glb].mem_offset),
-                    IRB.getIntNTy(bitsOfTCGType(TCG->_ctx.temps[glb].type)),
-                    Indices, ""));
-                res->setName(TCG->_ctx.temps[glb].name);
-                return res;
+                return IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
               });
         }
 
@@ -6460,7 +6458,7 @@ static llvm::AllocaInst *CreateAllocaForGlobal(llvm::IRBuilderTy &IRB,
       std::string(TCG->_ctx.temps[glb].name) + "_ptr");
 
   if (InitializeFromEnv) {
-    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
     LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
     llvm::StoreInst *SI = IRB.CreateStore(LI, res);
@@ -6472,7 +6470,7 @@ static llvm::AllocaInst *CreateAllocaForGlobal(llvm::IRBuilderTy &IRB,
 
 static int TranslateBasicBlock(TranslateContext &);
 
-llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
+llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &IRB) {
   assert(glb < tcg_num_globals);
   assert(glb != tcg_env_index);
 
@@ -6485,23 +6483,21 @@ llvm::Constant *CPUStateGlobalPointer(unsigned glb) {
 
   unsigned off = TCG->_ctx.temps[glb].mem_offset;
 
-  llvm::IRBuilderTy IRB(*Context);
+  llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);
+
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
-      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy, Indices, "");
+      IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy,
+      Indices, "");
 
-  if (res) {
-    assert(llvm::isa<llvm::Constant>(res));
-    return llvm::ConstantExpr::getPointerCast(llvm::cast<llvm::Constant>(res),
-                                              llvm::PointerType::get(GlbTy, 0));
-  }
+  if (res)
+    return IRB.CreatePointerCast(res, GlbTy->getPointerTo());
 
   // fallback
-  return llvm::ConstantExpr::getIntToPtr(
-      llvm::ConstantExpr::getAdd(
-          llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),
-          llvm::ConstantInt::get(WordType(), off)),
-      llvm::PointerType::get(GlbTy, 0));
+  return IRB.CreateIntToPtr(
+      IRB.CreateAdd(IRB.CreatePtrToInt(CPUStateGlobal, WordType()),
+                    llvm::ConstantInt::get(WordType(), off)),
+      GlbTy->getPointerTo());
 }
 
 llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb) {
@@ -6769,7 +6765,6 @@ int PrepareToOptimize(void) {
 }
 
 static void ReloadGlobalVariables(void) {
-  CPUStateGlobal   = Module->getGlobalVariable("__jove_env",                 true);
   SectsGlobal      = Module->getGlobalVariable((fmt("__jove_sections_%u") % BinaryIndex).str(), true);
   ConstSectsGlobal = Module->getGlobalVariable("__jove_sections_const",      true);
 }
@@ -6952,6 +6947,7 @@ int ReplaceAllRemainingUsesOfConstSections(void) {
 }
 
 int RenameFunctionLocals(void) {
+#if 0
   if (!CPUStateGlobal)
     return 0;
 
@@ -6983,6 +6979,7 @@ int RenameFunctionLocals(void) {
         UU->setName(nm);
     }
   }
+#endif
 
   return 0;
 }
@@ -7366,7 +7363,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     assert(glb != tcg_env_index);
 
     if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
-      llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(glb));
+      llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(glb, IRB));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return;
     }
@@ -7385,7 +7382,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto get = [&](unsigned glb) -> llvm::Value * {
     switch (glb) {
     case tcg_env_index:
-      return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+      return IRB.CreatePtrToInt(IRB.CreateLoad(CPUStateGlobalClunk), WordType());
 #if defined(TARGET_X86_64)
     case tcg_fs_base_index:
       return insertThreadPointerInlineAsm(IRB);
@@ -7396,7 +7393,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
     }
 
     if (unlikely(CmdlinePinnedEnvGlbs.test(glb))) {
-      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       return LI;
     }
@@ -7639,7 +7636,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
   auto store_stack_pointer = [&](void) -> void {
     auto store_global = [&](unsigned glb) -> void {
-      llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
+      llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
       SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
     };
 
@@ -7648,7 +7645,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
   auto reload_stack_pointer = [&](void) -> void {
     auto reload_global = [&](unsigned glb) -> void {
-      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb));
+      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
       LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
 
       set(LI, glb);
@@ -7881,7 +7878,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       explode_tcg_global_set(glbv, glbs);
 
       for (unsigned glb : glbv) {
-        llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
+        llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
       }
 
@@ -8374,7 +8371,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                              });
 
               ArgVec.push_back(GetDynTargetAddress<true>(IRB, DynTargetsVec[i]));
-              ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index));
+              ArgVec.push_back(CPUStateGlobalPointer(tcg_stack_pointer_index, IRB));
 
               llvm::Function *const JoveThunkFuncArray[] = {
 #define __THUNK(n, i, data) JoveThunk##i##Func,
@@ -8468,7 +8465,7 @@ BOOST_PP_REPEAT(9, __THUNK, void)
               explode_tcg_global_set(glbv, glbs);
 
               for (unsigned glb : glbv) {
-                llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb));
+                llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
                 SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
               }
 
@@ -8916,7 +8913,7 @@ static int TranslateTCGOp(TCGOp *op,
       assert(idx != tcg_env_index);
 
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
-        llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx));
+        llvm::StoreInst *SI = IRB.CreateStore(V, CPUStateGlobalPointer(idx, IRB));
         SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return;
       }
@@ -8945,7 +8942,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (ts->temp_global) {
       switch (idx) {
       case tcg_env_index:
-        return llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType());
+        return IRB.CreatePtrToInt(IRB.CreateLoad(CPUStateGlobalClunk), WordType());
 #if defined(TARGET_X86_64)
       case tcg_fs_base_index:
         return insertThreadPointerInlineAsm(IRB);
@@ -8956,7 +8953,7 @@ static int TranslateTCGOp(TCGOp *op,
       }
 
       if (unlikely(CmdlinePinnedEnvGlbs.test(idx))) {
-        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx));
+        llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(idx, IRB));
         LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
         return LI;
       }
@@ -9095,7 +9092,7 @@ static int TranslateTCGOp(TCGOp *op,
         if (hf.Analysis.Simple && opts::Optimize)
           ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
         else
-          ArgVec.push_back(CPUStateGlobal);
+          ArgVec.push_back(IRB.CreateLoad(CPUStateGlobalClunk));
 
         ++iarg_idx;
 
@@ -9527,13 +9524,14 @@ static int TranslateTCGOp(TCGOp *op,
     __ARCH_LD_OP(off)                                                          \
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
+    llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);         \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
         IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
                                                                                \
     if (!Ptr)                                                                  \
       Ptr = IRB.CreateIntToPtr(                                                \
           IRB.CreateAdd(                                                       \
-              llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),     \
+              IRB.CreatePtrToInt(CPUStateGlobal, WordType()),                  \
               IRB.getIntN(WordBits(), off)),                                   \
           llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
                                                                                \
@@ -9612,12 +9610,13 @@ static int TranslateTCGOp(TCGOp *op,
       Val = IRB.CreateTrunc(Val, IRB.getIntNTy(memBits));                      \
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
+    llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);         \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
         IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
     if (!Ptr)                                                                  \
       Ptr = IRB.CreateIntToPtr(                                                \
           IRB.CreateAdd(                                                       \
-              llvm::ConstantExpr::getPtrToInt(CPUStateGlobal, WordType()),     \
+              IRB.CreatePtrToInt(CPUStateGlobal, WordType()),                  \
               IRB.getIntN(WordBits(), off)),                                   \
           llvm::PointerType::get(IRB.getIntNTy(memBits), 0));                  \
                                                                                \
