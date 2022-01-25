@@ -1815,10 +1815,6 @@ void _jove_start(void) {
                : /* Clobbers */);
 }
 
-extern void _jove_rt_init(void);
-typedef void (*_jove_rt_init_t)(void);
-static _jove_rt_init_t _jove_rt_init_clunk = _jove_rt_init;
-
 void _jove_begin(uint32_t a0,
                  uint32_t a1,
                  uint32_t v0,     /* formerly a2 */
@@ -1828,7 +1824,6 @@ void _jove_begin(uint32_t a0,
   __jove_env.active_tc.gpr[2] = v0;
 
   /** don't optimize away the following referenced globals **/
-  __jove_env.irq[0] = (void *)&_jove_rt_init_clunk;
   __jove_env.irq[1] = (void *)_jove_alloc_stack;
   __jove_env.irq[2] = (void *)_jove_free_stack;
   __jove_env.irq[3] = (void *)_jove_alloc_callstack;

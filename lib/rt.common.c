@@ -4,13 +4,16 @@
 /* __thread */ uint64_t *__jove_callstack       = NULL;
 /* __thread */ uint64_t *__jove_callstack_begin = NULL;
 
-uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES] = {
+uintptr_t *__jove_function_tables_arr[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
 
-uintptr_t *__jove_sections_table[_JOVE_MAX_BINARIES] = {
+uintptr_t *__jove_sections_tables_arr[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
 };
+
+uintptr_t **__jove_function_tables = &__jove_function_tables_arr[0];
+uintptr_t **__jove_sections_tables = &__jove_sections_tables_arr[0];
 
 static uintptr_t to_free[16];
 

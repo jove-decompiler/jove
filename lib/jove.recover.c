@@ -20,7 +20,7 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   } Callee;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
-    uintptr_t *fns = __jove_function_tables[BIdx];
+    uintptr_t *fns = (*__jove_function_tables_clunk)[BIdx];
     if (!fns) {
       if (BIdx == 1 || BIdx == 2) { /* XXX */
         fns = __jove_foreign_function_tables[BIdx];
@@ -296,7 +296,7 @@ _HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
   } Callee;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
-    uintptr_t *Entry = __jove_sections_table[BIdx];
+    uintptr_t *Entry = (*__jove_sections_tables_clunk)[BIdx];
     if (likely(!Entry))
       continue;
 
