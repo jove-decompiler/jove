@@ -680,6 +680,7 @@ static llvm::Function *JoveFail1Func;
 
 static llvm::Function *JoveAllocStackFunc;
 static llvm::Function *JoveFreeStackFunc;
+static llvm::Function *JoveNoDCEFunc;
 
 //
 // DFSan
@@ -1067,6 +1068,31 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
       IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
 }
 
+static void ReferenceInNoDCEFunc(llvm::Value *V) {
+  assert(JoveNoDCEFunc);
+  assert(!JoveNoDCEFunc->empty());
+  assert(!JoveNoDCEFunc->empty());
+  assert(!JoveNoDCEFunc->getEntryBlock().empty());
+
+  static unsigned Idx = 40; /* XXX */
+
+  assert(JoveNoDCEFunc->arg_size() == 1);
+  llvm::Value *OutArg = JoveNoDCEFunc->getArg(0);
+
+  {
+    llvm::IRBuilderTy IRB(&JoveNoDCEFunc->getEntryBlock().front());
+
+    llvm::Value *Ptr = IRB.CreateConstInBoundsGEP1_32(nullptr, OutArg, Idx++);
+    llvm::Type *PtrTy = Ptr->getType();
+    assert(llvm::isa<llvm::PointerType>(PtrTy));
+
+    IRB.CreateStore(
+        IRB.CreateBitCast(
+            V, llvm::cast<llvm::PointerType>(PtrTy)->getElementType()),
+        Ptr);
+  }
+}
+
 // XXX duplicated code
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -1429,6 +1455,9 @@ BOOST_PP_REPEAT(9, __THUNK, void)
       DFSanFiniClunk->setVisibility(llvm::GlobalValue::HiddenVisibility);
     }
   }
+
+  JoveNoDCEFunc = Module->getFunction("__nodce");
+  assert(JoveNoDCEFunc);
 
   return 0;
 }
@@ -3213,6 +3242,8 @@ int CreateFunctionTables(void) {
         FunctionsTable->getType(),
         false, llvm::GlobalValue::InternalLinkage, FunctionsTable,
         (fmt("__jove_b%u_clunk") % BIdx).str());
+
+    ReferenceInNoDCEFunc(binary.FunctionsTableClunk);
   }
 
   return 0;
