@@ -777,11 +777,11 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
 void __nodce(void **p) {
   *p++ = &__jove_trace_clunk;
   *p++ = &__jove_trace_begin_clunk;
-  *p++ = (void *)_jove_trace_enabled();
-  *p++ = (void *)_jove_dfsan_enabled();
-  *p++ = _jove_get_init_fn_sect_ptr;
-  *p++ = _jove_get_libc_early_init_fn;
-  *p++ = _jove_get_libc_early_init_fn_sect_ptr;
+  *p++ = &_jove_trace_enabled;
+  *p++ = &_jove_dfsan_enabled;
+  *p++ = &_jove_get_init_fn_sect_ptr;
+  *p++ = &_jove_get_libc_early_init_fn;
+  *p++ = &_jove_get_libc_early_init_fn_sect_ptr;
   *p++ = &__jove_callstack_clunk;
   *p++ = &__jove_callstack_begin_clunk;
   *p++ = &_jove_flush_trace_clunk;
