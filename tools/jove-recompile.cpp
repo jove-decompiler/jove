@@ -136,6 +136,10 @@ static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
 static cl::opt<bool> Optimize("optimize", cl::desc("Run optimizations on bitcode"),
                               cl::cat(JoveCategory));
 
+static cl::opt<bool> SkipCopyRelocHack("skip-copy-reloc-hack",
+                                       cl::desc("Do not insert COPY relocations in output file (HACK)"),
+                                       cl::cat(JoveCategory));
+
 static cl::opt<bool>
     CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
                                     cl::desc("Check for stack overrun"),
@@ -979,6 +983,9 @@ int recompile(void) {
 
       if (rtld_path && fs::exists(rtld_path)) /* XXX */
         arg_vec.push_back(rtld_path);
+
+      if (opts::SkipCopyRelocHack)
+        arg_vec.push_back("--skip-copy-reloc-hack");
 
       arg_vec.push_back(nullptr);
 

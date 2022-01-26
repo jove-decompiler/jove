@@ -94,6 +94,10 @@ static cl::opt<bool> DFSan("dfsan", cl::desc("Run dfsan on bitcode"),
 static cl::opt<bool> Optimize("optimize", cl::desc("Run optimizations on bitcode"),
                               cl::cat(JoveCategory));
 
+static cl::opt<bool> SkipCopyRelocHack("skip-copy-reloc-hack",
+                                       cl::desc("Do not insert COPY relocations in output file (HACK)"),
+                                       cl::cat(JoveCategory));
+
 static cl::opt<bool>
     ForceRecompile("force-recompile",
                    cl::desc("Skip running the prog the first time"),
@@ -835,6 +839,7 @@ skip_run:
         headerBits.set(1, opts::ForeignLibs);
         headerBits.set(2, opts::Trace);
         headerBits.set(3, opts::Optimize);
+        headerBits.set(4, opts::SkipCopyRelocHack);
 
         uint8_t header = headerBits.to_ullong();
 
