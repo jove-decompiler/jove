@@ -744,6 +744,7 @@ void _jove_check_return_address(uintptr_t RetAddr,
 // 32-bit DFSan
 //
 extern struct shadow_t __df32_shadow_mem[65536];
+static struct shadow_t *__df32_shadow_mem_clunk = &__df32_shadow_mem[0];
 
 static dfsan_label *__df32_shadow_for(uint32_t A) {
   const uint16_t AddrUpperBits = A >> 16;
@@ -752,7 +753,7 @@ static dfsan_label *__df32_shadow_for(uint32_t A) {
   unsigned Region = AddrLowerBits / JOVE_SHADOW_REGION_SIZE;
   unsigned Offset = AddrLowerBits % JOVE_SHADOW_REGION_SIZE;
 
-  dfsan_label **shadowp = &__df32_shadow_mem[AddrUpperBits].X[Region];
+  dfsan_label **shadowp = &__df32_shadow_mem_clunk[AddrUpperBits].X[Region];
 
   dfsan_label *shadow = *shadowp;
   if (unlikely(!shadow)) {
@@ -799,6 +800,7 @@ void __nodce(void **p) {
 #if (defined(__mips__) && !defined(__mips64)) || \
     (defined(__i386__) && !defined(__x86_64__))
   *p++ = &__df32_shadow_for;
+  *p++ = &__df32_shadow_mem_clunk;
 #endif
 #endif
 }
