@@ -856,13 +856,10 @@ int llvm(void) {
     }
   }
 
-  if (int rc = InitStateForBinaries())
-    return rc;
-
-  if (int rc = CreateModule())
-    return rc;
-
-  if (int rc = PrepareToTranslateCode())
+  int rc;
+  if ((rc = InitStateForBinaries()) ||
+      (rc = CreateModule()) ||
+      (rc = PrepareToTranslateCode()))
     return rc;
 
   //
