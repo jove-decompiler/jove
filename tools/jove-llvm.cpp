@@ -763,7 +763,6 @@ static std::map<target_ulong, dynamic_target_t> IRELATIVEHack;
 static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int PrepareToTranslateCode(void);
-static int ProcessDynamicTargets(void);
 static int ProcessBinaryRelocations(void);
 static int ProcessIFuncResolvers(void);
 static int ProcessExportedFunctions(void);
