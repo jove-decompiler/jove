@@ -127,6 +127,7 @@ struct hook_t;
   llvm::Function *F = nullptr;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  binary_index_t BIdx;                                                         \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   struct {                                                                     \
     DynRegionInfo DynamicTable;                                                \
@@ -878,8 +879,49 @@ int llvm(void) {
     CmdlinePinnedEnvGlbs.set(idx);
   }
 
-  return ProcessDynamicTargets()
-      || ProcessBinaryRelocations()
+  //
+  // identify ABIs
+  //
+  for_each_basic_block(Decompilation, [&](auto &binary, auto &ICFG, auto bb) {
+    auto &DynTargets = ICFG[bb].DynTargets;
+
+    for_each_if(
+        DynTargets.begin(),
+        DynTargets.end(),
+        [&](dynamic_target_t IdxPair) -> bool {
+          return IdxPair.first != binary.BIdx;
+        },
+        [&](dynamic_target_t IdxPair) {
+          function_t &callee = Decompilation.Binaries[IdxPair.first]
+                                  .Analysis.Functions[IdxPair.second];
+
+          callee.IsABI = true;
+        });
+  });
+
+  // XXX IFUNC bullshit
+  for_each_binary(Decompilation, [&](auto &binary) {
+                  auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+
+                  std::for_each(IFuncDynTargets.begin(),
+                                IFuncDynTargets.end(),
+                                [&](const auto &pair) {
+                                  std::for_each(pair.second.begin(),
+                                                pair.second.end(),
+                                                [&](dynamic_target_t IdxPair) {
+                                                  binary_index_t BIdx;
+                                                  function_index_t FIdx;
+                                                  std::tie(BIdx, FIdx) = IdxPair;
+
+                                                  function_t &f =
+                                                      Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+
+                                                  f.IsABI = true;
+                                                });
+                                });
+                  });
+
+  return ProcessBinaryRelocations()
       || ProcessIFuncResolvers()
       || ProcessExportedFunctions()
       || CreateFunctions()
@@ -1099,6 +1141,8 @@ int InitStateForBinaries(void) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
     auto &FuncMap = binary.FuncMap;
+
+    binary.BIdx = BIdx;
 
     //
     // FuncMap
@@ -2359,83 +2403,6 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
     VersionScript.Table[sym.Vers].insert(sym.Name);
 
   return res;
-}
-
-int ProcessDynamicTargets(void) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
-         ++BBIdx) {
-      basic_block_t bb = boost::vertex(BBIdx, ICFG);
-
-      for (const auto &DynTarget : ICFG[bb].DynTargets) {
-        if (DynTarget.first == BIdx)
-          continue;
-
-        function_t &callee = Decompilation.Binaries[DynTarget.first]
-                                .Analysis.Functions[DynTarget.second];
-
-        callee.IsABI = true;
-      }
-    }
-  }
-
-  //
-  // dynamic ifunc resolver targets are ABIs
-  //
-  for (const binary_t &binary : Decompilation.Binaries) {
-    for (const auto &pair : binary.Analysis.IFuncDynTargets) {
-      for (const auto &IdxPair : pair.second) {
-        binary_index_t BIdx;
-        function_index_t FIdx;
-        std::tie(BIdx, FIdx) = IdxPair;
-
-        function_t &f =
-            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-        f.IsABI = true;
-      }
-    }
-  }
-
-#if 0
-  //
-  // resolved symbols are ABIs
-  //
-  for (const binary_t &binary : Decompilation.Binaries) {
-    for (const auto &pair : binary.Analysis.SymDynTargets) {
-      for (const auto &IdxPair : pair.second) {
-        binary_index_t BIdx;
-        function_index_t FIdx;
-        std::tie(BIdx, FIdx) = IdxPair;
-
-        function_t &f =
-            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-        f.IsABI = true;
-      }
-    }
-  }
-#endif
-
-#if 0
-  //
-  // _start is *not* an ABI XXX
-  //
-  for (auto &binary : Decompilation.Binaries) {
-    auto &A = binary.Analysis;
-    if (binary.IsExecutable) {
-      if (is_function_index_valid(A.EntryFunction))
-        A.Functions.at(A.EntryFunction).IsABI = false;
-
-      break;
-    }
-  }
-#endif
-
-  return 0;
 }
 
 int ProcessBinaryRelocations(void) {

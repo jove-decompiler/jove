@@ -358,6 +358,61 @@ struct terminator_info_t {
   };
 };
 
+template <typename Iter, typename Pred, typename Op>
+static inline void for_each_if(Iter first, Iter last, Pred p, Op op) {
+  while (first != last) {
+    if (p(*first))
+      op(*first);
+    ++first;
+  }
+}
+
+static inline void for_each_binary(decompilation_t &decompilation,
+                                   std::function<void(binary_t &)> proc) {
+  std::for_each(decompilation.Binaries.begin(),
+                decompilation.Binaries.end(),
+                proc);
+}
+
+static inline void for_each_binary_if(decompilation_t &decompilation,
+                                      std::function<bool(binary_t &)> pred,
+                                      std::function<void(binary_t &)> proc) {
+  for_each_if(decompilation.Binaries.begin(),
+              decompilation.Binaries.end(),
+              pred, proc);
+}
+
+static inline void for_each_function(decompilation_t &decompilation,
+                                     std::function<void(function_t &)> proc) {
+  for_each_binary(decompilation, [&](binary_t &binary) {
+    std::for_each(binary.Analysis.Functions.begin(),
+                  binary.Analysis.Functions.end(), proc);
+  });
+}
+
+static inline void for_each_function_if(decompilation_t &decompilation,
+                                        std::function<bool(function_t &)> pred,
+                                        std::function<void(function_t &)> proc) {
+  for_each_binary(decompilation, [&](binary_t &binary) {
+    for_each_if(binary.Analysis.Functions.begin(),
+                binary.Analysis.Functions.end(),
+                pred, proc);
+  });
+}
+
+static inline void for_each_basic_block(decompilation_t &decompilation,
+                                        std::function<void(binary_t &, icfg_t &, basic_block_t)> proc) {
+  for_each_binary(decompilation, [&](binary_t &binary) {
+    auto &ICFG = binary.Analysis.ICFG;
+
+    icfg_t::vertex_iterator it, it_end;
+    std::tie(it, it_end) = boost::vertices(ICFG);
+
+    std::for_each(it, it_end,
+                  [&](basic_block_t bb) { proc(binary, ICFG, bb); });
+  });
+}
+
 }
 
 #undef JOVE_EXTRA_BIN_PROPERTIES
