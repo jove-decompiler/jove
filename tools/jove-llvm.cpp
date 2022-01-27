@@ -614,6 +614,42 @@ static int tcg_global_index_of_name(const char *nm) {
   return -1;
 }
 
+static llvm::Type *VoidType(void) {
+  return llvm::Type::getVoidTy(*Context);
+}
+
+static bool is_integral_size(unsigned n) {
+  return n == 1 || n == 2 || n == 4 || n == 8;
+}
+
+static constexpr unsigned WordBytes(void) {
+  return sizeof(target_ulong);
+}
+
+static constexpr unsigned WordBits(void) {
+  return WordBytes() * 8;
+}
+
+static llvm::IntegerType *WordType(void) {
+  return llvm::Type::getIntNTy(*Context, WordBits());
+}
+
+static llvm::Type *PointerToWordType(void) {
+  return llvm::PointerType::get(WordType(), 0);
+}
+
+static llvm::Type *PPointerType(void) {
+  return llvm::PointerType::get(PointerToWordType(), 0);
+}
+
+static llvm::Type *VoidFunctionPointer(void) {
+  llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+  return llvm::PointerType::get(FTy, 0);
+}
+
+static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t,
+                                           llvm::StringRef SymName);
+
 //
 // Globals
 //
@@ -764,12 +800,9 @@ static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int PrepareToTranslateCode(void);
 static int ProcessBinaryRelocations(void);
-static int ProcessIFuncResolvers(void);
-static int ProcessExportedFunctions(void);
 static int CreateFunctions(void);
 static int CreateFunctionTables(void);
 static int ProcessBinaryTLSSymbols(void);
-static int ProcessDynamicSymbols(void);
 static int LocateHooks(void);
 static int CreateTLSModGlobal(void);
 static int CreateSectionGlobalVariables(void);
@@ -917,17 +950,244 @@ int llvm(void) {
                                 });
                   });
 
-  return ProcessBinaryRelocations()
-      || ProcessIFuncResolvers()
-      || ProcessExportedFunctions()
-      || CreateFunctions()
-      || CreateFunctionTables()
-      || ProcessBinaryTLSSymbols()
-      || ProcessDynamicSymbols()
-      || (opts::DFSan ? LocateHooks() : 0)
-      || CreateTLSModGlobal()
-      || CreateSectionGlobalVariables()
-      || ProcessDynamicSymbols2()
+  //
+  // process function symbols
+  //
+  for_each_binary_if(
+      Decompilation,
+      [&](auto &b) -> bool {
+        return b.ObjectFile.get() != nullptr &&
+               b._elf.OptionalDynSymRegion;
+      },
+      [&](auto &b) {
+        auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+
+        for_each_if(
+            DynSyms.begin(),
+            DynSyms.end(),
+            [&](const Elf_Sym &Sym) -> bool {
+              return !(Sym.isUndefined() ||
+                       Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+                     Sym.getType() == llvm::ELF::STT_FUNC;
+            },
+            [&](const Elf_Sym &Sym) {
+              llvm::Expected<llvm::StringRef> ExpectedSymName =
+                  Sym.getName(b._elf.DynamicStringTable);
+
+              if (!ExpectedSymName)
+                return;
+
+              function_index_t FIdx;
+              {
+                auto it = b.FuncMap.find(Sym.st_value);
+                assert(it != b.FuncMap.end());
+
+                FIdx = (*it).second;
+              }
+
+              symbol_t &sym = b.Analysis.Functions[FIdx].Syms.emplace_back();
+              sym.Name = *ExpectedSymName;
+
+              ExportedFunctions[sym.Name].insert({b.BIdx, FIdx});
+
+              if (!b._elf.SymbolVersionSection) {
+                sym.Visibility.IsDefault = false;
+              } else {
+                unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
+                                  reinterpret_cast<uintptr_t>(
+                                      b._elf.OptionalDynSymRegion->Addr)) /
+                                 sizeof(Elf_Sym);
+
+                auto &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
+
+                const Elf_Versym *Versym = unwrapOrError(
+                    E.template getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
+
+                sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
+                                                   b._elf.DynamicStringTable,
+                                                   Versym->vs_index,
+                                                   sym.Visibility.IsDefault);
+              }
+
+              sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
+              sym.Type = sym_type_of_elf_sym_type(Sym.getType());
+              sym.Size = Sym.st_size;
+              sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
+
+              //
+              // hack for glibc 2.32+ XXX (should this go elsewhere?)
+              //
+              if (b.BIdx == BinaryIndex &&
+                  sym.Name == "__libc_early_init" &&
+                  sym.Vers == "GLIBC_PRIVATE") {
+                Module->appendModuleInlineAsm(
+                    ".symver "
+                    "_jove__libc_early_init,__libc_early_init@@GLIBC_PRIVATE");
+                VersionScript.Table["GLIBC_PRIVATE"];
+
+                libcEarlyInitAddr = Sym.st_value;
+              }
+            });
+      });
+
+  //
+  // process data symbols (GlobalSymbolDefinedSizeMap)
+  //
+  for_each_binary_if(
+      Decompilation,
+      [&](auto &b) -> bool {
+        return b.ObjectFile.get() != nullptr &&
+               b._elf.OptionalDynSymRegion;
+      },
+      [&](auto &b) {
+        auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+
+        for_each_if(
+            DynSyms.begin(),
+            DynSyms.end(),
+            [&](const Elf_Sym &Sym) -> bool {
+              return !(Sym.isUndefined() ||
+                       Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+                     (Sym.getType() == llvm::ELF::STT_OBJECT ||
+                      Sym.getType() == llvm::ELF::STT_TLS) &&
+                     Sym.st_size > 0;
+            },
+            [&](const Elf_Sym &Sym) {
+              llvm::Expected<llvm::StringRef> ExpectedSymName =
+                  Sym.getName(b._elf.DynamicStringTable);
+
+              if (!ExpectedSymName)
+                return;
+
+              llvm::StringRef SymName = *ExpectedSymName;
+
+              auto it = GlobalSymbolDefinedSizeMap.find(SymName);
+              if (it == GlobalSymbolDefinedSizeMap.end()) {
+                GlobalSymbolDefinedSizeMap.insert({SymName, Sym.st_size});
+              } else {
+                if ((*it).second != Sym.st_size) {
+                  if (opts::Verbose)
+                    WithColor::warning()
+                        << llvm::formatv("global symbol {0} is defined with "
+                                         "multiple distinct sizes: {1}, {2}\n",
+                                         SymName, Sym.st_size, (*it).second);
+                  (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
+                }
+              }
+            });
+      });
+
+  binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+
+  assert(Binary.ObjectFile.get());
+  assert(Binary._elf.OptionalDynSymRegion); /* XXX? */
+
+  auto DynSyms = Binary._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+
+  //
+  // process binary TLS symbols
+  //
+  for_each_if(
+      DynSyms.begin(),
+      DynSyms.end(),
+      [&](const Elf_Sym &Sym) -> bool {
+        return !(Sym.isUndefined() ||
+                 Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+               Sym.getType() == llvm::ELF::STT_TLS;
+      },
+      [&](const Elf_Sym &Sym) {
+        llvm::Expected<llvm::StringRef> ExpectedSymName =
+            Sym.getName(Binary._elf.DynamicStringTable);
+
+        if (!ExpectedSymName)
+          return;
+
+        llvm::StringRef SymName = *ExpectedSymName;
+
+        TLSValueToSymbolMap[Sym.st_value].insert(SymName);
+
+        auto it = TLSValueToSizeMap.find(Sym.st_value);
+        if (it == TLSValueToSizeMap.end()) {
+          TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
+        } else {
+          if ((*it).second != Sym.st_size) {
+            WithColor::warning()
+                << llvm::formatv("binary TLS symbol {0} is defined with "
+                                 "multiple distinct sizes: {1}, {2}\n",
+                                 SymName, Sym.st_size, (*it).second);
+            (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
+          }
+        }
+      });
+
+  if ((rc = ProcessBinaryRelocations()) ||
+      (rc = CreateFunctions()) ||
+      (rc = CreateFunctionTables()) ||
+      (rc = ProcessBinaryTLSSymbols()) ||
+      (rc = (opts::DFSan ? LocateHooks() : 0)) ||
+      (rc = CreateTLSModGlobal()) ||
+      (rc = CreateSectionGlobalVariables()))
+    return rc;
+
+  //
+  // process IFunc symbols
+  //
+  for_each_if(
+      DynSyms.begin(),
+      DynSyms.end(),
+      [&](const Elf_Sym &Sym) -> bool {
+        return !(Sym.isUndefined() ||
+                 Sym.st_shndx == llvm::ELF::SHN_UNDEF) &&
+               Sym.getType() == llvm::ELF::STT_GNU_IFUNC;
+      },
+      [&](const Elf_Sym &Sym) {
+        llvm::Expected<llvm::StringRef> ExpectedSymName =
+            Sym.getName(Binary._elf.DynamicStringTable);
+
+        if (!ExpectedSymName)
+          return;
+
+        llvm::StringRef SymName = *ExpectedSymName;
+        llvm::StringRef SymVers;
+        bool VisibilityIsDefault;
+
+        if (Binary._elf.SymbolVersionSection) {
+          unsigned SymNo = (reinterpret_cast<uintptr_t>(&Sym) -
+                            reinterpret_cast<uintptr_t>(
+                                Binary._elf.OptionalDynSymRegion->Addr)) /
+                           sizeof(Elf_Sym);
+
+          auto &E = *llvm::cast<ELFO>(Binary.ObjectFile.get())->getELFFile();
+
+          const Elf_Versym *Versym = unwrapOrError(
+              E.template getEntry<Elf_Versym>(Binary._elf.SymbolVersionSection, SymNo));
+
+          SymVers = getSymbolVersionByIndex(Binary._elf.VersionMap,
+                                            Binary._elf.DynamicStringTable,
+                                            Versym->vs_index,
+                                            VisibilityIsDefault);
+        }
+
+        auto it = Binary.FuncMap.find(Sym.st_value);
+        assert(it != Binary.FuncMap.end());
+
+        function_t &f = Binary.Analysis.Functions[((*it).second)];
+
+        if (f._resolver.IFunc) { /* aliased? */
+          llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
+
+          llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create(
+              FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
+              f._resolver.IFunc->getResolver(), Module.get());
+        } else {
+          f._resolver.IFunc = buildGlobalIFunc(f, invalid_dynamic_target, SymName);
+        }
+
+        if (!SymVers.empty())
+          VersionScript.Table[SymVers].insert(SymName);
+      });
+
+  return ProcessDynamicSymbols2()
       || CreateFunctionTable()
       || FixupHelperStubs()
       || CreateNoAliasMetadata()
@@ -997,39 +1257,6 @@ void _qemu_log(const char *cstr) {
 
 static bool isDFSan(void) {
   return opts::DFSan;
-}
-
-static bool is_integral_size(unsigned n) {
-  return n == 1 || n == 2 || n == 4 || n == 8;
-}
-
-static constexpr unsigned WordBytes(void) {
-  return sizeof(target_ulong);
-}
-
-static constexpr unsigned WordBits(void) {
-  return WordBytes() * 8;
-}
-
-static llvm::IntegerType *WordType(void) {
-  return llvm::Type::getIntNTy(*Context, WordBits());
-}
-
-static llvm::Type *PointerToWordType(void) {
-  return llvm::PointerType::get(WordType(), 0);
-}
-
-static llvm::Type *PPointerType(void) {
-  return llvm::PointerType::get(PointerToWordType(), 0);
-}
-
-static llvm::Type *VoidType(void) {
-  return llvm::Type::getVoidTy(*Context);
-}
-
-static llvm::Type *VoidFunctionPointer(void) {
-  llvm::FunctionType *FTy = llvm::FunctionType::get(VoidType(), false);
-  return llvm::PointerType::get(FTy, 0);
 }
 
 static bool
@@ -1936,285 +2163,12 @@ static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
 static llvm::FunctionType *DetermineFunctionType(
     const std::pair<binary_index_t, function_index_t> &FuncIdxPair);
 
-int ProcessExportedFunctions(void) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
-    auto &FuncMap = b.FuncMap;
-
-    if (!b.ObjectFile)
-      continue;
-
-    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
-    const ELFF &E = *O.getELFFile();
-
-    if (!b._elf.OptionalDynSymRegion)
-      continue; /* no dynamic symbols */
-
-    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
-
-    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
-      const Elf_Sym &Sym = DynSyms[SymNo];
-
-      if (Sym.isUndefined())
-        continue;
-      if (Sym.getType() != llvm::ELF::STT_FUNC)
-        continue;
-
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
-      if (!ExpectedSymName)
-        continue;
-
-      llvm::StringRef SymName = *ExpectedSymName;
-
-      auto it = FuncMap.find(Sym.st_value);
-      if (it == FuncMap.end())
-        continue;
-
-      function_t &f = b.Analysis.Functions[(*it).second];
-
-      symbol_t &res = f.Syms.emplace_back();
-      res.Name = SymName;
-
-      //
-      // symbol versioning
-      //
-      if (!b._elf.SymbolVersionSection) {
-        res.Visibility.IsDefault = false;
-      } else {
-        const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
-
-        res.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                           b._elf.DynamicStringTable,
-                                           Versym->vs_index,
-                                           res.Visibility.IsDefault);
-      }
-
-      res.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      res.Type = sym_type_of_elf_sym_type(Sym.getType());
-      res.Size = Sym.st_size;
-      res.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
-    }
-  }
-
-  return 0;
-}
-
 static llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &);
 static llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
-static llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair);
 
-int ProcessDynamicSymbols(void) {
-  std::set<std::pair<uintptr_t, unsigned>> gdefs;
+llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair, llvm::StringRef SymName) {
+  assert(SectsGlobal);
 
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &b = Decompilation.Binaries[BIdx];
-    auto &FuncMap = b.FuncMap;
-
-    if (!b.ObjectFile)
-      continue;
-
-    assert(llvm::isa<ELFO>(b.ObjectFile.get()));
-    ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
-    const ELFF &E = *O.getELFFile();
-
-    auto OptionalDynSymRegion = b._elf.OptionalDynSymRegion;
-    if (!OptionalDynSymRegion)
-      continue; /* no dynamic symbols */
-
-    auto DynSyms = b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
-
-    for (unsigned SymNo = 0; SymNo < DynSyms.size(); ++SymNo) {
-      const Elf_Sym &Sym = DynSyms[SymNo];
-
-      const bool is_undefined = Sym.isUndefined() ||
-                                Sym.st_shndx == llvm::ELF::SHN_UNDEF;
-      if (is_undefined)
-        continue;
-
-      llvm::Expected<llvm::StringRef> ExpectedSymName = Sym.getName(b._elf.DynamicStringTable);
-      if (!ExpectedSymName)
-        continue;
-
-      llvm::StringRef SymName = *ExpectedSymName;
-
-      symbol_t sym;
-
-      sym.Name = SymName;
-
-      //
-      // symbol versioning
-      //
-      if (!b._elf.SymbolVersionSection) {
-        sym.Visibility.IsDefault = false;
-      } else {
-        const Elf_Versym *Versym = unwrapOrError(
-            E.getEntry<Elf_Versym>(b._elf.SymbolVersionSection, SymNo));
-
-        sym.Vers = getSymbolVersionByIndex(b._elf.VersionMap,
-                                           b._elf.DynamicStringTable,
-                                           Versym->vs_index,
-                                           sym.Visibility.IsDefault);
-      }
-
-      sym.Addr = Sym.isUndefined() ? 0 : Sym.st_value;
-      sym.Type = sym_type_of_elf_sym_type(Sym.getType());
-      sym.Size = Sym.st_size;
-      sym.Bind = sym_binding_of_elf_sym_binding(Sym.getBinding());
-
-      if (Sym.getType() == llvm::ELF::STT_OBJECT ||
-          Sym.getType() == llvm::ELF::STT_TLS) {
-        if (!Sym.st_size) {
-          if (opts::Verbose)
-            WithColor::warning() << "symbol '" << SymName
-                                 << "' defined but size is unknown; ignoring\n";
-          continue;
-        }
-
-        {
-          auto it = GlobalSymbolDefinedSizeMap.find(SymName);
-          if (it == GlobalSymbolDefinedSizeMap.end()) {
-            GlobalSymbolDefinedSizeMap.insert({SymName, Sym.st_size});
-          } else {
-            if ((*it).second != Sym.st_size) {
-              if (opts::Verbose)
-                WithColor::warning()
-                    << llvm::formatv("global symbol {0} is defined with "
-                                     "multiple distinct sizes: {1}, {2}\n",
-                                     SymName, Sym.st_size, (*it).second);
-              (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
-            }
-          }
-        }
-
-        if (BIdx == BinaryIndex) {
-          //
-          // if this symbol is TLS, update the TLSValueToSymbolMap
-          //
-          if (Sym.getType() == llvm::ELF::STT_TLS) {
-            TLSValueToSymbolMap[Sym.st_value].insert(SymName);
-
-            auto it = TLSValueToSizeMap.find(Sym.st_value);
-            if (it == TLSValueToSizeMap.end()) {
-              TLSValueToSizeMap.insert({Sym.st_value, Sym.st_size});
-            } else {
-              if ((*it).second != Sym.st_size) {
-                WithColor::warning()
-                    << llvm::formatv("binary TLS symbol {0} is defined with "
-                                     "multiple distinct sizes: {1}, {2}\n",
-                                     SymName, Sym.st_size, (*it).second);
-                (*it).second = std::max<unsigned>((*it).second, Sym.st_size);
-              }
-            }
-          } else {
-            ;
-          }
-        }
-      } else if (Sym.getType() == llvm::ELF::STT_FUNC) {
-        function_index_t FuncIdx;
-        {
-          auto it = FuncMap.find(Sym.st_value);
-          if (it == FuncMap.end()) {
-            WithColor::warning()
-                << llvm::formatv("no function for {0} exists at {1:x}\n",
-                                 SymName, Sym.st_value);
-            continue;
-          }
-
-          FuncIdx = (*it).second;
-        }
-
-        Decompilation.Binaries[BIdx].Analysis.Functions[FuncIdx].Syms.push_back(sym);
-
-        ExportedFunctions[SymName].insert({BIdx, FuncIdx});
-
-        if (BIdx == BinaryIndex) {
-          //
-          // XXX hack for glibc 2.32+
-          //
-          if (sym.Name == "__libc_early_init" &&
-              sym.Vers == "GLIBC_PRIVATE") {
-            Module->appendModuleInlineAsm(
-                ".symver "
-                "_jove__libc_early_init,__libc_early_init@@GLIBC_PRIVATE");
-            VersionScript.Table["GLIBC_PRIVATE"];
-
-            libcEarlyInitAddr = Sym.st_value;
-          }
-        }
-      } else if (Sym.getType() == llvm::ELF::STT_GNU_IFUNC) {
-        std::pair<binary_index_t, function_index_t> IdxPair(invalid_dynamic_target);
-
-        {
-          auto &IFuncDynTargets = b.Analysis.IFuncDynTargets;
-          auto it = IFuncDynTargets.find(Sym.st_value);
-          if (it == IFuncDynTargets.end()) {
-            for (const auto &_binary : Decompilation.Binaries) {
-              auto &_SymDynTargets = _binary.Analysis.SymDynTargets;
-              auto _it = _SymDynTargets.find(SymName);
-              if (_it != _SymDynTargets.end()) {
-                IdxPair = *(*_it).second.begin();
-                break;
-              }
-            }
-          } else {
-            IdxPair = *(*it).second.begin();
-          }
-        }
-
-        if (is_dynamic_target_valid(IdxPair))
-          ExportedFunctions[SymName].insert(IdxPair);
-
-        if (BIdx == BinaryIndex) {
-          auto it = FuncMap.find(Sym.st_value);
-          assert(it != FuncMap.end());
-
-          function_t &f = b.Analysis.Functions.at((*it).second);
-
-          f.Syms.push_back(sym);
-
-          llvm::FunctionType *FTy =
-              is_dynamic_target_valid(IdxPair)
-                  ? DetermineFunctionType(IdxPair)
-                  : llvm::FunctionType::get(VoidType(), false);
-
-          if (f._resolver.IFunc) {
-#if 0
-            llvm::GlobalAlias::create(SymName, f._resolver.IFunc);
-#else
-            llvm::GlobalIFunc *IFunc = llvm::GlobalIFunc::create(
-                FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName,
-                f._resolver.IFunc->getResolver(), Module.get());
-
-            if (!sym.Vers.empty()) {
-#if 0
-              Module->appendModuleInlineAsm(
-                  (llvm::Twine(".symver ") + SymName + "," + SymName +
-                   (sym.Visibility.IsDefault ? "@@" : "@") + sym.Vers)
-                      .str());
-#endif
-
-              VersionScript.Table[sym.Vers].insert(SymName);
-
-#if 0
-              Module->appendModuleInlineAsm(
-                  (llvm::Twine(".type ") + SymName + " STT_GNU_IFUNC").str());
-#endif
-            }
-#endif
-          } else {
-            f._resolver.IFunc = buildGlobalIFunc(f, IdxPair);
-          }
-        }
-      }
-    }
-  }
-
-  return 0;
-}
-
-llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
   llvm::FunctionType *FTy = is_dynamic_target_valid(IdxPair)
                                 ? DetermineFunctionType(IdxPair)
                                 : llvm::FunctionType::get(VoidType(), false);
@@ -2264,21 +2218,16 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
                               DebugInfo.Subprogram));
 
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
-      llvm::Constant *Res = llvm::ConstantExpr::getPtrToInt(
-          Decompilation.Binaries[BinaryIndex]
-              .Analysis.Functions.at(IdxPair.second)
-              .F,
-          WordType());
+      function_t &f =
+          Decompilation.Binaries[BinaryIndex].Analysis.Functions.at(IdxPair.second);
 
-      //
-      // FIXME we can't only look at the SectionPointer when translating an
-      // indirect jump because of this. Unfortunately, at the moment we cannot
-      // just return SectionPointer() here because this function is called
-      // *before* CreateSectionGlobalVariables.
-      //
+      auto &Binary = Decompilation.Binaries[BinaryIndex];
+      auto &ICFG = Binary.Analysis.ICFG;
+
+      target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
       IRB.CreateRet(IRB.CreateIntToPtr(
-          Res, CallsF->getFunctionType()->getReturnType()));
+          SectionPointer(Addr), CallsF->getFunctionType()->getReturnType()));
     } else if (is_dynamic_target_valid(IdxPair) && DynTargetNeedsThunkPred(IdxPair)) {
       IRB.CreateCall(JoveInstallForeignFunctionTables)
           ->setIsNoInline();
@@ -2388,15 +2337,9 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair) {
 
   DIB.finalizeSubprogram(DebugInfo.Subprogram);
 
-  assert(!f.Syms.empty());
-  symbol_t &sym = f.Syms.back();
-
   llvm::GlobalIFunc *res = llvm::GlobalIFunc::create(
-      FTy, 0, llvm::GlobalValue::ExternalLinkage, sym.Name, CallsF,
+      FTy, 0, llvm::GlobalValue::ExternalLinkage, SymName, CallsF,
       Module.get());
-
-  if (!sym.Vers.empty())
-    VersionScript.Table[sym.Vers].insert(sym.Name);
 
   return res;
 }
@@ -2629,103 +2572,6 @@ int ProcessBinaryRelocations(void) {
     default:
       break;
     }
-  }
-
-  return 0;
-}
-
-int ProcessIFuncResolvers(void) {
-  auto &FuncMap = Decompilation.Binaries[BinaryIndex].FuncMap;
-  auto &binary = Decompilation.Binaries[BinaryIndex];
-
-  assert(llvm::isa<ELFO>(binary.ObjectFile.get()));
-  ELFO &O = *llvm::cast<ELFO>(binary.ObjectFile.get());
-  const ELFF &E = *O.getELFFile();
-
-  for (const relocation_t &R : RelocationTable) {
-    if (R.Type != relocation_t::TYPE::IRELATIVE)
-      continue;
-
-    target_ulong ifunc_resolver_addr = R.Addend;
-    if (!ifunc_resolver_addr) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
-      if (ExpectedPtr) {
-        ifunc_resolver_addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
-      } else {
-        WARN();
-        continue;
-      }
-    }
-
-    assert(ifunc_resolver_addr);
-
-    auto it = FuncMap.find(ifunc_resolver_addr);
-    assert(it != FuncMap.end());
-
-    function_t &resolver = binary.Analysis.Functions[(*it).second];
-    assert(resolver.IsABI);
-    resolver.IsABI = true;
-  }
-
-  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-    return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
-  };
-
-  if (!binary._elf.OptionalDynSymRegion)
-    return 0; /* no dynamic symbols */
-
-  const DynRegionInfo &DynSymRegion = *binary._elf.OptionalDynSymRegion;
-
-  auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
-    return DynSymRegion.getAsArrayRef<Elf_Sym>();
-  };
-
-  for (const Elf_Sym &Sym : dynamic_symbols()) {
-    if (Sym.isUndefined()) /* defined */
-      continue;
-    if (Sym.getType() != llvm::ELF::STT_GNU_IFUNC)
-      continue;
-
-    auto it = FuncMap.find(Sym.st_value);
-    if (it == FuncMap.end()) {
-      WithColor::error() << llvm::formatv("Sym.st_value={0:x}\n",
-                                          Sym.st_value);
-    }
-    assert(it != FuncMap.end());
-
-    function_t &resolver = binary.Analysis.Functions.at((*it).second);
-    resolver.IsABI = true;
-  }
-
-  //
-  // DT_INIT
-  //
-  target_ulong initFunctionAddr = 0;
-
-  for (const Elf_Dyn &Dyn : dynamic_table()) {
-    if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-      break; /* marks end of dynamic table. */
-
-    if (Dyn.d_tag == llvm::ELF::DT_INIT) {
-      if (opts::Verbose)
-        WithColor::note() << llvm::formatv("DT_INIT: {0}\n", Dyn.getVal());
-
-      if (uint64_t X = Dyn.getVal()) {
-        initFunctionAddr = Dyn.getVal();
-        break;
-      }
-    }
-  }
-
-  if (initFunctionAddr) {
-    WithColor::note() << llvm::formatv("we think initFunctionAddr is {0:x}\n", initFunctionAddr);
-
-    auto it = FuncMap.find(initFunctionAddr);
-    assert(it != FuncMap.end());
-
-    function_t &f =
-        Decompilation.Binaries[BinaryIndex].Analysis.Functions[(*it).second];
-    assert(f.IsABI);
   }
 
   return 0;
