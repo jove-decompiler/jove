@@ -19,6 +19,7 @@
 #include <boost/serialization/nvp.hpp>
 #include <numeric>
 #include <limits>
+#include <algorithm>
 
 #if defined(TARGET_AARCH64)
 #include <jove/arch/aarch64/tcgconstants.h>
