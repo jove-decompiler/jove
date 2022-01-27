@@ -6977,7 +6977,6 @@ int ReplaceAllRemainingUsesOfConstSections(void) {
 }
 
 int RenameFunctionLocals(void) {
-#if 0
   if (!CPUStateGlobal)
     return 0;
 
@@ -7009,7 +7008,6 @@ int RenameFunctionLocals(void) {
         UU->setName(nm);
     }
   }
-#endif
 
   return 0;
 }
