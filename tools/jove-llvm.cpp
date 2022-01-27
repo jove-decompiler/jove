@@ -643,7 +643,7 @@ static std::vector<relocation_t> RelocationTable;
 static std::unordered_set<target_ulong> ConstantRelocationLocs;
 static target_ulong libcEarlyInitAddr;
 
-static llvm::GlobalVariable *CPUStateGlobalClunk;
+static llvm::GlobalVariable *CPUStateGlobal;
 static llvm::Type *CPUStateType;
 
 static llvm::GlobalVariable *TraceGlobal;
@@ -1331,13 +1331,14 @@ int CreateModule(void) {
   DL = Module->getDataLayout();
 
   {
-    llvm::GlobalVariable *CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
+    CPUStateGlobal = Module->getGlobalVariable("__jove_env", true);
     assert(CPUStateGlobal);
 
     CPUStateType = CPUStateGlobal->getType()->getElementType();
   }
 
-  CPUStateGlobalClunk = Module->getGlobalVariable("__jove_env_clunk", true);
+  llvm::GlobalVariable *CPUStateGlobalClunk =
+      Module->getGlobalVariable("__jove_env_clunk", true);
   assert(CPUStateGlobalClunk);
 
   TraceGlobal = Module->getGlobalVariable("__jove_trace", true);
@@ -6514,8 +6515,6 @@ llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &IRB) {
 
   unsigned off = TCG->_ctx.temps[glb].mem_offset;
 
-  llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);
-
   llvm::SmallVector<llvm::Value *, 4> Indices;
   llvm::Value *res = llvm::getNaturalGEPWithOffset(
       IRB, DL, CPUStateGlobal, llvm::APInt(64, off), GlbTy,
@@ -7413,7 +7412,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
   auto get = [&](unsigned glb) -> llvm::Value * {
     switch (glb) {
     case tcg_env_index:
-      return IRB.CreatePtrToInt(IRB.CreateLoad(CPUStateGlobalClunk), WordType());
+      return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
     case tcg_fs_base_index:
       return insertThreadPointerInlineAsm(IRB);
@@ -8973,7 +8972,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (ts->temp_global) {
       switch (idx) {
       case tcg_env_index:
-        return IRB.CreatePtrToInt(IRB.CreateLoad(CPUStateGlobalClunk), WordType());
+        return IRB.CreatePtrToInt(CPUStateGlobal, WordType());
 #if defined(TARGET_X86_64)
       case tcg_fs_base_index:
         return insertThreadPointerInlineAsm(IRB);
@@ -9123,7 +9122,7 @@ static int TranslateTCGOp(TCGOp *op,
         if (hf.Analysis.Simple && opts::Optimize)
           ArgVec.push_back(IRB.CreateAlloca(CPUStateType));
         else
-          ArgVec.push_back(IRB.CreateLoad(CPUStateGlobalClunk));
+          ArgVec.push_back(CPUStateGlobal);
 
         ++iarg_idx;
 
@@ -9555,7 +9554,6 @@ static int TranslateTCGOp(TCGOp *op,
     __ARCH_LD_OP(off)                                                          \
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
-    llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);         \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
         IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
                                                                                \
@@ -9641,7 +9639,6 @@ static int TranslateTCGOp(TCGOp *op,
       Val = IRB.CreateTrunc(Val, IRB.getIntNTy(memBits));                      \
                                                                                \
     llvm::SmallVector<llvm::Value *, 4> Indices;                               \
-    llvm::Value *CPUStateGlobal = IRB.CreateLoad(CPUStateGlobalClunk);         \
     llvm::Value *Ptr = llvm::getNaturalGEPWithOffset(                          \
         IRB, DL, CPUStateGlobal, llvm::APInt(64, off), nullptr, Indices, "");  \
     if (!Ptr)                                                                  \
