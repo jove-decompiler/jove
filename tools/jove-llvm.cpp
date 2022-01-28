@@ -790,6 +790,9 @@ static std::map<std::pair<target_ulong, unsigned>,
 
 static std::map<target_ulong, dynamic_target_t> IRELATIVEHack;
 
+static llvm::Constant *JoveFailString_UnknownBranchTarget;
+static llvm::Constant *JoveFailString_UnknownCallee;
+
 #define JOVE_PAGE_SIZE 4096
 #define JOVE_STACK_SIZE (512 * JOVE_PAGE_SIZE)
 
@@ -2677,6 +2680,14 @@ int PrepareToTranslateCode(void) {
       /* isOptimized */ true,
       /* Flags       */ "",
       /* RunTimeVer  */ 0);
+
+
+  {
+    llvm::IRBuilderTy IRB(*Context);
+
+    JoveFailString_UnknownBranchTarget = IRB.CreateGlobalStringPtr("unknown branch target");
+    JoveFailString_UnknownCallee       = IRB.CreateGlobalStringPtr("unknown callee");
+  }
 
   return 0;
 }
@@ -7927,7 +7938,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
       llvm::Value *FailArgs[] = {
-          PC, IRB.CreateGlobalStringPtr("unknown branch target")
+          PC, JoveFailString_UnknownBranchTarget
       };
 
       IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
@@ -7971,7 +7982,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       if (!IsCall)
         IRB.CreateCall(JoveRecoverBasicBlockFunc, RecoverArgs)->setIsNoInline();
       IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
-      IRB.CreateCall(JoveFail1Func, {PC, IRB.CreateGlobalStringPtr("unknown callee")})->setIsNoInline();
+      IRB.CreateCall(JoveFail1Func, {PC, JoveFailString_UnknownCallee})->setIsNoInline();
       IRB.CreateUnreachable();
 
       return 0;
@@ -8036,7 +8047,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                             boost::vertex_index_t>::type bb_idx_map =
             boost::get(boost::vertex_index, ICFG);
         llvm::Value *RecoverArgs[] = {IRB.getInt32(bb_idx_map[bb]), PC};
-        llvm::Value *FailArgs[] = {PC, IRB.CreateGlobalStringPtr("unknown callee")};
+        llvm::Value *FailArgs[] = {PC, JoveFailString_UnknownCallee};
 
         IRB.CreateCall(JoveRecoverDynTargetFunc, RecoverArgs)->setIsNoInline();
         IRB.CreateCall(JoveRecoverFunctionFunc, RecoverArgs)->setIsNoInline();
