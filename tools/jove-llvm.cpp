@@ -8038,7 +8038,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       std::vector<llvm::Type *> argTypes(2, WordType());
 
       llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          GetDynTargetAddress<false>(IRB, X),
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
@@ -8061,7 +8061,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
       std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
 
       llvm::Value *CastedPtr = IRB.CreateIntToPtr(
-          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          GetDynTargetAddress<false>(IRB, X),
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
