@@ -485,9 +485,13 @@ void *ConnectionProc(void *arg) {
   //
   // create a temporary directory
   //
-  srand(time(NULL));
-  fs::path TemporaryDir = fs::path(tmpdir) / std::to_string(rand());
-  fs::create_directory(TemporaryDir);
+  fs::path TemporaryDir;
+  {
+    static std::atomic<unsigned> x = 0;
+
+    TemporaryDir = fs::path(tmpdir) / std::to_string(x++);
+    fs::create_directory(TemporaryDir);
+  }
 
   //
   // read header
