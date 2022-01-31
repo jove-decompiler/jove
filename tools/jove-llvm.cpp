@@ -7598,6 +7598,9 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     function_t &callee = Binary.Analysis.Functions.at(FIdx);
 
+    //
+    // setjmp/longjmp
+    //
     const bool Lj = callee.IsLj;
     const bool Sj = callee.IsSj;
     const bool SjLj = Lj || Sj;
@@ -7998,6 +8001,93 @@ int TranslateBasicBlock(TranslateContext &TC) {
       IRB.CreateUnreachable();
 
       return 0;
+    }
+
+    //
+    // setjmp/longjmp
+    //
+    const bool Lj = std::any_of(DynTargets.begin(),
+                                DynTargets.end(),
+                                [](dynamic_target_t X) -> bool {
+                                  return Decompilation.Binaries.at(X.first)
+                                            .Analysis.Functions.at(X.second).IsLj;
+                                });
+    const bool Sj = std::any_of(DynTargets.begin(),
+                                DynTargets.end(),
+                                [](dynamic_target_t X) -> bool {
+                                  return Decompilation.Binaries.at(X.first)
+                                            .Analysis.Functions.at(X.second).IsSj;
+                                });
+
+    const bool SjLj = Lj || Sj;
+    if (unlikely(SjLj)) {
+      assert(Lj ^ Sj);
+
+      dynamic_target_t X = *DynTargets.begin();
+
+      function_t &callee = Decompilation.Binaries.at(X.first)
+                              .Analysis.Functions.at(X.second);
+
+      llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} ({3})\n",
+                                    Lj ? "longjmp" : "setjmp",
+                                    ICFG[boost::vertex(callee.Entry, ICFG)].Addr,
+                                    ICFG[bb].Term.Addr,
+                                    IsCall ? "indcall" : "indjmp");
+
+#if defined(TARGET_I386)
+      std::vector<llvm::Type *> argTypes(2, WordType());
+
+      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
+          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.reserve(2);
+
+      {
+        llvm::Value *SP = get(tcg_stack_pointer_index);
+
+        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), sizeof(target_ulong))),
+            WordType()->getPointerTo())));
+
+        ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
+            WordType()->getPointerTo())));
+      }
+
+      assert(ArgVec.size() == argTypes.size());
+#else
+      std::vector<llvm::Type *> argTypes(CallConvArgArray.size(), WordType());
+
+      llvm::Value *CastedPtr = IRB.CreateIntToPtr(
+          SectionPointer(ICFG[boost::vertex(callee.Entry, ICFG)].Addr),
+          llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(CallConvArgArray.size());
+
+      std::transform(CallConvArgArray.begin(),
+                     CallConvArgArray.end(),
+                     ArgVec.begin(),
+                     [&](unsigned glb) -> llvm::Value * {
+                       return get(glb);
+                     });
+#endif
+
+      llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
+      if (Sj) {
+        set(Ret, CallConvRetArray.at(0));
+        break;
+      } else {
+        assert(Lj);
+
+        IRB.CreateCall(
+            llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+        IRB.CreateUnreachable();
+
+        return 0;
+      }
     }
 
     {
