@@ -8028,9 +8028,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
       function_t &callee = Decompilation.Binaries.at(X.first)
                               .Analysis.Functions.at(X.second);
 
-      llvm::outs() << llvm::formatv("calling {0} {1:x} from {2:x} ({3})\n",
+      llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
                                     Lj ? "longjmp" : "setjmp",
-                                    ICFG[boost::vertex(callee.Entry, ICFG)].Addr,
                                     ICFG[bb].Term.Addr,
                                     IsCall ? "indcall" : "indjmp");
 
