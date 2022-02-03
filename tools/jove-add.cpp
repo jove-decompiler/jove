@@ -772,6 +772,31 @@ int add(void) {
                             sizeof(pattern));
   }
 
+  {
+    // glibc
+    static const uint8_t pattern[] = {
+      0x31, 0xc0,                               // xor    %eax,%eax
+      0x8b, 0x54, 0x24, 0x04,                   // mov    0x4(%esp),%edx
+      0x89, 0x1a,                               // mov    %ebx,(%edx)
+      0x89, 0x72, 0x04,                         // mov    %esi,0x4(%edx)
+      0x89, 0x7a, 0x08,                         // mov    %edi,0x8(%edx)
+      0x8d, 0x4c, 0x24, 0x04,                   // lea    0x4(%esp),%ecx
+      0x65, 0x33, 0x0d, 0x18, 0x00, 0x00, 0x00, // xor    %gs:0x18,%ecx
+      0xc1, 0xc1, 0x09,                         // rol    $0x9,%ecx
+      0x89, 0x4a, 0x10,                         // mov    %ecx,0x10(%edx)
+      0x8b, 0x0c, 0x24,                         // mov    (%esp),%ecx
+      0x65, 0x33, 0x0d, 0x18, 0x00, 0x00, 0x00, // xor    %gs:0x18,%ecx
+      0xc1, 0xc1, 0x09,                         // rol    $0x9,%ecx
+      0x89, 0x4a, 0x14,                         // mov    %ecx,0x14(%edx)
+      0x89, 0x6a, 0x0c,                         // mov    %ebp,0xc(%edx)
+      0x89, 0x42, 0x18,                         // mov    %eax,0x18(%edx)
+      0xc3                                      // ret
+    };
+
+    SjPatterns.emplace_back(reinterpret_cast<const char *>(&pattern[0]),
+                            sizeof(pattern));
+  }
+
 #elif defined(TARGET_MIPS32)
   {
     // glibc
