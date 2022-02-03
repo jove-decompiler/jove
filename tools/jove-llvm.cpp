@@ -714,6 +714,8 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 #undef __THUNK
 
 static llvm::Function *JoveFail1Func;
+static llvm::Function *JoveLog1Func;
+static llvm::Function *JoveLog2Func;
 
 static llvm::Function *JoveAllocStackFunc;
 static llvm::Function *JoveFreeStackFunc;
@@ -1647,6 +1649,14 @@ BOOST_PP_REPEAT(9, __THUNK, void)
   JoveFail1Func = Module->getFunction("_jove_fail1");
   assert(JoveFail1Func && !JoveFail1Func->empty());
   JoveFail1Func->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  JoveLog1Func = Module->getFunction("_jove_log1");
+  assert(JoveLog1Func && !JoveLog1Func->empty());
+  JoveLog1Func->setLinkage(llvm::GlobalValue::InternalLinkage);
+
+  JoveLog2Func = Module->getFunction("_jove_log2");
+  assert(JoveLog2Func && !JoveLog2Func->empty());
+  JoveLog2Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
   JoveFunctionTablesGlobalClunk =
       Module->getGlobalVariable("__jove_function_tables_clunk", true);
@@ -3291,6 +3301,9 @@ int CreateSectionGlobalVariables(void) {
         if (!is_basic_block_index_valid(f.Entry))
           continue;
 
+        if (!f.IsABI)
+          continue;
+
         if (f.IsLj || f.IsSj)
           continue;
 
@@ -3324,6 +3337,9 @@ int CreateSectionGlobalVariables(void) {
       for (function_index_t FIdx = 0; FIdx <  Binary.Analysis.Functions.size(); ++FIdx) {
         function_t &f = Binary.Analysis.Functions[FIdx];
         if (!is_basic_block_index_valid(f.Entry))
+          continue;
+
+        if (!f.IsABI)
           continue;
 
         if (f.IsLj || f.IsSj)
@@ -7619,18 +7635,33 @@ int TranslateBasicBlock(TranslateContext &TC) {
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
-      ArgVec.reserve(2);
 
       {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(target_ulong))),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
             WordType()->getPointerTo())));
+
+#if 0
+        {
+          std::string message =
+              (fmt("doing %s (call) to %s @ %s+0x%x\n")
+               % (Lj ? "longjmp" : "setjmp")
+               % dyn_target_desc({BinaryIndex, FIdx})
+               % fs::path(Binary.Path).filename().string()
+               % ICFG[bb].Term.Addr).str();
+
+          IRB.CreateCall(JoveLog2Func,
+                         {IRB.CreateGlobalStringPtr(message.c_str()),
+                          ArgVec.at(0),
+                          ArgVec.at(1)});
+        }
+#endif
       }
 
       assert(ArgVec.size() == argTypes.size());
@@ -8033,6 +8064,18 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                     ICFG[bb].Term.Addr,
                                     IsCall ? "indcall" : "indjmp");
 
+#if 0
+      {
+        std::string message =
+            (fmt("doing %s (%s) @ %s+0x%x\n")
+             % (Lj ? "longjmp" : "setjmp")
+             % (IsCall ? "indcall" : "indjmp")
+             % fs::path(Binary.Path).filename().string()
+             % ICFG[bb].Term.Addr).str();
+        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str())});
+      }
+#endif
+
 #if defined(TARGET_I386)
       std::vector<llvm::Type *> argTypes(2, WordType());
 
@@ -8041,18 +8084,34 @@ int TranslateBasicBlock(TranslateContext &TC) {
           llvm::FunctionType::get(WordType(), argTypes, false)->getPointerTo());
 
       std::vector<llvm::Value *> ArgVec;
-      ArgVec.reserve(2);
 
       {
         llvm::Value *SP = get(tcg_stack_pointer_index);
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
-            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), sizeof(target_ulong))),
+            IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 1 * sizeof(target_ulong))),
             WordType()->getPointerTo())));
 
         ArgVec.push_back(IRB.CreateLoad(IRB.CreateIntToPtr(
             IRB.CreateAdd(SP, IRB.getIntN(WordBits(), 2 * sizeof(target_ulong))),
             WordType()->getPointerTo())));
+
+#if 0
+        {
+          std::string message =
+              (fmt("doing %s (%s) to %s @ %s+0x%x\n")
+               % (Lj ? "longjmp" : "setjmp")
+               % (IsCall ? "indcall" : "indjmp")
+               % dyn_target_desc(X)
+               % fs::path(Binary.Path).filename().string()
+               % ICFG[bb].Term.Addr).str();
+
+          IRB.CreateCall(JoveLog2Func,
+                         {IRB.CreateGlobalStringPtr(message.c_str()),
+                          ArgVec.at(0),
+                          ArgVec.at(1)});
+        }
+#endif
       }
 
       assert(ArgVec.size() == argTypes.size());
@@ -8077,6 +8136,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
       if (Sj) {
         set(Ret, CallConvRetArray.at(0));
+
+#if defined(TARGET_X86_64) || defined(TARGET_I386)
+        //
+        // simulate return address being popped
+        //
+        set(IRB.CreateAdd(
+                get(tcg_stack_pointer_index),
+                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+            tcg_stack_pointer_index);
+#endif
         break;
       } else {
         assert(Lj);
