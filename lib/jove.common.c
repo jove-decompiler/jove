@@ -723,6 +723,52 @@ _NORET void _jove_fail2(uintptr_t a0,
   __builtin_unreachable();
 }
 
+void _jove_log1(const char *msg,
+                uintptr_t x) {
+  char s[4096 * 8];
+  s[0] = '\0';
+
+  _strcat(s, msg);
+
+  _strcat(s, " (0x");
+  {
+    char buff[65];
+    _uint_to_string(x, buff, 0x10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, ")\n");
+
+  _robust_write(2 /* stderr */, s, _strlen(s));
+}
+
+void _jove_log2(const char *msg,
+                uintptr_t x,
+                uintptr_t y) {
+  char s[4096 * 8];
+  s[0] = '\0';
+
+  _strcat(s, msg);
+
+  _strcat(s, " (0x");
+  {
+    char buff[65];
+    _uint_to_string(x, buff, 0x10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, ", 0x");
+  {
+    char buff[65];
+    _uint_to_string(y, buff, 0x10);
+
+    _strcat(s, buff);
+  }
+  _strcat(s, ")\n");
+
+  _robust_write(2 /* stderr */, s, _strlen(s));
+}
+
 #if defined(JOVE_DFSAN)
 void _jove_check_return_address(uintptr_t RetAddr,
                                 uintptr_t NativeRetAddr) {
