@@ -7683,6 +7683,17 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
 #endif
 
+#if 0
+      {
+        std::string message =
+            (fmt("doing %s (call) @ %s+0x%x\n")
+             % (Lj ? "longjmp" : "setjmp")
+             % fs::path(Binary.Path).filename().string()
+             % ICFG[bb].Term.Addr).str();
+        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
+      }
+#endif
+
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
 
       if (Sj) {
@@ -8064,18 +8075,6 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                     ICFG[bb].Term.Addr,
                                     IsCall ? "indcall" : "indjmp");
 
-#if 0
-      {
-        std::string message =
-            (fmt("doing %s (%s) @ %s+0x%x\n")
-             % (Lj ? "longjmp" : "setjmp")
-             % (IsCall ? "indcall" : "indjmp")
-             % fs::path(Binary.Path).filename().string()
-             % ICFG[bb].Term.Addr).str();
-        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str())});
-      }
-#endif
-
 #if defined(TARGET_I386)
       std::vector<llvm::Type *> argTypes(2, WordType());
 
@@ -8133,18 +8132,33 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
 #endif
 
+#if 0
+      {
+        std::string message =
+            (fmt("doing %s (%s) @ %s+0x%x\n")
+             % (Lj ? "longjmp" : "setjmp")
+             % (IsCall ? "indcall" : "indjmp")
+             % fs::path(Binary.Path).filename().string()
+             % ICFG[bb].Term.Addr).str();
+        IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
+      }
+#endif
+
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
+
       if (Sj) {
         set(Ret, CallConvRetArray.at(0));
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-        //
-        // simulate return address being popped
-        //
-        set(IRB.CreateAdd(
-                get(tcg_stack_pointer_index),
-                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
-            tcg_stack_pointer_index);
+        if (IsCall) {
+          //
+          // simulate return address being popped
+          //
+          set(IRB.CreateAdd(
+                  get(tcg_stack_pointer_index),
+                  llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+              tcg_stack_pointer_index);
+        }
 #endif
         break;
       } else {
