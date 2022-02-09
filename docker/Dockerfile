@@ -39,6 +39,7 @@ RUN apt-get update && \
       binutils-dev \
       g++-multilib-i686-linux-gnu \
       g++-multilib-mipsel-linux-gnu \
+      g++-multilib-mips-linux-gnu \
       g++-multilib-mips64el-linux-gnuabi64 \
       g++-aarch64-linux-gnu \
       libboost-all-dev \

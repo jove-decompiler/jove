@@ -1,0 +1,1 @@
+../mips32/harvest-vdso.c
