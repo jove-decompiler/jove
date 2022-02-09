@@ -350,7 +350,7 @@ aarch64_SOURCE_LOCATIONS := $(_SL_AARCH64_TCG_CONTEXT_INIT) \
 
 .PHONY: extract-tcg-code
 extract-tcg-code:
-	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) $(COMMON_SOURCE_LOCATIONS) $($(ARCH)_SOURCE_LOCATIONS) > lib/arch/$(ARCH)/tcg.hpp
+	$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) $(COMMON_SOURCE_LOCATIONS) $($(HOST_ARCH)_SOURCE_LOCATIONS) > lib/arch/$(HOST_ARCH)/tcg.hpp
 
 
 aarch64-setend_EXTRICATE_ARGS := target/arm/helper.c:11245l
@@ -1489,7 +1489,7 @@ mips32-muluh_i64_EXTRICATE_ARGS := mulu64
 # TCG helpers
 #
 .PHONY: extract-helpers
-extract-helpers: $(foreach helper,$($(ARCH)_HELPERS),extract-$(helper))
+extract-helpers: $(foreach helper,$($(HOST_ARCH)_HELPERS),extract-$(helper))
 
 .PHONY: build-helpers
 build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) $(HELPERS_DFSAN_BITCODE)
@@ -1497,9 +1497,9 @@ build-helpers: $(HELPERS_BITCODE) $(HELPERS_ASSEMBLY) $(HELPERS_DFSAN_ASSEMBLY) 
 define extract_helper_template
 .PHONY: extract-$(1)
 extract-$(1):
-	-$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(ARCH)/helpers/$(1).c
+	-$(CLANG_EXTRICATE)/extract/bin/carbon-extract --src $(QEMU_SRC_DIR) --bin $(QEMU_BUILD_DIR) helper_$(1) $($(HOST_ARCH)-$(1)_EXTRICATE_ARGS) > lib/arch/$(HOST_ARCH)/helpers/$(1).c
 endef
-$(foreach helper,$($(ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
+$(foreach helper,$($(HOST_ARCH)_HELPERS),$(eval $(call extract_helper_template,$(helper))))
 
 define build_helper_template
 $(BINDIR)/$(2)/helpers/$(1).ll: $(BINDIR)/$(2)/helpers/$(1).bc
