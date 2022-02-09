@@ -54,9 +54,9 @@ static T unwrapOrError(llvm::Expected<T> EO) {
 
 #if defined(TARGET_X86_64) || defined(TARGET_AARCH64) || defined(TARGET_MIPS64)
 typedef typename llvm::object::ELF64LE ELFT;
-#elif defined(TARGET_I386) || (defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN))
+#elif defined(TARGET_I386) || (defined(TARGET_MIPS32) && defined(TARGET_MIPSEL))
 typedef typename llvm::object::ELF32LE ELFT;
-#elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
 typedef typename llvm::object::ELF32BE ELFT;
 #else
 #error
