@@ -1951,6 +1951,8 @@ typedef int32_t tcg_target_long;
 
 typedef uint32_t tcg_target_ulong;
 
+#define TCG_TARGET_MAYBE_vec            0
+
 # define TARGET_INSN_START_WORDS (1 + TARGET_INSN_START_EXTRA_WORDS)
 
 typedef uint32_t TCGRegSet;

@@ -1,5 +1,7 @@
 #define HOST_WORDS_BIGENDIAN 1
 
+#define TARGET_MIPS 1
+
 #define CONFIG_USER_ONLY 1
 
 #  define GCC_FMT_ATTR(n, m) __attribute__((format(printf, n, m)))
@@ -74,6 +76,97 @@ typedef struct IRQState *qemu_irq;
 
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 
+typedef uint8_t flag;
+
+typedef uint32_t float32;
+
+#define float64_val(x) (x)
+
+typedef uint64_t float64;
+
+typedef struct float_status {
+    signed char float_detect_tininess;
+    signed char float_rounding_mode;
+    uint8_t     float_exception_flags;
+    signed char floatx80_rounding_precision;
+    /* should denormalised results go to zero and set the inexact flag? */
+    flag flush_to_zero;
+    /* should denormalised inputs go to zero and set the input_denormal flag? */
+    flag flush_inputs_to_zero;
+    flag default_nan_mode;
+    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
+    flag snan_bit_is_one;
+} float_status;
+
+#define BITS_PER_BYTE           CHAR_BIT
+
+#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
+
+int float64_is_quiet_nan(float64 a, float_status *status);
+
+int float64_is_signaling_nan(float64, float_status *status);
+
+static inline int float64_is_infinity(float64 a)
+{
+    return (float64_val(a) & 0x7fffffffffffffffLL ) == 0x7ff0000000000000LL;
+}
+
+static inline int float64_is_neg(float64 a)
+{
+    return float64_val(a) >> 63;
+}
+
+static inline int float64_is_zero(float64 a)
+{
+    return (float64_val(a) & 0x7fffffffffffffffLL) == 0;
+}
+
+static inline int float64_is_zero_or_denormal(float64 a)
+{
+    return (float64_val(a) & 0x7ff0000000000000LL) == 0;
+}
+
+static inline flag snan_bit_is_one(float_status *status)
+{
+#if defined(TARGET_MIPS)
+    return status->snan_bit_is_one;
+#elif defined(TARGET_HPPA) || defined(TARGET_UNICORE32) || defined(TARGET_SH4)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+int float64_is_quiet_nan(float64 a_, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return float64_is_any_nan(a_);
+#else
+    uint64_t a = float64_val(a_);
+    if (snan_bit_is_one(status)) {
+        return (((a >> 51) & 0xFFF) == 0xFFE)
+            && (a & 0x0007FFFFFFFFFFFFULL);
+    } else {
+        return ((a << 1) >= 0xFFF0000000000000ULL);
+    }
+#endif
+}
+
+int float64_is_signaling_nan(float64 a_, float_status *status)
+{
+#ifdef NO_SIGNALING_NANS
+    return 0;
+#else
+    uint64_t a = float64_val(a_);
+    if (snan_bit_is_one(status)) {
+        return ((a << 1) >= 0xFFF0000000000000ULL);
+    } else {
+        return (((a >> 51) & 0xFFF) == 0xFFE)
+            && (a & UINT64_C(0x0007FFFFFFFFFFFF));
+    }
+#endif
+}
+
 #define QLIST_HEAD(name, type)                                          \
 struct name {                                                           \
         struct type *lh_first;  /* first element */                     \
@@ -119,32 +212,6 @@ struct QemuCond {
 struct QemuThread {
     pthread_t thread;
 };
-
-typedef uint8_t flag;
-
-typedef uint32_t float32;
-
-#define float64_val(x) (x)
-
-typedef uint64_t float64;
-
-typedef struct float_status {
-    signed char float_detect_tininess;
-    signed char float_rounding_mode;
-    uint8_t     float_exception_flags;
-    signed char floatx80_rounding_precision;
-    /* should denormalised results go to zero and set the inexact flag? */
-    flag flush_to_zero;
-    /* should denormalised inputs go to zero and set the input_denormal flag? */
-    flag flush_inputs_to_zero;
-    flag default_nan_mode;
-    /* not always used -- see snan_bit_is_one() in softfloat-specialize.h */
-    flag snan_bit_is_one;
-} float_status;
-
-#define BITS_PER_BYTE           CHAR_BIT
-
-#define BITS_TO_LONGS(nr)       DIV_ROUND_UP(nr, BITS_PER_BYTE * sizeof(long))
 
 typedef struct QEMUTimerList QEMUTimerList;
 
@@ -1748,30 +1815,6 @@ struct CPUMIPSState {
     MemoryRegion *itc_tag; /* ITC Configuration Tags */
     target_ulong exception_base; /* ExceptionBase input to the core */
 };
-
-int float64_is_quiet_nan(float64 a, float_status *status);
-
-int float64_is_signaling_nan(float64, float_status *status);
-
-static inline int float64_is_infinity(float64 a)
-{
-    return (float64_val(a) & 0x7fffffffffffffffLL ) == 0x7ff0000000000000LL;
-}
-
-static inline int float64_is_neg(float64 a)
-{
-    return float64_val(a) >> 63;
-}
-
-static inline int float64_is_zero(float64 a)
-{
-    return (float64_val(a) & 0x7fffffffffffffffLL) == 0;
-}
-
-static inline int float64_is_zero_or_denormal(float64 a)
-{
-    return (float64_val(a) & 0x7ff0000000000000LL) == 0;
-}
 
 #define FLOAT_CLASS_SIGNALING_NAN      0x001
 
