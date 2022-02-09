@@ -579,6 +579,49 @@ int add(void) {
                 [&](const Elf_Sym &Sym) -> void {
                   ABIAtAddress(Sym.st_value);
                 });
+
+    //
+    // XXX __libc_early_init (glibc)
+    //
+    if (SymbolVersionSection) {
+      for_each_if(
+          DynSyms.begin(),
+          DynSyms.end(),
+          [](const Elf_Sym &Sym) -> bool {
+            return !Sym.isUndefined() &&
+                   Sym.getType() == llvm::ELF::STT_FUNC;
+          },
+          [&](const Elf_Sym &Sym) -> void {
+            llvm::Expected<llvm::StringRef> ExpectedSymName =
+                Sym.getName(DynamicStringTable);
+
+            if (!ExpectedSymName)
+              return;
+
+            llvm::StringRef SymName = *ExpectedSymName;
+            llvm::StringRef SymVers;
+
+            // Determine the position in the symbol table of this entry.
+            size_t EntryIndex = (reinterpret_cast<uintptr_t>(&Sym) -
+                                 reinterpret_cast<uintptr_t>(OptionalDynSymRegion->Addr)) /
+                                sizeof(Elf_Sym);
+
+            // Get the corresponding version index entry.
+            llvm::Expected<const Elf_Versym *> ExpectedVersym =
+                E.getEntry<Elf_Versym>(SymbolVersionSection, EntryIndex);
+
+            bool IsDefault;
+            if (ExpectedVersym)
+              SymVers = getSymbolVersionByIndex(VersionMap,
+                                                DynamicStringTable,
+                                                (*ExpectedVersym)->vs_index,
+                                                IsDefault);
+
+            if (SymName == "__libc_early_init" &&
+                SymVers == "GLIBC_PRIVATE")
+              ABIAtAddress(Sym.st_value);
+          });
+    }
   }
 
   //
@@ -639,7 +682,7 @@ int add(void) {
 #elif defined(TARGET_AARCH64)
           llvm::ELF::R_AARCH64_IRELATIVE
 #elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-          std::numeric_limits<unsigned long>::max()
+          std::numeric_limits<unsigned>::max()
 #else
 #error
 #endif
@@ -685,7 +728,7 @@ int add(void) {
           llvm::ELF::R_386_RELATIVE
 #elif defined(TARGET_AARCH64)
           llvm::ELF::R_AARCH64_RELATIVE
-#elif defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
           llvm::ELF::R_MIPS_REL32
 #else
 #error
