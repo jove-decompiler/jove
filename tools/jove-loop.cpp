@@ -122,6 +122,11 @@ static cl::opt<bool>
           cl::desc("Instrument code to output basic block execution trace"),
           cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    DebugSjlj("debug-sjlj",
+              cl::desc("Before setjmp/longjmp, dump information about the call"),
+              cl::cat(JoveCategory));
+
 static cl::opt<bool> Verbose("verbose",
                              cl::desc("Output helpful messages for debugging"),
                              cl::cat(JoveCategory));
@@ -840,6 +845,7 @@ skip_run:
         headerBits.set(2, opts::Trace);
         headerBits.set(3, opts::Optimize);
         headerBits.set(4, opts::SkipCopyRelocHack);
+        headerBits.set(5, opts::DebugSjlj);
 
         uint8_t header = headerBits.to_ullong();
 
@@ -1324,6 +1330,9 @@ skip_run:
 
         if (opts::Trace)
           arg_vec.push_back("--trace");
+
+        if (opts::DebugSjlj)
+          arg_vec.push_back("--debug-sjlj");
 
         if (opts::ForeignLibs)
           arg_vec.push_back("--foreign-libs");

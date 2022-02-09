@@ -303,6 +303,11 @@ static cl::opt<bool>
                   cl::cat(JoveCategory));
 
 static cl::opt<bool>
+    DebugSjlj("debug-sjlj",
+              cl::desc("Before setjmp/longjmp, dump information about the call"),
+              cl::cat(JoveCategory));
+
+static cl::opt<bool>
     Verbose("verbose",
             cl::desc("Print extra information for debugging purposes"),
             cl::cat(JoveCategory));
@@ -7683,16 +7688,15 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
 #endif
 
-#if 0
-      {
+      if (opts::DebugSjlj) {
         std::string message =
-            (fmt("doing %s (call) @ %s+0x%x\n")
+            (fmt("doing %s (call) to %s @ %s+0x%x\n")
              % (Lj ? "longjmp" : "setjmp")
+             % dyn_target_desc({BinaryIndex, FIdx})
              % fs::path(Binary.Path).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
-#endif
 
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
 
@@ -8132,17 +8136,16 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
 #endif
 
-#if 0
-      {
+      if (opts::DebugSjlj) {
         std::string message =
-            (fmt("doing %s (%s) @ %s+0x%x\n")
+            (fmt("doing %s (%s) to %s @ %s+0x%x\n")
              % (Lj ? "longjmp" : "setjmp")
              % (IsCall ? "indcall" : "indjmp")
+             % dyn_target_desc(X)
              % fs::path(Binary.Path).filename().string()
              % ICFG[bb].Term.Addr).str();
         IRB.CreateCall(JoveLog1Func, {IRB.CreateGlobalStringPtr(message.c_str()), ArgVec.at(0)});
       }
-#endif
 
       llvm::CallInst *Ret = IRB.CreateCall(CastedPtr, ArgVec);
 
@@ -8150,15 +8153,13 @@ int TranslateBasicBlock(TranslateContext &TC) {
         set(Ret, CallConvRetArray.at(0));
 
 #if defined(TARGET_X86_64) || defined(TARGET_I386)
-        if (IsCall) {
-          //
-          // simulate return address being popped
-          //
-          set(IRB.CreateAdd(
-                  get(tcg_stack_pointer_index),
-                  llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
-              tcg_stack_pointer_index);
-        }
+        //
+        // simulate return address being popped
+        //
+        set(IRB.CreateAdd(
+                get(tcg_stack_pointer_index),
+                llvm::ConstantInt::get(WordType(), sizeof(target_ulong))),
+            tcg_stack_pointer_index);
 #endif
         break;
       } else {

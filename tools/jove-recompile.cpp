@@ -140,6 +140,10 @@ static cl::opt<bool> SkipCopyRelocHack("skip-copy-reloc-hack",
                                        cl::desc("Do not insert COPY relocations in output file (HACK)"),
                                        cl::cat(JoveCategory));
 
+static cl::opt<bool> DebugSjlj("debug-sjlj",
+                               cl::desc("Before setjmp/longjmp, dump information about the call"),
+                               cl::cat(JoveCategory));
+
 static cl::opt<bool>
     CheckEmulatedStackReturnAddress("check-emulated-stack-return-address",
                                     cl::desc("Check for stack overrun"),
@@ -1086,6 +1090,8 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--trace");
       if (opts::ForeignLibs)
         arg_vec.push_back("--foreign-libs");
+      if (opts::DebugSjlj)
+        arg_vec.push_back("--debug-sjlj");
 
       std::string pinned_globals_arg;
       if (!opts::PinnedGlobals.empty()) {
