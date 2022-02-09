@@ -582,6 +582,36 @@ int add(void) {
   }
 
   //
+  // search for constructor/deconstructor array
+  //
+  struct {
+    target_ulong Beg, End;
+  } InitArray = {0u, 0u};
+
+  struct {
+    target_ulong Beg, End;
+  } FiniArray = {0u, 0u};
+
+  {
+    llvm::Expected<Elf_Shdr_Range> ExpectedSections = E.sections();
+
+    if (ExpectedSections) {
+      for (const Elf_Shdr &Sect : *ExpectedSections) {
+        switch (Sect.sh_type) {
+        case llvm::ELF::SHT_INIT_ARRAY:
+          InitArray.Beg = Sect.sh_addr;
+          InitArray.End = Sect.sh_addr + Sect.sh_size;
+          break;
+        case llvm::ELF::SHT_FINI_ARRAY:
+          FiniArray.Beg = Sect.sh_addr;
+          FiniArray.End = Sect.sh_addr + Sect.sh_size;
+          break;
+        }
+      }
+    }
+  }
+
+  //
   // examine relocations
   //
   DynRegionInfo DynRelRegion(O.getFileName());
@@ -596,7 +626,11 @@ int add(void) {
                          DynRelrRegion,
                          DynPLTRelRegion);
 
-  auto processDynamicReloc = [&](const Relocation &R) -> void {
+  //
+  // Search for IFunc relocations and make their resolver functions be ABIs
+  //
+  {
+    auto processDynamicReloc = [&](const Relocation &R) -> void {
       constexpr unsigned Ty =
 #if defined(TARGET_X86_64)
           llvm::ELF::R_X86_64_IRELATIVE
@@ -610,30 +644,92 @@ int add(void) {
 #error
 #endif
           ;
-    //
-    // ifunc resolvers are ABIs
-    //
-    if (R.Type == Ty) {
-      target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
+      //
+      // ifunc resolvers are ABIs
+      //
+      if (R.Type == Ty) {
+        target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
-      if (!resolverAddr) {
+        if (!resolverAddr) {
+          llvm::Expected<const uint8_t *> ExpectedPtr =
+              E.toMappedAddr(R.Offset);
+
+          if (ExpectedPtr)
+            resolverAddr =
+                *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+        }
+
+        if (resolverAddr)
+          ABIAtAddress(resolverAddr);
+      }
+    };
+
+    for_each_dynamic_relocation(E,
+                                DynRelRegion,
+                                DynRelaRegion,
+                                DynRelrRegion,
+                                DynPLTRelRegion,
+                                processDynamicReloc);
+  }
+
+  //
+  // Search for relocations in .init_array/.fini_array and make the
+  // constructor/deconstructor functions be ABIs
+  //
+  {
+    auto processDynamicReloc = [&](const Relocation &R) -> void {
+      constexpr unsigned Ty =
+#if defined(TARGET_X86_64)
+          llvm::ELF::R_X86_64_RELATIVE
+#elif defined(TARGET_I386)
+          llvm::ELF::R_386_RELATIVE
+#elif defined(TARGET_AARCH64)
+          llvm::ELF::R_AARCH64_RELATIVE
+#elif defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
+          llvm::ELF::R_MIPS_REL32
+#else
+#error
+#endif
+          ;
+
+      bool Contained = (R.Offset >= InitArray.Beg &&
+                        R.Offset < InitArray.End) ||
+                       (R.Offset >= FiniArray.Beg &&
+                        R.Offset < FiniArray.End);
+      if (!Contained)
+        return;
+
+      if (R.Type != Ty) {
+        llvm::SmallString<32> RelocationTypeName;
+        E.getRelocationTypeName(R.Type, RelocationTypeName);
+        WithColor::warning() << llvm::formatv(
+            "unrecognized relocation {0} in .init_array/.fini_array\n",
+            RelocationTypeName);
+        return;
+      }
+
+      //
+      // constructors/deconstructors are ABIs
+      //
+      target_ulong Addr = R.Addend ? *R.Addend : 0;
+      if (!Addr) {
         llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
 
         if (ExpectedPtr)
-          resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+          Addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
       }
 
-      if (resolverAddr)
-        ABIAtAddress(resolverAddr);
-    }
-  };
+      if (Addr)
+        ABIAtAddress(Addr);
+    };
 
-  for_each_dynamic_relocation(E,
-                              DynRelRegion,
-                              DynRelaRegion,
-                              DynRelrRegion,
-                              DynPLTRelRegion,
-                              processDynamicReloc);
+    for_each_dynamic_relocation(E,
+                                DynRelRegion,
+                                DynRelaRegion,
+                                DynRelrRegion,
+                                DynPLTRelRegion,
+                                processDynamicReloc);
+  }
 
   //
   // explore known code
