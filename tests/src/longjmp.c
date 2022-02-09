@@ -8,6 +8,8 @@ int foo(int n) {
     longjmp(env, 1);
   }
 
+  printf("did not longjump! n=%d\n", n);
+
   return 0;
 }
 
