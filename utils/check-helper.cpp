@@ -33,7 +33,7 @@ static llvm::LLVMContext Context;
 
 static void checkHelper(const std::string &helper_nm) {
   std::string helperModulePath =
-      (boost::dll::program_location().parent_path() / (helper_nm + ".bc"))
+      (boost::dll::program_location().parent_path() / "helpers" / (helper_nm + ".bc"))
           .string();
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
