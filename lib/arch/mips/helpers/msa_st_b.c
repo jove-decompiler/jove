@@ -1844,7 +1844,7 @@ enum CPUMIPSMSADataFormat {
     DF_DOUBLE
 };
 
-#define g2h(x) ((void *)((unsigned long)(abi_ptr)(x) + guest_base))
+#define g2h(x) ((void *)((unsigned long)(x)))
 
 typedef uint32_t abi_ptr;
 
