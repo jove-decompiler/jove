@@ -1456,89 +1456,21 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
 
-  if (WARN_ON(!DynamicTable.Addr)) {
-    return true;
-  }
-
-  //
-  // parse dynamic table
-  //
-  DynRegionInfo DynSymRegion(O.getFileName());
+  assert(DynamicTable.Addr);
 
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
   llvm::StringRef DynamicStringTable;
-  {
-    const char *StringTableBegin = nullptr;
-    uint64_t StringTableSize = 0;
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
-
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_STRTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr()))
-          StringTableBegin = reinterpret_cast<const char *>(*ExpectedPtr);
-        break;
-      case llvm::ELF::DT_STRSZ:
-        if (uint64_t sz = Dyn.getVal())
-          StringTableSize = sz;
-        break;
-      case llvm::ELF::DT_SYMTAB:
-        if (llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(Dyn.getPtr())) {
-          const uint8_t *Ptr = *ExpectedPtr;
-
-          if (DynSymRegion.EntSize && Ptr != DynSymRegion.Addr)
-            WithColor::warning()
-                << "SHT_DYNSYM section header and DT_SYMTAB disagree about "
-                   "the location of the dynamic symbol table\n";
-
-          DynSymRegion.Addr = Ptr;
-          DynSymRegion.EntSize = sizeof(Elf_Sym);
-        }
-        break;
-
-      default:
-        break;
-      }
-    }
-
-    if (StringTableBegin && StringTableSize && StringTableSize > DynamicStringTable.size())
-      DynamicStringTable = llvm::StringRef(StringTableBegin, StringTableSize);
-  }
-
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
-                                  b.Path, DynamicStringTable.size());
-
-  for (const Elf_Shdr &Sec : unwrapOrError(E.sections())) {
-    switch (Sec.sh_type) {
-    case llvm::ELF::SHT_DYNSYM:
-      DynSymRegion = createDRIFrom(&Sec, &O);
-      //DynSymtabName = unwrapOrError(E.getSectionName(&Sec));
-      llvm::Expected<llvm::StringRef> ExpectedDynamicStringTable = E.getStringTableForSymtab(Sec);
-      if (!ExpectedDynamicStringTable) {
-        std::string Buf;
-        {
-          llvm::raw_string_ostream OS(Buf);
-          llvm::logAllUnhandledErrors(ExpectedDynamicStringTable.takeError(), OS, "");
-        }
-
-        WithColor::warning() << llvm::formatv(
-            "{0}: could not get string table for symtab: {1}\n", __func__, Buf);
-        break;
-      }
-
-      DynamicStringTable = *ExpectedDynamicStringTable;
-      break;
-    }
-  }
-
-  if (opts::Verbose)
-    llvm::errs() << llvm::formatv("[{0}] DynamicStringTable.size()={1}\n",
-                                  b.Path, DynamicStringTable.size());
+  const Elf_Shdr *SymbolVersionSection;
+  std::vector<VersionMapEntry> VersionMap;
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
+      loadDynamicSymbols(&E, &O,
+                         DynamicTable,
+                         DynamicStringTable,
+                         SymbolVersionSection,
+                         VersionMap);
 
   std::vector<uint64_t> needed_offsets;
   struct {
@@ -1604,7 +1536,8 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
     out.needed.emplace_back(needed_cstr);
   }
 
-  for (const Elf_Phdr &Phdr : unwrapOrError(E.program_headers())) {
+  llvm::Expected<Elf_Phdr_Range> ExpectedPrgHdrs = E.program_headers();
+  for (const Elf_Phdr &Phdr : *ExpectedPrgHdrs) {
     if (Phdr.p_type == llvm::ELF::PT_INTERP) {
       out.interp = std::string(Buffer.data() + Phdr.p_offset);
       break;
