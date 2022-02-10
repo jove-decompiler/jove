@@ -2626,6 +2626,7 @@ const char *lookup_symbol(target_ulong orig_addr);
 
 void *HELPER(lookup_tb_ptr)(CPUArchState *env)
 {
+#if 0
     CPUState *cpu = env_cpu(env);
     TranslationBlock *tb;
     target_ulong cs_base, pc;
@@ -2641,5 +2642,9 @@ void *HELPER(lookup_tb_ptr)(CPUArchState *env)
                            cpu->cpu_index, tb->tc.ptr, cs_base, pc, flags,
                            lookup_symbol(pc));
     return tb->tc.ptr;
+#else
+    __builtin_trap();
+    __builtin_unreachable();
+#endif
 }
 
