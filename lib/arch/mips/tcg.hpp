@@ -13185,15 +13185,15 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         case OPC_BLEZL:   /* 0 <= 0 likely   */
             /* Always take */
             ctx->hflags |= MIPS_HFLAG_B;
-
-            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
-            ctx->base.tb->jove.T._call.Target = btgt;
             break;
         case OPC_BGEZAL:  /* 0 >= 0          */
         case OPC_BGEZALL: /* 0 >= 0 likely   */
             /* Always take and link */
             blink = 31;
             ctx->hflags |= MIPS_HFLAG_B;
+
+            ctx->base.tb->jove.T.Type = jove::TERMINATOR::CALL;
+            ctx->base.tb->jove.T._call.Target = btgt;
             break;
         case OPC_BNE:     /* rx != rx        */
         case OPC_BGTZ:    /* 0 > 0           */
