@@ -176,7 +176,7 @@ define gen_tcgconstants_template
 .PHONY: gen-tcgconstants-$(1)
 gen-tcgconstants-$(1): $(BINDIR)/$(1)/gen-tcgconstants
 	@echo GEN $@
-	$(BINDIR)/$(1)/gen-tcgconstants > include/jove/arch/$(1)/tcgconstants.h
+	$(BINDIR)/$(1)/gen-tcgconstants > include/jove/tcgconstants-$(1).h
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call gen_tcgconstants_template,$(target))))
 

@@ -22,15 +22,17 @@
 #include <algorithm>
 
 #if defined(TARGET_AARCH64)
-#include <jove/arch/aarch64/tcgconstants.h>
+#include <jove/tcgconstants-aarch64.h>
 #elif defined(TARGET_X86_64)
-#include <jove/arch/x86_64/tcgconstants.h>
+#include <jove/tcgconstants-x86_64.h>
 #elif defined(TARGET_I386)
-#include <jove/arch/i386/tcgconstants.h>
+#include <jove/tcgconstants-i386.h>
 #elif defined(TARGET_MIPS64)
-#include <jove/arch/mips64/tcgconstants.h>
-#elif defined(TARGET_MIPS32)
-#include <jove/arch/mips32/tcgconstants.h>
+#include <jove/tcgconstants-mips64.h>
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
+#include <jove/tcgconstants-mipsel.h>
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
+#include <jove/tcgconstants-mips.h>
 #else
 #error "unknown target"
 #endif
