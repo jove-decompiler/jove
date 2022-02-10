@@ -807,9 +807,9 @@ int recompile(void) {
           "aarch64linux",
 #elif defined(TARGET_MIPS64)
           "elf64ltsmip",
-#elif defined(TARGET_MIPS32) && !defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
           "elf32ltsmip",
-#elif defined(TARGET_MIPS32) && defined(HOST_WORDS_BIGENDIAN)
+#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
           "elf32btsmip",
 #else
 #error
