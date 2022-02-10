@@ -138,7 +138,7 @@ typedef struct float_status {
     flag snan_bit_is_one;
 } float_status;
 
-#define signal_barrier()    __atomic_signal_fence(__ATOMIC_SEQ_CST)
+#define signal_barrier() do {} while (0)
 
 #define atomic_or_fetch(ptr, n)  __atomic_or_fetch(ptr, n, __ATOMIC_SEQ_CST)
 
