@@ -3679,7 +3679,7 @@ static inline unsigned get_alignment_bits(MemOp memop)
     return a;
 }
 
-typedef tcg_target_ulong TCGArg;
+typedef uintptr_t TCGArg;
 
 typedef struct TCGv_i32_d *TCGv_i32;
 
@@ -13350,7 +13350,6 @@ static void gen_compute_branch(DisasContext *ctx, uint32_t opc,
         }
 
         tcg_gen_insn_start(JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC, JOVE_PCREL_MAGIC);
-
         tcg_gen_movi_tl(cpu_gpr[blink],
                         ctx->base.pc_next + post_delay + lowbit);
     }
@@ -32884,7 +32883,6 @@ static void mips_tr_translate_insn(DisasContextBase *dcbase, CPUState *cs)
         ctx->base.pc_next += insn_bytes; /* XXX if slot don't do this so that
                                             delay slot is outside BB extent */
     }
-    ctx->base.pc_next += insn_bytes;
 
     if (ctx->base.is_jmp != DISAS_NEXT) {
         return;
