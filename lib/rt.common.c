@@ -274,7 +274,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
   uint64_t **const callstack_ptr = &__jove_callstack;
   uint64_t **const callstack_begin_ptr = &__jove_callstack_begin;
 
-  uintptr_t *const pc_ptr =
+  greg_t *const pc_ptr =
 #if defined(__mips64) || defined(__mips__) || defined(__aarch64__)
     &uctx->uc_mcontext.pc
 #elif defined(__x86_64__)
@@ -286,7 +286,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
     ;
 
-  uintptr_t *const sp_ptr =
+  greg_t  *const sp_ptr =
 #if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[29]
 #elif defined(__x86_64__)
@@ -300,7 +300,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
       ;
 
-  uintptr_t *const ra_ptr =
+  greg_t *const ra_ptr =
 #if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[31]
 #elif defined(__aarch64__)
@@ -310,7 +310,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
       ;
 
-  uintptr_t *const emusp_ptr =
+  target_ulong *const emusp_ptr =
 #if defined(__mips64) || defined(__mips__)
       &__jove_env.active_tc.gpr[29]
 #elif defined(__x86_64__) || defined(__i386__)
@@ -322,7 +322,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
       ;
 
-  uintptr_t *const t9_ptr =
+  greg_t *const t9_ptr =
 #if defined(__mips64) || defined(__mips__)
       &uctx->uc_mcontext.gregs[25]
 #else
@@ -330,7 +330,7 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
 #endif
       ;
 
-  uintptr_t *const emut9_ptr =
+  target_ulong *const emut9_ptr =
 #if defined(__mips64) || defined(__mips__)
       &__jove_env.active_tc.gpr[25]
 #else
