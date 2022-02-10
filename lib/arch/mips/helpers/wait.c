@@ -1794,7 +1794,7 @@ static inline CPUState *env_cpu(CPUArchState *env)
 #define CPU_INTERRUPT_WAKE CPU_INTERRUPT_TGT_INT_0
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                          int error_code, uintptr_t pc);
+                                          int error_code, uintptr_t pc) { __builtin_trap(); __builtin_unreachable(); }
 
 static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
                                                     uint32_t exception,

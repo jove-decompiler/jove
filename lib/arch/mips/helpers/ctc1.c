@@ -1985,7 +1985,7 @@ static inline void compute_hflags(CPUMIPSState *env)
 }
 
 void QEMU_NORETURN do_raise_exception_err(CPUMIPSState *env, uint32_t exception,
-                                          int error_code, uintptr_t pc);
+                                          int error_code, uintptr_t pc) { __builtin_trap(); __builtin_unreachable(); }
 
 static inline void QEMU_NORETURN do_raise_exception(CPUMIPSState *env,
                                                     uint32_t exception,
