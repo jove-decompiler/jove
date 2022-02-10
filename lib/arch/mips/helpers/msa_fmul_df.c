@@ -1,3 +1,17 @@
+static double internal_fabs(double x)
+{
+        double r;
+        __asm__("abs.d %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
+static float internal_fabsf(float x)
+{
+        float r;
+        __asm__("abs.s %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
 #define HOST_WORDS_BIGENDIAN 1
 
 #define TARGET_MIPS 1
@@ -501,7 +515,7 @@ float32_gen2(float32 xa, float32 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f32_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabsf(ur.h) <= FLT_MIN)) {
+    } else if (unlikely(internal_fabsf(ur.h) <= FLT_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }
@@ -538,7 +552,7 @@ float64_gen2(float64 xa, float64 xb, float_status *s,
     ur.h = hard(ua.h, ub.h);
     if (unlikely(f64_is_inf(ur))) {
         s->float_exception_flags |= float_flag_overflow;
-    } else if (unlikely(fabs(ur.h) <= DBL_MIN)) {
+    } else if (unlikely(internal_fabs(ur.h) <= DBL_MIN)) {
         if (post == NULL || post(ua, ub)) {
             goto soft;
         }

@@ -1,3 +1,17 @@
+static double internal_fabs(double x)
+{
+        double r;
+        __asm__("abs.d %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
+static float internal_fabsf(float x)
+{
+        float r;
+        __asm__("abs.s %0,%1" : "=f"(r) : "f"(x));
+        return r;
+}
+
 #define HOST_WORDS_BIGENDIAN 1
 
 #define TARGET_MIPS 1
@@ -1193,7 +1207,7 @@ float32_muladd(float32 xa, float32 xb, float32 xc, int flags, float_status *s)
 
         if (unlikely(f32_is_inf(ur))) {
             s->float_exception_flags |= float_flag_overflow;
-        } else if (unlikely(fabsf(ur.h) <= FLT_MIN)) {
+        } else if (unlikely(internal_fabsf(ur.h) <= FLT_MIN)) {
             ua = ua_orig;
             uc = uc_orig;
             goto soft;
