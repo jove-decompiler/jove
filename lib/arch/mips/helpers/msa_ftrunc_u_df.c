@@ -367,7 +367,7 @@ static FloatParts parts_default_nan(float_status *status)
 static FloatParts parts_silence_nan(FloatParts a, float_status *status)
 {
 #ifdef NO_SIGNALING_NANS
-    g_assert_not_reached();
+    __builtin_trap();__builtin_unreachable();
 #elif defined(TARGET_HPPA)
     a.frac &= ~(1ULL << (DECOMPOSED_BINARY_POINT - 1));
     a.frac |= 1ULL << (DECOMPOSED_BINARY_POINT - 2);
@@ -443,7 +443,7 @@ static FloatParts return_nan(FloatParts a, float_status *s)
         break;
 
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
     return a;
 }
@@ -493,7 +493,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
                 one = true;
                 break;
             default:
-                g_assert_not_reached();
+                __builtin_trap();__builtin_unreachable();
             }
 
             if (one) {
@@ -529,7 +529,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
                 inc = a.frac & frac_lsb ? 0 : rnd_mask;
                 break;
             default:
-                g_assert_not_reached();
+                __builtin_trap();__builtin_unreachable();
             }
 
             if (a.frac & rnd_mask) {
@@ -544,7 +544,7 @@ static FloatParts round_to_int(FloatParts a, int rmode,
         }
         break;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
     return a;
 }
@@ -591,7 +591,7 @@ static uint64_t round_to_uint_and_pack(FloatParts in, int rmode, int scale,
         }
         return r;
     default:
-        g_assert_not_reached();
+        __builtin_trap();__builtin_unreachable();
     }
 }
 
