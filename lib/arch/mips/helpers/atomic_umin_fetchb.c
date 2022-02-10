@@ -2116,7 +2116,7 @@ void QEMU_NORETURN cpu_loop_exit_atomic(CPUState *cpu, uintptr_t pc);
 
 # define GETPC() tci_tb_ptr
 
-extern uintptr_t tci_tb_ptr;
+static uintptr_t tci_tb_ptr;
 
 #define HELPER(name) glue(helper_, name)
 
