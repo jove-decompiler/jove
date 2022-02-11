@@ -1,6 +1,9 @@
 # this just obtains the directory this Makefile resides in
 ROOT_DIR := $(shell cd $(dir $(word $(words $(MAKEFILE_LIST)),$(MAKEFILE_LIST)));pwd)
 
+LLVM_CC  := $(ROOT_DIR)/../third_party/llvm-project/install/bin/clang
+LLVM_DIS := $(ROOT_DIR)/../third_party/llvm-project/install/bin/llvm-dis
+
 #
 # build flags
 #
@@ -36,19 +39,19 @@ complex_num_d_LDFLAGS := -lm
 define test_template
 $(BINDIR)/$(1): $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	@gcc -o $$@ $(CFLAGS) $$< $($(1)_LDFLAGS)
+	@$(LLVM_CC) -o $$@ $(CFLAGS) $$< $($(1)_LDFLAGS) -fuse-ld=lld
 
 $(BINDIR)/$(1).S: $(SRCDIR)/$(1).c
 	@echo CC $(1)
-	@gcc -o $$@ $(CFLAGS) -S $$<
+	@$(LLVM_CC) -o $$@ $(CFLAGS) -S $$<
 
 $(BINDIR)/$(1).bc: $(SRCDIR)/$(1).c
 	@echo BC $(1)
-	@clang -o $$@ -c -emit-llvm $(CFLAGS) $$<
+	@$(LLVM_CC) -o $$@ -c -emit-llvm $(CFLAGS) $$<
 
 $(BINDIR)/$(1).ll: $(BINDIR)/$(1).bc
 	@echo LL $(1)
-	@llvm-dis -o $$@ $$<
+	@$(LLVM_DIS) -o $$@ $$<
 
 .PHONY: clean-$(1)
 clean-$(1):
