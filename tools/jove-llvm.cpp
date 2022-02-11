@@ -8560,8 +8560,13 @@ BOOST_PP_REPEAT(9, __THUNK, void)
               llvm::Value *Y = IRB.CreateTrunc(IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
                   (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(1)].name).str());
 
+#ifdef TARGET_WORDS_BIGENDIAN
+              set(X, CallConvRetArray.at(1));
+              set(Y, CallConvRetArray.at(0));
+#else
               set(X, CallConvRetArray.at(0));
               set(Y, CallConvRetArray.at(1));
+#endif
             }
 #else
 #error
@@ -9276,6 +9281,7 @@ static int TranslateTCGOp(TCGOp *op,
     if (likely(src->type == dst->type)) {
       set(get(src), dst);
     } else {
+      //WithColor::warning() << llvm::formatv("[INDEX_op_mov_i32] {0} (i32)={1} (i64)\n", dst->name ?: "_", src->name ?: "_");
       assert(dst->type == TCG_TYPE_I32);
       assert(src->type == TCG_TYPE_I64);
 
