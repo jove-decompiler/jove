@@ -395,12 +395,15 @@ static uint32_t size_of_file32(const char *path) {
   return res;
 }
 
+// TODO refactor
 static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
   ssize_t ret;
 
   uint32_t file_size = size_of_file32(file_path);
 
-  ret = robust_write(socket, &file_size, sizeof(file_size));
+  std::string file_size_str = std::to_string(file_size);
+
+  ret = robust_write(socket, file_size_str.c_str(), file_size_str.size() + 1);
   if (ret < 0)
     return ret;
 
@@ -413,8 +416,23 @@ static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
 
 static ssize_t receive_file_with_size(int socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
-  if (robust_read(socket, &file_size, sizeof(uint32_t)) < 0)
-    return false;
+  {
+    std::string file_size_str;
+
+    char ch;
+    do {
+      ssize_t n = robust_read(socket, &ch, sizeof(char));
+      if (n < 0)
+        return n;
+
+      assert(n == sizeof(char));
+
+      file_size_str.push_back(ch);
+    } while (ch != '\0');
+
+    file_size = std::atoi(file_size_str.c_str());
+  }
+  assert(file_size > 0);
 
   std::vector<uint8_t> buff;
   buff.resize(file_size);

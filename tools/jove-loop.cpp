@@ -472,12 +472,15 @@ static uint32_t size_of_file32(const char *path) {
   return res;
 }
 
+// TODO refactor
 static ssize_t robust_sendfile_with_size(int socket, const char *file_path) {
   ssize_t ret;
 
   uint32_t file_size = size_of_file32(file_path);
 
-  ret = robust_write(socket, &file_size, sizeof(file_size));
+  std::string file_size_str = std::to_string(file_size);
+
+  ret = robust_write(socket, file_size_str.c_str(), file_size_str.size() + 1);
   if (ret < 0)
     return ret;
 
