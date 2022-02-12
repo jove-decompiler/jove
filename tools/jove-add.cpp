@@ -154,6 +154,7 @@ static basic_block_index_t translate_basic_block(binary_t &,
                                                  const target_ulong Addr);
 
 #include "elf.hpp"
+#include "relocs_common.hpp"
 
 template <typename GraphTy>
 struct dfs_visitor : public boost::default_dfs_visitor {
@@ -674,23 +675,10 @@ int add(void) {
   //
   {
     auto processDynamicReloc = [&](const Relocation &R) -> void {
-      constexpr unsigned Ty =
-#if defined(TARGET_X86_64)
-          llvm::ELF::R_X86_64_IRELATIVE
-#elif defined(TARGET_I386)
-          llvm::ELF::R_386_IRELATIVE
-#elif defined(TARGET_AARCH64)
-          llvm::ELF::R_AARCH64_IRELATIVE
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-          std::numeric_limits<unsigned>::max()
-#else
-#error
-#endif
-          ;
       //
       // ifunc resolvers are ABIs
       //
-      if (R.Type == Ty) {
+      if (relocation_type_of_elf_rela_type(R.Type) == relocation_t::TYPE::IRELATIVE) {
         target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
@@ -721,20 +709,6 @@ int add(void) {
   //
   {
     auto processDynamicReloc = [&](const Relocation &R) -> void {
-      constexpr unsigned Ty =
-#if defined(TARGET_X86_64)
-          llvm::ELF::R_X86_64_RELATIVE
-#elif defined(TARGET_I386)
-          llvm::ELF::R_386_RELATIVE
-#elif defined(TARGET_AARCH64)
-          llvm::ELF::R_AARCH64_RELATIVE
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-          llvm::ELF::R_MIPS_REL32
-#else
-#error
-#endif
-          ;
-
       bool Contained = (R.Offset >= InitArray.Beg &&
                         R.Offset < InitArray.End) ||
                        (R.Offset >= FiniArray.Beg &&
@@ -742,7 +716,7 @@ int add(void) {
       if (!Contained)
         return;
 
-      if (R.Type != Ty) {
+      if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::RELATIVE) {
         llvm::SmallString<32> RelocationTypeName;
         E.getRelocationTypeName(R.Type, RelocationTypeName);
         WithColor::warning() << llvm::formatv(
