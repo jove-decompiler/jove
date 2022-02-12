@@ -1,6 +1,7 @@
 #if !defined(__x86_64__) /* cross-compiling? */
 
 #include <type_traits>
+#include <sstream>
 
 #define NEED_CPU_H
 
@@ -2953,8 +2954,10 @@ static const void *_jove_g2h(target_ulong Addr,
                              llvm::object::ELFFile<llvm::object::ELF32BE> *E) {
   llvm::Expected<const uint8_t *> ExpectedPtr = E->toMappedAddr(Addr);
   if (!ExpectedPtr) {
-    //qemu_log("failure to get ELF data");
-    return nullptr;
+    std::stringstream stream;
+    stream << std::hex << Addr;
+    std::string AddrHexString(stream.str());
+    throw std::runtime_error("_jove_g2h() failed [0x" + AddrHexString + "]");
   }
 
   const uint8_t *Ptr = *ExpectedPtr;
@@ -43824,6 +43827,7 @@ void muls64 (uint64_t *plow, uint64_t *phigh, int64_t a, int64_t b)
 #else /* cross-compiling */
 
 #include <type_traits>
+#include <sstream>
 
 #define NEED_CPU_H
 
