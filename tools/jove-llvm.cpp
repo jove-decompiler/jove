@@ -155,6 +155,7 @@ struct hook_t;
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/Statistic.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>
@@ -633,6 +634,17 @@ static constexpr unsigned WordBytes(void) {
 
 static constexpr unsigned WordBits(void) {
   return WordBytes() * 8;
+}
+
+static target_ulong extractAddress(const void *ptr) {
+  uint64_t Offset = 0;
+  llvm::DataExtractor DE(
+      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
+                              2 * sizeof(target_ulong)),
+      ELFT::TargetEndianness == llvm::support::endianness::little,
+      sizeof(target_ulong));
+
+  return DE.getAddress(&Offset);
 }
 
 static llvm::IntegerType *WordType(void) {
@@ -3951,7 +3963,7 @@ int CreateSectionGlobalVariables(void) {
       if (!ExpectedPtr)
         abort();
 
-      Addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+      Addr = extractAddress(*ExpectedPtr);
     }
 
     if (opts::Verbose)
@@ -3995,7 +4007,7 @@ int CreateSectionGlobalVariables(void) {
           if (!ExpectedPtr)
             abort();
 
-          resolverAddr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+          resolverAddr = extractAddress(*ExpectedPtr);
         }
 
         auto resolver_f_it = FuncMap.find(resolverAddr);
@@ -4076,7 +4088,7 @@ int CreateSectionGlobalVariables(void) {
       if (!ExpectedPtr)
         abort();
 
-      tpoff = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+      tpoff = extractAddress(*ExpectedPtr);
     }
     //WithColor::note() << llvm::formatv("TPOFF off={0}\n", off);
 #else
