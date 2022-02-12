@@ -578,6 +578,32 @@ int main(int argc, char **argv) {
 
   auto sighandler = [](int no) -> void {
     switch (no) {
+      case SIGSEGV: {
+        llvm::errs() << "***JOVE*** bootstrap crashed! detaching from tracee...\n";
+
+        //
+        // detach from tracee
+        //
+        if (ptrace(PTRACE_DETACH, jove::saved_child, 0UL, 0UL) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("failed to detach from tracee [{0}]: {1}\n",
+                                              jove::saved_child,
+                                              strerror(err));
+          exit(1);
+        }
+
+        llvm::errs() << llvm::formatv("***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
+        for (;;) {
+          for (unsigned i = 0; i < 10; ++i)
+            sleep(1);
+
+          llvm::errs() << ".";
+        }
+
+        __builtin_trap();
+        __builtin_unreachable();
+      }
+
       case SIGUSR1:
         jove::ToggleTurbo.store(true);
         break;
@@ -621,33 +647,24 @@ int main(int argc, char **argv) {
     }
   };
 
-  {
-    struct sigaction sa;
+#define INSTALL_SIG(sig)                                                       \
+  do {                                                                         \
+    struct sigaction sa;                                                       \
+                                                                               \
+    sigemptyset(&sa.sa_mask);                                                  \
+    sa.sa_flags = SA_RESTART;                                                  \
+    sa.sa_handler = sighandler;                                                \
+                                                                               \
+    if (sigaction(sig, &sa, nullptr) < 0) {                                    \
+      int err = errno;                                                         \
+      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",     \
+                                          __func__, strerror(err));            \
+    }                                                                          \
+  } while (0)
 
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGUSR1, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
-
-  {
-    struct sigaction sa;
-
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sa.sa_handler = sighandler;
-
-    if (sigaction(SIGUSR2, &sa, nullptr) < 0) {
-      int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
-    }
-  }
+  INSTALL_SIG(SIGUSR1);
+  INSTALL_SIG(SIGUSR2);
+  INSTALL_SIG(SIGSEGV);
 
   //
   // bootstrap has two modes of execution.
@@ -1644,7 +1661,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
 void IgnoreCtrlC(void) {
   auto sighandler = [](int no) -> void {
-    ; // do nothing
+    ; // absorb
   };
 
   struct sigaction sa;
