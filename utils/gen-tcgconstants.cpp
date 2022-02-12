@@ -374,6 +374,77 @@ int main(int argc, char **argv) {
 
   auto print_pinned_env_globals = [&](void) -> void {
 #if defined(TARGET_MIPS32)
+#ifdef __x86_64__ /* XXX cross-compiling */
+    const std::array<const char *, 67> pinned_env_glbs{
+      "w0.d0",
+      "w0.d1",
+      "w1.d0",
+      "w1.d1",
+      "w2.d0",
+      "w2.d1",
+      "w3.d0",
+      "w3.d1",
+      "w4.d0",
+      "w4.d1",
+      "w5.d0",
+      "w5.d1",
+      "w6.d0",
+      "w6.d1",
+      "w7.d0",
+      "w7.d1",
+      "w8.d0",
+      "w8.d1",
+      "w9.d0",
+      "w9.d1",
+      "w10.d0",
+      "w10.d1",
+      "w11.d0",
+      "w11.d1",
+      "w12.d0",
+      "w12.d1",
+      "w13.d0",
+      "w13.d1",
+      "w14.d0",
+      "w14.d1",
+      "w15.d0",
+      "w15.d1",
+      "w16.d0",
+      "w16.d1",
+      "w17.d0",
+      "w17.d1",
+      "w18.d0",
+      "w18.d1",
+      "w19.d0",
+      "w19.d1",
+      "w20.d0",
+      "w20.d1",
+      "w21.d0",
+      "w21.d1",
+      "w22.d0",
+      "w22.d1",
+      "w23.d0",
+      "w23.d1",
+      "w24.d0",
+      "w24.d1",
+      "w25.d0",
+      "w25.d1",
+      "w26.d0",
+      "w26.d1",
+      "w27.d0",
+      "w27.d1",
+      "w28.d0",
+      "w28.d1",
+      "w29.d0",
+      "w29.d1",
+      "w30.d0",
+      "w30.d1",
+      "w31.d0",
+      "w31.d1",
+      "hflags",
+      "fcr0",
+      "fcr31"
+    };
+#else
     const std::array<const char *, 131> pinned_env_glbs{
       "w0.d0_0",
       "w0.d0_1",
@@ -507,6 +578,7 @@ int main(int argc, char **argv) {
       "fcr0",
       "fcr31"
     };
+#endif
 #else
     const std::array<const char *, 0> pinned_env_glbs{};
 #endif
