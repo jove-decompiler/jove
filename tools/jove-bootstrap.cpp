@@ -3563,6 +3563,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
   unsigned brkpt_count = 0;
 
+  try { /* _jove_g2h() may throw an exception here */
+
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
     function_index_t f_idx =
         translate_function(child, binary_idx, tcg, dis,
@@ -3653,6 +3655,12 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   description_of_program_counter(target),
                                   ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP ?
                                     (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "");
+
+  } catch (const std::exception &e) {
+    llvm::errs() << (__ANSI_BOLD_RED "exception while processing control-flow: ") +
+                    std::string(e.what()) +
+                    (__ANSI_NORMAL_COLOR "\n");
+  }
 }
 
 #include "relocs_common.hpp"
