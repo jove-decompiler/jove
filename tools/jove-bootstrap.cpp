@@ -5265,7 +5265,10 @@ std::string description_of_program_counter(uintptr_t pc) {
 
     std::string str = fs::path(vmprop.nm).filename().string();
     uintptr_t off = pc - vmprop.beg + vmprop.off;
-    return (fmt("%s+%#lx") % str % off).str();
+    if (opts::VeryVerbose)
+      return (fmt("%s+%#lx (%#lx)") % str % off % pc).str();
+    else
+      return (fmt("%s+%#lx") % str % off).str();
   }
 }
 
