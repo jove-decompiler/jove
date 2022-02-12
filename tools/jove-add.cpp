@@ -762,6 +762,10 @@ int add(void) {
           Addr = *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
       }
 
+      if (opts::Verbose)
+        WithColor::note() << llvm::formatv("ctor/dtor: off={0:x} Addr={1:x}\n",
+                                           R.Offset, Addr);
+
       if (Addr)
         ABIAtAddress(Addr);
     };
