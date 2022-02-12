@@ -5,6 +5,7 @@
     (defined(__mips__)    && defined(TARGET_MIPS32))
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/Support/Error.h>
@@ -50,9 +51,7 @@ namespace jove {
 #include <thread>
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
-#include <llvm/Support/DataExtractor.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
-#include <llvm/Support/DataExtractor.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>
