@@ -551,17 +551,6 @@ static constexpr unsigned WordBits(void) {
   return WordBytes() * 8;
 }
 
-static target_ulong extractAddress(const void *ptr) {
-  uint64_t Offset = 0;
-  llvm::DataExtractor DE(
-      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
-                              2 * sizeof(target_ulong)),
-      ELFT::TargetEndianness == llvm::support::endianness::little,
-      sizeof(target_ulong));
-
-  return DE.getAddress(&Offset);
-}
-
 static llvm::IntegerType *WordType(void) {
   return llvm::Type::getIntNTy(*Context, WordBits());
 }
@@ -3870,16 +3859,16 @@ int CreateSectionGlobalVariables(void) {
     }
 #endif
 
-    target_ulong Addr;
+    target_ulong Addr = 0;
     if (R.Addend) {
       Addr = R.Addend;
     } else {
       llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Addr);
-      if (!ExpectedPtr)
-        abort();
-
-      Addr = extractAddress(*ExpectedPtr);
+      if (ExpectedPtr)
+        Addr = extractAddress(*ExpectedPtr);
     }
+
+    assert(Addr);
 
     if (opts::Verbose)
       WithColor::note() << llvm::formatv(

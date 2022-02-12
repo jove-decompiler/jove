@@ -1201,3 +1201,16 @@ void for_each_dynamic_relocation(const ELFF &E,
     }
   }
 }
+
+static uint64_t extractAddress(const void *ptr) {
+  constexpr unsigned TargetArchWordSize = ELFT::Is64Bits ? 8 : 4;
+
+  uint64_t Offset = 0;
+  llvm::DataExtractor DE(
+      llvm::ArrayRef<uint8_t>(reinterpret_cast<const uint8_t *>(ptr),
+                              2 * TargetArchWordSize),
+      ELFT::TargetEndianness == llvm::support::endianness::little,
+      TargetArchWordSize);
+
+  return DE.getAddress(&Offset);
+}

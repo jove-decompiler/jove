@@ -15,6 +15,7 @@
 #include <sstream>
 #include <fstream>
 #include <boost/filesystem.hpp>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>
@@ -682,12 +683,9 @@ int add(void) {
         target_ulong resolverAddr = R.Addend ? *R.Addend : 0;
 
         if (!resolverAddr) {
-          llvm::Expected<const uint8_t *> ExpectedPtr =
-              E.toMappedAddr(R.Offset);
-
+          llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(R.Offset);
           if (ExpectedPtr)
-            resolverAddr =
-                *reinterpret_cast<const target_ulong *>(*ExpectedPtr);
+            resolverAddr = extractAddress(*ExpectedPtr);
         }
 
         if (resolverAddr)

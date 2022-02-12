@@ -18,6 +18,7 @@
 #include <array>
 #include <boost/filesystem.hpp>
 #include <llvm/Bitcode/BitcodeWriter.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/MCAsmInfo.h>

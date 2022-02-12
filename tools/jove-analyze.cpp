@@ -65,6 +65,7 @@ class Binary;
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/Statistic.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>

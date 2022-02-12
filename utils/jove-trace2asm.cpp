@@ -43,6 +43,7 @@ class Binary;
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/DebugInfo/Symbolize/Symbolize.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/TargetRegistry.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/MC/MCContext.h>

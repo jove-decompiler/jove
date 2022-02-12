@@ -41,6 +41,7 @@ struct dynamic_linking_info_t {
 #include <boost/filesystem.hpp>
 #include <boost/dll/runtime_symbol_info.hpp>
 #include <llvm/ADT/StringRef.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Object/ELF.h>
 #include <llvm/Object/ELFObjectFile.h>
 #include <llvm/Support/CommandLine.h>

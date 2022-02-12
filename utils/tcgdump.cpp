@@ -18,6 +18,7 @@
 #include <llvm/MC/MCInstrInfo.h>
 #include <llvm/MC/MCInstPrinter.h>
 #include <llvm/Support/CommandLine.h>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/Support/PrettyStackTrace.h>
 #include <llvm/Support/Signals.h>
 #include <llvm/Support/ManagedStatic.h>
