@@ -5087,10 +5087,9 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       if (it == AddressSpace.end()) {
         update_view_of_virtual_memory(child);
 
-        if (opts::Verbose)
-          WithColor::warning()
-              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                               description_of_program_counter(pc));
+        WithColor::warning()
+            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(pc));
       } else {
         BIdx = *(*it).second.begin();
 
