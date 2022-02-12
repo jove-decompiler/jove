@@ -1,5 +1,6 @@
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
+#include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
 #include <llvm/Support/Error.h>
@@ -155,7 +156,6 @@ struct hook_t;
 #include <boost/graph/graphviz.hpp>
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/ADT/Statistic.h>
-#include <llvm/Support/DataExtractor.h>
 #include <llvm/Bitcode/BitcodeReader.h>
 #include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Constants.h>
