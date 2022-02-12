@@ -3638,6 +3638,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                     (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "");
 }
 
+#include "relocs_common.hpp"
+
 //
 // TODO refactor the following code
 //
@@ -3645,23 +3647,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 static void harvest_irelative_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
-  constexpr unsigned IRelativeRelocTy =
-#if defined(__x86_64__)
-      llvm::ELF::R_X86_64_IRELATIVE
-#elif defined(__i386__)
-      llvm::ELF::R_386_IRELATIVE
-#elif defined(__aarch64__)
-      llvm::ELF::R_AARCH64_IRELATIVE
-#elif defined(__mips64) || defined(__mips__)
-      std::numeric_limits<unsigned long>::max()
-#else
-#error
-#endif
-      ;
-
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    unsigned Ty = R.Type;
-    if (Ty != IRelativeRelocTy)
+    if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::IRELATIVE)
       return;
 
     struct {
@@ -3743,64 +3730,16 @@ static void harvest_irelative_reloc_targets(pid_t child,
 static void harvest_addressof_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
-  constexpr unsigned JumpSlotRelocTy =
-#if defined(__x86_64__)
-      llvm::ELF::R_X86_64_JUMP_SLOT
-#elif defined(__i386__)
-      llvm::ELF::R_386_JUMP_SLOT
-#elif defined(__aarch64__)
-      llvm::ELF::R_AARCH64_JUMP_SLOT
-#elif defined(__mips64) || defined(__mips__)
-      llvm::ELF::R_MIPS_JUMP_SLOT
-#else
-#error
-#endif
-      ;
-
-  constexpr unsigned GlobDatRelocTy =
-#if defined(__x86_64__)
-      llvm::ELF::R_X86_64_GLOB_DAT
-#elif defined(__i386__)
-      llvm::ELF::R_386_GLOB_DAT
-#elif defined(__aarch64__)
-      llvm::ELF::R_AARCH64_GLOB_DAT
-#elif defined(__mips64) || defined(__mips__)
-      llvm::ELF::R_MIPS_GLOB_DAT
-#else
-#error
-#endif
-      ;
-
-  constexpr unsigned AbsRelocTy =
-#if defined(__x86_64__)
-      llvm::ELF::R_X86_64_64
-#elif defined(__i386__)
-      llvm::ELF::R_386_32
-#elif defined(__aarch64__)
-      llvm::ELF::R_AARCH64_ABS64
-#elif defined(__mips64)
-      llvm::ELF::R_MIPS_64
-#elif defined(__mips__)
-      llvm::ELF::R_MIPS_32
-#else
-#error
-#endif
-      ;
-
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+    if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::ADDRESSOF)
+      return;
+
     std::unique_ptr<obj::Binary> &Bin = b.ObjectFile;
 
     assert(Bin.get());
     assert(llvm::isa<ELFO>(Bin.get()));
     ELFO &O = *llvm::cast<ELFO>(Bin.get());
     const ELFF &E = *O.getELFFile();
-
-    unsigned Ty = R.Type;
-
-    if (Ty != JumpSlotRelocTy &&
-        Ty != GlobDatRelocTy &&
-        Ty != AbsRelocTy)
-      return;
 
     auto dynamic_symbols = [&](void) -> Elf_Sym_Range {
       return b._elf.OptionalDynSymRegion->getAsArrayRef<Elf_Sym>();
