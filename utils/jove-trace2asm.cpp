@@ -212,26 +212,7 @@ int trace2asm(void) {
 
   jove::tiny_code_generator_t tcg;
 
-#if 0
   llvm::InitializeAllTargets();
-#else
-  //LLVMInitializeAArch64TargetInfo();
-  //LLVMInitializeAMDGPUTargetInfo();
-  //LLVMInitializeARMTargetInfo();
-  //LLVMInitializeBPFTargetInfo();
-  //LLVMInitializeHexagonTargetInfo();
-  //LLVMInitializeLanaiTargetInfo();
-  //LLVMInitializeMipsTargetInfo();
-  //LLVMInitializeMSP430TargetInfo();
-  //LLVMInitializeNVPTXTargetInfo();
-  //LLVMInitializePowerPCTargetInfo();
-  //LLVMInitializeRISCVTargetInfo();
-  //LLVMInitializeSparcTargetInfo();
-  //LLVMInitializeSystemZTargetInfo();
-  //LLVMInitializeWebAssemblyTargetInfo();
-  LLVMInitializeX86TargetInfo();
-  //LLVMInitializeXCoreTargetInfo();
-#endif
 
   llvm::InitializeAllTargetMCs();
   llvm::InitializeAllAsmPrinters();
