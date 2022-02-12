@@ -357,42 +357,42 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
   return saved_file_size;
 }
 
-static ssize_t robust_receive_file_with_size(int data_socket, const char *out, unsigned file_perm) {
+static ssize_t robust_receive_file_with_size(int socket, const char *out, unsigned file_perm) {
   uint32_t file_size;
   {
-    ssize_t ret = robust_read(data_socket, &file_size, sizeof(uint32_t));
-    if (ret < 0)
-      return ret;
+    std::string file_size_str;
+
+    char ch;
+    do {
+      ssize_t n = robust_read(socket, &ch, sizeof(char));
+      if (n < 0)
+        return n;
+
+      assert(n == sizeof(char));
+
+      file_size_str.push_back(ch);
+    } while (ch != '\0');
+
+    file_size = std::atoi(file_size_str.c_str());
   }
+  assert(file_size > 0);
 
   std::vector<uint8_t> buff;
   buff.resize(file_size);
 
   {
-    ssize_t ret = robust_read(data_socket, &buff[0], buff.size());
-    if (ret < 0)
-      return ret;
+    ssize_t res = robust_read(socket, &buff[0], buff.size());
+    if (res < 0)
+      return res;
   }
 
-  //
-  // TODO create any directories needed
-  //
-  ssize_t res;
+  ssize_t res = -EBADF;
   {
-try_to_open:
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
     if (fd < 0) {
       int err = errno;
-      if (err == ETXTBSY) {
-        WithColor::note() << llvm::formatv("failed to open \"{0}\": {1}...\n",
-                                           out, strerror(err));
-        sleep(1);
-
-        goto try_to_open;
-      }
-
-      WithColor::error() << llvm::formatv("open of \"{0}\" failed ({1})\n", out,
-                                          strerror(err));
+      WithColor::error() << llvm::formatv("failed to receive file {0}: {1}\n",
+                                          out, strerror(err));
       return -err;
     }
 
@@ -400,8 +400,8 @@ try_to_open:
 
     if (close(fd) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("close failed ({0})\n",
-                                          strerror(err));
+      WithColor::error() << llvm::formatv("failed to close received file {0}: {1}\n",
+                                          out, strerror(err));
       return -err;
     }
   }
@@ -910,10 +910,20 @@ skip_run:
         }
       }
 
+      decompilation_t decompilation;
+      {
+        std::ifstream ifs(jv_path.c_str());
+
+        boost::archive::text_iarchive ia(ifs);
+        ia >> decompilation;
+      }
+
       //
       // ... the remote analyzes and recompiles and sends us a new jv
       //
       {
+        std::string tmpjv = "/tmp/tmpjv.jv";
+
         if (opts::Verbose)
           llvm::errs() << llvm::formatv("receiving {0}\n", jv_path.c_str());
 
@@ -924,14 +934,6 @@ skip_run:
               strerror(-ret));
           break;
         }
-      }
-
-      decompilation_t decompilation;
-      {
-        std::ifstream ifs(jv_path.c_str());
-
-        boost::archive::text_iarchive ia(ifs);
-        ia >> decompilation;
       }
 
       for (const binary_t &binary : decompilation.Binaries) {
