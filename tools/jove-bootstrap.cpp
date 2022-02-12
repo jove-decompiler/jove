@@ -5042,6 +5042,11 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
 
 void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                tiny_code_generator_t &tcg, disas_t &dis) {
+
+  if (unlikely(!opts::Quiet))
+    llvm::errs() << llvm::formatv(__ANSI_YELLOW "{1} <-- {0}" __ANSI_NORMAL_COLOR "\n",
+                                  description_of_program_counter(AddrOfRet),
+                                  description_of_program_counter(RetAddr));
   //
   // examine AddrOfRet
   //
