@@ -971,15 +971,14 @@ const helper_function_t &LookupHelper(TCGOp *op) {
 
     const char *IsSimpleStr = hf.Analysis.Simple ? "-" : "+";
 
-    if (!InGlbsStr.empty() || !OutGlbsStr.empty()) {
-      WithColor::note() << llvm::formatv("[helper] ({0}) {1} : {2} -> {3}\n",
-                                         IsSimpleStr,
+    if (InGlbsStr.empty() && OutGlbsStr.empty()) {
+      WithColor::note() << llvm::formatv("[helper] {0} ({1})\n", helper_nm, IsSimpleStr);
+    } else {
+      WithColor::note() << llvm::formatv("[helper] {1} : {2} -> {3} ({4})\n",
                                          helper_nm,
                                          InGlbsStr,
-                                         OutGlbsStr);
-    } else {
-      WithColor::note() << llvm::formatv("[helper] ({0}) {1}\n", IsSimpleStr,
-                                         helper_nm);
+                                         OutGlbsStr,
+                                         IsSimpleStr);
     }
   }
 
