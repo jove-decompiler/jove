@@ -3231,9 +3231,22 @@ int CreateSectionGlobalVariables(void) {
         target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
 
 #if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-        uint32_t &insn = *((uint32_t *)binary_data_ptr_of_addr(Addr));
+        uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
 
-        insn = 0x8c010000; /* lw at,0(zero) ; <- guaranteed to SIGSEGV */
+        //
+        // lw at,0(zero) ; <- guaranteed to SIGSEGV
+        //
+#ifdef TARGET_WORDS_BIGENDIAN
+        insnp[0] = 0x8c;
+        insnp[1] = 0x01;
+        insnp[2] = 0x00;
+        insnp[3] = 0x00;
+#else
+        insnp[0] = 0x00;
+        insnp[1] = 0x00;
+        insnp[2] = 0x01;
+        insnp[3] = 0x8c;
+#endif
 #elif defined(TARGET_X86_64) || defined(TARGET_I386)
         uint8_t *insnp = ((uint8_t *)binary_data_ptr_of_addr(Addr));
 
@@ -3868,7 +3881,7 @@ int CreateSectionGlobalVariables(void) {
         Addr = extractAddress(*ExpectedPtr);
     }
 
-    assert(Addr);
+    //assert(Addr);
 
     if (opts::Verbose)
       WithColor::note() << llvm::formatv(
