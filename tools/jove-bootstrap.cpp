@@ -4134,11 +4134,16 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(proc_map.beg,
                                                     proc_map.end);
-    WARN_ON(pmm.find(intervl) != pmm.end());
-    pmm.add({intervl, {proc_map}});
 
-    WARN_ON(AddressSpace.find(intervl) != AddressSpace.end());
-    AddressSpace.add({intervl, 1+BIdx});
+    if (WARN_ON(pmm.find(intervl) != pmm.end()))
+        ;
+    else
+      pmm.add({intervl, {proc_map}});
+
+    if (WARN_ON(AddressSpace.find(intervl) != AddressSpace.end()))
+      ;
+    else
+      AddressSpace.add({intervl, 1+BIdx});
 
     auto &b = decompilation.Binaries[BIdx];
 
