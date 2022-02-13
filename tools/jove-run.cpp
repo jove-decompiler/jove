@@ -552,11 +552,14 @@ static int do_run(void) {
     return 1;
   }
 
+  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
+
   //
   // parse decompilation
   //
   decompilation_t decompilation;
-  {
+
+  if (LivingDangerously) {
     std::ifstream ifs(jv_path.c_str());
 
     boost::archive::text_iarchive ia(ifs);
@@ -565,8 +568,6 @@ static int do_run(void) {
 
   int rfd = -1;
   int wfd = -1;
-
-  const bool LivingDangerously = !WillChroot && !opts::ForeignLibs;
 
   if (LivingDangerously) {
     //
