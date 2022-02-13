@@ -767,7 +767,8 @@ static int do_run(void) {
 
     arg_vec.push_back(nullptr);
 
-    print_command(&arg_vec[0]);
+    if (opts::Verbose)
+      print_command(&arg_vec[0]);
 
 #if 1
     if (LivingDangerously) {
@@ -1119,7 +1120,8 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        print_command(&argv[0]);
+        if (opts::Verbose)
+          print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
         llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
@@ -1159,7 +1161,8 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        print_command(&argv[0]);
+        if (opts::Verbose)
+          print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
         llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
@@ -1206,7 +1209,9 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        print_command(&argv[0]);
+        if (opts::Verbose)
+          print_command(&argv[0]);
+
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
         llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
@@ -1240,7 +1245,8 @@ void *recover_proc(const char *fifo_path) {
 
         const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
                               buff, nullptr};
-        print_command(&argv[0]);
+        if (opts::Verbose)
+          print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
         llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
@@ -1280,7 +1286,8 @@ int await_process_completion(pid_t pid) {
     }
 
     if (WIFEXITED(wstatus)) {
-      llvm::errs() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
       return WEXITSTATUS(wstatus);
     } else if (WIFSIGNALED(wstatus)) {
       llvm::errs() << llvm::formatv("killed by signal {0}\n", WTERMSIG(wstatus));

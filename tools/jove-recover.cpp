@@ -440,7 +440,7 @@ int recover(void) {
       boost::clear_out_edges(CallerBB, ICFG);
     }
 
-    msg = (fmt("[jove-recover] (call) %s -> %s") %
+    msg = (fmt(__ANSI_CYAN "(call) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(Caller.BIdx, Caller.BBIdx) %
            DescribeFunction(Callee.BIdx, Callee.FIdx))
               .str();
@@ -488,7 +488,7 @@ int recover(void) {
 
     bool isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
 
-    msg = (fmt("[jove-recover] (goto) %s -> %s") %
+    msg = (fmt(__ANSI_GREEN "(goto) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(IndBr.BIdx, IndBr.BBIdx) %
            DescribeBasicBlock(IndBr.BIdx, target_bb_idx))
               .str();
@@ -531,7 +531,7 @@ int recover(void) {
                            .DynTargets.insert({Callee.BIdx, TargetFIdx})
                            .second;
 
-    msg = (fmt("[jove-recover] *(call) %s -> %s") %
+    msg = (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
            DescribeFunction(Callee.BIdx, TargetFIdx))
               .str();
@@ -605,7 +605,7 @@ int recover(void) {
     //assert(boost::out_degree(bb, ICFG) == 0);
     bool isNewTarget = boost::add_edge(bb, next_bb, ICFG).second;
 
-    msg = (fmt("[jove-recover] (returned) %s") %
+    msg = (fmt(__ANSI_YELLOW "(returned) %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(Call.BIdx, next_bb_idx))
               .str();
   } else {

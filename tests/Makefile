@@ -9,7 +9,6 @@ LLVM_DIS := $(ROOT_DIR)/../third_party/llvm-project/install/bin/llvm-dis
 #
 CFLAGS := -Wall \
           -fno-stack-protector \
-          -fPIC \
           -O2 \
           -g
 

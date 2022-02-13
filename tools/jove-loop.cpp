@@ -708,7 +708,9 @@ run:
 
         env_vec.push_back(nullptr);
 
-        print_command(&arg_vec[0]);
+        if (opts::Verbose)
+          print_command(&arg_vec[0]);
+
         execve(arg_vec[0],
                const_cast<char **>(&arg_vec[0]),
                const_cast<char **>(&env_vec[0]));
@@ -1296,7 +1298,8 @@ skip_run:
 
         arg_vec.push_back(nullptr);
 
-        print_command(&arg_vec[0]);
+        if (opts::Verbose)
+          print_command(&arg_vec[0]);
         execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
         int err = errno;
@@ -1357,7 +1360,8 @@ skip_run:
 
         arg_vec.push_back(nullptr);
 
-        print_command(&arg_vec[0]);
+        if (opts::Verbose)
+          print_command(&arg_vec[0]);
         execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
         int err = errno;

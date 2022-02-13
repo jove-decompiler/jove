@@ -239,7 +239,7 @@ int recompile(void) {
   // sanity checks for output path
   //
   if (fs::exists(opts::Output)) {
-    if (!opts::SkipLLVM)
+    if (opts::Verbose)
       WithColor::note() << llvm::formatv("reusing output directory {}\n",
                                          opts::Output);
   } else {
@@ -624,24 +624,24 @@ int recompile(void) {
     }
   }
 
-  //
-  // graphviz
-  //
-  std::string dso_dot_path = (fs::path(tmpdir) /  "dso_graph.dot").string();
-
-  {
-    std::ofstream ofs(dso_dot_path);
-
-    write_dso_graphviz(ofs, dso_graph);
-  }
-
-  //
-  // graph-easy
-  //
   bool haveGraphEasy = fs::exists("/usr/bin/vendor_perl/graph-easy") ||
                        fs::exists("/usr/bin/graph-easy");
+  if (opts::Verbose && haveGraphEasy) {
+    //
+    // graphviz
+    //
+    std::string dso_dot_path = (fs::path(tmpdir) /  "dso_graph.dot").string();
 
-  if (haveGraphEasy) {
+    {
+      std::ofstream ofs(dso_dot_path);
+
+      write_dso_graphviz(ofs, dso_graph);
+    }
+
+    //
+    // graph-easy
+    //
+
     pid_t pid = fork();
     if (!pid) {
       IgnoreCtrlC();
@@ -706,6 +706,9 @@ int recompile(void) {
 
     Q.push_back(dso);
   }
+
+  WithColor::note() << llvm::formatv(
+      "Recompiling {0} binaries...\n", Decompilation.Binaries.size());
 
   //
   // run jove-llvm and llc on all DSOs
@@ -994,7 +997,8 @@ int recompile(void) {
 
       arg_vec.push_back(nullptr);
 
-      print_command(&arg_vec[0]);
+      if (opts::Verbose)
+        print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
@@ -1108,7 +1112,8 @@ void worker(const dso_graph_t &dso_graph) {
 
       arg_vec.push_back(nullptr);
 
-      print_command(&arg_vec[0]);
+      if (opts::Verbose)
+        print_command(&arg_vec[0]);
 
       {
         std::string stdoutfp = bcfp + ".stdout.txt";
@@ -1270,7 +1275,8 @@ void worker(const dso_graph_t &dso_graph) {
 
       arg_vec.push_back(nullptr);
 
-      print_command(&arg_vec[0]);
+      if (opts::Verbose)
+        print_command(&arg_vec[0]);
 
       close(STDIN_FILENO);
       execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);

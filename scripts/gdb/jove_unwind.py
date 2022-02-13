@@ -39,9 +39,8 @@ class JoveUnwindCommand(gdb.Command):
 
                         if not use_addr2line:
                             completedProcess = subprocess.run(\
-                                ["/usr/bin/llvm-symbolizer",\
+                                ["/usr/bin/llvm-symbolizer-13",\
                                 "--print-address",\
-                                "--inlining=0",\
                                 "--output-style=GNU",\
                                 "--pretty-print"],\
                                 input=('%s 0x%x' % (path, sal.line)),\
