@@ -22,8 +22,8 @@ namespace jove {
   std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
   boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;        \
                                                                                \
-  uintptr_t LoadAddr = 0;                                                      \
-  uintptr_t LoadAddrEnd = 0;                                                   \
+  uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();                  \
+  uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();                \
                                                                                \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   struct {                                                                     \
@@ -232,7 +232,7 @@ static std::string jove_add_path;
 
 static decompilation_t decompilation;
 
-struct vm_properties_t {
+struct proc_map_t {
   uintptr_t beg;
   uintptr_t end;
   std::ptrdiff_t off;
@@ -242,27 +242,25 @@ struct vm_properties_t {
 
   std::string nm;
 
-  bool operator==(const vm_properties_t &vm) const {
-    return beg == vm.beg && end == vm.end;
+  bool operator==(const proc_map_t &pm) const {
+    return beg == pm.beg && end == pm.end;
   }
 
-  bool operator<(const vm_properties_t &vm) const { return beg < vm.beg; }
+  bool operator<(const proc_map_t &pm) const {
+    return beg < pm.beg;
+  }
 };
-typedef std::set<vm_properties_t> vm_properties_set_t;
 
-static boost::icl::split_interval_map<uintptr_t, vm_properties_set_t> vmm;
+static std::vector<struct proc_map_t> cached_proc_maps;
 
-// we have a BB & Func map for each binary_t
-struct binary_state_t {
-  struct {
-    uintptr_t LoadAddr, LoadAddrEnd;
-  } dyn;
-};
+typedef std::set<struct proc_map_t> proc_map_set_t;
+static boost::icl::split_interval_map<uintptr_t, proc_map_set_t> pmm;
 
 static boost::dynamic_bitset<> BinFoundVec;
 static std::unordered_map<std::string, binary_index_t> BinPathToIdxMap;
 
 static std::pair<void *, unsigned> GetVDSO(void);
+static std::string ProcMapsForPid(pid_t);
 
 static void IgnoreCtrlC(void);
 static void UnIgnoreCtrlC(void);
@@ -826,7 +824,7 @@ int main(int argc, char **argv) {
 
 namespace jove {
 
-static bool update_view_of_virtual_memory(pid_t child);
+static bool update_view_of_virtual_memory(pid_t, disas_t &);
 
 #if defined(__mips64) || defined(__mips__)
 //
@@ -842,9 +840,7 @@ static struct {
   uintptr_t r_brk;
 } _r_debug = {.Found = false, .Addr = 0, .r_brk = 0};
 
-typedef std::set<binary_index_t> binary_index_set_t;
-static boost::icl::split_interval_map<uintptr_t, binary_index_set_t>
-    AddressSpace;
+static boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
 
 struct indirect_branch_t {
   unsigned long words[2];
@@ -881,28 +877,34 @@ struct return_t {
 static std::unordered_map<uintptr_t, indirect_branch_t> IndBrMap;
 static std::unordered_map<uintptr_t, return_t> RetMap;
 
-static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t idx) {
-  binary_t &binary = decompilation.Binaries.at(idx);
+static uintptr_t va_of_rva(uintptr_t Addr, binary_index_t BIdx) {
+  binary_t &binary = decompilation.Binaries.at(BIdx);
+
+  if (!BinFoundVec.test(BIdx))
+    throw std::runtime_error(std::string(__func__) + ": given binary (" +
+                             binary.Path + " is not loaded\n");
+
   if (!binary.IsPIC) {
     assert(binary.IsExecutable);
     return Addr;
   }
 
-  assert(binary.LoadAddr);
-  return Addr + binary.LoadAddr;
+  return Addr + (binary.LoadAddr - binary.LoadOffset);
 }
 
-static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t idx) {
-  binary_t &binary = decompilation.Binaries.at(idx);
+static uintptr_t rva_of_va(uintptr_t Addr, binary_index_t BIdx) {
+  binary_t &binary = decompilation.Binaries.at(BIdx);
+
+  if (!BinFoundVec.test(BIdx))
+    throw std::runtime_error(std::string(__func__) + ": given binary (" +
+                             binary.Path + " is not loaded\n");
+
   if (!binary.IsPIC) {
     assert(binary.IsExecutable);
     return Addr;
   }
 
-  assert(binary.LoadAddr);
-  assert(Addr >= binary.LoadAddr);
-  assert(Addr < binary.LoadAddrEnd);
-  return Addr - binary.LoadAddr;
+  return Addr - (binary.LoadAddr - binary.LoadOffset);
 }
 
 // one-shot breakpoint
@@ -920,7 +922,6 @@ struct breakpoint_t {
 };
 static std::unordered_map<uintptr_t, breakpoint_t> BrkMap;
 
-static void search_address_space_for_binaries(pid_t, disas_t &);
 static void place_breakpoint_at_indirect_branch(pid_t, uintptr_t Addr,
                                                 indirect_branch_t &, disas_t &);
 static void place_breakpoint(pid_t, uintptr_t Addr, breakpoint_t &, disas_t &);
@@ -1284,7 +1285,6 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
             } catch (const std::exception &e) {
               ;
             }
-
           } else { /* exit */
 #if defined(__mips64) || defined(__mips__)
             long r7 = cpu_state.regs[7];
@@ -1340,43 +1340,57 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
                   if (opts::Verbose)
-                    WithColor::note() << llvm::formatv("handler={0:x}\n", handler);
+                    llvm::errs() << llvm::formatv(
+                        "on rt_sigaction(): handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
                     handler &= ~1UL;
 #endif
 
-                    update_view_of_virtual_memory(saved_pid);
+                    update_view_of_virtual_memory(saved_pid, dis);
 
-                    auto it = AddressSpace.find(handler);
-                    if (it == AddressSpace.end()) {
+                    auto pm_it = pmm.find(handler);
+                    if (pm_it == pmm.end()) {
                       WithColor::warning() << llvm::formatv(
-                          "sighandler {0:x} in unknown binary\n", handler);
+                          "on rt_sigaction(): handler {0:x} in unknown binary\n",
+                          handler);
                     } else {
-                      binary_index_t handler_binary_idx = *(*it).second.begin();
+                      const proc_map_set_t &pms = (*pm_it).second;
+                      assert(pms.size() == 1);
 
-                      unsigned brkpt_count = 0;
+                      const proc_map_t &pm = *pms.begin();
 
-                      basic_block_index_t entrybb_idx = translate_basic_block(
-                          child, handler_binary_idx, tcg, dis,
-                          rva_of_va(handler, handler_binary_idx), brkpt_count);
+                      auto b_it = BinPathToIdxMap.find(pm.nm);
+                      if (b_it != BinPathToIdxMap.end()) {
+                        binary_index_t handler_binary_idx = (*b_it).second;
 
-                      if (is_basic_block_index_valid(entrybb_idx)) {
-                        function_index_t FIdx = translate_function(
+                        unsigned brkpt_count = 0;
+
+                        basic_block_index_t entrybb_idx = translate_basic_block(
                             child, handler_binary_idx, tcg, dis,
-                            rva_of_va(handler, handler_binary_idx),
-                            brkpt_count);
+                            rva_of_va(handler, handler_binary_idx), brkpt_count);
 
-                        if (is_function_index_valid(FIdx)) {
-                          binary_t &binary = decompilation.Binaries[handler_binary_idx];
-                          binary.Analysis.Functions[FIdx].IsSignalHandler = true;
-                          binary.Analysis.Functions[FIdx].IsABI = true;
-                        } else {
-                          WithColor::error() << llvm::formatv(
-                              "failed to translate signal handler {0:x}\n",
-                              handler);
+                        if (is_basic_block_index_valid(entrybb_idx)) {
+                          function_index_t FIdx = translate_function(
+                              child, handler_binary_idx, tcg, dis,
+                              rva_of_va(handler, handler_binary_idx),
+                              brkpt_count);
+
+                          if (is_function_index_valid(FIdx)) {
+                            binary_t &binary = decompilation.Binaries[handler_binary_idx];
+                            binary.Analysis.Functions[FIdx].IsSignalHandler = true;
+                            binary.Analysis.Functions[FIdx].IsABI = true;
+                          } else {
+                            WithColor::warning() << llvm::formatv(
+                                "on rt_sigaction(): failed to translate handler {0:x}\n",
+                                handler);
+                          }
                         }
+                      } else {
+                        WithColor::warning() << llvm::formatv(
+                            "on rt_sigaction(): no binary for handler {0:x} @ {1}+{2:x}\n",
+                            handler, pm.nm, handler - pm.beg);
                       }
                     }
                   }
@@ -1407,7 +1421,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
             scan_rtld_link_map(child, tcg, dis);
 
           if (unlikely(!BinFoundVec.all()))
-            search_address_space_for_binaries(child, dis);
+            update_view_of_virtual_memory(child, dis);
         } else if (stopsig == SIGTRAP) {
           const unsigned int event = (unsigned int)status >> 16;
 
@@ -1474,7 +1488,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               on_breakpoint(child, tcg, dis);
             } catch (const std::exception &e) {
               /* TODO rate-limit */
-              llvm::errs() << llvm::formatv("on_breakpoint failed: {0}\n", e.what());
+              WithColor::error() << llvm::formatv(
+                  "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
             }
           }
         } else if (ptrace(PTRACE_GETSIGINFO, child, 0UL, &si) < 0) {
@@ -3229,7 +3244,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       try {
         on_return(child, saved_pc, pc, tcg, dis);
       } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("on_return failed: {0}\n", e.what());
+        WithColor::error() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
       return;
     }
@@ -3261,7 +3276,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
-      update_view_of_virtual_memory(saved_pid);
+      update_view_of_virtual_memory(saved_pid, dis);
       auto desc(description_of_program_counter(addr));
 
       throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
@@ -3546,7 +3561,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = AddressSpace.find(target);
     if (it == AddressSpace.end()) {
       if (opts::Verbose) {
-        update_view_of_virtual_memory(saved_pid);
+        update_view_of_virtual_memory(child, dis);
 
         WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
                                               description_of_program_counter(saved_pc),
@@ -3555,12 +3570,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       return;
     }
 
-    binary_idx = *(*it).second.begin();
+    binary_idx = -1+(*it).second;
   }
 
   bool isNewTarget = false;
 
-  const char *control_flow_description = "call";
+  struct {
+    bool IsGoto = false;
+  } ControlFlow;
 
   unsigned brkpt_count = 0;
 
@@ -3581,6 +3598,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                             rva_of_va(target, binary_idx), brkpt_count);
 
       isNewTarget = brkpt_count > 0;
+      ControlFlow.IsGoto = true;
     } else {
       // on an indirect jump, we must determine one of two possibilities.
       //
@@ -3636,7 +3654,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         if (isNewTarget)
           ICFG[bb].InvalidateAnalysis();
 
-        control_flow_description = "goto";
+        ControlFlow.IsGoto = true;
       }
     }
   } else {
@@ -3650,17 +3668,22 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                                   decompilation.Binaries[binary_idx].Path);
 
   if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
-    llvm::errs() << llvm::formatv(__ANSI_CYAN "({0}) {1} -> {2}{3}" __ANSI_NORMAL_COLOR "\n",
-                                  control_flow_description,
+    llvm::errs() << llvm::formatv("{4}({0}) {1} -> {2}{3}" __ANSI_NORMAL_COLOR "\n",
+                                  ControlFlow.IsGoto ? "goto" : "call",
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(target),
                                   ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP ?
-                                    (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "");
+                                    (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "",
+                                  ControlFlow.IsGoto ? __ANSI_GREEN : __ANSI_CYAN);
 
   } catch (const std::exception &e) {
-    llvm::errs() << (__ANSI_BOLD_RED "exception while processing control-flow: ") +
-                    std::string(e.what()) +
-                    (__ANSI_NORMAL_COLOR "\n");
+    std::string s = fs::path(decompilation.Binaries[binary_idx].Path).filename().string();
+
+    WithColor::error() << llvm::formatv(
+        "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n", e.what(), s,
+        rva_of_va(target, binary_idx), target, decompilation.Binaries[binary_idx].LoadAddr);
+
+    llvm::errs() << ProcMapsForPid(child);
   }
 }
 
@@ -3705,7 +3728,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
       return;
     }
 
-    Resolved.BIdx = *(*it).second.begin();
+    Resolved.BIdx = -1+(*it).second;
 
     if (opts::Verbose)
       llvm::outs() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
@@ -3809,7 +3832,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
         return;
       }
 
-      Resolved.BIdx = *(*it).second.begin();
+      Resolved.BIdx = -1+(*it).second;
 
       if (Resolved.BIdx == b.BIdx) /* _dl_fixup... */
         return;
@@ -3913,7 +3936,7 @@ static void harvest_ctor_and_dtors(pid_t child,
 
             auto it = AddressSpace.find(Proc);
             if (it != AddressSpace.end() &&
-                *(*it).second.begin() == BIdx) {
+                -1+(*it).second == BIdx) {
               function_index_t FIdx = translate_function(
                   child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
 
@@ -4034,7 +4057,7 @@ static void harvest_global_GOT_entries(pid_t child,
         continue;
       }
 
-      Resolved.BIdx = *(*it).second.begin();
+      Resolved.BIdx = -1+(*it).second;
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = translate_basic_block(
@@ -4068,80 +4091,101 @@ void harvest_reloc_targets(pid_t child,
 #endif
 }
 
-static void on_binary_loaded(pid_t, disas_t &, binary_index_t,
-                             const vm_properties_t &);
+static void on_binary_loaded(pid_t, disas_t &, binary_index_t, const proc_map_t &);
 
-void search_address_space_for_binaries(pid_t child, disas_t &dis) {
+static bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out);
+
+bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
+  if (!load_proc_maps(child, cached_proc_maps))
+    return false;
+
+#if 0
   if (BinFoundVec.all())
     return; /* there is no need */
+#endif
 
-  if (unlikely(!update_view_of_virtual_memory(saved_pid))) {
-    WithColor::error() << "failed to read virtual memory maps of child "
-                       << child << '\n';
-    return;
-  }
+  pmm.clear();
+  AddressSpace.clear();
 
-  for (auto &vm_prop_set : vmm) {
-    const vm_properties_t &vm_prop = *vm_prop_set.second.begin();
-
-    if (!vm_prop.x)
+  for (const auto &proc_map : cached_proc_maps) {
+    if (proc_map.nm.empty())
       continue;
-    if (vm_prop.nm.empty())
-      continue;
-    if (vm_prop.nm[0] != '/') {
-      if (vm_prop.nm.find("[stack]") != std::string::npos)
+
+    if (proc_map.nm[0] != '/') {
+      if (proc_map.nm.find("[stack]") != std::string::npos)
         continue;
-      if (vm_prop.nm.find("[heap]") != std::string::npos)
+      if (proc_map.nm.find("[heap]") != std::string::npos)
         continue;
-      if (vm_prop.nm.find("[vsyscall]") != std::string::npos)
+      if (proc_map.nm.find("[vsyscall]") != std::string::npos)
         continue; /* if a dynamic target is in [vsyscall], we'll know */
     }
 
     // thus, if we get here, it's either a file or [vdso]
-    auto it = BinPathToIdxMap.find(vm_prop.nm);
+    auto it = BinPathToIdxMap.find(proc_map.nm);
     if (it == BinPathToIdxMap.end()) {
       if (opts::Verbose)
         WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
-                                              vm_prop.nm);
+                                              proc_map.nm);
       continue;
     }
 
-    if (it != BinPathToIdxMap.end() && !BinFoundVec.test((*it).second)) {
-      binary_index_t BIdx = (*it).second;
+    binary_index_t BIdx = (*it).second;
+
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(proc_map.beg,
+                                                    proc_map.end);
+    WARN_ON(pmm.find(intervl) != pmm.end());
+    pmm.add({intervl, {proc_map}});
+
+    WARN_ON(AddressSpace.find(intervl) != AddressSpace.end());
+    AddressSpace.add({intervl, 1+BIdx});
+
+    auto &b = decompilation.Binaries[BIdx];
+
+    uintptr_t SavedLoadAddr = b.LoadAddr;
+    b.LoadAddr = std::min(b.LoadAddr, proc_map.beg);
+    bool Changed = b.LoadAddr != SavedLoadAddr;
+
+    if (Changed) {
+      b.LoadOffset = proc_map.off;
+
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
+                                      b.Path, b.LoadAddr, SavedLoadAddr);
+    }
+
+    if (!proc_map.x)
+      continue;
+
+    if (!BinFoundVec.test(BIdx)) {
       BinFoundVec.set(BIdx);
 
-      on_binary_loaded(child, dis, BIdx, vm_prop);
+      on_binary_loaded(child, dis, BIdx, proc_map);
     }
   }
+
+  return true;
 }
 
 static void on_dynamic_linker_loaded(pid_t child,
                                      disas_t &dis,
                                      binary_index_t BIdx,
-                                     const vm_properties_t &vm_prop);
+                                     const proc_map_t &);
 
 void on_binary_loaded(pid_t child,
                       disas_t &dis,
                       binary_index_t BIdx,
-                      const vm_properties_t &vm_prop) {
+                      const proc_map_t &proc_map) {
   binary_t &binary = decompilation.Binaries[BIdx];
 
   auto &ObjectFile = binary.ObjectFile;
 
-  binary.LoadAddr = vm_prop.beg - vm_prop.off;
-  binary.LoadAddrEnd = vm_prop.end;
-
   if (opts::Verbose)
     llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
-                     % vm_prop.nm
-                     % binary.LoadAddr
-                     % binary.LoadAddrEnd).str()
+                     % proc_map.nm
+                     % proc_map.beg
+                     % proc_map.end).str()
                  << '\n';
-
-  boost::icl::interval<uintptr_t>::type intervl =
-      boost::icl::interval<uintptr_t>::right_open(vm_prop.beg, vm_prop.end);
-  binary_index_set_t bin_idx_set = {BIdx};
-  AddressSpace.add(std::make_pair(intervl, bin_idx_set));
 
   //
   // if Prog has been loaded, set a breakpoint on the entry point of prog
@@ -4171,7 +4215,7 @@ void on_binary_loaded(pid_t child,
   // mapping change is complete.
   //
   if (binary.IsDynamicLinker)
-    on_dynamic_linker_loaded(child, dis, BIdx, vm_prop);
+    on_dynamic_linker_loaded(child, dis, BIdx, proc_map);
 
 #if defined(__mips64) || defined(__mips__)
   if (binary.IsVDSO) {
@@ -4182,7 +4226,7 @@ void on_binary_loaded(pid_t child,
     //
     // find a code cave that can hold 2*num_trampolines instructions
     //
-    ExecutableRegionAddress = vm_prop.end - num_trampolines * (2 * sizeof(uint32_t));
+    ExecutableRegionAddress = proc_map.end - num_trampolines * (2 * sizeof(uint32_t));
 
     //
     // "initialize" code cave
@@ -4541,7 +4585,7 @@ int ChildProc(int pipefd) {
   return 1;
 }
 
-bool update_view_of_virtual_memory(pid_t child) {
+bool load_proc_maps(pid_t child, std::vector<struct proc_map_t> &out) {
   FILE *fp;
   char *line = NULL;
   size_t len = 0;
@@ -4558,41 +4602,37 @@ bool update_view_of_virtual_memory(pid_t child) {
     return false;
   }
 
-  vmm.clear();
+  out.clear();
+  out.reserve(30);
 
   while ((read = getline(&line, &len, fp)) != -1) {
     int fields, dev_maj, dev_min, inode;
     uint64_t min, max, offset;
-    char flag_r, flag_w, flag_x, flag_p;
+    struct {
+      char r, w, x;
+    } perm;
+    char flag_p;
     char path[512] = "";
     fields = sscanf(line,
                     "%" PRIx64 "-%" PRIx64 " %c%c%c%c %" PRIx64 " %x:%x %d"
                     " %512s",
-                    &min, &max, &flag_r, &flag_w, &flag_x, &flag_p, &offset,
+                    &min, &max, &perm.r, &perm.w, &perm.x, &flag_p, &offset,
                     &dev_maj, &dev_min, &inode, path);
 
     if ((fields < 10) || (fields > 11)) {
       continue;
     }
 
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(min, max);
+    struct proc_map_t &proc_map = out.emplace_back();
 
-    vm_properties_t vmprop;
-    vmprop.beg = min;
-    vmprop.end = max;
-    vmprop.off = offset;
-    vmprop.r = flag_r == 'r';
-    vmprop.w = flag_w == 'w';
-    vmprop.x = flag_x == 'x';
-    vmprop.p = flag_p == 'p';
-    vmprop.nm = path;
-
-    //
-    // create the mappings
-    //
-    vm_properties_set_t vmprops = {vmprop};
-    vmm.add(make_pair(intervl, vmprops));
+    proc_map.beg = min;
+    proc_map.end = max;
+    proc_map.off = offset;
+    proc_map.r = perm.r == 'r';
+    proc_map.w = perm.w == 'w';
+    proc_map.x = perm.x == 'x';
+    proc_map.p = flag_p == 'p';
+    proc_map.nm = path;
   }
 
   free(line);
@@ -4741,7 +4781,7 @@ void scan_rtld_link_map(pid_t child,
   } while (lmp && lmp != r_dbg.r_map);
 
   if (newbin)
-    search_address_space_for_binaries(child, dis);
+    update_view_of_virtual_memory(child, dis);
 }
 
 static void print_command(std::vector<const char *> &arg_vec);
@@ -4910,7 +4950,7 @@ void print_command(std::vector<const char *> &arg_vec) {
 void on_dynamic_linker_loaded(pid_t child,
                               disas_t &dis,
                               binary_index_t BIdx,
-                              const vm_properties_t &vm_prop) {
+                              const proc_map_t &proc_map) {
   binary_t &b = decompilation.Binaries[BIdx];
 
   if (b._elf.OptionalDynSymRegion) {
@@ -5045,9 +5085,9 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                tiny_code_generator_t &tcg, disas_t &dis) {
 
   if (unlikely(!opts::Quiet))
-    llvm::errs() << llvm::formatv(__ANSI_YELLOW "{1} <-- {0}" __ANSI_NORMAL_COLOR "\n",
-                                  description_of_program_counter(AddrOfRet),
-                                  description_of_program_counter(RetAddr));
+    llvm::errs() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
+                                  description_of_program_counter(RetAddr),
+                                  description_of_program_counter(AddrOfRet));
   //
   // examine AddrOfRet
   //
@@ -5058,14 +5098,14 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child);
+        update_view_of_virtual_memory(child, dis);
 
-        if (opts::Verbose)
+        if (pc)
           WithColor::warning()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                                description_of_program_counter(pc));
       } else {
-        BIdx = *(*it).second.begin();
+        BIdx = -1+(*it).second;
 
         binary_t &binary = decompilation.Binaries.at(BIdx);
         auto &BBMap = binary.BBMap;
@@ -5099,14 +5139,15 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     {
       auto it = AddressSpace.find(pc);
       if (it == AddressSpace.end()) {
-        update_view_of_virtual_memory(child);
+        update_view_of_virtual_memory(child, dis);
 
         WithColor::warning()
             << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc));
       } else {
-        BIdx = *(*it).second.begin();
+        BIdx = -1+(*it).second;
 
+        try {
         binary_t &binary = decompilation.Binaries.at(BIdx);
         auto &BBMap = binary.BBMap;
         auto &ICFG = binary.Analysis.ICFG;
@@ -5187,6 +5228,12 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                                         brkpt_count,
                                         brkpt_count > 1 ? "s" : "",
                                         binary.Path);
+        } catch (const std::exception &e) {
+          std::string s = fs::path(decompilation.Binaries[BIdx].Path).filename().string();
+          WithColor::error()
+              << llvm::formatv("{0} failed: {1} [RetAddr: {2}+{3:x} ({4:x})]\n",
+                               __func__, e.what(), s, rva_of_va(pc, BIdx), pc);
+        }
       }
     }
   }
@@ -5266,22 +5313,48 @@ std::string description_of_program_counter(uintptr_t pc) {
     return (fmt("%#lx") % pc).str();
   };
 
-  auto vm_it = vmm.find(pc);
-  if (vm_it == vmm.end()) {
+  auto pm_it = pmm.find(pc);
+  if (pm_it == pmm.end()) {
     return simple_desc();
   } else {
-    const vm_properties_set_t &vmprops = (*vm_it).second;
-    const vm_properties_t &vmprop = *vmprops.begin();
+    const proc_map_set_t &pms = (*pm_it).second;
+    assert(pms.size() == 1);
 
-    if (vmprop.nm.empty())
+    const proc_map_t &pm = *pms.begin();
+
+    if (pm.nm.empty())
       return simple_desc();
 
-    std::string str = fs::path(vmprop.nm).filename().string();
-    uintptr_t off = pc - vmprop.beg + vmprop.off;
+    auto b_it = BinPathToIdxMap.find(pm.nm);
+    if (b_it == BinPathToIdxMap.end())
+      return simple_desc();
+
+    binary_index_t BIdx = (*b_it).second;
+    if (!BinFoundVec.test(BIdx)) {
+      WithColor::warning() << __func__ << ": inconsistency with BinFoundVec and pmm\n";
+      return simple_desc();
+    }
+
+    {
+      //
+      // sanity check
+      //
+      auto it = AddressSpace.find(pc);
+      if (it == AddressSpace.end() || -1+(*it).second != BIdx) {
+        WithColor::warning()
+            << __func__
+            << ": inconsistency with (BinFoundVec, pmm) and AddressSpace\n";
+        return simple_desc();
+      }
+    }
+
+    target_ulong rva = rva_of_va(pc, BIdx);
+    std::string str = fs::path(pm.nm).filename().string();
+
     if (opts::VeryVerbose)
-      return (fmt("%s+%#lx (%#lx)") % str % off % pc).str();
+      return (fmt("%s+%#lx (%#lx)") % str % rva % pc).str();
     else
-      return (fmt("%s+%#lx") % str % off).str();
+      return (fmt("%s+%#lx") % str % rva).str();
   }
 }
 
@@ -5366,6 +5439,35 @@ std::pair<void *, unsigned> GetVDSO(void) {
   fclose(fp);
 
   return std::make_pair(res.first, res.second);
+}
+
+std::string ProcMapsForPid(pid_t pid) {
+  std::string res;
+
+  {
+    FILE *fp;
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    {
+      char path[128];
+      snprintf(path, sizeof(path), "/proc/%d/maps", static_cast<int>(pid));
+
+      fp = fopen(path, "r");
+
+      if (!fp)
+        return "";
+    }
+
+    while ((read = getline(&line, &len, fp)) != -1)
+      res.append(line);
+
+    free(line);
+    fclose(fp);
+  }
+
+  return res;
 }
 
 } // namespace jove
