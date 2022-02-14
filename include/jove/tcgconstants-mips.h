@@ -142,7 +142,7 @@ namespace jove {
 //
 
 typedef uint32_t tcg_uintptr_t;
-constexpr int tcg_num_globals = 130;
+constexpr int tcg_num_globals = 194 /* 130 */;
 constexpr int tcg_num_helpers = 1069;
 constexpr int tcg_max_temps = 512;
 constexpr int tcg_env_index = 1;
