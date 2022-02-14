@@ -1,4 +1,4 @@
-FROM debian:bookworm-20211201
+FROM debian:bookworm-20220125
 
 LABEL maintainer aeden@aarno-labs.com
 
