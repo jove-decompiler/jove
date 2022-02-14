@@ -708,7 +708,9 @@ int recompile(void) {
   }
 
   WithColor::note() << llvm::formatv(
-      "Recompiling {0} binaries...\n", Decompilation.Binaries.size());
+      "Recompiling {0} {1}...\n",
+      (opts::ForeignLibs ? 3 : Decompilation.Binaries.size()) - 2,
+      opts::ForeignLibs ? "binary" : "binaries");
 
   //
   // run jove-llvm and llc on all DSOs
