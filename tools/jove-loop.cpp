@@ -815,7 +815,8 @@ skip_run:
       server_addr.sin_addr.s_addr = inet_addr(addr_str.c_str());
 
       int connect_ret;
-      llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
+      if (opts::Verbose)
+        llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
       connect_ret = connect(remote_fd,
                             reinterpret_cast<struct sockaddr *>(&server_addr),
                             sizeof(sockaddr_in));
