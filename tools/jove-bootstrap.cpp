@@ -4102,38 +4102,10 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
   if (!load_proc_maps(child, cached_proc_maps))
     return false;
 
-#if 0
-  if (BinFoundVec.all())
-    return; /* there is no need */
-#endif
-
   pmm.clear();
   AddressSpace.clear();
 
   for (const auto &proc_map : cached_proc_maps) {
-    if (proc_map.nm.empty())
-      continue;
-
-    if (proc_map.nm[0] != '/') {
-      if (proc_map.nm.find("[stack]") != std::string::npos)
-        continue;
-      if (proc_map.nm.find("[heap]") != std::string::npos)
-        continue;
-      if (proc_map.nm.find("[vsyscall]") != std::string::npos)
-        continue; /* if a dynamic target is in [vsyscall], we'll know */
-    }
-
-    // thus, if we get here, it's either a file or [vdso]
-    auto it = BinPathToIdxMap.find(proc_map.nm);
-    if (it == BinPathToIdxMap.end()) {
-      if (opts::Verbose)
-        WithColor::warning() << llvm::formatv("what is this? \"{0}\"\n",
-                                              proc_map.nm);
-      continue;
-    }
-
-    binary_index_t BIdx = (*it).second;
-
     boost::icl::interval<uintptr_t>::type intervl =
         boost::icl::interval<uintptr_t>::right_open(proc_map.beg,
                                                     proc_map.end);
@@ -4142,6 +4114,16 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
         ;
     else
       pmm.add({intervl, {proc_map}});
+
+    auto it = BinPathToIdxMap.find(proc_map.nm);
+    if (it == BinPathToIdxMap.end()) {
+      if (opts::Verbose)
+        WithColor::warning() << llvm::formatv("{0}: what is this? \"{1}\"\n",
+                                              __func__, proc_map.nm);
+      continue;
+    }
+
+    binary_index_t BIdx = (*it).second;
 
     if (WARN_ON(AddressSpace.find(intervl) != AddressSpace.end()))
       ;
@@ -5326,7 +5308,8 @@ std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
   if (pm_it == pmm.end()) {
     return simple_desc;
   } else {
-    std::string extra = Verbose || opts::VeryVerbose ? (' ' + simple_desc) : "";
+    std::string extra =
+        Verbose || opts::VeryVerbose ? (" (" + simple_desc + ")") : "";
 
     const proc_map_set_t &pms = (*pm_it).second;
     assert(pms.size() == 1);
