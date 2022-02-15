@@ -959,7 +959,7 @@ static std::unordered_map<pid_t, child_syscall_state_t> children_syscall_state;
 
 static int await_process_completion(pid_t);
 
-static std::string description_of_program_counter(uintptr_t);
+static std::string description_of_program_counter(uintptr_t, bool Verbose = false);
 
 static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
@@ -3156,15 +3156,14 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #elif defined(__mips64) || defined(__mips__)
     assert(InsnBytes.size() == 2 * sizeof(uint32_t));
 
-    if (WARN_ON(!(Inst.getOpcode() == llvm::Mips::JR &&
-                  Inst.getNumOperands() == 1 &&
-                  Inst.getOperand(0).isReg() &&
-                  Inst.getOperand(0).getReg() == llvm::Mips::RA))) {
-      WithColor::error() << llvm::formatv(
-          "emulate_return: expected jr $ra, got {0} @ {1}\n", Inst,
+    if (!(Inst.getOpcode() == llvm::Mips::JR &&
+          Inst.getNumOperands() == 1 &&
+          Inst.getOperand(0).isReg() &&
+          Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
+      WithColor::warning() << llvm::formatv(
+          "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
+	  Inst, StringOfMCInst(Inst, dis),
           description_of_program_counter(saved_pc));
-      pc = gpr.regs[31 /* ra */]; /* XXX */
-      return;
     }
 
     emulate_delay_slot(DelaySlotInst, InsnBytes, llvm::Mips::RA);
@@ -5304,7 +5303,7 @@ std::string StringOfMCInst(llvm::MCInst &Inst, disas_t &dis) {
   return res;
 }
 
-std::string description_of_program_counter(uintptr_t pc) {
+std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
 #if 0 /* defined(__mips64) || defined(__mips__) */
   if (ExecutableRegionAddress &&
       pc >= ExecutableRegionAddress &&
@@ -5313,53 +5312,42 @@ std::string description_of_program_counter(uintptr_t pc) {
     return (fmt("[exeregion]+%#lx") % off).str();
   }
 #endif
-
-  auto simple_desc = [=](void) -> std::string {
-    return (fmt("%#lx") % pc).str();
-  };
+  std::string simple_desc = (fmt("%#lx") % pc).str();
 
   auto pm_it = pmm.find(pc);
   if (pm_it == pmm.end()) {
-    return simple_desc();
+    return simple_desc;
   } else {
+    std::string extra = Verbose || opts::VeryVerbose ? (' ' + simple_desc) : "";
+
     const proc_map_set_t &pms = (*pm_it).second;
     assert(pms.size() == 1);
 
     const proc_map_t &pm = *pms.begin();
 
     if (pm.nm.empty())
-      return simple_desc();
+      return (fmt("%#lx+%#lx%s") % pm.beg % (pc - pm.beg) % extra).str();
 
     auto b_it = BinPathToIdxMap.find(pm.nm);
     if (b_it == BinPathToIdxMap.end())
-      return simple_desc();
+      return (fmt("%s+%#lx%s") % pm.nm % (pc - (pm.beg - pm.off)) % extra).str();
 
     binary_index_t BIdx = (*b_it).second;
-    if (!BinFoundVec.test(BIdx)) {
-      WithColor::warning() << __func__ << ": inconsistency with BinFoundVec and pmm\n";
-      return simple_desc();
-    }
+    if (!BinFoundVec.test(BIdx))
+      WithColor::warning()
+          << __func__
+          << ": inconsistency with (BinFoundVec, pmm) (BUG)\n";
 
-    {
-      //
-      // sanity check
-      //
-      auto it = AddressSpace.find(pc);
-      if (it == AddressSpace.end() || -1+(*it).second != BIdx) {
-        WithColor::warning()
-            << __func__
-            << ": inconsistency with (BinFoundVec, pmm) and AddressSpace\n";
-        return simple_desc();
-      }
-    }
+    auto as_it = AddressSpace.find(pc);
+    if (as_it == AddressSpace.end() || -1+(*as_it).second != BIdx)
+      WithColor::warning()
+          << __func__
+          << ": inconsistency with (BinFoundVec, pmm, AddressSpace) (BUG)\n";
 
     target_ulong rva = rva_of_va(pc, BIdx);
     std::string str = fs::path(pm.nm).filename().string();
 
-    if (opts::VeryVerbose)
-      return (fmt("%s+%#lx (%#lx)") % str % rva % pc).str();
-    else
-      return (fmt("%s+%#lx") % str % rva).str();
+    return (fmt("%s+%#lx%s") % str % rva % extra).str();
   }
 }
 
