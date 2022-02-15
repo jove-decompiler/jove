@@ -3266,9 +3266,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
       update_view_of_virtual_memory(child, dis);
-      auto desc(description_of_program_counter(addr, true));
 
-      throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
+      throw std::runtime_error("unknown breakpoint @ " +
+                               description_of_program_counter(addr, true));
     }
 
     return (*it).second;
