@@ -3163,7 +3163,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       WithColor::warning() << llvm::formatv(
           "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
 	  Inst, StringOfMCInst(Inst, dis),
-          description_of_program_counter(saved_pc));
+          description_of_program_counter(saved_pc, true));
     }
 
     emulate_delay_slot(DelaySlotInst, InsnBytes, llvm::Mips::RA);
@@ -3197,7 +3197,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       if (opts::Verbose) {
         llvm::errs() << llvm::formatv(
             "*_r_debug.r_brk [{0}]\n",
-            description_of_program_counter(_r_debug.r_brk));
+            description_of_program_counter(_r_debug.r_brk, true));
       }
 
       //
@@ -3276,7 +3276,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
       update_view_of_virtual_memory(saved_pid, dis);
-      auto desc(description_of_program_counter(addr));
+      auto desc(description_of_program_counter(addr, true));
 
       throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
     }
@@ -3563,8 +3563,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
         update_view_of_virtual_memory(child, dis);
 
         WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                              description_of_program_counter(saved_pc),
-                                              description_of_program_counter(target));
+                                              description_of_program_counter(saved_pc, true),
+                                              description_of_program_counter(target, true));
       }
       return;
     }
@@ -3722,7 +3722,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
         WithColor::warning()
             << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
                              "harvest_irelative_reloc_targets",
-                             description_of_program_counter(Resolved.Addr),
+                             description_of_program_counter(Resolved.Addr, true),
                              R.Offset);
       return;
     }
@@ -3826,7 +3826,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
           WithColor::warning()
               << llvm::formatv("{0}: unknown binary for {1}\n",
                                "harvest_addressof_reloc_targets",
-                               description_of_program_counter(Resolved.Addr));
+                               description_of_program_counter(Resolved.Addr, true));
 
         return;
       }
@@ -4051,7 +4051,7 @@ static void harvest_global_GOT_entries(pid_t child,
         if (opts::Verbose)
           WithColor::warning()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                               description_of_program_counter(Resolved.Addr));
+                               description_of_program_counter(Resolved.Addr, true));
 
         continue;
       }
@@ -5107,7 +5107,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         if (pc)
           WithColor::warning()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                               description_of_program_counter(pc));
+                               description_of_program_counter(pc, true));
       } else {
         BIdx = -1+(*it).second;
 
@@ -5147,7 +5147,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         WithColor::warning()
             << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                             description_of_program_counter(pc));
+                             description_of_program_counter(pc, true));
       } else {
         BIdx = -1+(*it).second;
 
@@ -5160,7 +5160,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
           if (!binary.IsVDSO)
             WithColor::warning()
                 << llvm::formatv("on_return: unknown RetAddr {0}\n",
-                                 description_of_program_counter(pc));
+                                 description_of_program_counter(pc, true));
           return;
         }
 
