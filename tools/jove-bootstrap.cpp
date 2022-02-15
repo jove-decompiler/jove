@@ -272,7 +272,6 @@ static void UnIgnoreCtrlC(void);
 static std::atomic<bool> ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
-static pid_t saved_pid = 0;
 static pid_t saved_child = 0;
 
 }
@@ -676,7 +675,7 @@ int main(int argc, char **argv) {
   // (2) create new process (PROG -- ARG_1 ARG_2 ... ARG_N)
   //
   if (pid_t child = opts::PID) {
-    jove::saved_child = jove::saved_pid = child;
+    jove::saved_child = child;
 
     //
     // mode 1: attach
@@ -752,7 +751,7 @@ int main(int argc, char **argv) {
       return jove::ChildProc(wfd);
     }
 
-    jove::saved_child = jove::saved_pid = child;
+    jove::saved_child = child;
     jove::IgnoreCtrlC();
 
     {
@@ -1352,50 +1351,37 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                     handler &= ~1UL;
 #endif
 
-                    update_view_of_virtual_memory(saved_pid, dis);
+                    update_view_of_virtual_memory(child, dis);
 
-                    auto pm_it = pmm.find(handler);
-                    if (pm_it == pmm.end()) {
-                      WithColor::warning() << llvm::formatv(
-                          "on rt_sigaction(): handler {0:x} in unknown binary\n",
-                          handler);
-                    } else {
-                      const proc_map_set_t &pms = (*pm_it).second;
-                      assert(pms.size() == 1);
+                    auto it = AddressSpace.find(handler);
+                    if (it != AddressSpace.end()) {
+                      binary_index_t BIdx = -1+(*it).second;
 
-                      const proc_map_t &pm = *pms.begin();
+                      unsigned brkpt_count = 0;
 
-                      auto b_it = BinPathToIdxMap.find(pm.nm);
-                      if (b_it != BinPathToIdxMap.end()) {
-                        binary_index_t handler_binary_idx = (*b_it).second;
+                      basic_block_index_t entrybb_idx = translate_basic_block(
+                          child, BIdx, tcg, dis, rva_of_va(handler, BIdx),
+                          brkpt_count);
 
-                        unsigned brkpt_count = 0;
+                      if (is_basic_block_index_valid(entrybb_idx)) {
+                        function_index_t FIdx = translate_function(
+                            child, BIdx, tcg, dis, rva_of_va(handler, BIdx),
+                            brkpt_count);
 
-                        basic_block_index_t entrybb_idx = translate_basic_block(
-                            child, handler_binary_idx, tcg, dis,
-                            rva_of_va(handler, handler_binary_idx), brkpt_count);
-
-                        if (is_basic_block_index_valid(entrybb_idx)) {
-                          function_index_t FIdx = translate_function(
-                              child, handler_binary_idx, tcg, dis,
-                              rva_of_va(handler, handler_binary_idx),
-                              brkpt_count);
-
-                          if (is_function_index_valid(FIdx)) {
-                            binary_t &binary = decompilation.Binaries[handler_binary_idx];
-                            binary.Analysis.Functions[FIdx].IsSignalHandler = true;
-                            binary.Analysis.Functions[FIdx].IsABI = true;
-                          } else {
-                            WithColor::warning() << llvm::formatv(
-                                "on rt_sigaction(): failed to translate handler {0:x}\n",
-                                handler);
-                          }
+                        if (is_function_index_valid(FIdx)) {
+                          binary_t &binary = decompilation.Binaries[BIdx];
+                          binary.Analysis.Functions[FIdx].IsSignalHandler = true;
+                          binary.Analysis.Functions[FIdx].IsABI = true;
+                        } else {
+                          WithColor::warning() << llvm::formatv(
+                              "on rt_sigaction(): failed to translate handler {0}\n",
+                              description_of_program_counter(handler));
                         }
-                      } else {
-                        WithColor::warning() << llvm::formatv(
-                            "on rt_sigaction(): no binary for handler {0:x} @ {1}+{2:x}\n",
-                            handler, pm.nm, handler - pm.beg);
                       }
+                    } else {
+                      WithColor::warning() << llvm::formatv(
+                          "on rt_sigaction(): handler {0} in unknown binary\n",
+                          description_of_program_counter(handler, true));
                     }
                   }
                 }
