@@ -268,6 +268,11 @@ clean:
 	       $(HELPERS_DFSAN_ASSEMBLY) \
 	       $(HELPERS_DFSAN_BITCODE)
 
+.PHONY: distclean
+distclean: clean
+	rm -f jove-v*.tar \
+	      jove-v*.tar.xz
+
 .PHONY: clean-helpers
 clean-helpers:
 	rm -rf $(foreach target,$(ALL_TARGETS),$(BINDIR)/$(target)/helpers) \
