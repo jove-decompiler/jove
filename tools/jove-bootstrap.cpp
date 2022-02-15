@@ -5113,10 +5113,9 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       if (it == AddressSpace.end()) {
         update_view_of_virtual_memory(child, dis);
 
-        if (pc)
-          WithColor::warning()
-              << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
-                               description_of_program_counter(pc, true));
+        WithColor::warning()
+            << llvm::formatv("{0}1: unknown binary for {1}\n", __func__,
+                             description_of_program_counter(pc, true));
       } else {
         BIdx = -1+(*it).second;
 
@@ -5155,7 +5154,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         update_view_of_virtual_memory(child, dis);
 
         WithColor::warning()
-            << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
+            << llvm::formatv("{0}2: unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
       } else {
         BIdx = -1+(*it).second;
@@ -5168,7 +5167,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         if (!binary.ObjectFile.get()) {
           if (!binary.IsVDSO)
             WithColor::warning()
-                << llvm::formatv("on_return: unknown RetAddr {0}\n",
+                << llvm::formatv("{0}3: unknown RetAddr {1}\n", __func__,
                                  description_of_program_counter(pc, true));
           return;
         }
