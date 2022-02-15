@@ -5084,12 +5084,17 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     binary_index_t BIdx = invalid_binary_index;
     {
       auto it = AddressSpace.find(pc);
-      if (it == AddressSpace.end()) {
+      if (it == AddressSpace.end())
         update_view_of_virtual_memory(child, dis);
 
+      it = AddressSpace.find(pc);
+      if (it == AddressSpace.end()) {
         WithColor::warning()
             << llvm::formatv("{0}1: unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
+
+        if (opts::Verbose)
+          llvm::errs() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
@@ -5124,12 +5129,16 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
     binary_index_t BIdx = invalid_binary_index;
     {
       auto it = AddressSpace.find(pc);
-      if (it == AddressSpace.end()) {
+      if (it == AddressSpace.end())
         update_view_of_virtual_memory(child, dis);
 
+      it = AddressSpace.find(pc);
+      if (it == AddressSpace.end()) {
         WithColor::warning()
             << llvm::formatv("{0}2: unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
+        if (opts::Verbose)
+          llvm::errs() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
