@@ -3279,7 +3279,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   auto indirect_branch_of_address = [&](uintptr_t addr) -> indirect_branch_t & {
     auto it = IndBrMap.find(addr);
     if (it == IndBrMap.end()) {
-      update_view_of_virtual_memory(saved_pid, dis);
+      update_view_of_virtual_memory(child, dis);
       auto desc(description_of_program_counter(addr, true));
 
       throw std::runtime_error((fmt("unknown breakpoint @ 0x%lx (%s)") % addr % desc).str());
@@ -5102,6 +5102,11 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
   if (AddrOfRet)
   {
     uintptr_t pc = AddrOfRet;
+
+#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
+    pc &= ~1UL;
+#endif
+
     binary_index_t BIdx = invalid_binary_index;
     {
       auto it = AddressSpace.find(pc);
