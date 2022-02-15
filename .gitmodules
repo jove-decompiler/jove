@@ -17,3 +17,6 @@
 [submodule "third_party/lib"]
 	path = third_party/lib
 	url = https://github.com/aleden/lib.git
+[submodule "third_party/static_bin"]
+	path = third_party/static_bin
+	url = https://github.com/aleden/static_bin.git
