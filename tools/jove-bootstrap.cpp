@@ -177,6 +177,10 @@ static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
 static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
                             cl::aliasopt(Quiet), cl::cat(JoveCategory));
 
+static cl::opt<bool> RtldDbgBrk("rtld-dbg-brk",
+                                cl::desc("look for r_debug::r_brk"),
+                                cl::cat(JoveCategory), cl::init(true));
+
 static cl::opt<bool>
     PrintPtraceEvents("events", cl::desc("Print PTRACE events when they occur"),
                       cl::cat(JoveCategory));
@@ -5032,7 +5036,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
   }
 
   if (_r_debug.r_brk) {
-    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end())) {
+    if (unlikely(BrkMap.find(_r_debug.r_brk) == BrkMap.end()) && opts::RtldDbgBrk) {
       try {
         breakpoint_t brk;
         brk.callback = scan_rtld_link_map;
