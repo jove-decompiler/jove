@@ -4104,6 +4104,9 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
 
   pmm.clear();
   AddressSpace.clear();
+  for_each_binary(decompilation, [&](binary_t &b) {
+    b.LoadAddr = b.LoadOffset = std::numeric_limits<uintptr_t>::max(); /* reset */
+  });
 
   for (const auto &proc_map : cached_proc_maps) {
     boost::icl::interval<uintptr_t>::type intervl =
