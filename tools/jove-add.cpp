@@ -87,11 +87,18 @@ static cl::alias InputAlias("i", cl::desc("Alias for -input."),
                             cl::aliasopt(Input), cl::cat(JoveCategory));
 
 static cl::opt<std::string> Output("output", cl::desc("Jove decompilation"),
-                                   cl::Required, cl::value_desc("filename"),
+                                   cl::value_desc("filename"),
                                    cl::cat(JoveCategory));
 
 static cl::alias OutputAlias("o", cl::desc("Alias for -output."),
                              cl::aliasopt(Output), cl::cat(JoveCategory));
+
+static cl::opt<std::string> jv("decompilation", cl::desc("Jove decompilation"),
+                               cl::value_desc("filename"),
+                               cl::cat(JoveCategory));
+
+static cl::alias jvAlias("d", cl::desc("Alias for -decompilation."),
+                         cl::aliasopt(jv), cl::cat(JoveCategory));
 
 static cl::opt<bool>
     Verbose("verbose",
@@ -123,6 +130,21 @@ int main(int argc, char **argv) {
 
   if (!fs::exists(opts::Input)) {
     WithColor::error() << "input binary does not exist\n";
+    return 1;
+  }
+
+  if (!opts::jv.empty() && !opts::Output.empty()) {
+    WithColor::error() << "cannot specify both -d and -o\n";
+    return 1;
+  }
+
+  if (opts::jv.empty() && opts::Output.empty()) {
+    WithColor::error() << "must pass -d or -o\n";
+    return 1;
+  }
+
+  if (!opts::jv.empty() && !fs::exists(opts::jv)) {
+    WithColor::error() << "given decompilation does not exist\n";
     return 1;
   }
 
@@ -1120,14 +1142,35 @@ int add(void) {
 
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
 
-  //
-  // Write output
-  //
-  {
+  if (opts::jv.empty()) {
+    //
+    // Output new decompilation
+    //
     std::ofstream ofs(opts::Output);
 
     boost::archive::text_oarchive oa(ofs);
     oa << decompilation;
+  } else {
+    //
+    // modify existing decompilation
+    //
+    decompilation_t working_decompilation;
+    {
+      std::ifstream ifs(opts::jv);
+
+      boost::archive::text_iarchive ia(ifs);
+      ia >> working_decompilation;
+    }
+
+    working_decompilation.Binaries.emplace_back(std::move(decompilation.Binaries.front()))
+        .IsDynamicallyLoaded = true;
+
+    {
+      std::ofstream ofs(opts::jv);
+
+      boost::archive::text_oarchive oa(ofs);
+      oa << working_decompilation;
+    }
   }
 
   return 0;
