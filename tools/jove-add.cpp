@@ -383,13 +383,18 @@ int add(void) {
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
 
-  assert(DynamicTable.Addr);
+  //assert(DynamicTable.Addr);
 
-  auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
-    return DynamicTable.getAsArrayRef<Elf_Dyn>();
+  auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+    if (DynamicTable.Addr)
+      return DynamicTable.getAsArrayRef<Elf_Dyn>();
+    else
+      return {};
   };
 
+#if 0
   bool IsStaticallyLinked = true;
+#endif
 
   struct {
     std::set<target_ulong> FunctionEntrypoints, ABIs;
@@ -415,9 +420,11 @@ int add(void) {
       break; /* marks end of dynamic table. */
 
     switch (Dyn.d_tag) {
+#if 0
     case llvm::ELF::DT_NEEDED:
       IsStaticallyLinked = false;
       break;
+#endif
     case llvm::ELF::DT_INIT:
       ABIAtAddress(Dyn.getVal());
       break;
@@ -569,14 +576,17 @@ int add(void) {
   }
 
   llvm::StringRef DynamicStringTable;
-  const Elf_Shdr *SymbolVersionSection;
+  const Elf_Shdr *SymbolVersionSection = nullptr;
   std::vector<VersionMapEntry> VersionMap;
-  llvm::Optional<DynRegionInfo> OptionalDynSymRegion =
-      loadDynamicSymbols(&E, &O,
-                         DynamicTable,
-                         DynamicStringTable,
-                         SymbolVersionSection,
-                         VersionMap);
+  llvm::Optional<DynRegionInfo> OptionalDynSymRegion;
+
+  if (DynamicTable.Addr)
+    OptionalDynSymRegion =
+        loadDynamicSymbols(&E, &O,
+                           DynamicTable,
+                           DynamicStringTable,
+                           SymbolVersionSection,
+                           VersionMap);
 
   //
   // examine exported functions
@@ -686,12 +696,13 @@ int add(void) {
   DynRegionInfo DynRelrRegion(O.getFileName());
   DynRegionInfo DynPLTRelRegion(O.getFileName());
 
-  loadDynamicRelocations(&E, &O,
-                         DynamicTable,
-                         DynRelRegion,
-                         DynRelaRegion,
-                         DynRelrRegion,
-                         DynPLTRelRegion);
+  if (DynamicTable.Addr)
+    loadDynamicRelocations(&E, &O,
+                           DynamicTable,
+                           DynRelRegion,
+                           DynRelaRegion,
+                           DynRelrRegion,
+                           DynPLTRelRegion);
 
   //
   // Search for IFunc relocations and make their resolver functions be ABIs
