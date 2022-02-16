@@ -10,13 +10,13 @@ tar -xvf jove.v0.79b-x86_64.tar.xz -C /opt/jove
 ```
 
 ## Usage
-Choose one of the target architectures (i386, x86_64, mips, mipsel, mips64, aarch64) and add the relevant directory to your $PATH. For example:
+Choose one of the target architectures (i386, x86_64, mips, mipsel, mips64, aarch64) and add the relevant directory to your $PATH. e.g.
 
 ```bash
 export PATH=$PATH:/opt/jove/x86_64
 ```
 
-`jove-bootstrap` requires that the target architecture matches the host's.
+`jove-bootstrap` requires that the target architecture matches the host's. See [Examples.md](/Documentation/Examples.md).
 
 # FAQ
 ### What is jove?
