@@ -20,4 +20,4 @@ export PATH=$PATH:/opt/jove/x86_64
 
 # FAQ
 ### What is jove?
-A: Given a dynamically linked linux executable `E`, jove produces source code for `E` that, when compiled and run, produces the same outputs for the same inputs.
+A: Given a dynamically linked linux executable `E` and a set of inputs `I`, jove produces source code for `E` that, when compiled and run, produces the same results for `I` as the original program.
