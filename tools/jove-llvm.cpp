@@ -1478,14 +1478,13 @@ int InitStateForBinaries(void) {
 
       loadDynamicTable(&E, &O, binary._elf.DynamicTable);
 
-      assert(binary._elf.DynamicTable.Addr);
-
-      binary._elf.OptionalDynSymRegion =
-          loadDynamicSymbols(&E, &O,
-                             binary._elf.DynamicTable,
-                             binary._elf.DynamicStringTable,
-                             binary._elf.SymbolVersionSection,
-                             binary._elf.VersionMap);
+      if (binary._elf.DynamicTable.Addr)
+        binary._elf.OptionalDynSymRegion =
+            loadDynamicSymbols(&E, &O,
+                               binary._elf.DynamicTable,
+                               binary._elf.DynamicStringTable,
+                               binary._elf.SymbolVersionSection,
+                               binary._elf.VersionMap);
     }
   }
 
@@ -1954,8 +1953,7 @@ int LocateHooks(void) {
 }
 
 int ProcessBinaryTLSSymbols(void) {
-  binary_index_t BIdx = BinaryIndex;
-  auto &b = Decompilation.Binaries[BIdx];
+  binary_t &b = Decompilation.Binaries[BinaryIndex];
 
   assert(b.ObjectFile);
   assert(llvm::isa<ELFO>(b.ObjectFile.get()));
@@ -2280,6 +2278,9 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair, llv
 
 int ProcessBinaryRelocations(void) {
   binary_t &b = Decompilation.Binaries[BinaryIndex];
+
+  if (!b._elf.DynamicTable.Addr)
+    return 0;
 
   assert(llvm::isa<ELFO>(b.ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(b.ObjectFile.get());
@@ -4686,22 +4687,24 @@ int CreateSectionGlobalVariables(void) {
     //
     // parse dynamic table
     //
-    auto dynamic_table = [&](void) -> Elf_Dyn_Range {
-      return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
-    };
-
     target_ulong initFunctionAddr = 0;
 
-    for (const Elf_Dyn &Dyn : dynamic_table()) {
-      if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
-        break; /* marks end of dynamic table. */
+    if (binary._elf.DynamicTable.Addr) {
+      auto dynamic_table = [&](void) -> Elf_Dyn_Range {
+        return binary._elf.DynamicTable.getAsArrayRef<Elf_Dyn>();
+      };
 
-      switch (Dyn.d_tag) {
-      case llvm::ELF::DT_INIT:
-        initFunctionAddr = Dyn.getVal();
-        break;
-      }
-    };
+      for (const Elf_Dyn &Dyn : dynamic_table()) {
+        if (unlikely(Dyn.d_tag == llvm::ELF::DT_NULL))
+          break; /* marks end of dynamic table. */
+
+        switch (Dyn.d_tag) {
+        case llvm::ELF::DT_INIT:
+          initFunctionAddr = Dyn.getVal();
+          break;
+        }
+      };
+    }
 
 #if 0
     if (initFunctionAddr) {

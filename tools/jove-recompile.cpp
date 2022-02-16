@@ -409,9 +409,11 @@ int recompile(void) {
       continue;
 
     if (!dynamic_linking_info_of_binary(b, b.dynl)) {
-      WithColor::error() << llvm::formatv(
+#if 0
+      WithColor::warning() << llvm::formatv(
           "!dynamic_linking_info_of_binary({0})\n", b.Path.c_str());
       return 1;
+#endif
     }
   }
 
@@ -1465,7 +1467,8 @@ bool dynamic_linking_info_of_binary(binary_t &b, dynamic_linking_info_t &out) {
   DynRegionInfo DynamicTable(O.getFileName());
   loadDynamicTable(&E, &O, DynamicTable);
 
-  assert(DynamicTable.Addr);
+  if (!DynamicTable.Addr)
+    return false;
 
   auto dynamic_table = [&DynamicTable](void) -> Elf_Dyn_Range {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
