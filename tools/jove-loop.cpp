@@ -1437,7 +1437,8 @@ std::string soname_of_binary(binary_t &b) {
     return DynamicTable.getAsArrayRef<Elf_Dyn>();
   };
 
-  assert(DynamicTable.Addr);
+  if (!DynamicTable.Addr)
+    return res;
 
   llvm::StringRef DynamicStringTable;
   const Elf_Shdr *SymbolVersionSection;

@@ -198,8 +198,10 @@ static uintptr_t loadDynamicTable(const ELFF *Obj,
     if ((DynamicPhdr && IsPhdrTableValid) || (DynamicSec && IsSecTableValid)) {
       DynamicTable = DynamicPhdr ? FromPhdr : FromSec;
     } else {
+#ifdef WARN
       llvm::WithColor::warning() << llvm::formatv(
           "no valid dynamic table was found for {0}\n", ObjF->getFileName());
+#endif
     }
     return res;
   }
