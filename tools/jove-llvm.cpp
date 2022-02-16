@@ -2872,6 +2872,23 @@ llvm::FunctionType *DetermineFunctionType(
   return DetermineFunctionType(FuncIdxPair.first, FuncIdxPair.second);
 }
 
+static const char *builtin_syms_arr[] = {
+#include "builtin_syms.hpp"
+};
+
+struct ConstCharStarComparator {
+  bool operator()(const char *s1, const char *s2) const {
+    return strcmp(s1, s2) < 0;
+  }
+};
+
+static bool is_builtin_sym(const char* sym) {
+  return std::binary_search(std::cbegin(builtin_syms_arr),
+                            std::cend(builtin_syms_arr),
+                            sym,
+                            ConstCharStarComparator ());
+}
+
 int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
@@ -2913,6 +2930,9 @@ int CreateFunctions(void) {
       // XXX hack for glibc 2.32+
       if (sym.Name == "__libc_early_init" &&
           sym.Vers == "GLIBC_PRIVATE")
+        continue;
+      // avoid conflicts with functions from libclang_rt.builtins-<arch>.a
+      if (is_builtin_sym(sym.Name.c_str()))
         continue;
 
       if (sym.Vers.empty()) {
