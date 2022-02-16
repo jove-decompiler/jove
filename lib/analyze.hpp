@@ -974,7 +974,7 @@ const helper_function_t &LookupHelper(TCGOp *op) {
     if (InGlbsStr.empty() && OutGlbsStr.empty()) {
       WithColor::note() << llvm::formatv("[helper] {0} ({1})\n", helper_nm, IsSimpleStr);
     } else {
-      WithColor::note() << llvm::formatv("[helper] {1} : {2} -> {3} ({4})\n",
+      WithColor::note() << llvm::formatv("[helper] {0} : {1} -> {2} ({3})\n",
                                          helper_nm,
                                          InGlbsStr,
                                          OutGlbsStr,
