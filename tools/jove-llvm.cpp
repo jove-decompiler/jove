@@ -1006,9 +1006,10 @@ int llvm(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
 
   assert(Binary.ObjectFile.get());
-  assert(Binary._elf.OptionalDynSymRegion); /* XXX? */
 
-  auto DynSyms = Binary._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
+  llvm::ArrayRef<Elf_Sym> DynSyms = {};
+  if (Binary._elf.OptionalDynSymRegion)
+    DynSyms = Binary._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
   //
   // process binary TLS symbols
