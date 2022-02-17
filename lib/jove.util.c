@@ -49,6 +49,13 @@ static _INL _UNUSED char *_strcat(char *s, const char *append) {
   return (save);
 }
 
+static _INL _UNUSED int _strcmp(const char *s1, const char *s2) {
+  while (*s1 == *s2++)
+    if (*s1++ == 0)
+      return (0);
+  return (*(unsigned char *)s1 - *(unsigned char *)--s2);
+}
+
 static _INL _UNUSED void _uint_to_string(uint64_t x, char *Str, unsigned Radix) {
   // First, check for a zero value and just short circuit the logic below.
   if (x == 0) {
