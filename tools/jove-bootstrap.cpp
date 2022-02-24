@@ -3675,34 +3675,36 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
       continue;
     }
 
-    binary_index_t BIdx = (*it).second;
+    {
+      binary_index_t BIdx = (*it).second;
 
-    if (WARN_ON(AddressSpace.find(intervl) != AddressSpace.end()))
-      ;
-    else
-      AddressSpace.add({intervl, 1+BIdx});
+      if (WARN_ON(AddressSpace.find(intervl) != AddressSpace.end()))
+        ;
+      else
+        AddressSpace.add({intervl, 1+BIdx});
 
-    auto &b = decompilation.Binaries[BIdx];
+      auto &b = decompilation.Binaries[BIdx];
 
-    uintptr_t SavedLoadAddr = b.LoadAddr;
-    b.LoadAddr = std::min(b.LoadAddr, proc_map.beg);
-    bool Changed = b.LoadAddr != SavedLoadAddr;
+      uintptr_t SavedLoadAddr = b.LoadAddr;
+      b.LoadAddr = std::min(b.LoadAddr, proc_map.beg);
+      bool Changed = b.LoadAddr != SavedLoadAddr;
 
-    if (Changed) {
-      b.LoadOffset = proc_map.off;
+      if (Changed) {
+        b.LoadOffset = proc_map.off;
 
-      if (opts::Verbose)
-        llvm::errs() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
-                                      b.Path, b.LoadAddr, SavedLoadAddr);
-    }
+        if (opts::Verbose)
+          llvm::errs() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
+                                        b.Path, b.LoadAddr, SavedLoadAddr);
+      }
 
-    if (!proc_map.x)
-      continue;
+      if (!proc_map.x)
+        continue;
 
-    if (!BinFoundVec.test(BIdx)) {
-      BinFoundVec.set(BIdx);
+      if (!BinFoundVec.test(BIdx)) {
+        BinFoundVec.set(BIdx);
 
-      on_binary_loaded(child, dis, BIdx, proc_map);
+        on_binary_loaded(child, dis, BIdx, proc_map);
+      }
     }
   }
 
