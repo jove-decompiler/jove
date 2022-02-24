@@ -3208,13 +3208,11 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   }
 
   if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
-    llvm::errs() << llvm::formatv("{4}({0}) {1} -> {2}{3}" __ANSI_NORMAL_COLOR "\n",
-                                  ControlFlow.IsGoto ? "goto" : "call",
+    llvm::errs() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
                                   description_of_program_counter(saved_pc),
                                   description_of_program_counter(Target.Addr),
-                                  ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP ?
-                                    (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "",
-                                  ControlFlow.IsGoto ? __ANSI_GREEN : __ANSI_CYAN);
+                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
   } catch (const std::exception &e) { /* _jove_g2h probably threw an exception */
     WithColor::error() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
