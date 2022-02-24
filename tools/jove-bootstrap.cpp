@@ -232,6 +232,10 @@ static cl::alias FastAlias("f", cl::desc("Alias for -fast."),
                            cl::aliasopt(Fast),
                            cl::cat(JoveCategory));
 
+static cl::opt<bool> Longjmps("longjmps",
+                              cl::desc("Print when longjmp happens"),
+                              cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -3137,8 +3141,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                             TargetBinary.bbmap,
                             on_new_basic_block);
 
-      Target.isNew = true; /* FIXME */
       ControlFlow.IsGoto = true;
+      Target.isNew = opts::Longjmps;
     } else {
       // on an indirect jump, we must determine one of two possibilities.
       //
