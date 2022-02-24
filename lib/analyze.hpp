@@ -170,13 +170,15 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
                                        function_t &f,
                                        std::vector<exit_vertex_pair_t> &exitVertices,
                                        std::unordered_map<function_t *, std::pair<flow_vertex_t, std::vector<exit_vertex_pair_t>>> &memoize) {
+  binary_index_t BIdx = binary_index_of_function(Decompilation, f);
+  auto &b = Decompilation.Binaries.at(BIdx);
+  auto &ICFG = b.Analysis.ICFG;
+
   //
   // make sure basic blocks have been analyzed
   //
-  auto &Binary = Decompilation.Binaries.at(f.BIdx);
-  auto &ICFG = Binary.Analysis.ICFG;
   for (basic_block_t bb : f.BasicBlocks)
-    ICFG[bb].Analyze(f.BIdx);
+    ICFG[bb].Analyze(BIdx);
 
   if (!f.IsLeaf) {
     //
@@ -278,7 +280,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
     }
 
     case TERMINATOR::CALL: {
-      function_t &callee = Binary.Analysis.Functions.at(ICFG[bb].Term._call.Target);
+      function_t &callee = b.Analysis.Functions.at(ICFG[bb].Term._call.Target);
 
       std::vector<exit_vertex_pair_t> calleeExitVertices;
       flow_vertex_t calleeEntryV =

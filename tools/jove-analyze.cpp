@@ -40,8 +40,6 @@ class Binary;
   llvm::BasicBlock *B;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
-  binary_index_t BIdx;                                                         \
-  function_index_t FIdx;                                                       \
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
                                                                                \
@@ -357,13 +355,6 @@ int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-
-    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-      function_t &f = binary.Analysis.Functions[FIdx];
-
-      f.BIdx = BIdx;
-      f.FIdx = FIdx;
-    }
 
     //
     // parse the ELF

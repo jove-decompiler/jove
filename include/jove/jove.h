@@ -446,6 +446,19 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
   return bb2idx[bb];
 }
 
+/* XXX this is O(n)... */
+static inline binary_index_t binary_index_of_function(decompilation_t &decompilation,
+                                                      function_t &f) {
+  for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
+    auto &fns = decompilation.Binaries[BIdx].Analysis.Functions;
+
+    if (&f >= &fns[0] && &f < &fns[fns.size()])
+      return BIdx; /* found */
+  }
+
+  abort();
+}
+
 static inline void construct_bbmap(decompilation_t &decompilation,
                                    binary_t &binary,
                                    bbmap_t &out) {

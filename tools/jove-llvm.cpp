@@ -97,8 +97,6 @@ struct hook_t;
   llvm::BasicBlock *B = nullptr;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
-  binary_index_t BIdx;                                                         \
-  function_index_t FIdx;                                                       \
   std::vector<basic_block_t> BasicBlocks;                                      \
   std::set<basic_block_t> BasicBlocksSet;                                      \
   std::vector<basic_block_t> ExitBasicBlocks;                                  \
@@ -128,7 +126,6 @@ struct hook_t;
   llvm::Function *F = nullptr;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  binary_index_t BIdx;                                                         \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   struct {                                                                     \
     DynRegionInfo DynamicTable;                                                \
@@ -885,11 +882,13 @@ int llvm(void) {
   //
   for_each_binary_if(
       Decompilation,
-      [&](auto &b) -> bool {
+      [&](binary_t &b) -> bool {
         return b.ObjectFile.get() != nullptr &&
                b._elf.OptionalDynSymRegion;
       },
-      [&](auto &b) {
+      [&](binary_t &b) {
+        binary_index_t BIdx = &b - &Decompilation.Binaries[0];
+
         auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
         for_each_if(
@@ -918,7 +917,7 @@ int llvm(void) {
               symbol_t &sym = b.Analysis.Functions[FIdx].Syms.emplace_back();
               sym.Name = *ExpectedSymName;
 
-              ExportedFunctions[sym.Name].insert({b.BIdx, FIdx});
+              ExportedFunctions[sym.Name].insert({BIdx, FIdx});
 
               if (!b._elf.SymbolVersionSection) {
                 sym.Visibility.IsDefault = false;
@@ -947,7 +946,7 @@ int llvm(void) {
               //
               // hack for glibc 2.32+ XXX (should this go elsewhere?)
               //
-              if (b.BIdx == BinaryIndex &&
+              if (BIdx == BinaryIndex &&
                   sym.Name == "__libc_early_init" &&
                   sym.Vers == "GLIBC_PRIVATE") {
                 Module->appendModuleInlineAsm(
@@ -1296,16 +1295,11 @@ int InitStateForBinaries(void) {
     auto &ICFG = binary.Analysis.ICFG;
     auto &FuncMap = binary.FuncMap;
 
-    binary.BIdx = BIdx;
-
     //
     // FuncMap
     //
-    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size();
-         ++FIdx) {
+    for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
       function_t &f = binary.Analysis.Functions[FIdx];
-      f.BIdx = BIdx;
-      f.FIdx = FIdx;
 
       if (!is_basic_block_index_valid(f.Entry))
         continue;
