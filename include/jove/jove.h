@@ -1,17 +1,4 @@
 #pragma once
-
-#ifndef JOVE_EXTRA_BB_PROPERTIES
-#define JOVE_EXTRA_BB_PROPERTIES
-#endif
-
-#ifndef JOVE_EXTRA_FN_PROPERTIES
-#define JOVE_EXTRA_FN_PROPERTIES
-#endif
-
-#ifndef JOVE_EXTRA_BIN_PROPERTIES
-#define JOVE_EXTRA_BIN_PROPERTIES
-#endif
-
 #include <cstdint>
 #include <vector>
 #include <map>
@@ -20,6 +7,7 @@
 #include <numeric>
 #include <limits>
 #include <algorithm>
+#include <boost/icl/split_interval_map.hpp>
 
 #if defined(TARGET_AARCH64)
 #include <jove/tcgconstants-aarch64.h>
@@ -56,6 +44,9 @@ typedef uint32_t function_index_t;
 typedef uint32_t basic_block_index_t;
 
 typedef std::pair<binary_index_t, function_index_t> dynamic_target_t;
+
+typedef boost::icl::split_interval_map<tcg_uintptr_t, basic_block_index_t> bbmap_t;
+typedef std::unordered_map<tcg_uintptr_t, function_index_t> fnmap_t;
 
 constexpr binary_index_t
     invalid_binary_index = std::numeric_limits<binary_index_t>::max();
@@ -132,7 +123,13 @@ struct basic_block_properties_t {
     bool Stale;
   } Analysis;
 
+#ifndef JOVE_EXTRA_BB_PROPERTIES
+#define JOVE_EXTRA_BB_PROPERTIES
+#endif
+
   JOVE_EXTRA_BB_PROPERTIES;
+
+#undef JOVE_EXTRA_BB_PROPERTIES
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
@@ -211,7 +208,13 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
+#ifndef JOVE_EXTRA_FN_PROPERTIES
+#define JOVE_EXTRA_FN_PROPERTIES
+#endif
+
   JOVE_EXTRA_FN_PROPERTIES;
+
+#undef JOVE_EXTRA_FN_PROPERTIES
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
@@ -245,7 +248,13 @@ struct binary_t {
     std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
+#ifndef JOVE_EXTRA_BIN_PROPERTIES
+#define JOVE_EXTRA_BIN_PROPERTIES
+#endif
+
   JOVE_EXTRA_BIN_PROPERTIES;
+
+#undef JOVE_EXTRA_BIN_PROPERTIES
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
@@ -393,6 +402,12 @@ static inline void for_each_function(decompilation_t &decompilation,
   });
 }
 
+static inline void for_each_function_in_binary(binary_t &binary,
+                                               std::function<void(function_t &)> proc) {
+  std::for_each(binary.Analysis.Functions.begin(),
+                binary.Analysis.Functions.end(), proc);
+}
+
 static inline void for_each_function_if(decompilation_t &decompilation,
                                         std::function<bool(function_t &)> pred,
                                         std::function<void(function_t &)> proc) {
@@ -404,20 +419,63 @@ static inline void for_each_function_if(decompilation_t &decompilation,
 }
 
 static inline void for_each_basic_block(decompilation_t &decompilation,
-                                        std::function<void(binary_t &, icfg_t &, basic_block_t)> proc) {
+                                        std::function<void(binary_t &, basic_block_t)> proc) {
   for_each_binary(decompilation, [&](binary_t &binary) {
-    auto &ICFG = binary.Analysis.ICFG;
-
     icfg_t::vertex_iterator it, it_end;
-    std::tie(it, it_end) = boost::vertices(ICFG);
+    std::tie(it, it_end) = boost::vertices(binary.Analysis.ICFG);
 
     std::for_each(it, it_end,
-                  [&](basic_block_t bb) { proc(binary, ICFG, bb); });
+                  [&](basic_block_t bb) { proc(binary, bb); });
+  });
+}
+
+static inline void for_each_basic_block_in_binary(decompilation_t &decompilation,
+                                                  binary_t &binary,
+                                                  std::function<void(basic_block_t)> proc) {
+  auto &ICFG = binary.Analysis.ICFG;
+
+  icfg_t::vertex_iterator it, it_end;
+  std::tie(it, it_end) = boost::vertices(ICFG);
+
+  std::for_each(it, it_end, [&](basic_block_t bb) { proc(bb); });
+}
+
+static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic_block_t bb) {
+  boost::property_map<icfg_t, boost::vertex_index_t>::type bb2idx =
+      boost::get(boost::vertex_index, ICFG);
+  return bb2idx[bb];
+}
+
+static inline void construct_bbmap(decompilation_t &decompilation,
+                                   binary_t &binary,
+                                   bbmap_t &out) {
+  auto &ICFG = binary.Analysis.ICFG;
+
+  for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
+    const auto &bbprop = ICFG[bb];
+
+    boost::icl::interval<uintptr_t>::type intervl =
+        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
+                                                    bbprop.Addr + bbprop.Size);
+    assert(out.find(intervl) == out.end());
+
+    out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
+  });
+}
+
+static inline void construct_fnmap(decompilation_t &decompilation,
+                                   binary_t &binary,
+                                   fnmap_t &out) {
+  for_each_function_in_binary(binary, [&](function_t &f) {
+    basic_block_t entry_bb = boost::vertex(f.Entry, binary.Analysis.ICFG);
+    tcg_uintptr_t A = binary.Analysis.ICFG[entry_bb].Addr;
+
+    assert(out.find(A) == out.end());
+
+    unsigned FIdx = &f - &binary.Analysis.Functions[0];
+
+    out.insert({A, FIdx});
   });
 }
 
 }
-
-#undef JOVE_EXTRA_BIN_PROPERTIES
-#undef JOVE_EXTRA_FN_PROPERTIES
-#undef JOVE_EXTRA_BB_PROPERTIES

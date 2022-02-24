@@ -837,44 +837,48 @@ int llvm(void) {
   //
   // identify ABIs
   //
-  for_each_basic_block(Decompilation, [&](auto &binary, auto &ICFG, auto bb) {
-    auto &DynTargets = ICFG[bb].DynTargets;
+  for_each_basic_block(Decompilation, [&](binary_t &b, basic_block_t bb) {
+    binary_index_t BIdx = &b - &Decompilation.Binaries[0];
 
+    auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
     for_each_if(
         DynTargets.begin(),
         DynTargets.end(),
         [&](dynamic_target_t IdxPair) -> bool {
-          return IdxPair.first != binary.BIdx;
+          return IdxPair.first != BIdx;
         },
         [&](dynamic_target_t IdxPair) {
-          function_t &callee = Decompilation.Binaries[IdxPair.first]
-                                  .Analysis.Functions[IdxPair.second];
+	  binary_index_t BIdx;
+	  function_index_t FIdx;
+	  std::tie(BIdx, FIdx) = IdxPair;
+
+          function_t &callee =
+              Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 
           callee.IsABI = true;
         });
   });
 
-  // XXX IFUNC bullshit
   for_each_binary(Decompilation, [&](auto &binary) {
-                  auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+    auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
 
-                  std::for_each(IFuncDynTargets.begin(),
-                                IFuncDynTargets.end(),
-                                [&](const auto &pair) {
-                                  std::for_each(pair.second.begin(),
-                                                pair.second.end(),
-                                                [&](dynamic_target_t IdxPair) {
-                                                  binary_index_t BIdx;
-                                                  function_index_t FIdx;
-                                                  std::tie(BIdx, FIdx) = IdxPair;
+    std::for_each(IFuncDynTargets.begin(),
+		  IFuncDynTargets.end(),
+		  [&](const auto &pair) {
+		    std::for_each(pair.second.begin(),
+				  pair.second.end(),
+				  [&](dynamic_target_t IdxPair) {
+				    binary_index_t BIdx;
+				    function_index_t FIdx;
+				    std::tie(BIdx, FIdx) = IdxPair;
 
-                                                  function_t &f =
-                                                      Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+				    function_t &f =
+					Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 
-                                                  f.IsABI = true;
-                                                });
-                                });
-                  });
+				    f.IsABI = true;
+				  });
+		  });
+    });
 
   //
   // process function symbols

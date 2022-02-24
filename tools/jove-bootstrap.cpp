@@ -5,6 +5,7 @@
     (defined(__mips__)    && defined(TARGET_MIPS32))
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <llvm/Support/DataExtractor.h>
 #include <llvm/ADT/StringRef.h>
 #include <llvm/ADT/ArrayRef.h>
@@ -12,6 +13,12 @@
 #include <llvm/Support/WithColor.h>
 #include <llvm/Support/FormatVariadic.h>
 #include <llvm/Object/ELFObjectFile.h>
+#include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#include <llvm/MC/MCSubtargetInfo.h>
+#include <llvm/MC/MCInstPrinter.h>
+#include <llvm/MC/MCInstrInfo.h>
+#include <llvm/MC/MCInst.h>
+#include <boost/format.hpp>
 
 namespace jove {
 #include "elf.hpp"
@@ -19,8 +26,9 @@ namespace jove {
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   binary_index_t BIdx;                                                         \
-  std::unordered_map<uintptr_t, function_index_t> FuncMap;                     \
-  boost::icl::split_interval_map<uintptr_t, basic_block_index_t> BBMap;        \
+                                                                               \
+  fnmap_t fnmap;                                                               \
+  bbmap_t bbmap;                                                               \
                                                                                \
   uintptr_t LoadAddr = std::numeric_limits<uintptr_t>::max();                  \
   uintptr_t LoadOffset = std::numeric_limits<uintptr_t>::max();                \
@@ -40,6 +48,10 @@ namespace jove {
   } _elf;
 
 #include "tcgcommon.hpp"
+
+namespace jove {
+#include "translate.hpp"
+}
 
 #include <tuple>
 #include <numeric>
@@ -94,9 +106,7 @@ namespace jove {
 #include <boost/archive/text_iarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/dynamic_bitset.hpp>
-#include <boost/format.hpp>
 #include <boost/graph/adj_list_serialize.hpp>
-#include <boost/graph/depth_first_search.hpp>
 #include <boost/icl/interval_set.hpp>
 #include <boost/icl/split_interval_map.hpp>
 #include <boost/preprocessor/cat.hpp>
@@ -276,6 +286,7 @@ static std::atomic<bool> ToggleTurbo = false;
 static unsigned TurboToggle = 0;
 
 static pid_t saved_child = 0;
+static pid_t _child = 0; /* XXX */
 
 }
 
@@ -422,7 +433,6 @@ int main(int argc, char **argv) {
   //
   for (jove::binary_index_t BIdx = 0; BIdx < jove::decompilation.Binaries.size(); ++BIdx) {
     auto &binary = jove::decompilation.Binaries[BIdx];
-    auto &FuncMap = binary.FuncMap;
 
     binary.BIdx = BIdx;
 
@@ -432,35 +442,8 @@ int main(int argc, char **argv) {
     else
       jove::BinPathToIdxMap[binary.Path] = BIdx;
 
-    //
-    // build FuncMap
-    //
-    for (jove::function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-      jove::function_t &f = binary.Analysis.Functions[FIdx];
-      if (unlikely(!jove::is_function_index_valid(f.Entry)))
-        continue;
-
-      jove::basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-      FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = FIdx;
-    }
-
-    //
-    // build BBMap
-    //
-    auto &BBMap = binary.BBMap;
-
-    for (jove::basic_block_index_t bb_idx = 0;
-         bb_idx < boost::num_vertices(binary.Analysis.ICFG); ++bb_idx) {
-      jove::basic_block_t bb = boost::vertex(bb_idx, binary.Analysis.ICFG);
-      const auto &bbprop = binary.Analysis.ICFG[bb];
-
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(
-              bbprop.Addr, bbprop.Addr + bbprop.Size);
-      assert(BBMap.find(intervl) == BBMap.end());
-
-      BBMap.add({intervl, 1 + bb_idx});
-    }
+    construct_fnmap(jove::decompilation, binary, binary.fnmap);
+    construct_bbmap(jove::decompilation, binary, binary.bbmap);
 
     llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                            binary.Data.size());
@@ -851,7 +834,7 @@ static boost::icl::split_interval_map<uintptr_t, unsigned> AddressSpace;
 struct indirect_branch_t {
   unsigned long words[2];
 
-  binary_index_t binary_idx;
+  binary_index_t BIdx;
 
   uintptr_t TermAddr;
 
@@ -868,7 +851,7 @@ struct indirect_branch_t {
 struct return_t {
   unsigned long words[2];
 
-  binary_index_t binary_idx;
+  binary_index_t BIdx;
 
   std::vector<uint8_t> InsnBytes;
   llvm::MCInst Inst;
@@ -971,25 +954,13 @@ static void harvest_reloc_targets(pid_t, tiny_code_generator_t &, disas_t &);
 static void rendezvous_with_dynamic_linker(pid_t, disas_t &);
 static void scan_rtld_link_map(pid_t, tiny_code_generator_t &, disas_t &);
 
-
-static basic_block_index_t translate_basic_block(pid_t,
-                                                 binary_index_t binary_idx,
-                                                 tiny_code_generator_t &,
-                                                 disas_t &,
-                                                 const target_ulong Addr,
-                                                 unsigned &brkpt_count);
-static function_index_t translate_function(pid_t child,
-                                           binary_index_t binary_idx,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           target_ulong Addr,
-                                           unsigned &brkpt_count);
-
 static void on_return(pid_t child,
                       uintptr_t AddrOfRet,
                       uintptr_t RetAddr,
                       tiny_code_generator_t &,
                       disas_t &);
+
+static void on_new_basic_block(binary_t &, basic_block_t, disas_t &);
 
 static constexpr auto &pc_of_cpu_state(cpu_state_t &cpu_state) {
   return cpu_state.
@@ -1051,6 +1022,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
+
+      _child = child; /* XXX */
 
       if (likely(WIFSTOPPED(status))) {
         //
@@ -1359,22 +1332,26 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                     auto it = AddressSpace.find(handler);
                     if (it != AddressSpace.end()) {
                       binary_index_t BIdx = -1+(*it).second;
+                      binary_t &b = decompilation.Binaries[BIdx];
 
                       unsigned brkpt_count = 0;
 
                       basic_block_index_t entrybb_idx = translate_basic_block(
-                          child, BIdx, tcg, dis, rva_of_va(handler, BIdx),
-                          brkpt_count);
+                          b, tcg, dis, rva_of_va(handler, BIdx),
+                          b.fnmap,
+                          b.bbmap,
+                          on_new_basic_block);
 
                       if (is_basic_block_index_valid(entrybb_idx)) {
                         function_index_t FIdx = translate_function(
-                            child, BIdx, tcg, dis, rva_of_va(handler, BIdx),
-                            brkpt_count);
+                            b, tcg, dis, rva_of_va(handler, BIdx),
+                            b.fnmap,
+                            b.bbmap,
+                            on_new_basic_block);
 
                         if (is_function_index_valid(FIdx)) {
-                          binary_t &binary = decompilation.Binaries[BIdx];
-                          binary.Analysis.Functions[FIdx].IsSignalHandler = true;
-                          binary.Analysis.Functions[FIdx].IsABI = true;
+                          b.Analysis.Functions[FIdx].IsSignalHandler = true;
+                          b.Analysis.Functions[FIdx].IsABI = true;
                         } else {
                           WithColor::warning() << llvm::formatv(
                               "on rt_sigaction(): failed to translate handler {0}\n",
@@ -1560,8 +1537,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     unsigned NumChanged = 0;
 
     for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
-      auto &Binary = decompilation.Binaries[BIdx];
-      auto &ICFG = Binary.Analysis.ICFG;
+      auto &b = decompilation.Binaries[BIdx];
+      auto &ICFG = b.Analysis.ICFG;
 
       auto fix_ambiguous_indirect_jumps = [&](void) -> bool {
         icfg_t::vertex_iterator vi, vi_end;
@@ -1588,7 +1565,10 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
               unsigned brkpt_count = 0;
               function_index_t FIdx = translate_function(
-                  child, BIdx, tcg, dis, ICFG[succ].Addr, brkpt_count);
+                  b, tcg, dis, ICFG[succ].Addr,
+                  b.fnmap,
+                  b.bbmap,
+                  on_new_basic_block);
               assert(is_function_index_valid(FIdx));
               ICFG[bb].DynTargets.insert({BIdx, FIdx});
 
@@ -1723,576 +1703,135 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
-function_index_t translate_function(pid_t child,
-                                    binary_index_t binary_idx,
-                                    tiny_code_generator_t &tcg,
-                                    disas_t &dis,
-                                    target_ulong Addr,
-                                    unsigned &brkpt_count) {
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-  assert((Addr & 1) == 0);
-#endif
-
-  binary_t &b = decompilation.Binaries[binary_idx];
-
-  {
-    auto it = b.FuncMap.find(Addr);
-    if (it != b.FuncMap.end())
-      return (*it).second;
-  }
-
-  const function_index_t res = b.Analysis.Functions.size();
-  (void)b.Analysis.Functions.emplace_back();
-
-  b.FuncMap.insert({Addr, res});
-
-  basic_block_index_t Entry =
-      translate_basic_block(child, binary_idx, tcg, dis, Addr, brkpt_count);
-
-  WARN_ON(!is_basic_block_index_valid(Entry));
-
-  {
-    function_t &f = b.Analysis.Functions[res];
-
-    f.Analysis.Stale = true;
-    f.IsABI = false;
-    f.IsSignalHandler = false;
-    f.Entry = Entry;
-  }
-
-  return res;
-}
-
 static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
                                        return_t &Ret);
 
-static bool does_function_definitely_return(binary_t &, function_index_t);
+void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
+  binary_index_t BIdx = b.BIdx;
+  auto &ICFG = b.Analysis.ICFG;
+  const basic_block_properties_t &bbprop = ICFG[bb];
 
-basic_block_index_t translate_basic_block(pid_t child,
-                                          binary_index_t binary_idx,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis,
-                                          const target_ulong Addr,
-                                          unsigned &brkpt_count) {
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-  assert((Addr & 1) == 0);
+  //
+  // if it's an indirect branch, we need to (1) add it to the indirect branch
+  // map and (2) install a breakpoint at the correct program counter
+  //
+  if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
+      bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
+    uintptr_t termpc = va_of_rva(bbprop.Term.Addr, BIdx);
+
+    assert(IndBrMap.find(termpc) == IndBrMap.end());
+
+    indirect_branch_t &indbr = IndBrMap[termpc];
+    indbr.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
+    indbr.BIdx = BIdx;
+    indbr.TermAddr = bbprop.Term.Addr;
+    indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#if defined(__mips64) || defined(__mips__)
+    indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
+    assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
 #endif
 
-  binary_t &binary = decompilation.Binaries[binary_idx];
-  auto &ObjectFile = binary.ObjectFile;
-  auto &ICFG = binary.Analysis.ICFG;
-  auto &BBMap = binary.BBMap;
+    assert(b.ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
 
-  //
-  // does this new basic block start in the middle of a previously-created
-  // basic block?
-  //
-  {
-    auto it = BBMap.find(Addr);
-    if (it != BBMap.end()) {
-      basic_block_index_t bbidx = (*it).second - 1;
-      basic_block_t bb = boost::vertex(bbidx, ICFG);
+    llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+    if (!ExpectedPtr)
+      abort();
 
-      assert(bbidx < boost::num_vertices(ICFG));
+    memcpy(&indbr.InsnBytes[0], *ExpectedPtr, indbr.InsnBytes.size());
 
-      uintptr_t beg = ICFG[bb].Addr;
-
-      if (Addr == beg) {
-        assert(ICFG[bb].Addr == (*it).first.lower());
-        return bbidx;
-      }
-
-      //
-      // before splitting the basic block, let's check to make sure that the
-      // new block doesn't start in the middle of an instruction. if that would
-      // occur, then we will assume the control-flow is invalid
-      //
-      {
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-        const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-        llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-        assert(ObjectFile.get());
-        const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
-
-        uint64_t InstLen = 0;
-        for (target_ulong A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
-          llvm::MCInst Inst;
-
-          std::string errmsg;
-          bool Disassembled;
-          {
-            llvm::raw_string_ostream ErrorStrStream(errmsg);
-
-            llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
-            if (!ExpectedPtr) {
-              WithColor::error() << llvm::formatv(
-                  "failed to get binary contents for {0:x}\n", A);
-              return invalid_basic_block_index;
-            }
-
-            Disassembled = DisAsm.getInstruction(
-                Inst, InstLen,
-                llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
-                ErrorStrStream);
-          }
-
-          if (!Disassembled)
-            WithColor::error() << llvm::formatv(
-                "failed to disassemble {0:x} {1}\n", A, errmsg);
-
-          assert(Disassembled);
-
-          if (A == Addr)
-            goto on_insn_boundary;
-        }
-
-        WithColor::error() << llvm::formatv(
-            "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
-            Addr, binary.Path);
-
-        return invalid_basic_block_index;
-
-on_insn_boundary:
-        //
-        // proceed.
-        //
-        ;
-      }
-
-      std::vector<basic_block_t> out_verts;
-      {
-        icfg_t::out_edge_iterator e_it, e_it_end;
-        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-             e_it != e_it_end; ++e_it)
-          out_verts.push_back(boost::target(*e_it, ICFG));
-      }
-
-      // if we get here, we know that beg != Addr
-      assert(Addr > beg);
-
-      ptrdiff_t off = Addr - beg;
-      assert(off > 0);
-
-      boost::icl::interval<uintptr_t>::type orig_intervl = (*it).first;
-
-      basic_block_index_t newbbidx = boost::num_vertices(ICFG);
-      basic_block_t newbb = boost::add_vertex(ICFG);
-      {
-        basic_block_properties_t &newbbprop = ICFG[newbb];
-        newbbprop.Addr = beg;
-        newbbprop.Size = off;
-        newbbprop.Term.Type = TERMINATOR::NONE;
-        newbbprop.Term.Addr = 0; /* XXX? */
-        newbbprop.DynTargetsComplete = false;
-        newbbprop.Term._call.Target = invalid_function_index;
-        newbbprop.Term._call.Returns = false;
-        newbbprop.Term._indirect_jump.IsLj = false;
-        newbbprop.Sj = false;
-        newbbprop.Term._indirect_call.Returns = false;
-        newbbprop.Term._return.Returns = false;
-        newbbprop.InvalidateAnalysis();
-      }
-
-      ICFG[bb].InvalidateAnalysis();
-
-      std::swap(ICFG[bb], ICFG[newbb]);
-      ICFG[newbb].Addr = Addr;
-      ICFG[newbb].Size -= off;
-
-      assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
-
-      boost::clear_out_edges(bb, ICFG);
-      boost::add_edge(bb, newbb, ICFG);
-
-      for (basic_block_t out_vert : out_verts) {
-        boost::add_edge(newbb, out_vert, ICFG);
-      }
-
-      assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
-      assert(boost::out_degree(bb, ICFG) == 1);
-
-      boost::icl::interval<uintptr_t>::type intervl1 =
-          boost::icl::interval<uintptr_t>::right_open(
-              ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
-
-      boost::icl::interval<uintptr_t>::type intervl2 =
-          boost::icl::interval<uintptr_t>::right_open(
-              ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
-
-      assert(boost::icl::disjoint(intervl1, intervl2));
-
-      unsigned n = BBMap.iterative_size();
-      BBMap.erase((*it).first);
-      assert(BBMap.iterative_size() == n - 1);
-
-      assert(BBMap.find(intervl1) == BBMap.end());
-      assert(BBMap.find(intervl2) == BBMap.end());
-
-      BBMap.add({intervl1, 1 + bbidx});
-      BBMap.add({intervl2, 1 + newbbidx});
-
-      return newbbidx;
-    }
-  }
-
-  assert(ObjectFile.get());
-  tcg.set_elf(llvm::cast<ELFO>(ObjectFile.get())->getELFFile());
-
-  unsigned Size = 0;
-  jove::terminator_info_t T;
-  do {
-    unsigned size;
-    std::tie(size, T) = tcg.translate(Addr + Size);
-
-    Size += size;
-
-    {
-      boost::icl::interval<uintptr_t>::type intervl =
-          boost::icl::interval<uintptr_t>::right_open(Addr, Addr + Size);
-      auto it = BBMap.find(intervl);
-      if (it != BBMap.end()) {
-        const boost::icl::interval<uintptr_t>::type &_intervl = (*it).first;
-
-
-        assert(intervl.lower() < _intervl.lower());
-
-        //assert(intervl.upper() == _intervl.upper());
-
-        //
-        // solution here is to prematurely end the basic block with a NONE
-        // terminator, and with a next_insn address of _intervl.lower()
-        //
-        Size = _intervl.lower() - intervl.lower();
-        T.Type = TERMINATOR::NONE;
-        T.Addr = 0; /* XXX? */
-        T._none.NextPC = _intervl.lower();
-        break;
-      }
-    }
-  } while (T.Type == TERMINATOR::NONE);
-
-  if (T.Type == TERMINATOR::UNKNOWN) {
-    WithColor::error() << (fmt("error: unknown terminator @ %#lx") % Addr).str()
-                       << '\n';
+    //
+    // now that we have the bytes for each indirect branch, disassemble them
+    //
+    llvm::MCInst &Inst = indbr.Inst;
 
     llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-    assert(ObjectFile.get());
-    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
-
-    uint64_t InstLen;
-    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
-      if (!ExpectedPtr) {
-        WithColor::error() << llvm::formatv(
-            "failed to get binary contents for {0:x}\n", A);
-        return invalid_basic_block_index;
-      }
-
-      llvm::MCInst Inst;
+    {
+      uint64_t InstLen;
       bool Disassembled = DisAsm.getInstruction(
-          Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
-          llvm::nulls());
-      if (!Disassembled) {
-        WithColor::error() << (fmt("failed to disassemble %#lx") % Addr).str()
-                           << '\n';
-        break;
-      }
-
-      IP.printInst(&Inst, A, "", STI, llvm::errs());
-      llvm::errs() << '\n';
+          Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
+      assert(Disassembled);
     }
 
-    tcg.dump_operations();
-    return invalid_basic_block_index;
-  }
-
-  basic_block_index_t bbidx = boost::num_vertices(ICFG);
-  basic_block_t bb = boost::add_vertex(ICFG);
-  {
-    basic_block_properties_t &bbprop = ICFG[bb];
-    bbprop.Addr = Addr;
-    bbprop.Size = Size;
-    bbprop.Term.Type = T.Type;
-    bbprop.Term.Addr = T.Addr;
-    bbprop.DynTargetsComplete = false;
-    bbprop.Term._call.Target = invalid_function_index;
-    bbprop.Term._call.Returns = false;
-    bbprop.Term._indirect_jump.IsLj = false;
-    bbprop.Sj = false;
-    bbprop.Term._indirect_call.Returns = false;
-    bbprop.Term._return.Returns = false;
-    bbprop.InvalidateAnalysis();
-    InvalidateAllFunctionAnalyses();
-
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
-                                                    bbprop.Addr + bbprop.Size);
-    assert(BBMap.find(intervl) == BBMap.end());
-    BBMap.add({intervl, 1 + bbidx});
-
-    //
-    // if it's an indirect branch, we need to (1) add it to the indirect branch
-    // map and (2) install a breakpoint at the correct program counter
-    //
-    if (bbprop.Term.Type == TERMINATOR::INDIRECT_CALL ||
-        bbprop.Term.Type == TERMINATOR::INDIRECT_JUMP) {
-      uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
-
-      assert(IndBrMap.find(termpc) == IndBrMap.end());
-
-      indirect_branch_t &indbr = IndBrMap[termpc];
-      indbr.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
-      indbr.binary_idx = binary_idx;
-      indbr.TermAddr = bbprop.Term.Addr;
-      indbr.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
-      indbr.InsnBytes.resize(indbr.InsnBytes.size() + 4 /* delay slot */);
-      assert(indbr.InsnBytes.size() == 2 * sizeof(uint32_t));
+    {
+      uint64_t InstLen;
+      bool Disassembled = DisAsm.getInstruction(
+          indbr.DelaySlotInst, InstLen,
+          llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
+          bbprop.Term.Addr + 4, llvm::nulls());
+      assert(Disassembled);
+    }
 #endif
 
-      assert(ObjectFile.get());
-      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
+    try {
+      place_breakpoint_at_indirect_branch(_child, termpc, indbr, dis);
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
+    }
+  }
 
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
-      if (!ExpectedPtr)
-        abort();
+  //
+  // if it's a return, we need to (1) add it to the return map and (2) install
+  // a breakpoint at the correct pc
+  //
+  if (bbprop.Term.Type == TERMINATOR::RETURN) {
+    uintptr_t termpc = va_of_rva(bbprop.Term.Addr, BIdx);
 
-      memcpy(&indbr.InsnBytes[0], *ExpectedPtr, indbr.InsnBytes.size());
+    assert(RetMap.find(termpc) == RetMap.end());
 
-      //
-      // now that we have the bytes for each indirect branch, disassemble them
-      //
-      llvm::MCInst &Inst = indbr.Inst;
+    return_t &RetInfo = RetMap[termpc];
+    RetInfo.BIdx = BIdx;
+    RetInfo.TermAddr = bbprop.Term.Addr;
 
+    RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
+#if defined(__mips64) || defined(__mips__)
+    RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
+    assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
+#endif
+
+    assert(b.ObjectFile.get());
+    const ELFF &E = *llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile();
+
+    llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
+    if (!ExpectedPtr)
+      abort();
+
+    memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
+
+    {
       llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-      {
-        uint64_t InstLen;
-        bool Disassembled = DisAsm.getInstruction(
-            Inst, InstLen, indbr.InsnBytes, bbprop.Term.Addr, llvm::nulls());
-        assert(Disassembled);
-      }
 
-#if defined(__mips64) || defined(__mips__)
-      {
-        uint64_t InstLen;
-        bool Disassembled = DisAsm.getInstruction(
-            indbr.DelaySlotInst, InstLen,
-            llvm::ArrayRef<uint8_t>(indbr.InsnBytes).slice(4),
-            bbprop.Term.Addr + 4, llvm::nulls());
-        assert(Disassembled);
-      }
-#endif
-
-      try {
-        place_breakpoint_at_indirect_branch(child, termpc, indbr, dis);
-
-        ++brkpt_count;
-      } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
-      }
+      uint64_t InstLen;
+      bool Disassembled =
+          DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
+                                bbprop.Term.Addr, llvm::nulls());
+      assert(Disassembled);
     }
 
+#if defined(__mips64) || defined(__mips__)
     //
-    // if it's a return, we need to (1) add it to the return map and (2) install
-    // a breakpoint at the correct pc
+    // disassemble delay slot
     //
-    if (bbprop.Term.Type == TERMINATOR::RETURN) {
-      uintptr_t termpc = va_of_rva(bbprop.Term.Addr, binary_idx);
-
-      assert(RetMap.find(termpc) == RetMap.end());
-
-      return_t &RetInfo = RetMap[termpc];
-      RetInfo.binary_idx = binary_idx;
-      RetInfo.TermAddr = bbprop.Term.Addr;
-
-      RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
-#if defined(__mips64) || defined(__mips__)
-      RetInfo.InsnBytes.resize(RetInfo.InsnBytes.size() + 4 /* delay slot */);
-      assert(RetInfo.InsnBytes.size() == sizeof(uint64_t));
-#endif
-
-      assert(ObjectFile.get());
-      const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
-
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(bbprop.Term.Addr);
-      if (!ExpectedPtr)
-        abort();
-
-      memcpy(&RetInfo.InsnBytes[0], *ExpectedPtr, RetInfo.InsnBytes.size());
-
-      {
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
-        uint64_t InstLen;
-        bool Disassembled =
-            DisAsm.getInstruction(RetInfo.Inst, InstLen, RetInfo.InsnBytes,
-                                  bbprop.Term.Addr, llvm::nulls());
-        assert(Disassembled);
-      }
-
-#if defined(__mips64) || defined(__mips__)
-      //
-      // disassemble delay slot
-      //
-      {
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-
-        uint64_t InstLen;
-        bool Disassembled =
-            DisAsm.getInstruction(RetInfo.DelaySlotInst, InstLen,
-                                  llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
-                                  bbprop.Term.Addr + 4,
-                                  llvm::nulls());
-
-        assert(Disassembled);
-      }
-#endif
-
-      try {
-        place_breakpoint_at_return(child, termpc, RetInfo);
-
-        ++brkpt_count;
-      } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
-      }
-    }
-  }
-
-  //
-  // conduct analysis of last instruction (the terminator of the block) and
-  // (recursively) descend into branch targets, translating basic blocks
-  //
-  auto control_flow = [&](uintptr_t Target) -> void {
-    assert(Target);
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    Target &= ~1UL;
-#endif
-
-    basic_block_index_t succidx =
-        translate_basic_block(child, binary_idx, tcg, dis, Target, brkpt_count);
-
-    assert(succidx != invalid_basic_block_index);
-
-    basic_block_t _bb;
     {
-      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
-      assert(it != BBMap.end());
+      llvm::MCDisassembler &DisAsm = std::get<0>(dis);
 
-      basic_block_index_t _bbidx = (*it).second - 1;
-      _bb = boost::vertex(_bbidx, ICFG);
-      assert(T.Type == ICFG[_bb].Term.Type);
+      uint64_t InstLen;
+      bool Disassembled =
+          DisAsm.getInstruction(RetInfo.DelaySlotInst, InstLen,
+                                llvm::ArrayRef<uint8_t>(RetInfo.InsnBytes).slice(4),
+                                bbprop.Term.Addr + 4,
+                                llvm::nulls());
+      assert(Disassembled);
     }
-
-    basic_block_t succ = boost::vertex(succidx, ICFG);
-    bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
-    if (isNewTarget)
-      ICFG[_bb].InvalidateAnalysis();
-  };
-
-  switch (T.Type) {
-  case TERMINATOR::UNCONDITIONAL_JUMP:
-    control_flow(T._unconditional_jump.Target);
-    break;
-
-  case TERMINATOR::CONDITIONAL_JUMP:
-    control_flow(T._conditional_jump.Target);
-    control_flow(T._conditional_jump.NextPC);
-    break;
-
-  case TERMINATOR::CALL: {
-    target_ulong CalleeAddr = T._call.Target;
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(child, binary_idx, tcg, dis,
-                                               CalleeAddr, brkpt_count);
-
-    basic_block_t _bb;
-    {
-      auto it = T.Addr ? BBMap.find(T.Addr) : BBMap.find(Addr);
-      assert(it != BBMap.end());
-      basic_block_index_t _bbidx = (*it).second - 1;
-      _bb = boost::vertex(_bbidx, ICFG);
+    try {
+      place_breakpoint_at_return(_child, termpc, RetInfo);
+    } catch (const std::exception &e) {
+      WithColor::error() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
     }
-
-    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
-    ICFG[_bb].Term._call.Target = FIdx;
-
-    if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(binary, FIdx))
-      control_flow(T._call.NextPC);
-
-    break;
   }
-
-  case TERMINATOR::INDIRECT_CALL:
-    //control_flow(T._indirect_call.NextPC);
-    break;
-
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::RETURN:
-  case TERMINATOR::UNREACHABLE:
-    break;
-
-  case TERMINATOR::NONE:
-    control_flow(T._none.NextPC);
-    break;
-
-  default:
-    abort();
-  }
-
-  return bbidx;
-}
-
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
-
-bool does_function_definitely_return(binary_t &b,
-                                     function_index_t FIdx) {
-  assert(is_function_index_valid(FIdx));
-
-  function_t &f = b.Analysis.Functions.at(FIdx);
-  auto &ICFG = b.Analysis.ICFG;
-
-  assert(is_basic_block_index_valid(f.Entry));
-
-  std::vector<basic_block_t> BasicBlocks;
-  std::vector<basic_block_t> ExitBasicBlocks;
-
-  std::map<basic_block_t, boost::default_color_type> color;
-  dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
-  boost::depth_first_visit(
-      ICFG, boost::vertex(f.Entry, ICFG), vis,
-      boost::associative_property_map<
-          std::map<basic_block_t, boost::default_color_type>>(color));
-
-  //
-  // ExitBasicBlocks
-  //
-  std::copy_if(BasicBlocks.begin(),
-               BasicBlocks.end(),
-               std::back_inserter(ExitBasicBlocks),
-               [&](basic_block_t bb) -> bool {
-                 return IsExitBlock(ICFG, bb);
-               });
-
-  return !ExitBasicBlocks.empty();
 }
 
 static std::string StringOfMCInst(llvm::MCInst &, disas_t &);
@@ -2451,7 +1990,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   };
 
   if (!is_opcode_handled(Inst.getOpcode())) {
-    binary_t &Binary = decompilation.Binaries[indbr.binary_idx];
+    binary_t &Binary = decompilation.Binaries[indbr.BIdx];
     const auto &ICFG = Binary.Analysis.ICFG;
     throw std::runtime_error(
       (fmt("could not place breakpoint @ %#lx\n"
@@ -3281,8 +2820,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // it's an indirect branch.
   //
   indirect_branch_t &IndBrInfo = indirect_branch_of_address(saved_pc);
-  binary_t &binary = decompilation.Binaries[IndBrInfo.binary_idx];
-  auto &BBMap = binary.BBMap;
+  binary_t &binary = decompilation.Binaries[IndBrInfo.BIdx];
+  auto &bbmap = binary.bbmap;
   auto &ICFG = binary.Analysis.ICFG;
 
   //
@@ -3298,8 +2837,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   basic_block_t bb;
 
   {
-    auto it = BBMap.find(IndBrInfo.TermAddr);
-    assert(it != BBMap.end());
+    auto it = bbmap.find(IndBrInfo.TermAddr);
+    assert(it != bbmap.end());
 
     bbidx = (*it).second - 1;
     bb = boost::vertex(bbidx, ICFG);
@@ -3472,18 +3011,41 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
   };
 
-  uintptr_t target = 0;
+  //
+  // determine the target address of the indirect control transfer
+  //
+  struct {
+    uintptr_t Addr = 0UL;
+    binary_index_t BIdx = invalid_binary_index;
+    bool isNew = false;
+  } Target;
+
   try {
-    target = GetTarget();
-  } catch (...) {
-    WithColor::error() << llvm::formatv("GetTarget failed; bug? Inst={0}\n",
-                                        Inst);
+    Target.Addr = GetTarget();
+  } catch (const std::exception &e) {
+    WithColor::error() << llvm::formatv("failed to determine target address: {0}\n", e.what());
     throw;
   }
 
 #if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-  target &= ~1UL;
+  Target.Addr &= ~1UL;
 #endif
+
+  {
+    auto it = AddressSpace.find(Target.Addr);
+    if (it == AddressSpace.end()) {
+      if (opts::Verbose) {
+        update_view_of_virtual_memory(child, dis);
+
+        WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
+                                              description_of_program_counter(saved_pc, true),
+                                              description_of_program_counter(Target.Addr, true));
+      }
+      return;
+    }
+
+    Target.BIdx = -1+(*it).second;
+  }
 
   //
   // if the instruction is a call, we need to emulate whatever happens to the
@@ -3509,10 +3071,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   // set program counter to be branch target
   //
 #if !defined(__mips64) && !defined(__mips__)
-  pc = target;
+  pc = Target.Addr;
 #else /* delay slot madness */
-  try
-  {
+  try {
     assert(ExecutableRegionAddress);
 
     assert(IndBrInfo.InsnBytes.size() == 2 * sizeof(uint32_t));
@@ -3541,55 +3102,42 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                        IndBrInfo.InsnBytes,
                        reg);
   } catch (const std::exception &e) {
-    WithColor::error() << llvm::formatv("failed to emulate delay slot? {0}\n", e.what());
+    WithColor::error() << llvm::formatv("failed to emulate delay slot: {0}\n", e.what());
   }
 #endif
 
   //
   // update the decompilation based on the target
   //
-  binary_index_t binary_idx = invalid_binary_index;
-  {
-    auto it = AddressSpace.find(target);
-    if (it == AddressSpace.end()) {
-      if (opts::Verbose) {
-        update_view_of_virtual_memory(child, dis);
 
-        WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                              description_of_program_counter(saved_pc, true),
-                                              description_of_program_counter(target, true));
-      }
-      return;
-    }
-
-    binary_idx = -1+(*it).second;
-  }
-
-  bool isNewTarget = false;
+  binary_t &TargetBinary = decompilation.Binaries[Target.BIdx];
 
   struct {
     bool IsGoto = false;
   } ControlFlow;
 
-  unsigned brkpt_count = 0;
-
-  try { /* _jove_g2h() may throw an exception here */
-
+  try {
   if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_CALL) {
-    function_index_t f_idx =
-        translate_function(child, binary_idx, tcg, dis,
-                           rva_of_va(target, binary_idx), brkpt_count);
+    function_index_t FIdx =
+        translate_function(TargetBinary, tcg, dis,
+                           rva_of_va(Target.Addr, Target.BIdx),
+                           TargetBinary.fnmap,
+                           TargetBinary.bbmap,
+                           on_new_basic_block);
 
-    isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+    Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
   } else if (ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP) {
     if (unlikely(ICFG[bb].Term._indirect_jump.IsLj)) {
       //
       // non-local goto (aka "long jump")
       //
-      translate_basic_block(child, binary_idx, tcg, dis,
-                            rva_of_va(target, binary_idx), brkpt_count);
+      translate_basic_block(TargetBinary, tcg, dis,
+                            rva_of_va(Target.Addr, Target.BIdx),
+                            TargetBinary.fnmap,
+                            TargetBinary.bbmap,
+                            on_new_basic_block);
 
-      isNewTarget = brkpt_count > 0;
+      Target.isNew = true; /* FIXME */
       ControlFlow.IsGoto = true;
     } else {
       // on an indirect jump, we must determine one of two possibilities.
@@ -3602,48 +3150,54 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       //
       bool isTailCall =
           IsDefinitelyTailCall(ICFG, bb) ||
-          IndBrInfo.binary_idx != binary_idx ||
+          IndBrInfo.BIdx != Target.BIdx ||
           (boost::out_degree(bb, ICFG) == 0 &&
-           decompilation.Binaries[binary_idx].FuncMap.count(rva_of_va(target, binary_idx)));
+           TargetBinary.fnmap.count(rva_of_va(Target.Addr, Target.BIdx)));
 
       if (isTailCall) {
-        function_index_t f_idx =
-            translate_function(child, binary_idx, tcg, dis,
-                               rva_of_va(target, binary_idx), brkpt_count);
+        function_index_t FIdx =
+            translate_function(TargetBinary, tcg, dis,
+                               rva_of_va(Target.Addr, Target.BIdx),
+                               TargetBinary.fnmap,
+                               TargetBinary.bbmap,
+                               on_new_basic_block);
 
         //
         // the block containing the terminator may have been split underneath us
         //
         {
-          auto it = BBMap.find(IndBrInfo.TermAddr);
-          assert(it != BBMap.end());
+          auto it = bbmap.find(IndBrInfo.TermAddr);
+          assert(it != bbmap.end());
 
-          bbidx = (*it).second - 1;
+          bbidx = -1+(*it).second;
           bb = boost::vertex(bbidx, ICFG);
         }
 
-        isNewTarget = ICFG[bb].DynTargets.insert({binary_idx, f_idx}).second;
+        Target.isNew = ICFG[bb].DynTargets.insert({Target.BIdx, FIdx}).second;
       } else {
-        basic_block_index_t target_bb_idx =
-            translate_basic_block(child, binary_idx, tcg, dis,
-                                  rva_of_va(target, binary_idx), brkpt_count);
-        basic_block_t target_bb = boost::vertex(target_bb_idx, ICFG);
+        basic_block_index_t TargetBBIdx =
+            translate_basic_block(TargetBinary, tcg, dis,
+                                  rva_of_va(Target.Addr, Target.BIdx),
+                                  TargetBinary.fnmap,
+                                  TargetBinary.bbmap,
+                                  on_new_basic_block);
+        basic_block_t TargetBB = boost::vertex(TargetBBIdx, ICFG);
 
         //
         // the block containing the terminator may have been split underneath us
         //
         {
-          auto it = BBMap.find(IndBrInfo.TermAddr);
-          assert(it != BBMap.end());
+          auto it = bbmap.find(IndBrInfo.TermAddr);
+          assert(it != bbmap.end());
 
-          bbidx = (*it).second - 1;
+          bbidx = -1+(*it).second;
           bb = boost::vertex(bbidx, ICFG);
         }
 
         assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
 
-        isNewTarget = boost::add_edge(bb, target_bb, ICFG).second;
-        if (isNewTarget)
+        Target.isNew = boost::add_edge(bb, TargetBB, ICFG).second;
+        if (Target.isNew)
           ICFG[bb].InvalidateAnalysis();
 
         ControlFlow.IsGoto = true;
@@ -3653,37 +3207,26 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     abort();
   }
 
-  if (unlikely(brkpt_count))
-    llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                  brkpt_count,
-                                  brkpt_count > 1 ? "s" : "",
-                                  decompilation.Binaries[binary_idx].Path);
-
-  if (unlikely(!opts::Quiet) || unlikely(isNewTarget))
+  if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
     llvm::errs() << llvm::formatv("{4}({0}) {1} -> {2}{3}" __ANSI_NORMAL_COLOR "\n",
                                   ControlFlow.IsGoto ? "goto" : "call",
                                   description_of_program_counter(saved_pc),
-                                  description_of_program_counter(target),
+                                  description_of_program_counter(Target.Addr),
                                   ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP ?
                                     (ICFG[bb].Term._indirect_jump.IsLj ? " (longjmp)" : "") : "",
                                   ControlFlow.IsGoto ? __ANSI_GREEN : __ANSI_CYAN);
-
-  } catch (const std::exception &e) {
-    std::string s = fs::path(decompilation.Binaries[binary_idx].Path).filename().string();
-
+  } catch (const std::exception &e) { /* _jove_g2h probably threw an exception */
     WithColor::error() << llvm::formatv(
-        "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n", e.what(), s,
-        rva_of_va(target, binary_idx), target, decompilation.Binaries[binary_idx].LoadAddr);
+        "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
+        e.what(), fs::path(TargetBinary.Path).filename().string(),
+        rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
+        TargetBinary.LoadAddr);
 
     llvm::errs() << ProcMapsForPid(child);
   }
 }
 
 #include "relocs_common.hpp"
-
-//
-// TODO refactor the following code
-//
 
 static void harvest_irelative_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
@@ -3727,10 +3270,14 @@ static void harvest_irelative_reloc_targets(pid_t child,
                                     rva_of_va(Resolved.Addr, Resolved.BIdx),
                                     R.Offset);
 
-    unsigned brkpt_count = 0;
+    binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
+
     Resolved.FIdx = translate_function(
-        child, Resolved.BIdx, tcg, dis,
-        rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+        ResolvedBinary, tcg, dis,
+        rva_of_va(Resolved.Addr, Resolved.BIdx),
+        ResolvedBinary.fnmap,
+        ResolvedBinary.bbmap,
+        on_new_basic_block);
 
     if (is_function_index_valid(Resolved.FIdx)) {
       if (R.Addend)
@@ -3829,10 +3376,15 @@ static void harvest_addressof_reloc_targets(pid_t child,
       if (Resolved.BIdx == b.BIdx) /* _dl_fixup... */
         return;
 
+      binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
+
       unsigned brkpt_count = 0;
       Resolved.FIdx = translate_function(
-          child, Resolved.BIdx, tcg, dis,
-          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+          ResolvedBinary, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx),
+          ResolvedBinary.fnmap,
+          ResolvedBinary.bbmap,
+          on_new_basic_block);
 
       if (is_function_index_valid(Resolved.FIdx)) {
         auto &SymDynTargets = b.Analysis.SymDynTargets[RelSym.Name];
@@ -3930,7 +3482,10 @@ static void harvest_ctor_and_dtors(pid_t child,
             if (it != AddressSpace.end() &&
                 -1+(*it).second == BIdx) {
               function_index_t FIdx = translate_function(
-                  child, BIdx, tcg, dis, rva_of_va(Proc, BIdx), brkpt_count);
+                  Binary, tcg, dis, rva_of_va(Proc, BIdx),
+                  Binary.fnmap,
+                  Binary.bbmap,
+                  on_new_basic_block);
 
               if (is_function_index_valid(FIdx))
                 Binary.Analysis.Functions[FIdx].IsABI = true; /* it is an ABI */
@@ -4050,18 +3605,25 @@ static void harvest_global_GOT_entries(pid_t child,
       }
 
       Resolved.BIdx = -1+(*it).second;
+      binary_t &ResolvedBinary = decompilation.Binaries.at(Resolved.BIdx);
 
       unsigned brkpt_count = 0;
       basic_block_index_t resolved_bbidx = translate_basic_block(
-          child, Resolved.BIdx, tcg, dis,
-          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+          ResolvedBinary, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx),
+          ResolvedBinary.fnmap,
+          ResolvedBinary.bbmap,
+          on_new_basic_block);
 
       if (!is_basic_block_index_valid(resolved_bbidx))
         continue;
 
       Resolved.FIdx = translate_function(
-          child, Resolved.BIdx, tcg, dis,
-          rva_of_va(Resolved.Addr, Resolved.BIdx), brkpt_count);
+          ResolvedBinary, tcg, dis,
+          rva_of_va(Resolved.Addr, Resolved.BIdx),
+          ResolvedBinary.fnmap,
+          ResolvedBinary.bbmap,
+          on_new_basic_block);
       if (is_function_index_valid(Resolved.FIdx)) {
         SymDynTargets.insert({Resolved.BIdx, Resolved.FIdx});
       }
@@ -4231,8 +3793,6 @@ void on_binary_loaded(pid_t child,
   //
   llvm::MCDisassembler &DisAsm = std::get<0>(dis);
 
-  unsigned cnt = 0;
-
   for (basic_block_index_t bbidx = 0;
        bbidx < boost::num_vertices(binary.Analysis.ICFG); ++bbidx) {
     basic_block_t bb = boost::vertex(bbidx, binary.Analysis.ICFG);
@@ -4248,7 +3808,7 @@ void on_binary_loaded(pid_t child,
 
     indirect_branch_t &IndBrInfo = IndBrMap[Addr];
     IndBrInfo.IsCall = bbprop.Term.Type == TERMINATOR::INDIRECT_CALL;
-    IndBrInfo.binary_idx = BIdx;
+    IndBrInfo.BIdx = BIdx;
     IndBrInfo.TermAddr = bbprop.Term.Addr;
     IndBrInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
 #if defined(__mips64) || defined(__mips__)
@@ -4295,8 +3855,6 @@ void on_binary_loaded(pid_t child,
         ;
       } else {
         place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
-
-        ++cnt;
       }
     } catch (const std::exception &e) {
       WithColor::error() << llvm::formatv(
@@ -4320,7 +3878,7 @@ void on_binary_loaded(pid_t child,
     assert(RetMap.find(Addr) == RetMap.end());
 
     auto &RetInfo = RetMap[Addr];
-    RetInfo.binary_idx = BIdx;
+    RetInfo.BIdx = BIdx;
     RetInfo.TermAddr = bbprop.Term.Addr;
 
     RetInfo.InsnBytes.resize(bbprop.Size - (bbprop.Term.Addr - bbprop.Addr));
@@ -4364,20 +3922,12 @@ void on_binary_loaded(pid_t child,
         ;
       } else {
         place_breakpoint_at_return(child, Addr, RetInfo);
-
-        ++cnt;
       }
     } catch (const std::exception &e) {
       WithColor::error() << llvm::formatv(
           "failed to place breakpoint at return: {0}\n", e.what());
     }
   }
-
-  if (cnt > 0 && opts::Verbose)
-    llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                  cnt,
-                                  cnt > 1 ? "s" : "",
-                                  binary.Path);
 }
 
 #if !defined(__x86_64__) && defined(__i386__)
@@ -4840,44 +4390,14 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   // initialize state associated with every binary
   //
   binary_t &binary = decompilation.Binaries[BIdx];
-  auto &FuncMap = binary.FuncMap;
 
   binary.BIdx = BIdx;
 
-  // add to path -> index map
-  if (binary.IsVDSO)
-    BinPathToIdxMap["[vdso]"] = BIdx;
-  else
-    BinPathToIdxMap[binary.Path] = BIdx;
+  assert(!binary.IsVDSO);
+  BinPathToIdxMap[binary.Path] = BIdx;
 
-  //
-  // build FuncMap
-  //
-  for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
-    function_t &f = binary.Analysis.Functions[FIdx];
-    if (unlikely(!is_function_index_valid(f.Entry)))
-      continue;
-
-    basic_block_t EntryBB = boost::vertex(f.Entry, binary.Analysis.ICFG);
-    FuncMap[binary.Analysis.ICFG[EntryBB].Addr] = FIdx;
-  }
-
-  //
-  // build BBMap
-  //
-  auto &BBMap = binary.BBMap;
-  for (basic_block_index_t BBIdx = 0;
-       BBIdx < boost::num_vertices(binary.Analysis.ICFG); ++BBIdx) {
-    basic_block_t bb = boost::vertex(BBIdx, binary.Analysis.ICFG);
-    const auto &bbprop = binary.Analysis.ICFG[bb];
-
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(
-            bbprop.Addr, bbprop.Addr + bbprop.Size);
-    assert(BBMap.find(intervl) == BBMap.end());
-
-    BBMap.add({intervl, 1 + BBIdx});
-  }
+  construct_fnmap(decompilation, binary, binary.fnmap);
+  construct_bbmap(decompilation, binary, binary.bbmap);
 
   llvm::StringRef Buffer(reinterpret_cast<char *>(&binary.Data[0]),
                          binary.Data.size());
@@ -5100,13 +4620,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         BIdx = -1+(*it).second;
 
         binary_t &binary = decompilation.Binaries.at(BIdx);
-        auto &BBMap = binary.BBMap;
+        auto &bbmap = binary.bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
         uintptr_t rva = rva_of_va(pc, BIdx);
 
-        auto it = BBMap.find(rva);
-        assert(it != BBMap.end());
+        auto it = bbmap.find(rva);
+        assert(it != bbmap.end());
         basic_block_index_t bbidx = (*it).second - 1;
         basic_block_t bb = boost::vertex(bbidx, ICFG);
 
@@ -5146,7 +4666,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         try {
         binary_t &binary = decompilation.Binaries.at(BIdx);
-        auto &BBMap = binary.BBMap;
+        auto &bbmap = binary.bbmap;
         auto &ICFG = binary.Analysis.ICFG;
 
         if (!binary.ObjectFile.get()) {
@@ -5161,7 +4681,10 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         unsigned brkpt_count = 0;
         basic_block_index_t next_bb_idx =
-            translate_basic_block(child, BIdx, tcg, dis, rva, brkpt_count);
+            translate_basic_block(binary, tcg, dis, rva,
+                                  binary.fnmap,
+                                  binary.bbmap,
+                                  on_new_basic_block);
         if (is_basic_block_index_valid(next_bb_idx)) {
           basic_block_t bb;
 
@@ -5174,8 +4697,8 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 #endif
                 ;
 
-            auto it = BBMap.find(rva - delay_slot - 1);
-            if (it == BBMap.end()) {
+            auto it = bbmap.find(rva - delay_slot - 1);
+            if (it == bbmap.end()) {
               //
               // we have no preceeding call
               //

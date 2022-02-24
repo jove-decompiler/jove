@@ -2,8 +2,8 @@
 #include <boost/icl/split_interval_map.hpp>
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  boost::icl::split_interval_map<tcg_uintptr_t, basic_block_index_t> BBMap;    \
-  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
+  bbmap_t bbmap;                                                               \
+  fnmap_t fnmap;                                                               \
                                                                                \
   std::unique_ptr<llvm::object::Binary> ObjectFile;
 
@@ -168,27 +168,9 @@ typedef std::tuple<llvm::MCDisassembler &,
 
 static decompilation_t decompilation;
 
-static function_index_t translate_function(binary_t &, tiny_code_generator_t &,
-                                           disas_t &, target_ulong Addr);
-
-static basic_block_index_t translate_basic_block(binary_t &,
-                                                 tiny_code_generator_t &,
-                                                 disas_t &,
-                                                 const target_ulong Addr);
-
 #include "elf.hpp"
+#include "translate.hpp"
 #include "relocs_common.hpp"
-
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
 
 static struct {
   target_ulong Addr;
@@ -452,7 +434,10 @@ int add(void) {
   if (HasInterpreter && EntryAddr) {
     llvm::outs() << llvm::formatv("entry point @ {0:x}\n", EntryAddr);
 
-    b.Analysis.EntryFunction = translate_function(b, tcg, dis, EntryAddr);
+    b.Analysis.EntryFunction =
+        translate_function(b, tcg, dis, EntryAddr,
+                           b.fnmap,
+                           b.bbmap);
   } else {
     b.Analysis.EntryFunction = invalid_function_index;
   }
@@ -791,7 +776,9 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    translate_basic_block(b, tcg, dis, Entrypoint);
+    translate_basic_block(b, tcg, dis, Entrypoint,
+                          b.fnmap,
+                          b.bbmap);
   }
 
   for (target_ulong Entrypoint : boost::adaptors::reverse(Known.FunctionEntrypoints)) {
@@ -799,7 +786,9 @@ int add(void) {
     Entrypoint &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(b, tcg, dis, Entrypoint);
+    function_index_t FIdx = translate_function(b, tcg, dis, Entrypoint,
+                                               b.fnmap,
+                                               b.bbmap);
 
     if (!is_function_index_valid(FIdx))
       continue;
@@ -1102,7 +1091,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A);
+        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A,
+                                                          b.fnmap,
+                                                          b.bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1110,7 +1101,7 @@ int add(void) {
 
         std::vector<basic_block_t> bbvec;
         std::map<basic_block_t, boost::default_color_type> color;
-        dfs_visitor<interprocedural_control_flow_graph_t> vis(bbvec);
+        dfs_reachable_visitor vis(bbvec);
         depth_first_visit(
             ICFG, boost::vertex(BBIdx, ICFG), vis,
             boost::associative_property_map<
@@ -1138,7 +1129,9 @@ int add(void) {
 
         uint64_t A = P->p_vaddr + idx;
 
-        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A);
+        basic_block_index_t BBIdx = translate_basic_block(b, tcg, dis, A,
+                                                          b.fnmap,
+                                                          b.bbmap);
         if (!is_basic_block_index_valid(BBIdx))
           continue;
 
@@ -1185,509 +1178,6 @@ int add(void) {
   }
 
   return 0;
-}
-
-static function_index_t translate_function(binary_t &b,
-                                           tiny_code_generator_t &tcg,
-                                           disas_t &dis,
-                                           target_ulong Addr) {
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-  assert((Addr & 1) == 0);
-#endif
-
-  {
-    auto it = b.FuncMap.find(Addr);
-    if (it != b.FuncMap.end())
-      return (*it).second;
-  }
-
-  const function_index_t res = b.Analysis.Functions.size();
-  (void)b.Analysis.Functions.emplace_back();
-
-  b.FuncMap.insert({Addr, res});
-
-  basic_block_index_t Entry = translate_basic_block(b, tcg, dis, Addr);
-
-  WARN_ON(!is_basic_block_index_valid(Entry));
-
-  {
-    function_t &f = b.Analysis.Functions[res];
-
-    f.Analysis.Stale = true;
-    f.IsABI = false;
-    f.IsSignalHandler = false;
-    f.Entry = Entry;
-  }
-
-  return res;
-}
-
-static bool does_function_definitely_return(binary_t &,
-                                            function_index_t FIdx);
-
-basic_block_index_t translate_basic_block(binary_t &b,
-                                          tiny_code_generator_t &tcg,
-                                          disas_t &dis,
-                                          const target_ulong Addr) {
-#if defined(TARGET_MIPS32) || defined(TARGET_MIPS64)
-  assert((Addr & 1) == 0);
-#endif
-
-  auto &ICFG = b.Analysis.ICFG;
-  auto &ObjectFile = b.ObjectFile;
-
-  //
-  // does this new basic block start in the middle of a previously-created
-  // basic block?
-  //
-  {
-    auto it = b.BBMap.find(Addr);
-    if (it != b.BBMap.end()) {
-      basic_block_index_t bbidx = (*it).second - 1;
-      basic_block_t bb = boost::vertex(bbidx, ICFG);
-
-      assert(bbidx < boost::num_vertices(ICFG));
-
-      target_ulong beg = ICFG[bb].Addr;
-
-      if (beg == Addr) {
-        assert(ICFG[bb].Addr == (*it).first.lower());
-        return bbidx;
-      }
-
-      //
-      // before splitting the basic block, let's check to make sure that the
-      // new block doesn't start in the middle of an instruction. if that would
-      // occur, then we will assume the control-flow is invalid
-      //
-      {
-        llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-        const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-        llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-        const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
-
-        uint64_t InstLen = 0;
-        for (target_ulong A = beg; A < beg + ICFG[bb].Size; A += InstLen) {
-          llvm::MCInst Inst;
-
-          std::string errmsg;
-          bool Disassembled;
-          {
-            llvm::raw_string_ostream ErrorStrStream(errmsg);
-
-            llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
-            if (!ExpectedPtr)
-              abort();
-
-            Disassembled = DisAsm.getInstruction(
-                Inst, InstLen,
-                llvm::ArrayRef<uint8_t>(*ExpectedPtr, ICFG[bb].Size), A,
-                ErrorStrStream);
-          }
-
-          if (!Disassembled)
-            WithColor::error() << llvm::formatv(
-                "failed to disassemble {0:x} {1}\n", A, errmsg);
-
-          //assert(Disassembled);
-
-          if (A == Addr)
-            goto on_insn_boundary;
-        }
-
-        WithColor::error() << llvm::formatv(
-            "control flow to {0:x} in {1} doesn't lie on instruction boundary\n",
-            Addr, b.Path);
-
-        return invalid_basic_block_index;
-
-on_insn_boundary:
-        //
-        // proceed.
-        //
-        ;
-      }
-
-      unsigned deg = boost::out_degree(bb, ICFG);
-
-      std::vector<basic_block_t> out_verts;
-      {
-        icfg_t::out_edge_iterator e_it, e_it_end;
-        for (std::tie(e_it, e_it_end) = boost::out_edges(bb, ICFG);
-             e_it != e_it_end; ++e_it)
-          out_verts.push_back(boost::target(*e_it, ICFG));
-      }
-
-      // if we get here, we know that beg != Addr
-      assert(Addr > beg);
-
-      ptrdiff_t off = Addr - beg;
-      assert(off > 0);
-
-      boost::icl::interval<target_ulong>::type orig_intervl = (*it).first;
-
-      basic_block_index_t newbbidx = boost::num_vertices(ICFG);
-      basic_block_t newbb = boost::add_vertex(ICFG);
-      {
-        basic_block_properties_t &newbbprop = ICFG[newbb];
-        newbbprop.Addr = beg;
-        newbbprop.Size = off;
-        newbbprop.Term.Type = TERMINATOR::NONE;
-        newbbprop.Term.Addr = 0; /* XXX? */
-        newbbprop.DynTargetsComplete = false;
-        newbbprop.Term._call.Target = invalid_function_index;
-        newbbprop.Term._call.Returns = false;
-        newbbprop.Term._indirect_jump.IsLj = false;
-        newbbprop.Sj = false;
-        newbbprop.Term._indirect_call.Returns = false;
-        newbbprop.Term._return.Returns = false;
-        newbbprop.InvalidateAnalysis();
-      }
-
-      ICFG[bb].InvalidateAnalysis();
-
-      std::swap(ICFG[bb], ICFG[newbb]);
-      ICFG[newbb].Addr = Addr;
-      ICFG[newbb].Size -= off;
-
-      assert(ICFG[newbb].Addr + ICFG[newbb].Size == orig_intervl.upper());
-
-      boost::clear_out_edges(bb, ICFG);
-      assert(boost::out_degree(bb, ICFG) == 0);
-
-      boost::add_edge(bb, newbb, ICFG);
-
-      for (basic_block_t out_vert : out_verts) {
-        boost::add_edge(newbb, out_vert, ICFG);
-      }
-
-      assert(ICFG[bb].Term.Type == TERMINATOR::NONE);
-      assert(boost::out_degree(bb, ICFG) == 1);
-
-      assert(boost::out_degree(newbb, ICFG) == deg);
-
-      boost::icl::interval<target_ulong>::type intervl1 =
-          boost::icl::interval<target_ulong>::right_open(
-              ICFG[bb].Addr, ICFG[bb].Addr + ICFG[bb].Size);
-
-      boost::icl::interval<target_ulong>::type intervl2 =
-          boost::icl::interval<target_ulong>::right_open(
-              ICFG[newbb].Addr, ICFG[newbb].Addr + ICFG[newbb].Size);
-
-      assert(boost::icl::disjoint(intervl1, intervl2));
-
-      if (opts::Verbose) {
-        llvm::outs() << "intervl1: [" << (fmt("%#lx") % intervl1.lower()).str()
-                     << ", " << (fmt("%#lx") % intervl1.upper()).str() << ")\n";
-
-        llvm::outs() << "intervl2: [" << (fmt("%#lx") % intervl2.lower()).str()
-                     << ", " << (fmt("%#lx") % intervl2.upper()).str() << ")\n";
-
-        llvm::outs() << "orig_intervl: ["
-                     << (fmt("%#lx") % orig_intervl.lower()).str() << ", "
-                     << (fmt("%#lx") % orig_intervl.upper()).str() << ")\n";
-      }
-     
-      unsigned n = b.BBMap.iterative_size();
-      b.BBMap.erase((*it).first);
-      assert(b.BBMap.iterative_size() == n - 1);
-
-      assert(b.BBMap.find(intervl1) == b.BBMap.end());
-      assert(b.BBMap.find(intervl2) == b.BBMap.end());
-
-      {
-        auto _it = b.BBMap.find(intervl1);
-        if (_it != b.BBMap.end()) {
-          const auto &intervl = (*_it).first;
-          WithColor::error() << "can't add interval1 to b.BBMap: ["
-                             << (fmt("%#lx") % intervl1.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl1.upper()).str()
-                             << "), b.BBMap already contains ["
-                             << (fmt("%#lx") % intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
-          abort();
-        }
-      }
-
-      {
-        auto _it = b.BBMap.find(intervl2);
-        if (_it != b.BBMap.end()) {
-          const auto &intervl = (*_it).first;
-          llvm::errs() << " Addr=" << (fmt("%#lx") % Addr).str() << '\n';
-
-          WithColor::error() << "can't add interval2 to b.BBMap: ["
-                             << (fmt("%#lx") % intervl2.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl2.upper()).str()
-                             << "), b.BBMap already contains ["
-                             << (fmt("%#lx") % intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl.upper()).str() << ")\n";
-          abort();
-        }
-      }
-
-      b.BBMap.add({intervl1, 1 + bbidx});
-      b.BBMap.add({intervl2, 1 + newbbidx});
-
-      {
-        auto _it = b.BBMap.find(intervl1);
-        assert(_it != b.BBMap.end());
-        assert((*_it).second == 1 + bbidx);
-      }
-
-      {
-        auto _it = b.BBMap.find(intervl2);
-        assert(_it != b.BBMap.end());
-        assert((*_it).second == 1 + newbbidx);
-      }
-
-      return newbbidx;
-    }
-  }
-
-  tcg.set_elf(llvm::cast<ELFO>(b.ObjectFile.get())->getELFFile());
-
-  unsigned Size = 0;
-  jove::terminator_info_t T;
-  do {
-    if (BreakOn.Active) {
-      if (Addr == BreakOn.Addr) {
-        ::UserBreakPoint();
-      }
-    }
-
-    unsigned size;
-    std::tie(size, T) = tcg.translate(Addr + Size);
-
-    Size += size;
-
-    {
-      boost::icl::interval<target_ulong>::type intervl =
-          boost::icl::interval<target_ulong>::right_open(Addr, Addr + Size);
-      auto it = b.BBMap.find(intervl);
-      if (it == b.BBMap.end())
-        continue; /* proceed */
-
-      const boost::icl::interval<target_ulong>::type &_intervl = (*it).first;
-
-      if (opts::Verbose)
-        WithColor::error() << "can't translate further ["
-                           << (fmt("%#lx") % intervl.lower()).str() << ", "
-                           << (fmt("%#lx") % intervl.upper()).str()
-                           << "), b.BBMap already contains ["
-                           << (fmt("%#lx") % _intervl.lower()).str() << ", "
-                           << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
-
-      assert(intervl.lower() < _intervl.lower());
-
-      // assert(intervl.upper() == _intervl.upper());
-
-      if (intervl.upper() != _intervl.upper() && opts::Verbose) {
-        WithColor::warning() << "we've translated into another basic block:"
-                             << (fmt("%#lx") % intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % intervl.upper()).str()
-                             << "), b.BBMap already contains ["
-                             << (fmt("%#lx") % _intervl.lower()).str() << ", "
-                             << (fmt("%#lx") % _intervl.upper()).str() << ")\n";
-      }
-
-      //
-      // solution here is to prematurely end the basic block with a NONE
-      // terminator, and with a next_insn address of _intervl.lower()
-      //
-      Size = _intervl.lower() - intervl.lower();
-      T.Type = TERMINATOR::NONE;
-      T.Addr = 0; /* XXX? */
-      T._none.NextPC = _intervl.lower();
-      break;
-    }
-  } while (T.Type == TERMINATOR::NONE);
-
-  if (T.Type == TERMINATOR::UNKNOWN) {
-    WithColor::error() << llvm::formatv("unknown terminator @ {0:x}\n", Addr);
-
-    llvm::MCDisassembler &DisAsm = std::get<0>(dis);
-    const llvm::MCSubtargetInfo &STI = std::get<1>(dis);
-    llvm::MCInstPrinter &IP = std::get<2>(dis);
-
-    const ELFF &E = *llvm::cast<ELFO>(ObjectFile.get())->getELFFile();
-
-    uint64_t InstLen;
-    for (target_ulong A = Addr; A < Addr + Size; A += InstLen) {
-      llvm::Expected<const uint8_t *> ExpectedPtr = E.toMappedAddr(A);
-      if (!ExpectedPtr)
-        abort();
-
-      llvm::MCInst Inst;
-      bool Disassembled = DisAsm.getInstruction(
-          Inst, InstLen, llvm::ArrayRef<uint8_t>(*ExpectedPtr, Size), A,
-          llvm::nulls());
-
-      if (!Disassembled) {
-        WithColor::error() << llvm::formatv("failed to disassemble {0:x}\n",
-                                            Addr);
-        break;
-      }
-
-      IP.printInst(&Inst, A, "", STI, llvm::errs());
-      llvm::errs() << '\n';
-    }
-
-#if 0
-    tcg.dump_operations();
-    fputc('\n', stdout);
-#endif
-
-    return invalid_basic_block_index;
-  }
-
-  basic_block_index_t bbidx = boost::num_vertices(ICFG);
-  basic_block_t bb = boost::add_vertex(ICFG);
-  {
-    basic_block_properties_t &bbprop = ICFG[bb];
-    bbprop.Addr = Addr;
-    bbprop.Size = Size;
-    bbprop.Term.Type = T.Type;
-    bbprop.Term.Addr = T.Addr;
-    bbprop.DynTargetsComplete = false;
-    bbprop.Term._call.Target = invalid_function_index;
-    bbprop.Term._call.Returns = false;
-    bbprop.Term._indirect_jump.IsLj = false;
-    bbprop.Sj = false;
-    bbprop.Term._indirect_call.Returns = false;
-    bbprop.Term._return.Returns = false;
-    bbprop.InvalidateAnalysis();
-
-    boost::icl::interval<target_ulong>::type intervl =
-        boost::icl::interval<target_ulong>::right_open(bbprop.Addr,
-                                                    bbprop.Addr + bbprop.Size);
-    assert(b.BBMap.find(intervl) == b.BBMap.end());
-
-    b.BBMap.add({intervl, 1 + bbidx});
-  }
-
-  //
-  // conduct analysis of last instruction (the terminator of the block) and
-  // (recursively) descend into branch targets, translating basic blocks
-  //
-  auto control_flow = [&](target_ulong Target) -> void {
-    assert(Target);
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    Target &= ~1UL;
-#endif
-
-    basic_block_index_t succidx = translate_basic_block(b, tcg, dis, Target);
-
-    if (succidx == invalid_basic_block_index) {
-      WithColor::note() << llvm::formatv(
-          "control_flow: invalid edge {0:x} -> {1:x}\n", T.Addr, Target);
-      return;
-    }
-
-    basic_block_t _bb;
-    {
-      auto it = T.Addr ? b.BBMap.find(T.Addr) : b.BBMap.find(Addr);
-      assert(it != b.BBMap.end());
-
-      basic_block_index_t _bbidx = (*it).second - 1;
-      _bb = boost::vertex(_bbidx, ICFG);
-      assert(T.Type == ICFG[_bb].Term.Type);
-    }
-
-    basic_block_t succ = boost::vertex(succidx, ICFG);
-    bool isNewTarget = boost::add_edge(_bb, succ, ICFG).second;
-
-    (void)isNewTarget;
-  };
-
-  switch (T.Type) {
-  case TERMINATOR::UNCONDITIONAL_JUMP:
-    control_flow(T._unconditional_jump.Target);
-    break;
-
-  case TERMINATOR::CONDITIONAL_JUMP:
-    control_flow(T._conditional_jump.Target);
-    control_flow(T._conditional_jump.NextPC);
-    break;
-
-  case TERMINATOR::CALL: {
-    target_ulong CalleeAddr = T._call.Target;
-
-#if defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-    CalleeAddr &= ~1UL;
-#endif
-
-    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr);
-
-    basic_block_t _bb;
-    {
-      auto it = T.Addr ? b.BBMap.find(T.Addr) : b.BBMap.find(Addr);
-      assert(it != b.BBMap.end());
-      basic_block_index_t _bbidx = (*it).second - 1;
-      _bb = boost::vertex(_bbidx, ICFG);
-    }
-
-    assert(ICFG[_bb].Term.Type == TERMINATOR::CALL);
-    ICFG[_bb].Term._call.Target = FIdx;
-
-    if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(b, FIdx))
-      control_flow(T._call.NextPC);
-
-    break;
-  }
-
-  case TERMINATOR::INDIRECT_CALL:
-    //control_flow(T._indirect_call.NextPC);
-    break;
-
-  case TERMINATOR::INDIRECT_JUMP:
-  case TERMINATOR::RETURN:
-  case TERMINATOR::UNREACHABLE:
-    break;
-
-  case TERMINATOR::NONE:
-    control_flow(T._none.NextPC);
-    break;
-
-  default:
-    abort();
-  }
-
-  return bbidx;
-}
-
-bool does_function_definitely_return(binary_t &b,
-                                     function_index_t FIdx) {
-  assert(is_function_index_valid(FIdx));
-
-  function_t &f = b.Analysis.Functions.at(FIdx);
-  auto &ICFG = b.Analysis.ICFG;
-
-  assert(is_basic_block_index_valid(f.Entry));
-
-  std::vector<basic_block_t> BasicBlocks;
-  std::vector<basic_block_t> ExitBasicBlocks;
-
-  std::map<basic_block_t, boost::default_color_type> color;
-  dfs_visitor<interprocedural_control_flow_graph_t> vis(BasicBlocks);
-  boost::depth_first_visit(
-      ICFG, boost::vertex(f.Entry, ICFG), vis,
-      boost::associative_property_map<
-          std::map<basic_block_t, boost::default_color_type>>(color));
-
-  //
-  // ExitBasicBlocks
-  //
-  std::copy_if(BasicBlocks.begin(),
-               BasicBlocks.end(),
-               std::back_inserter(ExitBasicBlocks),
-               [&](basic_block_t bb) -> bool {
-                 return IsExitBlock(ICFG, bb);
-               });
-
-  return !ExitBasicBlocks.empty();
 }
 
 void IgnoreCtrlC(void) {
