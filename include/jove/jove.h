@@ -454,9 +454,9 @@ static inline void construct_bbmap(decompilation_t &decompilation,
   for_each_basic_block_in_binary(decompilation, binary, [&](basic_block_t bb) {
     const auto &bbprop = ICFG[bb];
 
-    boost::icl::interval<uintptr_t>::type intervl =
-        boost::icl::interval<uintptr_t>::right_open(bbprop.Addr,
-                                                    bbprop.Addr + bbprop.Size);
+    boost::icl::interval<tcg_uintptr_t>::type intervl =
+        boost::icl::interval<tcg_uintptr_t>::right_open(bbprop.Addr,
+                                                        bbprop.Addr + bbprop.Size);
     assert(out.find(intervl) == out.end());
 
     out.add({intervl, 1+index_of_basic_block(ICFG, bb)});
