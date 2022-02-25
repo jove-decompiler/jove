@@ -125,6 +125,7 @@ struct basic_block_properties_t {
 
 #ifdef JOVE_EXTRA_BB_PROPERTIES
   JOVE_EXTRA_BB_PROPERTIES;
+#undef JOVE_EXTRA_BB_PROPERTIES
 #endif
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
@@ -206,6 +207,7 @@ struct function_t {
 
 #ifdef JOVE_EXTRA_FN_PROPERTIES
   JOVE_EXTRA_FN_PROPERTIES;
+#undef JOVE_EXTRA_FN_PROPERTIES
 #endif
 
   template <class Archive>
@@ -240,13 +242,10 @@ struct binary_t {
     std::map<std::string, std::set<dynamic_target_t>> SymDynTargets;
   } Analysis;
 
-#ifndef JOVE_EXTRA_BIN_PROPERTIES
-#define JOVE_EXTRA_BIN_PROPERTIES
-#endif
-
+#ifdef JOVE_EXTRA_BIN_PROPERTIES
   JOVE_EXTRA_BIN_PROPERTIES;
-
 #undef JOVE_EXTRA_BIN_PROPERTIES
+#endif
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
