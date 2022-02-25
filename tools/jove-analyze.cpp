@@ -162,6 +162,10 @@ namespace jove {
 #include "analyze.hpp"
 
 namespace jove {
+bool isDFSan(void) { return false; }
+}
+
+namespace jove {
 static unsigned num_cpus(void);
 }
 
