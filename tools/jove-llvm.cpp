@@ -7628,6 +7628,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
       }
     }
 
+    assert(!SjLj);
+
     if (opts::DFSan) {
       if (callee.PreHook) {
         assert(callee.hook);
@@ -8077,6 +8079,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
         return 0;
       }
     }
+
+    assert(!SjLj);
 
     {
       assert(!DynTargets.empty());
