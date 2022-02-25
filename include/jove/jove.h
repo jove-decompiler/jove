@@ -450,6 +450,15 @@ static inline binary_index_t binary_index_of_function(decompilation_t &decompila
   abort();
 }
 
+static inline function_t &function_of_target(dynamic_target_t X,
+                                             decompilation_t &decompilation) {
+  binary_index_t BIdx;
+  function_index_t FIdx;
+  std::tie(BIdx, FIdx) = X;
+
+  return decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+}
+
 static inline void construct_bbmap(decompilation_t &decompilation,
                                    binary_t &binary,
                                    bbmap_t &out) {
@@ -493,16 +502,9 @@ static inline void identify_ABIs(decompilation_t &decompilation) {
     for_each_if(
         DynTargets.begin(),
         DynTargets.end(),
-        [&](dynamic_target_t IdxPair) -> bool { return IdxPair.first != BIdx; },
-        [&](dynamic_target_t IdxPair) {
-          binary_index_t BIdx;
-          function_index_t FIdx;
-          std::tie(BIdx, FIdx) = IdxPair;
-
-          function_t &callee =
-              decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-          callee.IsABI = true;
+        [&](dynamic_target_t X) -> bool { return X.first != BIdx; },
+        [&](dynamic_target_t X) {
+          function_of_target(X, decompilation).IsABI = true;
         });
   });
 
@@ -516,15 +518,8 @@ static inline void identify_ABIs(decompilation_t &decompilation) {
         [&](const auto &pair) {
           std::for_each(pair.second.begin(),
                         pair.second.end(),
-              [&](dynamic_target_t IdxPair) {
-                binary_index_t BIdx;
-                function_index_t FIdx;
-                std::tie(BIdx, FIdx) = IdxPair;
-
-                function_t &f =
-                    decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-                f.IsABI = true;
+              [&](dynamic_target_t X) {
+                function_of_target(X, decompilation).IsABI = true;
               });
         });
   });

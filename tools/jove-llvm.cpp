@@ -1880,8 +1880,7 @@ int LocateHooks(void) {
     assert(!(*it).second.empty());
 
     for (dynamic_target_t IdxPair : (*it).second) {
-      function_t &f = Decompilation.Binaries.at(IdxPair.first)
-                         .Analysis.Functions.at(IdxPair.second);
+      function_t &f = function_of_target(IdxPair, Decompilation);
 
       if (f.hook) {
         WithColor::warning() << llvm::formatv("hook already installed for {0}\n", h.Sym);
@@ -2043,10 +2042,8 @@ int ProcessBinaryTLSSymbols(void) {
 }
 
 static llvm::FunctionType *DetermineFunctionType(function_t &);
-static llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
-                                                 function_index_t FuncIdx);
-static llvm::FunctionType *DetermineFunctionType(
-    const std::pair<binary_index_t, function_index_t> &FuncIdxPair);
+static llvm::FunctionType *DetermineFunctionType(binary_index_t, function_index_t);
+static llvm::FunctionType *DetermineFunctionType(dynamic_target_t);
 
 static llvm::Value *CPUStateGlobalPointer(unsigned glb, llvm::IRBuilderTy &);
 static llvm::Value *BuildCPUStatePointer(llvm::IRBuilderTy &IRB, llvm::Value *Env, unsigned glb);
@@ -2103,8 +2100,7 @@ llvm::GlobalIFunc *buildGlobalIFunc(function_t &f, dynamic_target_t IdxPair, llv
                               DebugInfo.Subprogram));
 
     if (is_dynamic_target_valid(IdxPair) && IdxPair.first == BinaryIndex) {
-      function_t &f =
-          Decompilation.Binaries[BinaryIndex].Analysis.Functions.at(IdxPair.second);
+      function_t &f = function_of_target(IdxPair, Decompilation);
 
       auto &Binary = Decompilation.Binaries[BinaryIndex];
       auto &ICFG = Binary.Analysis.ICFG;
@@ -2815,15 +2811,14 @@ llvm::FunctionType *DetermineFunctionType(function_t &f) {
   return llvm::FunctionType::get(retTy, argTypes, false);
 }
 
-llvm::FunctionType *DetermineFunctionType(binary_index_t BinIdx,
-                                          function_index_t FuncIdx) {
-  return DetermineFunctionType(
-      Decompilation.Binaries[BinIdx].Analysis.Functions[FuncIdx]);
+llvm::FunctionType *DetermineFunctionType(dynamic_target_t X) {
+  return DetermineFunctionType(function_of_target(X, Decompilation));
 }
 
-llvm::FunctionType *DetermineFunctionType(
-    const std::pair<binary_index_t, function_index_t> &FuncIdxPair) {
-  return DetermineFunctionType(FuncIdxPair.first, FuncIdxPair.second);
+llvm::FunctionType *DetermineFunctionType(binary_index_t BIdx,
+                                          function_index_t FIdx) {
+  dynamic_target_t X(BIdx, FIdx);
+  return DetermineFunctionType(X);
 }
 
 static const char *builtin_syms_arr[] = {
@@ -3677,7 +3672,7 @@ int CreateSectionGlobalVariables(void) {
           if (pair.first == BinaryIndex)
             continue;
 
-          function_t &f = Decompilation.Binaries[pair.first].Analysis.Functions[pair.second];
+          function_t &f = function_of_target(pair, Decompilation);
           bool SavedIsABI = f.IsABI;
           if (!f.IsABI)
             f.IsABI = true; /* XXX */
@@ -7962,14 +7957,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
     const bool Lj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [](dynamic_target_t X) -> bool {
-                                  return Decompilation.Binaries.at(X.first)
-                                            .Analysis.Functions.at(X.second).IsLj;
+                                  return function_of_target(X, Decompilation).IsLj;
                                 });
     const bool Sj = std::any_of(DynTargets.begin(),
                                 DynTargets.end(),
                                 [](dynamic_target_t X) -> bool {
-                                  return Decompilation.Binaries.at(X.first)
-                                            .Analysis.Functions.at(X.second).IsSj;
+                                  return function_of_target(X, Decompilation).IsSj;
                                 });
 
     const bool SjLj = Lj || Sj;
@@ -7978,8 +7971,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       dynamic_target_t X = *DynTargets.begin();
 
-      function_t &callee = Decompilation.Binaries.at(X.first)
-                              .Analysis.Functions.at(X.second);
+      function_t &callee = function_of_target(X, Decompilation);
 
       llvm::outs() << llvm::formatv("calling {0} from {1:x} ({2})\n",
                                     Lj ? "longjmp" : "setjmp",
@@ -8163,8 +8155,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           bool foreign = DynTargetNeedsThunkPred(DynTargetsVec[i]);
 
-          function_t &callee = Decompilation.Binaries.at(ADynTarget.BIdx)
-                                  .Analysis.Functions.at(ADynTarget.FIdx);
+          function_t &callee = function_of_target(DynTargetsVec[i], Decompilation);
 
           const bool Lj = callee.IsLj;
           const bool Sj = callee.IsSj;
@@ -8183,10 +8174,8 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
           if (opts::DFSan) {
             if (callee.PreHook || callee.PostHook) {
-              function_t &hook_f = Decompilation.Binaries.at(ADynTarget.BIdx)
-                                      .Analysis.Functions.at(ADynTarget.FIdx);
-              assert(hook_f.hook);
-              const hook_t &hook = *hook_f.hook;
+              assert(callee.hook);
+              const hook_t &hook = *callee.hook;
 
 #if 0
               llvm::outs() << llvm::formatv("calling post-hook ({0}, {1})\n", (*it).first, (*it).second);
