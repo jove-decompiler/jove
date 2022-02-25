@@ -220,9 +220,12 @@ static int AnalyzeFunctions(void);
 static int WriteDecompilation(void);
 
 int analyze(void) {
-  return ParseDecompilation()
-      || ProcessDynamicTargets()
-      || InitStateForBinaries()
+  if (int rc = ParseDecompilation())
+    return rc;
+
+  identify_ABIs(Decompilation);
+
+  return InitStateForBinaries()
       || CreateModule()
       || PrepareToTranslateCode()
       || ProcessCommandLine() /* must do this after TCG is ready */
@@ -233,10 +236,6 @@ int analyze(void) {
 
 void _qemu_log(const char *cstr) {
   llvm::errs() << cstr;
-}
-
-bool isDFSan(void) {
-  return false;
 }
 
 int ProcessCommandLine(void) {
@@ -273,83 +272,6 @@ int ParseDecompilation(void) {
   return 0;
 }
 
-int ProcessDynamicTargets(void) {
-  for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = Decompilation.Binaries[BIdx];
-    auto &ICFG = binary.Analysis.ICFG;
-
-    for (basic_block_index_t BBIdx = 0; BBIdx < boost::num_vertices(ICFG);
-         ++BBIdx) {
-      basic_block_t bb = boost::vertex(BBIdx, ICFG);
-
-      for (const auto &DynTarget : ICFG[bb].DynTargets) {
-        if (DynTarget.first == BIdx)
-          continue;
-
-        function_t &callee = Decompilation.Binaries[DynTarget.first]
-                                .Analysis.Functions[DynTarget.second];
-
-        callee.IsABI = true;
-      }
-    }
-  }
-
-  //
-  // dynamic ifunc resolver targets are ABIs
-  //
-  for (const binary_t &binary : Decompilation.Binaries) {
-    for (const auto &pair : binary.Analysis.IFuncDynTargets) {
-      for (const auto &IdxPair : pair.second) {
-        binary_index_t BIdx;
-        function_index_t FIdx;
-        std::tie(BIdx, FIdx) = IdxPair;
-
-        function_t &f =
-            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-        f.IsABI = true;
-      }
-    }
-  }
-
-#if 0
-  //
-  // resolved symbols are ABIs
-  //
-  for (const binary_t &binary : Decompilation.Binaries) {
-    for (const auto &pair : binary.Analysis.SymDynTargets) {
-      for (const auto &IdxPair : pair.second) {
-        binary_index_t BIdx;
-        function_index_t FIdx;
-        std::tie(BIdx, FIdx) = IdxPair;
-
-        function_t &f =
-            Decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
-
-        f.IsABI = true;
-      }
-    }
-  }
-#endif
-
-#if 0
-  //
-  // _start is *not* an ABI XXX
-  //
-  for (auto &binary : Decompilation.Binaries) {
-    auto &A = binary.Analysis;
-    if (binary.IsExecutable) {
-      if (is_function_index_valid(A.EntryFunction))
-        A.Functions[A.EntryFunction].IsABI = false;
-
-      break;
-    }
-  }
-#endif
-
-  return 0;
-}
-
 // XXX code duplication
 int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
@@ -382,18 +304,15 @@ int InitStateForBinaries(void) {
 int CreateModule(void) {
   Context.reset(new llvm::LLVMContext);
 
-  const char *bootstrap_mod_name = isDFSan() ? "jove.dfsan" : "jove";
-
   std::string bootstrap_mod_path =
-      (boost::dll::program_location().parent_path() /
-       (std::string(bootstrap_mod_name) + ".bc"))
-          .string();
+      (boost::dll::program_location().parent_path() / "jove.bc").string();
 
   llvm::ErrorOr<std::unique_ptr<llvm::MemoryBuffer>> BufferOr =
       llvm::MemoryBuffer::getFile(bootstrap_mod_path);
   if (!BufferOr) {
-    WithColor::error() << "failed to open bitcode " << bootstrap_mod_path
-                       << ": " << BufferOr.getError().message() << '\n';
+    WithColor::error() << llvm::formatv("failed to open bitcode {0}: {1}\n",
+                                        bootstrap_mod_path,
+                                        BufferOr.getError().message());
     return 1;
   }
 

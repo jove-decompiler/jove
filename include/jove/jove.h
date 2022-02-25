@@ -482,4 +482,52 @@ static inline void construct_fnmap(decompilation_t &decompilation,
   });
 }
 
+static inline void identify_ABIs(decompilation_t &decompilation) {
+  //
+  // If a function is called from a different binary, it is an ABI.
+  //
+  for_each_basic_block(decompilation, [&](binary_t &b, basic_block_t bb) {
+    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+
+    auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
+    for_each_if(
+        DynTargets.begin(),
+        DynTargets.end(),
+        [&](dynamic_target_t IdxPair) -> bool { return IdxPair.first != BIdx; },
+        [&](dynamic_target_t IdxPair) {
+          binary_index_t BIdx;
+          function_index_t FIdx;
+          std::tie(BIdx, FIdx) = IdxPair;
+
+          function_t &callee =
+              decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+
+          callee.IsABI = true;
+        });
+  });
+
+  // XXX unnecessary?
+  for_each_binary(decompilation, [&](auto &binary) {
+    auto &IFuncDynTargets = binary.Analysis.IFuncDynTargets;
+
+    std::for_each(
+        IFuncDynTargets.begin(),
+        IFuncDynTargets.end(),
+        [&](const auto &pair) {
+          std::for_each(pair.second.begin(),
+                        pair.second.end(),
+              [&](dynamic_target_t IdxPair) {
+                binary_index_t BIdx;
+                function_index_t FIdx;
+                std::tie(BIdx, FIdx) = IdxPair;
+
+                function_t &f =
+                    decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+
+                f.IsABI = true;
+              });
+        });
+  });
+}
+
 }
