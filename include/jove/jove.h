@@ -123,13 +123,9 @@ struct basic_block_properties_t {
     bool Stale;
   } Analysis;
 
-#ifndef JOVE_EXTRA_BB_PROPERTIES
-#define JOVE_EXTRA_BB_PROPERTIES
-#endif
-
+#ifdef JOVE_EXTRA_BB_PROPERTIES
   JOVE_EXTRA_BB_PROPERTIES;
-
-#undef JOVE_EXTRA_BB_PROPERTIES
+#endif
 
   bool IsSingleInstruction(void) const { return Addr == Term.Addr; }
 
@@ -208,13 +204,9 @@ struct function_t {
     this->Analysis.Stale = true;
   }
 
-#ifndef JOVE_EXTRA_FN_PROPERTIES
-#define JOVE_EXTRA_FN_PROPERTIES
-#endif
-
+#ifdef JOVE_EXTRA_FN_PROPERTIES
   JOVE_EXTRA_FN_PROPERTIES;
-
-#undef JOVE_EXTRA_FN_PROPERTIES
+#endif
 
   template <class Archive>
   void serialize(Archive &ar, const unsigned int) {
