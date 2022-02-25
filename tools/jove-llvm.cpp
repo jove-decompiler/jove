@@ -126,6 +126,8 @@ struct hook_t;
   llvm::Function *F = nullptr;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
+  fnmap_t fnmap;                                                               \
+                                                                               \
   std::unique_ptr<llvm::object::Binary> ObjectFile;                            \
   struct {                                                                     \
     DynRegionInfo DynamicTable;                                                \
@@ -136,7 +138,6 @@ struct hook_t;
   } _elf;                                                                      \
   llvm::GlobalVariable *FunctionsTableClunk = nullptr;                         \
   llvm::Function *SectsF = nullptr;                                            \
-  std::unordered_map<tcg_uintptr_t, function_index_t> FuncMap;                 \
   tcg_uintptr_t SectsStartAddr = 0;                                            \
   tcg_uintptr_t SectsEndAddr = 0;
 
@@ -864,8 +865,8 @@ int llvm(void) {
 
               function_index_t FIdx;
               {
-                auto it = b.FuncMap.find(Sym.st_value);
-                assert(it != b.FuncMap.end());
+                auto it = b.fnmap.find(Sym.st_value);
+                assert(it != b.fnmap.end());
 
                 FIdx = (*it).second;
               }
@@ -1054,8 +1055,8 @@ int llvm(void) {
                                             VisibilityIsDefault);
         }
 
-        auto it = Binary.FuncMap.find(Sym.st_value);
-        assert(it != Binary.FuncMap.end());
+        auto it = Binary.fnmap.find(Sym.st_value);
+        assert(it != Binary.fnmap.end());
 
         function_t &f = Binary.Analysis.Functions[((*it).second)];
 
@@ -1249,18 +1250,15 @@ int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &FuncMap = binary.FuncMap;
+    auto &fnmap = binary.fnmap;
 
-    //
-    // FuncMap
-    //
+    construct_fnmap(Decompilation, binary, fnmap);
+
     for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
       function_t &f = binary.Analysis.Functions[FIdx];
 
       if (!is_basic_block_index_valid(f.Entry))
         continue;
-
-      FuncMap[ICFG[boost::vertex(f.Entry, ICFG)].Addr] = FIdx;
 
       //
       // BasicBlocks (in DFS order)
@@ -3165,7 +3163,7 @@ decipher_copy_relocation(const symbol_t &S);
 int CreateSectionGlobalVariables(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   auto &ObjectFile = Binary.ObjectFile;
-  auto &FuncMap = Binary.FuncMap;
+  auto &fnmap = Binary.fnmap;
 
   assert(llvm::isa<ELFO>(ObjectFile.get()));
   ELFO &O = *llvm::cast<ELFO>(ObjectFile.get());
@@ -3864,8 +3862,8 @@ int CreateSectionGlobalVariables(void) {
           "constant_of_relative_relocation: Addr is {0:x}\n", Addr);
 
 #if 0
-    auto it = FuncMap.find(Addr);
-    if (it == FuncMap.end()) {
+    auto it = fnmap.find(Addr);
+    if (it == fnmap.end()) {
       llvm::Constant *C = SectionPointer(Addr);
       assert(C);
       return llvm::ConstantExpr::getPointerCast(
@@ -3903,8 +3901,8 @@ int CreateSectionGlobalVariables(void) {
           resolverAddr = extractAddress(*ExpectedPtr);
         }
 
-        auto resolver_f_it = FuncMap.find(resolverAddr);
-        if (resolver_f_it == FuncMap.end()) {
+        auto resolver_f_it = fnmap.find(resolverAddr);
+        if (resolver_f_it == fnmap.end()) {
           llvm::errs() << "constant_of_irelative_relocation: no function for resolver!\n";
           abort();
         } else {
@@ -4711,9 +4709,9 @@ int CreateSectionGlobalVariables(void) {
 
         llvm::Value *Ret = nullptr;
         if (initFunctionAddr) {
-          auto it = FuncMap.find(initFunctionAddr);
+          auto it = fnmap.find(initFunctionAddr);
 
-          assert(it != FuncMap.end());
+          assert(it != fnmap.end());
 
           function_t &initfn_f = Decompilation.Binaries[BinaryIndex]
                                      .Analysis.Functions[(*it).second];
@@ -4813,9 +4811,9 @@ int CreateSectionGlobalVariables(void) {
 
       llvm::Value *Ret = nullptr;
       if (libcEarlyInitAddr) {
-        auto it = FuncMap.find(libcEarlyInitAddr);
+        auto it = fnmap.find(libcEarlyInitAddr);
 
-        assert(it != FuncMap.end());
+        assert(it != fnmap.end());
 
         function_t &f = Decompilation.Binaries[BinaryIndex]
                            .Analysis.Functions[(*it).second];
@@ -4901,9 +4899,9 @@ int CreateSectionGlobalVariables(void) {
         uintptr_t FileAddr = off + SectsStartAddr;
 
         binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-        auto &FuncMap = Binary.FuncMap;
-        auto it = FuncMap.find(FileAddr);
-        assert(it != FuncMap.end());
+        auto &fnmap = Binary.fnmap;
+        auto it = fnmap.find(FileAddr);
+        assert(it != fnmap.end());
         function_t &f = Binary.Analysis.Functions[(*it).second];
 
         if (!f.IsABI) {
@@ -4950,7 +4948,7 @@ int ProcessDynamicSymbols2(void) {
 
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &b = Decompilation.Binaries[BIdx];
-    auto &FuncMap = b.FuncMap;
+    auto &fnmap = b.fnmap;
 
     if (!b.ObjectFile)
       continue;
