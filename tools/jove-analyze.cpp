@@ -224,8 +224,14 @@ static int AnalyzeFunctions(void);
 static int WriteDecompilation(void);
 
 int analyze(void) {
-  if (int rc = ParseDecompilation())
-    return rc;
+  {
+    std::ifstream ifs(fs::is_directory(opts::jv)
+                          ? (opts::jv + "/decompilation.jv")
+                          : opts::jv);
+
+    boost::archive::text_iarchive ia(ifs);
+    ia >> Decompilation;
+  }
 
   identify_ABIs(Decompilation);
 
@@ -262,16 +268,6 @@ int ProcessCommandLine(void) {
 
     CmdlinePinnedEnvGlbs.set(idx);
   }
-
-  return 0;
-}
-
-int ParseDecompilation(void) {
-  std::ifstream ifs(
-      fs::is_directory(opts::jv) ? (opts::jv + "/decompilation.jv") : opts::jv);
-
-  boost::archive::text_iarchive ia(ifs);
-  ia >> Decompilation;
 
   return 0;
 }
