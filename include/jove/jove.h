@@ -1,4 +1,5 @@
 #pragma once
+#ifdef __cplusplus
 #include <cstdint>
 #include <vector>
 #include <map>
@@ -9,6 +10,7 @@
 #include <limits>
 #include <algorithm>
 #include <boost/icl/split_interval_map.hpp>
+#endif /* __cplusplus */
 
 #if defined(TARGET_AARCH64)
 #include <jove/tcgconstants-aarch64.h>
@@ -18,13 +20,15 @@
 #include <jove/tcgconstants-i386.h>
 #elif defined(TARGET_MIPS64)
 #include <jove/tcgconstants-mips64.h>
-#elif defined(TARGET_MIPS32) && defined(TARGET_MIPSEL)
+#elif defined(TARGET_MIPSEL)
 #include <jove/tcgconstants-mipsel.h>
-#elif defined(TARGET_MIPS32) && defined(TARGET_MIPS)
+#elif defined(TARGET_MIPS)
 #include <jove/tcgconstants-mips.h>
 #else
 #error "unknown target"
 #endif
+
+#ifdef __cplusplus
 
 namespace jove {
 
@@ -641,3 +645,5 @@ static inline void identify_ABIs(decompilation_t &decompilation) {
 }
 
 }
+
+#endif /* __cplusplus */

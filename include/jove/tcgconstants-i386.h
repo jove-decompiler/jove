@@ -1,4 +1,5 @@
 #pragma once
+#ifdef __cplusplus
 #include <bitset>
 #include <array>
 #include <cstdint>
@@ -112,3 +113,6 @@ static const uint8_t tcg_global_by_offset_lookup_table[313] = {
 };
 constexpr tcg_global_set_t PinnedEnvGlbs(0);
 }
+#endif /* __cplusplus */
+
+#define TARGET_NUM_REG_ARGS 3

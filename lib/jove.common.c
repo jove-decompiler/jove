@@ -76,40 +76,16 @@ void _jove_make_sections_executable(void) {
 
 #if !defined(__x86_64__) && defined(__i386__)
 //
-// see definition of _jove_init in lib/arch/i386/jove.c
+// args are passed on stack. see definition of _jove_init in lib/arch/i386/jove.c
 //
 #else
 _HIDDEN void _jove_init(
-#if defined(__x86_64__)
-                        uint64_t rdi,
-                        uint64_t rsi,
-                        uint64_t rdx,
-                        uint64_t rcx,
-                        uint64_t r8,
-                        uint64_t r9
-#elif defined(__aarch64__)
-                        uint64_t x0,
-                        uint64_t x1,
-                        uint64_t x2,
-                        uint64_t x3,
-                        uint64_t x4,
-                        uint64_t x5,
-                        uint64_t x6,
-                        uint64_t x7
-#elif defined(__mips64)
-                        uint64_t a0,
-                        uint64_t a1,
-                        uint64_t a2,
-                        uint64_t a3
-#elif defined(__mips__)
-                        uint32_t a0,
-                        uint32_t a1,
-                        uint32_t a2,
-                        uint32_t a3
-#else
-#error
-#endif
-                                   ) {
+                        #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
+
+                        BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+                        #undef __REG_ARG
+                       ) {
   _jove_initialize();
 
   const uintptr_t initfn = _jove_get_init_fn();
@@ -172,53 +148,19 @@ _HIDDEN void _jove_init(
   //
   // call the DT_INIT function
   //
-#if defined(__x86_64__)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))initfn)(rdi,
-                               rsi,
-                               rdx,
-                               rcx,
-                               r8,
-                               r9);
-#elif defined(__aarch64__)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))initfn)(x0,
-                               x1,
-                               x2,
-                               x3,
-                               x4,
-                               x5,
-                               x6,
-                               x7);
-#elif defined(__mips64)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))initfn)(a0,
-                               a1,
-                               a2,
-                               a3);
-#elif defined(__mips__)
-  ((void (*)(uint32_t,
-             uint32_t,
-             uint32_t,
-             uint32_t))initfn)(a0,
-                               a1,
-                               a2,
-                               a3);
-#else
-#error
-#endif
+  ((void (*)(
+             #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
+
+             BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+             #undef __REG_ARG
+            ))initfn)(
+                      #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) reg##i
+
+                      BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+                      #undef __REG_ARG
+                     );
 
   //
   // restore things
@@ -239,7 +181,7 @@ _HIDDEN void _jove_init(
 //
 #if !defined(__x86_64__) && defined(__i386__)
 //
-// see definition of _jove__libc_early_init in lib/arch/i386/jove.c
+// args are passed on stack. see definition of _jove__libc_early_init in lib/arch/i386/jove.c
 //
 #else
 extern void _jove_rt_init(void);
@@ -248,35 +190,11 @@ typedef void (*_jove_rt_init_t)(void);
 static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
 
 _HIDDEN void _jove__libc_early_init(
-#if defined(__x86_64__)
-                                    uint64_t rdi,
-                                    uint64_t rsi,
-                                    uint64_t rdx,
-                                    uint64_t rcx,
-                                    uint64_t r8,
-                                    uint64_t r9
-#elif defined(__aarch64__)
-                                    uint64_t x0,
-                                    uint64_t x1,
-                                    uint64_t x2,
-                                    uint64_t x3,
-                                    uint64_t x4,
-                                    uint64_t x5,
-                                    uint64_t x6,
-                                    uint64_t x7
-#elif defined(__mips64)
-                                    uint64_t a0,
-                                    uint64_t a1,
-                                    uint64_t a2,
-                                    uint64_t a3
-#elif defined(__mips__)
-                                    uint32_t a0,
-                                    uint32_t a1,
-                                    uint32_t a2,
-                                    uint32_t a3
-#else
-#error
-#endif
+                                    #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
+
+                                    BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+                                    #undef __REG_ARG
                                    ) {
   _jove_rt_init_clunk();
 
@@ -342,53 +260,19 @@ _HIDDEN void _jove__libc_early_init(
   //
   // call the real __libc_early_init
   //
-#if defined(__x86_64__)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))fn)(rdi,
-                           rsi,
-                           rdx,
-                           rcx,
-                           r8,
-                           r9);
-#elif defined(__aarch64__)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))fn)(x0,
-                           x1,
-                           x2,
-                           x3,
-                           x4,
-                           x5,
-                           x6,
-                           x7);
-#elif defined(__mips64)
-  ((void (*)(uint64_t,
-             uint64_t,
-             uint64_t,
-             uint64_t))fn)(a0,
-                           a1,
-                           a2,
-                           a3);
-#elif defined(__mips__)
-  ((void (*)(uint32_t,
-             uint32_t,
-             uint32_t,
-             uint32_t))fn)(a0,
-                           a1,
-                           a2,
-                           a3);
-#else
-#error
-#endif
+  ((void (*)(
+             #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
+
+             BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+             #undef __REG_ARG
+            ))fn)(
+                  #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) reg##i
+
+                  BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+
+                  #undef __REG_ARG
+                 );
 
   //
   // restore things

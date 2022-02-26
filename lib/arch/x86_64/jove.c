@@ -571,6 +571,11 @@ static /* __thread */ struct CPUX86State *__jove_env_clunk = &__jove_env;
 #include <sys/uio.h>
 #include <signal.h>
 
+#include <jove/jove.h> /* for TARGET_NUM_REG_ARGS */
+#include <boost/preprocessor/repetition/repeat.hpp>
+#include <boost/preprocessor/punctuation/comma_if.hpp>
+#include <boost/preprocessor/arithmetic/inc.hpp>
+
 #include "jove.constants.h"
 #include "jove.macros.h"
 

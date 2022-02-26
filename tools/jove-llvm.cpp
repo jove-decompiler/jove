@@ -228,6 +228,9 @@ struct hook_t;
 #include <boost/serialization/set.hpp>
 #include <boost/serialization/vector.hpp>
 #include <boost/container_hash/extensions.hpp>
+#include <boost/preprocessor/repetition/repeat.hpp>
+#include <boost/preprocessor/punctuation/comma_if.hpp>
+#include <boost/preprocessor/arithmetic/inc.hpp>
 
 #include "jove_macros.h"
 
@@ -618,17 +621,7 @@ static llvm::Function *JoveInstallForeignFunctionTables;
 #define __THUNK(n, i, data)                                                    \
   static llvm::Function *JoveThunk##i##Func;
 
-#if defined(TARGET_X86_64)
-BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-BOOST_PP_REPEAT(5, __THUNK, void)
-#elif defined(TARGET_I386)
-BOOST_PP_REPEAT(4, __THUNK, void)
-#elif defined(TARGET_AARCH64)
-BOOST_PP_REPEAT(9, __THUNK, void)
-#else
-#error
-#endif
+BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
 #undef __THUNK
 
@@ -8235,17 +8228,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
               llvm::Function *const JoveThunkFuncArray[] = {
 #define __THUNK(n, i, data) JoveThunk##i##Func,
 
-#if defined(TARGET_X86_64)
-BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-BOOST_PP_REPEAT(5, __THUNK, void)
-#elif defined(TARGET_I386)
-BOOST_PP_REPEAT(4, __THUNK, void)
-#elif defined(TARGET_AARCH64)
-BOOST_PP_REPEAT(9, __THUNK, void)
-#else
-#error
-#endif
+BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
 #undef __THUNK
               };

@@ -1,4 +1,5 @@
 #pragma once
+#ifdef __cplusplus
 #include <bitset>
 #include <array>
 #include <cstdint>
@@ -739,3 +740,6 @@ static const tcg_global_set_t PinnedEnvGlbs("00000000000000000011100000000000011
 #endif
 
 }
+#endif /* __cplusplus */
+
+#define TARGET_NUM_REG_ARGS 4
