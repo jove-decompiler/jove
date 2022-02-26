@@ -653,6 +653,9 @@ void _jove_log2(const char *msg,
   _robust_write(2 /* stderr */, s, _strlen(s));
 }
 
+#if !defined(__x86_64__) && defined(__i386__)
+_REGPARM
+#endif
 jove_thunk_return_t _jove_call(
                                #define __REG_ARG(n, i, data) uintptr_t reg##i,
 
