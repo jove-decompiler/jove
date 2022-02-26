@@ -40,8 +40,8 @@ class Binary;
   llvm::BasicBlock *B;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
-  std::vector<basic_block_t> BasicBlocks;                                      \
-  std::vector<basic_block_t> ExitBasicBlocks;                                  \
+  basic_block_vec_t bbvec;                                                     \
+  basic_block_vec_t exit_bbvec;                                                \
                                                                                \
   bool IsLeaf;                                                                 \
                                                                                \
@@ -368,9 +368,9 @@ int AnalyzeBlocks(void) {
 }
 
 static void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
-                    dynamic_target_t *Q_end);
+                    dynamic_target_t *const Q_end);
 static void worker2(std::atomic<dynamic_target_t *> &Q_ptr,
-                    dynamic_target_t *Q_end);
+                    dynamic_target_t *const Q_end);
 
 int AnalyzeFunctions(void) {
   // let N be the count of all functions (in all binaries)
@@ -468,67 +468,24 @@ int AnalyzeFunctions(void) {
   return 0;
 }
 
-void worker1(std::atomic<dynamic_target_t *> &Q_ptr,
-             dynamic_target_t *Q_end) {
+void worker1(std::atomic<dynamic_target_t *> &Q_ptr, dynamic_target_t *const Q_end) {
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
-    dynamic_target_t IdxPair = *p;
+    dynamic_target_t X = *p;
 
-    binary_t &binary = Decompilation.Binaries.at(IdxPair.first);
-    auto &ICFG = binary.Analysis.ICFG;
+    function_t &f = function_of_target(X, Decompilation);
 
-    function_t &f = binary.Analysis.Functions.at(IdxPair.second);
+    basic_blocks_of_function(Decompilation, f, f.bbvec);
+    exit_basic_blocks_of_function(Decompilation, f, f.bbvec, f.exit_bbvec);
 
-    //
-    // BasicBlocks (in DFS order)
-    //
-    std::map<basic_block_t, boost::default_color_type> color;
-    dfs_visitor<interprocedural_control_flow_graph_t> vis(f.BasicBlocks);
-    depth_first_visit(
-        ICFG, boost::vertex(f.Entry, ICFG), vis,
-        boost::associative_property_map<
-            std::map<basic_block_t, boost::default_color_type>>(color));
-
-    //
-    // ExitBasicBlocks
-    //
-    std::copy_if(f.BasicBlocks.begin(),
-                 f.BasicBlocks.end(),
-                 std::back_inserter(f.ExitBasicBlocks),
-                 [&](basic_block_t bb) -> bool {
-                   return IsExitBlock(ICFG, bb);
-                 });
-
-    f.Returns = f.Returns || !f.ExitBasicBlocks.empty();
-
-    f.IsLeaf = std::all_of(f.ExitBasicBlocks.begin(),
-                           f.ExitBasicBlocks.end(),
-                           [&](basic_block_t bb) -> bool {
-                             auto T = ICFG[bb].Term.Type;
-                             return T == TERMINATOR::RETURN
-                                 || T == TERMINATOR::UNREACHABLE;
-                           }) &&
-
-               std::none_of(f.BasicBlocks.begin(),
-                            f.BasicBlocks.end(),
-                   [&](basic_block_t bb) -> bool {
-                     auto T = ICFG[bb].Term.Type;
-                     return (T == TERMINATOR::INDIRECT_JUMP &&
-                             boost::out_degree(bb, ICFG) == 0)
-                          || T == TERMINATOR::INDIRECT_CALL
-                          || T == TERMINATOR::CALL;
-                   });
+    f.IsLeaf = IsLeafFunction(Decompilation, f, f.bbvec);
   }
 }
 
-void worker2(std::atomic<dynamic_target_t *>& Q_ptr,
-             dynamic_target_t *Q_end) {
+void worker2(std::atomic<dynamic_target_t *>& Q_ptr, dynamic_target_t *const Q_end) {
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
-    dynamic_target_t IdxPair = *p;
+    dynamic_target_t X = *p;
 
-    function_t &f = Decompilation.Binaries.at(IdxPair.first)
-                       .Analysis.Functions.at(IdxPair.second);
-
-    f.Analyze();
+    function_of_target(X, Decompilation).Analyze();
   }
 }
 

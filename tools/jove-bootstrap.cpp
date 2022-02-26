@@ -1552,8 +1552,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           if (ICFG[bb].Term.Type != TERMINATOR::INDIRECT_JUMP)
             continue;
 
-          if (IsDefinitelyTailCall(ICFG, bb) &&
-              boost::out_degree(bb, ICFG) > 0) {
+          if (IsAmbiguousIndirectJump(ICFG, bb)) {
             //
             // we thought this was a goto, but now we know it's definitely a tail call.
             // translate all sucessors as functions, then store them into the dynamic

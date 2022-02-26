@@ -3,6 +3,7 @@
 #include <vector>
 #include <map>
 #include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/depth_first_search.hpp>
 #include <boost/serialization/nvp.hpp>
 #include <numeric>
 #include <limits>
@@ -166,6 +167,8 @@ typedef interprocedural_control_flow_graph_t icfg_t;
 typedef interprocedural_control_flow_graph_t::vertex_descriptor basic_block_t;
 typedef interprocedural_control_flow_graph_t::edge_descriptor control_flow_t;
 
+typedef std::vector<basic_block_t> basic_block_vec_t;
+
 inline basic_block_t NullBasicBlock(void) {
   return boost::graph_traits<
       interprocedural_control_flow_graph_t>::null_vertex();
@@ -179,6 +182,12 @@ inline bool IsDefinitelyTailCall(const icfg_t &ICFG, basic_block_t bb) {
 #endif
 
   return !ICFG[bb].DynTargets.empty();
+}
+
+inline bool IsAmbiguousIndirectJump(const icfg_t &ICFG, basic_block_t bb) {
+  assert(ICFG[bb].Term.Type == TERMINATOR::INDIRECT_JUMP);
+
+  return !ICFG[bb].DynTargets.empty() && boost::out_degree(bb, ICFG) > 0;
 }
 
 inline bool IsExitBlock(const icfg_t &ICFG, basic_block_t bb) {
@@ -450,6 +459,11 @@ static inline binary_index_t binary_index_of_function(decompilation_t &decompila
   abort();
 }
 
+static inline binary_t &binary_of_function(function_t &f,
+                                           decompilation_t &decompilation) {
+  return decompilation.Binaries.at(binary_index_of_function(decompilation, f));
+}
+
 static inline function_t &function_of_target(dynamic_target_t X,
                                              decompilation_t &decompilation) {
   binary_index_t BIdx;
@@ -457,6 +471,107 @@ static inline function_t &function_of_target(dynamic_target_t X,
   std::tie(BIdx, FIdx) = X;
 
   return decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
+}
+
+static inline void basic_blocks_of_function(decompilation_t &decompilation,
+                                            function_t &f,
+                                            basic_block_vec_t &out) {
+  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+
+  struct bb_visitor : public boost::default_dfs_visitor {
+    basic_block_vec_t &out;
+
+    bb_visitor(basic_block_vec_t &out) : out(out) {}
+
+    void discover_vertex(basic_block_t bb, const icfg_t &) const {
+      out.push_back(bb);
+    }
+  };
+
+  std::map<basic_block_t, boost::default_color_type> color;
+  bb_visitor vis(out);
+  depth_first_visit(
+      ICFG, boost::vertex(f.Entry, ICFG), vis,
+      boost::associative_property_map<
+          std::map<basic_block_t, boost::default_color_type>>(color));
+}
+
+static inline void exit_basic_blocks_of_function(decompilation_t &decompilation,
+                                                 function_t &f,
+                                                 const basic_block_vec_t &bbvec,
+                                                 basic_block_vec_t &out) {
+  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+
+  out.reserve(bbvec.size());
+
+  std::copy_if(bbvec.begin(),
+               bbvec.end(),
+               std::back_inserter(out),
+               [&](basic_block_t bb) -> bool { return IsExitBlock(ICFG, bb); });
+}
+
+inline bool DoesFunctionReturn(const icfg_t &ICFG, const basic_block_vec_t &bbvec) {
+  return std::any_of(bbvec.begin(),
+                     bbvec.end(),
+                     [&](basic_block_t bb) -> bool {
+                       return IsExitBlock(ICFG, bb);
+                     });
+}
+
+inline bool IsLeafFunction(decompilation_t &decompilation,
+                           function_t &f,
+                           const basic_block_vec_t &bbvec) {
+  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+
+  if (!std::none_of(bbvec.begin(),
+                    bbvec.end(),
+                    [&](basic_block_t bb) -> bool {
+                      auto T = ICFG[bb].Term.Type;
+                      return (T == TERMINATOR::INDIRECT_JUMP &&
+                              boost::out_degree(bb, ICFG) == 0)
+                           || T == TERMINATOR::INDIRECT_CALL
+                           || T == TERMINATOR::CALL;
+                    }))
+    return false;
+
+  {
+    basic_block_vec_t exit_bbvec;
+    exit_basic_blocks_of_function(decompilation, f, bbvec, exit_bbvec);
+
+    return std::all_of(exit_bbvec.begin(),
+                       exit_bbvec.end(),
+                       [&](basic_block_t bb) -> bool {
+                         auto T = ICFG[bb].Term.Type;
+                         return T == TERMINATOR::RETURN
+                             || T == TERMINATOR::UNREACHABLE;
+                       });
+  }
+}
+
+inline bool IsFunctionSetjmp(decompilation_t &decompilation,
+                             function_t &f,
+                             const basic_block_vec_t &bbvec) {
+  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+
+  return std::any_of(bbvec.begin(),
+                     bbvec.end(),
+                     [&](basic_block_t bb) -> bool {
+                       return ICFG[bb].Sj;
+                     });
+}
+
+inline bool IsFunctionLongjmp(decompilation_t &decompilation,
+                              function_t &f,
+                              const basic_block_vec_t &bbvec) {
+  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+
+  return std::any_of(bbvec.begin(),
+                     bbvec.end(),
+                     [&](basic_block_t bb) -> bool {
+                       auto &Term = ICFG[bb].Term;
+                       return Term.Type == TERMINATOR::INDIRECT_JUMP &&
+                              Term._indirect_jump.IsLj;
+                     });
 }
 
 static inline void construct_bbmap(decompilation_t &decompilation,

@@ -147,6 +147,8 @@ typedef boost::adjacency_list<boost::setS,              /* OutEdgeList */
 typedef flow_graph_t::vertex_descriptor flow_vertex_t;
 typedef flow_graph_t::edge_descriptor flow_edge_t;
 
+typedef std::vector<flow_vertex_t> flow_vertex_vec_t;
+
 struct vertex_copier {
   const interprocedural_control_flow_graph_t &ICFG;
   flow_graph_t &G;
@@ -177,7 +179,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   //
   // make sure basic blocks have been analyzed
   //
-  for (basic_block_t bb : f.BasicBlocks)
+  for (basic_block_t bb : f.bbvec)
     ICFG[bb].Analyze(BIdx);
 
   if (!f.IsLeaf) {
@@ -191,7 +193,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
     }
   }
 
-  assert(!f.BasicBlocks.empty());
+  assert(!f.bbvec.empty());
 
   //
   // copy the function's CFG into the flow graph, maintaining a mapping from the
@@ -203,7 +205,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
     edge_copier ec;
 
     boost::copy_component(
-        ICFG, f.BasicBlocks.front(), G,
+        ICFG, f.bbvec.front(), G,
         boost::orig_to_copy(
             boost::associative_property_map<
                 std::map<basic_block_t, flow_vertex_t>>(Orig2CopyMap))
@@ -213,14 +215,14 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
 
   flow_vertex_t res;
   {
-    auto it = Orig2CopyMap.find(f.BasicBlocks.front());
+    auto it = Orig2CopyMap.find(f.bbvec.front());
     assert(it != Orig2CopyMap.end());
     res = (*it).second;
   }
 
-  exitVertices.resize(f.ExitBasicBlocks.size());
-  std::transform(f.ExitBasicBlocks.begin(),
-                 f.ExitBasicBlocks.end(),
+  exitVertices.resize(f.exit_bbvec.size());
+  std::transform(f.exit_bbvec.begin(),
+                 f.exit_bbvec.end(),
                  exitVertices.begin(),
                  [&](basic_block_t bb) -> exit_vertex_pair_t {
                    auto it = Orig2CopyMap.find(bb);
@@ -234,7 +236,7 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   // this recursive function's duty is also to inline calls to functions and
   // indirect jumps
   //
-  for (basic_block_t bb : f.BasicBlocks) {
+  for (basic_block_t bb : f.bbvec) {
     switch (ICFG[bb].Term.Type) {
     case TERMINATOR::INDIRECT_CALL: {
       auto &DynTargets = ICFG[bb].DynTargets;
@@ -357,17 +359,6 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
   return res;
 }
 
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
-
 void function_t::Analyze(void) {
   if (!this->Analysis.Stale)
     return;
@@ -386,24 +377,27 @@ void function_t::Analyze(void) {
     //
     // build vector of vertices in DFS order
     //
-    std::vector<flow_vertex_t> Vertices;
+    flow_vertex_vec_t Vertices;
     Vertices.reserve(boost::num_vertices(G));
 
     {
-      dfs_visitor<flow_graph_t> vis(Vertices);
+      struct flowvert_dfs_visitor : public boost::default_dfs_visitor {
+        flow_vertex_vec_t &out;
+
+        flowvert_dfs_visitor(flow_vertex_vec_t &out) : out(out) {}
+
+        void discover_vertex(flow_vertex_t v, const flow_graph_t &) const {
+          out.push_back(v);
+        }
+      };
+
+      flowvert_dfs_visitor vis(Vertices);
 
       std::map<flow_vertex_t, boost::default_color_type> colorMap;
-#if 0
-    boost::depth_first_visit(
-        G, entryV, vis,
-        boost::associative_property_map<
-            std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#else
       boost::depth_first_search(
           G, vis,
           boost::associative_property_map<
               std::map<flow_vertex_t, boost::default_color_type>>(colorMap));
-#endif
     }
 
     bool change;

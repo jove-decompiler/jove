@@ -97,9 +97,9 @@ struct hook_t;
   llvm::BasicBlock *B = nullptr;
 
 #define JOVE_EXTRA_FN_PROPERTIES                                               \
-  std::vector<basic_block_t> BasicBlocks;                                      \
-  std::set<basic_block_t> BasicBlocksSet;                                      \
-  std::vector<basic_block_t> ExitBasicBlocks;                                  \
+  basic_block_vec_t bbvec;                                                     \
+  basic_block_vec_t exit_bbvec;                                                \
+                                                                               \
   const hook_t *hook = nullptr;                                                \
   llvm::Function *PreHook = nullptr;                                           \
   llvm::GlobalVariable *PreHookClunk = nullptr;                                \
@@ -1250,9 +1250,8 @@ int InitStateForBinaries(void) {
   for (binary_index_t BIdx = 0; BIdx < Decompilation.Binaries.size(); ++BIdx) {
     auto &binary = Decompilation.Binaries[BIdx];
     auto &ICFG = binary.Analysis.ICFG;
-    auto &fnmap = binary.fnmap;
 
-    construct_fnmap(Decompilation, binary, fnmap);
+    construct_fnmap(Decompilation, binary, binary.fnmap);
 
     for (function_index_t FIdx = 0; FIdx < binary.Analysis.Functions.size(); ++FIdx) {
       function_t &f = binary.Analysis.Functions[FIdx];
@@ -1260,85 +1259,23 @@ int InitStateForBinaries(void) {
       if (!is_basic_block_index_valid(f.Entry))
         continue;
 
-      //
-      // BasicBlocks (in DFS order)
-      //
-      std::map<basic_block_t, boost::default_color_type> color;
-      dfs_visitor<interprocedural_control_flow_graph_t> vis(f.BasicBlocks);
-      depth_first_visit(
-          ICFG, boost::vertex(f.Entry, ICFG), vis,
-          boost::associative_property_map<
-              std::map<basic_block_t, boost::default_color_type>>(color));
+      basic_blocks_of_function(Decompilation, f, f.bbvec);
+      exit_basic_blocks_of_function(Decompilation, f, f.bbvec, f.exit_bbvec);
 
-      //
-      // BasicBlocksSet
-      //
-      std::copy(f.BasicBlocks.begin(),
-                f.BasicBlocks.end(),
-                std::inserter(f.BasicBlocksSet, f.BasicBlocksSet.end()));
+      f.IsLeaf = IsLeafFunction(Decompilation, f, f.bbvec);
 
-      //
-      // ExitBasicBlocks
-      //
-      std::copy_if(f.BasicBlocks.begin(),
-                   f.BasicBlocks.end(),
-                   std::back_inserter(f.ExitBasicBlocks),
-                   [&](basic_block_t bb) -> bool {
-                     return IsExitBlock(ICFG, bb);
-                   });
+      f.IsSj = IsFunctionSetjmp(Decompilation, f, f.bbvec);
+      f.IsLj = IsFunctionLongjmp(Decompilation, f, f.bbvec);
 
-      //
-      // Is it a leaf?
-      //
-      f.IsLeaf = std::all_of(f.ExitBasicBlocks.begin(),
-                             f.ExitBasicBlocks.end(),
-                             [&](basic_block_t bb) -> bool {
-                               auto T = ICFG[bb].Term.Type;
-                               return T == TERMINATOR::RETURN
-                                   || T == TERMINATOR::UNREACHABLE;
-                             }) &&
-
-                 std::none_of(f.BasicBlocks.begin(),
-                              f.BasicBlocks.end(),
-                              [&](basic_block_t bb) -> bool {
-                                auto T = ICFG[bb].Term.Type;
-                                return (T == TERMINATOR::INDIRECT_JUMP &&
-                                        boost::out_degree(bb, ICFG) == 0)
-                                     || T == TERMINATOR::INDIRECT_CALL
-                                     || T == TERMINATOR::CALL;
-                              });
-
-      //
-      // Does it setjmp?
-      //
-      f.IsSj = std::any_of(f.BasicBlocks.begin(),
-                           f.BasicBlocks.end(),
-                           [&](basic_block_t bb) -> bool {
-                             return ICFG[bb].Sj;
-                           });
-
-      //
-      // Does it longjmp?
-      //
-      f.IsLj = std::any_of(f.BasicBlocks.begin(),
-                           f.BasicBlocks.end(),
-                           [&](basic_block_t bb) -> bool {
-                             auto &Term = ICFG[bb].Term;
-                             return Term.Type == TERMINATOR::INDIRECT_JUMP &&
-                                    Term._indirect_jump.IsLj;
-                           });
-
-      if (f.IsSj) {
+      if (f.IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
-      }
 
-      if (f.IsLj) {
+      if (f.IsLj)
         llvm::outs() << llvm::formatv("longjmp found at {0:x} in {1}\n",
                                       ICFG[boost::vertex(f.Entry, ICFG)].Addr,
                                       fs::path(binary.Path).filename().string());
-      }
     }
 
     //
@@ -6320,13 +6257,13 @@ static int TranslateFunction(function_t &f) {
   llvm::Function *F = f.F;
   llvm::DIBuilder &DIB = *DIBuilder;
 
-  if (unlikely(f.BasicBlocks.empty()))
+  if (unlikely(f.bbvec.empty()))
     return 0;
 
-  basic_block_t entry_bb = f.BasicBlocks.front();
+  basic_block_t entry_bb = f.bbvec.front();
   llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
 
-  for (basic_block_t bb : f.BasicBlocks)
+  for (basic_block_t bb : f.bbvec)
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
 
@@ -6416,8 +6353,8 @@ static int TranslateFunction(function_t &f) {
     IRB.CreateBr(ICFG[entry_bb].B);
   }
 
-  for (unsigned i = 0; i < f.BasicBlocks.size(); ++i) {
-    TC.bb = f.BasicBlocks[i];
+  for (basic_block_t bb : f.bbvec) {
+    TC.bb = bb;
 
     int ret = TranslateBasicBlock(TC);
 
