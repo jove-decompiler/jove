@@ -573,12 +573,33 @@ static /* __thread */ struct CPUX86State *__jove_env_clunk = &__jove_env;
 #include <boost/preprocessor/repetition/repeat.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/arithmetic/inc.hpp>
+#include <boost/preprocessor/cat.hpp>
 
 #include "jove.constants.h"
 #include "jove.macros.h"
 
 #define JOVE_SYS_ATTR _NOINL _HIDDEN
 #include "jove_sys.h"
+
+typedef uint64_t jove_thunk_return_t;
+
+_REGPARM _NAKED jove_thunk_return_t _jove_thunk0(uint32_t dstpc,
+                                                 uint32_t *emuspp);
+
+_REGPARM _NAKED jove_thunk_return_t _jove_thunk1(uint32_t eax,
+                                                 uint32_t dstpc,
+                                                 uint32_t *emuspp);
+
+_REGPARM _NAKED jove_thunk_return_t _jove_thunk2(uint32_t eax,
+                                                 uint32_t edx,
+                                                 uint32_t dstpc,
+                                                 uint32_t *emuspp);
+
+_REGPARM _NAKED jove_thunk_return_t _jove_thunk3(uint32_t eax,
+                                                 uint32_t edx,
+                                                 uint32_t ecx,
+                                                 uint32_t dstpc,
+                                                 uint32_t *emuspp);
 
 #include "jove.llvm.c"
 #include "jove.util.c"
@@ -591,24 +612,6 @@ _NAKED void _jove_start(void);
 _HIDDEN void _jove_begin(uint32_t sp_addr);
 
 _HIDDEN unsigned long _jove_thread_init(unsigned long clone_newsp);
-
-_REGPARM _NAKED uint64_t _jove_thunk0(uint32_t dstpc,
-                                      uint32_t *emuspp);
-
-_REGPARM _NAKED uint64_t _jove_thunk1(uint32_t eax,
-                                      uint32_t dstpc,
-                                      uint32_t *emuspp);
-
-_REGPARM _NAKED uint64_t _jove_thunk2(uint32_t eax,
-                                      uint32_t edx,
-                                      uint32_t dstpc,
-                                      uint32_t *emuspp);
-
-_REGPARM _NAKED uint64_t _jove_thunk3(uint32_t eax,
-                                      uint32_t edx,
-                                      uint32_t ecx,
-                                      uint32_t dstpc,
-                                      uint32_t *emuspp);
 
 _REGPARM _NAKED _HIDDEN void _jove_init(uint32_t eax,
                                         uint32_t edx,
@@ -684,8 +687,8 @@ void _jove_begin(target_ulong sp_addr) {
   return _jove_call_entry();
 }
 
-uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
-                      uint32_t *emuspp /* edx */) {
+jove_thunk_return_t _jove_thunk0(uint32_t dstpc,  /* eax */
+                                 uint32_t *emuspp /* edx */) {
   asm volatile("pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
 
@@ -713,9 +716,9 @@ uint64_t _jove_thunk0(uint32_t dstpc,  /* eax */
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk1(uint32_t eax,
-                      uint32_t dstpc,  /* edx */
-                      uint32_t *emuspp /* ecx */) {
+jove_thunk_return_t _jove_thunk1(uint32_t eax,
+                                 uint32_t dstpc,  /* edx */
+                                 uint32_t *emuspp /* ecx */) {
   asm volatile("pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
 
@@ -743,10 +746,10 @@ uint64_t _jove_thunk1(uint32_t eax,
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk2(uint32_t eax,
-                      uint32_t edx,
-                      uint32_t dstpc,  /* ecx */
-                      uint32_t *emuspp) {
+jove_thunk_return_t _jove_thunk2(uint32_t eax,
+                                 uint32_t edx,
+                                 uint32_t dstpc,  /* ecx */
+                                 uint32_t *emuspp) {
   asm volatile("pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
 
@@ -774,11 +777,11 @@ uint64_t _jove_thunk2(uint32_t eax,
                : /* Clobbers */);
 }
 
-uint64_t _jove_thunk3(uint32_t eax,
-                      uint32_t edx,
-                      uint32_t ecx,
-                      uint32_t dstpc,
-                      uint32_t *emuspp) {
+jove_thunk_return_t _jove_thunk3(uint32_t eax,
+                                 uint32_t edx,
+                                 uint32_t ecx,
+                                 uint32_t dstpc,
+                                 uint32_t *emuspp) {
   asm volatile("pushl %%ebp\n" /* callee-saved registers */
                "pushl %%edi\n"
                "pushl %%esi\n"

@@ -82,7 +82,7 @@ void _jove_make_sections_executable(void) {
 _HIDDEN void _jove_init(
                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
-                        BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+                        BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                         #undef __REG_ARG
                        ) {
@@ -151,13 +151,13 @@ _HIDDEN void _jove_init(
   ((void (*)(
              #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
 
-             BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+             BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
              #undef __REG_ARG
             ))initfn)(
                       #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) reg##i
 
-                      BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+                      BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                       #undef __REG_ARG
                      );
@@ -192,7 +192,7 @@ static _jove_rt_init_t _jove_rt_init_clunk = &_jove_rt_init;
 _HIDDEN void _jove__libc_early_init(
                                     #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t reg##i
 
-                                    BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+                                    BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                                     #undef __REG_ARG
                                    ) {
@@ -263,13 +263,13 @@ _HIDDEN void _jove__libc_early_init(
   ((void (*)(
              #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
 
-             BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+             BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
              #undef __REG_ARG
             ))fn)(
                   #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) reg##i
 
-                  BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __REG_ARG, void)
+                  BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
 
                   #undef __REG_ARG
                  );
@@ -653,6 +653,104 @@ void _jove_log2(const char *msg,
   _robust_write(2 /* stderr */, s, _strlen(s));
 }
 
+jove_thunk_return_t _jove_call(
+                               #define __REG_ARG(n, i, data) uintptr_t reg##i,
+
+                               BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                               #undef __REG_ARG
+
+                               uintptr_t pc) {
+  struct {
+    uint32_t BIdx;
+    uint32_t FIdx;
+
+    uintptr_t RecompiledFunc;
+    bool Foreign;
+  } Callee;
+
+  for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
+    uintptr_t *fns = __jove_function_tables_clunk[BIdx];
+    if (!fns) {
+      if (BIdx == 1 ||
+          BIdx == 2) { /* rtld or vdso */
+        fns = __jove_foreign_function_tables[BIdx];
+        if (!fns)
+          continue;
+      } else {
+        continue;
+      }
+    }
+
+    if (BIdx == 1 || BIdx == 2) { /* XXX */
+      for (unsigned FIdx = 0; fns[FIdx]; ++FIdx) {
+        if (pc == fns[FIdx]) {
+          Callee.Foreign = true;
+
+          Callee.BIdx = BIdx;
+          Callee.FIdx = FIdx;
+
+          goto found;
+        }
+      }
+    } else {
+      for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
+        if (pc == fns[2 * FIdx + 0]) {
+          Callee.Foreign = false;
+          Callee.RecompiledFunc = fns[2 * FIdx + 1];
+
+          Callee.BIdx = BIdx;
+          Callee.FIdx = FIdx;
+          goto found;
+        }
+      }
+    }
+  }
+
+  {
+    _jove_fail1(pc, "_jove_call failed");
+
+    __builtin_unreachable();
+  }
+
+found:
+  if (Callee.Foreign) {
+    uintptr_t *const emusp_ptr =
+#if defined(__x86_64__) || defined(__i386__)
+        &__jove_env_clunk->regs[R_ESP]
+#elif defined(__aarch64__)
+        &__jove_env_clunk->xregs[31]
+#elif defined(__mips64) || defined(__mips__)
+        &__jove_env_clunk->active_tc.gpr[29]
+#else
+#error
+#endif
+        ;
+
+    return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
+                        #define __REG_ARG(n, i, data) reg##i,
+
+                        BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                        #undef __REG_ARG
+                        pc, emusp_ptr);
+  } else {
+    return ((jove_thunk_return_t (*)(
+                         #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
+
+                         BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                         #undef __REG_ARG
+                         ))Callee.RecompiledFunc)(
+                                                 #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) reg##i
+
+                                                 BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                                                 #undef __REG_ARG
+                                                 );
+  }
+}
+
 #if defined(JOVE_DFSAN)
 void _jove_check_return_address(uintptr_t RetAddr,
                                 uintptr_t NativeRetAddr) {
@@ -726,6 +824,7 @@ void __nodce(void **p) {
   *p++ = &_jove_free_stack;
   *p++ = &_jove_alloc_callstack;
   *p++ = &_jove_free_callstack;
+  *p++ = &_jove_call;
 #ifdef JOVE_DFSAN
 #if (defined(__mips__) && !defined(__mips64)) || \
     (defined(__i386__) && !defined(__x86_64__))
