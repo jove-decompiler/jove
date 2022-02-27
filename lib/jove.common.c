@@ -664,6 +664,8 @@ jove_thunk_return_t _jove_call(
                                #undef __REG_ARG
 
                                uintptr_t pc) {
+  _jove_install_foreign_function_tables();
+
   struct {
     uint32_t BIdx;
     uint32_t FIdx;
@@ -678,8 +680,10 @@ jove_thunk_return_t _jove_call(
       if (BIdx == 1 ||
           BIdx == 2) { /* rtld or vdso */
         fns = __jove_foreign_function_tables[BIdx];
-        if (!fns)
+        if (!fns) {
+          _UNREACHABLE("_jove_call: rtld or vdso function table is NULL!");
           continue;
+        }
       } else {
         continue;
       }

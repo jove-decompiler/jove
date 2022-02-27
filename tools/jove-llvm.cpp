@@ -632,6 +632,7 @@ static llvm::Function *JoveLog2Func;
 static llvm::Function *JoveAllocStackFunc;
 static llvm::Function *JoveFreeStackFunc;
 static llvm::Function *JoveNoDCEFunc;
+static llvm::Function *JoveCallFunc;
 
 //
 // DFSan
@@ -1488,6 +1489,9 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 
   JoveFreeStackFunc = Module->getFunction("_jove_free_stack");
   assert(JoveFreeStackFunc);
+
+  JoveCallFunc = Module->getFunction("_jove_call");
+  assert(JoveCallFunc);
 
   JoveCheckReturnAddrFunc = Module->getFunction("_jove_check_return_address");
   if (opts::CheckEmulatedReturnAddress) {
@@ -8004,6 +8008,84 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
     assert(!SjLj);
 
+    bool IsABICall = std::all_of(DynTargets.begin(),
+                                 DynTargets.end(),
+                                 [](dynamic_target_t X) -> bool {
+                                   return function_of_target(X, Decompilation).IsABI;
+                                 });
+    if (IsABICall)
+    {
+      llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
+
+      std::vector<llvm::Type *> argTypes(CallConvArgArray.size()+1, WordType());
+
+      std::vector<llvm::Value *> ArgVec;
+      ArgVec.resize(CallConvArgArray.size());
+
+      std::transform(CallConvArgArray.begin(),
+                     CallConvArgArray.end(),
+                     ArgVec.begin(),
+                     [&](unsigned glb) -> llvm::Value * {
+                       return get(glb);
+                     });
+
+      ArgVec.push_back(PC);
+
+      store_stack_pointer();
+
+      llvm::CallInst *Ret = IRB.CreateCall(JoveCallFunc, ArgVec);
+      Ret->setIsNoInline();
+
+      reload_stack_pointer();
+
+#if defined(TARGET_I386)
+      for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
+        Ret->addParamAttr(j, llvm::Attribute::InReg);
+#endif
+
+#if defined(TARGET_X86_64)
+      //assert(Ret->getType()->isIntegerTy(128));
+      assert(Ret->getType()->isStructTy());
+      {
+        llvm::Value *X = IRB.CreateExtractValue(Ret, 0, (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(0)].name).str());
+        llvm::Value *Y = IRB.CreateExtractValue(Ret, 1, (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(1)].name).str());
+
+        set(X, CallConvRetArray.at(0));
+        set(Y, CallConvRetArray.at(1));
+      }
+#elif defined(TARGET_MIPS64)
+      assert(Ret->getType()->isIntegerTy(64));
+      set(Ret, CallConvRetArray.front());
+#elif defined(TARGET_AARCH64)
+      assert(Ret->getType()->isStructTy());
+
+      for (unsigned j = 0; j < CallConvRetArray.size(); ++j) {
+        llvm::Value *X = IRB.CreateExtractValue(Ret, j,
+            (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(j)].name).str());
+        set(X, CallConvRetArray.at(j));
+      }
+#elif defined(TARGET_MIPS32) || defined(TARGET_I386)
+      assert(Ret->getType()->isIntegerTy(64));
+      {
+        llvm::Value *X = IRB.CreateTrunc(Ret, IRB.getInt32Ty(),
+            (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(0)].name).str());
+
+        llvm::Value *Y = IRB.CreateTrunc(IRB.CreateLShr(Ret, IRB.getInt64(32)), IRB.getInt32Ty(),
+            (fmt("_%s_returned") % TCG->_ctx.temps[CallConvRetArray.at(1)].name).str());
+
+#ifdef TARGET_WORDS_BIGENDIAN
+        set(X, CallConvRetArray.at(1));
+        set(Y, CallConvRetArray.at(0));
+#else
+        set(X, CallConvRetArray.at(0));
+        set(Y, CallConvRetArray.at(1));
+#endif
+      }
+#else
+#error
+#endif
+    }
+    else
     {
       assert(!DynTargets.empty());
 
@@ -8266,9 +8348,6 @@ BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
             }
 
 #if defined(TARGET_I386)
-            //
-            // on i386 ABIs have first three registers
-            //
             for (unsigned j = 0; j < std::min<unsigned>(3, Ret->getNumArgOperands()); ++j)
               Ret->addParamAttr(j, llvm::Attribute::InReg);
 #endif
