@@ -8032,10 +8032,12 @@ int TranslateBasicBlock(TranslateContext &TC) {
       ArgVec.push_back(PC);
 
       store_stack_pointer();
+      save_callstack_pointers();
 
       llvm::CallInst *Ret = IRB.CreateCall(JoveCallFunc, ArgVec);
       Ret->setIsNoInline();
 
+      restore_callstack_pointers();
       reload_stack_pointer();
 
 #if defined(TARGET_I386)
