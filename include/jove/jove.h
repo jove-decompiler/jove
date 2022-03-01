@@ -399,10 +399,11 @@ static inline void for_each_binary_if(decompilation_t &decompilation,
 }
 
 static inline void for_each_function(decompilation_t &decompilation,
-                                     std::function<void(function_t &)> proc) {
+                                     std::function<void(function_t &, binary_t &)> proc) {
   for_each_binary(decompilation, [&](binary_t &binary) {
     std::for_each(binary.Analysis.Functions.begin(),
-                  binary.Analysis.Functions.end(), proc);
+                  binary.Analysis.Functions.end(),
+                  [&](function_t &f) { proc(f, binary); });
   });
 }
 
@@ -451,8 +452,8 @@ static inline basic_block_index_t index_of_basic_block(const icfg_t &ICFG, basic
 }
 
 /* XXX this is O(n)... */
-static inline binary_index_t binary_index_of_function(decompilation_t &decompilation,
-                                                      function_t &f) {
+static inline binary_index_t binary_index_of_function(function_t &f,
+                                                      decompilation_t &decompilation) {
   for (binary_index_t BIdx = 0; BIdx < decompilation.Binaries.size(); ++BIdx) {
     auto &fns = decompilation.Binaries[BIdx].Analysis.Functions;
 
@@ -465,7 +466,7 @@ static inline binary_index_t binary_index_of_function(decompilation_t &decompila
 
 static inline binary_t &binary_of_function(function_t &f,
                                            decompilation_t &decompilation) {
-  return decompilation.Binaries.at(binary_index_of_function(decompilation, f));
+  return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
 }
 
 static inline function_t &function_of_target(dynamic_target_t X,
@@ -477,10 +478,10 @@ static inline function_t &function_of_target(dynamic_target_t X,
   return decompilation.Binaries.at(BIdx).Analysis.Functions.at(FIdx);
 }
 
-static inline void basic_blocks_of_function(decompilation_t &decompilation,
-                                            function_t &f,
+static inline void basic_blocks_of_function(function_t &f,
+                                            binary_t &b,
                                             basic_block_vec_t &out) {
-  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   struct bb_visitor : public boost::default_dfs_visitor {
     basic_block_vec_t &out;
@@ -500,11 +501,11 @@ static inline void basic_blocks_of_function(decompilation_t &decompilation,
           std::map<basic_block_t, boost::default_color_type>>(color));
 }
 
-static inline void exit_basic_blocks_of_function(decompilation_t &decompilation,
-                                                 function_t &f,
+static inline void exit_basic_blocks_of_function(function_t &f,
+                                                 binary_t &b,
                                                  const basic_block_vec_t &bbvec,
                                                  basic_block_vec_t &out) {
-  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   out.reserve(bbvec.size());
 
@@ -514,7 +515,7 @@ static inline void exit_basic_blocks_of_function(decompilation_t &decompilation,
                [&](basic_block_t bb) -> bool { return IsExitBlock(ICFG, bb); });
 }
 
-inline bool DoesFunctionReturn(const icfg_t &ICFG, const basic_block_vec_t &bbvec) {
+inline bool DoesFunctionReturnFast(const icfg_t &ICFG, const basic_block_vec_t &bbvec) {
   return std::any_of(bbvec.begin(),
                      bbvec.end(),
                      [&](basic_block_t bb) -> bool {
@@ -522,10 +523,24 @@ inline bool DoesFunctionReturn(const icfg_t &ICFG, const basic_block_vec_t &bbve
                      });
 }
 
-inline bool IsLeafFunction(decompilation_t &decompilation,
-                           function_t &f,
+bool DoesFunctionReturnSlow(function_t &f,
+                            binary_t &b) {
+  basic_block_vec_t bbvec;
+  basic_blocks_of_function(f, b, bbvec);
+
+  const auto &ICFG = b.Analysis.ICFG;
+
+  return std::any_of(bbvec.begin(),
+                     bbvec.end(),
+                     [&](basic_block_t bb) -> bool {
+                       return IsExitBlock(ICFG, bb);
+                     });
+}
+
+inline bool IsLeafFunction(function_t &f,
+                           binary_t &b,
                            const basic_block_vec_t &bbvec) {
-  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   if (!std::none_of(bbvec.begin(),
                     bbvec.end(),
@@ -540,7 +555,7 @@ inline bool IsLeafFunction(decompilation_t &decompilation,
 
   {
     basic_block_vec_t exit_bbvec;
-    exit_basic_blocks_of_function(decompilation, f, bbvec, exit_bbvec);
+    exit_basic_blocks_of_function(f, b, bbvec, exit_bbvec);
 
     return std::all_of(exit_bbvec.begin(),
                        exit_bbvec.end(),
@@ -552,10 +567,10 @@ inline bool IsLeafFunction(decompilation_t &decompilation,
   }
 }
 
-inline bool IsFunctionSetjmp(decompilation_t &decompilation,
-                             function_t &f,
+inline bool IsFunctionSetjmp(function_t &f,
+                             binary_t &b,
                              const basic_block_vec_t &bbvec) {
-  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   return std::any_of(bbvec.begin(),
                      bbvec.end(),
@@ -564,10 +579,10 @@ inline bool IsFunctionSetjmp(decompilation_t &decompilation,
                      });
 }
 
-inline bool IsFunctionLongjmp(decompilation_t &decompilation,
-                              function_t &f,
+inline bool IsFunctionLongjmp(function_t &f,
+                              binary_t &b,
                               const basic_block_vec_t &bbvec) {
-  auto &ICFG = binary_of_function(f, decompilation).Analysis.ICFG;
+  const auto &ICFG = b.Analysis.ICFG;
 
   return std::any_of(bbvec.begin(),
                      bbvec.end(),

@@ -1094,7 +1094,18 @@ int add(void) {
 
         std::vector<basic_block_t> bbvec;
         std::map<basic_block_t, boost::default_color_type> color;
-        dfs_reachable_visitor vis(bbvec);
+
+        struct bb_visitor : public boost::default_dfs_visitor {
+          basic_block_vec_t &out;
+
+          bb_visitor(basic_block_vec_t &out) : out(out) {}
+
+          void discover_vertex(basic_block_t bb, const icfg_t &) const {
+            out.push_back(bb);
+          }
+        };
+
+        bb_visitor vis(bbvec);
         depth_first_visit(
             ICFG, boost::vertex(BBIdx, ICFG), vis,
             boost::associative_property_map<

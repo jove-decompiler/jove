@@ -1253,13 +1253,13 @@ int InitStateForBinaries(void) {
       if (!is_basic_block_index_valid(f.Entry))
         continue;
 
-      basic_blocks_of_function(Decompilation, f, f.bbvec);
-      exit_basic_blocks_of_function(Decompilation, f, f.bbvec, f.exit_bbvec);
+      basic_blocks_of_function(f, binary, f.bbvec);
+      exit_basic_blocks_of_function(f, binary, f.bbvec, f.exit_bbvec);
 
-      f.IsLeaf = IsLeafFunction(Decompilation, f, f.bbvec);
+      f.IsLeaf = IsLeafFunction(f, binary, f.bbvec);
 
-      f.IsSj = IsFunctionSetjmp(Decompilation, f, f.bbvec);
-      f.IsLj = IsFunctionLongjmp(Decompilation, f, f.bbvec);
+      f.IsSj = IsFunctionSetjmp(f, binary, f.bbvec);
+      f.IsLj = IsFunctionLongjmp(f, binary, f.bbvec);
 
       if (f.IsSj)
         llvm::outs() << llvm::formatv("setjmp found at {0:x} in {1}\n",

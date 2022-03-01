@@ -472,12 +472,13 @@ void worker1(std::atomic<dynamic_target_t *> &Q_ptr, dynamic_target_t *const Q_e
   for (dynamic_target_t *p = Q_ptr++; p < Q_end; p = Q_ptr++) {
     dynamic_target_t X = *p;
 
+    binary_t &b = Decompilation.Binaries.at(X.first);
     function_t &f = function_of_target(X, Decompilation);
 
-    basic_blocks_of_function(Decompilation, f, f.bbvec);
-    exit_basic_blocks_of_function(Decompilation, f, f.bbvec, f.exit_bbvec);
+    basic_blocks_of_function(f, b, f.bbvec);
+    exit_basic_blocks_of_function(f, b, f.bbvec, f.exit_bbvec);
 
-    f.IsLeaf = IsLeafFunction(Decompilation, f, f.bbvec);
+    f.IsLeaf = IsLeafFunction(f, b, f.bbvec);
   }
 }
 

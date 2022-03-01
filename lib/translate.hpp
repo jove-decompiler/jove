@@ -377,7 +377,10 @@ on_insn_boundary:
     CalleeAddr &= ~1UL;
 #endif
 
-    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr, fnmap, bbmap, on_newbb_proc);
+    function_index_t FIdx = translate_function(b, tcg, dis, CalleeAddr,
+                                               fnmap,
+                                               bbmap,
+                                               on_newbb_proc);
 
     basic_block_t _bb;
     {
@@ -391,7 +394,7 @@ on_insn_boundary:
     ICFG[_bb].Term._call.Target = FIdx;
 
     if (is_function_index_valid(FIdx) &&
-        does_function_definitely_return(b, FIdx))
+        DoesFunctionReturnSlow(b.Analysis.Functions[FIdx], b))
       control_flow(T._call.NextPC);
 
     break;
@@ -415,46 +418,4 @@ on_insn_boundary:
   }
 
   return bbidx;
-}
-
-struct dfs_reachable_visitor : public boost::default_dfs_visitor {
-  std::vector<basic_block_t> &out;
-
-  dfs_reachable_visitor(std::vector<basic_block_t> &out) : out(out) {}
-
-  void discover_vertex(basic_block_t bb, const icfg_t &) const {
-    out.push_back(bb);
-  }
-};
-
-bool does_function_definitely_return(binary_t &b,
-                                     function_index_t FIdx) {
-  assert(is_function_index_valid(FIdx));
-
-  function_t &f = b.Analysis.Functions.at(FIdx);
-  auto &ICFG = b.Analysis.ICFG;
-
-  assert(is_basic_block_index_valid(f.Entry));
-
-  std::vector<basic_block_t> BasicBlocks;
-  std::vector<basic_block_t> ExitBasicBlocks;
-
-  std::map<basic_block_t, boost::default_color_type> color;
-  dfs_reachable_visitor vis(BasicBlocks);
-  boost::depth_first_visit(
-      ICFG, boost::vertex(f.Entry, ICFG), vis,
-      boost::associative_property_map<
-          std::map<basic_block_t, boost::default_color_type>>(color));
-
-  //
-  // ExitBasicBlocks
-  //
-  std::copy_if(BasicBlocks.begin(),
-               BasicBlocks.end(),
-               std::back_inserter(ExitBasicBlocks),
-               [&](basic_block_t bb) -> bool {
-                 return IsExitBlock(ICFG, bb);
-               });
-
-  return !ExitBasicBlocks.empty();
 }
