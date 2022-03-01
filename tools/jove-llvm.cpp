@@ -2776,12 +2776,9 @@ int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
 
-  for (function_index_t FuncIdx = 0; FuncIdx < Binary.Analysis.Functions.size();
-       ++FuncIdx) {
-    function_t &f = Binary.Analysis.Functions[FuncIdx];
-
+  for_each_function_in_binary(Binary, [&](function_t &f) {
     if (!is_basic_block_index_valid(f.Entry))
-      continue;
+      return;
 
     if (!f.IsABI && !f.Syms.empty())
       WithColor::warning() << llvm::formatv(
@@ -2874,7 +2871,7 @@ int CreateFunctions(void) {
       A.setName(TCG->_ctx.temps[glbv.at(i)].name);
       ++i;
     }
-  }
+  });
 
   return 0;
 }
