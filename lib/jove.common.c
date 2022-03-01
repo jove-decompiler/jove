@@ -742,7 +742,13 @@ found:
                         #undef __REG_ARG
                         pc, emusp_ptr);
   } else {
-    return ((jove_thunk_return_t (*)(
+#if !defined(__x86_64__) && defined(__i386__)
+#define CALLCONV_ATTR _REGPARM
+#else
+#define CALLCONV_ATTR
+#endif
+
+    return ((CALLCONV_ATTR jove_thunk_return_t (*)(
                          #define __REG_ARG(n, i, data) BOOST_PP_COMMA_IF(i) uintptr_t
 
                          BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
@@ -755,6 +761,7 @@ found:
 
                                                  #undef __REG_ARG
                                                  );
+#undef CALLCONV_ATTR
   }
 }
 
