@@ -364,6 +364,15 @@ int AnalyzeBlocks(void) {
   if (cnt)
     WithColor::note() << llvm::formatv("Analyzing {0} basic blocks...\n", cnt);
 
+  //
+  // XXX _jove_call
+  //
+  for_each_function(Decompilation, [&](function_t &f, binary_t &b) {
+    auto &ICFG = b.Analysis.ICFG;
+    if (f.IsABI)
+      ICFG[boost::vertex(f.Entry, ICFG)].Analysis.live.use |= CallConvArgs;
+  });
+
   return 0;
 }
 
