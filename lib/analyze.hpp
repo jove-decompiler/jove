@@ -245,9 +245,8 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
 
       auto eit_pair = boost::out_edges(bb, ICFG);
 
-      for (const auto &DynTarget : DynTargets) {
-        function_t &callee = Decompilation.Binaries[DynTarget.first]
-                                .Analysis.Functions[DynTarget.second];
+      for (dynamic_target_t DynTarget : DynTargets) {
+        function_t &callee = function_of_target(DynTarget, Decompilation);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
@@ -331,9 +330,8 @@ static flow_vertex_t copy_function_cfg(flow_graph_t &G,
       const auto &DynTargets = ICFG[bb].DynTargets;
       assert(!DynTargets.empty());
 
-      for (const auto &DynTarget : DynTargets) {
-        function_t &callee = Decompilation.Binaries[DynTarget.first]
-                                .Analysis.Functions[DynTarget.second];
+      for (dynamic_target_t DynTarget : DynTargets) {
+        function_t &callee = function_of_target(DynTarget, Decompilation);
 
         std::vector<exit_vertex_pair_t> calleeExitVertices;
         flow_vertex_t calleeEntryV =
