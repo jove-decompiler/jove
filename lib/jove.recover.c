@@ -41,9 +41,8 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
         }
       }
     } else {
-      for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
-        if (CalleeAddr == fns[2 * FIdx + 0] ||
-            CalleeAddr == fns[2 * FIdx + 1]) {
+      for (unsigned FIdx = 0; fns[3 * FIdx]; ++FIdx) {
+        if (CalleeAddr == fns[3 * FIdx + 0]) {
           Callee.BIdx = BIdx;
           Callee.FIdx = FIdx;
 
@@ -236,7 +235,6 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
       }
     }
   }
-
 
   return; /* not found */
 

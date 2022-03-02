@@ -399,9 +399,9 @@ void _jove_rt_signal_handler(int sig, siginfo_t *si, ucontext_t *uctx) {
     if (!fns)
       continue;
 
-    for (unsigned FIdx = 0; fns[2 * FIdx]; ++FIdx) {
-      const uintptr_t FuncSectPtr = fns[2 * FIdx + 0];
-      const uintptr_t FuncPtr     = fns[2 * FIdx + 1];
+    for (unsigned FIdx = 0; fns[3 * FIdx]; ++FIdx) {
+      const uintptr_t FuncSectPtr = fns[3 * FIdx + 0];
+      const uintptr_t FuncPtr     = fns[3 * FIdx + 2];
 
       if (likely(saved_pc != FuncSectPtr))
         continue;

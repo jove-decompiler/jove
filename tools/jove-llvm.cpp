@@ -123,7 +123,8 @@ struct hook_t;
                                                                                \
   void Analyze(void);                                                          \
                                                                                \
-  llvm::Function *F = nullptr;
+  llvm::Function *F = nullptr;                                                 \
+  llvm::Function *adapterF = nullptr;
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
   fnmap_t fnmap;                                                               \
@@ -1189,7 +1190,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
     assert(FnsTbl);
 
     return IRB.CreateLoad(IRB.CreateConstGEP2_64(
-        FnsTbl, 0, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
+        FnsTbl, 0, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
   }
 
   //
@@ -1211,7 +1212,7 @@ GetDynTargetAddress(llvm::IRBuilderTy &IRB,
   }
 
   return IRB.CreateLoad(
-      IRB.CreateConstGEP1_64(FnsTbl, 2 * DynTarget.FIdx + (Callable ? 1 : 0)));
+      IRB.CreateConstGEP1_64(FnsTbl, 3 * DynTarget.FIdx + (Callable ? 1 : 0)));
 }
 
 static void ReferenceInNoDCEFunc(llvm::Value *V) {
@@ -2583,34 +2584,30 @@ static void expandMemIntrinsicUses(llvm::Function &F) {
 static tcg_global_set_t DetermineFunctionArgs(function_t &f) {
   f.Analyze();
 
-  return f.Analysis.args;
+  tcg_global_set_t res = f.Analysis.args;
+
+  if (f.IsABI)
+    res &= CallConvArgs;
+
+  return res;
 }
 
 static tcg_global_set_t DetermineFunctionRets(function_t &f) {
   f.Analyze();
 
-  return f.Analysis.rets;
-}
-
-void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
-  tcg_global_set_t args = DetermineFunctionArgs(f);
+  tcg_global_set_t res = f.Analysis.rets;
 
   if (f.IsABI)
-    args &= CallConvArgs;
+    res &= CallConvRets;
 
-  explode_tcg_global_set(glbv, args);
+  return res;
+}
 
-  if (f.IsABI) {
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a) <
-             std::find(CallConvArgArray.begin(), CallConvArgArray.end(), b);
-    });
-
-    return;
-  }
-
-  // otherwise, the order we want to impose is
+static void sort_tcg_global_args(std::vector<unsigned> &glbv) {
+  //
+  // the order we want to impose is
   // CallConvArgs [sorted as CallConvArgs] ... !(CallConvArgs) [sorted by index]
+  //
   std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
     CallConvArgArrayTy::const_iterator a_it =
         std::find(CallConvArgArray.begin(), CallConvArgArray.end(), a);
@@ -2637,23 +2634,7 @@ void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
   });
 }
 
-void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
-  tcg_global_set_t rets = DetermineFunctionRets(f);
-
-  if (f.IsABI)
-    rets &= CallConvRets;
-
-  explode_tcg_global_set(glbv, rets);
-
-  if (f.IsABI) {
-    std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
-      return std::find(CallConvRetArray.begin(), CallConvRetArray.end(), a) <
-             std::find(CallConvRetArray.begin(), CallConvRetArray.end(), b);
-    });
-
-    return;
-  }
-
+static void sort_tcg_global_rets(std::vector<unsigned> &glbv) {
   // otherwise, the order we want to impose is
   // CallConvRets [sorted as CallConvRets] ... !(CallConvRets) [sorted by index]
   std::sort(glbv.begin(), glbv.end(), [](unsigned a, unsigned b) {
@@ -2682,6 +2663,26 @@ void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
   });
 }
 
+void ExplodeFunctionArgs(function_t &f, std::vector<unsigned> &glbv) {
+  tcg_global_set_t args = DetermineFunctionArgs(f);
+
+  if (f.IsABI)
+    args &= CallConvArgs;
+
+  explode_tcg_global_set(glbv, args);
+  sort_tcg_global_args(glbv);
+}
+
+void ExplodeFunctionRets(function_t &f, std::vector<unsigned> &glbv) {
+  tcg_global_set_t rets = DetermineFunctionRets(f);
+
+  if (f.IsABI)
+    rets &= CallConvRets;
+
+  explode_tcg_global_set(glbv, rets);
+  sort_tcg_global_rets(glbv);
+}
+
 static unsigned bitsOfTCGType(TCGType ty) {
   switch (ty) {
   case TCG_TYPE_I32:
@@ -2701,28 +2702,29 @@ static unsigned bitsOfTCGType(TCGType ty) {
   }
 }
 
-llvm::FunctionType *DetermineFunctionType(function_t &f) {
-  f.Analyze();
-
+llvm::FunctionType *FunctionTypeOfArgsAndRets(tcg_global_set_t args,
+                                              tcg_global_set_t rets) {
   std::vector<llvm::Type *> argTypes;
-
   {
     std::vector<unsigned> glbv;
-    ExplodeFunctionArgs(f, glbv);
+    explode_tcg_global_set(glbv, args);
+    sort_tcg_global_args(glbv);
 
     argTypes.resize(glbv.size());
-    std::transform(glbv.begin(), glbv.end(), argTypes.begin(),
+    std::transform(glbv.begin(),
+                   glbv.end(),
+                   argTypes.begin(),
                    [&](unsigned glb) -> llvm::Type * {
                      return llvm::Type::getIntNTy(
                          *Context, bitsOfTCGType(TCG->_ctx.temps[glb].type));
                    });
   }
 
-  llvm::Type *retTy;
-
+  llvm::Type *retTy = nullptr;
   {
     std::vector<unsigned> glbv;
-    ExplodeFunctionRets(f, glbv);
+    explode_tcg_global_set(glbv, rets);
+    sort_tcg_global_rets(glbv);
 
     if (glbv.empty()) {
       retTy = VoidType();
@@ -2743,6 +2745,13 @@ llvm::FunctionType *DetermineFunctionType(function_t &f) {
   }
 
   return llvm::FunctionType::get(retTy, argTypes, false);
+}
+
+llvm::FunctionType *DetermineFunctionType(function_t &f) {
+  f.Analyze();
+
+  return FunctionTypeOfArgsAndRets(DetermineFunctionArgs(f),
+                                   DetermineFunctionRets(f));
 }
 
 llvm::FunctionType *DetermineFunctionType(dynamic_target_t X) {
@@ -2774,11 +2783,14 @@ static bool is_builtin_sym(const char* sym) {
 
 int CreateFunctions(void) {
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
+  const auto &ICFG = Binary.Analysis.ICFG;
 
   for_each_function_in_binary(Binary, [&](function_t &f) {
     if (!is_basic_block_index_valid(f.Entry))
       return;
+
+    const target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
+    const unsigned SectsOff = Addr - Binary.SectsStartAddr;
 
     if (!f.IsABI && !f.Syms.empty())
       WithColor::warning() << llvm::formatv(
@@ -2803,9 +2815,6 @@ int CreateFunctions(void) {
 
     //f.F->addFnAttr(llvm::Attribute::UWTable);
 
-    target_ulong Addr = ICFG[boost::vertex(f.Entry, ICFG)].Addr;
-    unsigned off = Addr - Binary.SectsStartAddr;
-
     for (const symbol_t &sym : f.Syms) {
       // XXX hack for glibc 2.32+
       if (sym.Name == "__libc_early_init" &&
@@ -2825,7 +2834,7 @@ int CreateFunctions(void) {
                  ".set   %s, __jove_sections_%u + %u")
              % sym.Name
              % sym.Name
-             % sym.Name % BinaryIndex % off).str());
+             % sym.Name % BinaryIndex % SectsOff).str());
 #endif
       } else {
          // make sure version node is defined
@@ -2847,7 +2856,7 @@ int CreateFunctions(void) {
              % dummy_name
              % dummy_name
              % dummy_name
-             % dummy_name % BinaryIndex % off).str());
+             % dummy_name % BinaryIndex % SectsOff).str());
 
         Module->appendModuleInlineAsm(
             (llvm::Twine(".symver ") + dummy_name + "," + sym.Name +
@@ -2863,13 +2872,36 @@ int CreateFunctions(void) {
     //
     // assign names to the arguments, the registers they represent
     //
-    std::vector<unsigned> glbv;
-    ExplodeFunctionArgs(f, glbv);
+    {
+      std::vector<unsigned> glbv;
+      ExplodeFunctionArgs(f, glbv);
 
-    unsigned i = 0;
-    for (llvm::Argument &A : f.F->args()) {
-      A.setName(TCG->_ctx.temps[glbv.at(i)].name);
-      ++i;
+      unsigned i = 0;
+      for (llvm::Argument &A : f.F->args()) {
+        A.setName(TCG->_ctx.temps[glbv.at(i)].name);
+        ++i;
+      }
+    }
+
+    if (!f.IsABI) {
+      //
+      // create an "ABI adapter" for use with _jove_call
+      //
+      f.adapterF = llvm::Function::Create(
+          FunctionTypeOfArgsAndRets(CallConvArgs, CallConvRets),
+          llvm::GlobalValue::ExternalLinkage, (fmt("jJ%lx") % Addr).str(),
+          Module.get());
+
+      f.adapterF->setVisibility(llvm::GlobalValue::HiddenVisibility);
+
+      //
+      // assign names to the arguments, the registers they represent
+      //
+      unsigned i = 0;
+      for (llvm::Argument &A : f.adapterF->args()) {
+        A.setName(TCG->_ctx.temps[CallConvArgArray.at(i)].name);
+        ++i;
+      }
     }
   });
 
@@ -2899,7 +2931,7 @@ int CreateFunctionTables(void) {
     llvm::GlobalVariable *FunctionsTable = new llvm::GlobalVariable(
         *Module,
         llvm::ArrayType::get(WordType(),
-                             2 * binary.Analysis.Functions.size() + 1),
+                             3 * binary.Analysis.Functions.size() + 1),
         false, llvm::GlobalValue::ExternalLinkage, nullptr,
         (fmt("__jove_b%u") % BIdx).str());
 
@@ -2965,22 +2997,26 @@ int CreateFunctionTable(void) {
   }
 
   std::vector<llvm::Constant *> constantTable;
-  constantTable.resize(2 * Binary.Analysis.Functions.size());
+  constantTable.resize(3 * Binary.Analysis.Functions.size());
 
   for (unsigned i = 0; i < Binary.Analysis.Functions.size(); ++i) {
     const function_t &f = Binary.Analysis.Functions[i];
 
-    llvm::Constant *&C1 = constantTable[2 * i + 0];
-    llvm::Constant *&C2 = constantTable[2 * i + 1];
+    llvm::Constant *&C1 = constantTable[3 * i + 0];
+    llvm::Constant *&C2 = constantTable[3 * i + 1];
+    llvm::Constant *&C3 = constantTable[3 * i + 2];
 
     if (unlikely(!is_basic_block_index_valid(f.Entry))) {
       C1 = llvm::Constant::getNullValue(WordType());
       C2 = llvm::Constant::getNullValue(WordType());
+      C3 = llvm::Constant::getNullValue(WordType());
       continue;
     }
 
     C1 = SectionPointer(ICFG[boost::vertex(f.Entry, ICFG)].Addr);
     C2 = llvm::ConstantExpr::getPtrToInt(f.F, WordType());
+    C3 = f.adapterF ? llvm::ConstantExpr::getPtrToInt(f.adapterF, WordType())
+                    : llvm::ConstantExpr::getPtrToInt(f.F, WordType());
   }
 
   constantTable.push_back(llvm::Constant::getNullValue(WordType()));
@@ -6255,8 +6291,8 @@ static int TranslateFunction(function_t &f) {
     return 0;
 
   basic_block_t entry_bb = f.bbvec.front();
-  llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
 
+  llvm::BasicBlock *EntryB = llvm::BasicBlock::Create(*Context, "", F);
   for (basic_block_t bb : f.bbvec)
     ICFG[bb].B = llvm::BasicBlock::Create(
         *Context, (fmt("%#lx") % ICFG[bb].Addr).str(), F);
@@ -6357,6 +6393,146 @@ static int TranslateFunction(function_t &f) {
   }
 
   DIB.finalizeSubprogram(TC.DebugInformation.Subprogram);
+
+  if (f.adapterF) {
+    //
+    // build "ABI-adapter"
+    //
+    assert(!f.IsABI);
+
+    F = f.adapterF;
+    llvm::FunctionType *FTy = F->getFunctionType();
+
+    llvm::DISubprogram *Subprogram = DIB.createFunction(
+        /* Scope       */ DebugInformation.CompileUnit,
+        /* Name        */ F->getName(),
+        /* LinkageName */ F->getName(),
+        /* File        */ DebugInformation.File,
+        /* LineNo      */ 0,
+        /* Ty          */ SubProgType,
+        /* ScopeLine   */ 0,
+        /* Flags       */ llvm::DINode::FlagZero,
+        /* SPFlags     */ SubProgFlags);
+
+    F->setSubprogram(Subprogram);
+
+    {
+      llvm::IRBuilderTy IRB(llvm::BasicBlock::Create(*Context, "", F));
+
+      IRB.SetCurrentDebugLocation(llvm::DILocation::get(
+          *Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
+
+      std::vector<llvm::Value *> argsToPass;
+      {
+        std::vector<unsigned> glbv;
+        ExplodeFunctionArgs(f, glbv);
+
+        argsToPass.resize(glbv.size());
+
+        std::transform(glbv.begin(),
+                       glbv.end(),
+                       argsToPass.begin(),
+                       [&](unsigned glb) -> llvm::Value * {
+                         if (CallConvArgs.test(glb)) {
+                           unsigned Idx = std::distance(
+                               CallConvArgArray.begin(),
+                               std::find(CallConvArgArray.begin(),
+                                         CallConvArgArray.end(), glb));
+                           return F->getArg(Idx);
+                         } else {
+                           if (glb == tcg_stack_pointer_index) {
+                             llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+                             LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+                             return LI;
+                           } else {
+                             llvm::Type *Ty = llvm::Type::getIntNTy(
+                                   *Context,
+                                   bitsOfTCGType(TCG->_ctx.temps[glb].type));
+                             return llvm::UndefValue::get(Ty);
+                           }
+                         }
+                       });
+      }
+
+      llvm::CallInst *Ret = IRB.CreateCall(f.F, argsToPass);
+      Ret->setIsNoInline();
+
+      {
+        std::vector<unsigned> glbv;
+        ExplodeFunctionRets(f, glbv);
+
+        if (Ret->getType()->isVoidTy()) {
+          assert(glbv.empty());
+
+          IRB.CreateCall(
+              llvm::Intrinsic::getDeclaration(Module.get(), llvm::Intrinsic::trap));
+          IRB.CreateUnreachable();
+        } else {
+          std::vector<llvm::Value *> RetValues(
+              CallConvRetArray.size(),
+              llvm::UndefValue::get(llvm::Type::getIntNTy(*Context,
+                  bitsOfTCGType(TCG->_ctx.temps[CallConvRetArray.at(0)].type))));
+
+          if (Ret->getType()->isIntegerTy(WordBits())) {
+            assert(glbv.size() == 1);
+
+            unsigned glb = glbv.front();
+            assert(glb == tcg_stack_pointer_index);
+
+            llvm::StoreInst *SI = IRB.CreateStore(Ret, CPUStateGlobalPointer(glb, IRB));
+            SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+          } else {
+            assert(glbv.size() > 1);
+            assert(Ret->getType()->isStructTy());
+
+            for (unsigned i = 0; i < glbv.size(); ++i) {
+              unsigned glb = glbv[i];
+
+              if (glb == tcg_stack_pointer_index) {
+                llvm::Value *ReturnedSP = IRB.CreateExtractValue(
+                    Ret, llvm::ArrayRef<unsigned>(i),
+                    (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+
+                llvm::StoreInst *SI = IRB.CreateStore(ReturnedSP,
+                                                      CPUStateGlobalPointer(glb, IRB));
+                SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+              } else if (CallConvRets.test(glb)) {
+                 unsigned Idx = std::distance(
+                     CallConvRetArray.begin(),
+                     std::find(CallConvRetArray.begin(),
+                               CallConvRetArray.end(), glb));
+
+                RetValues.at(Idx) = IRB.CreateExtractValue(
+                    Ret, llvm::ArrayRef<unsigned>(i),
+                    (fmt("_%s_returned") % TCG->_ctx.temps[glb].name).str());
+              } else {
+                ;
+              }
+            }
+          }
+
+          assert(FTy->getReturnType()->isStructTy());
+          {
+            unsigned j = 0;
+
+            llvm::Value *init = llvm::UndefValue::get(FTy->getReturnType());
+            llvm::Value *res = std::accumulate(
+                RetValues.begin(),
+                RetValues.end(), init,
+                [&](llvm::Value *res, llvm::Value *Val) -> llvm::Value * {
+                  return IRB.CreateInsertValue(res,
+                                               Val,
+                                               llvm::ArrayRef<unsigned>(j++));
+                });
+
+            IRB.CreateRet(res);
+          }
+        }
+      }
+    }
+
+    DIB.finalizeSubprogram(Subprogram);
+  }
 
   return 0;
 }
