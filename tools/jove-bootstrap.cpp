@@ -25,8 +25,6 @@ namespace jove {
 }
 
 #define JOVE_EXTRA_BIN_PROPERTIES                                              \
-  binary_index_t BIdx;                                                         \
-                                                                               \
   fnmap_t fnmap;                                                               \
   bbmap_t bbmap;                                                               \
                                                                                \
@@ -435,10 +433,8 @@ int main(int argc, char **argv) {
   //
   // initialize state associated with every binary
   //
-  for (jove::binary_index_t BIdx = 0; BIdx < jove::decompilation.Binaries.size(); ++BIdx) {
-    auto &binary = jove::decompilation.Binaries[BIdx];
-
-    binary.BIdx = BIdx;
+  for_each_binary(jove::decompilation, [&](jove::binary_t &binary) {
+    jove::binary_index_t BIdx = &binary - &jove::decompilation.Binaries[0];
 
     // add to path -> index map
     if (binary.IsVDSO)
@@ -494,7 +490,7 @@ int main(int argc, char **argv) {
       TheTriple = O.makeTriple();
       Features = O.getFeatures();
     }
-  }
+  });
 
   jove::BinFoundVec.resize(jove::decompilation.Binaries.size());
 
@@ -1710,7 +1706,7 @@ static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
                                        return_t &Ret);
 
 void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
-  binary_index_t BIdx = b.BIdx;
+  binary_index_t BIdx = &b - &decompilation.Binaries[0];
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -3233,6 +3229,8 @@ static void harvest_irelative_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+
     if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::IRELATIVE)
       return;
 
@@ -3244,7 +3242,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
     } Resolved;
 
     try {
-      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, b.BIdx));
+      Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
     } catch (const std::exception &e) {
       if (opts::Verbose)
         WithColor::warning()
@@ -3320,6 +3318,8 @@ static void harvest_addressof_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
+    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+
     if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::ADDRESSOF)
       return;
 
@@ -3351,7 +3351,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
       } Resolved;
 
       try {
-        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, b.BIdx));
+        Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
       } catch (const std::exception &e) {
         if (opts::Verbose)
           WithColor::warning()
@@ -3374,7 +3374,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
 
       Resolved.BIdx = -1+(*it).second;
 
-      if (Resolved.BIdx == b.BIdx) /* _dl_fixup... */
+      if (Resolved.BIdx == BIdx) /* _dl_fixup... */
         return;
 
       binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
@@ -4393,8 +4393,6 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   // initialize state associated with every binary
   //
   binary_t &binary = decompilation.Binaries[BIdx];
-
-  binary.BIdx = BIdx;
 
   assert(!binary.IsVDSO);
   BinPathToIdxMap[binary.Path] = BIdx;
