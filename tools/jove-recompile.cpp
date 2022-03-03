@@ -710,9 +710,11 @@ int recompile(void) {
   }
 
   WithColor::note() << llvm::formatv(
-      "Recompiling {0} {1}...\n",
+      "Recompiling {0} {1}...",
       (opts::ForeignLibs ? 3 : Decompilation.Binaries.size()) - 2,
       opts::ForeignLibs ? "binary" : "binaries");
+
+  auto t1 = std::chrono::high_resolution_clock::now();
 
   //
   // run jove-llvm and llc on all DSOs
@@ -730,8 +732,14 @@ int recompile(void) {
       t.join();
   }
 
+  auto t2 = std::chrono::high_resolution_clock::now();
+
   if (worker_failed.load())
     return 1;
+
+  std::chrono::duration<double> s_double = t2 - t1;
+
+  llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
   // run ld on all the object files
