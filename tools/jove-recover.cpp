@@ -658,17 +658,6 @@ int await_process_completion(pid_t pid) {
   abort();
 }
 
-template <typename GraphTy>
-struct dfs_visitor : public boost::default_dfs_visitor {
-  typedef typename GraphTy::vertex_descriptor VertTy;
-
-  std::vector<VertTy> &out;
-
-  dfs_visitor(std::vector<VertTy> &out) : out(out) {}
-
-  void discover_vertex(VertTy v, const GraphTy &) const { out.push_back(v); }
-};
-
 std::string DescribeFunction(binary_index_t BIdx,
                              function_index_t FIdx) {
   auto &binary = Decompilation.Binaries.at(BIdx);
