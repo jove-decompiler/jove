@@ -115,6 +115,12 @@ static cl::list<std::string>
                cl::desc("New target for indirect branch that is a function"),
                cl::cat(JoveCategory));
 
+static cl::list<std::string>
+    ABI("abi", cl::CommaSeparated,
+        cl::value_desc("FuncBIdx,FIdx"),
+        cl::desc("Specified function is an ABI"),
+        cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -159,6 +165,11 @@ int main(int argc, char **argv) {
 
   if (opts::Function.size() > 0 && opts::Function.size() != 4) {
     WithColor::error() << "-function: invalid tuple\n";
+    return 1;
+  }
+
+  if (opts::ABI.size() > 0 && opts::ABI.size() != 2) {
+    WithColor::error() << "-abi: invalid tuple\n";
     return 1;
   }
 
@@ -487,6 +498,24 @@ int recover(void) {
     msg = (fmt(__ANSI_CYAN "(call*) %s -> %s" __ANSI_NORMAL_COLOR) %
            DescribeBasicBlock(IndCall.BIdx, IndCall.BBIdx) %
            DescribeFunction(Callee.BIdx, TargetFIdx))
+              .str();
+  } else if (opts::ABI.size() > 0) {
+    assert(opts::ABI.size() == 2);
+
+    dynamic_target_t NewABI = {strtoul(opts::ABI[0].c_str(), nullptr, 10),
+                               strtoul(opts::ABI[1].c_str(), nullptr, 10)};
+
+    function_t &f = function_of_target(NewABI, Decompilation);
+
+    if (f.IsABI) {
+      WithColor::warning() << "given function already marked as an ABI\n";
+      return 1;
+    }
+
+    f.IsABI = true;
+
+    msg = (fmt(__ANSI_BLUE "[ABI] %s" __ANSI_NORMAL_COLOR) %
+           DescribeFunction(NewABI.first, NewABI.second))
               .str();
   } else if (opts::Returns.size() > 0) {
     struct {
