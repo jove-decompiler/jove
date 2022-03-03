@@ -615,6 +615,7 @@ static llvm::GlobalVariable *JoveForeignFunctionTablesGlobal;
 static llvm::Function *JoveRecoverDynTargetFunc;
 static llvm::Function *JoveRecoverBasicBlockFunc;
 static llvm::Function *JoveRecoverReturnedFunc;
+static llvm::Function *JoveRecoverABIFunc;
 static llvm::Function *JoveRecoverFunctionFunc;
 
 static llvm::Function *JoveInstallForeignFunctionTables;
@@ -1481,6 +1482,9 @@ BOOST_PP_REPEAT(9, __THUNK, void)
 
   JoveRecoverReturnedFunc = Module->getFunction("_jove_recover_returned");
   assert(JoveRecoverReturnedFunc && !JoveRecoverReturnedFunc->empty());
+
+  JoveRecoverABIFunc = Module->getFunction("_jove_recover_ABI");
+  assert(JoveRecoverABIFunc && !JoveRecoverABIFunc->empty());
 
   JoveRecoverFunctionFunc = Module->getFunction("_jove_recover_function");
   assert(JoveRecoverFunctionFunc && !JoveRecoverFunctionFunc->empty());
@@ -6283,6 +6287,7 @@ static int TranslateFunction(function_t &f) {
   TranslateContext TC(f);
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
+  const function_index_t FIdx = &f - &Binary.Analysis.Functions[0];
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
   llvm::DIBuilder &DIB = *DIBuilder;
@@ -6422,6 +6427,8 @@ static int TranslateFunction(function_t &f) {
       IRB.SetCurrentDebugLocation(llvm::DILocation::get(
           *Context, ICFG[entry_bb].Addr, 0 /* Column */, Subprogram));
 
+      IRB.CreateCall(JoveRecoverABIFunc, {IRB.getInt32(FIdx)})->setIsNoInline();
+
       std::vector<llvm::Value *> argsToPass;
       {
         std::vector<unsigned> glbv;
@@ -6440,16 +6447,9 @@ static int TranslateFunction(function_t &f) {
                                          CallConvArgArray.end(), glb));
                            return F->getArg(Idx);
                          } else {
-                           if (glb == tcg_stack_pointer_index) {
-                             llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
-                             LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-                             return LI;
-                           } else {
-                             llvm::Type *Ty = llvm::Type::getIntNTy(
-                                   *Context,
-                                   bitsOfTCGType(TCG->_ctx.temps[glb].type));
-                             return llvm::UndefValue::get(Ty);
-                           }
+                           llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+                           LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+                           return LI;
                          }
                        });
       }

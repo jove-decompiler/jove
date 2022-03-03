@@ -461,3 +461,49 @@ found:
     }
   }
 }
+
+_HIDDEN void _jove_recover_ABI(uint32_t FIdx) {
+#if 0
+  char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
+  if (!recover_fifo_path)
+    return;
+#else
+  const char *recover_fifo_path = "/jove-recover.fifo";
+#endif
+
+  struct {
+    uint32_t BIdx;
+    uint32_t FIdx;
+  } NewABI;
+
+  NewABI.BIdx = _jove_binary_index();
+  NewABI.FIdx = FIdx;
+
+found:
+  {
+#ifdef __aarch64__
+    int recover_fd = _jove_sys_openat(-1, recover_fifo_path, O_WRONLY, 0666);
+#else
+    int recover_fd = _jove_sys_open(recover_fifo_path, O_WRONLY, 0666);
+#endif
+    if (recover_fd < 0)
+      _UNREACHABLE("could not open recover fifo");
+
+    {
+      char ch = 'a';
+
+      {
+        char buff[sizeof(char) + 2 * sizeof(uint32_t)];
+
+        buff[0] = ch;
+        *((uint32_t *)&buff[sizeof(char) + 0 * sizeof(uint32_t)]) = NewABI.BIdx;
+        *((uint32_t *)&buff[sizeof(char) + 1 * sizeof(uint32_t)]) = NewABI.FIdx;
+
+        if (_jove_sys_write(recover_fd, &buff[0], sizeof(buff)) != sizeof(buff))
+          _UNREACHABLE();
+      }
+
+      _jove_sys_close(recover_fd);
+    }
+  }
+}
