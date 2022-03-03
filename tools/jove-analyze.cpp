@@ -362,7 +362,8 @@ int AnalyzeBlocks(void) {
   auto t2 = std::chrono::high_resolution_clock::now();
 
   if (cnt)
-    WithColor::note() << llvm::formatv("Analyzing {0} basic blocks...\n", cnt);
+    WithColor::note() << llvm::formatv("Analyzed {0} basic block{1}.\n", cnt,
+                                       cnt == 1 ? "" : "s");
 
   //
   // XXX _jove_call
