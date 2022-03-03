@@ -1078,7 +1078,7 @@ void *recover_proc(const char *fifo_path) {
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
-    // 'f', 'F', 'b', or 'r'.
+    // 'f', 'F', 'b', 'a', or 'r'.
     //
     recovered_ch.store(ch);
     if (ch == 'f') {
@@ -1212,6 +1212,41 @@ void *recover_proc(const char *fifo_path) {
         if (opts::Verbose)
           print_command(&argv[0]);
 
+        execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
+        int err = errno;
+        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        exit(1);
+      }
+
+      (void)await_process_completion(pid);
+    } else if (ch == 'a') {
+      struct {
+        uint32_t BIdx;
+        uint32_t FIdx;
+      } NewABI;
+
+      {
+        ssize_t ret;
+
+        ret = robust_read(recover_fd, &NewABI.BIdx, sizeof(uint32_t));
+        assert(ret == sizeof(uint32_t));
+
+        ret = robust_read(recover_fd, &NewABI.FIdx, sizeof(uint32_t));
+        assert(ret == sizeof(uint32_t));
+      }
+
+      int pid = fork();
+      if (!pid) {
+        char buff[256];
+        snprintf(buff, sizeof(buff),
+                 "--abi=%" PRIu32 ",%" PRIu32,
+                 NewABI.BIdx,
+                 NewABI.FIdx);
+
+        const char *argv[] = {jove_recover_path.c_str(), "-d", jv_path.c_str(),
+                              buff, nullptr};
+        if (opts::Verbose)
+          print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
         llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
