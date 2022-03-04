@@ -396,6 +396,10 @@ static cl::list<std::string>
                   cl::desc("force specified TCG globals to always go through CPUState"),
                   cl::cat(JoveCategory));
 
+static cl::opt<bool> ABICalls("abi-calls",
+                              cl::desc("Call ABIs indirectly through _jove_call"),
+                              cl::cat(JoveCategory), cl::init(true));
+
 } // namespace opts
 
 namespace jove {
@@ -8186,7 +8190,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                                  [](dynamic_target_t X) -> bool {
                                    return function_of_target(X, Decompilation).IsABI;
                                  });
-    if (IsABICall)
+    if (opts::ABICalls && IsABICall)
     {
       llvm::Value *PC = IRB.CreateLoad(TC.PCAlloca);
 
