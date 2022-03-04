@@ -950,15 +950,25 @@ skip_run:
 
         fs::create_directories(chrooted_path.parent_path());
 
+        std::string new_chrooted_path = chrooted_path.string() + ".new";
+
         if (opts::Verbose)
           llvm::errs() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
-        ssize_t ret = robust_receive_file_with_size(remote_fd, chrooted_path.c_str(), 0777);
+        ssize_t ret = robust_receive_file_with_size(remote_fd, new_chrooted_path.c_str(), 0777);
         if (ret < 0) {
           WithColor::error()
               << llvm::formatv("failed to receive file {0} from remote: {1}\n",
                                chrooted_path.c_str(), strerror(-ret));
           return 1;
+        }
+
+        if (rename(new_chrooted_path.c_str(), chrooted_path.c_str()) < 0) {
+          int err = errno;
+          WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                              new_chrooted_path.c_str(),
+                                              chrooted_path.c_str(),
+                                              strerror(err));
         }
       }
 
