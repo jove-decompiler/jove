@@ -167,6 +167,10 @@ static cl::list<std::string>
                   cl::desc("force specified TCG globals to always go through CPUState"),
                   cl::cat(JoveCategory));
 
+static cl::opt<bool> ABICalls("abi-calls",
+                              cl::desc("Call ABIs indirectly through _jove_call"),
+                              cl::cat(JoveCategory), cl::init(true));
+
 } // namespace opts
 
 namespace jove {
@@ -709,10 +713,11 @@ int recompile(void) {
     Q.push_back(dso);
   }
 
-  WithColor::note() << llvm::formatv(
-      "Recompiling {0} {1}...",
-      (opts::ForeignLibs ? 3 : Decompilation.Binaries.size()) - 2,
-      opts::ForeignLibs ? "binary" : "binaries");
+  if (!opts::Verbose)
+    WithColor::note() << llvm::formatv(
+        "Recompiling {0} {1}...",
+        (opts::ForeignLibs ? 3 : Decompilation.Binaries.size()) - 2,
+        opts::ForeignLibs ? "binary" : "binaries");
 
   auto t1 = std::chrono::high_resolution_clock::now();
 
@@ -739,7 +744,8 @@ int recompile(void) {
 
   std::chrono::duration<double> s_double = t2 - t1;
 
-  llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
+  if (!opts::Verbose)
+    llvm::errs() << llvm::formatv(" {0} s\n", s_double.count());
 
   //
   // run ld on all the object files
@@ -1109,6 +1115,8 @@ void worker(const dso_graph_t &dso_graph) {
         arg_vec.push_back("--foreign-libs");
       if (opts::DebugSjlj)
         arg_vec.push_back("--debug-sjlj");
+      if (!opts::ABICalls)
+        arg_vec.push_back("--abi-calls=0");
 
       std::string pinned_globals_arg;
       if (!opts::PinnedGlobals.empty()) {
