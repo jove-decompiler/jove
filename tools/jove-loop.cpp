@@ -191,6 +191,10 @@ static cl::opt<std::string>
     ChangeDirectory("cd", cl::desc("change directory after chroot(2)'ing"),
                     cl::cat(JoveCategory));
 
+static cl::opt<bool> ABICalls("abi-calls",
+                              cl::desc("Call ABIs indirectly through _jove_call"),
+                              cl::cat(JoveCategory), cl::init(true));
+
 } // namespace opts
 
 namespace jove {
@@ -853,6 +857,7 @@ skip_run:
         headerBits.set(3, opts::Optimize);
         headerBits.set(4, opts::SkipCopyRelocHack);
         headerBits.set(5, opts::DebugSjlj);
+        headerBits.set(6, opts::ABICalls);
 
         uint8_t header = headerBits.to_ullong();
 
@@ -1342,6 +1347,9 @@ skip_run:
           arg_vec.push_back(use_ld_arg.c_str());
         }
 
+        if (opts::Verbose)
+          arg_vec.push_back("--verbose");
+
         if (opts::DFSan)
           arg_vec.push_back("--dfsan");
 
@@ -1356,6 +1364,9 @@ skip_run:
 
         if (opts::ForeignLibs)
           arg_vec.push_back("--foreign-libs");
+
+        if (!opts::ABICalls)
+          arg_vec.push_back("--abi-calls=0");
 
         std::string pinned_globals_arg;
         if (!opts::PinnedGlobals.empty()) {
