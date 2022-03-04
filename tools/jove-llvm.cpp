@@ -7524,24 +7524,24 @@ int TranslateBasicBlock(TranslateContext &TC) {
     return 0;
   }
 
-  auto store_stack_pointer = [&](void) -> void {
-    auto store_global = [&](unsigned glb) -> void {
-      llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
-      SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-    };
+  auto store_global_to_global_cpu_state = [&](unsigned glb) -> void {
+    llvm::StoreInst *SI = IRB.CreateStore(get(glb), CPUStateGlobalPointer(glb, IRB));
+    SI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+  };
 
-    store_global(tcg_stack_pointer_index);
+  auto store_stack_pointer = [&](void) -> void {
+    store_global_to_global_cpu_state(tcg_stack_pointer_index);
+  };
+
+  auto reload_global_from_global_cpu_state = [&](unsigned glb) -> void {
+    llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
+    LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
+
+    set(LI, glb);
   };
 
   auto reload_stack_pointer = [&](void) -> void {
-    auto reload_global = [&](unsigned glb) -> void {
-      llvm::LoadInst *LI = IRB.CreateLoad(CPUStateGlobalPointer(glb, IRB));
-      LI->setMetadata(llvm::LLVMContext::MD_alias_scope, AliasScopeMetadata);
-
-      set(LI, glb);
-    };
-
-    reload_global(tcg_stack_pointer_index);
+    reload_global_from_global_cpu_state(tcg_stack_pointer_index);
   };
 
   struct {
@@ -8206,6 +8206,11 @@ int TranslateBasicBlock(TranslateContext &TC) {
 
       store_stack_pointer();
       save_callstack_pointers();
+
+#if defined(TARGET_MIPS32)
+      store_global_to_global_cpu_state(tcg_t9_index);
+      store_global_to_global_cpu_state(tcg_ra_index);
+#endif
 
       llvm::CallInst *Ret = IRB.CreateCall(JoveCallFunc, ArgVec);
       Ret->setIsNoInline();
