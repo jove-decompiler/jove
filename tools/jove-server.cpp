@@ -563,7 +563,7 @@ void *ConnectionProc(void *arg) {
   // parse the header
   //
   struct {
-    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj;
+    bool dfsan, foreign_libs, trace, optimize, skip_copy_reloc_hack, debug_sjlj, abi_calls;
   } options;
 
   std::bitset<8> headerBits(header);
@@ -574,6 +574,7 @@ void *ConnectionProc(void *arg) {
   options.optimize     = headerBits.test(3);
   options.skip_copy_reloc_hack = headerBits.test(4);
   options.debug_sjlj = headerBits.test(5);
+  options.abi_calls = headerBits.test(6);
 
   std::string tmpjv = (TemporaryDir / "decompilation.jv").string();
   {
@@ -652,6 +653,8 @@ void *ConnectionProc(void *arg) {
       arg_vec.push_back("--skip-copy-reloc-hack");
     if (options.debug_sjlj)
       arg_vec.push_back("--debug-sjlj");
+    if (!options.abi_calls)
+      arg_vec.push_back("--abi-calls=0");
 
     std::string pinned_globals_arg = "--pinned-globals=";
     if (!PinnedGlobals.empty()) {
