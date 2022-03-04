@@ -55,7 +55,7 @@ _HIDDEN void _jove_recover_dyn_target(uint32_t CallerBBIdx,
   unsigned N = _jove_foreign_lib_count();
 
   bool FoundAll = true;
-  for (unsigned j = 3; j < N; ++j) {
+  for (unsigned j = 3; j < N + 3; ++j) {
     if (__jove_foreign_function_tables[j] == NULL) {
       FoundAll = false;
       break;

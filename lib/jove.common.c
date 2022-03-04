@@ -717,7 +717,7 @@ jove_thunk_return_t _jove_call(
   unsigned N = _jove_foreign_lib_count();
 
   bool FoundAll = true;
-  for (unsigned j = 3; j < N; ++j) {
+  for (unsigned j = 3; j < N + 3; ++j) {
     if (__jove_foreign_function_tables[j] == NULL) {
       FoundAll = false;
       break;
