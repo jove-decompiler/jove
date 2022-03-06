@@ -455,17 +455,19 @@ int main(int argc, char **argv) {
     if (!BinOrErr) {
       if (!binary.IsVDSO)
         WithColor::warning() << llvm::formatv(
-            "{0}: failed to create binary from {1}\n", __func__, binary.Path);
+            "failed to create binary having path {0}\n", binary.Path);
 
-      // TODO
+      return;
     } else {
-      std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
+      std::unique_ptr<obj::Binary> &BinRef = *BinOrErr;
+      assert(BinRef.get());
+
       binary.ObjectFile = std::move(BinRef);
 
       assert(binary.ObjectFile.get());
       if (!llvm::isa<jove::ELFO>(binary.ObjectFile.get())) {
         WithColor::error() << binary.Path << " is not ELF of expected type\n";
-        return 1;
+        exit(1);
       }
 
       jove::ELFO &O = *llvm::cast<jove::ELFO>(binary.ObjectFile.get());
