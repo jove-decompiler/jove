@@ -641,6 +641,9 @@ void *ConnectionProc(void *arg) {
         "-o", sysroot_dir.c_str(),
     };
 
+    if (opts::Verbose)
+      arg_vec.push_back("--verbose");
+
     if (options.dfsan)
       arg_vec.push_back("--dfsan");
     if (options.foreign_libs)
