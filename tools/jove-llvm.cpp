@@ -2891,7 +2891,7 @@ int CreateFunctions(void) {
       }
     }
 
-    if (opts::ABICalls && !f.IsABI) {
+    if (!f.IsABI) {
       //
       // create an "ABI adapter" for use with _jove_call
       //
