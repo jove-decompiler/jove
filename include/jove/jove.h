@@ -630,18 +630,16 @@ static inline void identify_ABIs(decompilation_t &decompilation) {
   // If a function is called from a different binary, it is an ABI.
   //
   for_each_basic_block(decompilation, [&](binary_t &b, basic_block_t bb) {
-    auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
     binary_index_t BIdx = &b - &decompilation.Binaries[0];
 
-    if (std::any_of(
-            DynTargets.begin(),
-            DynTargets.end(),
-            [&](dynamic_target_t X) -> bool { return X.first != BIdx; }))
-      std::for_each(DynTargets.begin(),
-                    DynTargets.end(),
-                    [&](dynamic_target_t X) {
-                      function_of_target(X, decompilation).IsABI = true;
-                    });
+    auto &DynTargets = b.Analysis.ICFG[bb].DynTargets;
+    for_each_if(
+        DynTargets.begin(),
+        DynTargets.end(),
+        [&](dynamic_target_t X) -> bool { return X.first != BIdx; },
+        [&](dynamic_target_t X) {
+          function_of_target(X, decompilation).IsABI = true;
+        });
   });
 
   // XXX unnecessary?
