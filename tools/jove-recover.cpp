@@ -507,14 +507,12 @@ int recover(void) {
 
     function_t &f = function_of_target(NewABI, Decompilation);
 
-    if (f.IsABI) {
-      WithColor::warning() << "given function already marked as an ABI\n";
-      return 1;
-    }
+    if (f.IsABI)
+      return 1; // given function already marked as an ABI
 
     f.IsABI = true;
 
-    msg = (fmt(__ANSI_BLUE "[ABI] %s" __ANSI_NORMAL_COLOR) %
+    msg = (fmt(__ANSI_BLUE "(abi) %s" __ANSI_NORMAL_COLOR) %
            DescribeFunction(NewABI.first, NewABI.second))
               .str();
   } else if (opts::Returns.size() > 0) {
