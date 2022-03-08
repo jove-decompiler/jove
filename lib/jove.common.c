@@ -74,9 +74,14 @@ void _jove_make_sections_executable(void) {
     _UNREACHABLE("failed to make sections executable\n");
 }
 
-#if !defined(__x86_64__) && defined(__i386__)
+#if (!defined(__x86_64__) && defined(__i386__)) || \
+    (!defined(__mips64) && defined(__mips__))
 //
-// args are passed on stack. see definition of _jove_init in lib/arch/i386/jove.c
+// on i386, args are passed on stack. see definition of _jove_init in
+// lib/arch/i386/jove.c
+//
+// on mips32, we need to code _jove_init in assembly to produce "magic
+// instruction sequence"
 //
 #else
 _HIDDEN void _jove_init(
