@@ -2592,23 +2592,13 @@ static void expandMemIntrinsicUses(llvm::Function &F) {
 static tcg_global_set_t DetermineFunctionArgs(function_t &f) {
   f.Analyze();
 
-  tcg_global_set_t res = f.Analysis.args;
-
-  if (f.IsABI)
-    res &= CallConvArgs;
-
-  return res;
+  return f.Analysis.args;
 }
 
 static tcg_global_set_t DetermineFunctionRets(function_t &f) {
   f.Analyze();
 
-  tcg_global_set_t res = f.Analysis.rets;
-
-  if (f.IsABI)
-    res &= CallConvRets;
-
-  return res;
+  return f.Analysis.rets;
 }
 
 static void sort_tcg_global_args(std::vector<unsigned> &glbv) {
@@ -2758,8 +2748,15 @@ llvm::FunctionType *FunctionTypeOfArgsAndRets(tcg_global_set_t args,
 llvm::FunctionType *DetermineFunctionType(function_t &f) {
   f.Analyze();
 
-  return FunctionTypeOfArgsAndRets(DetermineFunctionArgs(f),
-                                   DetermineFunctionRets(f));
+  tcg_global_set_t args = DetermineFunctionArgs(f);
+  tcg_global_set_t rets = DetermineFunctionRets(f);
+
+  if (f.IsABI) {
+    args &= CallConvArgs;
+    rets &= CallConvRets;
+  }
+
+  return FunctionTypeOfArgsAndRets(args, rets);
 }
 
 llvm::FunctionType *DetermineFunctionType(dynamic_target_t X) {
