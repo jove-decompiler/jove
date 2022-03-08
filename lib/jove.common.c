@@ -905,6 +905,40 @@ jove_thunk_return_t _jove_call(
     }
   }
 
+#if defined(__mips64) || defined(__mips__)
+  //
+  // check for the possibility that _jove_init is our given pc, which may happen
+  // if the code (usually in the dynamic linker) that calls the init functions
+  // of a newly dlopen'd shared library is, itself, recompiled
+  //
+  {
+    const uint32_t *p = (const uint32_t *)pc + 5;
+
+    //
+    // 24000929        li      zero,2345
+    // 24000159        li      zero,345
+    // 2400002d        li      zero,45
+    // 24000005        li      zero,5
+    // 24000036        li      zero,54
+    // 2400021f        li      zero,543
+    // 24001538        li      zero,5432
+    //
+
+    bool IsJoveInit = p[0] == 0x24000929 &&
+                      p[1] == 0x24000159 &&
+                      p[2] == 0x2400002d &&
+                      p[3] == 0x24000005 &&
+                      p[4] == 0x24000036 &&
+                      p[5] == 0x2400021f &&
+                      p[6] == 0x24001538;
+
+    if (IsJoveInit) {
+      _jove_fail1(pc, "_jove_init is being called!!");
+      __builtin_unreachable();
+    }
+  }
+#endif
+
   {
     _jove_fail1(pc, "_jove_call failed");
 
