@@ -301,6 +301,15 @@ asm(".text\n"
     "subu $sp, $sp, 32" "\n" /* allocate stack memory */
     "sw $ra,16($sp)"    "\n" /* save ra */
 
+    /* XXX MAGIC INSTRUCTION BYTES XXX */
+    "li $zero, 2345"  "\n" /* nop */
+    "li $zero, 345"   "\n" /* nop */
+    "li $zero, 45"    "\n" /* nop */
+    "li $zero, 5"     "\n" /* nop */
+    "li $zero, 54"    "\n" /* nop */
+    "li $zero, 543"   "\n" /* nop */
+    "li $zero, 5432"  "\n" /* nop */
+
     "la $t9, _jove_initialize" "\n"
     "jalr $t9"                 "\n"
 
