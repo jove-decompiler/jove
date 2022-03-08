@@ -299,7 +299,14 @@ asm(".text\n"
     ".set reorder"                "\n"
 
     "subu $sp, $sp, 32" "\n" /* allocate stack memory */
-    "sw $ra,16($sp)"    "\n" /* save ra */
+
+    "sw $a0,8($sp)"  "\n" /* save args */
+    "sw $a1,12($sp)" "\n"
+    "sw $a2,16($sp)" "\n"
+    "sw $a3,20($sp)" "\n"
+
+    "sw $ra,24($sp)" "\n" /* save ra */
+    "sw $gp,28($sp)" "\n" /* save gp */
 
     /* XXX MAGIC INSTRUCTION BYTES XXX */
     "li $zero, 2345"  "\n" /* nop */
@@ -313,15 +320,22 @@ asm(".text\n"
     "la $t9, _jove_initialize" "\n"
     "jalr $t9"                 "\n"
 
+    "lw $gp,28($sp)" "\n" /* gp could have been clobbered */
+
     "la $t9, _jove_get_init_fn_sect_ptr" "\n"
     "jalr $t9"                           "\n"
 
     "beqz $v0, 10f" "\n" /* does DT_INIT function exist? */
 
+    "lw $a0,8($sp)"  "\n" /* restore args */
+    "lw $a1,12($sp)" "\n"
+    "lw $a2,16($sp)" "\n"
+    "lw $a3,20($sp)" "\n"
+
     "move $t9, $v0" "\n"
     "jalr $t9"      "\n" /* call DT_INIT function */
 
-"10: lw $ra,16($sp)"     "\n" /* restore ra */
+"10: lw $ra,24($sp)"     "\n" /* restore ra */
     "addiu $sp, $sp, 32" "\n" /* deallocate stack memory */
 
     "jr $ra"          "\n"
