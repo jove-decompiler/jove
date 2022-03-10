@@ -185,6 +185,16 @@ static cl::opt<bool> Quiet("quiet", cl::desc("Suppress non-error messages"),
 static cl::alias QuietAlias("q", cl::desc("Alias for -quiet."),
                             cl::aliasopt(Quiet), cl::cat(JoveCategory));
 
+static cl::opt<bool>
+    Silent("silent",
+            cl::desc("Leave the stdout/stderr of the application undisturbed"),
+            cl::cat(JoveCategory));
+
+static cl::opt<std::string>
+    HumanOutput("human-output",
+                cl::desc("Print messages to the given file path"),
+                cl::cat(JoveCategory));
+
 static cl::opt<bool> RtldDbgBrk("rtld-dbg-brk",
                                 cl::desc("look for r_debug::r_brk"),
                                 cl::cat(JoveCategory), cl::init(true));
@@ -290,6 +300,13 @@ static unsigned TurboToggle = 0;
 static pid_t saved_child = 0;
 static pid_t _child = 0; /* XXX */
 
+static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+
+static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
+static llvm::raw_ostream &HumanOut(void) {
+  return *HumanOutputStreamPtr;
+}
+
 }
 
 int main(int argc, char **argv) {
@@ -339,13 +356,30 @@ int main(int argc, char **argv) {
   });
   cl::ParseCommandLineOptions(_argc, _argv, "Jove Dynamic Analysis\n");
 
+  if (!opts::Silent) {
+    jove::HumanOutputStreamPtr = &llvm::errs();
+
+    if (!opts::HumanOutput.empty()) {
+      std::error_code EC;
+      jove::HumanOutputFileStream.reset(
+          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
+
+      if (EC) {
+        WithColor::error() << "--human-output: invalid filename passed\n";
+        return 1;
+      }
+
+      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
+    }
+  }
+
   if (!fs::exists(opts::Prog)) {
-    WithColor::error() << "program does not exist\n";
+    jove::HumanOut() << "program does not exist\n";
     return 1;
   }
 
   if (!fs::exists(opts::jv)) {
-    WithColor::error() << "decompilation does not exist\n";
+    jove::HumanOut() << "decompilation does not exist\n";
     return 1;
   }
 
@@ -353,8 +387,7 @@ int main(int argc, char **argv) {
       (boost::dll::program_location().parent_path() / std::string("jove-add"))
           .string();
   if (!fs::exists(jove::jove_add_path))
-    WithColor::warning() << "could not find jove-add at " << jove::jove_add_path
-                         << '\n';
+    jove::HumanOut() << "could not find jove-add at " << jove::jove_add_path << '\n';
 
   //
   // okay, it looks like we're actually going to run. initialize stuff
@@ -403,7 +436,7 @@ int main(int argc, char **argv) {
       if (vdso && n > 0) {
         if (binary.Data.size() != n ||
             memcmp(&binary.Data[0], vdso, binary.Data.size())) {
-          WithColor::error() << "[vdso] has changed\n";
+          jove::HumanOut() << "[vdso] has changed\n";
           return 1;
         }
       }
@@ -412,15 +445,14 @@ int main(int argc, char **argv) {
           llvm::MemoryBuffer::getFileOrSTDIN(binary.Path);
 
       if (std::error_code EC = FileOrErr.getError()) {
-        WithColor::error() << llvm::formatv("failed to open binary {0}\n",
-                                            binary.Path);
+        jove::HumanOut() << llvm::formatv("failed to open binary {0}\n", binary.Path);
         return 1;
       }
 
       std::unique_ptr<llvm::MemoryBuffer> &Buffer = FileOrErr.get();
       if (binary.Data.size() != Buffer->getBufferSize() ||
           memcmp(&binary.Data[0], Buffer->getBufferStart(), binary.Data.size())) {
-        WithColor::error() << llvm::formatv(
+        jove::HumanOut() << llvm::formatv(
             "binary {0} has changed ; re-run jove-init?\n", binary.Path);
         return 1;
       }
@@ -454,7 +486,7 @@ int main(int argc, char **argv) {
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
       if (!binary.IsVDSO)
-        WithColor::warning() << llvm::formatv(
+        jove::HumanOut() << llvm::formatv(
             "failed to create binary having path {0}\n", binary.Path);
 
       return;
@@ -466,7 +498,7 @@ int main(int argc, char **argv) {
 
       assert(binary.ObjectFile.get());
       if (!llvm::isa<jove::ELFO>(binary.ObjectFile.get())) {
-        WithColor::error() << binary.Path << " is not ELF of expected type\n";
+        jove::HumanOut() << binary.Path << " is not ELF of expected type\n";
         exit(1);
       }
 
@@ -505,7 +537,7 @@ int main(int argc, char **argv) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
+    jove::HumanOut() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
@@ -515,7 +547,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    WithColor::error() << "no register info for target\n";
+    jove::HumanOut() << "no register info for target\n";
     return 1;
   }
 
@@ -523,20 +555,20 @@ int main(int argc, char **argv) {
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
+    jove::HumanOut() << "no assembly info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCSubtargetInfo> STI(
       TheTarget->createMCSubtargetInfo(TripleName, MCPU, Features.getString()));
   if (!STI) {
-    WithColor::error() << "no subtarget info\n";
+    jove::HumanOut() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(TheTarget->createMCInstrInfo());
   if (!MII) {
-    WithColor::error() << "no instruction info\n";
+    jove::HumanOut() << "no instruction info\n";
     return 1;
   }
 
@@ -548,7 +580,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
+    jove::HumanOut() << "no disassembler for target\n";
     return 1;
   }
 
@@ -560,7 +592,7 @@ int main(int argc, char **argv) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    WithColor::error() << "no instruction printer\n";
+    jove::HumanOut() << "no instruction printer\n";
     return 1;
   }
 
@@ -569,25 +601,25 @@ int main(int argc, char **argv) {
   auto sighandler = [](int no) -> void {
     switch (no) {
       case SIGSEGV: {
-        llvm::errs() << "***JOVE*** bootstrap crashed! detaching from tracee...\n";
+        jove::HumanOut() << "***JOVE*** bootstrap crashed! detaching from tracee...\n";
 
         //
         // detach from tracee
         //
         if (ptrace(PTRACE_DETACH, jove::saved_child, 0UL, 0UL) < 0) {
           int err = errno;
-          WithColor::error() << llvm::formatv("failed to detach from tracee [{0}]: {1}\n",
-                                              jove::saved_child,
-                                              strerror(err));
+          jove::HumanOut() << llvm::formatv("failed to detach from tracee [{0}]: {1}\n",
+                                            jove::saved_child,
+                                            strerror(err));
           exit(1);
         }
 
-        llvm::errs() << llvm::formatv("***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
+        jove::HumanOut() << llvm::formatv("***JOVE*** bootstrap crashed! attach a debugger [{0}]...", getpid());
         for (;;) {
           for (unsigned i = 0; i < 10; ++i)
             sleep(1);
 
-          llvm::errs() << ".";
+          jove::HumanOut() << ".";
         }
 
         __builtin_trap();
@@ -602,7 +634,7 @@ int main(int argc, char **argv) {
       // SIGUSR2: write decompilation and exit
       //
       case SIGUSR2: {
-        llvm::errs() << "writing decompilation and exiting...\n";
+        jove::HumanOut() << "writing decompilation and exiting...\n";
 
         //
         // write decompilation
@@ -631,8 +663,8 @@ int main(int argc, char **argv) {
       //
       if (kill(jove::saved_child, SIGSTOP /* SIGWINCH */) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("kill of {0} failed: {1}\n",
-                                            jove::saved_child, strerror(err));
+        jove::HumanOut() << llvm::formatv("kill of {0} failed: {1}\n",
+                                          jove::saved_child, strerror(err));
       }
     }
   };
@@ -647,8 +679,8 @@ int main(int argc, char **argv) {
                                                                                \
     if (sigaction(sig, &sa, nullptr) < 0) {                                    \
       int err = errno;                                                         \
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",     \
-                                          __func__, strerror(err));            \
+      jove::HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",       \
+                                        __func__, strerror(err));              \
     }                                                                          \
   } while (0)
 
@@ -669,7 +701,7 @@ int main(int argc, char **argv) {
     // mode 1: attach
     //
     if (ptrace(PTRACE_ATTACH, child, 0UL, 0UL) < 0) {
-      llvm::errs() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
+      jove::HumanOut() << llvm::formatv("PTRACE_ATTACH failed ({0})\n", strerror(errno));
       return 1;
     }
 
@@ -678,7 +710,7 @@ int main(int argc, char **argv) {
     // wait on it.
     //
     if (opts::Verbose)
-      llvm::errs() << "waiting for SIGSTOP...\n";
+      jove::HumanOut() << "waiting for SIGSTOP...\n";
 
     {
       int status;
@@ -688,7 +720,7 @@ int main(int argc, char **argv) {
     }
 
     if (opts::Verbose)
-      llvm::errs() << "waited on SIGSTOP.\n";
+      jove::HumanOut() << "waited on SIGSTOP.\n";
 
     {
       int ptrace_options = PTRACE_O_TRACESYSGOOD |
@@ -701,9 +733,9 @@ int main(int argc, char **argv) {
 
       if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                            __func__,
-                                            strerror(err));
+        jove::HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                          __func__,
+                                          strerror(err));
       }
     }
 
@@ -714,7 +746,7 @@ int main(int argc, char **argv) {
     //
     int pipefd[2];
     if (pipe(pipefd) < 0) { /* first, create a pipe */
-      WithColor::error() << "pipe(2) failed. bug?\n";
+      jove::HumanOut() << "pipe(2) failed. bug?\n";
       return 1;
     }
 
@@ -751,8 +783,8 @@ int main(int argc, char **argv) {
     // observe the (initial) signal-delivery-stop
     //
     if (opts::Verbose)
-      llvm::errs() << "parent: waiting for initial stop of child " << child
-                   << "...\n";
+      jove::HumanOut() << "parent: waiting for initial stop of child " << child
+                       << "...\n";
 
     {
       int status;
@@ -762,7 +794,7 @@ int main(int argc, char **argv) {
     }
 
     if (opts::Verbose)
-      llvm::errs() << "parent: initial stop observed\n";
+      jove::HumanOut() << "parent: initial stop observed\n";
 
     {
       //
@@ -778,9 +810,9 @@ int main(int argc, char **argv) {
 
       if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                            __func__,
-                                            strerror(err));
+        jove::HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                          __func__,
+                                          strerror(err));
       }
     }
 
@@ -789,7 +821,7 @@ int main(int argc, char **argv) {
     //
     if (ptrace(PTRACE_CONT, child, 0UL, 0UL) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("failed to resume tracee! {0}", err);
+      jove::HumanOut() << llvm::formatv("failed to resume tracee! {0}", err);
       return 1;
     }
 
@@ -1001,8 +1033,8 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                                 ? PTRACE_SYSCALL
                                 : PTRACE_CONT,
                             child, nullptr, reinterpret_cast<void *>(sig)) < 0))
-          WithColor::error() << "failed to resume tracee : " << strerror(errno)
-                             << '\n';
+          HumanOut() << "failed to resume tracee : " << strerror(errno)
+                     << '\n';
       }
 
       //
@@ -1021,7 +1053,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
         if (err == EINTR)
           continue;
 
-        llvm::errs() << llvm::formatv("exiting... ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("exiting... ({0})\n", strerror(err));
         break;
       }
 
@@ -1048,9 +1080,9 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 
           if (ptrace(PTRACE_SETOPTIONS, child, 0UL, ptrace_options) < 0) {
             int err = errno;
-            WithColor::error() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
-                                                __func__,
-                                                strerror(err));
+            HumanOut() << llvm::formatv("{0}: PTRACE_SETOPTIONS failed ({1})\n",
+                                        __func__,
+                                        strerror(err));
           }
         }
 
@@ -1058,7 +1090,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           ToggleTurbo.store(false);
 
           if (!TurboToggle) {
-            llvm::errs() << __ANSI_BOLD_GREEN "TURBO ON" __ANSI_NORMAL_COLOR "\n";
+            HumanOut() << __ANSI_BOLD_GREEN "TURBO ON" __ANSI_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
@@ -1096,7 +1128,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               }
             }
           } else {
-            llvm::errs() << __ANSI_BOLD_RED "TURBO OFF" __ANSI_NORMAL_COLOR "\n";
+            HumanOut() << __ANSI_BOLD_RED "TURBO OFF" __ANSI_NORMAL_COLOR "\n";
 
             for (const auto &Entry : RetMap) {
               uintptr_t Addr  = Entry.first;
@@ -1228,7 +1260,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               a5 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 16);
               a6 = _ptrace_peekdata(child, cpu_state.regs[29 /* sp */] + 20);
             } catch (const std::exception &e) {
-              WithColor::error() << llvm::formatv(
+              HumanOut() << llvm::formatv(
                   "{0}: couldn't read arguments 5 and 6: {1}\n", __func__,
                   e.what());
 
@@ -1252,7 +1284,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               case __NR_exit:
               case __NR_exit_group:
                 if (opts::Verbose)
-                  WithColor::note() << "Observed program exit.\n";
+                  HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
                 break;
 
@@ -1305,7 +1337,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #ifdef __NR_rt_sigaction
               case __NR_rt_sigaction: {
 		if (opts::Verbose)
-		  WithColor::note()
+		  HumanOut()
 		      << llvm::formatv("rt_sigaction({0}, {1:x}, {2:x}, {3})\n",
 				       a1, a2, a3, a4);
 
@@ -1321,7 +1353,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                   uintptr_t handler = _ptrace_peekdata(child, act + handler_offset);
 
                   if (opts::Verbose)
-                    llvm::errs() << llvm::formatv(
+                    HumanOut() << llvm::formatv(
                         "on rt_sigaction(): handler={0:x}\n", handler);
 
                   if (handler && (void *)handler != SIG_IGN) {
@@ -1355,13 +1387,13 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
                           b.Analysis.Functions[FIdx].IsSignalHandler = true;
                           b.Analysis.Functions[FIdx].IsABI = true;
                         } else {
-                          WithColor::warning() << llvm::formatv(
+                          HumanOut() << llvm::formatv(
                               "on rt_sigaction(): failed to translate handler {0}\n",
                               description_of_program_counter(handler));
                         }
                       }
                     } else {
-                      WithColor::warning() << llvm::formatv(
+                      HumanOut() << llvm::formatv(
                           "on rt_sigaction(): handler {0} in unknown binary\n",
                           description_of_program_counter(handler, true));
                     }
@@ -1406,53 +1438,53 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
             switch (event) {
             case PTRACE_EVENT_VFORK:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_VFORK) [" << child
+                           << "]\n";
               break;
             case PTRACE_EVENT_FORK:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_FORK) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_FORK) [" << child
+                           << "]\n";
               break;
             case PTRACE_EVENT_CLONE: {
               pid_t new_child;
               ptrace(PTRACE_GETEVENTMSG, child, nullptr, &new_child);
 
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_CLONE) -> "
-                             << new_child << " [" << child << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_CLONE) -> "
+                           << new_child << " [" << child << "]\n";
               break;
             }
             case PTRACE_EVENT_VFORK_DONE:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
-                             << child << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_VFORK_DONE) ["
+                           << child << "]\n";
               break;
             case PTRACE_EVENT_EXEC:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_EXEC) [" << child
+                           << "]\n";
               break;
             case PTRACE_EVENT_EXIT:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_EXIT) [" << child
+                           << "]\n";
 
               if (child == saved_child) {
                 if (opts::Verbose)
-                  WithColor::note() << "Observed program exit.\n";
+                  HumanOut() << "Observed program exit.\n";
                 harvest_reloc_targets(child, tcg, dis);
               }
               break;
             case PTRACE_EVENT_STOP:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_STOP) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_STOP) [" << child
+                           << "]\n";
               break;
             case PTRACE_EVENT_SECCOMP:
               if (opts::PrintPtraceEvents)
-                llvm::errs() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
-                             << "]\n";
+                HumanOut() << "ptrace event (PTRACE_EVENT_SECCOMP) [" << child
+                           << "]\n";
               break;
             }
           } else {
@@ -1460,7 +1492,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
               on_breakpoint(child, tcg, dis);
             } catch (const std::exception &e) {
               /* TODO rate-limit */
-              WithColor::error() << llvm::formatv(
+              HumanOut() << llvm::formatv(
                   "{0}: on_breakpoint failed: {1}\n", __func__, e.what());
             }
           }
@@ -1470,7 +1502,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
           //
 
           if (opts::PrintPtraceEvents)
-            llvm::errs() << "ptrace group-stop [" << child << "]\n";
+            HumanOut() << "ptrace group-stop [" << child << "]\n";
 
           // When restarting a tracee from a ptrace-stop other than
           // signal-delivery-stop, recommended practice is to always pass 0 in
@@ -1511,22 +1543,22 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
 #endif
 
           if (sig && opts::Signals)
-            llvm::errs() << llvm::formatv("delivering signal {0} <{1}> [{2}]\n",
-                                          sig, strsignal(sig), child);
+            HumanOut() << llvm::formatv("delivering signal {0} <{1}> [{2}]\n",
+                                        sig, strsignal(sig), child);
         }
       } else {
         //
         // the child terminated
         //
         if (opts::VeryVerbose)
-          llvm::errs() << "child " << child << " terminated\n";
+          HumanOut() << "child " << child << " terminated\n";
 
         child = -1;
       }
     }
   } catch (const std::exception &e) {
     std::string what(e.what());
-    WithColor::error() << llvm::formatv("exception! {0}\n", what);
+    HumanOut() << llvm::formatv("exception! {0}\n", what);
   }
 
   IgnoreCtrlC(); /* user probably doesn't want to interrupt the following */
@@ -1591,7 +1623,7 @@ int TracerLoop(pid_t child, tiny_code_generator_t &tcg, disas_t &dis) {
     if (unlikely(NumChanged)) {
       InvalidateAllFunctionAnalyses();
 
-      WithColor::note() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "fixed {0} ambiguous indirect jump{1}\n", NumChanged,
           NumChanged > 1 ? "s" : "");
     }
@@ -1662,8 +1694,8 @@ void IgnoreCtrlC(void) {
 
   if (sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;
-    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                        __func__, strerror(err));
+    HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                __func__, strerror(err));
   }
 }
 
@@ -1676,8 +1708,8 @@ void UnIgnoreCtrlC(void) {
 
   if (sigaction(SIGINT, &sa, nullptr) < 0) {
     int err = errno;
-    WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                        __func__, strerror(err));
+    HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                __func__, strerror(err));
   }
 }
 
@@ -1768,7 +1800,7 @@ void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
     try {
       place_breakpoint_at_indirect_branch(_child, termpc, indbr, dis);
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
+      HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
     }
   }
 
@@ -1830,7 +1862,7 @@ void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
     try {
       place_breakpoint_at_return(_child, termpc, RetInfo);
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
+      HumanOut() << llvm::formatv("failed to place breakpoint at return: {0}\n", e.what());
     }
   }
 }
@@ -2017,7 +2049,7 @@ void place_breakpoint_at_indirect_branch(pid_t child,
   _ptrace_pokedata(child, Addr, word);
 
   if (opts::VeryVerbose)
-    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
+    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 void place_breakpoint(pid_t child,
@@ -2037,7 +2069,7 @@ void place_breakpoint(pid_t child,
   _ptrace_pokedata(child, Addr, word);
 
   if (opts::VeryVerbose)
-    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
+    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
@@ -2066,7 +2098,7 @@ void place_breakpoint_at_return(pid_t child, uintptr_t Addr, return_t &r) {
   _ptrace_pokedata(child, Addr, word);
 
   if (opts::VeryVerbose)
-    llvm::errs() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
+    HumanOut() << (fmt("breakpoint placed @ %#lx") % Addr).str() << '\n';
 }
 
 struct ScopedCPUState {
@@ -2269,8 +2301,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     switch (opc) {
     default: { /* fallback to code cave XXX */
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("delayslot: {0} ({1})\n", I,
-                                      StringOfMCInst(I, dis));
+        HumanOut() << llvm::formatv("delayslot: {0} ({1})\n", I,
+                                    StringOfMCInst(I, dis));
 
       assert(ExecutableRegionAddress);
 
@@ -2659,8 +2691,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
     }
 
     if (opts::VeryVerbose)
-      llvm::errs() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
-                                    StringOfMCInst(I, dis));
+      HumanOut() << llvm::formatv("emudelayslot: {0} ({1})\n", I,
+                                  StringOfMCInst(I, dis));
 
     uintptr_t target = RegValue(reg);
 
@@ -2693,7 +2725,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
           Inst.getNumOperands() == 1 &&
           Inst.getOperand(0).isReg() &&
           Inst.getOperand(0).getReg() == llvm::Mips::RA)) {
-      WithColor::warning() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "emulate_return: expected jr $ra, instead {0} {1} @ {2}\n",
 	  Inst, StringOfMCInst(Inst, dis),
           description_of_program_counter(saved_pc, true));
@@ -2728,7 +2760,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   {
     if (unlikely(saved_pc == _r_debug.r_brk)) {
       if (opts::Verbose) {
-        llvm::errs() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "*_r_debug.r_brk [{0}]\n",
             description_of_program_counter(_r_debug.r_brk, true));
       }
@@ -2749,7 +2781,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
                        brk.InsnBytes);
       } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("failed to emulate return: {0}\n", e.what());
+        HumanOut() << llvm::formatv("failed to emulate return: {0}\n", e.what());
       }
       return;
     }
@@ -2770,13 +2802,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 #endif
                        ret.InsnBytes);
       } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("failed to emulate return: {0}\n", e.what());
+        HumanOut() << llvm::formatv("failed to emulate return: {0}\n", e.what());
       }
 
       try {
         on_return(child, saved_pc, pc, tcg, dis);
       } catch (const std::exception &e) {
-        WithColor::error() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
+        HumanOut() << llvm::formatv("{0} failed: {1}\n", __func__, e.what());
       }
       return;
     }
@@ -2792,13 +2824,13 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       brk.callback(child, tcg, dis);
 
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
+        HumanOut() << llvm::formatv("one-shot breakpoint hit @ {0}\n",
                                       description_of_program_counter(saved_pc));
 
       try {
         _ptrace_pokedata(child, saved_pc, brk.words[0]);
       } catch (const std::exception &e) {
-        WithColor::error() << "failed restoring breakpoint instruction bytes\n";
+        HumanOut() << "failed restoring breakpoint instruction bytes\n";
       }
 
       return;
@@ -3024,7 +3056,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   try {
     Target.Addr = GetTarget();
   } catch (const std::exception &e) {
-    WithColor::error() << llvm::formatv("failed to determine target address: {0}\n", e.what());
+    HumanOut() << llvm::formatv("failed to determine target address: {0}\n", e.what());
     throw;
   }
 
@@ -3038,9 +3070,9 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
       if (opts::Verbose) {
         update_view_of_virtual_memory(child, dis);
 
-        WithColor::warning() << llvm::formatv("{0} -> {1} (unknown binary)\n",
-                                              description_of_program_counter(saved_pc, true),
-                                              description_of_program_counter(Target.Addr, true));
+        HumanOut() << llvm::formatv("{0} -> {1} (unknown binary)\n",
+                                    description_of_program_counter(saved_pc, true),
+                                    description_of_program_counter(Target.Addr, true));
       }
       return;
     }
@@ -3093,8 +3125,8 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
 
       reg = Inst.getOperand(1).getReg();
     } else {
-      WithColor::error() << llvm::formatv(
-        "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
+      HumanOut() << llvm::formatv(
+          "unknown indirect branch instruction {2} ({0}:{1})", __FILE__,
           __LINE__, Inst);
     }
     assert(reg != std::numeric_limits<unsigned>::max());
@@ -3103,7 +3135,7 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
                        IndBrInfo.InsnBytes,
                        reg);
   } catch (const std::exception &e) {
-    WithColor::error() << llvm::formatv("failed to emulate delay slot: {0}\n", e.what());
+    HumanOut() << llvm::formatv("failed to emulate delay slot: {0}\n", e.what());
   }
 #endif
 
@@ -3209,19 +3241,19 @@ BOOST_PP_REPEAT(29, __REG_CASE, void)
   }
 
   if (unlikely(!opts::Quiet) || unlikely(Target.isNew))
-    llvm::errs() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
-                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
-                                  description_of_program_counter(saved_pc),
-                                  description_of_program_counter(Target.Addr),
-                                  ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
+    HumanOut() << llvm::formatv("{3}({0}) {1} -> {2}" __ANSI_NORMAL_COLOR "\n",
+                                ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? "longjmp" : "goto") : "call",
+                                description_of_program_counter(saved_pc),
+                                description_of_program_counter(Target.Addr),
+                                ControlFlow.IsGoto ? (ICFG[bb].Term._indirect_jump.IsLj ? __ANSI_MAGENTA : __ANSI_GREEN) : __ANSI_CYAN);
   } catch (const std::exception &e) { /* _jove_g2h probably threw an exception */
-    WithColor::error() << llvm::formatv(
+    HumanOut() << llvm::formatv(
         "on_breakpoint failed: {0} [target: {1}+{2:x} ({3:x}) binary.LoadAddr: {4:x}]\n",
         e.what(), fs::path(TargetBinary.Path).filename().string(),
         rva_of_va(Target.Addr, Target.BIdx), Target.Addr,
         TargetBinary.LoadAddr);
 
-    llvm::errs() << ProcMapsForPid(child);
+    HumanOut() << ProcMapsForPid(child);
   }
 }
 
@@ -3247,7 +3279,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
       Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
     } catch (const std::exception &e) {
       if (opts::Verbose)
-        WithColor::warning()
+        HumanOut()
             << llvm::formatv("{0}: exception: {1}\n",
                              "harvest_irelative_reloc_targets", e.what());
       return;
@@ -3256,7 +3288,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
     auto it = AddressSpace.find(Resolved.Addr);
     if (it == AddressSpace.end()) {
       if (opts::Verbose)
-        WithColor::warning()
+        HumanOut()
             << llvm::formatv("{0}: unknown binary for {1}: R.Offset={2:x}\n",
                              "harvest_irelative_reloc_targets",
                              description_of_program_counter(Resolved.Addr, true),
@@ -3267,9 +3299,9 @@ static void harvest_irelative_reloc_targets(pid_t child,
     Resolved.BIdx = -1+(*it).second;
 
     if (opts::Verbose)
-      llvm::outs() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
-                                    rva_of_va(Resolved.Addr, Resolved.BIdx),
-                                    R.Offset);
+      HumanOut() << llvm::formatv("IFunc dyn target: {0:x} [R.Offset={1:x}]\n",
+                                  rva_of_va(Resolved.Addr, Resolved.BIdx),
+                                  R.Offset);
 
     binary_t &ResolvedBinary = decompilation.Binaries[Resolved.BIdx];
 
@@ -3356,7 +3388,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(R.Offset, BIdx));
       } catch (const std::exception &e) {
         if (opts::Verbose)
-          WithColor::warning()
+          HumanOut()
               << llvm::formatv("{0}: exception: {1}\n",
                                "harvest_addressof_reloc_targets", e.what());
 
@@ -3366,7 +3398,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
         if (opts::Verbose)
-          WithColor::warning()
+          HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n",
                                "harvest_addressof_reloc_targets",
                                description_of_program_counter(Resolved.Addr, true));
@@ -3495,7 +3527,7 @@ static void harvest_ctor_and_dtors(pid_t child,
             }
           } catch (const std::exception &e) {
             if (opts::Verbose)
-              WithColor::warning()
+              HumanOut()
                   << llvm::formatv("failed examining ctor: {0}\n", e.what());
           }
         }
@@ -3503,10 +3535,10 @@ static void harvest_ctor_and_dtors(pid_t child,
     }
 
     if (brkpt_count > 0) {
-      llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                    brkpt_count,
-                                    brkpt_count > 1 ? "s" : "",
-                                    Binary.Path);
+      HumanOut() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                  brkpt_count,
+                                  brkpt_count > 1 ? "s" : "",
+                                  Binary.Path);
     }
   }
 }
@@ -3547,7 +3579,7 @@ static void harvest_global_GOT_entries(pid_t child,
 
     if (llvm::Error Err = Parser.findGOT(dynamic_table(),
                                          dynamic_symbols())) {
-      WithColor::warning() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
+      HumanOut() << llvm::formatv("Parser.findGOT failed: {0}\n", Err);
       continue;
     }
 
@@ -3575,7 +3607,7 @@ static void harvest_global_GOT_entries(pid_t child,
         continue;
 
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
+        HumanOut() << llvm::formatv("{0}: GlobalEntry: {1}\n", __func__, SymName);
 
       struct {
         uintptr_t Addr;
@@ -3588,7 +3620,7 @@ static void harvest_global_GOT_entries(pid_t child,
         Resolved.Addr = _ptrace_peekdata(child, va_of_rva(Addr, BIdx));
       } catch (const std::exception &e) {
         if (opts::Verbose)
-          WithColor::warning() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
+          HumanOut() << llvm::formatv("{0}: exception: {1}\n", __func__, e.what());
 
         continue;
       }
@@ -3600,7 +3632,7 @@ static void harvest_global_GOT_entries(pid_t child,
       auto it = AddressSpace.find(Resolved.Addr);
       if (it == AddressSpace.end()) {
         if (opts::Verbose)
-          WithColor::warning()
+          HumanOut()
               << llvm::formatv("{0}: unknown binary for {1}\n", __func__,
                                description_of_program_counter(Resolved.Addr, true));
 
@@ -3675,8 +3707,8 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
     auto it = BinPathToIdxMap.find(proc_map.nm);
     if (it == BinPathToIdxMap.end()) {
       if (opts::Verbose)
-        WithColor::warning() << llvm::formatv("{0}: what is this? \"{1}\"\n",
-                                              __func__, proc_map.nm);
+        HumanOut() << llvm::formatv("{0}: what is this? \"{1}\"\n",
+                                    __func__, proc_map.nm);
       continue;
     }
 
@@ -3698,8 +3730,8 @@ bool update_view_of_virtual_memory(pid_t child, disas_t &dis) {
         b.LoadOffset = proc_map.off;
 
         if (opts::Verbose)
-          llvm::errs() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
-                                        b.Path, b.LoadAddr, SavedLoadAddr);
+          HumanOut() << llvm::formatv("LoadAddr for {0} is {1:x} (was {2:x})\n",
+                                      b.Path, b.LoadAddr, SavedLoadAddr);
       }
 
       if (!proc_map.x)
@@ -3730,11 +3762,11 @@ void on_binary_loaded(pid_t child,
   auto &ObjectFile = binary.ObjectFile;
 
   if (opts::Verbose)
-    llvm::errs() << (fmt("found binary %s @ [%#lx, %#lx)")
-                     % proc_map.nm
-                     % proc_map.beg
-                     % proc_map.end).str()
-                 << '\n';
+    HumanOut() << (fmt("found binary %s @ [%#lx, %#lx)")
+                   % proc_map.nm
+                   % proc_map.beg
+                   % proc_map.end).str()
+               << '\n';
 
   //
   // if Prog has been loaded, set a breakpoint on the entry point of prog
@@ -3753,7 +3785,7 @@ void on_binary_loaded(pid_t child,
     try {
       place_breakpoint(child, Addr, brk, dis);
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
+      HumanOut() << llvm::formatv("failed to place breakpoint: {0}\n", e.what());
     }
   }
 
@@ -3787,7 +3819,7 @@ void on_binary_loaded(pid_t child,
     }
 
     if (opts::Verbose)
-        WithColor::note()
+        HumanOut()
             << llvm::formatv("ExecutableRegionAddress = 0x{0:x}\n",
                              ExecutableRegionAddress);
   }
@@ -3862,7 +3894,7 @@ void on_binary_loaded(pid_t child,
         place_breakpoint_at_indirect_branch(child, Addr, IndBrInfo, dis);
       }
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "failed to place breakpoint at indirect branch: {0}\n", e.what());
     }
   }
@@ -3929,7 +3961,7 @@ void on_binary_loaded(pid_t child,
         place_breakpoint_at_return(child, Addr, RetInfo);
       }
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "failed to place breakpoint at return: {0}\n", e.what());
     }
   }
@@ -4115,8 +4147,8 @@ int ChildProc(int pipefd) {
 
   /* if we got here, execve failed */
   int err = errno;
-  WithColor::error() << llvm::formatv("failed to execve (reason: {0})",
-                                      strerror(err));
+  HumanOut() << llvm::formatv("failed to execve (reason: {0})",
+                              strerror(err));
 
   close(pipefd);
   return 1;
@@ -4232,27 +4264,27 @@ void scan_rtld_link_map(pid_t child,
                                  sizeof(struct r_debug));
 
     if (ret != sizeof(struct r_debug)) {
-      WithColor::error() << __func__ << ": couldn't read r_debug structure\n";
+      HumanOut() << __func__ << ": couldn't read r_debug structure\n";
       return;
     }
   } catch (const std::exception &e) {
     if (opts::Verbose)
-      WithColor::error() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
+      HumanOut() << llvm::formatv("{0}: couldn't read r_debug structure ({1})\n", __func__, e.what());
 
     return;
   }
 
   if (opts::PrintLinkMap)
-      llvm::errs() << llvm::formatv("[r_debug] r_version = {0}\n"
-                                    "          r_map     = {1}\n"
-                                    "          r_brk     = {2}\n"
-                                    "          r_state   = {3}\n"
-                                    "          r_ldbase  = {4}\n",
-                                    (void *)r_dbg.r_version,
-                                    (void *)r_dbg.r_map,
-                                    (void *)r_dbg.r_brk,
-                                    (void *)r_dbg.r_state,
-                                    (void *)r_dbg.r_ldbase);
+      HumanOut() << llvm::formatv("[r_debug] r_version = {0}\n"
+                                  "          r_map     = {1}\n"
+                                  "          r_brk     = {2}\n"
+                                  "          r_state   = {3}\n"
+                                  "          r_ldbase  = {4}\n",
+                                  (void *)r_dbg.r_version,
+                                  (void *)r_dbg.r_map,
+                                  (void *)r_dbg.r_brk,
+                                  (void *)r_dbg.r_state,
+                                  (void *)r_dbg.r_ldbase);
 
   if (opts::Verbose) {
     WARN_ON(r_dbg.r_state != r_debug::RT_CONSISTENT &&
@@ -4273,12 +4305,12 @@ void scan_rtld_link_map(pid_t child,
       ssize_t ret = _ptrace_memcpy(child, &lm, lmp, sizeof(struct link_map));
 
       if (ret != sizeof(struct link_map)) {
-        WithColor::error() << __func__
-                           << ": couldn't read link_map structure\n";
+        HumanOut() << __func__
+                   << ": couldn't read link_map structure\n";
         return;
       }
     } catch (const std::exception &e) {
-      WithColor::error() << llvm::formatv("failed to read link_map: {0}\n", e.what());
+      HumanOut() << llvm::formatv("failed to read link_map: {0}\n", e.what());
       return;
     }
 
@@ -4290,24 +4322,24 @@ void scan_rtld_link_map(pid_t child,
     }
 
     if (opts::PrintLinkMap)
-      llvm::errs() << llvm::formatv("[link_map] l_addr = {0}\n"
-                                    "           l_name =\"{1}\"\n"
-                                    "           l_prev = {2}\n"
-                                    "           l_next = {3}\n"
-                                    "           l_ld   = {4}\n",
-                                    (void *)lm.l_addr,
-                                    s,
-                                    (void *)lm.l_prev,
-                                    (void *)lm.l_next,
-                                    (void *)lm.l_ld);
+      HumanOut() << llvm::formatv("[link_map] l_addr = {0}\n"
+                                  "           l_name =\"{1}\"\n"
+                                  "           l_prev = {2}\n"
+                                  "           l_next = {3}\n"
+                                  "           l_ld   = {4}\n",
+                                  (void *)lm.l_addr,
+                                  s,
+                                  (void *)lm.l_prev,
+                                  (void *)lm.l_next,
+                                  (void *)lm.l_ld);
 
     if (!s.empty() && s.front() == '/' && fs::exists(s)) {
       fs::path path = fs::canonical(s);
 
       auto it = BinPathToIdxMap.find(path.c_str());
       if (it == BinPathToIdxMap.end()) {
-        llvm::outs() << llvm::formatv("adding \"{0}\" to decompilation\n",
-                                      path.c_str());
+        HumanOut() << llvm::formatv("adding \"{0}\" to decompilation\n",
+                                    path.c_str());
         add_binary(child, tcg, dis, path.c_str());
 
         newbin = true;
@@ -4328,7 +4360,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   char tmpdir[] = {'/', 't', 'm', 'p', '/', 'X', 'X', 'X', 'X', 'X', 'X', '\0'};
 
   if (!mkdtemp(tmpdir)) {
-    WithColor::error() << "mkdtemp failed : " << strerror(errno) << '\n';
+    HumanOut() << "mkdtemp failed : " << strerror(errno) << '\n';
     return;
   }
 
@@ -4363,7 +4395,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
   }
 
   if (int ret = await_process_completion(pid)) {
-    WithColor::error() << __func__ << ": jove-add failed\n";
+    HumanOut() << __func__ << ": jove-add failed\n";
     return;
   }
 
@@ -4378,7 +4410,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
     }
 
     if (new_decompilation.Binaries.size() != 1) {
-      WithColor::error() << "invalid intermediate result " << jvfp << '\n';
+      HumanOut() << "invalid intermediate result " << jvfp << '\n';
       return;
     }
 
@@ -4411,7 +4443,7 @@ void add_binary(pid_t child, tiny_code_generator_t &tcg, disas_t &dis,
       obj::createBinary(MemBuffRef);
   if (!BinOrErr) {
     if (!binary.IsVDSO)
-      WithColor::warning() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "{0}: failed to create binary from {1}\n", __func__, binary.Path);
   } else {
     std::unique_ptr<obj::Binary> &BinRef = BinOrErr.get();
@@ -4446,10 +4478,10 @@ void print_command(std::vector<const char *> &arg_vec) {
     if (!s)
       continue;
 
-    llvm::outs() << s << ' ';
+    HumanOut() << s << ' ';
   }
 
-  llvm::outs() << '\n';
+  HumanOut() << '\n';
 }
 
 void on_dynamic_linker_loaded(pid_t child,
@@ -4486,8 +4518,8 @@ void on_dynamic_linker_loaded(pid_t child,
   //
   // if we get here, we didn't find _r_debug
   //
-  WithColor::warning() << llvm::formatv("{0}: could not find _r_debug\n",
-                                        __func__);
+  HumanOut() << llvm::formatv("{0}: could not find _r_debug\n",
+                              __func__);
 
 Found:
   ;
@@ -4509,25 +4541,25 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
       ret = _ptrace_memcpy(child, &r_dbg, (void *)_r_debug.Addr, sizeof(struct r_debug));
     } catch (const std::exception &e) {
       if (opts::Verbose)
-        WithColor::error() << llvm::formatv("failed to read r_debug structure: {0}\n",
-                                            e.what());
+        HumanOut() << llvm::formatv("failed to read r_debug structure: {0}\n",
+                                    e.what());
       return;
     }
 
     if (ret != sizeof(struct r_debug)) {
       if (ret < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("couldn't read r_debug structure ({0})\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("couldn't read r_debug structure ({0})\n",
+                                    strerror(err));
       } else {
-        WithColor::error() << llvm::formatv("couldn't read r_debug structure [{0}]\n",
-                                            ret);
+        HumanOut() << llvm::formatv("couldn't read r_debug structure [{0}]\n",
+                                    ret);
       }
       return;
     }
 
     if (unlikely(opts::Verbose) && unlikely(r_dbg.r_brk))
-      llvm::errs() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
+      HumanOut() << llvm::formatv("r_brk={0:x}\n", r_dbg.r_brk);
 
     _r_debug.r_brk = r_dbg.r_brk;
   }
@@ -4576,7 +4608,7 @@ void rendezvous_with_dynamic_linker(pid_t child, disas_t &dis) {
         BrkMap.insert({_r_debug.r_brk, brk});
       } catch (const std::exception &e) {
         if (opts::Verbose)
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "{0}: couldn't place breakpoint at r_brk [{1:x}] ({2})\n",
               __func__,
               _r_debug.r_brk,
@@ -4590,7 +4622,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
                tiny_code_generator_t &tcg, disas_t &dis) {
 
   if (unlikely(!opts::Quiet))
-    llvm::errs() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
+    HumanOut() << llvm::formatv(__ANSI_YELLOW "(ret) {0} <-- {1}" __ANSI_NORMAL_COLOR "\n",
                                   description_of_program_counter(RetAddr),
                                   description_of_program_counter(AddrOfRet));
   //
@@ -4613,12 +4645,12 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       }
 
       if (it == AddressSpace.end()) {
-        WithColor::warning()
+        HumanOut()
             << llvm::formatv("{0}: (1) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
 
         if (opts::Verbose)
-          llvm::errs() << ProcMapsForPid(child);
+          HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
@@ -4659,11 +4691,11 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
       }
 
       if (it == AddressSpace.end()) {
-        WithColor::warning()
+        HumanOut()
             << llvm::formatv("{0}: (2) unknown binary for {1}\n", __func__,
                              description_of_program_counter(pc, true));
         if (opts::Verbose)
-          llvm::errs() << ProcMapsForPid(child);
+          HumanOut() << ProcMapsForPid(child);
       } else {
         BIdx = -1+(*it).second;
 
@@ -4674,7 +4706,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
 
         if (!binary.ObjectFile.get()) {
           if (!binary.IsVDSO)
-            WithColor::warning()
+            HumanOut()
                 << llvm::formatv("{0}: (3) unknown RetAddr {1}\n", __func__,
                                  description_of_program_counter(pc, true));
           return;
@@ -4706,7 +4738,7 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
               // we have no preceeding call
               //
               if (opts::Verbose)
-                WithColor::warning() << llvm::formatv(
+                HumanOut() << llvm::formatv(
                     "{0}: could not find preceeding call @ {1:x}\n", __func__,
                     rva);
               return;
@@ -4722,8 +4754,8 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
           if (!isCall && !isIndirectCall) { /* this can occur on i386 because of
                                                hack in tcg.hpp */
             if (opts::Verbose)
-              llvm::errs() << llvm::formatv("on_return: unexpected terminator {0}\n",
-                                            description_of_terminator(ICFG[bb].Term.Type));
+              HumanOut() << llvm::formatv("on_return: unexpected terminator {0}\n",
+                                          description_of_terminator(ICFG[bb].Term.Type));
             return;
           }
 
@@ -4747,13 +4779,13 @@ void on_return(pid_t child, uintptr_t AddrOfRet, uintptr_t RetAddr,
         }
 
         if (brkpt_count > 0)
-          llvm::errs() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
-                                        brkpt_count,
-                                        brkpt_count > 1 ? "s" : "",
-                                        binary.Path);
+          HumanOut() << llvm::formatv("placed {0} breakpoint{1} in {2}\n",
+                                      brkpt_count,
+                                      brkpt_count > 1 ? "s" : "",
+                                      binary.Path);
         } catch (const std::exception &e) {
           std::string s = fs::path(decompilation.Binaries[BIdx].Path).filename().string();
-          WithColor::error()
+          HumanOut()
               << llvm::formatv("{0} failed: {1} [RetAddr: {2}+{3:x} ({4:x})]\n",
                                __func__, e.what(), s, rva_of_va(pc, BIdx), pc);
         }
@@ -4854,13 +4886,13 @@ std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
 
     binary_index_t BIdx = (*b_it).second;
     if (!BinFoundVec.test(BIdx))
-      WithColor::warning()
+      HumanOut()
           << __func__
           << ": inconsistency with (BinFoundVec, pmm) (BUG)\n";
 
     auto as_it = AddressSpace.find(pc);
     if (as_it == AddressSpace.end() || -1+(*as_it).second != BIdx)
-      WithColor::warning()
+      HumanOut()
           << __func__
           << ": inconsistency with (BinFoundVec, pmm, AddressSpace) (BUG)\n";
 
@@ -4871,7 +4903,7 @@ std::string description_of_program_counter(uintptr_t pc, bool Verbose) {
   }
 }
 
-void _qemu_log(const char *cstr) { llvm::errs() << cstr; }
+void _qemu_log(const char *cstr) { HumanOut() << cstr; }
 
 ssize_t _ptrace_memcpy(pid_t child, void *dest, const void *src, size_t n) {
   std::vector<uint8_t> buff;
