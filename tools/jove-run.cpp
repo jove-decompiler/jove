@@ -28,6 +28,8 @@
 #include <llvm/Support/InitLLVM.h>
 #include <llvm/Support/WithColor.h>
 
+#include "jove_macros.h"
+
 namespace fs = boost::filesystem;
 namespace cl = llvm::cl;
 
@@ -793,6 +795,9 @@ static int do_run(void) {
                                               strerror(err));
         }
       }
+
+      if (opts::Verbose)
+        WithColor::note() << (__ANSI_CYAN "root file modified" __ANSI_NORMAL_COLOR);
     }
 #endif
 
@@ -899,6 +904,9 @@ static int do_run(void) {
         }
       }
     }
+
+    if (opts::Verbose)
+      WithColor::note() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR);
 
     close(rfd);
   }
