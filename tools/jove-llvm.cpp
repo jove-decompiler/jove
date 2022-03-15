@@ -835,7 +835,7 @@ int llvm(void) {
   identify_ABIs(Decompilation);
 
   //
-  // process function symbols
+  // assign symbols to functions
   //
   for_each_binary_if(
       Decompilation,
@@ -844,7 +844,7 @@ int llvm(void) {
                b._elf.OptionalDynSymRegion;
       },
       [&](binary_t &b) {
-        binary_index_t BIdx = &b - &Decompilation.Binaries[0];
+        binary_index_t BIdx = index_of_binary(b, Decompilation);
 
         auto DynSyms = b._elf.OptionalDynSymRegion->template getAsArrayRef<Elf_Sym>();
 
@@ -6285,7 +6285,7 @@ static int TranslateFunction(function_t &f) {
   TranslateContext TC(f);
 
   binary_t &Binary = Decompilation.Binaries[BinaryIndex];
-  const function_index_t FIdx = &f - &Binary.Analysis.Functions[0];
+  const function_index_t FIdx = index_of_function_in_binary(f, Binary);
   interprocedural_control_flow_graph_t &ICFG = Binary.Analysis.ICFG;
   llvm::Function *F = f.F;
   llvm::DIBuilder &DIB = *DIBuilder;

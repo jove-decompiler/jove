@@ -466,7 +466,7 @@ int main(int argc, char **argv) {
   // initialize state associated with every binary
   //
   for_each_binary(jove::decompilation, [&](jove::binary_t &binary) {
-    jove::binary_index_t BIdx = &binary - &jove::decompilation.Binaries[0];
+    jove::binary_index_t BIdx = index_of_binary(binary, jove::decompilation);
 
     // add to path -> index map
     if (binary.IsVDSO)
@@ -1740,7 +1740,7 @@ static void place_breakpoint_at_return(pid_t child, uintptr_t Addr,
                                        return_t &Ret);
 
 void on_new_basic_block(binary_t &b, basic_block_t bb, disas_t &dis) {
-  binary_index_t BIdx = &b - &decompilation.Binaries[0];
+  binary_index_t BIdx = index_of_binary(b, decompilation);
   auto &ICFG = b.Analysis.ICFG;
   const basic_block_properties_t &bbprop = ICFG[bb];
 
@@ -3263,7 +3263,7 @@ static void harvest_irelative_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+    binary_index_t BIdx = index_of_binary(b, decompilation);
 
     if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::IRELATIVE)
       return;
@@ -3352,7 +3352,7 @@ static void harvest_addressof_reloc_targets(pid_t child,
                                             tiny_code_generator_t &tcg,
                                             disas_t &dis) {
   auto processDynamicReloc = [&](binary_t &b, const Relocation &R) -> void {
-    binary_index_t BIdx = &b - &decompilation.Binaries[0];
+    binary_index_t BIdx = index_of_binary(b, decompilation);
 
     if (relocation_type_of_elf_rela_type(R.Type) != relocation_t::TYPE::ADDRESSOF)
       return;

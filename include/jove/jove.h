@@ -464,6 +464,24 @@ static inline binary_index_t binary_index_of_function(function_t &f,
   abort();
 }
 
+static inline binary_index_t index_of_binary(const binary_t &b,
+                                             const decompilation_t &decompilation) {
+  if (!(&b >= &decompilation.Binaries[0] &&
+        &b < &decompilation.Binaries[decompilation.Binaries.size()]))
+    abort();
+
+  return &b - &decompilation.Binaries[0];
+}
+
+static inline binary_index_t index_of_function_in_binary(const function_t &f,
+                                                         const binary_t &b) {
+  if (!(&f >= &b.Analysis.Functions[0] &&
+        &f < &b.Analysis.Functions[b.Analysis.Functions.size()]))
+    abort();
+
+  return &f - &b.Analysis.Functions[0];
+}
+
 static inline binary_t &binary_of_function(function_t &f,
                                            decompilation_t &decompilation) {
   return decompilation.Binaries.at(binary_index_of_function(f, decompilation));
