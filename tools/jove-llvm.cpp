@@ -3782,13 +3782,20 @@ int CreateSectionGlobalVariables(void) {
     if (R.SymbolIndex < SymbolTable.size()) {
       const symbol_t &S = SymbolTable[R.SymbolIndex];
       if (!S.IsUndefined()) {
-        if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-          return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+        if (S.Type == symbol_t::TYPE::DATA) {
+          if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
+            return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
-        AddrToSymbolMap[S.Addr].insert(S.Name);
-        AddrToSizeMap[S.Addr] = S.Size;
+          AddrToSymbolMap[S.Addr].insert(S.Name);
+          AddrToSizeMap[S.Addr] = S.Size;
 
-        return nullptr;
+          return nullptr;
+        } else if (S.Type == symbol_t::TYPE::FUNCTION) {
+          return SectionPointer(S.Addr);
+        } else {
+          WARN();
+          return nullptr;
+        }
       } else {
         if (S.Type == symbol_t::TYPE::FUNCTION) {
           if (llvm::Function *F = Module->getFunction(S.Name))
