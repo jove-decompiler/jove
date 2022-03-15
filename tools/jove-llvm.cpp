@@ -835,7 +835,7 @@ int llvm(void) {
   identify_ABIs(Decompilation);
 
   //
-  // assign symbols to functions
+  // find function symbols
   //
   for_each_binary_if(
       Decompilation,
