@@ -195,6 +195,16 @@ static cl::opt<bool> ABICalls("abi-calls",
                               cl::desc("Call ABIs indirectly through _jove_call"),
                               cl::cat(JoveCategory), cl::init(true));
 
+static cl::opt<std::string>
+    HumanOutput("human-output",
+                cl::desc("Print messages to the given file path"),
+                cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Silent("silent",
+            cl::desc("Leave the stdout/stderr of the application undisturbed"),
+            cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
@@ -202,6 +212,13 @@ namespace jove {
 static int loop(void);
 
 static void sighandler(int no);
+
+static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+
+static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
+static llvm::raw_ostream &HumanOut(void) {
+  return *HumanOutputStreamPtr;
+}
 
 } // namespace jove
 
@@ -252,6 +269,23 @@ int main(int argc, char **argv) {
   });
   cl::ParseCommandLineOptions(_argc, _argv, "Jove Loop\n");
 
+  if (!opts::Silent) {
+    jove::HumanOutputStreamPtr = &llvm::errs();
+
+    if (!opts::HumanOutput.empty()) {
+      std::error_code EC;
+      jove::HumanOutputFileStream.reset(
+          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
+
+      if (EC) {
+        WithColor::error() << "--human-output: invalid filename passed\n";
+        return 1;
+      }
+
+      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
+    }
+  }
+
   //
   // signal handlers
   //
@@ -267,8 +301,8 @@ int main(int argc, char **argv) {
         sigaction(SIGSEGV, &sa, nullptr) < 0 ||
         sigaction(SIGBUS, &sa, nullptr) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("{0}: sigaction failed ({1})\n",
-                                          __func__, strerror(err));
+      jove::HumanOut() << llvm::formatv("{0}: sigaction failed ({1})\n",
+                                        __func__, strerror(err));
       return 1;
     }
   }
@@ -351,8 +385,8 @@ static ssize_t robust_sendfile(int socket, const char *file_path, size_t file_si
 
     if (ret < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("sendfile failed: {0}\n",
-                                          strerror(err));
+      HumanOut() << llvm::formatv("sendfile failed: {0}\n",
+                                  strerror(err));
       return -err;
     }
 
@@ -396,8 +430,8 @@ static ssize_t robust_receive_file_with_size(int socket, const char *out, unsign
     int fd = open(out, O_WRONLY | O_TRUNC | O_CREAT, file_perm);
     if (fd < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("failed to receive file {0}: {1}\n",
-                                          out, strerror(err));
+      HumanOut() << llvm::formatv("failed to receive file {0}: {1}\n",
+                                  out, strerror(err));
       return -err;
     }
 
@@ -405,8 +439,8 @@ static ssize_t robust_receive_file_with_size(int socket, const char *out, unsign
 
     if (close(fd) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("failed to close received file {0}: {1}\n",
-                                          out, strerror(err));
+      HumanOut() << llvm::formatv("failed to close received file {0}: {1}\n",
+                                  out, strerror(err));
       return -err;
     }
   }
@@ -421,7 +455,7 @@ void sighandler(int no) {
       // what we really want to do is terminate the child.
       if (kill(pid, SIGTERM) < 0) {
         int err = errno;
-        WithColor::warning() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "failed to redirect SIGTERM: {0}\n", strerror(err));
       }
     } else {
@@ -435,11 +469,11 @@ void sighandler(int no) {
       // tell run to exit sleep loop
       if (kill(pid, SIGUSR1) < 0) {
         int err = errno;
-        WithColor::warning() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "failed to send SIGUSR1 to jove-run: {0}\n", strerror(err));
       }
     } else {
-      llvm::errs() << "Received SIGINT. Cancelling..\n";
+      HumanOut() << "Received SIGINT. Cancelling..\n";
 
       Cancelled.store(true);
     }
@@ -467,7 +501,7 @@ static uint32_t size_of_file32(const char *path) {
     struct stat st;
     if (stat(path, &st) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("stat failed: {0}\n", strerror(err));
+      HumanOut() << llvm::formatv("stat failed: {0}\n", strerror(err));
       return 0;
     }
 
@@ -502,7 +536,7 @@ int loop(void) {
     fs::create_directory(opts::sysroot);
 
   if (!fs::exists(opts::sysroot) || !fs::is_directory(opts::sysroot)) {
-    WithColor::error() << llvm::formatv(
+    HumanOut() << llvm::formatv(
         "provided sysroot {0} is not directory\n", opts::sysroot);
     return 1;
   }
@@ -511,7 +545,7 @@ int loop(void) {
                          std::string("jove-recompile"))
                             .string();
   if (!fs::exists(jove_recompile_path)) {
-    WithColor::error() << llvm::formatv(
+    HumanOut() << llvm::formatv(
         "could not find jove-recompile at {0}\n", jove_recompile_path.c_str());
 
     return 1;
@@ -521,7 +555,7 @@ int loop(void) {
       (boost::dll::program_location().parent_path() / std::string("jove-run"))
           .string();
   if (!fs::exists(jove_run_path)) {
-    WithColor::error() << llvm::formatv(
+    HumanOut() << llvm::formatv(
         "could not find jove-run at {0}\n", jove_run_path.c_str());
 
     return 1;
@@ -531,7 +565,7 @@ int loop(void) {
                        std::string("jove-analyze"))
                           .string();
   if (!fs::exists(jove_analyze_path)) {
-    WithColor::error() << llvm::formatv(
+    HumanOut() << llvm::formatv(
         "could not find jove-analyze at {0}\n", jove_analyze_path.c_str());
 
     return 1;
@@ -541,8 +575,8 @@ int loop(void) {
                   std::string(JOVE_RT_SONAME))
                      .string();
   if (!fs::exists(jove_rt_path)) {
-    WithColor::error() << llvm::formatv("could not find JOVE_RT_SONAME ({0})\n",
-                                        jove_rt_path.c_str());
+    HumanOut() << llvm::formatv("could not find JOVE_RT_SONAME ({0})\n",
+                                jove_rt_path.c_str());
     return 1;
   }
 
@@ -551,13 +585,13 @@ int loop(void) {
        "third_party" / "lib" / ("libclang_rt.dfsan.jove-" TARGET_ARCH_NAME ".so"))
           .string();
   if (!fs::exists(jove_dfsan_path)) {
-    WithColor::error() << llvm::formatv("could not find {0}\n",
-                                        jove_dfsan_path.c_str());
+    HumanOut() << llvm::formatv("could not find {0}\n",
+                                jove_dfsan_path.c_str());
     return 1;
   }
 
   if (!opts::Connect.empty() && opts::Connect.find(':') == std::string::npos) {
-    WithColor::error() << "usage: --connect IPADDRESS:PORT\n";
+    HumanOut() << "usage: --connect IPADDRESS:PORT\n";
     return 1;
   }
 
@@ -581,7 +615,7 @@ int loop(void) {
       chrooted_path /= opts::Prog;
 
       if (!fs::exists(chrooted_path)) {
-        WithColor::note() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "{0} does not exist; recompiling...\n", chrooted_path.c_str());
         goto skip_run;
       }
@@ -595,7 +629,7 @@ run:
       int pipefd[2];
       if (pipe(pipefd) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("pipe failed: {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("pipe failed: {0}\n", strerror(err));
         return 1;
       }
 
@@ -606,8 +640,8 @@ run:
       if (!pid) {
         if (close(rdFd) < 0) {
           int err = errno;
-          WithColor::error() << llvm::formatv("failed to close rdFd: {0}\n",
-                                              strerror(err));
+          HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
+                                      strerror(err));
         }
         std::string wrFdStr = std::to_string(wrFd);
 
@@ -617,6 +651,11 @@ run:
             "--sysroot",
             opts::sysroot.c_str(),
         };
+
+        if (!opts::HumanOutput.empty()) {
+          arg_vec.push_back("--human-output");
+          arg_vec.push_back(opts::HumanOutput.c_str());
+        }
 
         if (opts::Verbose)
           arg_vec.push_back("--verbose");
@@ -720,8 +759,8 @@ run:
                const_cast<char **>(&env_vec[0]));
 
         int err = errno;
-        WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("execve failed: {0}\n",
+                                    strerror(err));
         return 1;
       }
 
@@ -729,8 +768,8 @@ run:
 
       if (close(wrFd) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("failed to close wrFd: {0}\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("failed to close wrFd: {0}\n",
+                                    strerror(err));
       }
 
       //
@@ -743,10 +782,10 @@ run:
 
         if (ret != sizeof(uint64)) {
           if (ret < 0)
-            WithColor::warning() << llvm::formatv(
+            HumanOut() << llvm::formatv(
                 "failed to read pid from pipe: {0}\n", strerror(-ret));
           else
-            WithColor::warning() << llvm::formatv(
+            HumanOut() << llvm::formatv(
                 "failed to read pid from pipe: got {0}\n", ret);
         } else {
           app_pid.store(uint64);
@@ -755,8 +794,8 @@ run:
 
       if (close(rdFd) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("failed to close rdFd: {0}\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("failed to close rdFd: {0}\n",
+                                    strerror(err));
       }
 
       {
@@ -788,7 +827,7 @@ skip_run:
       int remote_fd = socket(AF_INET, SOCK_STREAM, 0);
       if (remote_fd < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("socket failed: {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("socket failed: {0}\n", strerror(err));
         return 1;
       }
 
@@ -806,7 +845,7 @@ skip_run:
         assert(colon_idx != std::string::npos);
         std::string port_s = opts::Connect.substr(colon_idx + 1, std::string::npos);
         if (opts::Verbose)
-          llvm::errs() << llvm::formatv("parsed port as {0}\n", port_s);
+          HumanOut() << llvm::formatv("parsed port as {0}\n", port_s);
         port = atoi(port_s.c_str());
 
         addr_str = opts::Connect.substr(0, colon_idx);
@@ -820,13 +859,13 @@ skip_run:
 
       int connect_ret;
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
+        HumanOut() << llvm::formatv("connecting to remote {0}...\n", opts::Connect);
       connect_ret = connect(remote_fd,
                             reinterpret_cast<struct sockaddr *>(&server_addr),
                             sizeof(sockaddr_in));
       if (connect_ret < 0 && errno != EINPROGRESS) {
         int err = errno;
-        WithColor::warning() << llvm::formatv("connect failed: {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("connect failed: {0}\n", strerror(err));
         return 1;
       }
 
@@ -839,7 +878,7 @@ skip_run:
         ssize_t ret = robust_write(remote_fd, &magic[0], sizeof(magic));
 
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to send magic bytes: {0}\n", strerror(-ret));
           break;
         }
@@ -864,7 +903,7 @@ skip_run:
         ssize_t ret = robust_write(remote_fd, &header, sizeof(header));
 
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to send header to remote: {0}\n", strerror(-ret));
 
           break;
@@ -880,7 +919,7 @@ skip_run:
         ssize_t ret = robust_write(remote_fd, &NPinnedGlobals, sizeof(NPinnedGlobals));
 
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to send NPinnedGlobals to remote: {0}\n",
               strerror(-ret));
 
@@ -891,12 +930,12 @@ skip_run:
           uint8_t PinnedGlobalStrLen = PinnedGlobalStr.size();
 
           if (robust_write(remote_fd, &PinnedGlobalStrLen, sizeof(PinnedGlobalStrLen)) < 0) {
-            WithColor::error() << "failed to send PinnedGlobalStr to remote: {0}\n";
+            HumanOut() << "failed to send PinnedGlobalStr to remote: {0}\n";
             return 0;
           }
 
           if (robust_write(remote_fd, PinnedGlobalStr.c_str(), PinnedGlobalStr.size()) < 0) {
-            WithColor::error() << "failed to send PinnedGlobalStr\n";
+            HumanOut() << "failed to send PinnedGlobalStr\n";
             return 0;
           }
         }
@@ -907,12 +946,12 @@ skip_run:
       //
       {
         if (opts::Verbose)
-          llvm::errs() << llvm::formatv("sending {0}\n", jv_path.c_str());
+          HumanOut() << llvm::formatv("sending {0}\n", jv_path.c_str());
 
         ssize_t ret = robust_sendfile_with_size(remote_fd, jv_path.c_str());
 
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to send decompilation: {0}\n", strerror(-ret));
 
           break;
@@ -934,11 +973,11 @@ skip_run:
         std::string tmpjv = "/tmp/tmpjv.jv";
 
         if (opts::Verbose)
-          llvm::errs() << llvm::formatv("receiving {0}\n", jv_path.c_str());
+          HumanOut() << llvm::formatv("receiving {0}\n", jv_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd, jv_path.c_str(), 0666);
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to receive decompilation from remote: {0}\n",
               strerror(-ret));
           break;
@@ -958,11 +997,11 @@ skip_run:
         std::string new_chrooted_path = chrooted_path.string() + ".new";
 
         if (opts::Verbose)
-          llvm::errs() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
+          HumanOut() << llvm::formatv("receiving {0}\n", chrooted_path.c_str());
 
         ssize_t ret = robust_receive_file_with_size(remote_fd, new_chrooted_path.c_str(), 0777);
         if (ret < 0) {
-          WithColor::error()
+          HumanOut()
               << llvm::formatv("failed to receive file {0} from remote: {1}\n",
                                chrooted_path.c_str(), strerror(-ret));
           return 1;
@@ -970,10 +1009,10 @@ skip_run:
 
         if (rename(new_chrooted_path.c_str(), chrooted_path.c_str()) < 0) {
           int err = errno;
-          WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                              new_chrooted_path.c_str(),
-                                              chrooted_path.c_str(),
-                                              strerror(err));
+          HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                      new_chrooted_path.c_str(),
+                                      chrooted_path.c_str(),
+                                      strerror(err));
         }
       }
 
@@ -1056,20 +1095,20 @@ skip_run:
 
           if (fd < 0) {
             int err = errno;
-            WithColor::error() << llvm::formatv(
+            HumanOut() << llvm::formatv(
                 "failed to open fd to dynamic linker in sysroot: {0}\n",
                 strerror(err));
           } else {
             ssize_t ret = robust_write(fd, &b.Data[0], b.Data.size());
             if (ret < 0) {
-              WithColor::error() << llvm::formatv(
+              HumanOut() << llvm::formatv(
                   "failed to write dynamic linker to sysroot: {0}\n",
                   strerror(-ret));
             }
 
             if (close(fd) < 0) {
               int err = errno;
-              WithColor::error() << llvm::formatv(
+              HumanOut() << llvm::formatv(
                   "failed to close dynamic linker path in sysroot: {0}\n",
                   strerror(err));
             }
@@ -1142,12 +1181,12 @@ skip_run:
             fs::path(Prefix) / "usr" / "lib" / "libjove_rt.so.0";
 
         if (opts::Verbose)
-          llvm::errs() << "receiving jove runtime\n";
+          HumanOut() << "receiving jove runtime\n";
 
         ssize_t ret =
             robust_receive_file_with_size(remote_fd, rt_path.c_str(), 0777);
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to receive runtime {0} from remote: {1}\n",
               rt_path.c_str(), strerror(-ret));
           return 1;
@@ -1231,12 +1270,12 @@ skip_run:
             fs::path(Prefix) / "usr" / "lib" / dfsan_rt_filename;
 
         if (opts::Verbose)
-          llvm::errs() << "receiving jove dfsan runtime\n";
+          HumanOut() << "receiving jove dfsan runtime\n";
 
         ssize_t ret =
             robust_receive_file_with_size(remote_fd, dfsan_rt_path.c_str(), 0777);
         if (ret < 0) {
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "failed to receive runtime {0} from remote: {1}\n",
               dfsan_rt_path.c_str(), strerror(-ret));
           return 1;
@@ -1276,7 +1315,7 @@ skip_run:
           std::string binary_filename = fs::path(b.Path).filename().string();
 
           if (opts::Verbose)
-            WithColor::note() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
+            HumanOut() << llvm::formatv("{0}'s soname is {1}\n", b.Path, soname);
 
           if (binary_filename != soname) {
             fs::path dst = chrooted_path.parent_path() / soname;
@@ -1319,13 +1358,13 @@ skip_run:
         execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
         int err = errno;
-        WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("execve failed: {0}\n",
+                                    strerror(err));
         return 1;
       }
 
       if (int ret = await_process_completion(pid)) {
-        WithColor::error() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
+        HumanOut() << llvm::formatv("jove-analyze failed [{0}]\n", ret);
         return ret;
       }
 
@@ -1387,13 +1426,13 @@ skip_run:
         execve(arg_vec[0], const_cast<char **>(&arg_vec[0]), ::environ);
 
         int err = errno;
-        WithColor::error() << llvm::formatv("execve failed: {0}\n",
-                                            strerror(err));
+        HumanOut() << llvm::formatv("execve failed: {0}\n",
+                                    strerror(err));
         return 1;
       }
 
       if (int ret = await_process_completion(pid)) {
-        WithColor::error() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
+        HumanOut() << llvm::formatv("jove-recompile failed [{0}]\n", ret);
         return ret;
       }
     }
@@ -1415,8 +1454,8 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  llvm::errs() << msg;
-  llvm::errs().flush();
+  HumanOut() << msg;
+  HumanOut().flush();
 }
 
 #include "elf.hpp"
@@ -1436,14 +1475,14 @@ std::string soname_of_binary(binary_t &b) {
   std::string res;
 
   if (!BinOrErr) {
-    WithColor::error() << "failed to create binary from" << b.Path << '\n';
+    HumanOut() << "failed to create binary from" << b.Path << '\n';
     return res;
   }
 
   std::unique_ptr<obj::Binary> &Bin = BinOrErr.get();
 
   if (!llvm::isa<ELFO>(Bin.get())) {
-    WithColor::error() << "is not ELF of expected type\n";
+    HumanOut() << "is not ELF of expected type\n";
     return res;
   }
 
@@ -1494,9 +1533,8 @@ std::string soname_of_binary(binary_t &b) {
     uint64_t Off = *SONameOffset;
     if (Off >= DynamicStringTable.size()) {
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
-                                      b.Path,
-                                      Off);
+        HumanOut() << llvm::formatv("[{0}] bad SONameOffset {1}\n",
+                                    b.Path, Off);
     } else {
       const char *c_str = DynamicStringTable.data() + Off;
       return c_str;
