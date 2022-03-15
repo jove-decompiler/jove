@@ -113,6 +113,16 @@ static cl::alias
     ForeignLibsAlias("x", cl::desc("Exe only. Alias for --foreign-libs."),
                      cl::aliasopt(ForeignLibs),
                      cl::cat(JoveCategory));
+
+static cl::opt<std::string>
+    HumanOutput("human-output",
+                cl::desc("Print messages to the given file path"),
+                cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Silent("silent",
+            cl::desc("Leave the stdout/stderr of the application undisturbed"),
+            cl::cat(JoveCategory));
 }
 
 namespace jove {
@@ -123,6 +133,13 @@ static void sighandler(int no);
 
 static int run(void);
 static int run_outside_chroot(void);
+
+static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+
+static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
+static llvm::raw_ostream &HumanOut(void) {
+  return *HumanOutputStreamPtr;
+}
 
 } // namespace jove
 
@@ -173,21 +190,38 @@ int main(int argc, char **argv) {
   });
   cl::ParseCommandLineOptions(_argc, _argv, "jove-run\n");
 
+  if (!opts::Silent) {
+    jove::HumanOutputStreamPtr = &llvm::errs();
+
+    if (!opts::HumanOutput.empty()) {
+      std::error_code EC;
+      jove::HumanOutputFileStream.reset(
+          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
+
+      if (EC) {
+        WithColor::error() << "--human-output: invalid filename passed\n";
+        return 1;
+      }
+
+      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
+    }
+  }
+
   //
   // get paths to stuff
   //
   jove::jove_recover_path =
       boost::dll::program_location().parent_path() / "jove-recover";
   if (!fs::exists(jove::jove_recover_path)) {
-    WithColor::error() << llvm::formatv("couldn't find jove-recover at {0}\n",
-                                        jove::jove_recover_path.c_str());
+    jove::HumanOut() << llvm::formatv("couldn't find jove-recover at {0}\n",
+                                      jove::jove_recover_path.c_str());
     return 1;
   }
 
   jove::jv_path = fs::read_symlink(fs::path(opts::sysroot) / ".jv");
   if (!fs::exists(jove::jv_path)) {
-    WithColor::error() << llvm::formatv("recover: no jv found at {0}\n",
-                                        jove::jv_path.c_str());
+    jove::HumanOut() << llvm::formatv("recover: no jv found at {0}\n",
+                                      jove::jv_path.c_str());
     return 1;
   }
 
@@ -205,8 +239,8 @@ int main(int argc, char **argv) {
         sigaction(SIGBUS, &sa, nullptr) < 0 ||
         sigaction(SIGUSR1, &sa, nullptr) < 0) {
       int err = errno;
-      WithColor::error() << llvm::formatv("[{0}] sigaction failed: {1}\n",
-                                          __func__, strerror(err));
+      jove::HumanOut() << llvm::formatv("[{0}] sigaction failed: {1}\n",
+                                        __func__, strerror(err));
     }
   }
 
@@ -274,7 +308,7 @@ void sighandler(int no) {
   case SIGBUS:
   case SIGSEGV: {
 #if 0
-    WithColor::error() << llvm::formatv("jove-run crashed! run gdb -p {0}\n", gettid());
+    HumanOut() << llvm::formatv("jove-run crashed! run gdb -p {0}\n", gettid());
 #endif
 
     const char *msg = "jove-run crashed! attach with a debugger..";
@@ -291,7 +325,7 @@ void sighandler(int no) {
     break;
 
   default:
-    WithColor::error() << llvm::formatv("unhandled signal {0}\n", no);
+    HumanOut() << llvm::formatv("unhandled signal {0}\n", no);
     abort();
   }
 }
@@ -341,7 +375,7 @@ struct ScopedMount {
 
         default:
           if (opts::Verbose)
-            WithColor::warning() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
+            HumanOut() << llvm::formatv("mount(\"{0}\", \"{1}\", \"{2}\", {3:x}, {4}) failed: {5}\n",
                     this->source,
                     this->target,
                     this->filesystemtype,
@@ -376,10 +410,10 @@ struct ScopedMount {
         switch (err) {
         case EBUSY:
           if (retries++ < MAX_UMOUNT_RETRIES) {
-            llvm::errs() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
+            HumanOut() << llvm::formatv("retrying umount of {0} shortly...\n", this->target);
             usleep(100000);
           } else {
-            llvm::errs() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
+            HumanOut() << llvm::formatv("unmounting %s failed: EBUSY...\n", this->target);
             return;
           }
           /* fallthrough */
@@ -387,9 +421,9 @@ struct ScopedMount {
           continue;
 
         default:
-          llvm::errs() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
-                                        this->target,
-                                        strerror(err));
+          HumanOut() << llvm::formatv("umount(\"{0}\") failed: {1}\n",
+                                      this->target,
+                                      strerror(err));
           return;
         }
       } else {
@@ -540,7 +574,7 @@ static int do_run(void) {
                  : "/jove-recover.fifo";
   unlink(recover_fifo_path.c_str());
   if (mkfifo(recover_fifo_path.c_str(), 0666) < 0) {
-    llvm::errs() << llvm::formatv("mkfifo failed : %s\n", strerror(errno));
+    HumanOut() << llvm::formatv("mkfifo failed : %s\n", strerror(errno));
     return 1;
   }
 
@@ -550,7 +584,7 @@ static int do_run(void) {
   pthread_t recover_thd;
   if (pthread_create(&recover_thd, nullptr, (void *(*)(void *))recover_proc,
                      (void *)recover_fifo_path.c_str()) != 0) {
-    llvm::errs() << "failed to create recover_proc thread\n";
+    HumanOut() << "failed to create recover_proc thread\n";
     return 1;
   }
 
@@ -579,7 +613,7 @@ static int do_run(void) {
     {
       int pipefd[2] = {-1, -1};
       if (pipe(pipefd) < 0) {
-        WithColor::error() << "pipe(2) failed. bug?\n";
+        HumanOut() << "pipe(2) failed. bug?\n";
         return 1;
       }
 
@@ -602,8 +636,8 @@ static int do_run(void) {
 
       std::string sav_path = binary.Path + ".jove.sav";
       if (link(binary.Path.c_str(), sav_path.c_str()) < 0) {
-        WithColor::error() << llvm::formatv("failed to create hard link for {0}\n",
-                                            binary.Path);
+        HumanOut() << llvm::formatv("failed to create hard link for {0}\n",
+                                    binary.Path);
         return 1;
       }
     }
@@ -623,7 +657,7 @@ static int do_run(void) {
       try {
         fs::copy_file(chrooted_path, new_path);
       } catch (...) {
-        WithColor::warning() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "dangerous mode: failed to copy {0} to {1}; aborting\n",
             chrooted_path.c_str(), new_path.c_str());
         return 1;
@@ -647,7 +681,7 @@ static int do_run(void) {
       //
       if (fcntl(wfd, F_SETFD, FD_CLOEXEC) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv(
+        HumanOut() << llvm::formatv(
             "failed to set pipe write end close-on-exec: {0}\n", strerror(err));
       }
     }
@@ -655,7 +689,7 @@ static int do_run(void) {
     if (WillChroot) {
       if (chroot(opts::sysroot.c_str()) < 0) {
         int err = errno;
-        llvm::errs() << llvm::formatv("chroot failed : {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("chroot failed : {0}\n", strerror(err));
         return 1;
       }
 
@@ -665,7 +699,7 @@ static int do_run(void) {
 
       if (chdir(working_dir) < 0) {
         int err = errno;
-        llvm::errs() << llvm::formatv("chdir failed : {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("chdir failed : {0}\n", strerror(err));
         return 1;
       }
     }
@@ -789,15 +823,15 @@ static int do_run(void) {
 
         if (rename(new_path.c_str(), binary.Path.c_str()) < 0) {
           int err = errno;
-          WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                              new_path.c_str(),
-                                              binary.Path.c_str(),
-                                              strerror(err));
+          HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                      new_path.c_str(),
+                                      binary.Path.c_str(),
+                                      strerror(err));
         }
       }
 
       if (opts::Verbose)
-        WithColor::note() << (__ANSI_CYAN "root file modified" __ANSI_NORMAL_COLOR);
+        HumanOut() << (__ANSI_CYAN "root file modified" __ANSI_NORMAL_COLOR);
     }
 #endif
 
@@ -806,7 +840,7 @@ static int do_run(void) {
            const_cast<char **>(&env_vec[0]));
 
     int err = errno;
-    WithColor::error() << llvm::formatv("execve failed: {0}\n", strerror(err));
+    HumanOut() << llvm::formatv("execve failed: {0}\n", strerror(err));
 
     if (LivingDangerously)
       close(wfd); /* close-on-exec didn't happen */
@@ -826,13 +860,12 @@ static int do_run(void) {
     ssize_t ret = robust_write(pipefd, &uint64, sizeof(uint64_t));
 
     if (ret != sizeof(uint64_t))
-      WithColor::error() << llvm::formatv("failed to write to pipefd: {0}\n",
-                                          ret);
+      HumanOut() << llvm::formatv("failed to write to pipefd: {0}\n", ret);
 
     if (close(pipefd) < 0) {
       int err = errno;
-      WithColor::warning() << llvm::formatv("failed to close pipefd: {0}\n",
-                                            strerror(err));
+      HumanOut() << llvm::formatv("failed to close pipefd: {0}\n",
+                                  strerror(err));
     }
   }
 
@@ -850,7 +883,7 @@ static int do_run(void) {
 
     if (usleep(opts::DangerousSleep1) < 0) { /* wait for the dynamic linker to load the program */
       int err = errno;
-      WithColor::error() << llvm::formatv("usleep failed: {0}\n", strerror(err));
+      HumanOut() << llvm::formatv("usleep failed: {0}\n", strerror(err));
     }
 
     //
@@ -872,10 +905,10 @@ static int do_run(void) {
 
       if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
         int err = errno;
-        WithColor::error() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
-                                            sav_path.c_str(),
-                                            binary.Path.c_str(),
-                                            strerror(err));
+        HumanOut() << llvm::formatv("rename of {0} to {1} failed: {2}\n",
+                                    sav_path.c_str(),
+                                    binary.Path.c_str(),
+                                    strerror(err));
       }
     }
 
@@ -898,7 +931,7 @@ static int do_run(void) {
 
         if (rename(sav_path.c_str(), binary.Path.c_str()) < 0) {
           int err = errno;
-          WithColor::error() << llvm::formatv(
+          HumanOut() << llvm::formatv(
               "rename of {0} to {1} failed: {2}\n",
               sav_path.c_str(), binary.Path.c_str(), strerror(err));
         }
@@ -906,7 +939,7 @@ static int do_run(void) {
     }
 
     if (opts::Verbose)
-      WithColor::note() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR);
+      HumanOut() << (__ANSI_MAGENTA "root file system restored" __ANSI_NORMAL_COLOR);
 
     close(rfd);
   }
@@ -920,24 +953,24 @@ static int do_run(void) {
   // optionally sleep
   //
   if (unsigned sec = opts::Sleep) {
-    llvm::errs() << llvm::formatv("sleeping for {0} seconds...\n", sec);
+    HumanOut() << llvm::formatv("sleeping for {0} seconds...\n", sec);
     for (unsigned t = 0; t < sec; ++t) {
       sleep(1);
 
       if (interrupt_sleep.load()) {
         if (opts::Verbose)
-          WithColor::note() << "sleep interrupted\n";
+          HumanOut() << "sleep interrupted\n";
         break;
       }
 
       if (recovered_ch.load()) {
         if (opts::Verbose)
-          WithColor::note() << "sleep interrupted by jove-recover\n";
+          HumanOut() << "sleep interrupted by jove-recover\n";
         sleep(std::min<unsigned>(sec - t, 3));
         break;
       }
 
-      llvm::errs() << ".";
+      HumanOut() << ".";
     }
   }
 
@@ -945,24 +978,24 @@ static int do_run(void) {
   // cancel the thread reading the fifo
   //
   if (pthread_cancel(recover_thd) != 0) {
-    llvm::errs() << "error: failed to cancel recover_proc thread\n";
+    HumanOut() << "error: failed to cancel recover_proc thread\n";
 
     void *retval;
     if (pthread_join(recover_thd, &retval) != 0)
-      llvm::errs() << "error: pthread_join failed\n";
+      HumanOut() << "error: pthread_join failed\n";
   } else {
     void *recover_retval;
     if (pthread_join(recover_thd, &recover_retval) != 0)
-      llvm::errs() << "error: pthread_join failed\n";
+      HumanOut() << "error: pthread_join failed\n";
     else if (recover_retval != PTHREAD_CANCELED)
-      llvm::errs() << llvm::formatv(
+      HumanOut() << llvm::formatv(
               "warning: expected retval to equal PTHREAD_CANCELED, but is {0}\n",
               recover_retval);
   }
 
   if (unlink(recover_fifo_path.c_str()) < 0) {
     int err = errno;
-    llvm::errs() << llvm::formatv("unlink of recover pipe failed: {0}\n", strerror(err));
+    HumanOut() << llvm::formatv("unlink of recover pipe failed: {0}\n", strerror(err));
   }
 
 #if 0 /* is this necessary? */
@@ -1008,16 +1041,15 @@ void *recover_proc(const char *fifo_path) {
 
   if (recover_fd < 0) {
     int err = errno;
-    llvm::errs() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
-                                  fifo_path,
-                                  strerror(err));
+    HumanOut() << llvm::formatv("recover: failed to open fifo at {0} ({1})\n",
+                                fifo_path, strerror(err));
     return nullptr;
   }
 
   void (*cleanup_handler)(void *) = [](void *arg) -> void {
     if (close(reinterpret_cast<long>(arg)) < 0) {
       int err = errno;
-      llvm::errs() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "recover_proc: cleanup_handler: close failed ({0})\n", strerror(err));
     }
   };
@@ -1037,44 +1069,44 @@ void *recover_proc(const char *fifo_path) {
           if (err == EINTR)
             continue;
 
-          llvm::errs() << llvm::formatv("recover: read failed ({0})\n",
-                                        strerror(err));
+          HumanOut() << llvm::formatv("recover: read failed ({0})\n",
+                                      strerror(err));
         } else if (ret == 0) {
           // NOTE: open is a cancellation point
           int new_recover_fd = open(fifo_path, O_RDONLY);
           if (new_recover_fd < 0) {
             int err = errno;
-            llvm::errs() << llvm::formatv(
+            HumanOut() << llvm::formatv(
                 "recover: failed to open fifo at {0} ({1})\n", fifo_path,
                 strerror(err));
             return nullptr;
           }
 
           if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0) {
-            llvm::errs() << "pthread_setcancelstate failed\n";
+            HumanOut() << "pthread_setcancelstate failed\n";
           }
 
           assert(new_recover_fd != recover_fd);
 
           if (dup2(new_recover_fd, recover_fd) < 0) {
             int err = errno;
-            llvm::errs() << llvm::formatv(
+            HumanOut() << llvm::formatv(
                 "recover: failed to dup2({0}, {1})) ({2})\n", new_recover_fd,
                 recover_fd, strerror(err));
           }
 
           if (close(new_recover_fd) < 0) {
             int err = errno;
-            llvm::errs() << llvm::formatv("recover_proc: close failed ({0})\n",
-                                          strerror(err));
+            HumanOut() << llvm::formatv("recover_proc: close failed ({0})\n",
+                                        strerror(err));
           }
 
           if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-            llvm::errs() << "pthread_setcancelstate failed\n";
+            HumanOut() << "pthread_setcancelstate failed\n";
 
           continue;
         } else {
-          llvm::errs() << llvm::formatv("recover: read gave {0}\n", ret);
+          HumanOut() << llvm::formatv("recover: read gave {0}\n", ret);
         }
 
         break;
@@ -1082,7 +1114,7 @@ void *recover_proc(const char *fifo_path) {
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, nullptr) != 0)
-      llvm::errs() << "pthread_setcancelstate failed\n";
+      HumanOut() << "pthread_setcancelstate failed\n";
 
     //
     // we assume ch is loaded with a byte from the fifo. it's got to be either
@@ -1132,7 +1164,7 @@ void *recover_proc(const char *fifo_path) {
           print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1173,7 +1205,7 @@ void *recover_proc(const char *fifo_path) {
           print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1222,7 +1254,7 @@ void *recover_proc(const char *fifo_path) {
 
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1257,7 +1289,7 @@ void *recover_proc(const char *fifo_path) {
           print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
@@ -1292,17 +1324,17 @@ void *recover_proc(const char *fifo_path) {
           print_command(&argv[0]);
         execve(jove_recover_path.c_str(), const_cast<char **>(argv), ::environ);
         int err = errno;
-        llvm::errs() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
+        HumanOut() << llvm::formatv("recover: exec failed ({0})\n", strerror(err));
         exit(1);
       }
 
       (void)await_process_completion(pid);
     } else {
-      llvm::errs() << llvm::formatv("recover: unknown character! ({0})\n", ch);
+      HumanOut() << llvm::formatv("recover: unknown character! ({0})\n", ch);
     }
 
     if (pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, nullptr) != 0)
-      llvm::errs() << "pthread_setcancelstate failed\n";
+      HumanOut() << "pthread_setcancelstate failed\n";
   }
 
   // (Clean-up handlers are not called if the thread terminates by performing a
@@ -1323,23 +1355,23 @@ int await_process_completion(pid_t pid) {
       case EINTR:
         continue;
       default:
-        llvm::errs() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
+        HumanOut() << llvm::formatv("waitpid failed: {0}\n", strerror(err));
         continue;
       }
     }
 
     if (WIFEXITED(wstatus)) {
       if (opts::Verbose)
-        llvm::errs() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
+        HumanOut() << llvm::formatv("exited, status={0}\n", WEXITSTATUS(wstatus));
       return WEXITSTATUS(wstatus);
     } else if (WIFSIGNALED(wstatus)) {
-      llvm::errs() << llvm::formatv("killed by signal {0}\n", WTERMSIG(wstatus));
+      HumanOut() << llvm::formatv("killed by signal {0}\n", WTERMSIG(wstatus));
       return 1;
     } else if (WIFSTOPPED(wstatus)) {
-      llvm::errs() << llvm::formatv("stopped by signal {0}\n", WSTOPSIG(wstatus));
+      HumanOut() << llvm::formatv("stopped by signal {0}\n", WSTOPSIG(wstatus));
       return 1;
     } else if (WIFCONTINUED(wstatus)) {
-      llvm::errs() << "continued\n";
+      HumanOut() << "continued\n";
     }
   } while (!WIFEXITED(wstatus) && !WIFSIGNALED(wstatus));
 
@@ -1369,7 +1401,7 @@ void print_command(const char **argv) {
 
   msg[msg.size() - 1] = '\n';
 
-  llvm::errs() << msg.c_str();
+  HumanOut() << msg.c_str();
 }
 
 }
