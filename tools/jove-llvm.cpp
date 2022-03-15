@@ -1442,17 +1442,7 @@ int CreateModule(void) {
   assert(!JoveThunk##i##Func->empty());                                        \
   JoveThunk##i##Func->setLinkage(llvm::GlobalValue::InternalLinkage);
 
-#if defined(TARGET_X86_64)
-BOOST_PP_REPEAT(7, __THUNK, void)
-#elif defined(TARGET_MIPS64) || defined(TARGET_MIPS32)
-BOOST_PP_REPEAT(5, __THUNK, void)
-#elif defined(TARGET_I386)
-BOOST_PP_REPEAT(4, __THUNK, void)
-#elif defined(TARGET_AARCH64)
-BOOST_PP_REPEAT(9, __THUNK, void)
-#else
-#error
-#endif
+BOOST_PP_REPEAT(BOOST_PP_INC(TARGET_NUM_REG_ARGS), __THUNK, void)
 
 #undef __THUNK
 
