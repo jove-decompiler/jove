@@ -680,7 +680,9 @@ jove_thunk_return_t _jove_call(
   } Callee;
 
   for (unsigned BIdx = 0; BIdx < _JOVE_MAX_BINARIES ; ++BIdx) {
-    uintptr_t *fns = __jove_function_tables_clunk[BIdx];
+    uintptr_t *fns = __jove_function_tables_clunk
+                         ? __jove_function_tables_clunk[BIdx]
+                         : NULL;
     if (!fns) {
       if (BIdx == 1 ||
           BIdx == 2) { /* rtld or vdso */
@@ -947,25 +949,61 @@ jove_thunk_return_t _jove_call(
 
 found:
   if (Callee.Foreign) {
-    uintptr_t *const emusp_ptr =
+    if (unlikely(!__jove_env_clunk)) {
+      //
+      // when might __jove_env_clunk be NULL? in an ifunc resolver, that's when
+      //
+      uintptr_t dummy_stack = _jove_alloc_stack();
+
+      typeof(__jove_env) dummy_env = {0};
+
+      uintptr_t *const emusp_ptr =
 #if defined(__x86_64__) || defined(__i386__)
-        &__jove_env_clunk->regs[R_ESP]
+          &dummy_env.regs[R_ESP]
 #elif defined(__aarch64__)
-        &__jove_env_clunk->xregs[31]
+          &dummy_env.xregs[31]
 #elif defined(__mips64) || defined(__mips__)
-        &__jove_env_clunk->active_tc.gpr[29]
+          &dummy_env.active_tc.gpr[29]
 #else
 #error
 #endif
-        ;
+          ;
 
-    return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
-                        #define __REG_ARG(n, i, data) reg##i,
+      *emusp_ptr = dummy_stack + JOVE_STACK_SIZE - 2 * JOVE_PAGE_SIZE;
 
-                        BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+      jove_thunk_return_t res =
+             BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
+                          #define __REG_ARG(n, i, data) reg##i,
 
-                        #undef __REG_ARG
-                        pc, emusp_ptr);
+                          BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                          #undef __REG_ARG
+                          pc, emusp_ptr);
+
+      _jove_free_stack(dummy_stack);
+
+      return res;
+    } else {
+      uintptr_t *const emusp_ptr =
+#if defined(__x86_64__) || defined(__i386__)
+          &__jove_env_clunk->regs[R_ESP]
+#elif defined(__aarch64__)
+          &__jove_env_clunk->xregs[31]
+#elif defined(__mips64) || defined(__mips__)
+          &__jove_env_clunk->active_tc.gpr[29]
+#else
+#error
+#endif
+          ;
+
+      return BOOST_PP_CAT(_jove_thunk,TARGET_NUM_REG_ARGS)(
+                          #define __REG_ARG(n, i, data) reg##i,
+
+                          BOOST_PP_REPEAT(TARGET_NUM_REG_ARGS, __REG_ARG, void)
+
+                          #undef __REG_ARG
+                          pc, emusp_ptr);
+    }
   } else {
 #if !defined(__x86_64__) && defined(__i386__)
 #define CALLCONV_ATTR _REGPARM
