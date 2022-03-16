@@ -694,6 +694,8 @@ static std::unordered_map<target_ulong, unsigned>
 static std::unordered_set<target_ulong>
     TLSObjects; // XXX
 
+static std::unordered_set<std::string> CopyRelSyms;
+
 static std::unordered_map<llvm::Function *, llvm::Function *> CtorStubMap;
 
 static std::unordered_set<target_ulong> ExternGlobalAddrs;
@@ -724,6 +726,7 @@ static int InitStateForBinaries(void);
 static int CreateModule(void);
 static int PrepareToTranslateCode(void);
 static int ProcessBinaryRelocations(void);
+static int ProcessCOPYRelocations(void);
 static int CreateFunctions(void);
 static int CreateFunctionTables(void);
 static int ProcessBinaryTLSSymbols(void);
@@ -1008,6 +1011,7 @@ int llvm(void) {
       });
 
   if ((rc = ProcessBinaryRelocations()) ||
+      (rc = ProcessCOPYRelocations()) ||
       (rc = CreateFunctions()) ||
       (rc = CreateFunctionTables()) ||
       (rc = ProcessBinaryTLSSymbols()) ||
@@ -2394,6 +2398,23 @@ int ProcessBinaryRelocations(void) {
   return 0;
 }
 
+int ProcessCOPYRelocations(void) {
+  for_each_if(RelocationTable.begin(),
+              RelocationTable.end(),
+              [&](const relocation_t &R) -> bool {
+                return R.SymbolIndex < SymbolTable.size() &&
+                       R.Type == relocation_t::TYPE::COPY;
+              },
+              [&](const relocation_t &R) {
+                symbol_t &sym = SymbolTable[R.SymbolIndex];
+
+                CopyRelSyms.insert(sym.Name);
+                llvm::errs() << llvm::formatv("COPY relocation: {0}\n", sym.Name);
+              });
+
+  return 0;
+}
+
 int PrepareToTranslateCode(void) {
   TCG.reset(new tiny_code_generator_t);
 
@@ -3733,19 +3754,22 @@ int CreateSectionGlobalVariables(void) {
     assert(!S.IsUndefined());
 
 #if !defined(TARGET_MIPS64) && !defined(TARGET_MIPS32)
-    //
-    // XXX XXX XXX this is unsound because it breaks assumptions of where a global
-    // variable would exist in the sections, but we *need* it for COPY
-    // relocations. FIXME
-    //
-    if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
-      return llvm::ConstantExpr::getPtrToInt(GV, WordType());
+    if (CopyRelSyms.find(S.Name) == CopyRelSyms.end()) {
+      //
+      // XXX XXX XXX this is unsound because it breaks assumptions of where a global
+      // variable would exist in the sections, but we *need* it for COPY
+      // relocations. FIXME
+      //
+      if (llvm::GlobalValue *GV = Module->getNamedValue(S.Name))
+        return llvm::ConstantExpr::getPtrToInt(GV, WordType());
 
-    AddrToSymbolMap[S.Addr].insert(S.Name);
-    AddrToSizeMap[S.Addr] = S.Size;
+      AddrToSymbolMap[S.Addr].insert(S.Name);
+      AddrToSizeMap[S.Addr] = S.Size;
 
-    return nullptr;
-#else
+      return nullptr;
+    }
+#endif
+
     unsigned off = S.Addr - SectsStartAddr;
 
     if (gdefs.find({S.Addr, S.Size}) == gdefs.end()) {
@@ -3763,7 +3787,6 @@ int CreateSectionGlobalVariables(void) {
     }
 
     return SectionPointer(S.Addr);
-#endif
   };
 
   auto constant_of_relative_relocation =
