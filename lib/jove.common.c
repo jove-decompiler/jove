@@ -658,6 +658,10 @@ void _jove_log2(const char *msg,
   _robust_write(2 /* stderr */, s, _strlen(s));
 }
 
+_HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
+                                    uintptr_t FuncAddr);
+
+_HIDDEN
 #if !defined(__x86_64__) && defined(__i386__)
 _REGPARM
 #endif
@@ -668,7 +672,7 @@ jove_thunk_return_t _jove_call(
 
                                #undef __REG_ARG
 
-                               uintptr_t pc) {
+                               uintptr_t pc, uint32_t BBIdx) {
   _jove_install_foreign_function_tables();
 
   struct {
@@ -940,6 +944,8 @@ jove_thunk_return_t _jove_call(
     }
   }
 #endif
+
+  _jove_recover_function(BBIdx, pc);
 
   {
     _jove_fail1(pc, "_jove_call failed");

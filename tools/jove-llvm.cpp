@@ -8224,6 +8224,7 @@ int TranslateBasicBlock(TranslateContext &TC) {
                      });
 
       ArgVec.push_back(PC);
+      ArgVec.push_back(IRB.getInt32(index_of_basic_block(ICFG, bb)));
 
       store_stack_pointer();
       save_callstack_pointers();

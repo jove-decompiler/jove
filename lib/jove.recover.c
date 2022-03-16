@@ -270,8 +270,8 @@ found:
   }
 }
 
-_HIDDEN void _jove_recover_function(uint32_t IndCallBBIdx,
-                                    uintptr_t FuncAddr) {
+void _jove_recover_function(uint32_t IndCallBBIdx,
+                            uintptr_t FuncAddr) {
 #if 0
   char *recover_fifo_path = _getenv("JOVE_RECOVER_FIFO");
   if (!recover_fifo_path)
