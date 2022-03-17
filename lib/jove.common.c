@@ -545,8 +545,12 @@ _NORET void _jove_fail1(uintptr_t a0, const char *reason) {
 
   _jove_flush_trace_clunk();
 
+#if 0
   for (;;)
     _jove_sleep();
+#else
+  _jove_sys_exit_group(0x77);
+#endif
 
   __builtin_unreachable();
 }
