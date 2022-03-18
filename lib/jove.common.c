@@ -1,20 +1,20 @@
 extern /* __thread */ uint64_t *__jove_trace;
 extern /* __thread */ uint64_t *__jove_trace_begin;
 
-static uint64_t **__jove_trace_clunk = &__jove_trace;
-static uint64_t **__jove_trace_begin_clunk = &__jove_trace_begin;
+       static uint64_t **__jove_trace_clunk = &__jove_trace;
+       static uint64_t **__jove_trace_begin_clunk = &__jove_trace_begin;
 
 extern /* __thread */ uint64_t *__jove_callstack;
 extern /* __thread */ uint64_t *__jove_callstack_begin;
 
-static uint64_t **__jove_callstack_clunk = &__jove_callstack;
-static uint64_t **__jove_callstack_begin_clunk = &__jove_callstack_begin;
+       static uint64_t **__jove_callstack_clunk = &__jove_callstack;
+       static uint64_t **__jove_callstack_begin_clunk = &__jove_callstack_begin;
 
 extern uintptr_t *__jove_function_tables[_JOVE_MAX_BINARIES];
 extern uintptr_t *__jove_sections_tables[_JOVE_MAX_BINARIES];
 
-static uintptr_t **__jove_function_tables_clunk = &__jove_function_tables;
-static uintptr_t **__jove_sections_tables_clunk = &__jove_sections_tables;
+       static uintptr_t **__jove_function_tables_clunk = &__jove_function_tables;
+       static uintptr_t **__jove_sections_tables_clunk = &__jove_sections_tables;
 
 uintptr_t *__jove_foreign_function_tables[_JOVE_MAX_BINARIES] = {
   [0 ... _JOVE_MAX_BINARIES - 1] = NULL
