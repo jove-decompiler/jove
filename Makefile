@@ -190,15 +190,15 @@ $(BINDIR)/$(1)/harvest-vdso: lib/arch/$(1)/harvest-vdso.c
 
 $(BINDIR)/$(1)/libjove_rt.so.0: lib/arch/$(1)/rt.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
+	$(_LLVM_CC) -o $$@ -MMD -shared -Wl,-soname=$(JOVE_RT_SONAME) -Bsymbolic -fuse-ld=lld -nostdlib --sysroot $($(1)_sysroot) -I $($(1)_sysroot)/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -fPIC -g -Wall -I lib -I lib/arch/$(1) -Wl,-init,_jove_rt_init $$< -Wl,--push-state -Wl,--as-needed $($(1)_builtins_lib) -Wl,--pop-state -Wl,--exclude-libs,ALL
 
 $(BINDIR)/$(1)/jove.bc: lib/arch/$(1)/jove.c
 	@echo CC $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration $$<
 
 $(BINDIR)/$(1)/jove.dfsan.bc: lib/arch/$(1)/jove.c
 	@echo CC "(DFSAN)" $$<
-	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
+	$(_LLVM_CC) -o $$@ -c -MMD -emit-llvm -I lib -I include -I third_party/boost-preprocessor/include -D TARGET_$(call uc,$(1)) --target=$($(1)_TRIPLE) -Ofast --sysroot $($(1)_sysroot) -ffreestanding -fno-stack-protector $($(1)_ARCH_CFLAGS) -D TARGET_ARCH_NAME=\"$($(1)_ARCH_NAME)\" -std=gnu99 -fPIC -g -Wall -Werror-implicit-function-declaration -DJOVE_DFSAN $$<
 endef
 $(foreach target,$(ALL_TARGETS),$(eval $(call target_code_template,$(target))))
 
