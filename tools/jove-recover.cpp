@@ -121,11 +121,28 @@ static cl::list<std::string>
         cl::desc("Specified function is an ABI"),
         cl::cat(JoveCategory));
 
+static cl::opt<std::string>
+    HumanOutput("human-output",
+                cl::desc("Print messages to the given file path"),
+                cl::cat(JoveCategory));
+
+static cl::opt<bool>
+    Silent("silent",
+           cl::desc("Leave the stdout/stderr of the application undisturbed"),
+           cl::cat(JoveCategory));
+
 } // namespace opts
 
 namespace jove {
 
 static int recover(void);
+
+static std::unique_ptr<llvm::raw_fd_ostream> HumanOutputFileStream;
+
+static llvm::raw_ostream *HumanOutputStreamPtr = &llvm::nulls();
+static llvm::raw_ostream &HumanOut(void) {
+  return *HumanOutputStreamPtr;
+}
 
 }
 
@@ -171,6 +188,23 @@ int main(int argc, char **argv) {
   if (opts::ABI.size() > 0 && opts::ABI.size() != 2) {
     WithColor::error() << "-abi: invalid tuple\n";
     return 1;
+  }
+
+  if (!opts::Silent) {
+    jove::HumanOutputStreamPtr = &llvm::errs();
+
+    if (!opts::HumanOutput.empty()) {
+      std::error_code EC;
+      jove::HumanOutputFileStream.reset(
+          new llvm::raw_fd_ostream(opts::HumanOutput, EC, llvm::sys::fs::OF_Text));
+
+      if (EC) {
+        WithColor::error() << "--human-output: invalid filename passed\n";
+        return 1;
+      }
+
+      jove::HumanOutputStreamPtr = jove::HumanOutputFileStream.get();
+    }
   }
 
   return jove::recover();
@@ -246,7 +280,7 @@ int recover(void) {
         obj::createBinary(MemBuffRef);
     if (!BinOrErr) {
       if (!b.IsVDSO)
-        WithColor::warning()
+        HumanOut()
             << llvm::formatv("failed to create binary from {0}\n", b.Path);
 
       continue;
@@ -257,7 +291,7 @@ int recover(void) {
     b.ObjectFile = std::move(BinRef);
 
     if (!llvm::isa<ELFO>(b.ObjectFile.get())) {
-      WithColor::error() << b.Path << " is not ELF of expected type\n";
+      HumanOut() << b.Path << " is not ELF of expected type\n";
       return 1;
     }
 
@@ -277,7 +311,7 @@ int recover(void) {
   const llvm::Target *TheTarget =
       llvm::TargetRegistry::lookupTarget(ArchName, TheTriple, Error);
   if (!TheTarget) {
-    WithColor::error() << "failed to lookup target: " << Error << '\n';
+    HumanOut() << "failed to lookup target: " << Error << '\n';
     return 1;
   }
 
@@ -287,7 +321,7 @@ int recover(void) {
   std::unique_ptr<const llvm::MCRegisterInfo> MRI(
       TheTarget->createMCRegInfo(TripleName));
   if (!MRI) {
-    WithColor::error() << "no register info for target\n";
+    HumanOut() << "no register info for target\n";
     return 1;
   }
 
@@ -295,7 +329,7 @@ int recover(void) {
   std::unique_ptr<const llvm::MCAsmInfo> AsmInfo(
       TheTarget->createMCAsmInfo(*MRI, TripleName, Options));
   if (!AsmInfo) {
-    WithColor::error() << "no assembly info\n";
+    HumanOut() << "no assembly info\n";
     return 1;
   }
 
@@ -303,14 +337,14 @@ int recover(void) {
       TheTarget->createMCSubtargetInfo(TripleName, MCPU,
                                        Features.getString()));
   if (!STI) {
-    WithColor::error() << "no subtarget info\n";
+    HumanOut() << "no subtarget info\n";
     return 1;
   }
 
   std::unique_ptr<const llvm::MCInstrInfo> MII(
       TheTarget->createMCInstrInfo());
   if (!MII) {
-    WithColor::error() << "no instruction info\n";
+    HumanOut() << "no instruction info\n";
     return 1;
   }
 
@@ -322,7 +356,7 @@ int recover(void) {
   std::unique_ptr<llvm::MCDisassembler> DisAsm(
       TheTarget->createMCDisassembler(*STI, Ctx));
   if (!DisAsm) {
-    WithColor::error() << "no disassembler for target\n";
+    HumanOut() << "no disassembler for target\n";
     return 1;
   }
 
@@ -330,7 +364,7 @@ int recover(void) {
   std::unique_ptr<llvm::MCInstPrinter> IP(TheTarget->createMCInstPrinter(
       llvm::Triple(TripleName), AsmPrinterVariant, *AsmInfo, *MII, *MRI));
   if (!IP) {
-    WithColor::error() << "no instruction printer\n";
+    HumanOut() << "no instruction printer\n";
     return 1;
   }
 
@@ -428,7 +462,7 @@ int recover(void) {
                               indbr_binary.fnmap,
                               indbr_binary.bbmap);
     if (!is_basic_block_index_valid(target_bb_idx)) {
-      WithColor::error() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "failed to recover control flow -> {0:x}\n", IndBr.Target);
       return 1;
     }
@@ -478,7 +512,7 @@ int recover(void) {
                            CalleeBinary.fnmap,
                            CalleeBinary.bbmap);
     if (!is_function_index_valid(TargetFIdx)) {
-      WithColor::error() << llvm::formatv(
+      HumanOut() << llvm::formatv(
           "failed to translate indirect call target {0:x}\n", Callee.FileAddr);
       return 1;
     }
@@ -552,7 +586,7 @@ int recover(void) {
 
     unsigned deg = boost::out_degree(bb, ICFG);
     if (deg != 0) {
-      WithColor::warning() << llvm::formatv("unexpected out degree {0}\n", deg);
+      HumanOut() << llvm::formatv("unexpected out degree {0}\n", deg);
       return 1;
     }
 
@@ -590,12 +624,12 @@ int recover(void) {
            DescribeBasicBlock(Call.BIdx, next_bb_idx))
               .str();
   } else {
-    WithColor::error() << "no command provided\n";
+    HumanOut() << "no command provided\n";
     return 1;
   }
 
   assert(!msg.empty());
-  llvm::outs() << msg << '\n';
+  HumanOut() << msg << '\n';
 
   InvalidateAllFunctionAnalyses();
 
