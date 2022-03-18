@@ -31,6 +31,9 @@ _HIDDEN void _jove_install_foreign_function_tables(void);
 extern void __dfsan_log_global_buffers(void);
 #endif
 
+static void _jove_install_function_table(void);
+static void _jove_install_sections_table(void);
+
 static void _jove_make_sections_executable(void);
 
 _CTOR _HIDDEN void _jove_initialize(void) {
@@ -39,20 +42,9 @@ _CTOR _HIDDEN void _jove_initialize(void) {
     return;
   _Done = true;
 
-  const unsigned BIdx = _jove_binary_index();
-
   _jove_install_foreign_function_tables();
-  __jove_function_tables_clunk[BIdx] = _jove_get_function_table();
-
-  {
-    static uintptr_t _Entry[3];
-
-    _Entry[0] = _jove_sections_global_beg_addr();
-    _Entry[1] = _jove_sections_global_end_addr();
-    _Entry[2] = _jove_sections_start_file_addr();
-
-    __jove_sections_tables_clunk[BIdx] = &_Entry[0];
-  }
+  _jove_install_function_table();
+  _jove_install_sections_table();
 
   _jove_do_tpoff_hack();
   _jove_do_irelative_hack();
@@ -63,6 +55,20 @@ _CTOR _HIDDEN void _jove_initialize(void) {
 #endif
 
   _jove_make_sections_executable();
+}
+
+void _jove_install_function_table(void) {
+  __jove_function_tables_clunk[_jove_binary_index()] = _jove_get_function_table();
+}
+
+void _jove_install_sections_table(void) {
+  static uintptr_t _Entry[3];
+
+  _Entry[0] = _jove_sections_global_beg_addr();
+  _Entry[1] = _jove_sections_global_end_addr();
+  _Entry[2] = _jove_sections_start_file_addr();
+
+  __jove_sections_tables_clunk[_jove_binary_index()] = &_Entry[0];
 }
 
 void _jove_make_sections_executable(void) {
